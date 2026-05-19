@@ -541,6 +541,36 @@ pub fn handle_session_close_with_lifecycle(state: &mut AppState) -> crate::proto
     })])
 }
 
+/// Handles `SidebarSessionArchive` — archives the selected session without teardown.
+///
+/// Validates that the archive can proceed, gets the selected session ID,
+/// then emits an `ArchiveSession` command. The session actor handles archival
+/// and removal, skipping lifecycle teardown.
+///
+/// # Panics
+///
+/// Panics if `sessions_section.selected_index` is `None`.
+pub fn handle_session_archive(state: &mut AppState) -> crate::protocol::IntentResult {
+    use crate::feat::session::protocol::archive_session::ArchiveSession;
+    use crate::protocol::Command;
+
+    // Validate — same preconditions as session close.
+    if validate_session_close(state).is_err() {
+        return crate::protocol::IntentResult::empty();
+    }
+
+    let index = state.frontend.sessions_section.selected_index.unwrap();
+    let sessions = sorted_open_sessions(state);
+    let target_id = sessions[index].id.clone();
+
+    // Emit ArchiveSession — the actor handles archive and removal without teardown.
+    crate::protocol::IntentResult::with_commands(vec![Command::ArchiveSession(
+        ArchiveSession {
+            session_id: target_id,
+        },
+    )])
+}
+
 /// Handles `SidebarSessionTeardown` — re-runs teardown without closing the session.
 ///
 /// Validates that the close can proceed, looks up the selected session's
@@ -621,4 +651,99 @@ pub fn handle_sidebar_session_new_with_lifecycle(
         return crate::protocol::IntentResult::empty();
     }
     crate::feat::picker::intent::handle_open_picker(state, PickerKind::SessionLifecycle)
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used, clippy::indexing_slicing)]
+    use super::*;
+    use crate::common::app_state::{AppState, FocusScope};
+    use crate::feat::session::chat_session::ChatSessionState;
+    use crate::feat::session::protocol::archive_session::ArchiveSession;
+    use crate::protocol::Command;
+
+    fn setup_sessions_sidebar_with_two_sessions() -> AppState {
+        let mut state = AppState::default();
+        // Remove the default session so we control exact state.
+        let default_id = state.session.active_session_id().clone();
+        state.session.sessions_mut().remove(&default_id);
+
+        // Add two sessions.
+        let s1 = ChatSessionState::new();
+        let s1_id = s1.session_id().clone();
+        let s2 = ChatSessionState::new();
+        let s2_id = s2.session_id().clone();
+        state.session.sessions_mut().insert(s1_id, s1);
+        state.session.sessions_mut().insert(s2_id.clone(), s2);
+        state.session.set_active(s2_id);
+
+        // Focus sidebar on sessions section with cursor at 0.
+        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        state.frontend.sessions_section.selected_index = Some(0);
+
+        state
+    }
+
+    #[test]
+    fn archive_session_returns_command_when_valid() {
+        // Given a valid state: sessions section focused, session selected, idle.
+        let mut state = setup_sessions_sidebar_with_two_sessions();
+
+        // When handling the archive intent.
+        let result = handle_session_archive(&mut state);
+
+        // Then it returns an ArchiveSession command.
+        assert_eq!(result.commands.len(), 1);
+        assert!(matches!(
+            &result.commands[0],
+            Command::ArchiveSession(ArchiveSession { .. })
+        ));
+    }
+
+    #[test]
+    fn archive_session_rejected_when_not_in_sessions_section() {
+        // Given a state NOT in the sessions section (Normal scope).
+        let mut state = AppState::default();
+
+        // When handling the archive intent.
+        let result = handle_session_archive(&mut state);
+
+        // Then no commands are emitted.
+        assert!(result.commands.is_empty());
+    }
+
+    #[test]
+    fn archive_session_rejected_when_no_selection() {
+        // Given sessions section focused but no selected index.
+        let mut state = setup_sessions_sidebar_with_two_sessions();
+        state.frontend.sessions_section.selected_index = None;
+
+        // When handling the archive intent.
+        let result = handle_session_archive(&mut state);
+
+        // Then no commands are emitted.
+        assert!(result.commands.is_empty());
+    }
+
+    #[test]
+    fn archive_session_rejected_when_session_busy() {
+        // Given sessions section focused, session selected, but session is streaming.
+        let mut state = setup_sessions_sidebar_with_two_sessions();
+
+        // Make the selected session streaming.
+        let sessions = sorted_open_sessions(&state);
+        let target_id = sessions[0].id.clone();
+        state
+            .session
+            .sessions_mut()
+            .get_mut(&target_id)
+            .expect("session exists")
+            .begin_streaming();
+
+        // When handling the archive intent.
+        let result = handle_session_archive(&mut state);
+
+        // Then no commands are emitted.
+        assert!(result.commands.is_empty());
+    }
 }
