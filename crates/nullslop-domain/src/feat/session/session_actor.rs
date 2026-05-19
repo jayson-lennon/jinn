@@ -2242,4 +2242,186 @@ mod tests {
         let session = state.session.get(&session_id).expect("session exists");
         assert_eq!(session.phase(), SessionPhase::Streaming);
     }
+
+    // --- ArchiveSession handler tests ---
+
+    #[tokio::test]
+    async fn archive_session_removes_non_empty_from_map() {
+        // Given a session actor with two non-empty sessions.
+        let actor = test_actor();
+        let (sink, ctx) = test_context();
+        let mut second = ChatSessionState::new();
+        let second_id = second.session_id().clone();
+        {
+            let mut state = actor.state.write();
+            // Make both sessions non-empty by pushing entries.
+            state.active_session_mut().push_entry(ChatEntry::user("hello"));
+            second.push_entry(ChatEntry::user("world"));
+            state
+                .session
+                .sessions_mut()
+                .insert(second_id.clone(), second);
+        }
+
+        // When handling ArchiveSession for the second session.
+        actor
+            .handle_archive_session(
+                &crate::feat::session::protocol::archive_session::ArchiveSession {
+                    session_id: second_id.clone(),
+                },
+                &ctx,
+            )
+            .await;
+
+        // Then the second session is removed.
+        let state = actor.state.read();
+        assert!(!state.session.sessions().contains_key(&second_id));
+        assert_eq!(state.session.sessions().len(), 1);
+        drop(state);
+
+        // And both SessionArchived and SessionClosed are emitted.
+        let events = sink.events();
+        let has_archived = events.iter().any(|e| {
+            matches!(
+                e,
+                crate::protocol::Event::SessionArchived(
+                    crate::feat::session::protocol::session_archived::SessionArchived {
+                        session_id: sid,
+                    }
+                ) if sid == &second_id
+            )
+        });
+        assert!(has_archived, "expected SessionArchived event");
+
+        let has_closed = events.iter().any(|e| {
+            matches!(
+                e,
+                crate::protocol::Event::SessionClosed(
+                    crate::feat::session::protocol::session_closed::SessionClosed {
+                        session_id: sid,
+                    }
+                ) if sid == &second_id
+            )
+        });
+        assert!(has_closed, "expected SessionClosed event");
+    }
+
+    #[tokio::test]
+    async fn archive_empty_session_removes_without_archiving() {
+        // Given a session actor with two sessions, second is empty.
+        let actor = test_actor();
+        let (sink, ctx) = test_context();
+        let second = ChatSessionState::new();
+        let second_id = second.session_id().clone();
+        {
+            let mut state = actor.state.write();
+            state
+                .session
+                .sessions_mut()
+                .insert(second_id.clone(), second);
+        }
+
+        // When handling ArchiveSession for the empty session.
+        actor
+            .handle_archive_session(
+                &crate::feat::session::protocol::archive_session::ArchiveSession {
+                    session_id: second_id.clone(),
+                },
+                &ctx,
+            )
+            .await;
+
+        // Then the session is removed.
+        let state = actor.state.read();
+        assert!(!state.session.sessions().contains_key(&second_id));
+        drop(state);
+
+        // And only SessionClosed is emitted (no SessionArchived).
+        let events = sink.events();
+        let has_archived = events.iter().any(|e| {
+            matches!(
+                e,
+                crate::protocol::Event::SessionArchived(
+                    crate::feat::session::protocol::session_archived::SessionArchived {
+                        session_id: sid,
+                    }
+                ) if sid == &second_id
+            )
+        });
+        assert!(!has_archived, "did not expect SessionArchived for empty session");
+
+        let has_closed = events.iter().any(|e| {
+            matches!(
+                e,
+                crate::protocol::Event::SessionClosed(
+                    crate::feat::session::protocol::session_closed::SessionClosed {
+                        session_id: sid,
+                    }
+                ) if sid == &second_id
+            )
+        });
+        assert!(has_closed, "expected SessionClosed event");
+    }
+
+    #[tokio::test]
+    async fn archive_active_session_switches_to_next() {
+        // Given a session actor with two sessions, archiving the active one.
+        let actor = test_actor();
+        let (_sink, ctx) = test_context();
+        let second = ChatSessionState::new();
+        let second_id = second.session_id().clone();
+        let original_active = {
+            let mut state = actor.state.write();
+            let active = state.session.active_session_id().clone();
+            state.active_session_mut().push_entry(ChatEntry::user("msg"));
+            state
+                .session
+                .sessions_mut()
+                .insert(second_id.clone(), second);
+            active
+        };
+
+        // When archiving the active session.
+        actor
+            .handle_archive_session(
+                &crate::feat::session::protocol::archive_session::ArchiveSession {
+                    session_id: original_active.clone(),
+                },
+                &ctx,
+            )
+            .await;
+
+        // Then the active session changed to the remaining one.
+        let state = actor.state.read();
+        assert_ne!(*state.session.active_session_id(), original_active);
+        assert_eq!(state.session.sessions().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn archive_last_session_creates_new_one() {
+        // Given a session actor with one non-empty session.
+        let actor = test_actor();
+        let (_sink, ctx) = test_context();
+        let only_id = {
+            let mut state = actor.state.write();
+            state.active_session_mut().push_entry(ChatEntry::user("msg"));
+            state.session.active_session_id().clone()
+        };
+
+        // When archiving the only session.
+        actor
+            .handle_archive_session(
+                &crate::feat::session::protocol::archive_session::ArchiveSession {
+                    session_id: only_id.clone(),
+                },
+                &ctx,
+            )
+            .await;
+
+        // Then the old session is removed and a new one is created.
+        let state = actor.state.read();
+        assert!(!state.session.sessions().contains_key(&only_id));
+        assert_eq!(state.session.sessions().len(), 1);
+        assert_ne!(*state.session.active_session_id(), only_id);
+    }
 }
