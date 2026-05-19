@@ -29,6 +29,7 @@ use crate::feat::provider::protocol::command::{
     CancelStream, LoadProviderPickerEntries, ProviderSwitch, RefreshModels, RescanPromptTemplates,
     SendMessage, SendToLlmProvider,
 };
+use crate::feat::session::protocol::archive_session::ArchiveSession;
 use crate::feat::session::protocol::close_session::CloseSession;
 use crate::feat::session::protocol::load_session_picker_entries::LoadSessionPickerEntries;
 use crate::feat::session::protocol::session_fork_requested::SessionForkRequested;
@@ -125,6 +126,8 @@ pub enum Command {
     CancelCompaction(CancelCompaction),
     /// Close a session from the sessions map.
     CloseSession(CloseSession),
+    /// Archive a session without running teardown.
+    ArchiveSession(ArchiveSession),
     /// Save a newly-created lifecycle session immediately.
     SaveNewLifecycleSession(SaveNewLifecycleSession),
 }
@@ -172,6 +175,7 @@ impl Command {
             Self::EndCompaction(..) => Some(EndCompaction::NAME),
             Self::CancelCompaction(..) => Some(CancelCompaction::NAME),
             Self::CloseSession(..) => Some(CloseSession::NAME),
+            Self::ArchiveSession(..) => Some(ArchiveSession::NAME),
             Self::SaveNewLifecycleSession(..) => Some(SaveNewLifecycleSession::NAME),
         }
     }
@@ -269,6 +273,9 @@ impl std::fmt::Display for Command {
             }
             Command::CloseSession(payload) => {
                 write!(f, "close session {}", payload.session_id)
+            }
+            Command::ArchiveSession(payload) => {
+                write!(f, "archive session {}", payload.session_id)
             }
             Command::SaveNewLifecycleSession(payload) => {
                 write!(f, "save new lifecycle session {}", payload.session_id)

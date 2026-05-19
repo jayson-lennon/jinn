@@ -411,6 +411,9 @@ impl IntentHandler {
             Intent::SidebarSessionClose => {
                 feat::ui::sidebar::sessions::handle_session_close_with_lifecycle(state)
             }
+            Intent::SidebarSessionArchive => {
+                feat::ui::sidebar::sessions::handle_session_archive(state)
+            }
             Intent::SidebarSessionTeardown => {
                 feat::ui::sidebar::sessions::handle_session_teardown(state)
             }
