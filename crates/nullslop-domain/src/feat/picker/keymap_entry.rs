@@ -9,6 +9,7 @@ use nullslop_selection_widget::PickerItem;
 use nullslop_selection_widget::highlight_style;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use unicode_segmentation::UnicodeSegmentation;
 
 /// A single fully-resolved keymap binding, ready for display in the picker.
 #[derive(Debug, Clone)]
@@ -137,10 +138,6 @@ fn render_keymap_row(
 
 /// Splits a text segment into spans, applying the highlight style to characters
 /// whose `search_text` byte offset falls within `match_indices`.
-#[expect(
-    clippy::string_slice,
-    reason = "byte_off comes from char_indices(), always a valid UTF-8 boundary"
-)]
 fn highlight_text_segment(
     text: &str,
     base_style: Style,
@@ -154,57 +151,40 @@ fn highlight_text_segment(
         return vec![Span::styled(text.to_owned(), base_style)];
     }
 
-    let highlight_style = base_style.patch(highlight_style(highlight_bg));
+    let hl_style = base_style.patch(highlight_style(highlight_bg));
 
     let mut spans = Vec::new();
-    let mut current_start = 0;
+    let mut current_segment = String::new();
     let mut in_highlight = false;
 
-    for (char_idx, (byte_off, _ch)) in text.char_indices().enumerate() {
-        if char_idx >= searchable_len {
-            if current_start < text.len() {
-                let rest = text[current_start..].to_owned();
-                spans.push(Span::styled(
-                    rest,
-                    if in_highlight {
-                        highlight_style
-                    } else {
-                        base_style
-                    },
-                ));
-            }
-            return spans;
+    for (grapheme_idx, (byte_off, grapheme)) in text.grapheme_indices(true).enumerate() {
+        if grapheme_idx >= searchable_len {
+            // Remaining text beyond searchable_len — accumulate without changing highlight state.
+            current_segment.push_str(grapheme);
+            continue;
         }
 
         let search_byte = search_range.start + byte_off;
         let is_matched = match_indices.iter().any(|r| r.contains(&search_byte));
 
         if is_matched != in_highlight {
-            let segment = text[current_start..byte_off].to_owned();
-            if !segment.is_empty() {
+            if !current_segment.is_empty() {
                 spans.push(Span::styled(
-                    segment,
-                    if in_highlight {
-                        highlight_style
-                    } else {
-                        base_style
-                    },
+                    current_segment,
+                    if in_highlight { hl_style } else { base_style },
                 ));
             }
-            current_start = byte_off;
+            current_segment = String::new();
             in_highlight = is_matched;
         }
+
+        current_segment.push_str(grapheme);
     }
 
-    if current_start < text.len() {
-        let rest = text[current_start..].to_owned();
+    if !current_segment.is_empty() {
         spans.push(Span::styled(
-            rest,
-            if in_highlight {
-                highlight_style
-            } else {
-                base_style
-            },
+            current_segment,
+            if in_highlight { hl_style } else { base_style },
         ));
     }
 
