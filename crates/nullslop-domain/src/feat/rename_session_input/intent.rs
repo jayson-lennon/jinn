@@ -146,6 +146,17 @@ pub fn handle_cursor_right(state: &mut AppState) -> IntentResult {
     IntentResult::empty()
 }
 
+/// Handles `PasteText` — bulk inserts pasted text at the cursor.
+pub fn handle_paste(state: &mut AppState, text: &str) -> IntentResult {
+    if text.is_empty() {
+        return IntentResult::empty();
+    }
+    let input = &mut state.frontend.rename_session_input;
+    input.input.insert_str(input.cursor_pos, text);
+    input.cursor_pos += text.len();
+    IntentResult::empty()
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used, clippy::indexing_slicing)]

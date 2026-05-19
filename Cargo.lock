@@ -1845,7 +1845,7 @@ dependencies = [
 
 [[package]]
 name = "nullslop"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "clap",
  "clap-verbosity-flag",
@@ -1990,7 +1990,6 @@ dependencies = [
  "derive_more",
  "dialoguer",
  "error-stack",
- "futures",
  "kanal",
  "nullslop-domain",
  "nullslop-selection-widget",

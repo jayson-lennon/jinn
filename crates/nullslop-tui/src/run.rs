@@ -2,8 +2,8 @@
 //!
 //! Sets up the terminal (raw mode + alternate screen), runs the
 //! main event loop, and restores the terminal on exit. Also manages
-//! the background event stream task lifecycle, cancelling it before
-//! terminal suspension and restarting it afterward.
+//! the background event thread lifecycle, stopping it before terminal
+//! suspension and restarting it afterward.
 
 use std::io::{self, Stdout};
 
@@ -73,15 +73,14 @@ pub fn run(mut app: TuiApp) -> Result<(), Report<TuiRunError>> {
         .change_context(TuiRunError)
         .attach("failed to create terminal")?;
 
-    // Start the event stream task.
-    let handle = app.services.handle.clone();
-    app.event_task = Some(app.events.event_task(&handle));
+    // Start the event poll thread (independent of tokio runtime).
+    app.event_thread = Some(app.events.start_event_thread());
 
-    let result = run_main_loop(&mut terminal, &mut app, &handle);
+    let result = run_main_loop(&mut terminal, &mut app);
 
-    // Clean up event task.
-    if let Some(task) = app.event_task.take() {
-        task.abort();
+    // Clean up event thread.
+    if let Some(mut guard) = app.event_thread.take() {
+        guard.stop();
     }
 
     // Shut down actor host — coordinated shutdown.
@@ -119,7 +118,6 @@ pub fn run(mut app: TuiApp) -> Result<(), Report<TuiRunError>> {
 fn run_main_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut TuiApp,
-    handle: &tokio::runtime::Handle,
 ) -> Result<(), Report<TuiRunError>> {
     loop {
         let event = app
@@ -145,7 +143,7 @@ fn run_main_loop(
 
         // Check for pending suspend after event batch processing.
         if let Some(action) = app.suspend.take_action() {
-            handle_suspend_action(terminal, app, action, handle)?;
+            handle_suspend_action(terminal, app, action)?;
         }
 
         terminal
@@ -165,23 +163,22 @@ fn run_main_loop(
 
 /// Executes a suspend/restore cycle for the given action.
 ///
-/// 1. Aborts the background event stream task
+/// 1. Stops the background event thread
 /// 2. Drains stale messages from the channel
 /// 3. Suspends the terminal via [`TerminalGuard`](crate::terminal::TerminalGuard)
 /// 4. Runs the external editor via `dialoguer::Editor`
 /// 5. Invokes the `on_result` closure to produce the new input buffer content
-/// 6. Restarts the event stream task
+/// 6. Restarts the event thread
 /// 7. Redraws the terminal
 /// 8. Writes the result directly to the active session's input box via `replace_all`
 fn handle_suspend_action(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut TuiApp,
     action: crate::suspend::SuspendAction,
-    handle: &tokio::runtime::Handle,
 ) -> Result<(), Report<TuiRunError>> {
-    // Cancel the event stream so crossterm stops polling the terminal.
-    if let Some(task) = app.event_task.take() {
-        task.abort();
+    // Stop the event thread so crossterm stops polling the terminal.
+    if let Some(mut guard) = app.event_thread.take() {
+        guard.stop();
     }
     app.events.drain();
 
@@ -202,8 +199,8 @@ fn handle_suspend_action(
     .change_context(TuiRunError)
     .attach("failed to suspend terminal for editor")?;
 
-    // Restart the event stream with a fresh crossterm EventStream.
-    app.event_task = Some(app.events.event_task(handle));
+    // Restart the event poll thread with a fresh crossterm state.
+    app.event_thread = Some(app.events.start_event_thread());
 
     terminal
         .draw(|frame| {
