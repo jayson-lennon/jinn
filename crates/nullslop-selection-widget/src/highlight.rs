@@ -8,6 +8,7 @@ use std::ops::Range;
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
+use unicode_segmentation::UnicodeSegmentation;
 
 /// Highlight style for fuzzy-matched characters in picker rows.
 ///
@@ -55,12 +56,7 @@ pub fn highlight_text<'a>(
 ///
 /// # Panics
 ///
-/// Does not panic; string slicing is safe because `byte_off` comes from
-/// `char_indices()`, which always yields valid UTF-8 boundaries.
-#[expect(
-    clippy::string_slice,
-    reason = "byte_off comes from char_indices(), always a valid UTF-8 boundary"
-)]
+/// Does not panic; grapheme iteration yields valid UTF-8 boundaries.
 pub fn highlight_text_with_bg<'a>(
     text: &str,
     base_style: Style,
@@ -74,29 +70,29 @@ pub fn highlight_text_with_bg<'a>(
     let hl_style = base_style.patch(highlight_style(highlight_bg));
 
     let mut spans = Vec::new();
-    let mut current_start = 0;
+    let mut current_segment = String::new();
     let mut in_highlight = false;
 
-    for (byte_off, _ch) in text.char_indices() {
+    for (byte_off, grapheme) in text.grapheme_indices(true) {
         let is_matched = match_indices.iter().any(|r| r.contains(&byte_off));
 
         if is_matched != in_highlight {
-            let segment = text[current_start..byte_off].to_owned();
-            if !segment.is_empty() {
+            if !current_segment.is_empty() {
                 spans.push(Span::styled(
-                    segment,
+                    current_segment,
                     if in_highlight { hl_style } else { base_style },
                 ));
             }
-            current_start = byte_off;
+            current_segment = String::new();
             in_highlight = is_matched;
         }
+
+        current_segment.push_str(grapheme);
     }
 
-    if current_start < text.len() {
-        let rest = text[current_start..].to_owned();
+    if !current_segment.is_empty() {
         spans.push(Span::styled(
-            rest,
+            current_segment,
             if in_highlight { hl_style } else { base_style },
         ));
     }
