@@ -541,6 +541,36 @@ pub fn handle_session_close_with_lifecycle(state: &mut AppState) -> crate::proto
     })])
 }
 
+/// Handles `SidebarSessionArchive` — archives the selected session without teardown.
+///
+/// Validates that the archive can proceed, gets the selected session ID,
+/// then emits an `ArchiveSession` command. The session actor handles archival
+/// and removal, skipping lifecycle teardown.
+///
+/// # Panics
+///
+/// Panics if `sessions_section.selected_index` is `None`.
+pub fn handle_session_archive(state: &mut AppState) -> crate::protocol::IntentResult {
+    use crate::feat::session::protocol::archive_session::ArchiveSession;
+    use crate::protocol::Command;
+
+    // Validate — same preconditions as session close.
+    if validate_session_close(state).is_err() {
+        return crate::protocol::IntentResult::empty();
+    }
+
+    let index = state.frontend.sessions_section.selected_index.unwrap();
+    let sessions = sorted_open_sessions(state);
+    let target_id = sessions[index].id.clone();
+
+    // Emit ArchiveSession — the actor handles archive and removal without teardown.
+    crate::protocol::IntentResult::with_commands(vec![Command::ArchiveSession(
+        ArchiveSession {
+            session_id: target_id,
+        },
+    )])
+}
+
 /// Handles `SidebarSessionTeardown` — re-runs teardown without closing the session.
 ///
 /// Validates that the close can proceed, looks up the selected session's

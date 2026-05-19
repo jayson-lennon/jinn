@@ -35,6 +35,7 @@ use crate::feat::context::strategy::token_estimator::TiktokenCounter;
 use crate::feat::provider::protocol::command::SendMessage;
 use crate::feat::provider::protocol::event::{ModelsRefreshed, StreamCompleted, StreamToken};
 use crate::feat::session::chat_session::ChatSessionState;
+use crate::feat::session::protocol::archive_session::ArchiveSession;
 use crate::feat::session::protocol::close_session::CloseSession;
 use crate::feat::session::protocol::load_session_picker_entries::LoadSessionPickerEntries;
 use crate::feat::session::protocol::session_archived::SessionArchived;
@@ -228,6 +229,7 @@ impl Actor for SessionPersistenceActor {
         ctx.subscribe_command::<RunSessionTeardown>();
         ctx.subscribe_command::<SaveNewLifecycleSession>();
         ctx.subscribe_command::<CloseSession>();
+        ctx.subscribe_command::<ArchiveSession>();
 
         // Compaction command subscriptions.
         ctx.subscribe_command::<crate::feat::compaction_actor::protocol::command::BeginCompaction>(
@@ -334,6 +336,9 @@ impl SessionPersistenceActor {
             }
             Command::CloseSession(payload) => {
                 self.handle_close_session(payload, ctx).await;
+            }
+            Command::ArchiveSession(payload) => {
+                self.handle_archive_session(payload, ctx).await;
             }
             Command::SaveNewLifecycleSession(payload) => {
                 self.handle_save_new_lifecycle_session(payload).await;
@@ -903,6 +908,40 @@ impl SessionPersistenceActor {
                     tracing::warn!(err = ?e, "session-actor failed to emit SessionTeardownFinished");
                 }
             }
+        }
+    }
+
+    /// ArchiveSession: archive without running teardown.
+    ///
+    /// - Empty session → remove from map, no archive.
+    /// - Non-empty → archive in SQLite, remove from map, emit events.
+    async fn handle_archive_session(&self, payload: &ArchiveSession, ctx: &ActorContext) {
+        let is_empty = {
+            let state = self.state.read();
+            let Some(session) = state.session.sessions().get(&payload.session_id) else {
+                return;
+            };
+            session.history().is_empty()
+        };
+
+        if is_empty {
+            self.close_session_inline(&payload.session_id, ctx);
+            return;
+        }
+
+        // Archive in SQLite.
+        if let Some(ref store) = self.store
+            && let Err(e) = store.set_archived(&payload.session_id, true).await
+        {
+            tracing::warn!(err = ?e, "failed to archive session");
+        }
+
+        self.close_session_inline(&payload.session_id, ctx);
+
+        if let Err(e) = ctx.send_event(Event::SessionArchived(SessionArchived {
+            session_id: payload.session_id.clone(),
+        })) {
+            tracing::warn!(err = ?e, "session-actor failed to emit SessionArchived");
         }
     }
 

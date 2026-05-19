@@ -119,6 +119,7 @@ impl ProviderActor {
             | Command::CancelCompaction(..)
             | Command::EndCompaction(..)
             | Command::CloseSession(..)
+            | Command::ArchiveSession(..)
             | Command::SaveNewLifecycleSession(..) => {}
         }
     }
