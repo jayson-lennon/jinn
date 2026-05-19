@@ -351,8 +351,8 @@ fn render_shows_zero_percent_max_when_context_size_but_no_limit() {
         .unwrap();
     let buffer = terminal.backend().buffer().clone();
     let row = buffer_row(&buffer, 1, 80);
-    // Then the status bar shows 0.0%/MAX (no context_length available).
-    assert!(row.contains("0.0%/MAX"), "expected 0.0%/MAX, got: {row}");
+    // Then the status bar shows the context size with ??? (no context_length available).
+    assert!(row.contains("5.0k/???"), "expected 5.0k/???, got: {row}");
 }
 
 #[rstest::rstest]
@@ -368,10 +368,10 @@ fn render_shows_zero_percent_max_when_no_context_size() {
         .unwrap();
     let buffer = terminal.backend().buffer().clone();
     let row = buffer_row(&buffer, 1, 80);
-    // Then the context display shows 0.0%/MAX as fallback.
+    // Then the context display shows 0/??? as fallback.
     assert!(
-        row.contains("0.0%/MAX"),
-        "expected 0.0%/MAX fallback, got: {row}"
+        row.contains("0/???"),
+        "expected 0/??? fallback, got: {row}"
     );
     // And token counts are still shown.
     assert!(row.contains("0 0") || row.contains("\u{2191}0 \u{2193}0"));
@@ -648,10 +648,10 @@ fn render_falls_back_when_no_context_limit_in_cache() {
         .unwrap();
     let buffer = terminal.backend().buffer().clone();
     let row = buffer_row(&buffer, 1, 80);
-    // Then the status bar falls back to 0.0%/MAX.
+    // Then the status bar falls back to the context size with ??? (no context_length).
     assert!(
-        row.contains("0.0%/MAX"),
-        "expected 0.0%/MAX fallback, got: {row}"
+        row.contains("5.0k/???"),
+        "expected 5.0k/??? fallback, got: {row}"
     );
 }
 
@@ -682,10 +682,10 @@ fn render_falls_back_when_no_model_cache() {
         .unwrap();
     let buffer = terminal.backend().buffer().clone();
     let row = buffer_row(&buffer, 1, 80);
-    // Then the status bar falls back to 0.0%/MAX.
+    // Then the status bar falls back to the context size with ??? (no model cache).
     assert!(
-        row.contains("0.0%/MAX"),
-        "expected 0.0%/MAX fallback, got: {row}"
+        row.contains("5.0k/???"),
+        "expected 5.0k/??? fallback, got: {row}"
     );
 }
 
