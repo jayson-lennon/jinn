@@ -121,10 +121,10 @@ impl UiElement<AppState> for StatusBarElement {
                 };
                 format!("{}/{}", pct, format_budget(max_tokens as usize))
             } else {
-                "0.0%/MAX".to_owned()
+                format!("{}/???", format_tokens(ctx_used))
             }
         } else {
-            "0.0%/MAX".to_owned()
+            "0/???".to_owned()
         };
         token_info = format!("{token_info} {context_display}");
 
