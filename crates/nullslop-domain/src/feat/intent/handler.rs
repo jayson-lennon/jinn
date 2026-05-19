@@ -297,6 +297,18 @@ impl IntentHandler {
                 crate::common::app_state::FocusScope::Picker { .. } => {
                     feat::picker::intent::handle_picker_paste(state, text)
                 }
+                crate::common::app_state::FocusScope::ArgInput => {
+                    feat::session_lifecycle::intent::handle_arg_input_paste(state, text)
+                }
+                crate::common::app_state::FocusScope::TokenBudgetInput => {
+                    feat::token_budget_input::intent::handle_paste(state, text)
+                }
+                crate::common::app_state::FocusScope::SlidingWindowInput => {
+                    feat::sliding_window_input::intent::handle_paste(state, text)
+                }
+                crate::common::app_state::FocusScope::RenameSessionInput => {
+                    feat::rename_session_input::intent::handle_paste(state, text)
+                }
                 _ => IntentResult::empty(),
             },
 

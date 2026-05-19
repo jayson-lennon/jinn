@@ -19,7 +19,7 @@ pub fn token_budget_popup_rect(area: Rect) -> Rect {
         .max(POPUP_MIN_WIDTH)
         .min(area.width);
 
-    let popup_height = 3u16.min(area.height); // border(2) + 1 input line
+    let popup_height = 4u16.min(area.height); // border(2) + input line(1) + error line(1)
 
     // Integer division is intentional — we're computing cell positions for centering.
     #[expect(clippy::integer_division, reason = "cell positions are integers")]
@@ -71,6 +71,18 @@ pub fn render_token_budget_input(frame: &mut Frame<'_>, area: Rect, state: &AppS
     let input_para = Paragraph::new(input_line);
     frame.render_widget(input_para, Rect::new(inner.x, inner.y, inner.width, 1));
 
+    // Error line (row below input, when present).
+    if let Some(ref err) = input_state.error_message {
+        let error_line = Line::from(Span::styled(
+            err.clone(),
+            Style::default().fg(theme.error_text),
+        ));
+        frame.render_widget(
+            Paragraph::new(error_line),
+            Rect::new(inner.x, inner.y + 1, inner.width, 1),
+        );
+    }
+
     // Compute cursor x position: "> " (2) + grapheme count up to cursor_pos.
     let prefix_len = 2u16;
     let grapheme_count = input_state.input[..input_state.cursor_pos]
@@ -98,6 +110,7 @@ mod tests {
         state.frontend.token_budget_input = TokenBudgetInputState {
             input: "150000".to_owned(),
             cursor_pos: 6,
+            error_message: None,
         };
         let (mut terminal, area) = setup_term(80, 24);
 
@@ -141,6 +154,7 @@ mod tests {
         state.frontend.token_budget_input = TokenBudgetInputState {
             input: "200000".to_owned(),
             cursor_pos: 6,
+            error_message: None,
         };
         let (mut terminal, area) = setup_term(80, 24);
 
@@ -214,7 +228,7 @@ mod tests {
         // Then the popup is centered horizontally.
         let expected_width = 48u16; // 80 * 0.6 = 48
         assert_eq!(popup.width, expected_width);
-        // And the popup has 3 rows (border + 1 content).
-        assert_eq!(popup.height, 3);
+        // And the popup has 4 rows (border + input + error line).
+        assert_eq!(popup.height, 4);
     }
 }

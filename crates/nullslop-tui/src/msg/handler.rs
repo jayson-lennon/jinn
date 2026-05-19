@@ -1,21 +1,25 @@
-//! Message channel handler and background event task.
+//! Message channel handler and background event thread.
 //!
 //! [`MsgHandler`] manages the kanal channel, providing synchronous receive
-//! for the main loop and an async event task that merges crossterm events
+//! for the main loop and a dedicated OS thread that polls crossterm events
 //! and periodic ticks.
+//!
+//! The event thread runs independently of the tokio runtime so that terminal
+//! input is never starved by async work on tokio worker threads.
 
-use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use derive_more::Debug;
-use futures::StreamExt as _;
 use kanal::Receiver;
 
 use super::{Msg, MsgSender};
 
 /// Manages the message channel for the TUI event loop.
 ///
-/// Use [`Self::event_task`] to obtain a spawnable future for the background
-/// event task, and [`Self::drain`] to discard stale messages after cancelling it.
+/// Use [`Self::start_event_thread`] to spawn the background event thread, and
+/// [`Self::drain`] to discard stale messages after stopping it.
 #[derive(Debug)]
 pub struct MsgHandler {
     /// Sending half of the message channel.
@@ -58,12 +62,32 @@ impl MsgHandler {
         while self.try_recv().is_some() {}
     }
 
-    /// Creates a tokio task that merges crossterm events and periodic ticks.
+    /// Spawns a dedicated OS thread that polls crossterm events and periodic ticks.
     ///
-    /// The task runs until the tokio runtime is shut down.
-    pub fn event_task(&self, handle: &tokio::runtime::Handle) -> tokio::task::JoinHandle<()> {
+    /// The thread runs until the returned [`EventThreadGuard`] is dropped or
+    /// [`EventThreadGuard::stop`] is called. This is independent of the tokio
+    /// runtime so terminal input is never starved by async work.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the OS thread cannot be spawned (e.g. resource exhaustion).
+    #[allow(clippy::expect_used, reason = "thread spawn failure is fatal")]
+    pub fn start_event_thread(&self) -> EventThreadGuard {
         let sender = self.sender();
-        handle.spawn(run_event_loop(sender))
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_clone = stop.clone();
+
+        let handle = std::thread::Builder::new()
+            .name("tui-event-poll".to_owned())
+            .spawn(move || {
+                run_event_poll(&sender, stop_clone);
+            })
+            .expect("failed to spawn tui-event-poll thread");
+
+        EventThreadGuard {
+            handle: Some(handle),
+            stop,
+        }
     }
 }
 
@@ -73,22 +97,77 @@ impl Default for MsgHandler {
     }
 }
 
-/// Runs the background event loop that merges crossterm events and periodic ticks.
+/// Guard that stops and joins the background event thread on drop.
+pub struct EventThreadGuard {
+    /// Join handle for the event poll thread.
+    handle: Option<std::thread::JoinHandle<()>>,
+    /// Shared flag signalling the thread to stop.
+    stop: Arc<AtomicBool>,
+}
+
+impl EventThreadGuard {
+    /// Signals the event thread to stop and waits for it to finish.
+    pub fn stop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+impl Drop for EventThreadGuard {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Polling interval for crossterm events when no event is immediately available.
+const POLL_TIMEOUT: Duration = Duration::from_millis(16);
+
+/// Tick interval for periodic render refresh.
+const TICK_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Runs the event poll loop on a dedicated OS thread.
 ///
-/// This function runs indefinitely until the tokio runtime is shut down.
-/// It sends [`Msg::Tick`] at a fixed interval and [`Msg::Input`] for each
-/// crossterm terminal event.
-async fn run_event_loop(sender: MsgSender) {
-    let mut reader = crossterm::event::EventStream::new();
-    let mut tick = tokio::time::interval(Duration::from_millis(100));
-    loop {
-        let crossterm_event = reader.next();
-        tokio::select! {
-            _ = tick.tick() => {
-                sender.send(Msg::Tick);
+/// Uses synchronous `crossterm::event::poll` / `read` instead of the async
+/// `EventStream`, so this thread never competes with tokio worker threads.
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Arc is moved into the thread closure"
+)]
+fn run_event_poll(sender: &MsgSender, stop: Arc<AtomicBool>) {
+    let mut next_tick = Instant::now() + TICK_INTERVAL;
+
+    while !stop.load(Ordering::Relaxed) {
+        let now = Instant::now();
+
+        // Send tick if interval elapsed.
+        if now >= next_tick {
+            sender.send(Msg::Tick);
+            next_tick = now + TICK_INTERVAL;
+        }
+
+        // Poll crossterm with a short timeout so we can check `stop` regularly.
+        let poll_deadline = next_tick.min(now + POLL_TIMEOUT);
+        let poll_duration = poll_deadline.saturating_duration_since(now);
+
+        match crossterm::event::poll(poll_duration) {
+            Ok(true) => {
+                // Event available — read and forward.
+                match crossterm::event::read() {
+                    Ok(evt) => sender.send(Msg::Input(evt)),
+                    Err(e) => {
+                        tracing::error!(err = ?e, "crossterm event read error");
+                    }
+                }
             }
-            Some(Ok(evt)) = crossterm_event => {
-                sender.send(Msg::Input(evt));
+            Ok(false) => {
+                // Timeout — no event, loop back to check tick/stop.
+            }
+            Err(e) => {
+                tracing::error!(err = ?e, "crossterm event poll error");
+                // Brief sleep to avoid busy-looping on persistent errors.
+                std::thread::sleep(Duration::from_millis(50));
             }
         }
     }

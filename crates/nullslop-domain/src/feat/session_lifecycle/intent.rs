@@ -279,6 +279,17 @@ pub fn handle_arg_input_cursor_right(state: &mut AppState) -> IntentResult {
     IntentResult::empty()
 }
 
+/// Handles `PasteText` in arg input scope — bulk inserts pasted text at the cursor.
+pub fn handle_arg_input_paste(state: &mut AppState, text: &str) -> IntentResult {
+    if text.is_empty() {
+        return IntentResult::empty();
+    }
+    let arg = &mut state.frontend.arg_input;
+    arg.input.insert_str(arg.cursor_pos, text);
+    arg.cursor_pos += text.len();
+    IntentResult::empty()
+}
+
 /// Look up a lifecycle by name in the user preferences.
 fn find_lifecycle<'a>(state: &'a AppState, name: &str) -> Option<&'a SessionLifecycle> {
     state

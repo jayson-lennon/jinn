@@ -71,7 +71,7 @@ impl TuiAppBuilder {
             events: MsgHandler::new(),
             which_key: WhichKeyInstance::new(crate::keymap::init(), Scope::Normal),
             suspend: Suspend::new(),
-            event_task: None,
+            event_thread: None,
             status: AppStatus::Starting,
             selection: SelectionState::Idle,
             selectable_rects: SelectableRects::default(),

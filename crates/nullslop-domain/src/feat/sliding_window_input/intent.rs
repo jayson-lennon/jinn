@@ -19,7 +19,11 @@ pub fn handle_sliding_window_enter(state: &mut AppState) -> IntentResult {
     let input = current_size.to_string();
     let cursor_pos = input.len();
 
-    state.frontend.sliding_window_input = SlidingWindowInputState { input, cursor_pos };
+    state.frontend.sliding_window_input = SlidingWindowInputState {
+        input,
+        cursor_pos,
+        error_message: None,
+    };
     state
         .frontend
         .scope_stack
@@ -87,6 +91,8 @@ pub fn handle_sliding_window_leave(state: &mut AppState) -> IntentResult {
 ///
 /// Non-digit characters are silently ignored.
 pub fn handle_insert_char(state: &mut AppState, ch: char) -> IntentResult {
+    let input = &mut state.frontend.sliding_window_input;
+    input.error_message = None;
     if !ch.is_ascii_digit() {
         return IntentResult::empty();
     }
@@ -99,6 +105,7 @@ pub fn handle_insert_char(state: &mut AppState, ch: char) -> IntentResult {
 /// Deletes the grapheme before the cursor.
 pub fn handle_delete(state: &mut AppState) -> IntentResult {
     let input = &mut state.frontend.sliding_window_input;
+    input.error_message = None;
     if input.cursor_pos > 0 {
         let prev = input.input[..input.cursor_pos]
             .grapheme_indices(true)
@@ -115,6 +122,7 @@ pub fn handle_delete(state: &mut AppState) -> IntentResult {
 /// Deletes the grapheme at/after the cursor (forward delete).
 pub fn handle_delete_forward(state: &mut AppState) -> IntentResult {
     let input = &mut state.frontend.sliding_window_input;
+    input.error_message = None;
     if input.cursor_pos < input.input.len() {
         let next_end = input.input[input.cursor_pos..]
             .grapheme_indices(true)
@@ -128,6 +136,7 @@ pub fn handle_delete_forward(state: &mut AppState) -> IntentResult {
 /// Moves the cursor one grapheme left.
 pub fn handle_cursor_left(state: &mut AppState) -> IntentResult {
     let input = &mut state.frontend.sliding_window_input;
+    input.error_message = None;
     if input.cursor_pos > 0 {
         let prev = input.input[..input.cursor_pos]
             .grapheme_indices(true)
@@ -143,6 +152,7 @@ pub fn handle_cursor_left(state: &mut AppState) -> IntentResult {
 /// Moves the cursor one grapheme right.
 pub fn handle_cursor_right(state: &mut AppState) -> IntentResult {
     let input = &mut state.frontend.sliding_window_input;
+    input.error_message = None;
     if input.cursor_pos < input.input.len() {
         let next = input.input[input.cursor_pos..]
             .grapheme_indices(true)
@@ -153,6 +163,28 @@ pub fn handle_cursor_right(state: &mut AppState) -> IntentResult {
             None => input.cursor_pos = input.input.len(),
         }
     }
+    IntentResult::empty()
+}
+
+/// Handles `PasteText` — bulk inserts pasted text if all digits, otherwise rejects.
+///
+/// Rejects paste if the text contains any non-digit characters, setting
+/// `error_message`. Accepts all-digit text and inserts at cursor.
+pub fn handle_paste(state: &mut AppState, text: &str) -> IntentResult {
+    let input = &mut state.frontend.sliding_window_input;
+    input.error_message = None;
+
+    if text.is_empty() {
+        return IntentResult::empty();
+    }
+
+    if !text.chars().all(|c| c.is_ascii_digit()) {
+        input.error_message = Some("Paste rejected: digits only".to_owned());
+        return IntentResult::empty();
+    }
+
+    input.input.insert_str(input.cursor_pos, text);
+    input.cursor_pos += text.len();
     IntentResult::empty()
 }
 
@@ -212,6 +244,7 @@ mod tests {
         state.frontend.sliding_window_input = SlidingWindowInputState {
             input: "20".to_owned(),
             cursor_pos: 2,
+            error_message: None,
         };
 
         // When handling SlidingWindowInputConfirm.
@@ -250,6 +283,7 @@ mod tests {
         state.frontend.sliding_window_input = SlidingWindowInputState {
             input: String::new(),
             cursor_pos: 0,
+            error_message: None,
         };
 
         // When handling SlidingWindowInputConfirm.
@@ -275,6 +309,7 @@ mod tests {
         state.frontend.sliding_window_input = SlidingWindowInputState {
             input: "0".to_owned(),
             cursor_pos: 1,
+            error_message: None,
         };
 
         // When handling SlidingWindowInputConfirm.
@@ -301,6 +336,7 @@ mod tests {
         state.frontend.sliding_window_input = SlidingWindowInputState {
             input: "99".to_owned(),
             cursor_pos: 2,
+            error_message: None,
         };
 
         // When handling SlidingWindowInputLeave.
@@ -329,6 +365,7 @@ mod tests {
         state.frontend.sliding_window_input = SlidingWindowInputState {
             input: "1".to_owned(),
             cursor_pos: 1,
+            error_message: None,
         };
 
         // When inserting '0'.
@@ -346,6 +383,7 @@ mod tests {
         state.frontend.sliding_window_input = SlidingWindowInputState {
             input: "1".to_owned(),
             cursor_pos: 1,
+            error_message: None,
         };
 
         // When inserting 'a' (non-digit).
@@ -363,6 +401,7 @@ mod tests {
         state.frontend.sliding_window_input = SlidingWindowInputState {
             input: "10".to_owned(),
             cursor_pos: 2,
+            error_message: None,
         };
 
         // When deleting.
@@ -380,6 +419,7 @@ mod tests {
         state.frontend.sliding_window_input = SlidingWindowInputState {
             input: "10".to_owned(),
             cursor_pos: 0,
+            error_message: None,
         };
 
         // When forward deleting.
@@ -397,6 +437,7 @@ mod tests {
         state.frontend.sliding_window_input = SlidingWindowInputState {
             input: "10".to_owned(),
             cursor_pos: 2,
+            error_message: None,
         };
 
         // When moving cursor left.
@@ -413,6 +454,7 @@ mod tests {
         state.frontend.sliding_window_input = SlidingWindowInputState {
             input: "10".to_owned(),
             cursor_pos: 0,
+            error_message: None,
         };
 
         // When moving cursor right.

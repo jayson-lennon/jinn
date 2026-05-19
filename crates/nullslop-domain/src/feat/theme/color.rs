@@ -100,8 +100,12 @@ fn parse_ansi_code(s: &str) -> Option<Color> {
 fn parse_color_string(s: &str) -> Option<Color> {
     if s.starts_with('#') {
         parse_hex(s)
-    } else if s.starts_with('A') && s[1..].chars().all(|c| c.is_ascii_digit()) {
-        parse_ansi_code(s)
+    } else if let Some(rest) = s.strip_prefix('A') {
+        if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+            parse_ansi_code(s)
+        } else {
+            color_from_name(s)
+        }
     } else {
         color_from_name(s)
     }

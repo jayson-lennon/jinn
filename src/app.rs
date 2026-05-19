@@ -140,7 +140,7 @@ impl App {
                     events: nullslop_tui::MsgHandler::new(),
                     which_key,
                     suspend: nullslop_tui::suspend::Suspend::new(),
-                    event_task: None,
+                    event_thread: None,
                     status: nullslop_tui::AppStatus::Starting,
                     selection: nullslop_tui::selection::SelectionState::Idle,
                     selectable_rects: Default::default(),

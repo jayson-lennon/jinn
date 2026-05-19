@@ -4,10 +4,30 @@
 //! summarization model can process. Tool results are truncated to keep
 //! the serialization within reasonable bounds.
 
+use unicode_segmentation::UnicodeSegmentation;
+
 use crate::protocol::{ChatEntry, ChatEntryKind};
 
-/// Maximum characters to include from a tool result in the serialization.
-const TOOL_RESULT_MAX_CHARS: usize = 2000;
+/// Maximum bytes to include from a tool result in the serialization.
+const TOOL_RESULT_MAX_BYTES: usize = 2000;
+
+/// Find the largest byte offset within `max_bytes` that falls on a grapheme boundary.
+///
+/// Returns `text.len()` if the entire string fits within `max_bytes`.
+fn grapheme_safe_end(text: &str, max_bytes: usize) -> usize {
+    if text.len() <= max_bytes {
+        return text.len();
+    }
+    let mut end = 0;
+    for (byte_idx, grapheme) in text.grapheme_indices(true) {
+        let next_end = byte_idx + grapheme.len();
+        if next_end > max_bytes {
+            break;
+        }
+        end = next_end;
+    }
+    end
+}
 
 /// Serialize a slice of chat entries into labeled text.
 ///
@@ -15,7 +35,7 @@ const TOOL_RESULT_MAX_CHARS: usize = 2000;
 /// - `[User]: <text>`
 /// - `[Assistant]: <text>`
 /// - `[Tool call]: name(arguments)`
-/// - `[Tool result]: <content>` (truncated to ~2000 chars)
+/// - `[Tool result]: <content>` (truncated to ~2000 bytes)
 ///
 /// System, Error, Thinking, Info, Table, Skill, and Compaction entries
 /// are skipped — they are not relevant to the summarization prompt.
@@ -36,12 +56,14 @@ pub fn serialize_entries_for_compaction(entries: &[ChatEntry]) -> String {
                 lines.push(format!("[Tool call]: {name}({arguments})"));
             }
             ChatEntryKind::ToolResult { name, content, .. } => {
-                let truncated = if content.len() > TOOL_RESULT_MAX_CHARS {
-                    let mut end = TOOL_RESULT_MAX_CHARS;
+                let truncated = if content.len() > TOOL_RESULT_MAX_BYTES {
+                    let safe_end = grapheme_safe_end(content, TOOL_RESULT_MAX_BYTES);
+                    let candidate = &content[..safe_end];
+                    let mut end = safe_end;
                     // Try to break at a newline or space.
-                    if let Some(pos) = content[..TOOL_RESULT_MAX_CHARS].rfind('\n') {
+                    if let Some(pos) = candidate.rfind('\n') {
                         end = pos;
-                    } else if let Some(pos) = content[..TOOL_RESULT_MAX_CHARS].rfind(' ') {
+                    } else if let Some(pos) = candidate.rfind(' ') {
                         end = pos;
                     }
                     format!("{}... (truncated)", &content[..end])
@@ -155,5 +177,46 @@ mod tests {
         assert!(lines[2].starts_with("[Tool call]"));
         assert!(lines[3].starts_with("[Tool result]"));
         assert!(lines[4].starts_with("[Assistant]"));
+    }
+
+    #[test]
+    fn truncates_tool_result_with_multibyte_at_boundary() {
+        // Given content where byte 2000 falls in the middle of an em-dash (3 bytes).
+        // 1999 ASCII 'x' chars + "—" (em-dash, 3 bytes) + more text.
+        let mut content = "x".repeat(1999);
+        content.push_str("—");
+        content.push_str("more text");
+
+        let entries = vec![ChatEntry::tool_result(
+            "id1",
+            "bash",
+            &content,
+            crate::feat::session::tool_result_status::ToolResultStatus::Success,
+        )];
+
+        // When serializing for compaction.
+        let result = serialize_entries_for_compaction(&entries);
+
+        // Then it does not panic and contains the truncation marker.
+        assert!(result.contains("... (truncated)"));
+    }
+
+    #[test]
+    fn truncates_tool_result_with_emoji() {
+        // Given content with emoji exceeding 2000 bytes.
+        let content = "🎉".repeat(1000); // Each 🎉 is 4 bytes, so 4000 bytes total.
+
+        let entries = vec![ChatEntry::tool_result(
+            "id1",
+            "bash",
+            &content,
+            crate::feat::session::tool_result_status::ToolResultStatus::Success,
+        )];
+
+        // When serializing for compaction.
+        let result = serialize_entries_for_compaction(&entries);
+
+        // Then it does not panic and contains the truncation marker.
+        assert!(result.contains("... (truncated)"));
     }
 }

@@ -43,6 +43,9 @@ pub struct TokenBudgetInputState {
     pub input: String,
     /// Byte offset for cursor position in the input.
     pub cursor_pos: usize,
+    /// In-popup error message (e.g., "Paste rejected: digits only").
+    /// Set when paste is rejected, cleared on any subsequent input.
+    pub error_message: Option<String>,
 }
 
 /// State for the sliding window input popup — typing a numeric window size.
@@ -52,6 +55,9 @@ pub struct SlidingWindowInputState {
     pub input: String,
     /// Byte offset for cursor position in the input.
     pub cursor_pos: usize,
+    /// In-popup error message (e.g., "Paste rejected: digits only").
+    /// Set when paste is rejected, cleared on any subsequent input.
+    pub error_message: Option<String>,
 }
 
 /// State for the rename session input popup — editing a session title.
