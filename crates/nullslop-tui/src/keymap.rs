@@ -141,6 +141,7 @@ pub fn init() -> Keymap<KeyEvent, Scope, Intent, KeyCategory> {
             b
             // Session management actions
             .bind("x", Intent::SidebarSessionClose, KeyCategory::General)
+            .bind("a", Intent::SidebarSessionArchive, KeyCategory::General)
             .bind("t", Intent::SidebarSessionTeardown, KeyCategory::General)
             .bind("<enter>", Intent::SidebarConfirm, KeyCategory::General)
             .bind("n", Intent::SessionNew, KeyCategory::General)
