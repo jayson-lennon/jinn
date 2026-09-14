@@ -71,9 +71,9 @@ pub fn handle_open_picker(
         | PickerKind::Skill
         | PickerKind::Theme
         | PickerKind::Tool
+        | PickerKind::McpServer
         | PickerKind::TaskList
         | PickerKind::Project
-        | PickerKind::McpServer
         | PickerKind::Plugin => IntentResult::empty(),
         PickerKind::SessionLifecycle => {
             // Populate from user preferences + implicit blank lifecycle.
@@ -113,7 +113,11 @@ fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
         PickerKind::Session => {
             state.frontend.session_picker_mut().reset();
         }
-        PickerKind::Persona | PickerKind::Skill | PickerKind::Theme | PickerKind::Tool => {
+        PickerKind::Persona
+        | PickerKind::Skill
+        | PickerKind::Theme
+        | PickerKind::Tool
+        | PickerKind::McpServer => {
             // Spec-driven when the registry holds their spec; nothing to
             // prepare in the legacy path.
         }
@@ -136,13 +140,6 @@ fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
             state.frontend.pending_creation = None;
             state.frontend.project_picker_mut().reset();
             load_project_picker_entries(&mut state.frontend);
-        }
-        PickerKind::McpServer => {
-            state.frontend.mcp_server_picker_mut().reset();
-            // Snapshot current enabled set for ESC revert.
-            *state.frontend.mcp_server_picker_snapshot_mut() =
-                Some(state.active_session().enabled_mcp_servers().clone());
-            crate::feat::mcp::intent::load_mcp_picker_entries(state);
         }
         PickerKind::Plugin => {
             state.frontend.plugin_picker_mut().reset();
@@ -289,14 +286,15 @@ pub fn handle_picker_confirm(
         Some(PickerKind::SessionLifecycle) => (confirm_session_lifecycle(state), None),
         Some(PickerKind::Project) => (confirm_project(state), None),
         Some(PickerKind::ReasoningEffort) => (confirm_reasoning_effort(state), None),
-        Some(PickerKind::McpServer) => (crate::feat::mcp::intent::confirm_mcp(state), None),
         Some(PickerKind::Endpoint) => (confirm_endpoint(state), None),
 
-        // Persona, Skill, Theme, and Tool are fully spec-driven; the
-        // registry guard above runs their confirm hook. Reaching the match
-        // means the registry is empty (test seams) — nothing to do.
+        // Persona, Skill, Theme, Tool, and McpServer are fully
+        // spec-driven; the registry guard above runs their confirm hook.
+        // Reaching the match means the registry is empty (test seams) —
+        // nothing to do.
         Some(
             PickerKind::CompactionModel
+            | PickerKind::McpServer
             | PickerKind::Persona
             | PickerKind::TaskList
             | PickerKind::Plugin

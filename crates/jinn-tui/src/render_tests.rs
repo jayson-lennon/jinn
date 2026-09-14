@@ -14,8 +14,19 @@ use ratatui::layout::Rect;
 use ratatui::style::Color;
 
 /// Creates a minimal `TuiApp` for render testing.
+///
+/// Mirrors production composition (`actor_wiring`) by populating the
+/// picker spec registry — spec-driven pickers render (and refresh) only
+/// through specs the registry holds.
 async fn render_test_app() -> crate::TuiApp {
-    crate::TuiApp::test_builder().build().await
+    let services = jinn_domain::Services {
+        picker_registry: jinn_domain::feat::picker::registry::build_picker_registry(),
+        ..jinn_domain::Services::new_fake().await
+    };
+    crate::TuiApp::test_builder()
+        .services(services)
+        .build()
+        .await
 }
 
 #[rstest::rstest]
@@ -317,7 +328,14 @@ async fn mcp_inspector_renders_server_list_and_logs_pane() {
             true,
             default_theme(),
         );
-        w.frontend.mcp_server_picker_mut().set_items(vec![entry]);
+        // Wrap the entry through the spec (storage holds PickerEntry<T>).
+        let wrapped = jinn_domain::feat::picker::registry::build_picker_registry()
+            .make_items(
+                jinn_domain::feat::picker::registry::MCP_SERVER_ID,
+                vec![entry],
+            )
+            .expect("mcp-server spec registered");
+        w.frontend.mcp_server_picker_mut().set_items(wrapped);
         w.frontend
             .scope_stack
             .push(jinn_domain::FocusScope::Picker {
@@ -388,7 +406,14 @@ async fn mcp_inspector_tools_pane_renders_tool_names() {
             default_theme(),
         );
         entry.preview_mode = McpPreviewMode::Tools;
-        w.frontend.mcp_server_picker_mut().set_items(vec![entry]);
+        // Wrap the entry through the spec (storage holds PickerEntry<T>).
+        let wrapped = jinn_domain::feat::picker::registry::build_picker_registry()
+            .make_items(
+                jinn_domain::feat::picker::registry::MCP_SERVER_ID,
+                vec![entry],
+            )
+            .expect("mcp-server spec registered");
+        w.frontend.mcp_server_picker_mut().set_items(wrapped);
         w.frontend
             .scope_stack
             .push(jinn_domain::FocusScope::Picker {

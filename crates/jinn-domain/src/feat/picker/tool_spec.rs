@@ -8,7 +8,7 @@
 //! the session's provider, seeded from the disabled set, sorted
 //! case-insensitively by name.
 
-use std::ops::Range;
+use std::collections::HashSet;
 
 use jinn_picker::ActionCtx;
 use jinn_picker::PickerId;
@@ -23,6 +23,7 @@ use ratatui::text::Span;
 
 use crate::common::app_state::AppState;
 use crate::feat::picker::style::dim_style;
+use crate::feat::picker::style::split_match_indices;
 use crate::feat::tools_actor::tool_entry::ToolEntry;
 use crate::feat::ui::picker_states::PickerExt;
 
@@ -118,36 +119,6 @@ fn tool_status(ctx: &StatusCtx<'_>) -> Option<Line<'static>> {
     )))
 }
 
-/// Splits match indices from `"{name} {description}"` into name-portion and
-/// description-portion indices.
-///
-/// The space separator occupies byte offset `name_len`. Description indices
-/// are remapped to be relative to the start of the description string.
-fn split_match_indices(
-    indices: &[Range<usize>],
-    name_len: usize,
-) -> (Vec<Range<usize>>, Vec<Range<usize>>) {
-    let desc_offset = name_len + 1;
-
-    let mut name_indices = Vec::new();
-    let mut desc_indices = Vec::new();
-
-    for range in indices {
-        if range.start < name_len {
-            let end = range.end.min(name_len);
-            name_indices.push(range.start..end);
-        }
-
-        if range.end > desc_offset {
-            let start = range.start.saturating_sub(desc_offset);
-            let end = range.end.saturating_sub(desc_offset);
-            desc_indices.push(start..end);
-        }
-    }
-
-    (name_indices, desc_indices)
-}
-
 // ── Lifecycle ────────────────────────────────────────────────────────────
 
 /// Opening the tool picker: fresh filter + selection, snapshot the session's
@@ -180,7 +151,7 @@ fn tool_toggle(ctx: &mut ActionCtx<'_>) -> PickerOutcome {
 /// profile is the in-memory session's source of truth (legacy parity).
 fn confirm_tool(ctx: &mut ActionCtx<'_>) -> PickerOutcome {
     let state = state_of(ctx);
-    let disabled: std::collections::HashSet<String> = state
+    let disabled: HashSet<String> = state
         .frontend
         .tool_picker()
         .items()
@@ -699,52 +670,5 @@ mod tests {
         // Then it declares no selection-change hook (moving the cursor must
         // not dispatch one).
         assert!(!spec.has_selection_change());
-    }
-
-    // ── split_match_indices ─────────────────────────────────────────────
-
-    #[rstest::rstest]
-    #[test]
-    fn split_match_indices_partitions_correctly() {
-        // Given indices spanning both the name and the description of
-        // search_text = "abc xyz" (name_len = 3, desc_offset = 4).
-        let indices = vec![0..2, 4..6];
-
-        // When splitting.
-        let (name, desc) = split_match_indices(&indices, 3);
-
-        // Then the name portion keeps offsets as-is and the description
-        // portion is remapped relative to the description start.
-        assert_eq!(name, vec![0..2]);
-        assert_eq!(desc, vec![0..2]);
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn split_match_indices_name_only_match() {
-        // Given indices entirely within the name.
-        let indices = vec![1..3];
-
-        // When splitting.
-        let (name, desc) = split_match_indices(&indices, 5);
-
-        // Then only the name portion is populated.
-        assert_eq!(name, vec![1..3]);
-        assert!(desc.is_empty());
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn split_match_indices_description_only_match() {
-        // Given indices entirely within the description (search_text
-        // "bash run shell", name_len = 4, desc_offset = 5).
-        let indices = vec![5..14];
-
-        // When splitting.
-        let (name, desc) = split_match_indices(&indices, 4);
-
-        // Then only the remapped description portion is populated.
-        assert!(name.is_empty());
-        assert_eq!(desc, vec![0..9]);
     }
 }

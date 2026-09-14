@@ -158,7 +158,7 @@ fn refresh_mcp_inspector_snapshot(state: &mut jinn_domain::AppState) {
         return;
     }
     let server_name = match state.frontend.mcp_server_picker().selected_item() {
-        Some(e) => e.name.clone(),
+        Some(item) => item.entry().name.clone(),
         None => return,
     };
     let session_id = state.active_session().session_id().clone();
@@ -181,10 +181,11 @@ fn refresh_mcp_inspector_snapshot(state: &mut jinn_domain::AppState) {
     state
         .frontend
         .mcp_server_picker_mut()
-        .with_selected_mut(|e| {
-            e.status = status;
-            e.stderr_tail = stderr_tail;
-            e.tools = tools;
+        .with_selected_mut(|item| {
+            let entry = item.entry_mut();
+            entry.status = status;
+            entry.stderr_tail = stderr_tail;
+            entry.tools = tools;
         });
 }
 

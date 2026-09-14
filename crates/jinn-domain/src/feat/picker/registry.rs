@@ -18,6 +18,8 @@ pub const SKILL_ID: &str = "skill";
 pub const THEME_ID: &str = "theme";
 /// The id of the tool picker's spec.
 pub const TOOL_ID: &str = "tool";
+/// The id of the MCP server picker's spec.
+pub const MCP_SERVER_ID: &str = "mcp-server";
 
 /// Maps a legacy `PickerKind` onto its spec id, `None` while the kind has
 /// not migrated yet.
@@ -31,6 +33,7 @@ pub fn spec_id_for_kind(kind: &crate::feat::picker::PickerKind) -> Option<&'stat
         crate::feat::picker::PickerKind::Skill => Some(SKILL_ID),
         crate::feat::picker::PickerKind::Theme => Some(THEME_ID),
         crate::feat::picker::PickerKind::Tool => Some(TOOL_ID),
+        crate::feat::picker::PickerKind::McpServer => Some(MCP_SERVER_ID),
         _ => None,
     }
 }
@@ -44,6 +47,7 @@ pub fn build_picker_registry() -> PickerRegistry {
     registry.register(super::skill_spec::skill_spec());
     registry.register(super::theme_spec::theme_spec());
     registry.register(super::tool_spec::tool_spec());
+    registry.register(super::mcp_server_spec::mcp_server_spec());
     registry
 }
 
@@ -67,6 +71,7 @@ mod tests {
             PickerKind::Skill,
             PickerKind::Theme,
             PickerKind::Tool,
+            PickerKind::McpServer,
         ];
 
         // When mapping each migrated kind and listing registered ids.
@@ -93,6 +98,9 @@ mod tests {
             PickerKind::CompactionModel,
             PickerKind::ReasoningEffort,
             PickerKind::TaskList,
+            PickerKind::Project,
+            PickerKind::Plugin,
+            PickerKind::Endpoint,
         ];
 
         // When mapping each kind.

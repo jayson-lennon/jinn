@@ -25,7 +25,6 @@ use crate::feat::context::prompt_template::PromptTemplateStore;
 use crate::feat::file_lister::ListDirectory;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::protocol::mark_session_interacted::MarkSessionInteracted;
-use crate::feat::ui::picker_states::PickerExt;
 use crate::protocol::{ChatEntry, IntentResult, SessionId};
 use unicode_segmentation::UnicodeSegmentation as _;
 
@@ -690,14 +689,6 @@ pub fn handle_enter_normal_mode_with_pickers(
     // Spec-driven pickers own their close behavior (snapshot revert).
     if let Some(result) = crate::feat::picker::action::try_close_active(state, pickers) {
         return result;
-    }
-
-    // If leaving the MCP server picker without confirming, restore the original
-    // enabled MCP server set.
-    if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::McpServer)
-        && let Some(snapshot) = state.frontend.mcp_server_picker_snapshot_mut().take()
-    {
-        state.active_session_mut().set_enabled_mcp_servers(snapshot);
     }
 
     // TaskList picker is read-only and always opened from SidebarTaskList.

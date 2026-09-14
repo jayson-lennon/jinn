@@ -417,10 +417,9 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
              .bind("<c-d>", Intent::ProjectRemoveHighlighted, KeyCategory::General);
         })
         .scope(Scope::PickerMcpServer, |b| {
+            // The MCP spec's rows (TAB toggle, CTRL+R restart, CTRL+T
+            // logs/tools) land here via bind_picker_spec_rows.
             add_picker_base(b);
-            b.bind("<Tab>", Intent::McpToggleSelected, KeyCategory::General)
-                .bind("<c-r>", Intent::McpRestartSelected, KeyCategory::General)
-                .bind("<c-t>", Intent::McpTogglePreview, KeyCategory::General);
         })
         .scope(Scope::PickerPlugin, |b| {
             add_picker_base(b);
@@ -1988,6 +1987,105 @@ mod leak_check {
                     if picker == "tool" && action == "<tab>"
             ),
             "Tab in PickerTool must fire the spec toggle action; got {intent:?}",
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn mcp_scope_tab_fires_the_spec_toggle_action() {
+        // Given a keymap with the domain's mcp-server spec rows bound.
+        use crate::app::WhichKeyInstance;
+        use jinn_domain::{Key, KeyEvent, Modifiers};
+
+        let mut keymap = init();
+        crate::keymap_gen::bind_picker_spec_rows(
+            &jinn_domain::feat::picker::registry::build_picker_registry(),
+            &mut keymap,
+        );
+        let mut wk = WhichKeyInstance::new(keymap, Scope::PickerMcpServer);
+
+        // When pressing Tab.
+        let tab = KeyEvent {
+            key: Key::Tab,
+            modifiers: Modifiers::none(),
+        };
+        let intent = wk.handle_key(tab);
+
+        // Then it resolves to the mcp-server spec's toggle action.
+        let intent = intent.expect("Tab in PickerMcpServer must fire an intent");
+        assert!(
+            matches!(
+                &intent,
+                jinn_domain::Intent::PickerAction { picker, action }
+                    if picker == "mcp-server" && action == "<tab>"
+            ),
+            "Tab in PickerMcpServer must fire the spec toggle action; got {intent:?}",
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn mcp_scope_ctrl_r_fires_the_spec_restart_action() {
+        // Given a keymap with the domain's mcp-server spec rows bound.
+        use crate::app::WhichKeyInstance;
+        use jinn_domain::{Key, KeyEvent, Modifiers};
+
+        let mut keymap = init();
+        crate::keymap_gen::bind_picker_spec_rows(
+            &jinn_domain::feat::picker::registry::build_picker_registry(),
+            &mut keymap,
+        );
+        let mut wk = WhichKeyInstance::new(keymap, Scope::PickerMcpServer);
+
+        // When pressing Ctrl+R.
+        let c_r = KeyEvent {
+            key: Key::Char('r'),
+            modifiers: Modifiers::ctrl(),
+        };
+        let intent = wk.handle_key(c_r);
+
+        // Then it resolves to the mcp-server spec's restart action.
+        let intent = intent.expect("Ctrl+R in PickerMcpServer must fire an intent");
+        assert!(
+            matches!(
+                &intent,
+                jinn_domain::Intent::PickerAction { picker, action }
+                    if picker == "mcp-server" && action == "<c-r>"
+            ),
+            "Ctrl+R in PickerMcpServer must fire the spec restart action; got {intent:?}",
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn mcp_scope_ctrl_t_fires_the_spec_preview_action() {
+        // Given a keymap with the domain's mcp-server spec rows bound.
+        use crate::app::WhichKeyInstance;
+        use jinn_domain::{Key, KeyEvent, Modifiers};
+
+        let mut keymap = init();
+        crate::keymap_gen::bind_picker_spec_rows(
+            &jinn_domain::feat::picker::registry::build_picker_registry(),
+            &mut keymap,
+        );
+        let mut wk = WhichKeyInstance::new(keymap, Scope::PickerMcpServer);
+
+        // When pressing Ctrl+T.
+        let c_t = KeyEvent {
+            key: Key::Char('t'),
+            modifiers: Modifiers::ctrl(),
+        };
+        let intent = wk.handle_key(c_t);
+
+        // Then it resolves to the mcp-server spec's logs/tools action.
+        let intent = intent.expect("Ctrl+T in PickerMcpServer must fire an intent");
+        assert!(
+            matches!(
+                &intent,
+                jinn_domain::Intent::PickerAction { picker, action }
+                    if picker == "mcp-server" && action == "<c-t>"
+            ),
+            "Ctrl+T in PickerMcpServer must fire the spec logs/tools action; got {intent:?}",
         );
     }
 

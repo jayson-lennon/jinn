@@ -6809,6 +6809,7 @@ name = "trouper"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
+ "async-trait",
  "derive_more",
  "error-stack",
  "parking_lot",

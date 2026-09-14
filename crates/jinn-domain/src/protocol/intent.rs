@@ -140,12 +140,6 @@ pub enum Intent {
     PickerMoveCursorLeft,
     /// Move the picker filter cursor right.
     PickerMoveCursorRight,
-    /// Toggle the selected MCP server's enabled/disabled state in the MCP picker.
-    McpToggleSelected,
-    /// Restart the selected MCP server's connection (MCP inspector `<c-r>`).
-    McpRestartSelected,
-    /// Toggle the MCP inspector preview pane between logs and tools (MCP inspector `<c-t>`).
-    McpTogglePreview,
     /// Project picker: create a new session at the highlighted dir, then open
     /// the session lifecycle picker (project picker `<c-enter>` action).
     ProjectNewAtHighlightedWithLifecycle,
@@ -466,9 +460,6 @@ impl std::fmt::Display for Intent {
             Intent::PickerPageDown => write!(f, "picker page down"),
             Intent::PickerMoveCursorLeft => write!(f, "picker cursor left"),
             Intent::PickerMoveCursorRight => write!(f, "picker cursor right"),
-            Intent::McpToggleSelected => write!(f, "toggle mcp server"),
-            Intent::McpRestartSelected => write!(f, "restart mcp server"),
-            Intent::McpTogglePreview => write!(f, "toggle mcp preview"),
             Intent::ProjectNewAtHighlightedWithLifecycle => write!(f, "project new + lifecycle"),
             Intent::ProjectRemoveHighlighted => write!(f, "remove project"),
             Intent::ModelToggleSelected => write!(f, "toggle model"),

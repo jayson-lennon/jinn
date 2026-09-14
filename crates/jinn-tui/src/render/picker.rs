@@ -37,19 +37,23 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
         Some(PickerKind::Endpoint) => {
             jinn_domain::feat::endpoint::picker_render::render_endpoint_picker(frame, area, ctx);
         }
-        // Persona, Skill, Theme, and Tool render entirely through their
-        // specs above; with an empty registry (test seams) there is nothing
-        // to draw. `None` (no picker scope) is also a no-op here.
-        Some(PickerKind::Persona | PickerKind::Skill | PickerKind::Theme | PickerKind::Tool)
+        // Persona, Skill, Theme, Tool, and McpServer render entirely
+        // through their specs above; with an empty registry (test seams)
+        // there is nothing to draw. `None` (no picker scope) is also a
+        // no-op here.
+        Some(
+            PickerKind::Persona
+            | PickerKind::Skill
+            | PickerKind::Theme
+            | PickerKind::Tool
+            | PickerKind::McpServer,
+        )
         | None => {}
         Some(PickerKind::TaskList) => {
             jinn_domain::feat::picker::render::render_task_list_picker(frame, area, ctx);
         }
         Some(PickerKind::Project) => {
             jinn_domain::feat::picker::render::render_project_picker(frame, area, ctx);
-        }
-        Some(PickerKind::McpServer) => {
-            jinn_domain::feat::mcp::render::render_mcp_server_picker(frame, area, ctx);
         }
         Some(PickerKind::Plugin) => {
             jinn_domain::feat::picker::render::render_plugin_picker(frame, area, ctx);
@@ -288,6 +292,59 @@ mod tests {
         assert!(
             status_row.contains("Current: default"),
             "row above must be the status line; got {status_row:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn mcp_picker_draws_status_and_keybind_rows_via_spec() {
+        // Given an MCP server picker open, rendered through its spec.
+        let mut state = AppState::default();
+        state.frontend.scope_stack.push(FocusScope::Picker {
+            kind: PickerKind::McpServer,
+        });
+        let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
+
+        // When rendering.
+        let area = Rect::new(0, 0, 100, 30);
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("terminal");
+        terminal
+            .draw(|frame| {
+                let slices = jinn_slices::Slices::new();
+                let views = jinn_domain::common::overlay_views::OverlayViews::new();
+                let ctx =
+                    jinn_domain::RenderCtx::new(&state, &slices, &views).with_pickers(&pickers);
+                super::render_picker(frame, area, &ctx);
+            })
+            .expect("draw");
+
+        // Then the popup draws the spec's two bottom rows: the "0/0 enabled"
+        // status line above the standard keybind line.
+        let popup = compute_popup_rect(area);
+        let inner_bottom = popup.y + popup.height.saturating_sub(2);
+        let buffer = terminal.backend().buffer();
+        let keybind_row: String = ((popup.x + 1)..(popup.x + popup.width - 1))
+            .map(|x| buffer[(x, inner_bottom)].symbol())
+            .collect();
+        let status_row: String = ((popup.x + 1)..(popup.x + popup.width - 1))
+            .map(|x| buffer[(x, inner_bottom - 1)].symbol())
+            .collect();
+        assert!(
+            keybind_row.contains("Enter confirm"),
+            "bottom row must be the keybind line; got {keybind_row:?}"
+        );
+        assert!(
+            status_row.contains("0/0 enabled"),
+            "row above must be the status line; got {status_row:?}"
+        );
+        // And the keybind line advertises the spec's custom binds (the
+        // generator echoes each row's raw notation + label).
+        assert!(
+            keybind_row.contains("<tab> toggle")
+                && keybind_row.contains("<c-r> restart")
+                && keybind_row.contains("<c-t> logs/tools"),
+            "keybind line must list the spec's binds; got {keybind_row:?}"
         );
     }
 

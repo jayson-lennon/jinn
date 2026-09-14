@@ -12,6 +12,7 @@ use jinn_picker::PickerHost;
 use jinn_picker::PickerId;
 
 use crate::common::app_state::AppState;
+use crate::feat::picker::registry::MCP_SERVER_ID;
 use crate::feat::picker::registry::PERSONA_ID;
 use crate::feat::picker::registry::SKILL_ID;
 use crate::feat::picker::registry::THEME_ID;
@@ -39,6 +40,9 @@ impl PickerHost for AppStatePickerHost<'_> {
             SKILL_ID => Some(self.state.frontend.skill_picker_mut() as &mut dyn std::any::Any),
             THEME_ID => Some(self.state.frontend.theme_picker_mut() as &mut dyn std::any::Any),
             TOOL_ID => Some(self.state.frontend.tool_picker_mut() as &mut dyn std::any::Any),
+            MCP_SERVER_ID => {
+                Some(self.state.frontend.mcp_server_picker_mut() as &mut dyn std::any::Any)
+            }
             _ => None,
         }
     }
@@ -49,6 +53,7 @@ impl PickerHost for AppStatePickerHost<'_> {
             SKILL_ID => Some(self.state.frontend.skill_picker() as &dyn std::any::Any),
             THEME_ID => Some(self.state.frontend.theme_picker() as &dyn std::any::Any),
             TOOL_ID => Some(self.state.frontend.tool_picker() as &dyn std::any::Any),
+            MCP_SERVER_ID => Some(self.state.frontend.mcp_server_picker() as &dyn std::any::Any),
             _ => None,
         }
     }
@@ -224,6 +229,7 @@ impl PickerHost for AppStateRenderHost<'_> {
             SKILL_ID => Some(self.state.frontend.skill_picker() as &dyn std::any::Any),
             THEME_ID => Some(self.state.frontend.theme_picker() as &dyn std::any::Any),
             TOOL_ID => Some(self.state.frontend.tool_picker() as &dyn std::any::Any),
+            MCP_SERVER_ID => Some(self.state.frontend.mcp_server_picker() as &dyn std::any::Any),
             _ => None,
         }
     }

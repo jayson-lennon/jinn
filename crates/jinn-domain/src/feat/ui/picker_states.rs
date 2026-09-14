@@ -95,7 +95,8 @@ pub struct PickerStates {
 
     /// MCP server picker state - shows configured servers with toggle state.
     /// OWNER: IntentHandler (populated on MCP picker open).
-    pub mcp_server_picker: jinn_selection_widget::SelectionState<McpServerEntry>,
+    pub mcp_server_picker:
+        jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<McpServerEntry>>,
 
     /// Plugin picker state - read-only list of loaded plugins.
     /// OWNER: IntentHandler (populated on plugin picker open).
@@ -228,11 +229,13 @@ pub trait PickerExt {
     ) -> &mut jinn_selection_widget::SelectionState<crate::feat::project::picker_entry::ProjectEntry>;
 
     /// Read-only access to the MCP server picker state.
-    fn mcp_server_picker(&self) -> &jinn_selection_widget::SelectionState<McpServerEntry>;
+    fn mcp_server_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<McpServerEntry>>;
     /// Mutable access to the MCP server picker state.
     fn mcp_server_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::SelectionState<McpServerEntry>;
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<McpServerEntry>>;
 
     /// Read-only access to the plugin picker state.
     fn plugin_picker(&self) -> &jinn_selection_widget::SelectionState<PluginPickerEntry>;
@@ -402,13 +405,15 @@ impl PickerExt for super::frontend_state::FrontendState {
         &mut self.pickers.project_picker
     }
 
-    fn mcp_server_picker(&self) -> &jinn_selection_widget::SelectionState<McpServerEntry> {
+    fn mcp_server_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<McpServerEntry>> {
         &self.pickers.mcp_server_picker
     }
 
     fn mcp_server_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::SelectionState<McpServerEntry> {
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<McpServerEntry>> {
         &mut self.pickers.mcp_server_picker
     }
 

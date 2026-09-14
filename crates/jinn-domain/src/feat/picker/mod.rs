@@ -7,6 +7,7 @@ pub mod action;
 pub mod geometry;
 pub mod host_impl;
 pub mod intent;
+pub mod mcp_server_spec;
 pub mod persona_spec;
 pub mod picker_kind;
 pub mod registry;

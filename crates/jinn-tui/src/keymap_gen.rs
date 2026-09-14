@@ -77,6 +77,7 @@ fn picker_spec_scope(id: jinn_picker::PickerId) -> Option<Scope> {
         "persona" => Some(Scope::PickerPersona),
         "skill" => Some(Scope::PickerSkill),
         "tool" => Some(Scope::PickerTool),
+        "mcp-server" => Some(Scope::PickerMcpServer),
         _ => None,
     }
 }
