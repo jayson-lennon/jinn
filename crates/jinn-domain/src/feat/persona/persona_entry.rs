@@ -56,7 +56,7 @@ impl PickerItem for PersonaEntry {
 }
 
 /// Renders a persona picker row.
-fn render_persona_row(
+pub(crate) fn render_persona_row(
     name: &str,
     description: &str,
     is_active: bool,

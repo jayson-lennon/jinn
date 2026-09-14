@@ -42,7 +42,8 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
             jinn_domain::feat::picker::render::render_tool_picker(frame, area, ctx);
         }
         // Persona and Skill render entirely through their specs above; with
-        // an empty registry (test seams) there is nothing to draw.
+        // an empty registry (test seams) there is nothing to draw. `None`
+        // (no picker scope) is also a no-op here.
         Some(PickerKind::Persona | PickerKind::Skill) | None => {}
         Some(PickerKind::TaskList) => {
             jinn_domain::feat::picker::render::render_task_list_picker(frame, area, ctx);
@@ -56,7 +57,6 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
         Some(PickerKind::Plugin) => {
             jinn_domain::feat::picker::render::render_plugin_picker(frame, area, ctx);
         }
-        None => {}
     }
 }
 
@@ -95,6 +95,7 @@ mod tests {
     use jinn_domain::AppState;
     use jinn_domain::FocusScope;
     use jinn_domain::PickerKind;
+    use jinn_domain::feat::ui::picker_states::PickerExt as _;
     use jinn_selection_widget::compute_popup_rect;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -250,6 +251,57 @@ mod tests {
         assert!(
             status_row.contains("Active:"),
             "row above must be the status line; got {status_row:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn persona_picker_draws_entry_rows_via_the_spec_row_hook() {
+        // Given an open persona picker whose storage holds wrapped entries
+        // (the same shape the session actor's loader produces).
+        let mut state = AppState::default();
+        state.frontend.scope_stack.push(FocusScope::Picker {
+            kind: PickerKind::Persona,
+        });
+        let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
+        let wrapped = pickers
+            .make_items(
+                jinn_domain::feat::picker::registry::PERSONA_ID,
+                vec![jinn_domain::feat::persona::PersonaEntry {
+                    name: "coder".to_owned(),
+                    description: "code helper".to_owned(),
+                    is_active: false,
+                    theme: state.frontend.theme.clone(),
+                }],
+            )
+            .expect("persona spec registered");
+        state.frontend.persona_picker_mut().set_items(wrapped);
+
+        // When rendering the picker.
+        let area = Rect::new(0, 0, 100, 30);
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("terminal");
+        terminal
+            .draw(|frame| {
+                let slices = jinn_slices::Slices::new();
+                let views = jinn_domain::common::overlay_views::OverlayViews::new();
+                let ctx =
+                    jinn_domain::RenderCtx::new(&state, &slices, &views).with_pickers(&pickers);
+                super::render_picker(frame, area, &ctx);
+            })
+            .expect("draw");
+
+        // Then the entry's name appears in the popup — rows are not blank.
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect();
+        assert!(
+            rendered.contains("coder"),
+            "persona picker must draw its entry rows; got {rendered:?}"
         );
     }
 }

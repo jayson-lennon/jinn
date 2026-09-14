@@ -18,14 +18,17 @@ use crate::common::app_state::AppState;
 use crate::feat::picker::host_impl::AppStatePickerHost;
 use crate::protocol::intent::IntentResult;
 
-/// Folds a picker outcome into an intent result; `close` pops the scope.
+/// Folds a picker outcome into an intent result; `close` clears the
+/// overlay scopes back to Normal — the same landing spot trunk's ESC from
+/// a picker produced (`clear_overlays`), so a picker opened from Input
+/// (e.g. the model picker) doesn't strand the user in a stale Input scope.
 fn fold(state: &mut AppState, outcome: PickerOutcome) -> IntentResult {
     let close = outcome.close;
     let mut result = IntentResult::empty();
     result.messages = outcome.messages;
     result.message_names = outcome.message_names;
     if close {
-        state.frontend.scope_stack.pop();
+        state.frontend.scope_stack.clear_overlays();
     }
     result
 }

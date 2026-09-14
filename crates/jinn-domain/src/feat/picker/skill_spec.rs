@@ -385,13 +385,15 @@ fn confirm_skill(ctx: &mut ActionCtx<'_>) -> PickerOutcome {
 }
 
 /// ESC on the skill picker (the revert path — never the confirm path):
-/// restore the snapshotted disabled set.
+/// restore the snapshotted disabled set. Signals `close` so the dispatch
+/// layer pops the picker scope — without it ESC would revert the snapshot
+/// but strand the user inside the picker.
 fn close_skill(ctx: &mut ActionCtx<'_>) -> PickerOutcome {
     let state = state_of(ctx);
     if let Some(snapshot) = state.frontend.skill_picker_snapshot_mut().take() {
         state.active_session_mut().set_disabled_skills(snapshot);
     }
-    PickerOutcome::empty()
+    PickerOutcome::empty().close()
 }
 
 /// Repopulates the skill picker from the active session's discovered skills,
@@ -1030,7 +1032,44 @@ mod tests {
 
         // Then the session's disabled set is back to the snapshot (empty).
         assert!(state.active_session().disabled_skills().is_empty());
-        assert!(!outcome.close, "the close hook closes nothing by itself");
+        // And the hook signals close so the dispatch layer pops the scope.
+        assert!(outcome.close, "the close hook must pop the picker scope");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn escape_through_the_intent_handler_closes_the_skill_picker() {
+        use crate::common::slices::key_routes::KeyRoutes;
+        use crate::common::slices::Slices;
+        use crate::feat::intent::handler::IntentHandler;
+        use crate::protocol::Intent;
+
+        // Given an open skill picker (real registry, real handler) with a
+        // toggled disable staged on top of the snapshot.
+        let mut state = state_with_skills();
+        let pickers = crate::feat::picker::registry::build_picker_registry();
+        let _ = run(&mut state, open_skill);
+        let _ = run(&mut state, skill_toggle);
+        state.frontend.scope_stack.push(FocusScope::Picker {
+            kind: PickerKind::Skill,
+        });
+
+        // When handling the ESC intent through the IntentHandler.
+        let _ = IntentHandler::handle(
+            &Intent::EnterNormalMode,
+            &mut state,
+            &Slices::new(),
+            &KeyRoutes::new(),
+            &pickers,
+        );
+
+        // Then the picker scope is gone — ESC actually leaves the picker.
+        assert!(
+            state.frontend.scope_stack.picker_kind().is_none(),
+            "ESC must close the skill picker"
+        );
+        // And the snapshot revert still applied.
+        assert!(state.active_session().disabled_skills().is_empty());
     }
 
     // ── Storage contract ─────────────────────────────────────────────
