@@ -1595,10 +1595,7 @@ async fn jinn_discord_activate(
     clippy::panic,
     reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
 )]
-fn jinn_session_init_activate(
-    services: &mut Services,
-    state: jinn_domain::common::state::State,
-) {
+fn jinn_session_init_activate(services: &mut Services, state: jinn_domain::common::state::State) {
     // `Services` is cheap to clone (Arc fields); the clone side-steps
     // the host's mutable viewport borrow for the activation call.
     let services_snapshot = services.clone();

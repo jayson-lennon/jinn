@@ -2664,7 +2664,6 @@ dependencies = [
  "derive_more",
  "error-stack",
  "jinn-core-types",
- "jinn-dashboard",
  "jinn-discord-msg",
  "jinn-domain",
  "jinn-session-msg",

@@ -34,9 +34,8 @@ impl ServiceActor for DiscoveryNotifier {
         // The state handle and cap cannot ride JSON args; spawn
         // injects them via `start_with` (see `spawn`).
         Err(
-            error_stack::IntoReport::into_report(RegistryError::InvalidSpec).attach(
-                "DiscoveryNotifier is spawned via start_with; start requires state + cap",
-            ),
+            error_stack::IntoReport::into_report(RegistryError::InvalidSpec)
+                .attach("DiscoveryNotifier is spawned via start_with; start requires state + cap"),
         )
     }
 }

@@ -145,10 +145,7 @@ async fn drain_quake_bar_routes(services: &jinn_domain::Services) {
     clippy::panic,
     reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
 )]
-async fn activate_session_init(
-    services: &mut jinn_domain::Services,
-    core: &jinn_domain::AppCore,
-) {
+async fn activate_session_init(services: &mut jinn_domain::Services, core: &jinn_domain::AppCore) {
     // `Services` is cheap to clone (Arc fields); the clone side-steps
     // the host's mutable viewport borrow for the activation call.
     let services_snapshot = services.clone();

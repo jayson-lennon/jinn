@@ -16,8 +16,8 @@
 //! carries no session id and targets the active session.
 
 use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
-use trouper::envelope::Address;
 use trouper::context::MsgCtx;
+use trouper::envelope::Address;
 use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
@@ -26,10 +26,10 @@ use jinn_domain::common::app_paths::AppPaths;
 use jinn_domain::common::state::State;
 use jinn_domain::feat::context::protocol::command::ScanContextFiles;
 use jinn_domain::feat::provider::protocol::command::RescanPromptTemplates;
-use jinn_domain::feat::session_lifecycle::protocol::event::{SessionCreated, SessionCwdChanged};
 use jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted;
-use jinn_domain::init::EnvironmentLoaded;
+use jinn_domain::feat::session_lifecycle::protocol::event::{SessionCreated, SessionCwdChanged};
 use jinn_domain::feat::skills::ScanSkills;
+use jinn_domain::init::EnvironmentLoaded;
 use jinn_session_msg::SessionSetupCompleted;
 
 use crate::commands::{RescanContext, RescanPrompts, RescanSkills, RunDiscovery};
@@ -47,7 +47,10 @@ pub struct SessionInitSupervisor {
     /// The launch's path configuration (home + resource dirs; kept for
     /// symmetry with the worker, which resolves its scan inputs from
     /// the same source).
-    #[expect(dead_code, reason = "documentation of the launch-wide inputs; the gate reads State")]
+    #[expect(
+        dead_code,
+        reason = "documentation of the launch-wide inputs; the gate reads State"
+    )]
     paths: AppPaths,
 }
 
@@ -120,19 +123,18 @@ impl SessionInitSupervisor {
     where
         M: trouper::schema::Schema + serde::Serialize + serde::de::DeserializeOwned,
     {
-        ctx.send(
-            Address::Path(self.discovery.clone()),
-            msg,
-            None,
-        );
+        ctx.send(Address::Path(self.discovery.clone()), msg, None);
     }
 
     /// Runs a full discovery for `session_id` if its cwd has resolved.
     fn gated_run(&self, ctx: &mut MsgCtx<'_>, session_id: &SessionId) {
         if self.gate_open(session_id) {
-            self.send_to_worker(ctx, &RunDiscovery {
-                session_id: session_id.clone(),
-            });
+            self.send_to_worker(
+                ctx,
+                &RunDiscovery {
+                    session_id: session_id.clone(),
+                },
+            );
         }
     }
 
@@ -182,9 +184,12 @@ impl MsgHandler<SessionCwdChanged> for SessionInitSupervisor {
 impl MsgHandler<ScanSkills> for SessionInitSupervisor {
     async fn handle(&mut self, msg: ScanSkills, ctx: &mut MsgCtx<'_>) {
         if self.gate_open(&msg.session_id) {
-            self.send_to_worker(ctx, &RescanSkills {
-                session_id: msg.session_id.clone(),
-            });
+            self.send_to_worker(
+                ctx,
+                &RescanSkills {
+                    session_id: msg.session_id.clone(),
+                },
+            );
         }
     }
 }
@@ -192,9 +197,12 @@ impl MsgHandler<ScanSkills> for SessionInitSupervisor {
 impl MsgHandler<RescanPromptTemplates> for SessionInitSupervisor {
     async fn handle(&mut self, msg: RescanPromptTemplates, ctx: &mut MsgCtx<'_>) {
         if self.gate_open(&msg.session_id) {
-            self.send_to_worker(ctx, &RescanPrompts {
-                session_id: msg.session_id.clone(),
-            });
+            self.send_to_worker(
+                ctx,
+                &RescanPrompts {
+                    session_id: msg.session_id.clone(),
+                },
+            );
         }
     }
 }
@@ -202,9 +210,12 @@ impl MsgHandler<RescanPromptTemplates> for SessionInitSupervisor {
 impl MsgHandler<ScanContextFiles> for SessionInitSupervisor {
     async fn handle(&mut self, msg: ScanContextFiles, ctx: &mut MsgCtx<'_>) {
         if self.gate_open(&msg.session_id) {
-            self.send_to_worker(ctx, &RescanContext {
-                session_id: msg.session_id.clone(),
-            });
+            self.send_to_worker(
+                ctx,
+                &RescanContext {
+                    session_id: msg.session_id.clone(),
+                },
+            );
         }
     }
 }

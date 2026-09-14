@@ -422,10 +422,13 @@ impl SessionDiscoveryWorker {
         let system = self.system.clone();
         let session_id = self.session_id.clone();
         tokio::spawn(async move {
-            let waited = tokio::time::timeout(
-                SETTLE_BUDGET,
-                async { tokio::join!(join_outcome(skills), join_outcome(prompts), join_outcome(context)) },
-            )
+            let waited = tokio::time::timeout(SETTLE_BUDGET, async {
+                tokio::join!(
+                    join_outcome(skills),
+                    join_outcome(prompts),
+                    join_outcome(context)
+                )
+            })
             .await;
 
             // Stale-run guard: a newer run superseded this one.
@@ -439,7 +442,10 @@ impl SessionDiscoveryWorker {
                     // The budget fired: settle now. The resource tasks
                     // keep running (their handles are detached here),
                     // so late resources still land.
-                    (DiscoverySnapshot::default(), Some(DELAYED_SKILLS.to_owned()))
+                    (
+                        DiscoverySnapshot::default(),
+                        Some(DELAYED_SKILLS.to_owned()),
+                    )
                 }
             };
             publish(
@@ -537,12 +543,10 @@ impl ResourceOutcome {
 
 /// Joins a resource task; a panicked task folds into an error outcome.
 async fn join_outcome(handle: tokio::task::JoinHandle<ResourceOutcome>) -> ResourceOutcome {
-    handle
-        .await
-        .unwrap_or(ResourceOutcome::Done(
-            0,
-            Some("resource task failed".to_owned()),
-        ))
+    handle.await.unwrap_or(ResourceOutcome::Done(
+        0,
+        Some("resource task failed".to_owned()),
+    ))
 }
 
 /// Writes the discovered skills into the session and reloads the picker.

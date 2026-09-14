@@ -75,18 +75,20 @@ fn stage_routes(host: &mut AppSliceHost<'_>) {
     host.forward::<jinn_domain::init::env_init_actor::EnvironmentLoaded, _>(topic.clone(), || {
         jinn_domain::init::env_init_actor::EnvironmentLoaded::schema_def()
     });
-    host.forward::<jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated, _>(topic.clone(), || {
-        jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated::schema_def()
-    });
+    host.forward::<jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated, _>(
+        topic.clone(),
+        || jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated::schema_def(),
+    );
     host.forward::<jinn_session_msg::SessionSetupCompleted, _>(topic.clone(), || {
         jinn_session_msg::SessionSetupCompleted::schema_def()
     });
     host.forward::<jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted, _>(topic.clone(), || {
         jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted::schema_def()
     });
-    host.forward::<jinn_domain::feat::session_lifecycle::protocol::event::SessionCwdChanged, _>(topic.clone(), || {
-        jinn_domain::feat::session_lifecycle::protocol::event::SessionCwdChanged::schema_def()
-    });
+    host.forward::<jinn_domain::feat::session_lifecycle::protocol::event::SessionCwdChanged, _>(
+        topic.clone(),
+        || jinn_domain::feat::session_lifecycle::protocol::event::SessionCwdChanged::schema_def(),
+    );
     host.forward::<crate::commands::RunDiscovery, _>(topic.clone(), || {
         crate::commands::RunDiscovery::schema_def()
     });

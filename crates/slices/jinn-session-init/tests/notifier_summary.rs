@@ -67,6 +67,7 @@ impl Wired {
     }
 }
 
+#[rstest::rstest]
 #[tokio::test]
 async fn settled_event_posts_one_transient_summary_entry() {
     // Given a notifier wired on the fabric.
@@ -99,6 +100,7 @@ async fn settled_event_posts_one_transient_summary_entry() {
     assert!(text.contains("- 1 AGENTS.md / context file(s)"));
 }
 
+#[rstest::rstest]
 #[tokio::test]
 async fn empty_discovery_says_no_resources() {
     // Given a notifier wired on the fabric.
@@ -122,6 +124,7 @@ async fn empty_discovery_says_no_resources() {
     assert!(wired.transient_texts()[0].contains("No project resources found"));
 }
 
+#[rstest::rstest]
 #[tokio::test]
 async fn delayed_reason_surfaces_in_summary() {
     // Given a notifier wired on the fabric.
@@ -148,6 +151,7 @@ async fn delayed_reason_surfaces_in_summary() {
     assert!(wired.transient_texts()[0].contains("discovery delayed by context"));
 }
 
+#[rstest::rstest]
 #[tokio::test]
 async fn failed_scan_notes_error_in_summary() {
     // Given a notifier wired on the fabric.

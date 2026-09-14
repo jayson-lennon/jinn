@@ -15,8 +15,8 @@ use std::time::Duration;
 use jinn_domain::common::app_paths::AppPaths;
 use jinn_domain::common::app_state::AppState;
 use jinn_domain::common::state::State;
-use jinn_domain::protocol::SessionId;
 use jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated;
+use jinn_domain::protocol::SessionId;
 
 /// Polls `check` until it passes or the retry budget runs out.
 async fn wait_for(check: impl Fn() -> bool) {
@@ -76,6 +76,7 @@ impl Wired {
     }
 }
 
+#[rstest::rstest]
 #[tokio::test]
 async fn session_created_triggers_discovery_for_that_session() {
     // Given a wired supervisor whose session's home contains one skill.
@@ -104,6 +105,7 @@ async fn session_created_triggers_discovery_for_that_session() {
     .await;
 }
 
+#[rstest::rstest]
 #[tokio::test]
 async fn pending_cwd_session_produces_no_scan() {
     // Given a wired supervisor whose session cwd is the pending sentinel.
@@ -135,6 +137,7 @@ async fn pending_cwd_session_produces_no_scan() {
     assert!(session.discovered_skills().is_empty());
 }
 
+#[rstest::rstest]
 #[tokio::test]
 async fn manual_rescan_reaches_only_the_addressed_session() {
     // Given a wired supervisor with a second session whose home has a skill.
@@ -176,6 +179,7 @@ async fn manual_rescan_reaches_only_the_addressed_session() {
     assert!(other_session.discovered_skills().is_empty());
 }
 
+#[rstest::rstest]
 #[tokio::test]
 async fn worker_settles_and_notifier_writes_the_summary_entry() {
     // Given a wired supervisor + notifier whose home contains one skill.
@@ -207,5 +211,67 @@ async fn worker_settles_and_notifier_writes_the_summary_entry() {
     .await;
 }
 
+#[rstest::rstest]
+#[tokio::test]
+async fn rescan_into_empty_dir_clears_stale_discovered_skills() {
+    // Given a wired supervisor whose session discovered a skill, and the
+    // skill file then removed from disk.
+    let wired = Wired::wire().await;
+    write_skill(&wired.home, "stale-skill");
+    let sent = wired
+        .fabric
+        .system()
+        .send(wired.fabric.system().envelope(
+            <jinn_session_init::commands::RunDiscovery as trouper::schema::Schema>::schema_id(),
+            trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
+            serde_json::json!({
+                "session_id": wired.session_id.to_string(),
+            }),
+        ))
+        .await;
+    assert!(sent.is_ok(), "first discovery must resolve: {sent:?}");
+    wait_for(|| {
+        let guard = wired.state.read();
+        guard
+            .session
+            .get(&wired.session_id)
+            .is_some_and(|s| !s.discovered_skills().is_empty())
+    })
+    .await;
+    let skill_dir = wired
+        .home
+        .join(".agents")
+        .join("skills")
+        .join("stale-skill");
+    std::fs::remove_dir_all(&skill_dir).expect("remove skill dir");
 
+    // When a second discovery runs against the now-empty tree.
+    let sent = wired
+        .fabric
+        .system()
+        .send(wired.fabric.system().envelope(
+            <jinn_session_init::commands::RunDiscovery as trouper::schema::Schema>::schema_id(),
+            trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
+            serde_json::json!({
+                "session_id": wired.session_id.to_string(),
+            }),
+        ))
+        .await;
+    assert!(sent.is_ok(), "second discovery must resolve: {sent:?}");
+    wait_for(|| {
+        let guard = wired.state.read();
+        guard
+            .session
+            .get(&wired.session_id)
+            .is_some_and(|s| s.discovered_skills().is_empty())
+    })
+    .await;
 
+    // Then the discovered set is empty — no stale-skill carryover.
+    let guard = wired.state.read();
+    let session = guard.session.get(&wired.session_id).expect("session");
+    assert!(
+        session.discovered_skills().is_empty(),
+        "empty tree must clear previously discovered skills"
+    );
+}

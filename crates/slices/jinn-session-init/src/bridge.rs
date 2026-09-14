@@ -22,7 +22,8 @@ use crate::session_init_topic;
 /// none the wiser.
 pub async fn drain_routes(services: &Services) {
     forward::<jinn_domain::init::env_init_actor::EnvironmentLoaded>(services).await;
-    forward::<jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated>(services).await;
+    forward::<jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated>(services)
+        .await;
     forward::<jinn_session_msg::SessionSetupCompleted>(services).await;
     forward::<jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted>(
         services,

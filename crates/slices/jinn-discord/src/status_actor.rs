@@ -15,9 +15,9 @@
 //! the drain loop is spawned from the actor's construction and the
 //! actor path doubles as the readiness point.
 
-use jinn_dashboard::contracts::ServiceStatusUpdate;
 use jinn_discord_msg::DiscordStatusUpdate;
 use jinn_discord_msg::discord_topic;
+use jinn_slices::ServiceStatusUpdate;
 use jinn_slices::TypedCell;
 use trouper::actor::ServiceActor;
 use trouper::envelope::Event;
@@ -49,9 +49,9 @@ pub fn discord_connection_slot() -> jinn_slices::SlotKey {
 #[must_use]
 pub fn to_service_update(update: &DiscordStatusUpdate) -> ServiceStatusUpdate {
     let (lifecycle, with_description) = match update {
-        DiscordStatusUpdate::Connecting => (Some(jinn_dashboard::ActorLifecycle::Starting), true),
-        DiscordStatusUpdate::Connected => (Some(jinn_dashboard::ActorLifecycle::Running), true),
-        DiscordStatusUpdate::Error { .. } => (Some(jinn_dashboard::ActorLifecycle::Dead), true),
+        DiscordStatusUpdate::Connecting => (Some(jinn_core_types::ActorLifecycle::Starting), true),
+        DiscordStatusUpdate::Connected => (Some(jinn_core_types::ActorLifecycle::Running), true),
+        DiscordStatusUpdate::Error { .. } => (Some(jinn_core_types::ActorLifecycle::Dead), true),
         DiscordStatusUpdate::Disconnected => (None, false),
     };
     ServiceStatusUpdate {
@@ -184,7 +184,7 @@ mod tests {
     use super::DiscordStatusActorDeps;
     use super::fold_connection;
     use super::to_service_update;
-    use jinn_dashboard::ActorLifecycle;
+    use jinn_core_types::ActorLifecycle;
     use jinn_discord_msg::DiscordStatusUpdate;
     use jinn_slices::Slices;
     use std::future::Future;

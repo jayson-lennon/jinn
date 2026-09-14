@@ -48,12 +48,13 @@ impl trouper::schema::Schema for RunDiscovery {
             name: "RunDiscovery".to_owned(),
             version: 1,
             kind: trouper::schema::SchemaKind::Command,
-            fields: vec![trouper::schema::FieldDef::required(
-                "session_id",
-                trouper::schema::FieldTy::Uuid,
-            )
-            .as_shard_key()],
-            description: Some("Scan all three discovery resources for a session and settle the run.".to_owned()),
+            fields: vec![
+                trouper::schema::FieldDef::required("session_id", trouper::schema::FieldTy::Uuid)
+                    .as_shard_key(),
+            ],
+            description: Some(
+                "Scan all three discovery resources for a session and settle the run.".to_owned(),
+            ),
         }
     }
 }
@@ -64,11 +65,10 @@ impl trouper::schema::Schema for RescanSkills {
             name: "RescanSkills".to_owned(),
             version: 1,
             kind: trouper::schema::SchemaKind::Command,
-            fields: vec![trouper::schema::FieldDef::required(
-                "session_id",
-                trouper::schema::FieldTy::Uuid,
-            )
-            .as_shard_key()],
+            fields: vec![
+                trouper::schema::FieldDef::required("session_id", trouper::schema::FieldTy::Uuid)
+                    .as_shard_key(),
+            ],
             description: Some("Re-run the skills scan for a session.".to_owned()),
         }
     }
@@ -80,11 +80,10 @@ impl trouper::schema::Schema for RescanPrompts {
             name: "RescanPrompts".to_owned(),
             version: 1,
             kind: trouper::schema::SchemaKind::Command,
-            fields: vec![trouper::schema::FieldDef::required(
-                "session_id",
-                trouper::schema::FieldTy::Uuid,
-            )
-            .as_shard_key()],
+            fields: vec![
+                trouper::schema::FieldDef::required("session_id", trouper::schema::FieldTy::Uuid)
+                    .as_shard_key(),
+            ],
             description: Some("Re-run the prompt-templates scan for a session.".to_owned()),
         }
     }
@@ -96,11 +95,10 @@ impl trouper::schema::Schema for RescanContext {
             name: "RescanContext".to_owned(),
             version: 1,
             kind: trouper::schema::SchemaKind::Command,
-            fields: vec![trouper::schema::FieldDef::required(
-                "session_id",
-                trouper::schema::FieldTy::Uuid,
-            )
-            .as_shard_key()],
+            fields: vec![
+                trouper::schema::FieldDef::required("session_id", trouper::schema::FieldTy::Uuid)
+                    .as_shard_key(),
+            ],
             description: Some("Re-run the context-files scan for a session.".to_owned()),
         }
     }
@@ -136,7 +134,9 @@ mod tests {
     fn run_discovery_shard_key_roundtrips_as_uuid_string() {
         // Given a RunDiscovery command with a real session id.
         let id = SessionId::new();
-        let command = RunDiscovery { session_id: id.clone() };
+        let command = RunDiscovery {
+            session_id: id.clone(),
+        };
         let payload = serde_json::to_value(&command).expect("serialize");
 
         // When the kernel extracts the shard key from the payload.

@@ -8,7 +8,6 @@ publish.workspace = true
 async-trait = { workspace = true }
 daow = { workspace = true }
 jinn-core-types = { workspace = true }
-jinn-dashboard = { workspace = true }
 jinn-discord-msg = { workspace = true }
 # The bridge subscriber folds trouper topic events (session lifecycle
 # family) into the gateway channels; the session slices have not
