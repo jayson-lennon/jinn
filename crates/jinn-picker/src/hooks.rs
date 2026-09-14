@@ -36,6 +36,10 @@ type BoxedPreviewKey<T> = Arc<dyn Fn(&T) -> Option<PreviewKey> + Send + Sync>;
 type BoxedStatus = Arc<dyn Fn(&StatusCtx<'_>) -> Option<Line<'static>> + Send + Sync>;
 /// Boxed closure type behind [`PickerLifecycleFn`] and [`PickerBindAction`].
 type BoxedAction = Arc<dyn Fn(&mut ActionCtx<'_>) -> PickerOutcome + Send + Sync>;
+/// Index-erased dispatch closure built by [`PickerSelectionChangeFn::new`]:
+/// snapshots the highlighted entry out of the lent storage (by index), then
+/// runs the declared closure with it.
+type BoxedSelectionChangeAt = Arc<dyn Fn(usize, &mut ActionCtx<'_>) + Send + Sync>;
 
 /// Builds the picker's entries when they are (re)loaded.
 ///
@@ -217,6 +221,75 @@ impl<T> std::fmt::Debug for PickerPreviewKeyFn<T> {
     }
 }
 
+impl<T> Clone for PickerSelectionChangeFn<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+/// Reacts to the highlighted entry changing (cursor movement, paging).
+///
+/// Declared via `.on_selection_change`; it receives the newly highlighted
+/// entry and mutates host state in place (a live preview). It returns
+/// nothing — it can never close the picker or emit messages, and an absent
+/// hook means the spec has no selection-change behavior. Runs through
+/// [`PickerSelectionChangeFn::run`].
+///
+/// Dispatch erases the entry: at run time the hook snapshots the entry at
+/// the highlighted index out of the lent selection storage (a no-op when the
+/// index is out of bounds), then invokes the declared closure — the entry
+/// must be [`Clone`] because it borrows the same storage the mutable context
+/// guards.
+pub struct PickerSelectionChangeFn<T> {
+    inner: BoxedSelectionChangeAt,
+    marker: std::marker::PhantomData<fn() -> T>,
+}
+
+impl<T> PickerSelectionChangeFn<T>
+where
+    T: Clone + std::fmt::Debug + Send + Sync + 'static,
+{
+    /// Wraps a closure or function into this hook.
+    #[must_use]
+    pub fn new<F>(f: F) -> Self
+    where
+        F: Fn(&T, &mut ActionCtx<'_>) + Send + Sync + 'static,
+    {
+        Self {
+            inner: Arc::new(move |index: usize, ctx: &mut ActionCtx<'_>| {
+                let entry = {
+                    let storage =
+                        ctx.selection::<jinn_selection_widget::SelectionState<crate::entry::PickerEntry<T>>>();
+                    storage.and_then(|state| {
+                        state.items().get(index).map(|item| item.entry().clone())
+                    })
+                };
+                let Some(entry) = entry else {
+                    return;
+                };
+                f(&entry, ctx);
+            }),
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T> PickerSelectionChangeFn<T> {
+    /// Runs the hook through the wrapper seam for the entry at `index`.
+    pub fn run(&self, index: usize, ctx: &mut ActionCtx<'_>) {
+        (self.inner)(index, ctx);
+    }
+}
+
+impl<T> std::fmt::Debug for PickerSelectionChangeFn<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PickerSelectionChangeFn(..)")
+    }
+}
+
 /// Renders the custom status line above the keybind line.
 ///
 /// Declared via `.status`; `None` renders a blank line so the picker's
@@ -320,7 +393,7 @@ mod tests {
     use super::*;
 
     /// A minimal debug entry for hook signature exercises.
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct Entry {
         name: String,
     }
@@ -409,5 +482,101 @@ mod tests {
         // Then the hook type is stable and cloneable.
         let cloned = hook.clone();
         assert!(format!("{cloned:?}").contains("PickerStatusFn"));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn selection_change_hook_resolves_the_entry_by_index_and_runs() {
+        // Given a spec storage holding two entries and a hook that records
+        // the entry it receives.
+        let mut registry = crate::registry::PickerRegistry::new();
+        registry.register(
+            crate::builder::PickerSpec::<Entry>::new(crate::id::PickerId::new("sc"))
+                .search(|entry: &Entry| entry.name.clone()),
+        );
+        let items = registry
+            .make_items::<Entry>(
+                "sc",
+                vec![
+                    Entry {
+                        name: String::from("first"),
+                    },
+                    Entry {
+                        name: String::from("second"),
+                    },
+                ],
+            )
+            .expect("typed match");
+        let mut host = crate::test_host::FakeHost::new();
+        host.set_selection::<crate::entry::PickerEntry<Entry>>(
+            crate::id::PickerId::new("sc"),
+            jinn_selection_widget::SelectionState::new(),
+        );
+        {
+            let state = crate::host::PickerHost::selection_state(
+                &mut host,
+                crate::id::PickerId::new("sc"),
+            )
+                .and_then(|any| {
+                    any.downcast_mut::<jinn_selection_widget::SelectionState<
+                        crate::entry::PickerEntry<Entry>,
+                    >>()
+                })
+                .expect("storage");
+            state.set_items(items);
+        }
+
+        let seen: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen_sink = std::sync::Arc::clone(&seen);
+        let hook = PickerSelectionChangeFn::<Entry>::new(move |entry: &Entry, _ctx| {
+            seen_sink.lock().expect("lock").push(entry.name.clone());
+        });
+
+        // When running the hook for index 1.
+        let mut ctx = crate::ctx::ActionCtx::new(crate::id::PickerId::new("sc"), &mut host);
+        hook.run(1, &mut ctx);
+
+        // Then the closure received the second entry.
+        assert_eq!(seen.lock().expect("lock").as_slice(), ["second"]);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn selection_change_hook_no_ops_on_out_of_bounds_index() {
+        // Given a hook over storage with no items.
+        let mut host = crate::test_host::FakeHost::new();
+        host.set_selection::<crate::entry::PickerEntry<Entry>>(
+            crate::id::PickerId::new("oob"),
+            jinn_selection_widget::SelectionState::new(),
+        );
+
+        let fired: std::sync::Arc<std::sync::Mutex<bool>> =
+            std::sync::Arc::new(std::sync::Mutex::new(false));
+        let fired_sink = std::sync::Arc::clone(&fired);
+        let hook = PickerSelectionChangeFn::<Entry>::new(move |_entry: &Entry, _ctx| {
+            *fired_sink.lock().expect("lock") = true;
+        });
+
+        // When running for an index with no entry.
+        let mut ctx = crate::ctx::ActionCtx::new(crate::id::PickerId::new("oob"), &mut host);
+        hook.run(0, &mut ctx);
+
+        // Then the closure never ran.
+        assert!(!*fired.lock().expect("lock"));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn selection_change_hook_reports_debug_and_clone_shape() {
+        // Given a selection-change hook.
+        let hook =
+            PickerSelectionChangeFn::<Entry>::new(|_entry: &Entry, _ctx: &mut ActionCtx<'_>| {});
+
+        // When cloning and debug-printing it.
+        let cloned = hook.clone();
+
+        // Then the seam surface is stable.
+        assert!(format!("{cloned:?}").contains("PickerSelectionChangeFn"));
     }
 }

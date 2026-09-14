@@ -35,7 +35,7 @@ pub use ctx::{ActionCtx, LoadCtx, PreviewCtx, RowCtx, StatusCtx};
 pub use entry::PickerEntry;
 pub use hooks::{
     PickerBindAction, PickerLifecycleFn, PickerLoadFn, PickerPreviewFn, PickerPreviewKeyFn,
-    PickerRowFn, PickerSearchFn, PickerStatusFn,
+    PickerRowFn, PickerSearchFn, PickerSelectionChangeFn, PickerStatusFn,
 };
 pub use host::{Palette, PickerHost, SharedPreviewCache};
 pub use id::PickerId;

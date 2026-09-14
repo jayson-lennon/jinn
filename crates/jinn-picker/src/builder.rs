@@ -22,6 +22,7 @@ use crate::hooks::PickerPreviewFn;
 use crate::hooks::PickerPreviewKeyFn;
 use crate::hooks::PickerRowFn;
 use crate::hooks::PickerSearchFn;
+use crate::hooks::PickerSelectionChangeFn;
 use crate::hooks::PickerStatusFn;
 use crate::id::PickerId;
 use crate::outcome::PickerOutcome;
@@ -50,6 +51,7 @@ where
     on_open: Option<PickerLifecycleFn>,
     on_confirm: Option<PickerLifecycleFn>,
     on_close: Option<PickerLifecycleFn>,
+    selection_change: Option<PickerSelectionChangeFn<T>>,
 }
 
 impl<T> PickerSpec<T>
@@ -72,6 +74,7 @@ where
             on_open: None,
             on_confirm: None,
             on_close: None,
+            selection_change: None,
         }
     }
 
@@ -218,6 +221,23 @@ where
         self
     }
 
+    /// Declares the selection-change behavior: the live preview that runs
+    /// whenever the highlighted entry changes (cursor movement, paging).
+    /// It receives the newly highlighted entry and mutates host state in
+    /// place — it can never close the picker or emit messages. The erased
+    /// dispatch snapshots the entry out of the lent storage at run time, so
+    /// `T` must be `Clone`. Declaring it reserves no geometry (it renders
+    /// nothing). Default: no hook — selection changes are behaviorless.
+    #[must_use]
+    pub fn on_selection_change<F>(mut self, f: F) -> Self
+    where
+        T: Clone,
+        F: Fn(&T, &mut ActionCtx<'_>) + Send + Sync + 'static,
+    {
+        self.selection_change = Some(PickerSelectionChangeFn::new(f));
+        self
+    }
+
     /// Finishes the builder chain. The spec is then registered via
     /// [`crate::registry::PickerRegistry::register`], which erases `T`.
     #[must_use]
@@ -269,6 +289,7 @@ where
         Option<PickerLifecycleFn>,
         Option<PickerLifecycleFn>,
         Option<PickerLifecycleFn>,
+        Option<PickerSelectionChangeFn<T>>,
     ) {
         let reset_scroll_on_selection_change = match &self.widget {
             PickerWidget::Preview(spec) => spec.reset_scroll_on_selection_change,
@@ -289,6 +310,7 @@ where
             self.on_open,
             self.on_confirm,
             self.on_close,
+            self.selection_change,
         )
     }
 }
@@ -332,6 +354,7 @@ mod tests {
             _open,
             _confirm,
             _close,
+            _selection_change,
         ) = spec.into_parts();
 
         // Then defaults apply: id-titled list picker with no binds.
@@ -365,6 +388,7 @@ mod tests {
             _open,
             _confirm,
             _close,
+            _selection_change,
         ) = spec.into_parts();
 
         // Then the status row is reserved.
@@ -399,6 +423,7 @@ mod tests {
             _open,
             _confirm,
             _close,
+            _selection_change,
         ) = spec.into_parts();
 
         // Then rows carry declaration order and their hints.

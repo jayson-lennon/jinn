@@ -104,6 +104,14 @@ pub trait ErasedPickerSpec: Send + Sync {
     /// Runs the close hook (ESC revert path only).
     fn run_close(&self, ctx: &mut ActionCtx<'_>) -> PickerOutcome;
 
+    /// Runs the selection-change hook with the entry at `index` — the live
+    /// preview that fires when the highlighted row changes. A no-op when the
+    /// spec declares no hook or `index` is out of bounds.
+    fn run_selection_change(&self, index: usize, ctx: &mut ActionCtx<'_>);
+
+    /// Whether a selection-change hook is declared.
+    fn has_selection_change(&self) -> bool;
+
     /// The custom status line for this frame; `None` renders a blank row.
     fn status_line(&self, ctx: &StatusCtx<'_>) -> Option<Line<'static>>;
 
@@ -159,6 +167,7 @@ where
     pub(crate) on_open: Option<PickerLifecycleFn>,
     pub(crate) on_confirm: Option<PickerLifecycleFn>,
     pub(crate) on_close: Option<PickerLifecycleFn>,
+    pub(crate) selection_change: Option<crate::hooks::PickerSelectionChangeFn<T>>,
 }
 
 impl<T> ErasedPickerSpec for TypedSpec<T>
@@ -230,6 +239,16 @@ where
             Some(hook) => hook.run(ctx),
             None => PickerOutcome::empty(),
         }
+    }
+
+    fn run_selection_change(&self, index: usize, ctx: &mut ActionCtx<'_>) {
+        if let Some(hook) = self.selection_change.as_ref() {
+            hook.run(index, ctx);
+        }
+    }
+
+    fn has_selection_change(&self) -> bool {
+        self.selection_change.is_some()
     }
 
     fn status_line(&self, ctx: &StatusCtx<'_>) -> Option<Line<'static>> {
@@ -327,6 +346,7 @@ impl PickerRegistry {
             on_open,
             on_confirm,
             on_close,
+            selection_change,
         ) = spec.into_parts();
         let typed = TypedSpec {
             id,
@@ -343,6 +363,7 @@ impl PickerRegistry {
             on_open,
             on_confirm,
             on_close,
+            selection_change,
         };
         if let Ok(mut specs) = self.specs.write() {
             specs.insert(id.as_str(), Arc::new(typed));
@@ -410,7 +431,7 @@ mod tests {
     use crate::test_host::FakeHost;
     use jinn_selection_widget::PickerItem;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct Entry {
         name: String,
     }
@@ -596,5 +617,110 @@ mod tests {
             .expect("storage");
         assert_eq!(state.items().len(), 1);
         assert_eq!(PickerItem::display_label(&state.items()[0]), "loaded");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn selection_change_absent_hook_reports_absent_and_no_ops() {
+        // Given a registered spec without a selection-change hook.
+        let mut registry = PickerRegistry::new();
+        registry.register(PickerSpec::<Entry>::new(PickerId::new("noscv")));
+        let spec = registry.get("noscv").expect("registered");
+
+        // When querying the hook surface and running it.
+        let mut host = FakeHost::new();
+        let mut ctx = ActionCtx::new(PickerId::new("noscv"), &mut host);
+        spec.run_selection_change(0, &mut ctx);
+
+        // Then the hook is reported absent and running is a no-op.
+        assert!(!spec.has_selection_change());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn erased_selection_change_dispatch_resolves_entry_by_index() {
+        // Given a registered spec with a hook recording the entries it sees.
+        let seen: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen_sink = std::sync::Arc::clone(&seen);
+        let mut registry = PickerRegistry::new();
+        registry.register(
+            PickerSpec::<Entry>::new(PickerId::new("scv"))
+                .search(|entry: &Entry| entry.name.clone())
+                .on_selection_change(move |entry: &Entry, _ctx: &mut ActionCtx<'_>| {
+                    seen_sink.lock().expect("lock").push(entry.name.clone());
+                }),
+        );
+        let spec = registry.get("scv").expect("registered");
+        assert!(spec.has_selection_change());
+
+        // And storage preloaded with two entries.
+        let items = registry
+            .make_items::<Entry>(
+                "scv",
+                vec![
+                    Entry {
+                        name: String::from("first"),
+                    },
+                    Entry {
+                        name: String::from("second"),
+                    },
+                ],
+            )
+            .expect("typed match");
+        let mut host = FakeHost::new();
+        host.set_selection::<PickerEntry<Entry>>(
+            PickerId::new("scv"),
+            jinn_selection_widget::SelectionState::new(),
+        );
+        {
+            let state = host
+                .selection_state(PickerId::new("scv"))
+                .and_then(|any| {
+                    any.downcast_mut::<jinn_selection_widget::SelectionState<
+                        PickerEntry<Entry>,
+                    >>()
+                })
+                .expect("storage");
+            state.set_items(items);
+        }
+
+        // When dispatching through the erased surface for index 0.
+        let mut ctx = ActionCtx::new(PickerId::new("scv"), &mut host);
+        spec.run_selection_change(0, &mut ctx);
+
+        // Then the declared closure saw the first entry.
+        assert_eq!(seen.lock().expect("lock").as_slice(), ["first"]);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn erased_selection_change_dispatch_no_ops_on_out_of_bounds_index() {
+        // Given a registered spec with a hook that must never fire.
+        let fired: std::sync::Arc<std::sync::Mutex<bool>> =
+            std::sync::Arc::new(std::sync::Mutex::new(false));
+        let fired_sink = std::sync::Arc::clone(&fired);
+        let mut registry = PickerRegistry::new();
+        registry.register(
+            PickerSpec::<Entry>::new(PickerId::new("scoob"))
+                .on_selection_change(move |_entry: &Entry, _ctx: &mut ActionCtx<'_>| {
+                    *fired_sink.lock().expect("lock") = true;
+                }),
+        );
+        let spec = registry.get("scoob").expect("registered");
+
+        // And storage with no items.
+        let mut host = FakeHost::new();
+        host.set_selection::<PickerEntry<Entry>>(
+            PickerId::new("scoob"),
+            jinn_selection_widget::SelectionState::new(),
+        );
+
+        // When dispatching for an index with no entry.
+        let mut ctx = ActionCtx::new(PickerId::new("scoob"), &mut host);
+        spec.run_selection_change(0, &mut ctx);
+
+        // Then the declared closure never ran.
+        assert!(!*fired.lock().expect("lock"));
     }
 }
