@@ -21,8 +21,9 @@ use jinn_tui::TuiApp;
 use crate::common::test_app;
 
 /// A composed app plus a VCS-rooted project tree with one skill, one
-/// prompt, and one context file; the active session's cwd points there
-/// (the supervisor's gate requires a resolved cwd).
+/// prompt, and one context file. No cwd is seeded into state — the
+/// supervisor routes from payload cwd, so tests publish triggers that
+/// carry the project dir.
 async fn composed_app_with_project()
 -> (TuiApp, std::path::PathBuf, jinn_domain::protocol::SessionId) {
     let app = test_app().await;
@@ -49,10 +50,6 @@ async fn composed_app_with_project()
     .expect("prompt template");
     std::fs::write(project.join("AGENTS.md"), "context body").expect("AGENTS.md");
     let session_id = app.core.state.read().session.active_session_id().clone();
-    {
-        let mut guard = app.core.state.write_test_no_cap();
-        guard.session.active_session_mut().set_cwd(project.clone());
-    }
     (app, project, session_id)
 }
 
@@ -71,7 +68,7 @@ async fn recorder_for<M: Clone + Send + 'static>(
 async fn session_created_triggers_discovery_and_loaded_events_reach_the_kameo_bus() {
     // Given a composed app with a real project tree, a resolved cwd,
     // and recorders on the bus for the three kernel event types.
-    let (app, _project, session_id) = composed_app_with_project().await;
+    let (app, project, session_id) = composed_app_with_project().await;
     let skills_recorder = recorder_for::<jinn_domain::feat::skills::SkillsLoaded>(&app).await;
     let prompts_recorder =
         recorder_for::<jinn_domain::feat::provider::protocol::event::PromptTemplatesLoaded>(&app)
@@ -87,6 +84,7 @@ async fn session_created_triggers_discovery_and_loaded_events_reach_the_kameo_bu
         .bridge
         .send(Bridge::publish_closure(SessionCreated {
             session_id: session_id.clone(),
+            cwd: project.clone(),
         }));
 
     // Then the kernel `SkillsLoaded` type crosses back — and its
@@ -125,15 +123,46 @@ async fn session_created_triggers_discovery_and_loaded_events_reach_the_kameo_bu
 #[rstest::rstest]
 #[tokio::test]
 #[timeout(Duration::from_secs(30))]
-async fn environment_loaded_resolves_the_active_session() {
-    // Given a composed app with a resolved cwd; `EnvironmentLoaded`
-    // carries only the provider config — no session id.
+async fn boot_cwd_changed_triggers_initial_discovery() {
+    // Given a composed app with a real project tree; state carries no
+    // cwd — exactly like boot, where only the composition tail knows
+    // the initial session's cwd.
+    let (app, project, session_id) = composed_app_with_project().await;
+    let skills_recorder = recorder_for::<jinn_domain::feat::skills::SkillsLoaded>(&app).await;
+
+    // When the kernel publishes `SessionCwdChanged` for the boot
+    // session (the tail's publish beside `EnvironmentLoaded`): forward
+    // relay → supervisor → keyed worker → Loaded events → reverse
+    // relays → this bus.
+    let _ = app.core.bridge.send(Bridge::publish_closure(
+        jinn_domain::feat::session_lifecycle::protocol::event::SessionCwdChanged {
+            session_id: session_id.clone(),
+            cwd: project.clone(),
+        },
+    ));
+
+    // Then the resolved session's discovery ran to completion.
+    let skills = await_recorded(&skills_recorder, 1, Duration::from_secs(15)).await;
+    assert!(
+        skills
+            .iter()
+            .any(|e| e.session_id == session_id && !e.skills.is_empty()),
+        "SkillsLoaded resolved to the boot session via the cwd payload: {skills:?}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+#[timeout(Duration::from_secs(30))]
+async fn environment_loaded_is_no_longer_a_slice_trigger() {
+    // Given a composed app with a resolved project tree; the slice's
+    // forward relays no longer include `EnvironmentLoaded`.
     let (app, _project, session_id) = composed_app_with_project().await;
     let skills_recorder = recorder_for::<jinn_domain::feat::skills::SkillsLoaded>(&app).await;
 
-    // When the kernel publishes `EnvironmentLoaded` (the launch-tail
-    // trigger): the supervisor resolves the active session and keys
-    // the discovery command itself.
+    // When the kernel publishes `EnvironmentLoaded` (still a live event:
+    // the provider init, browser scan, and session-actor seed flows
+    // subscribe to it).
     let _ = app.core.bridge.send(Bridge::publish_closure(
         jinn_domain::init::env_init_actor::EnvironmentLoaded {
             config: jinn_domain::feat::provider_infra::ProvidersConfig {
@@ -144,12 +173,22 @@ async fn environment_loaded_resolves_the_active_session() {
         },
     ));
 
-    // Then the resolved session's discovery ran to completion.
-    let skills = await_recorded(&skills_recorder, 1, Duration::from_secs(15)).await;
+    // Then no discovery ran: the event never reaches the supervisor,
+    // so no `SkillsLoaded` crosses back for any session.
+    let skills = tokio::time::timeout(Duration::from_millis(500), async {
+        let mut all = Vec::new();
+        while all.is_empty() {
+            all = await_recorded(&skills_recorder, 1, Duration::from_millis(100)).await;
+        }
+        all
+    })
+    .await;
     assert!(
-        skills.iter().any(|e| e.session_id == session_id),
-        "SkillsLoaded resolved to the active session: {skills:?}"
+        skills.is_err(),
+        "EnvironmentLoaded must not trigger slice discovery: {skills:?}"
     );
+    // And the assertion is meaningful only if the session id is real.
+    assert!(!session_id.to_string().is_empty());
 }
 
 #[rstest::rstest]
@@ -173,6 +212,7 @@ async fn manual_scan_reaches_only_the_addressed_session() {
     let _ = app.core.bridge.send(Bridge::publish_closure(
         jinn_domain::feat::skills::ScanSkills {
             session_id: first.clone(),
+            cwd: project,
         },
     ));
 

@@ -34,8 +34,9 @@ pub fn handle_rescan_prompt_templates(state: &mut AppState) -> IntentResult {
         .push_entry(ChatEntry::system("Rescanning prompt templates..."));
 
     let session_id = state.active_session().session_id().clone();
+    let cwd = state.active_session().cwd().to_path_buf();
 
-    IntentResult::new_message(RescanPromptTemplates { session_id })
+    IntentResult::new_message(RescanPromptTemplates { session_id, cwd })
 }
 
 #[cfg(test)]

@@ -26,14 +26,16 @@ use jinn_session_init::worker::SETTLE_BUDGET_ARG;
 const TEST_BUDGET_MS: u64 = 300;
 
 /// A partition set installed over a real temp home with a short
-/// injected settle budget. The session's cwd is `<home>/proj`, a
-/// VCS-rooted project dir, so the bounded walk collects it (home is
-/// exclusive; a nested project gives prompts + context files a home).
+/// injected settle budget. The cwd the worker scans is
+/// `<home>/proj` — a VCS-rooted project dir the command payloads
+/// point at (home is exclusive to the bounded walk; a nested project
+/// gives prompts + context files a home). No cwd is ever seeded into
+/// shared state: the worker must read it from the command.
 struct Wired {
     fabric: jinn_testutil::TestFabric,
     state: State,
     session_id: SessionId,
-    /// The VCS-rooted project dir the session's cwd points at.
+    /// The VCS-rooted project dir the command payloads point at.
     project: std::path::PathBuf,
     _dir: Box<tempfile::TempDir>,
 }
@@ -53,10 +55,6 @@ impl Wired {
         std::fs::create_dir_all(project.join(".git")).expect("project dir");
         let paths = AppPaths::new_in(&home);
         let state = State::new(AppState::default());
-        {
-            let mut guard = state.write_test_no_cap();
-            guard.session.active_session_mut().set_cwd(project.clone());
-        }
         let session_id = state.read().session.active_session_id().clone();
         let fabric = jinn_testutil::TestFabric::new();
         jinn_session_init::install_partition_set_with_args(
@@ -76,7 +74,8 @@ impl Wired {
         }
     }
 
-    /// Sends `RunDiscovery` through the partition's public path.
+    /// Sends `RunDiscovery` through the partition's public path, with
+    /// the project dir as the command's cwd.
     async fn run_discovery(&self) {
         let sent = self
             .fabric
@@ -84,7 +83,10 @@ impl Wired {
             .send(self.fabric.system().envelope(
                 <RunDiscovery as trouper::schema::Schema>::schema_id(),
                 trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
-                serde_json::json!({ "session_id": self.session_id.to_string() }),
+                serde_json::json!({
+                    "session_id": self.session_id.to_string(),
+                    "cwd": self.project.to_string_lossy(),
+                }),
             ))
             .await;
         assert!(sent.is_ok(), "partition send must resolve: {sent:?}");
@@ -312,6 +314,30 @@ async fn worker_publishes_onto_schema_named_topics() {
     // And the other two resources crossed their own topics.
     wait_for(|| wired.published_schema("PromptTemplatesLoaded")).await;
     wait_for(|| wired.published_schema("ContextFilesLoaded")).await;
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn worker_scans_command_cwd_not_state() {
+    // Given a wired partition set (no cwd seeded into state — its
+    // sentinel stays) with one skill under the project dir.
+    let wired = Wired::wire().await;
+    write_skill(&wired.project, "command-cwd-skill");
+
+    // When a RunDiscovery whose command cwd points at that project dir
+    // crosses the partition path.
+    wired.run_discovery().await;
+
+    // Then the scan followed the command's cwd: the skill was
+    // discovered into the session despite state never carrying a cwd.
+    wait_for(|| {
+        let guard = wired.state.read();
+        guard
+            .session
+            .get(&wired.session_id)
+            .is_some_and(|s| !s.discovered_skills().is_empty())
+    })
+    .await;
 }
 
 /// Waits until the notifier has written its summary entry.

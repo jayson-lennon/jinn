@@ -754,7 +754,12 @@ mod lifecycle_tests {
 
         // When publishing SessionCreated for that session.
         harness
-            .publish(crate::feat::session_lifecycle::protocol::event::SessionCreated { session_id })
+            .publish(
+                crate::feat::session_lifecycle::protocol::event::SessionCreated {
+                    session_id,
+                    cwd: std::env::temp_dir(),
+                },
+            )
             .await;
 
         // Then an McpActor was spawned for the seeded server (a Starting
@@ -783,6 +788,7 @@ mod lifecycle_tests {
             .publish(
                 crate::feat::session_lifecycle::protocol::event::SessionCreated {
                     session_id: session_id.clone(),
+                    cwd: std::env::temp_dir(),
                 },
             )
             .await;
@@ -839,6 +845,7 @@ mod lifecycle_tests {
             .publish(
                 crate::feat::session_lifecycle::protocol::event::SessionCreated {
                     session_id: session_id.clone(),
+                    cwd: std::env::temp_dir(),
                 },
             )
             .await;

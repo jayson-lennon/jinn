@@ -4,6 +4,8 @@
 //! consumers (the session actor, the task settle listener) reference
 //! them and the reverse bridge carries these exact Rust types.
 
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::feat::skills::skill::Skill;
@@ -25,13 +27,16 @@ pub struct SkillsLoaded {
 
 /// Command to trigger a skills scan for a specific session.
 ///
-/// The discovery worker reads the session's cwd from state, scans global +
+/// Carries the session's cwd: the discovery worker scans global +
 /// project dirs discovered via the bounded walk, and writes the merged
 /// result into that session's ephemeral discovered-skills set.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanSkills {
-    /// The session whose cwd drives the scan.
+    /// The session whose scan this is.
     pub session_id: crate::SessionId,
+    /// The working directory driving the scan.
+    #[serde(default)]
+    pub cwd: PathBuf,
 }
 
 impl crate::common::bus::BusMessage for SkillsLoaded {}
@@ -49,4 +54,7 @@ impl crate::common::bus::BusMessage for ScanSkills {}
 jinn_slices::crossing_schema!(ScanSkills, "ScanSkills",
 trouper::schema::SchemaKind::Command,
 description: "Trigger a skills scan for a session.",
-fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
+fields: [
+    "session_id" => trouper::schema::FieldTy::Uuid,
+    "cwd" => trouper::schema::FieldTy::Str,
+]);

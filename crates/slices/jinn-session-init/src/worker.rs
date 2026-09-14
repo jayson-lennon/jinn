@@ -248,51 +248,43 @@ impl SessionDiscoveryWorker {
     /// Begins a full discovery run: all three resource scans
     /// concurrently, each writing state + publishing as it completes,
     /// plus the settle waiter for this run.
-    fn run_discovery(&mut self) {
+    fn run_discovery(&mut self, cwd: PathBuf) {
         let run = self.run.fetch_add(1, Ordering::AcqRel) + 1;
-        let skills = self.spawn_skills_task();
-        let prompts = self.spawn_prompts_task();
-        let context = self.spawn_context_task();
+        let skills = self.spawn_skills_task(&cwd);
+        let prompts = self.spawn_prompts_task(&cwd);
+        let context = self.spawn_context_task(&cwd);
         self.spawn_settle_waiter(run, skills, prompts, context);
     }
 
     /// Re-runs only the skills scan (manual rescan — never settles).
-    fn rescan_skills(&mut self) {
-        self.spawn_skills_task();
+    fn rescan_skills(&mut self, cwd: PathBuf) {
+        self.spawn_skills_task(&cwd);
     }
 
     /// Re-runs only the prompt-templates scan (manual — never settles).
-    fn rescan_prompts(&mut self) {
-        self.spawn_prompts_task();
+    fn rescan_prompts(&mut self, cwd: PathBuf) {
+        self.spawn_prompts_task(&cwd);
     }
 
     /// Re-runs only the context-files scan (manual — never settles).
-    fn rescan_context(&mut self) {
-        self.spawn_context_task();
+    fn rescan_context(&mut self, cwd: PathBuf) {
+        self.spawn_context_task(&cwd);
     }
 
-    /// Reads the session's cwd for a scan, gating the pending sentinel.
-    ///
-    /// `None` when the session is gone (closed concurrently) or its cwd
-    /// is still the `"."` sentinel (setup pending) — no scan, no event.
-    fn gated_cwd(&self) -> Option<PathBuf> {
-        let guard = self.state.read();
-        let session = guard.try_session(&self.session_id)?;
-        let cwd = session.cwd();
-        if cwd == std::path::Path::new(".") {
-            None
-        } else {
-            Some(cwd.to_path_buf())
-        }
+    /// The defensive cwd gate: the supervisor already suppressed the
+    /// `.`, but a direct send (test, future caller) must not scan the
+    /// sentinel either. `false` → no scan, no event.
+    fn cwd_gate_open(cwd: &std::path::Path) -> bool {
+        cwd != std::path::Path::new(".")
     }
 
     /// The skills resource scan (blocking), with the state write +
     /// picker reload + `SkillsLoaded` publication on completion.
-    fn spawn_skills_task(&self) -> tokio::task::JoinHandle<ResourceOutcome> {
-        let Some(cwd) = self.gated_cwd() else {
+    fn spawn_skills_task(&self, cwd: &std::path::Path) -> tokio::task::JoinHandle<ResourceOutcome> {
+        if !Self::cwd_gate_open(cwd) {
             return skipped();
-        };
-        let project_dirs = scans::project_skills_dirs(&cwd, &self.home);
+        }
+        let project_dirs = scans::project_skills_dirs(cwd, &self.home);
         let system = self.system.clone();
         let state = self.state.clone();
         let session_cap = self.session_cap;
@@ -339,11 +331,14 @@ impl SessionDiscoveryWorker {
     }
 
     /// The prompt-templates resource scan.
-    fn spawn_prompts_task(&self) -> tokio::task::JoinHandle<ResourceOutcome> {
-        let Some(cwd) = self.gated_cwd() else {
+    fn spawn_prompts_task(
+        &self,
+        cwd: &std::path::Path,
+    ) -> tokio::task::JoinHandle<ResourceOutcome> {
+        if !Self::cwd_gate_open(cwd) {
             return skipped();
-        };
-        let project_dirs = scans::project_prompts_dirs(&cwd, &self.home);
+        }
+        let project_dirs = scans::project_prompts_dirs(cwd, &self.home);
         let system = self.system.clone();
         let state = self.state.clone();
         let session_cap = self.session_cap;
@@ -403,15 +398,19 @@ impl SessionDiscoveryWorker {
     }
 
     /// The context-files resource scan.
-    fn spawn_context_task(&self) -> tokio::task::JoinHandle<ResourceOutcome> {
-        let Some(cwd) = self.gated_cwd() else {
+    fn spawn_context_task(
+        &self,
+        cwd: &std::path::Path,
+    ) -> tokio::task::JoinHandle<ResourceOutcome> {
+        if !Self::cwd_gate_open(cwd) {
             return skipped();
-        };
+        }
         let system = self.system.clone();
         let state = self.state.clone();
         let session_cap = self.session_cap;
         let session_id = self.session_id.clone();
         let home = self.home.clone();
+        let cwd = cwd.to_path_buf();
         tokio::spawn(async move {
             let joined =
                 tokio::task::spawn_blocking(move || scans::read_context_files(&cwd, &home)).await;
@@ -735,25 +734,25 @@ where
 }
 
 impl MsgHandler<RunDiscovery> for SessionDiscoveryWorker {
-    async fn handle(&mut self, _msg: RunDiscovery, _ctx: &mut MsgCtx<'_>) {
-        self.run_discovery();
+    async fn handle(&mut self, msg: RunDiscovery, _ctx: &mut MsgCtx<'_>) {
+        self.run_discovery(msg.cwd);
     }
 }
 
 impl MsgHandler<RescanSkills> for SessionDiscoveryWorker {
-    async fn handle(&mut self, _msg: RescanSkills, _ctx: &mut MsgCtx<'_>) {
-        self.rescan_skills();
+    async fn handle(&mut self, msg: RescanSkills, _ctx: &mut MsgCtx<'_>) {
+        self.rescan_skills(msg.cwd);
     }
 }
 
 impl MsgHandler<RescanPrompts> for SessionDiscoveryWorker {
-    async fn handle(&mut self, _msg: RescanPrompts, _ctx: &mut MsgCtx<'_>) {
-        self.rescan_prompts();
+    async fn handle(&mut self, msg: RescanPrompts, _ctx: &mut MsgCtx<'_>) {
+        self.rescan_prompts(msg.cwd);
     }
 }
 
 impl MsgHandler<RescanContext> for SessionDiscoveryWorker {
-    async fn handle(&mut self, _msg: RescanContext, _ctx: &mut MsgCtx<'_>) {
-        self.rescan_context();
+    async fn handle(&mut self, msg: RescanContext, _ctx: &mut MsgCtx<'_>) {
+        self.rescan_context(msg.cwd);
     }
 }

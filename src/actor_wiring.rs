@@ -156,12 +156,13 @@ impl ActorSystemBuilder {
         }
 
         // Set default CWD for sessions (inherited from shell).
-        {
+        let (initial_session_id, initial_cwd) = {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
             let mut guard = state.write(&intent_handler_cap);
             guard.session.set_default_cwd(cwd.clone());
-            guard.active_session_mut().set_cwd(cwd);
-        }
+            guard.active_session_mut().set_cwd(cwd.clone());
+            (guard.active_session().session_id().clone(), cwd)
+        };
 
         // Create the kameo message bus and closure bridge.
         let bus = {
@@ -1438,6 +1439,19 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
                     tracing::error!(err = ?e, "failed to get environment config from EnvInitActor");
                 }
             }
+
+            // The boot session's cwd is known here; the session-init
+            // supervisor routes from payloads, not shared state. This publish
+            // triggers the initial session's discovery through the same
+            // payload path as every other session.
+            let _ = bus_ref
+                .tell(kameo_actors::message_bus::Publish(
+                    jinn_domain::feat::session_lifecycle::protocol::event::SessionCwdChanged {
+                        session_id: initial_session_id,
+                        cwd: initial_cwd,
+                    },
+                ))
+                .await;
         }
 
         // Wait for SystemReadyActor to confirm readiness.

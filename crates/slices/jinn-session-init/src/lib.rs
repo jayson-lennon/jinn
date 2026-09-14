@@ -65,19 +65,16 @@ pub fn settled_topic() -> Topic {
 
 /// Stages the slice's crossing routes on the host.
 ///
-/// The 8 triggers forward onto the shared [`session_init_topic`]; the 3
+/// The 7 triggers forward onto the shared [`session_init_topic`]; the 3
 /// loaded events return via reverse relays, each publishing onto its
 /// schema-named topic — the exact topics [`bridge::drain_routes`]
 /// subscribes its relays to.
 fn stage_routes(host: &mut AppSliceHost<'_>) {
     let topic = session_init_topic();
 
-    host.forward::<jinn_domain::init::env_init_actor::EnvironmentLoaded, _>(topic.clone(), || {
-        jinn_domain::init::env_init_actor::EnvironmentLoaded::schema_def()
-    });
     host.forward::<jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated, _>(
         topic.clone(),
-        || jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated::schema_def(),
+        jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated::schema_def,
     );
     host.forward::<jinn_session_msg::SessionSetupCompleted, _>(topic.clone(), || {
         jinn_session_msg::SessionSetupCompleted::schema_def()
@@ -87,7 +84,7 @@ fn stage_routes(host: &mut AppSliceHost<'_>) {
     });
     host.forward::<jinn_domain::feat::session_lifecycle::protocol::event::SessionCwdChanged, _>(
         topic.clone(),
-        || jinn_domain::feat::session_lifecycle::protocol::event::SessionCwdChanged::schema_def(),
+        jinn_domain::feat::session_lifecycle::protocol::event::SessionCwdChanged::schema_def,
     );
     host.forward::<crate::commands::RunDiscovery, _>(topic.clone(), || {
         crate::commands::RunDiscovery::schema_def()
@@ -181,7 +178,7 @@ pub fn install_actors(
         .change_context(SliceActivateError)
         .attach("installing the jinn.discovery partition set")?;
 
-    supervisor::SessionInitSupervisor::spawn(system, state.clone(), paths);
+    supervisor::SessionInitSupervisor::spawn(system);
     notifier::DiscoveryNotifier::spawn(system, state);
 
     Ok(())

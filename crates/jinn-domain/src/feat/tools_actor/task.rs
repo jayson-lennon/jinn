@@ -369,6 +369,7 @@ async fn run(call: ToolCall, ctx: ToolContext) -> ToolResult {
         build_child(parent, &parent_id, &args, ctx.app_paths.home_dir())
     };
     let child_id = child.session_id().clone();
+    let child_cwd = child.cwd().to_path_buf();
     // The settle gate's expectation set, frozen at spawn: the MCP coordinator
     // reconciles exactly the child's enabled set on SessionCreated, so these
     // are the servers whose terminal statuses the gate waits on.
@@ -419,6 +420,7 @@ async fn run(call: ToolCall, ctx: ToolContext) -> ToolResult {
     // the child's first dispatch.
     bus.publish(SessionCreated {
         session_id: child_id.clone(),
+        cwd: child_cwd,
     })
     .await;
 

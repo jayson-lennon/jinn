@@ -1,5 +1,7 @@
 //! Provider commands.
 
+use std::path::PathBuf;
+
 use crate::common::bus::BusMessage;
 use serde::{Deserialize, Serialize};
 
@@ -122,19 +124,25 @@ impl BusMessage for RefreshModels {}
 
 /// Rescan prompt templates for a specific session.
 ///
-/// The actor reads the session's cwd, scans user/system plus project-local
+/// Carries the session's cwd: the worker scans user/system plus project-local
 /// `.agents/prompts` dirs (most-local wins), and emits `PromptTemplatesLoaded`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RescanPromptTemplates {
-    /// The session whose cwd drives the scan.
+    /// The session whose scan this is.
     pub session_id: crate::SessionId,
+    /// The working directory driving the scan.
+    #[serde(default)]
+    pub cwd: PathBuf,
 }
 impl BusMessage for RescanPromptTemplates {}
 
 jinn_slices::crossing_schema!(RescanPromptTemplates, "RescanPromptTemplates",
 trouper::schema::SchemaKind::Command,
 description: "Rescan prompt templates for a session.",
-fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
+fields: [
+    "session_id" => trouper::schema::FieldTy::Uuid,
+    "cwd" => trouper::schema::FieldTy::Str,
+]);
 
 /// Load entries for the provider/model picker.
 ///

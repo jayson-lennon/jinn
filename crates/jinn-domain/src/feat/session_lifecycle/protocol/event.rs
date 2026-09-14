@@ -22,6 +22,9 @@ pub use jinn_session_msg::SessionTeardownFinished;
 pub struct SessionCreated {
     /// The newly created session's ID.
     pub session_id: SessionId,
+    /// The working directory the session starts in.
+    #[serde(default)]
+    pub cwd: PathBuf,
 }
 
 /// A session's working directory changed.
@@ -44,7 +47,10 @@ impl crate::common::bus::BusMessage for SessionCreated {}
 jinn_slices::crossing_schema!(SessionCreated, "SessionCreated",
 trouper::schema::SchemaKind::Event,
 description: "A new chat session was created.",
-fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
+fields: [
+    "session_id" => trouper::schema::FieldTy::Uuid,
+    "cwd" => trouper::schema::FieldTy::Str,
+]);
 
 jinn_slices::crossing_schema!(SessionCwdChanged, "SessionCwdChanged",
 trouper::schema::SchemaKind::Event,
@@ -53,3 +59,33 @@ fields: [
     "session_id" => trouper::schema::FieldTy::Uuid,
     "cwd" => trouper::schema::FieldTy::Str,
 ]);
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::indexing_slicing,
+        reason = "test code"
+    )]
+    use super::*;
+
+    #[rstest::rstest]
+    fn old_session_created_json_without_cwd_deserializes() {
+        // Given JSON from before the event carried a cwd.
+        let json = r#"{"session_id":"00000000-0000-0000-0000-000000000001"}"#;
+
+        // When deserializing.
+        let event: SessionCreated = serde_json::from_str(json).expect("deserialize");
+
+        // Then the cwd falls back to the empty default (backwards compatible)
+        // and the session id round-trips.
+        assert_eq!(event.cwd, PathBuf::new());
+        assert_eq!(
+            event.session_id,
+            crate::protocol::SessionId::try_from_string("00000000-0000-0000-0000-000000000001")
+                .expect("fixed session id")
+        );
+    }
+}

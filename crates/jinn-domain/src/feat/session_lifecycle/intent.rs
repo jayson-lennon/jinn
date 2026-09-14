@@ -163,7 +163,7 @@ pub fn handle_session_lifecycle_setup(
     // creation (the `.take()` above is skipped only when an explicit cwd
     // overrides, so clear unconditionally here).
     state.frontend.pending_creation = None;
-    new_session.set_cwd(starting_cwd);
+    new_session.set_cwd(starting_cwd.clone());
     new_session.set_project(stamped_project);
 
     state.session.insert(new_session);
@@ -177,6 +177,7 @@ pub fn handle_session_lifecycle_setup(
     // Build the session-created event.
     let created_event = SessionCreated {
         session_id: new_id.clone(),
+        cwd: starting_cwd,
     };
 
     // If the lifecycle has a setup command, emit it for async execution.

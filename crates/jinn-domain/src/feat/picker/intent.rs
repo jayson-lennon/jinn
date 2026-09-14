@@ -1115,15 +1115,18 @@ pub fn handle_refresh_skills(state: &mut AppState) -> IntentResult {
         .push_entry(ChatEntry::transient("Refreshing project resources..."));
 
     let session_id = state.active_session().session_id().clone();
+    let cwd = state.active_session().cwd().to_path_buf();
 
     IntentResult::empty()
         .with_message(ScanSkills {
             session_id: session_id.clone(),
+            cwd: cwd.clone(),
         })
         .with_message(RescanPromptTemplates {
             session_id: session_id.clone(),
+            cwd: cwd.clone(),
         })
-        .with_message(ScanContextFiles { session_id })
+        .with_message(ScanContextFiles { session_id, cwd })
 }
 
 #[cfg(test)]

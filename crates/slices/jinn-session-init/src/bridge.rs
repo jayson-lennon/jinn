@@ -13,7 +13,7 @@ use jinn_slices::host::RouteEntry;
 use crate::session_init_topic;
 
 /// Drains the session-init slice's staged routes into bridge relays:
-/// the 8 forward triggers (kameo bus → `jinn.session-init`) and the 3
+/// the 7 forward triggers (kameo bus → `jinn.session-init`) and the 3
 /// reverse results (`SkillsLoaded`, `PromptTemplatesLoaded`,
 /// `ContextFilesLoaded` — trouper schema topics → kameo bus).
 ///
@@ -21,7 +21,6 @@ use crate::session_init_topic;
 /// routes; kernel consumers subscribe to the same Rust types and are
 /// none the wiser.
 pub async fn drain_routes(services: &Services) {
-    forward::<jinn_domain::init::env_init_actor::EnvironmentLoaded>(services).await;
     forward::<jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated>(services)
         .await;
     forward::<jinn_session_msg::SessionSetupCompleted>(services).await;

@@ -1,7 +1,9 @@
 //! End-to-end tests for the session-init slice: trigger events reach
 //! the keyed worker through the real supervisor, the pending-cwd gate
 //! suppresses scans, and a manual rescan runs the addressed session's
-//! worker only.
+//! worker only. Sessions are driven purely by payloads — the tests
+//! never seed a cwd into shared state, mirroring the supervisor's own
+//! payload-only routing.
 
 #![allow(
     clippy::expect_used,
@@ -51,17 +53,13 @@ struct Wired {
 }
 
 impl Wired {
-    /// Spawns the supervisor on a fresh fabric, with the active
-    /// session's cwd pointed at a real temp home.
+    /// Spawns the supervisor on a fresh fabric over a real temp home.
+    /// The session's cwd lives only in test payloads — no state seeding.
     async fn wire() -> Self {
         let dir = Box::new(tempfile::tempdir().expect("temp dir"));
         let home = dir.path().to_path_buf();
         let paths = AppPaths::new_in(&home);
         let state = State::new(AppState::default());
-        {
-            let mut guard = state.write_test_no_cap();
-            guard.session.active_session_mut().set_cwd(home.clone());
-        }
         let session_id = state.read().session.active_session_id().clone();
         let fabric = jinn_testutil::TestFabric::new();
         jinn_session_init::install_actors(fabric.system(), paths, state.clone())
@@ -74,21 +72,40 @@ impl Wired {
             _dir: dir,
         }
     }
+
+    /// Sends a `RunDiscovery` for `session_id` at `cwd` through the
+    /// partition set's public path.
+    async fn send_run_discovery(&self, session_id: &SessionId, cwd: &std::path::Path) {
+        let sent = self
+            .fabric
+            .system()
+            .send(self.fabric.system().envelope(
+                <jinn_session_init::commands::RunDiscovery as trouper::schema::Schema>::schema_id(),
+                trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
+                serde_json::json!({
+                    "session_id": session_id.to_string(),
+                    "cwd": cwd.to_string_lossy(),
+                }),
+            ))
+            .await;
+        assert!(sent.is_ok(), "partition send must resolve: {sent:?}");
+    }
 }
 
 #[rstest::rstest]
 #[tokio::test]
 async fn session_created_triggers_discovery_for_that_session() {
-    // Given a wired supervisor whose session's home contains one skill.
+    // Given a wired supervisor whose payload cwd's home contains one skill.
     let wired = Wired::wire().await;
     write_skill(&wired.home, "test-skill");
 
-    // When SessionCreated for that session crosses on the trigger topic.
+    // When SessionCreated carrying that cwd crosses on the trigger topic.
     wired
         .fabric
         .send_to_topic(
             &SessionCreated {
                 session_id: wired.session_id.clone(),
+                cwd: wired.home.clone(),
             },
             &jinn_session_init::session_init_topic(),
         )
@@ -108,23 +125,17 @@ async fn session_created_triggers_discovery_for_that_session() {
 #[rstest::rstest]
 #[tokio::test]
 async fn pending_cwd_session_produces_no_scan() {
-    // Given a wired supervisor whose session cwd is the pending sentinel.
+    // Given a wired supervisor whose home contains one skill.
     let wired = Wired::wire().await;
     write_skill(&wired.home, "test-skill");
-    {
-        let mut guard = wired.state.write_test_no_cap();
-        guard
-            .session
-            .active_session_mut()
-            .set_cwd(std::path::PathBuf::from("."));
-    }
 
-    // When SessionCreated for that session crosses on the trigger topic.
+    // When SessionCreated crosses with the pending-cwd sentinel.
     wired
         .fabric
         .send_to_topic(
             &SessionCreated {
                 session_id: wired.session_id.clone(),
+                cwd: std::path::PathBuf::from("."),
             },
             &jinn_session_init::session_init_topic(),
         )
@@ -139,6 +150,37 @@ async fn pending_cwd_session_produces_no_scan() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn scan_skills_command_threads_cwd_to_the_worker() {
+    // Given a wired supervisor whose home contains one skill.
+    let wired = Wired::wire().await;
+    write_skill(&wired.home, "threaded-skill");
+
+    // When ScanSkills carrying that cwd crosses on the trigger topic.
+    wired
+        .fabric
+        .send_to_topic(
+            &jinn_domain::feat::skills::ScanSkills {
+                session_id: wired.session_id.clone(),
+                cwd: wired.home.clone(),
+            },
+            &jinn_session_init::session_init_topic(),
+        )
+        .await;
+
+    // Then the manual rescan ran against the payload cwd: the skill is
+    // discovered into the session.
+    wait_for(|| {
+        let guard = wired.state.read();
+        guard
+            .session
+            .get(&wired.session_id)
+            .is_some_and(|s| !s.discovered_skills().is_empty())
+    })
+    .await;
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn manual_rescan_reaches_only_the_addressed_session() {
     // Given a wired supervisor with a second session whose home has a skill.
     let wired = Wired::wire().await;
@@ -146,24 +188,13 @@ async fn manual_rescan_reaches_only_the_addressed_session() {
     let other = SessionId::new();
     {
         let mut guard = wired.state.write_test_no_cap();
-        let home = wired.home.clone();
-        let session = guard.session.get_or_create(&other);
-        session.set_cwd(home);
+        guard.session.get_or_create(&other);
     }
 
     // When a rescan command is addressed to the first session only.
-    let sent = wired
-        .fabric
-        .system()
-        .send(wired.fabric.system().envelope(
-            <jinn_session_init::commands::RunDiscovery as trouper::schema::Schema>::schema_id(),
-            trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
-            serde_json::json!({
-                "session_id": wired.session_id.to_string(),
-            }),
-        ))
+    wired
+        .send_run_discovery(&wired.session_id, &wired.home)
         .await;
-    assert!(sent.is_ok(), "partition send must resolve: {sent:?}");
 
     // Then only the addressed session discovers skills.
     wait_for(|| {
@@ -182,23 +213,15 @@ async fn manual_rescan_reaches_only_the_addressed_session() {
 #[rstest::rstest]
 #[tokio::test]
 async fn worker_settles_and_notifier_writes_the_summary_entry() {
-    // Given a wired supervisor + notifier whose home contains one skill.
+    // Given a wired supervisor + notifier whose payload cwd's home
+    // contains one skill.
     let wired = Wired::wire().await;
     write_skill(&wired.home, "test-skill");
 
     // When a full discovery runs via the partition path.
-    let sent = wired
-        .fabric
-        .system()
-        .send(wired.fabric.system().envelope(
-            <jinn_session_init::commands::RunDiscovery as trouper::schema::Schema>::schema_id(),
-            trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
-            serde_json::json!({
-                "session_id": wired.session_id.to_string(),
-            }),
-        ))
+    wired
+        .send_run_discovery(&wired.session_id, &wired.home)
         .await;
-    assert!(sent.is_ok(), "partition send must resolve: {sent:?}");
 
     // Then the settle fires and the notifier writes one transient entry.
     wait_for(|| {
@@ -218,18 +241,9 @@ async fn rescan_into_empty_dir_clears_stale_discovered_skills() {
     // skill file then removed from disk.
     let wired = Wired::wire().await;
     write_skill(&wired.home, "stale-skill");
-    let sent = wired
-        .fabric
-        .system()
-        .send(wired.fabric.system().envelope(
-            <jinn_session_init::commands::RunDiscovery as trouper::schema::Schema>::schema_id(),
-            trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
-            serde_json::json!({
-                "session_id": wired.session_id.to_string(),
-            }),
-        ))
+    wired
+        .send_run_discovery(&wired.session_id, &wired.home)
         .await;
-    assert!(sent.is_ok(), "first discovery must resolve: {sent:?}");
     wait_for(|| {
         let guard = wired.state.read();
         guard
@@ -246,18 +260,9 @@ async fn rescan_into_empty_dir_clears_stale_discovered_skills() {
     std::fs::remove_dir_all(&skill_dir).expect("remove skill dir");
 
     // When a second discovery runs against the now-empty tree.
-    let sent = wired
-        .fabric
-        .system()
-        .send(wired.fabric.system().envelope(
-            <jinn_session_init::commands::RunDiscovery as trouper::schema::Schema>::schema_id(),
-            trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
-            serde_json::json!({
-                "session_id": wired.session_id.to_string(),
-            }),
-        ))
+    wired
+        .send_run_discovery(&wired.session_id, &wired.home)
         .await;
-    assert!(sent.is_ok(), "second discovery must resolve: {sent:?}");
     wait_for(|| {
         let guard = wired.state.read();
         guard
