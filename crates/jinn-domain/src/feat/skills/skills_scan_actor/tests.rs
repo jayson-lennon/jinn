@@ -282,7 +282,7 @@ async fn scan_skills_preserves_skill_preview_cache() {
     let cache_key = crate::feat::skills::skill_entry::body_hash_key("## stale body");
     {
         let guard = state.write_test_no_cap();
-        guard.frontend.caches.skill_preview_cache.write().insert(
+        guard.frontend.caches.skill_preview_cache.insert(
             cache_key.clone(),
             80,
             vec![ratatui::text::Line::raw("stale")],
@@ -307,7 +307,6 @@ async fn scan_skills_preserves_skill_preview_cache() {
             .frontend
             .caches
             .skill_preview_cache
-            .read()
             .get(&cache_key, 80)
             .is_some(),
         "rescan must preserve the skill preview cache"
@@ -335,7 +334,22 @@ fn reload_picker(state: &State) {
 
 /// Renders the skill picker into a string via a test terminal.
 fn draw_picker(state: &State) -> String {
-    use crate::feat::picker::render::render_skill_picker;
+    use crate::protocol::PickerKind;
+
+    /// Renders the skill picker through its registered spec (the same path
+    /// the tui render pass takes for migrated kinds).
+    fn render_skill_picker(
+        frame: &mut ratatui::Frame<'_>,
+        area: ratatui::layout::Rect,
+        ctx: &crate::common::render_ctx::RenderCtx<'_>,
+    ) {
+        let host =
+            crate::feat::picker::host_impl::AppStateRenderHost::new(ctx.state);
+        let id = crate::feat::picker::registry::spec_id_for_kind(&PickerKind::Skill)
+            .expect("skill is spec-mapped");
+        let spec = ctx.pickers.get(id).expect("skill spec registered");
+        assert!(spec.render(frame, area, &host), "spec render must draw the picker");
+    }
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
@@ -347,7 +361,8 @@ fn draw_picker(state: &State) -> String {
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
             let overlay_views = crate::common::overlay_views::OverlayViews::new();
-            let ctx = crate::common::render_ctx::RenderCtx::new(&read, &slices, &overlay_views);
+            let ctx = crate::common::render_ctx::RenderCtx::new(&read, &slices, &overlay_views)
+                .with_pickers(&crate::feat::picker::registry::build_picker_registry());
             render_skill_picker(frame, area, &ctx);
         })
         .expect("draw");
@@ -416,7 +431,6 @@ async fn rescan_after_body_edit_renders_new_content() {
         .frontend
         .caches
         .skill_preview_cache
-        .read()
         .len();
     assert_eq!(entries_after_first, 1, "old body populates one cache entry");
 
@@ -448,7 +462,6 @@ async fn rescan_after_body_edit_renders_new_content() {
             .frontend
             .caches
             .skill_preview_cache
-            .read()
             .len(),
         entries_after_first + 1,
         "edited body produces a new cache key, not a stale hit"

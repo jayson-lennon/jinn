@@ -8,23 +8,21 @@
 
 use crate::common::app_state::AppState;
 use crate::common::app_state::FocusScope;
-use crate::feat::context::protocol::command::ScanContextFiles;
 use crate::feat::preferences_actor::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use crate::feat::preferences_actor::protocol::command::{PreferenceUpdate, UpdatePreferences};
 use crate::feat::provider::ProviderState;
 use crate::feat::provider::picker_entry::PickerEntry;
 use crate::feat::provider::protocol::command::{
-    LoadProviderPickerEntries, ProviderSwitch, RescanPromptTemplates,
+    LoadProviderPickerEntries, ProviderSwitch,
 };
 use crate::feat::session::model_selection::{AlloyStrategy, ModelSelection};
 use crate::feat::session::protocol::load_session_picker_entries::LoadSessionPickerEntries;
 use crate::feat::session::protocol::mark_session_interacted::MarkSessionInteracted;
 use crate::feat::session::protocol::session_load_requested::SessionLoadRequested;
-use crate::feat::skills::ScanSkills;
 use crate::feat::tools_actor::tool_entry::ToolEntry;
 
 use crate::feat::ui::picker_states::PickerExt;
-use crate::protocol::{ChatEntry, ChatEntryId, Intent, IntentResult, PickerKind, PinPosition};
+use crate::protocol::{Intent, IntentResult, PickerKind};
 
 use super::geometry::active_viewport;
 use super::validator;
@@ -73,9 +71,9 @@ pub fn handle_open_picker(
         PickerKind::Provider => IntentResult::new_message(LoadProviderPickerEntries),
         PickerKind::Session => IntentResult::new_message(LoadSessionPickerEntries),
         PickerKind::Persona
+        | PickerKind::Skill
         | PickerKind::Theme
         | PickerKind::Tool
-        | PickerKind::Skill
         | PickerKind::TaskList
         | PickerKind::Project
         | PickerKind::McpServer
@@ -118,8 +116,9 @@ fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
         PickerKind::Session => {
             state.frontend.session_picker_mut().reset();
         }
-        PickerKind::Persona => {
-            state.frontend.persona_picker_mut().reset();
+        PickerKind::Persona | PickerKind::Skill => {
+            // Spec-driven when the registry holds their spec; nothing to
+            // prepare in the legacy path.
         }
         PickerKind::Theme => {
             state.frontend.theme_picker_mut().reset();
@@ -143,13 +142,6 @@ fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
             *state.frontend.tool_picker_snapshot_mut() =
                 Some(state.active_session().disabled_tools().clone());
             load_tool_picker_entries(state);
-        }
-        PickerKind::Skill => {
-            state.frontend.skill_picker_mut().reset();
-            // Snapshot current disabled skills for ESC revert.
-            *state.frontend.skill_picker_snapshot_mut() =
-                Some(state.active_session().disabled_skills().clone());
-            load_skill_picker_entries(state);
         }
         PickerKind::TaskList => {
             state.frontend.task_list_picker_mut().reset();
@@ -272,45 +264,24 @@ fn preview_theme_if_active(state: &mut AppState) {
     }
 }
 
-/// Resets the preview scroll offset to 0 when the skill picker is active.
-fn reset_preview_scroll(state: &mut AppState) {
-    if state.frontend.scope_stack.picker_kind() == Some(&PickerKind::Skill) {
-        state.frontend.set_skill_preview_scroll(0);
+/// Resets the preview scroll offset when the active picker's spec opts in
+/// (`PreviewSpec::reset_scroll_on_selection_change`).
+fn reset_preview_scroll(state: &mut AppState, registry: &jinn_picker::PickerRegistry) {
+    let Some(kind) = state.frontend.scope_stack.picker_kind().copied() else {
+        return;
+    };
+    let Some(spec) = crate::feat::picker::registry::spec_id_for_kind(&kind)
+        .and_then(|id| registry.get(id))
+    else {
+        return;
+    };
+    if spec.resets_scroll_on_selection_change() {
+        state
+            .frontend
+            .pickers
+            .pickers_scrolls
+            .reset(jinn_picker::PickerId::new(spec.id().as_str()));
     }
-}
-
-/// Scrolls the preview pane up by one page.
-pub fn handle_preview_scroll_up(state: &mut AppState) -> IntentResult {
-    let page_size = preview_page_size(state);
-    state.frontend.set_skill_preview_scroll(
-        state
-            .frontend
-            .skill_preview_scroll()
-            .saturating_sub(page_size),
-    );
-    IntentResult::empty()
-}
-
-/// Scrolls the preview pane down by one page.
-pub fn handle_preview_scroll_down(state: &mut AppState) -> IntentResult {
-    let page_size = preview_page_size(state);
-    state.frontend.set_skill_preview_scroll(
-        state
-            .frontend
-            .skill_preview_scroll()
-            .saturating_add(page_size),
-    );
-    IntentResult::empty()
-}
-
-/// Returns the number of visible rows in the preview pane.
-///
-/// Computed from the popup height minus chrome (border, input, separator).
-fn preview_page_size(state: &AppState) -> usize {
-    // Use a reasonable default; exact size depends on terminal.
-    // The popup is ~60% of terminal height, minus border (2), input (1), separator (1).
-    let _ = state;
-    10
 }
 
 /// Inserts a character into the active picker's filter.
@@ -395,58 +366,69 @@ pub fn handle_picker_confirm(
         Some(PickerKind::McpServer) => (crate::feat::mcp::intent::confirm_mcp(state), None),
         Some(PickerKind::Endpoint) => (confirm_endpoint(state), None),
 
-        Some(PickerKind::CompactionModel | PickerKind::TaskList | PickerKind::Plugin) | None => {
-            (IntentResult::empty(), None)
-        }
+        Some(PickerKind::CompactionModel | PickerKind::TaskList | PickerKind::Plugin)
+        | Some(PickerKind::Skill)
+        | None => (IntentResult::empty(), None),
         Some(PickerKind::Tool) => (confirm_tool(state), None),
-        Some(PickerKind::Skill) => (confirm_skill(state), None),
     }
 }
 
 /// Moves the selection up in the active picker.
-pub fn handle_move_up(state: &mut AppState) -> IntentResult {
+pub fn handle_move_up(
+    state: &mut AppState,
+    pickers: &jinn_picker::PickerRegistry,
+) -> IntentResult {
     validator::validate_picker_move_up(state);
     let viewport = active_viewport(state);
     if let Some(picker) = state.active_picker_ops() {
         picker.move_up(viewport);
     }
-    reset_preview_scroll(state);
+    reset_preview_scroll(state, pickers);
     preview_theme_if_active(state);
     IntentResult::empty()
 }
 
 /// Moves the selection down in the active picker.
-pub fn handle_move_down(state: &mut AppState) -> IntentResult {
+pub fn handle_move_down(
+    state: &mut AppState,
+    pickers: &jinn_picker::PickerRegistry,
+) -> IntentResult {
     validator::validate_picker_move_down(state);
     let viewport = active_viewport(state);
     if let Some(picker) = state.active_picker_ops() {
         picker.move_down(viewport);
     }
-    reset_preview_scroll(state);
+    reset_preview_scroll(state, pickers);
     preview_theme_if_active(state);
     IntentResult::empty()
 }
 
 /// Pages the selection up by half the visible window in the active picker.
-pub fn handle_page_up(state: &mut AppState) -> IntentResult {
+pub fn handle_page_up(
+    state: &mut AppState,
+    pickers: &jinn_picker::PickerRegistry,
+) -> IntentResult {
     validator::validate_picker_page_up(state);
     let viewport = active_viewport(state);
     if let Some(picker) = state.active_picker_ops() {
         picker.page_up(viewport);
     }
-    reset_preview_scroll(state);
+    reset_preview_scroll(state, pickers);
     preview_theme_if_active(state);
     IntentResult::empty()
 }
 
 /// Pages the selection down by half the visible window in the active picker.
-pub fn handle_page_down(state: &mut AppState) -> IntentResult {
+pub fn handle_page_down(
+    state: &mut AppState,
+    pickers: &jinn_picker::PickerRegistry,
+) -> IntentResult {
     validator::validate_picker_page_down(state);
     let viewport = active_viewport(state);
     if let Some(picker) = state.active_picker_ops() {
         picker.page_down(viewport);
     }
-    reset_preview_scroll(state);
+    reset_preview_scroll(state, pickers);
     preview_theme_if_active(state);
     IntentResult::empty()
 }
@@ -775,19 +757,6 @@ pub fn handle_tool_toggle(state: &mut AppState) -> IntentResult {
 
 /// Populates the skill picker entries from discovered skills.
 ///
-/// Delegates to [`crate::feat::skills::reload::reload_skill_picker_entries`].
-fn load_skill_picker_entries(state: &mut AppState) {
-    let disabled = state.active_session().disabled_skills().clone();
-    let theme = state.frontend.theme.clone();
-    let discovered = state.active_session().discovered_skills().to_vec();
-    crate::feat::skills::reload::reload_skill_picker_entries(
-        &mut state.frontend,
-        &discovered,
-        &disabled,
-        &theme,
-    );
-}
-
 /// Populates the task list picker entries from the active session's task list.
 ///
 /// Phases are emitted as tree roots; tasks are emitted as children of their owning
@@ -920,142 +889,6 @@ pub fn handle_project_remove_highlighted(state: &mut AppState) -> IntentResult {
     })
 }
 
-/// Confirms the skill picker: collects disabled skill names from picker entries
-/// and writes them to the active session's profile.
-fn confirm_skill(state: &mut AppState) -> IntentResult {
-    let disabled: std::collections::HashSet<String> = state
-        .frontend
-        .skill_picker()
-        .items()
-        .iter()
-        .filter(|entry| !entry.enabled)
-        .map(|entry| entry.name.clone())
-        .collect();
-
-    state.active_session_mut().set_disabled_skills(disabled);
-    *state.frontend.skill_picker_snapshot_mut() = None;
-    state.frontend.scope_stack.pop();
-    IntentResult::empty()
-}
-
-/// Toggles the `enabled` state of the currently selected skill entry.
-///
-/// A skill already loaded into context cannot be disabled here. Disabling would
-/// give a false sense of "unloaded" — the body is still pinned in history until
-/// it is unpinned and pruned. So TAB is a no-op for a loaded skill: the entry
-/// stays enabled and the cursor stays put (no movement on a no-op).
-pub fn handle_skill_toggle(state: &mut AppState) -> IntentResult {
-    // A loaded skill cannot be unloaded by disabling; leave it as-is.
-    if state
-        .frontend
-        .skill_picker()
-        .selected_item()
-        .map(|e| e.name.clone())
-        .is_some_and(|name| state.active_session().loaded_skills().contains(&name))
-    {
-        return IntentResult::empty();
-    }
-
-    state
-        .frontend
-        .skill_picker_mut()
-        .with_selected_mut(|entry| {
-            entry.enabled = !entry.enabled;
-        });
-    let viewport = active_viewport(state);
-    state.frontend.skill_picker_mut().move_down(viewport);
-    IntentResult::empty()
-}
-/// Loads the highlighted skill into context as a pinned ToolResult (skill picker `<c-l>`).
-///
-/// Pushes a synthetic `ToolCall` + pinned-Relative `ToolResult` pair — the same
-/// on-disk shape the agent-driven `skill` tool produces — so the load is valid in
-/// provider context (no orphan `Tool` message) and is detected by `loaded_skills()`
-/// without inventing a new representation of "loaded."
-///
-/// A disabled skill is auto-enabled first, and the enable is made durable by
-/// removing the name from both the cancel-revert snapshot and the live
-/// `disabled_skills` set, so neither `Enter` nor `ESC` can re-disable a skill
-/// that is now in context. The picker stays open (no scope pop, no cursor move)
-/// so several skills can be loaded in one visit.
-pub fn handle_skill_load_selected(state: &mut AppState) -> IntentResult {
-    // Defensive: only act from the skill picker.
-    if state.frontend.scope_stack.picker_kind() != Some(&PickerKind::Skill) {
-        return IntentResult::empty();
-    }
-
-    let Some(entry) = state.frontend.skill_picker().selected_item().cloned() else {
-        return IntentResult::empty();
-    };
-    let name = entry.name.clone();
-
-    // Resolve the skill's file_path from the session's discovered set rather than
-    // re-deriving from the global dir — this is what makes project-local skills
-    // loadable and matches the `skill` tool's `resolve_skill_path`.
-    let Some(skill_path) = state
-        .active_session()
-        .discovered_skills()
-        .iter()
-        .find(|s| s.name == name)
-        .map(|s| s.file_path.clone())
-    else {
-        return IntentResult::empty();
-    };
-
-    // Idempotency: a pinned ToolResult for this skill already exists in history.
-    if state.active_session().loaded_skills().contains(&name) {
-        state
-            .active_session_mut()
-            .push_entry(ChatEntry::transient(format!(
-                "Skill '{name}' is already loaded"
-            )));
-        return IntentResult::empty();
-    }
-
-    // Auto-enable a disabled skill so the load is not immediately contradicted by
-    // a staged/committed disable. Make the enable durable against both commit
-    // (`Enter`) and revert (`ESC`) paths.
-    if !entry.enabled {
-        state
-            .frontend
-            .skill_picker_mut()
-            .with_selected_mut(|e| e.enabled = true);
-        if let Some(snap) = state.frontend.skill_picker_snapshot_mut() {
-            snap.remove(&name);
-        }
-        let mut disabled = state.active_session().disabled_skills().clone();
-        disabled.remove(&name);
-        state.active_session_mut().set_disabled_skills(disabled);
-    }
-
-    // Push the paired entries with a shared synthetic id. The body comes from the
-    // in-memory SkillEntry (already frontmatter-stripped), so there is no file I/O.
-    let tool_call_id = ChatEntryId::new().to_string();
-    let location = skill_path.to_string_lossy().to_string();
-    let xml = format!(
-        "<skill name=\"{name}\" location=\"{location}\">\n{}\n</skill>",
-        entry.body
-    );
-    let arguments = serde_json::json!({ "name": name }).to_string();
-
-    state.active_session_mut().push_entry(ChatEntry::tool_call(
-        tool_call_id.clone(),
-        "skill",
-        arguments,
-    ));
-    let mut result = ChatEntry::tool_result(
-        tool_call_id,
-        "skill",
-        xml,
-        crate::feat::session::tool_result_status::ToolResultStatus::Success,
-    );
-    result.pin_position = Some(PinPosition::Relative);
-    state.active_session_mut().push_entry(result);
-
-    let session_id = state.active_session().session_id().clone();
-    IntentResult::empty().with_message(MarkSessionInteracted { session_id })
-}
-
 /// Toggles the selected model's `selected` state in the provider picker.
 ///
 /// Used for multi-select alloy building. When toggled on, the entry gets a
@@ -1112,35 +945,6 @@ fn resort_provider_picker(picker: &mut jinn_selection_widget::SelectionState<Pic
     let mut sorted: Vec<PickerEntry> = selected;
     sorted.extend(unselected);
     picker.set_items(sorted);
-}
-
-/// Refreshes discovered project resources (skills, prompts, AGENTS.md) by
-/// rescanning the session's cwd. Issues all three scan commands so the
-/// discovery coordinator receives a complete set of `*Loaded` events and
-/// settles cleanly (rather than arming the 3000ms safety-net timer on a
-/// partial trigger). The scan actors handle the actual I/O and reload picker
-/// entries.
-///
-/// No-op unless the skill picker is the active scope.
-pub fn handle_refresh_skills(state: &mut AppState) -> IntentResult {
-    if state.frontend.scope_stack.picker_kind() != Some(&PickerKind::Skill) {
-        return IntentResult::empty();
-    }
-
-    state
-        .active_session_mut()
-        .push_entry(ChatEntry::transient("Refreshing project resources..."));
-
-    let session_id = state.active_session().session_id().clone();
-
-    IntentResult::empty()
-        .with_message(ScanSkills {
-            session_id: session_id.clone(),
-        })
-        .with_message(RescanPromptTemplates {
-            session_id: session_id.clone(),
-        })
-        .with_message(ScanContextFiles { session_id })
 }
 
 #[cfg(test)]
@@ -2324,541 +2128,6 @@ mod tests {
         assert_eq!(items[1].name, "project-a");
     }
 
-    fn setup_state_with_skills() -> AppState {
-        use crate::feat::skills::Skill;
-        use std::path::PathBuf;
-
-        let mut state = AppState::default();
-        let origin = ChatSessionState::new();
-        state.session.insert(origin);
-        state
-            .session
-            .set_active(state.session.active_session_id().clone());
-
-        state.active_session_mut().set_discovered_skills(vec![
-            Skill {
-                name: "phased-task-loop".to_owned(),
-                description: "Structured phased implementation workflow".to_owned(),
-                body: String::new(),
-                file_path: PathBuf::from("/tmp/skills/phased-task-loop/SKILL.md"),
-                base_dir: PathBuf::from("/tmp/skills/phased-task-loop"),
-                source: crate::feat::skills::SkillSource::Global,
-            },
-            Skill {
-                name: "web-coder".to_owned(),
-                description: "Expert web development".to_owned(),
-                body: String::new(),
-                file_path: PathBuf::from("/tmp/skills/web-coder/SKILL.md"),
-                base_dir: PathBuf::from("/tmp/skills/web-coder"),
-                source: crate::feat::skills::SkillSource::Global,
-            },
-        ]);
-
-        state
-    }
-
-    /// Returns state seeded with one discovered skill carrying a body, plus an
-    /// open skill picker (scope pushed, snapshot taken, entries loaded).
-    fn setup_with_open_skill_picker() -> AppState {
-        use crate::feat::skills::Skill;
-        use std::path::PathBuf;
-
-        let mut state = AppState::default();
-        let origin = ChatSessionState::new();
-        state.session.insert(origin);
-        state
-            .session
-            .set_active(state.session.active_session_id().clone());
-
-        state
-            .active_session_mut()
-            .set_discovered_skills(vec![Skill {
-                name: "web-coder".to_owned(),
-                description: "Expert web development".to_owned(),
-                body: "# Web Coder\n\nDo web things.".to_owned(),
-                file_path: PathBuf::from("/tmp/skills/web-coder/SKILL.md"),
-                base_dir: PathBuf::from("/tmp/skills/web-coder"),
-                source: crate::feat::skills::SkillSource::Global,
-            }]);
-
-        // Open the picker: pushes the Skill scope and snapshots disabled_skills.
-        handle_open_picker(&mut state, PickerKind::Skill, &empty_pickers());
-        state
-    }
-
-    #[rstest::rstest]
-    fn skill_load_pushes_pinned_tool_result_for_selected_skill() {
-        // Given an open skill picker with "web-coder" highlighted.
-        let mut state = setup_with_open_skill_picker();
-        let scope_len_before = state.frontend.scope_stack.len();
-
-        // When loading the highlighted skill.
-        let _ = handle_skill_load_selected(&mut state);
-
-        // Then the session reports "web-coder" as loaded.
-        assert!(
-            state.active_session().loaded_skills().contains("web-coder"),
-            "web-coder should be loaded after <c-l>"
-        );
-        // And the picker stays open (no scope pop) for multi-load workflows.
-        assert_eq!(
-            state.frontend.scope_stack.len(),
-            scope_len_before,
-            "a successful load must not pop the skill picker scope"
-        );
-        assert!(
-            matches!(
-                state.frontend.scope_stack.current(),
-                FocusScope::Picker {
-                    kind: PickerKind::Skill
-                }
-            ),
-            "the top scope must still be the skill picker after a load"
-        );
-    }
-
-    #[rstest::rstest]
-    fn skill_load_pushes_matching_tool_call_pair() {
-        use crate::feat::session::chat_entry::ChatEntryKind;
-        use crate::protocol::PinPosition;
-
-        // Given an open skill picker with "web-coder" highlighted.
-        let mut state = setup_with_open_skill_picker();
-
-        // When loading the highlighted skill.
-        let _ = handle_skill_load_selected(&mut state);
-
-        // Then history ends with a skill ToolCall immediately followed by a
-        // pinned-Relative skill ToolResult sharing the same id.
-        let history = state.active_session().history();
-        let last = history.len().checked_sub(2).and_then(|i| {
-            let call = history.get(i)?;
-            let result = history.get(i + 1)?;
-            Some((call, result))
-        });
-        let Some((call, result)) = last else {
-            panic!("expected a ToolCall+ToolResult pair at the tail; got {history:?}");
-        };
-
-        let (
-            ChatEntryKind::ToolCall {
-                id: call_id,
-                name: call_name,
-                ..
-            },
-            ChatEntryKind::ToolResult {
-                id: result_id,
-                name: result_name,
-                content,
-                ..
-            },
-        ) = (&call.kind, &result.kind)
-        else {
-            panic!(
-                "tail entries should be ToolCall then ToolResult; got {:?} {:?}",
-                call.kind, result.kind
-            );
-        };
-
-        assert_eq!(call_name, "skill");
-        assert_eq!(result_name, "skill");
-        assert_eq!(
-            call_id, result_id,
-            "ToolCall and ToolResult must share an id to avoid an orphan-Tool API error"
-        );
-        assert_eq!(result.pin_position, Some(PinPosition::Relative));
-        assert!(
-            content.starts_with("<skill name=\"web-coder\""),
-            "ToolResult content should be skill XML; got {content:?}"
-        );
-    }
-
-    #[rstest::rstest]
-    fn skill_load_already_loaded_emits_transient_notice() {
-        use crate::feat::session::chat_entry::ChatEntryKind;
-
-        // Given an open skill picker where "web-coder" is already loaded.
-        let mut state = setup_with_open_skill_picker();
-        let _ = handle_skill_load_selected(&mut state);
-        let pinned_before = state
-            .active_session()
-            .history()
-            .iter()
-            .filter(|e| e.is_pinned())
-            .count();
-
-        // When loading the same skill again.
-        let _ = handle_skill_load_selected(&mut state);
-
-        // Then a Transient entry is pushed and no new pinned ToolResult appears.
-        let history = state.active_session().history();
-        assert!(
-            matches!(&history.last().expect("at least one entry").kind, ChatEntryKind::Transient(t) if t.contains("already loaded")),
-            "already-loaded skill should emit a transient 'already loaded' notice"
-        );
-        let pinned_after = history.iter().filter(|e| e.is_pinned()).count();
-        assert_eq!(
-            pinned_before, pinned_after,
-            "already-loaded skill must not be re-pinned"
-        );
-    }
-
-    #[rstest::rstest]
-    fn skill_load_auto_enables_disabled_skill() {
-        // Given a session with "web-coder" disabled, then the skill picker opened
-        // (so the snapshot captures it as disabled).
-        let mut state = setup_with_open_skill_picker();
-        // Disable it before opening so the snapshot reflects the disabled state.
-        state
-            .active_session_mut()
-            .set_disabled_skills(std::collections::HashSet::from(["web-coder".to_owned()]));
-        // Reopen to take a fresh snapshot and reload entries from the disabled set.
-        state.frontend.scope_stack.pop();
-        handle_open_picker(&mut state, PickerKind::Skill, &empty_pickers());
-
-        assert!(!state.frontend.skill_picker().items()[0].enabled);
-        assert!(
-            state
-                .frontend
-                .skill_picker_snapshot()
-                .as_ref()
-                .is_some_and(|s| s.contains("web-coder")),
-            "disabled skill should be in the revert snapshot before load"
-        );
-
-        // When loading the disabled skill.
-        let _ = handle_skill_load_selected(&mut state);
-
-        // Then the entry is enabled, removed from the snapshot, removed from the
-        // live disabled set, and the skill is loaded.
-        assert!(state.frontend.skill_picker().items()[0].enabled);
-        assert!(
-            !state
-                .frontend
-                .skill_picker_snapshot()
-                .as_ref()
-                .is_some_and(|s| s.contains("web-coder")),
-            "auto-enable should remove the skill from the revert snapshot"
-        );
-        assert!(
-            !state
-                .active_session()
-                .disabled_skills()
-                .contains("web-coder"),
-            "auto-enable should remove the skill from the live disabled set"
-        );
-        assert!(state.active_session().loaded_skills().contains("web-coder"));
-    }
-
-    /// Opens the skill picker with "web-coder" staged as disabled and captured in
-    /// the revert snapshot — the precondition for testing an auto-enabled load.
-    fn setup_with_disabled_open_skill_picker() -> AppState {
-        let mut state = setup_with_open_skill_picker();
-        state
-            .active_session_mut()
-            .set_disabled_skills(std::collections::HashSet::from(["web-coder".to_owned()]));
-        state.frontend.scope_stack.pop();
-        handle_open_picker(&mut state, PickerKind::Skill, &empty_pickers());
-        state
-    }
-
-    #[rstest::rstest]
-    fn skill_load_auto_enable_survives_confirm() {
-        // Given an open skill picker with "web-coder" disabled, then loaded.
-        let mut state = setup_with_disabled_open_skill_picker();
-        let _ = handle_skill_load_selected(&mut state);
-
-        // When confirming the picker (Enter).
-        let _ = confirm_skill(&mut state);
-
-        // Then the skill stays enabled and is not recorded as disabled.
-        assert!(
-            state.frontend.skill_picker().items()[0].enabled,
-            "auto-enabled skill must remain enabled after confirming the picker"
-        );
-        assert!(
-            !state
-                .active_session()
-                .disabled_skills()
-                .contains("web-coder"),
-            "a loaded skill must not be committed as disabled on Enter"
-        );
-    }
-
-    #[rstest::rstest]
-    fn skill_load_auto_enable_survives_escape() {
-        // Given an open skill picker with "web-coder" disabled, then loaded.
-        let mut state = setup_with_disabled_open_skill_picker();
-        let _ = handle_skill_load_selected(&mut state);
-
-        // When cancelling the picker (ESC).
-        let _ = crate::feat::chat_input::intent::handle_enter_normal_mode(&mut state);
-
-        // Then the skill stays enabled and is not reverted to disabled.
-        assert!(
-            state.frontend.skill_picker().items()[0].enabled,
-            "auto-enabled skill must remain enabled after escaping the picker"
-        );
-        assert!(
-            !state
-                .active_session()
-                .disabled_skills()
-                .contains("web-coder"),
-            "a loaded skill must not be reverted to disabled on ESC"
-        );
-    }
-
-    #[rstest::rstest]
-    fn skill_load_with_no_selection_is_noop() {
-        // Given an open skill picker with no entries.
-        let mut state = AppState::default();
-        let origin = ChatSessionState::new();
-        state.session.insert(origin);
-        state
-            .session
-            .set_active(state.session.active_session_id().clone());
-        handle_open_picker(&mut state, PickerKind::Skill, &empty_pickers());
-
-        // When loading with no selection.
-        let result = handle_skill_load_selected(&mut state);
-
-        // Then nothing is pushed and no commands are emitted.
-        assert!(
-            state.active_session().history().is_empty(),
-            "no-selection load should not push any history entries"
-        );
-        assert!(
-            result.message_names.is_empty(),
-            "no-selection load should emit no messages"
-        );
-    }
-
-    #[rstest::rstest]
-    fn load_skill_picker_entries_populates_picker() {
-        // Given state with two skills.
-        let mut state = setup_state_with_skills();
-
-        // When loading skill picker entries.
-        load_skill_picker_entries(&mut state);
-
-        // Then the picker has two entries.
-        let items = state.frontend.skill_picker().items();
-        assert_eq!(items.len(), 2);
-        assert_eq!(items[0].name, "phased-task-loop");
-        assert_eq!(items[1].name, "web-coder");
-    }
-
-    #[rstest::rstest]
-    fn opening_skill_picker_preserves_preview_cache() {
-        use jinn_selection_widget::PreviewCache;
-
-        // Given a populated cache (simulating prior viewing).
-        let mut state = setup_state_with_skills();
-        state.frontend.caches.skill_preview_cache.write().insert(
-            crate::feat::skills::skill_entry::body_hash_key("## rendered body"),
-            80,
-            vec![ratatui::text::Line::raw("rendered")],
-        );
-        assert_eq!(state.frontend.caches.skill_preview_cache.read().len(), 1);
-
-        // When the skill picker is opened.
-        handle_open_picker(&mut state, PickerKind::Skill, &empty_pickers());
-
-        // Then the cache is preserved (bodies haven't changed).
-        assert_eq!(state.frontend.caches.skill_preview_cache.read().len(), 1);
-    }
-
-    #[rstest::rstest]
-    fn load_skill_picker_entries_marks_disabled() {
-        // Given state with "web-coder" disabled.
-        let mut state = setup_state_with_skills();
-        state
-            .active_session_mut()
-            .set_disabled_skills(std::collections::HashSet::from(["web-coder".to_owned()]));
-
-        // When loading skill picker entries.
-        load_skill_picker_entries(&mut state);
-
-        // Then "web-coder" is marked disabled.
-        let items = state.frontend.skill_picker().items();
-        assert!(items[0].enabled, "phased-task-loop should be enabled");
-        assert!(!items[1].enabled, "web-coder should be disabled");
-    }
-
-    #[rstest::rstest]
-    fn confirm_skill_writes_disabled_set() {
-        // Given an open skill picker with "web-coder" toggled off.
-        let mut state = setup_state_with_skills();
-        load_skill_picker_entries(&mut state);
-
-        // Select "web-coder" (second entry) and toggle it off.
-        state.frontend.skill_picker_mut().move_down(1); // move from 0 → 1
-        handle_skill_toggle(&mut state);
-
-        // When confirming.
-        let _ = confirm_skill(&mut state);
-
-        // Then the session's disabled_skills contains "web-coder".
-        let disabled = state.active_session().disabled_skills().clone();
-        assert_eq!(
-            disabled,
-            std::collections::HashSet::from(["web-coder".to_owned()])
-        );
-    }
-
-    #[rstest::rstest]
-    fn confirm_skill_clears_snapshot() {
-        // Given an open skill picker with a snapshot.
-        let mut state = setup_state_with_skills();
-        *state.frontend.skill_picker_snapshot_mut() = Some(std::collections::HashSet::new());
-        load_skill_picker_entries(&mut state);
-
-        // When confirming.
-        let _ = confirm_skill(&mut state);
-
-        // Then the snapshot is cleared.
-        assert!(state.frontend.skill_picker_snapshot().is_none());
-    }
-
-    #[rstest::rstest]
-    fn handle_skill_toggle_flips_enabled() {
-        // Given an open skill picker.
-        let mut state = setup_state_with_skills();
-        load_skill_picker_entries(&mut state);
-
-        // The first entry (phased-task-loop) is selected by default (selection=0).
-        assert!(state.frontend.skill_picker().items()[0].enabled);
-
-        // When toggling.
-        handle_skill_toggle(&mut state);
-
-        // Then the first entry is now disabled.
-        assert!(!state.frontend.skill_picker().items()[0].enabled);
-
-        // And toggling again re-enables it (cursor moved to entry 1,
-        // so we go back up first).
-        state.frontend.skill_picker_mut().move_up(1);
-        handle_skill_toggle(&mut state);
-        assert!(state.frontend.skill_picker().items()[0].enabled);
-    }
-
-    #[rstest::rstest]
-    fn handle_skill_toggle_moves_cursor_down() {
-        // Given an open skill picker with two entries.
-        let mut state = setup_state_with_skills();
-        load_skill_picker_entries(&mut state);
-
-        // Selection starts at 0.
-        assert_eq!(state.frontend.skill_picker().selection(), 0);
-
-        // When toggling.
-        handle_skill_toggle(&mut state);
-
-        // Then the cursor has moved down to 1.
-        assert_eq!(state.frontend.skill_picker().selection(), 1);
-    }
-
-    #[rstest::rstest]
-    fn skill_toggle_does_not_disable_already_loaded_skill() {
-        // Given an open skill picker with "web-coder" loaded into context.
-        let mut state = setup_with_open_skill_picker();
-        let _ = handle_skill_load_selected(&mut state);
-        assert!(state.active_session().loaded_skills().contains("web-coder"));
-        assert_eq!(state.frontend.skill_picker().selection(), 0);
-
-        // When pressing TAB to disable it.
-        handle_skill_toggle(&mut state);
-
-        // Then the entry stays enabled.
-        assert!(
-            state.frontend.skill_picker().items()[0].enabled,
-            "a loaded skill cannot be disabled via TAB"
-        );
-        // And the cursor does not move on the no-op.
-        assert_eq!(
-            state.frontend.skill_picker().selection(),
-            0,
-            "TAB should not move the cursor when it is a no-op"
-        );
-        // And disabled_skills stays empty (the enable is never staged for removal).
-        assert!(
-            !state
-                .active_session()
-                .disabled_skills()
-                .contains("web-coder"),
-            "a loaded skill must not be staged as disabled"
-        );
-    }
-
-    #[rstest::rstest]
-    fn refresh_skills_posts_transient_message() {
-        // Given state with skills and the skill picker active.
-        let mut state = setup_state_with_skills();
-        load_skill_picker_entries(&mut state);
-        state.frontend.scope_stack.push(FocusScope::Picker {
-            kind: PickerKind::Skill,
-        });
-
-        // When handling RefreshSkills.
-        let _result = handle_refresh_skills(&mut state);
-
-        // Then a transient message was posted.
-        let last = state
-            .active_session()
-            .history()
-            .last()
-            .expect("should have entry");
-        assert!(matches!(last.kind, ChatEntryKind::Transient(_)));
-    }
-
-    #[rstest::rstest]
-    fn refresh_skills_returns_scan_commands_for_all_resources() {
-        // Given state with skills and the skill picker active.
-        let mut state = setup_state_with_skills();
-        load_skill_picker_entries(&mut state);
-        state.frontend.scope_stack.push(FocusScope::Picker {
-            kind: PickerKind::Skill,
-        });
-
-        // When handling RefreshSkills.
-        let result = handle_refresh_skills(&mut state);
-
-        // Then all three scan commands are returned so discovery settles cleanly.
-        assert!(
-            result
-                .message_names
-                .iter()
-                .any(|n| n.contains("ScanSkills")),
-            "expected ScanSkills command"
-        );
-        assert!(
-            result
-                .message_names
-                .iter()
-                .any(|n| n.contains("RescanPromptTemplates")),
-            "expected RescanPromptTemplates command"
-        );
-        assert!(
-            result
-                .message_names
-                .iter()
-                .any(|n| n.contains("ScanContextFiles")),
-            "expected ScanContextFiles command"
-        );
-    }
-
-    #[rstest::rstest]
-    fn refresh_skills_noop_when_skill_picker_not_active() {
-        // Given state without the skill picker active.
-        let mut state = AppState::default();
-
-        // When handling RefreshSkills.
-        let result = handle_refresh_skills(&mut state);
-
-        // Then no commands and no messages.
-        assert!(result.message_names.is_empty());
-    }
-
     fn setup_state_with_task_list() -> (AppState, crate::feat::todo_list::TaskId) {
         use crate::feat::todo_list::TaskPosition;
 
@@ -3518,7 +2787,7 @@ mod tests {
         assert_eq!(state.provider.provider_picker.scroll_offset(), 0);
 
         // When moving down once more.
-        handle_move_down(&mut state);
+        handle_move_down(&mut state, &empty_pickers());
 
         // Then selection advances to 5 and scroll_offset advances by one
         // (measured viewport of 5, not the old hardcoded 100).
@@ -3534,7 +2803,7 @@ mod tests {
         assert_eq!(state.frontend.picker_results_viewport(), 0);
 
         // When moving down once.
-        handle_move_down(&mut state);
+        handle_move_down(&mut state, &empty_pickers());
 
         // Then selection advances by one without panic, using the fallback.
         assert_eq!(state.provider.provider_picker.selection(), 2);
@@ -3548,7 +2817,7 @@ mod tests {
         state.provider.provider_picker.move_up(5); // selection back to 0
 
         // When handling PickerPageDown (half of 10 = 5).
-        handle_page_down(&mut state);
+        handle_page_down(&mut state, &empty_pickers());
 
         // Then selection advances by 5.
         assert_eq!(state.provider.provider_picker.selection(), 5);
@@ -3565,7 +2834,7 @@ mod tests {
         }
 
         // When handling PickerPageUp (half of 10 = 5).
-        handle_page_up(&mut state);
+        handle_page_up(&mut state, &empty_pickers());
 
         // Then selection decrements by 5.
         assert_eq!(state.provider.provider_picker.selection(), 5);

@@ -502,18 +502,16 @@ impl IntentHandler {
                     result
                 }
             }
-            Intent::PickerMoveUp => feat::picker::intent::handle_move_up(state),
-            Intent::PickerMoveDown => feat::picker::intent::handle_move_down(state),
-            Intent::PickerPageUp => feat::picker::intent::handle_page_up(state),
-            Intent::PickerPageDown => feat::picker::intent::handle_page_down(state),
+            Intent::PickerMoveUp => feat::picker::intent::handle_move_up(state, pickers),
+            Intent::PickerMoveDown => feat::picker::intent::handle_move_down(state, pickers),
+            Intent::PickerPageUp => feat::picker::intent::handle_page_up(state, pickers),
+            Intent::PickerPageDown => feat::picker::intent::handle_page_down(state, pickers),
             Intent::PickerMoveCursorLeft => feat::picker::intent::handle_move_cursor_left(state),
             Intent::PickerMoveCursorRight => feat::picker::intent::handle_move_cursor_right(state),
             Intent::ToolToggleSelected => feat::picker::intent::handle_tool_toggle(state),
-            Intent::SkillToggleSelected => feat::picker::intent::handle_skill_toggle(state),
             Intent::McpToggleSelected => feat::mcp::intent::handle_mcp_toggle(state),
             Intent::McpRestartSelected => feat::mcp::intent::handle_mcp_restart_selected(state),
             Intent::McpTogglePreview => feat::mcp::intent::handle_mcp_toggle_preview(state),
-            Intent::SkillLoadSelected => feat::picker::intent::handle_skill_load_selected(state),
             Intent::ProjectNewAtHighlightedWithLifecycle => {
                 feat::picker::intent::handle_project_lifecycle_confirm(state)
             }
@@ -522,14 +520,11 @@ impl IntentHandler {
             }
             Intent::ModelToggleSelected => feat::picker::intent::handle_model_toggle(state),
             Intent::ToggleAlloyMode => feat::picker::intent::handle_toggle_alloy_mode(state),
-            Intent::PreviewScrollUp => feat::picker::intent::handle_preview_scroll_up(state),
-            Intent::PreviewScrollDown => feat::picker::intent::handle_preview_scroll_down(state),
             Intent::SessionNew => feat::session::intent::handle_session_new(state),
             Intent::RefreshModels => feat::session::intent::handle_refresh_models(state),
             Intent::RescanPromptTemplates => {
                 feat::session::intent::handle_rescan_prompt_templates(state)
             }
-            Intent::RefreshSkills => feat::picker::intent::handle_refresh_skills(state),
             Intent::RefreshEndpoints => feat::picker::intent::handle_refresh_endpoints(state),
 
             Intent::SidebarFocus => feat::ui::sidebar::intent::handle_sidebar_focus(state),

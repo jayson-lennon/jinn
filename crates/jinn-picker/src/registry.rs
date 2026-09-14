@@ -15,7 +15,6 @@ use ratatui::layout::Rect;
 use ratatui::text::Line;
 use ratatui::Frame;
 
-use crate::builder::SharedPreviewCache;
 use crate::ctx::ActionCtx;
 use crate::ctx::LoadCtx;
 use crate::ctx::StatusCtx;
@@ -65,6 +64,11 @@ pub trait ErasedPickerSpec: Send + Sync {
 
     /// The geometry-relevant widget flavor.
     fn widget_kind(&self) -> WidgetKind;
+
+    /// Whether the preview scroll resets when the selection changes
+    /// (the `Preview` widget's follow-the-cursor behavior). `false` for
+    /// non-preview pickers.
+    fn resets_scroll_on_selection_change(&self) -> bool;
 
     /// Footer rows the picker draws: the keybind line plus a status row
     /// when a status hook is declared. Geometry derives from this.
@@ -144,13 +148,13 @@ where
     pub(crate) id: PickerId,
     pub(crate) title: Option<&'static str>,
     pub(crate) widget_kind: WidgetKind,
+    pub(crate) reset_scroll_on_selection_change: bool,
     pub(crate) has_status: bool,
     pub(crate) binds: Vec<BindRow>,
     pub(crate) actions: Vec<crate::hooks::PickerBindAction>,
     pub(crate) keybind_tail: Tail,
     pub(crate) load: Option<PickerLoadFn<T>>,
     pub(crate) hooks: Arc<RenderHooks<T>>,
-    pub(crate) preview_cache: Option<SharedPreviewCache>,
     pub(crate) status: Option<PickerStatusFn>,
     pub(crate) on_open: Option<PickerLifecycleFn>,
     pub(crate) on_confirm: Option<PickerLifecycleFn>,
@@ -171,6 +175,10 @@ where
 
     fn widget_kind(&self) -> WidgetKind {
         self.widget_kind
+    }
+
+    fn resets_scroll_on_selection_change(&self) -> bool {
+        self.reset_scroll_on_selection_change
     }
 
     fn has_status(&self) -> bool {
@@ -308,19 +316,19 @@ impl PickerRegistry {
     {
         // Move the builder's fields into the erased wrapper. Access is via
         // the crate-private accessors below (builder fields are private).
-        let (id, title, widget_kind, has_status, binds, actions, keybind_tail, load, hooks, preview_cache, status, on_open, on_confirm, on_close) =
+        let (id, title, widget_kind, reset_scroll_on_selection_change, has_status, binds, actions, keybind_tail, load, hooks, status, on_open, on_confirm, on_close) =
             spec.into_parts();
         let typed = TypedSpec {
             id,
             title,
             widget_kind,
+            reset_scroll_on_selection_change,
             has_status,
             binds,
             actions,
             keybind_tail,
             load,
             hooks: Arc::new(hooks),
-            preview_cache,
             status,
             on_open,
             on_confirm,

@@ -37,7 +37,7 @@ pub use hooks::{
     PickerBindAction, PickerLifecycleFn, PickerLoadFn, PickerPreviewFn, PickerPreviewKeyFn,
     PickerRowFn, PickerSearchFn, PickerStatusFn,
 };
-pub use host::{Palette, PickerHost};
+pub use host::{Palette, PickerHost, SharedPreviewCache};
 pub use id::PickerId;
 pub use outcome::PickerOutcome;
 pub use preview_key::PreviewKey;

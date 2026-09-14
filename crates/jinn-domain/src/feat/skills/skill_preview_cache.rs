@@ -62,8 +62,10 @@ impl SkillPreviewCache {
     /// Clears all cached preview lines.
     ///
     /// Called when the active theme changes (via `FrontendCaches::invalidate_all`)
-    /// so preview popups re-render with the new colors.
-    pub fn clear(&mut self) {
+    /// so preview popups re-render with the new colors. Takes `&self` — the
+    /// cache is shared as an `Arc` handle with the picker host, so clearing
+    /// must work through the shared reference.
+    pub fn clear(&self) {
         self.entries.lock().clear();
     }
 

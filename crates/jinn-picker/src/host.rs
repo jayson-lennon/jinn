@@ -1,10 +1,18 @@
 //! The host seam — the crate's sole lens onto the kernel's state.
 
 use jinn_core_types::SessionId;
+use jinn_selection_widget::PreviewCache;
 use jinn_selection_widget::SelectionColors;
 use ratatui::style::Color;
 
 use crate::id::PickerId;
+
+/// A domain-supplied preview cache, lent per picker through the host.
+///
+/// The kernel owns the concrete cache (and its lifetime); specs opt into
+/// caching by declaring per-entry [`crate::PreviewKey`]s and the render
+/// driver wires this handle into the preview widget.
+pub type SharedPreviewCache = std::sync::Arc<dyn PreviewCache + Send + Sync>;
 
 /// Theme-dependent colors the crate renders with, decoupled from the
 /// kernel's `Theme` type (mirrors `SelectionColors` plus the footer accents
@@ -72,6 +80,11 @@ pub trait PickerHost {
 
     /// Clears the preview scroll for `id` (next read returns 0).
     fn reset_preview_scroll(&mut self, id: PickerId);
+
+    /// The domain preview cache lent for `id`, when the picker renders
+    /// cached previews. `None` (or a per-entry key being absent) means the
+    /// preview renders live.
+    fn preview_cache(&self, id: PickerId) -> Option<SharedPreviewCache>;
 }
 
 impl Palette {

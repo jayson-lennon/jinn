@@ -78,24 +78,23 @@ impl PickerHost for AppStatePickerHost<'_> {
     }
 
     fn preview_scroll(&self, id: PickerId) -> usize {
-        match id.as_str() {
-            // Legacy slot until the skill picker's migration completes.
-            SKILL_ID => self.state.frontend.skill_preview_scroll(),
-            _ => self.state.frontend.pickers.pickers_scrolls.get(id),
-        }
+        self.state.frontend.pickers.pickers_scrolls.get(id)
     }
 
     fn set_preview_scroll(&mut self, id: PickerId, scroll: usize) {
-        match id.as_str() {
-            SKILL_ID => self.state.frontend.set_skill_preview_scroll(scroll),
-            _ => self.state.frontend.pickers.pickers_scrolls.set(id, scroll),
-        }
+        self.state.frontend.pickers.pickers_scrolls.set(id, scroll);
     }
 
     fn reset_preview_scroll(&mut self, id: PickerId) {
+        self.state.frontend.pickers.pickers_scrolls.reset(id);
+    }
+
+    fn preview_cache(&self, id: PickerId) -> Option<jinn_picker::SharedPreviewCache> {
         match id.as_str() {
-            SKILL_ID => self.state.frontend.set_skill_preview_scroll(0),
-            _ => self.state.frontend.pickers.pickers_scrolls.reset(id),
+            SKILL_ID => Some(std::sync::Arc::clone(
+                &self.state.frontend.caches.skill_preview_cache,
+            ) as jinn_picker::SharedPreviewCache),
+            _ => None,
         }
     }
 }
@@ -127,6 +126,13 @@ mod tests {
     }
 
     impl PickerHost for FakeHost {
+        fn preview_cache(
+            &self,
+            _id: PickerId,
+        ) -> Option<jinn_picker::SharedPreviewCache> {
+            None
+        }
+
         fn selection_state(&mut self, id: PickerId) -> Option<&mut dyn std::any::Any> {
             self.states.get_mut(id.as_str()).map(|s| s as &mut dyn std::any::Any)
         }
@@ -232,12 +238,11 @@ mod tests {
             (
                 PickerHost::preview_scroll(&host, skill),
                 PickerHost::preview_scroll(&host, other),
-                state.frontend.skill_preview_scroll(),
+                state.frontend.pickers.pickers_scrolls.get(skill),
             )
         };
 
-        // Then the skill scroll flows through the legacy field and the
-        // other id through the generic map.
+        // Then both scrolls live in the shared map, keyed by picker id.
         assert_eq!(skill_scroll, 7);
         assert_eq!(stored, 7);
         assert_eq!(other_scroll, 3);
@@ -324,9 +329,6 @@ impl PickerHost for AppStateRenderHost<'_> {
     }
 
     fn preview_scroll(&self, id: PickerId) -> usize {
-        if id.as_str() == SKILL_ID {
-            return self.state.frontend.skill_preview_scroll();
-        }
         self.state.frontend.pickers.pickers_scrolls.get(id)
     }
 
@@ -336,5 +338,14 @@ impl PickerHost for AppStateRenderHost<'_> {
 
     fn reset_preview_scroll(&mut self, _id: PickerId) {
         // Read-only lens: render never clears scrolls.
+    }
+
+    fn preview_cache(&self, id: PickerId) -> Option<jinn_picker::SharedPreviewCache> {
+        match id.as_str() {
+            SKILL_ID => Some(std::sync::Arc::clone(
+                &self.state.frontend.caches.skill_preview_cache,
+            ) as jinn_picker::SharedPreviewCache),
+            _ => None,
+        }
     }
 }

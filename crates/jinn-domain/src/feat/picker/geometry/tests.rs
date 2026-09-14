@@ -93,9 +93,10 @@ fn measure_skill_picker_uses_vertical_split_when_wide() {
     let wide = Rect::new(0, 0, 140, 50);
     let height = measure_active_picker_results_height(&state, wide, &registry());
 
-    // Then height is content minus skill list chrome (inner - 1 footer - 2 chrome).
-    // Popup inner height is 39; 39 - 1 - 2 = 36.
-    assert_eq!(height, 36);
+    // Then height is content minus skill list chrome (inner - 2 footers -
+    // 2 chrome): the migrated skill spec draws a status line above its
+    // keybind line. Popup inner height is 39; 39 - 2 - 2 = 35.
+    assert_eq!(height, 35);
 }
 
 #[rstest::rstest]

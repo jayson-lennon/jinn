@@ -142,16 +142,12 @@ pub enum Intent {
     PickerMoveCursorRight,
     /// Toggle the selected tool's enabled/disabled state in the tool picker.
     ToolToggleSelected,
-    /// Toggle the selected skill's enabled/disabled state in the skill picker.
-    SkillToggleSelected,
     /// Toggle the selected MCP server's enabled/disabled state in the MCP picker.
     McpToggleSelected,
     /// Restart the selected MCP server's connection (MCP inspector `<c-r>`).
     McpRestartSelected,
     /// Toggle the MCP inspector preview pane between logs and tools (MCP inspector `<c-t>`).
     McpTogglePreview,
-    /// Load the highlighted skill into context as a pinned ToolResult (skill picker `<c-l>`).
-    SkillLoadSelected,
     /// Project picker: create a new session at the highlighted dir, then open
     /// the session lifecycle picker (project picker `<c-enter>` action).
     ProjectNewAtHighlightedWithLifecycle,
@@ -163,18 +159,12 @@ pub enum Intent {
     ///
     /// No-op unless the provider picker is active.
     ToggleAlloyMode,
-    /// Scroll the preview pane up one page.
-    PreviewScrollUp,
-    /// Scroll the preview pane down one page.
-    PreviewScrollDown,
     /// Create a new session.
     SessionNew,
     /// Refresh the model list from all providers.
     RefreshModels,
     /// Rescan the prompt templates directory.
     RescanPromptTemplates,
-    /// Rescan the agent skills directory and reload the skill picker.
-    RefreshSkills,
     /// Force-refresh the OpenRouter endpoint picker (bypass the in-memory cache).
     RefreshEndpoints,
     /// Enter the sidebar scope.
@@ -479,21 +469,16 @@ impl std::fmt::Display for Intent {
             Intent::PickerMoveCursorLeft => write!(f, "picker cursor left"),
             Intent::PickerMoveCursorRight => write!(f, "picker cursor right"),
             Intent::ToolToggleSelected => write!(f, "toggle tool"),
-            Intent::SkillToggleSelected => write!(f, "toggle skill"),
             Intent::McpToggleSelected => write!(f, "toggle mcp server"),
             Intent::McpRestartSelected => write!(f, "restart mcp server"),
             Intent::McpTogglePreview => write!(f, "toggle mcp preview"),
-            Intent::SkillLoadSelected => write!(f, "load skill"),
             Intent::ProjectNewAtHighlightedWithLifecycle => write!(f, "project new + lifecycle"),
             Intent::ProjectRemoveHighlighted => write!(f, "remove project"),
             Intent::ModelToggleSelected => write!(f, "toggle model"),
             Intent::ToggleAlloyMode => write!(f, "toggle alloy mode"),
-            Intent::PreviewScrollUp => write!(f, "preview scroll up"),
-            Intent::PreviewScrollDown => write!(f, "preview scroll down"),
             Intent::SessionNew => write!(f, "new session"),
             Intent::RefreshModels => write!(f, "refresh models"),
             Intent::RescanPromptTemplates => write!(f, "rescan prompt templates"),
-            Intent::RefreshSkills => write!(f, "refresh skills"),
             Intent::RefreshEndpoints => write!(f, "refresh endpoints"),
             Intent::SidebarFocus => write!(f, "focus sidebar"),
             Intent::SidebarFocusSessions => write!(f, "focus session list"),

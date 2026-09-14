@@ -98,4 +98,8 @@ impl PickerHost for FakeHost {
     fn reset_preview_scroll(&mut self, id: PickerId) {
         self.scrolls.reset(id);
     }
+
+    fn preview_cache(&self, _id: PickerId) -> Option<crate::host::SharedPreviewCache> {
+        None // the fake never serves a cache; entries render live
+    }
 }

@@ -7,9 +7,6 @@
 //! text, empty preview, no cache identity, no custom status, standard
 //! keybind tail, and no-op lifecycles.
 
-use std::sync::Arc;
-
-use jinn_selection_widget::PreviewCache;
 use ratatui::text::Line;
 
 use crate::ctx::ActionCtx;
@@ -33,9 +30,6 @@ use crate::registry::BindRow;
 use crate::registry::Tail;
 use crate::widget::PickerWidget;
 
-/// A domain-supplied preview cache, shared by all of a spec's entries.
-pub(crate) type SharedPreviewCache = Arc<dyn PreviewCache + Send + Sync>;
-
 /// The full behavioral description of one picker.
 ///
 /// Built with the builder pattern; `T` is the domain entry type. Specs are
@@ -49,7 +43,6 @@ where
     widget: PickerWidget,
     load: Option<PickerLoadFn<T>>,
     hooks: RenderHooks<T>,
-    preview_cache: Option<SharedPreviewCache>,
     status: Option<PickerStatusFn>,
     binds: Vec<BindRow>,
     actions: Vec<PickerBindAction>,
@@ -72,7 +65,6 @@ where
             widget: PickerWidget::default(),
             load: None,
             hooks: RenderHooks::default(),
-            preview_cache: None,
             status: None,
             binds: Vec::new(),
             actions: Vec::new(),
@@ -140,21 +132,15 @@ where
     }
 
     /// Declares the preview cache identity. Entries without a key render
-    /// live. Default: no keys (caching off per entry).
+    /// live. Caching requires this *and* the kernel supplying a cache via
+    /// [`crate::PickerHost::preview_cache`]. Default: no keys (caching off
+    /// per entry).
     #[must_use]
     pub fn preview_key<F>(mut self, f: F) -> Self
     where
         F: Fn(&T) -> Option<PreviewKey> + Send + Sync + 'static,
     {
         self.hooks.preview_key = Some(PickerPreviewKeyFn::new(f));
-        self
-    }
-
-    /// Supplies the domain preview cache. Caching requires both this and a
-    /// per-entry [`Self::preview_key`].
-    #[must_use]
-    pub fn preview_cache(mut self, cache: SharedPreviewCache) -> Self {
-        self.preview_cache = Some(cache);
         self
     }
 
@@ -269,29 +255,32 @@ where
         Option<&'static str>,
         crate::widget::WidgetKind,
         bool,
+        bool,
         Vec<BindRow>,
         Vec<PickerBindAction>,
         Tail,
         Option<PickerLoadFn<T>>,
         RenderHooks<T>,
-        Option<SharedPreviewCache>,
         Option<PickerStatusFn>,
         Option<PickerLifecycleFn>,
         Option<PickerLifecycleFn>,
         Option<PickerLifecycleFn>,
     ) {
-        let widget_kind = self.widget.kind();
+        let reset_scroll_on_selection_change = match &self.widget {
+            PickerWidget::Preview(spec) => spec.reset_scroll_on_selection_change,
+            PickerWidget::List | PickerWidget::Tree => false,
+        };
         (
             self.id,
             self.title,
-            widget_kind,
+            self.widget.kind(),
+            reset_scroll_on_selection_change,
             self.status.is_some(),
             self.binds,
             self.actions,
             self.keybind_tail,
             self.load,
             self.hooks,
-            self.preview_cache,
             self.status,
             self.on_open,
             self.on_confirm,
@@ -323,7 +312,7 @@ mod tests {
         let spec = PickerSpec::<Entry>::new(PickerId::new("t1"));
 
         // When dismantling it for registration.
-        let (id, title, kind, _has_status, binds, _actions, tail, _load, _hooks, _cache, _status, _open, _confirm, _close) =
+        let (id, title, kind, _reset, _has_status, binds, _actions, tail, _load, _hooks, _status, _open, _confirm, _close) =
             spec.into_parts();
 
         // Then defaults apply: id-titled list picker with no binds.
@@ -341,7 +330,7 @@ mod tests {
             .status(|_ctx: &StatusCtx<'_>| None);
 
         // When dismantling it.
-        let (_id, _title, _kind, has_status, _binds, _actions, _tail, _load, _hooks, _cache, _status, _open, _confirm, _close) =
+        let (_id, _title, _kind, _reset, has_status, _binds, _actions, _tail, _load, _hooks, _status, _open, _confirm, _close) =
             spec.into_parts();
 
         // Then the status row is reserved.
@@ -360,7 +349,7 @@ mod tests {
             });
 
         // When dismantling it.
-        let (_id, _title, _kind, _has_status, binds, actions, _tail, _load, _hooks, _cache, _status, _open, _confirm, _close) =
+        let (_id, _title, _kind, _reset, _has_status, binds, actions, _tail, _load, _hooks, _status, _open, _confirm, _close) =
             spec.into_parts();
 
         // Then rows carry declaration order and their hints.

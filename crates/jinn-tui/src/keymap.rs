@@ -402,15 +402,9 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
             b.bind("<Tab>", Intent::ToolToggleSelected, KeyCategory::General);
         })
         .scope(Scope::PickerSkill, |b| {
-            // Skill spec rows land here via bind_picker_spec_rows once the
-            // skill spec declares its binds; until then the legacy binds
-            // remain so the scope never loses its keys mid-migration.
+            // Skill spec rows (TAB toggle, CTRL+L load, CTRL+U/D preview
+            // paging, CTRL+R refresh) land here via bind_picker_spec_rows.
             add_picker_base(b);
-            b.bind("<Tab>", Intent::SkillToggleSelected, KeyCategory::General)
-             .bind("<c-l>", Intent::SkillLoadSelected, KeyCategory::General)
-             .bind("<c-u>", Intent::PreviewScrollUp, KeyCategory::Navigation)
-             .bind("<c-d>", Intent::PreviewScrollDown, KeyCategory::Navigation)
-             .bind("<c-r>", Intent::RefreshSkills, KeyCategory::General);
         })
         .scope(Scope::PickerTaskList, |b| {
             add_picker_base(b);
@@ -1955,7 +1949,7 @@ mod leak_check {
         };
         let intent = wk.handle_key(pgup);
 
-        // Then it resolves to PickerPageUp (list paging), NOT PreviewScrollUp.
+        // Then it resolves to PickerPageUp (list paging), not a picker action.
         let intent = intent.expect("PageUp in PickerSkill must fire an intent");
         assert!(
             matches!(intent, jinn_domain::Intent::PickerPageUp),
@@ -1965,12 +1959,18 @@ mod leak_check {
 
     #[rstest::rstest]
     #[test]
-    fn skill_scope_ctrl_u_fires_preview_scroll_up() {
-        // Given a keymap queried in the skill picker scope.
+    #[rstest::rstest]
+    #[test]
+    fn skill_scope_ctrl_u_fires_the_spec_paging_action() {
+        // Given a keymap with the domain's skill spec rows bound.
         use crate::app::WhichKeyInstance;
         use jinn_domain::{Key, KeyEvent, Modifiers};
 
-        let keymap = init();
+        let mut keymap = init();
+        crate::keymap_gen::bind_picker_spec_rows(
+            &jinn_domain::feat::picker::registry::build_picker_registry(),
+            &mut keymap,
+        );
         let mut wk = WhichKeyInstance::new(keymap, Scope::PickerSkill);
 
         // When pressing Ctrl+U.
@@ -1980,60 +1980,47 @@ mod leak_check {
         };
         let intent = wk.handle_key(c_u);
 
-        // Then it resolves to PreviewScrollUp (preview pane paging).
+        // Then it resolves to the skill spec's paging action.
         let intent = intent.expect("Ctrl+U in PickerSkill must fire an intent");
         assert!(
-            matches!(intent, jinn_domain::Intent::PreviewScrollUp),
-            "Ctrl+U in PickerSkill must scroll the preview pane; got {intent:?}",
+            matches!(
+                &intent,
+                jinn_domain::Intent::PickerAction { picker, action }
+                    if picker == "skill" && action == "<c-u>"
+            ),
+            "Ctrl+U in PickerSkill must fire the spec paging action; got {intent:?}",
         );
     }
 
     #[rstest::rstest]
     #[test]
-    fn skill_scope_ctrl_d_fires_preview_scroll_down() {
-        // Given a keymap queried in the skill picker scope.
+    fn skill_scope_ctrl_l_fires_the_spec_load_action() {
+        // Given a keymap with the domain's skill spec rows bound.
         use crate::app::WhichKeyInstance;
         use jinn_domain::{Key, KeyEvent, Modifiers};
 
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::PickerSkill);
-
-        // When pressing Ctrl+D.
-        let c_d = KeyEvent {
-            key: Key::Char('d'),
-            modifiers: Modifiers::ctrl(),
-        };
-        let intent = wk.handle_key(c_d);
-
-        // Then it resolves to PreviewScrollDown (preview pane paging).
-        let intent = intent.expect("Ctrl+D in PickerSkill must fire an intent");
-        assert!(
-            matches!(intent, jinn_domain::Intent::PreviewScrollDown),
-            "Ctrl+D in PickerSkill must scroll the preview pane; got {intent:?}",
+        let mut keymap = init();
+        crate::keymap_gen::bind_picker_spec_rows(
+            &jinn_domain::feat::picker::registry::build_picker_registry(),
+            &mut keymap,
         );
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn ctrl_l_in_skill_picker_fires_skill_load_selected() {
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, Modifiers};
-
-        // Given a fresh keymap queried in the skill picker scope.
-        let keymap = init();
         let mut wk = WhichKeyInstance::new(keymap, Scope::PickerSkill);
 
         // When pressing Ctrl+L.
-        let c_l = jinn_domain::KeyEvent {
+        let c_l = KeyEvent {
             key: Key::Char('l'),
             modifiers: Modifiers::ctrl(),
         };
         let intent = wk.handle_key(c_l);
 
-        // Then it resolves to SkillLoadSelected.
+        // Then it resolves to the skill spec's load action.
         assert!(
-            matches!(intent, Some(jinn_domain::Intent::SkillLoadSelected)),
-            "<c-l> in PickerSkill should fire SkillLoadSelected; got {intent:?}",
+            matches!(
+                &intent,
+                Some(jinn_domain::Intent::PickerAction { picker, action })
+                    if picker == "skill" && action == "<c-l>"
+            ),
+            "Ctrl+L in PickerSkill should fire the spec load action; got {intent:?}",
         );
     }
 

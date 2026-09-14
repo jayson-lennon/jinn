@@ -54,20 +54,15 @@ pub struct PickerStates {
 
     /// Skill picker state - shows all discovered skills with toggle state.
     /// OWNER: IntentHandler (populated on skill picker open).
-    pub skill_picker: jinn_selection_widget::SelectionState<SkillEntry>,
+    pub skill_picker:
+        jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SkillEntry>>,
 
     /// Snapshot of disabled skills before picker opens - restored on ESC.
     /// OWNER: IntentHandler (set on skill picker open, consumed on confirm/cancel).
     pub skill_picker_snapshot: Option<HashSet<String>>,
 
-    /// Preview pane scroll offset for the skill picker.
-    /// Reset to 0 when the selection changes.
-    pub skill_preview_scroll: usize,
-
     /// Preview pane scroll offsets for spec-driven pickers, keyed by
-    /// picker id. Replaces per-picker scroll fields as pickers migrate;
-    /// `skill_preview_scroll` above is the legacy skill-specific slot and
-    /// goes away when the skill picker migrates.
+    /// picker id.
     pub pickers_scrolls: jinn_picker::PickerScrolls,
 
     /// Session lifecycle picker state (items, filter text, selection index).
@@ -167,9 +162,9 @@ pub trait PickerExt {
     fn tool_picker_snapshot_mut(&mut self) -> &mut Option<HashSet<String>>;
 
     /// Read-only access to the skill picker state.
-    fn skill_picker(&self) -> &jinn_selection_widget::SelectionState<SkillEntry>;
+    fn skill_picker(&self) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SkillEntry>>;
     /// Mutable access to the skill picker state.
-    fn skill_picker_mut(&mut self) -> &mut jinn_selection_widget::SelectionState<SkillEntry>;
+    fn skill_picker_mut(&mut self) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SkillEntry>>;
     /// Read-only access to the disabled skills snapshot.
     fn skill_picker_snapshot(&self) -> &Option<HashSet<String>>;
     /// Mutable access to the disabled skills snapshot.
@@ -179,11 +174,6 @@ pub trait PickerExt {
     /// Mutable access to the enabled MCP servers snapshot.
     fn mcp_server_picker_snapshot_mut(&mut self)
     -> &mut Option<std::collections::BTreeSet<String>>;
-    /// Current preview pane scroll offset for the skill picker.
-    fn skill_preview_scroll(&self) -> usize;
-    /// Set the preview pane scroll offset for the skill picker.
-    fn set_skill_preview_scroll(&mut self, val: usize);
-
     /// Read-only access to the session lifecycle picker state.
     fn session_lifecycle_picker(
         &self,
@@ -305,11 +295,15 @@ impl PickerExt for super::frontend_state::FrontendState {
         &mut self.pickers.tool_picker_snapshot
     }
 
-    fn skill_picker(&self) -> &jinn_selection_widget::SelectionState<SkillEntry> {
+    fn skill_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SkillEntry>> {
         &self.pickers.skill_picker
     }
 
-    fn skill_picker_mut(&mut self) -> &mut jinn_selection_widget::SelectionState<SkillEntry> {
+    fn skill_picker_mut(
+        &mut self,
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SkillEntry>> {
         &mut self.pickers.skill_picker
     }
 
@@ -329,14 +323,6 @@ impl PickerExt for super::frontend_state::FrontendState {
         &mut self,
     ) -> &mut Option<std::collections::BTreeSet<String>> {
         &mut self.pickers.mcp_server_picker_snapshot
-    }
-
-    fn skill_preview_scroll(&self) -> usize {
-        self.pickers.skill_preview_scroll
-    }
-
-    fn set_skill_preview_scroll(&mut self, val: usize) {
-        self.pickers.skill_preview_scroll = val;
     }
 
     fn session_lifecycle_picker(

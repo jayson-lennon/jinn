@@ -2,7 +2,6 @@
 
 use crate::common::render_ctx::RenderCtx;
 use crate::feat::ui::picker_states::PickerExt;
-use jinn_selection_widget::PreviewSelectionWidget;
 use jinn_selection_widget::SelectionWidget;
 use jinn_selection_widget::TreePickerWidget;
 use ratatui::Frame;
@@ -87,43 +86,6 @@ pub fn render_plugin_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
     widget.render(frame, area);
 }
 
-/// Renders the skill picker overlay with a preview pane.
-///
-/// Uses [`PreviewSelectionWidget`] to show the selected skill's markdown body
-/// in a split pane (vertical on wide terminals, horizontal on narrow ones).
-pub fn render_skill_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    let state = ctx.state;
-    let enabled_count = state
-        .frontend
-        .skill_picker()
-        .items()
-        .iter()
-        .filter(|s| s.enabled)
-        .count();
-    let total = state.frontend.skill_picker().items().len();
-    let gray = Style::default().fg(state.frontend.theme.muted_text);
-    let orange = Style::default().fg(state.frontend.theme.accent_action);
-    let footer = Line::from(vec![
-        ratatui::text::Span::styled("TAB ".to_owned(), orange),
-        ratatui::text::Span::styled("toggle · ".to_owned(), gray),
-        ratatui::text::Span::styled("CTRL+L ".to_owned(), orange),
-        ratatui::text::Span::styled("load · ".to_owned(), gray),
-        ratatui::text::Span::styled("CTRL+R ".to_owned(), orange),
-        ratatui::text::Span::styled(
-            format!("refresh · {enabled_count}/{total} enabled · Enter confirm · ESC cancel"),
-            gray,
-        ),
-    ]);
-    let cache = state.frontend.caches.skill_preview_cache.write();
-    let widget = PreviewSelectionWidget::new(state.frontend.skill_picker())
-        .title(Line::from(" Skills "))
-        .title_style(Style::default().fg(state.frontend.theme.popup_title))
-        .preview_scroll(state.frontend.skill_preview_scroll())
-        .footer(footer)
-        .preview_cache(&*cache);
-    widget.render(frame, area);
-}
-
 /// Renders the read-only task list browser overlay.
 ///
 /// Uses [`TreePickerWidget`] to show phases as roots and tasks as their children,
@@ -191,6 +153,19 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
+    /// Renders the skill picker through its registered spec (the same path
+    /// the tui render pass takes for migrated kinds).
+    fn render_skill_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
+        let host = crate::feat::picker::host_impl::AppStateRenderHost::new(ctx.state);
+        let id = crate::feat::picker::registry::spec_id_for_kind(&PickerKind::Skill)
+            .expect("skill is spec-mapped");
+        let spec = ctx
+            .pickers
+            .get(id)
+            .expect("skill spec registered in the domain registry");
+        assert!(spec.render(frame, area, &host), "spec render must drive the preview widget");
+    }
+
     /// Two skills with the same name but different bodies (the cross-session
     /// project/global shadowing shape) must occupy distinct cache entries — the
     /// body-hash key means neither can ever be served the other's markdown.
@@ -229,7 +204,8 @@ mod tests {
                 .draw(|frame| {
                     let slices = jinn_slices::Slices::new();
                     let overlay_views = crate::common::overlay_views::OverlayViews::new();
-                    let ctx = RenderCtx::new(state, &slices, &overlay_views);
+                    let ctx = RenderCtx::new(state, &slices, &overlay_views)
+                        .with_pickers(&crate::feat::picker::registry::build_picker_registry());
                     render_skill_picker(frame, area, &ctx);
                 })
                 .expect("draw");
@@ -238,10 +214,10 @@ mod tests {
         // When rendering each same-named skill at the same terminal size.
         let area = Rect::new(0, 0, 100, 30);
         draw(&state, area);
-        let after_first = state.frontend.caches.skill_preview_cache.read().len();
+        let after_first = state.frontend.caches.skill_preview_cache.len();
         state.frontend.skill_picker_mut().set_selection(1);
         draw(&state, area);
-        let after_second = state.frontend.caches.skill_preview_cache.read().len();
+        let after_second = state.frontend.caches.skill_preview_cache.len();
 
         // Then the second body adds a second entry — no (name, width) collision.
         assert_eq!(after_first, 1, "first body populates one entry");
@@ -278,7 +254,7 @@ mod tests {
             reload_skill_picker_entries(&mut state.frontend, &discovered, &disabled, &theme);
         }
         state.frontend.skill_picker_mut().set_selection(0);
-        assert!(state.frontend.caches.skill_preview_cache.read().is_empty());
+        assert!(state.frontend.caches.skill_preview_cache.is_empty());
 
         // When the picker is rendered twice at the same width.
         let area = Rect::new(0, 0, 100, 30);
@@ -289,16 +265,16 @@ mod tests {
                 .draw(|frame| {
                     let slices = jinn_slices::Slices::new();
                     let overlay_views = crate::common::overlay_views::OverlayViews::new();
-                    let ctx = RenderCtx::new(&state, &slices, &overlay_views);
+                    let ctx = RenderCtx::new(&state, &slices, &overlay_views)
+                        .with_pickers(&crate::feat::picker::registry::build_picker_registry());
                     render_skill_picker(frame, area, &ctx);
                 })
                 .expect("draw");
         }
 
         // Then the cache holds exactly one entry; the second render was a cache hit.
-        let cache = state.frontend.caches.skill_preview_cache.read();
         assert_eq!(
-            cache.len(),
+            state.frontend.caches.skill_preview_cache.len(),
             1,
             "second render should be a cache hit, not a second insert"
         );
@@ -347,7 +323,8 @@ mod tests {
                 .draw(|frame| {
                     let slices = jinn_slices::Slices::new();
                     let overlay_views = crate::common::overlay_views::OverlayViews::new();
-                    let ctx = RenderCtx::new(state, &slices, &overlay_views);
+                    let ctx = RenderCtx::new(state, &slices, &overlay_views)
+                        .with_pickers(&crate::feat::picker::registry::build_picker_registry());
                     render_skill_picker(frame, area, &ctx);
                 })
                 .expect("draw");
@@ -356,13 +333,13 @@ mod tests {
         let area = Rect::new(0, 0, 100, 30);
         // Render skill A (web-coder) - populates cache with A.
         draw(&state, area);
-        assert_eq!(state.frontend.caches.skill_preview_cache.read().len(), 1);
+        assert_eq!(state.frontend.caches.skill_preview_cache.len(), 1);
 
         // When navigating to skill B and rendering.
         state.frontend.skill_picker_mut().set_selection(1);
         draw(&state, area);
         assert_eq!(
-            state.frontend.caches.skill_preview_cache.read().len(),
+            state.frontend.caches.skill_preview_cache.len(),
             2,
             "navigating to B should add a second entry"
         );
@@ -370,9 +347,8 @@ mod tests {
         // Then navigating back to A should NOT add a third entry (A is a cache hit).
         state.frontend.skill_picker_mut().set_selection(0);
         draw(&state, area);
-        let cache = state.frontend.caches.skill_preview_cache.read();
         assert_eq!(
-            cache.len(),
+            state.frontend.caches.skill_preview_cache.len(),
             2,
             "returning to A should be a cache hit, not a re-render"
         );
@@ -413,7 +389,8 @@ mod tests {
                 .draw(|frame| {
                     let slices = jinn_slices::Slices::new();
                     let overlay_views = crate::common::overlay_views::OverlayViews::new();
-                    let ctx = RenderCtx::new(state, &slices, &overlay_views);
+                    let ctx = RenderCtx::new(state, &slices, &overlay_views)
+                        .with_pickers(&crate::feat::picker::registry::build_picker_registry());
                     render_skill_picker(frame, area, &ctx);
                 })
                 .expect("draw");
@@ -424,9 +401,8 @@ mod tests {
         // the popup width differs (100-term => 80-col popup; 140-term => 112-col popup),
         // so the width keys must differ.
         draw(&state, Rect::new(0, 0, 100, 30));
-        let width_100_entry_count = state.frontend.caches.skill_preview_cache.read().len();
+        let width_100_entry_count = state.frontend.caches.skill_preview_cache.len();
         draw(&state, Rect::new(0, 0, 140, 30));
-        let cache = state.frontend.caches.skill_preview_cache.read();
 
         // Then the cache holds two entries: one per width key.
         assert_eq!(
@@ -434,7 +410,7 @@ mod tests {
             "first render populates exactly one entry"
         );
         assert_eq!(
-            cache.len(),
+            state.frontend.caches.skill_preview_cache.len(),
             2,
             "width change should create a second width-keyed entry, not overwrite"
         );
@@ -548,13 +524,14 @@ mod tests {
             .draw(|frame| {
                 let slices = jinn_slices::Slices::new();
                 let overlay_views = crate::common::overlay_views::OverlayViews::new();
-                let ctx = RenderCtx::new(&state, &slices, &overlay_views);
+                let ctx = RenderCtx::new(&state, &slices, &overlay_views)
+                    .with_pickers(&crate::feat::picker::registry::build_picker_registry());
                 let area = Rect::new(0, 0, 100, 30);
                 render_skill_picker(frame, area, &ctx);
             })
             .expect("draw");
 
-        // Then the rendered footer advertises TAB and CTRL+L.
+        // Then the rendered footer advertises the spec's bound keys.
         let rendered: String = terminal
             .backend()
             .buffer()
@@ -563,15 +540,15 @@ mod tests {
             .map(ratatui::buffer::Cell::symbol)
             .collect();
         assert!(
-            rendered.contains("TAB"),
-            "footer should advertise the TAB toggle binding"
+            rendered.contains("<tab>"),
+            "footer should advertise the TAB toggle binding: {rendered}"
         );
         assert!(
-            rendered.contains("CTRL+L"),
+            rendered.contains("<c-l>"),
             "footer should advertise the CTRL+L load binding"
         );
         assert!(
-            rendered.contains("CTRL+R"),
+            rendered.contains("<c-r>"),
             "footer should still advertise the CTRL+R refresh binding"
         );
 

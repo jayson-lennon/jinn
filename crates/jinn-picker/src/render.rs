@@ -110,14 +110,15 @@ where
                 .render(frame, area);
         }
         crate::widget::WidgetKind::Preview => {
+            let cache = host.preview_cache(id);
             let mut widget = PreviewSelectionWidget::new(selection)
                 .title(title)
                 .title_style(Style::default().fg(palette.popup_title))
                 .footers(footers)
                 .colors(colors)
                 .preview_scroll(host.preview_scroll(id));
-            if let Some(cache) = spec.preview_cache.as_ref() {
-                widget = widget.preview_cache(cache.as_ref());
+            if let Some(cache) = cache.as_deref() {
+                widget = widget.preview_cache(cache);
             }
             widget.render(frame, area);
         }
