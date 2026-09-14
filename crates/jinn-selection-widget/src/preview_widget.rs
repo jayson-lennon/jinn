@@ -46,8 +46,10 @@ where
     title: Line<'a>,
     /// The selection state to render.
     state: &'a SelectionState<T>,
-    /// Optional footer line.
-    footer: Option<Line<'a>>,
+    /// Optional footer lines rendered at the bottom of the popup, top to
+    /// bottom. Set via [`Self::footer`] (one line) or [`Self::footers`]
+    /// (several); the popup reserves one row per line bottom-up.
+    footers: Vec<Line<'a>>,
     /// Theme-dependent colors.
     colors: SelectionColors,
     /// Optional style override for the border title.
@@ -69,7 +71,7 @@ where
         Self {
             title: Line::from(""),
             state,
-            footer: None,
+            footers: Vec::new(),
             colors: SelectionColors::default(),
             title_style: None,
             preview_scroll: 0,
@@ -84,10 +86,22 @@ where
         self
     }
 
-    /// Sets an optional footer line rendered at the bottom of the popup.
+    /// Sets a single footer line rendered at the bottom of the popup.
+    /// Replaces any previously set footers. For multiple footer lines use
+    /// [`Self::footers`].
     #[must_use]
     pub fn footer(mut self, footer: Line<'a>) -> Self {
-        self.footer = Some(footer);
+        self.footers = vec![footer];
+        self
+    }
+
+    /// Sets multiple footer lines rendered at the bottom of the popup, top
+    /// to bottom. Each line occupies one terminal row; the popup allocates
+    /// one row per footer line bottom-up (more footers -> fewer content
+    /// rows). Replaces any previously set footers.
+    #[must_use]
+    pub fn footers(mut self, footers: Vec<Line<'a>>) -> Self {
+        self.footers = footers;
         self
     }
 
@@ -129,7 +143,7 @@ where
         let Self {
             title,
             state,
-            footer,
+            footers,
             colors,
             title_style,
             preview_scroll,
@@ -153,14 +167,15 @@ where
             b.inner(popup_area)
         };
 
-        // Reserve one row at the bottom for the footer.
+        // Reserve one row at the bottom per footer line.
+        let footer_rows = footers.len() as u16;
         let [content_area, footer_area] =
-            Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner);
+            Layout::vertical([Constraint::Min(0), Constraint::Length(footer_rows)]).areas(inner);
 
         // Build a temporary struct holding the remaining fields for the split renderers.
         let borrowed = RenderCtx::<T> {
             state,
-            footer: footer.as_ref(),
+            footers: &footers,
             colors: &colors,
             preview_scroll,
         };
@@ -182,8 +197,8 @@ struct RenderCtx<'a, T: PickerItem + PreviewContent> {
     /// Shared picker state.
     state: &'a SelectionState<T>,
 
-    /// Optional footer line.
-    footer: Option<&'a Line<'a>>,
+    /// Footer lines, top to bottom.
+    footers: &'a [Line<'a>],
     /// Color configuration.
     colors: &'a SelectionColors,
     /// Scroll offset for the preview pane.
@@ -323,13 +338,17 @@ impl<T: PickerItem + PreviewContent> RenderCtx<'_, T> {
 
     /// Renders the footer line at the bottom of the popup, right-aligned.
     fn render_footer(&self, frame: &mut Frame<'_>, area: Rect) {
-        let footer_paragraph = match self.footer {
-            Some(line) => Paragraph::new(line.clone())
+        if self.footers.is_empty() {
+            return;
+        }
+        let rows = Layout::vertical(vec![Constraint::Length(1); self.footers.len()])
+            .split(area);
+        for (line, row) in self.footers.iter().zip(rows.iter()) {
+            let paragraph = Paragraph::new(line.clone())
                 .style(Style::default().fg(self.colors.footer))
-                .right_aligned(),
-            None => Paragraph::new(""),
-        };
-        frame.render_widget(footer_paragraph, area);
+                .right_aligned();
+            frame.render_widget(paragraph, *row);
+        }
     }
 }
 
