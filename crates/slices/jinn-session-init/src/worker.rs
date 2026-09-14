@@ -19,7 +19,9 @@
 //!   scans that finished in time;
 //! - scans that finish after a timed settle still write state and
 //!   publish their event (the waiter never cancels them);
-//! - manual rescans run one resource only and never settle;
+//! - manual rescans run one resource only, with the other two
+//!   pre-`Skipped`, so they settle and post a summary too (the
+//!   coordinator's safety-net behavior for `RescanPromptTemplates`);
 //! - a second `RunDiscovery` supersedes the running one: the stale
 //!   waiter no-ops (the coordinator's `started_at` check, renamed to a
 //!   run counter).
@@ -256,19 +258,22 @@ impl SessionDiscoveryWorker {
         self.spawn_settle_waiter(run, skills, prompts, context);
     }
 
-    /// Re-runs only the skills scan (manual rescan — never settles).
-    fn rescan_skills(&mut self, cwd: PathBuf) {
-        self.spawn_skills_task(&cwd);
-    }
-
-    /// Re-runs only the prompt-templates scan (manual — never settles).
-    fn rescan_prompts(&mut self, cwd: PathBuf) {
-        self.spawn_prompts_task(&cwd);
-    }
-
-    /// Re-runs only the context-files scan (manual — never settles).
-    fn rescan_context(&mut self, cwd: PathBuf) {
-        self.spawn_context_task(&cwd);
+    /// Re-runs a single resource (manual rescan) and still settles:
+    /// the two unscanned resources start pre-`Skipped` so the settle
+    /// waiter fires as soon as the scanned resource completes — or at
+    /// the settle budget, naming it as delayed — and the notifier
+    /// posts the summary entry (the old coordinator's safety-net
+    /// behavior for `RescanPromptTemplates` and friends).
+    fn rescan_one(&mut self, scanned: Resource, cwd: PathBuf) {
+        let run = self.run.fetch_add(1, Ordering::AcqRel) + 1;
+        // Positional: skills, prompts, context — exactly what
+        // `spawn_settle_waiter` expects.
+        let (skills, prompts, context) = match scanned {
+            Resource::Skills => (self.spawn_skills_task(&cwd), skipped(), skipped()),
+            Resource::Prompts => (skipped(), self.spawn_prompts_task(&cwd), skipped()),
+            Resource::Context => (skipped(), skipped(), self.spawn_context_task(&cwd)),
+        };
+        self.spawn_settle_waiter(run, skills, prompts, context);
     }
 
     /// The defensive cwd gate: the supervisor already suppressed the
@@ -741,18 +746,18 @@ impl MsgHandler<RunDiscovery> for SessionDiscoveryWorker {
 
 impl MsgHandler<RescanSkills> for SessionDiscoveryWorker {
     async fn handle(&mut self, msg: RescanSkills, _ctx: &mut MsgCtx<'_>) {
-        self.rescan_skills(msg.cwd);
+        self.rescan_one(Resource::Skills, msg.cwd);
     }
 }
 
 impl MsgHandler<RescanPrompts> for SessionDiscoveryWorker {
     async fn handle(&mut self, msg: RescanPrompts, _ctx: &mut MsgCtx<'_>) {
-        self.rescan_prompts(msg.cwd);
+        self.rescan_one(Resource::Prompts, msg.cwd);
     }
 }
 
 impl MsgHandler<RescanContext> for SessionDiscoveryWorker {
     async fn handle(&mut self, msg: RescanContext, _ctx: &mut MsgCtx<'_>) {
-        self.rescan_context(msg.cwd);
+        self.rescan_one(Resource::Context, msg.cwd);
     }
 }

@@ -19,7 +19,7 @@ use jinn_domain::common::state::State;
 use jinn_domain::protocol::SessionId;
 use trouper::tap::FactKind;
 
-use jinn_session_init::commands::RunDiscovery;
+use jinn_session_init::commands::{RescanPrompts, RunDiscovery};
 use jinn_session_init::worker::SETTLE_BUDGET_ARG;
 
 /// The short budget tests inject so the timeout fires fast.
@@ -82,6 +82,24 @@ impl Wired {
             .system()
             .send(self.fabric.system().envelope(
                 <RunDiscovery as trouper::schema::Schema>::schema_id(),
+                trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
+                serde_json::json!({
+                    "session_id": self.session_id.to_string(),
+                    "cwd": self.project.to_string_lossy(),
+                }),
+            ))
+            .await;
+        assert!(sent.is_ok(), "partition send must resolve: {sent:?}");
+    }
+
+    /// Sends `RescanPrompts` through the partition's public path, with
+    /// the project dir as the command's cwd.
+    async fn rescan_prompts(&self) {
+        let sent = self
+            .fabric
+            .system()
+            .send(self.fabric.system().envelope(
+                <RescanPrompts as trouper::schema::Schema>::schema_id(),
                 trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
                 serde_json::json!({
                     "session_id": self.session_id.to_string(),
@@ -338,6 +356,58 @@ async fn worker_scans_command_cwd_not_state() {
             .is_some_and(|s| !s.discovered_skills().is_empty())
     })
     .await;
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn manual_prompt_rescan_settles_with_a_summary() {
+    // Given a wired partition set with one prompt under the project
+    // dir (the unscanned resources have nothing on disk).
+    let wired = Wired::wire().await;
+    let prompts_dir = wired.project.join(".agents").join("prompts");
+    std::fs::create_dir_all(&prompts_dir).expect("prompts dir");
+    std::fs::write(
+        prompts_dir.join("rescanned.md"),
+        "+++\nname = \"rescanned\"\ndescription = \"Found by rescan\"\n+++\nFound!",
+    )
+    .expect("write prompt");
+
+    // When a manual prompt rescan runs.
+    wired.rescan_prompts().await;
+
+    // Then it settles: the summary lands naming the scanned resource
+    // with no delay note — the pre-skipped resources don't stall it.
+    wait_for_summary(&wired).await;
+    let text = wired.summary_text().expect("summary entry");
+    assert!(text.contains("1 prompt(s)"), "{text}");
+    assert!(!text.contains("discovery delayed"), "{text}");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+#[timeout(Duration::from_secs(15))]
+#[cfg(unix)]
+async fn stalled_manual_rescan_settles_at_the_budget() {
+    // Given a wired partition set whose prompts scan stalls past the
+    // injected budget.
+    let wired = Wired::wire_with_args(serde_json::json!({
+        SETTLE_BUDGET_ARG: TEST_BUDGET_MS,
+    }))
+    .await;
+    let stalled = StalledScan::new(&wired.project);
+
+    // When a manual prompt rescan runs and the budget elapses.
+    wired.rescan_prompts().await;
+    wait_for_summary(&wired).await;
+
+    // Then the settle fired anyway, naming prompts as delayed — a
+    // manual rescan always surfaces its status.
+    let text = wired.summary_text().expect("summary entry");
+    assert!(
+        text.contains("discovery delayed by prompts"),
+        "delayed reason must name the scanned-but-stalled resource: {text}"
+    );
+    stalled.release();
 }
 
 /// Waits until the notifier has written its summary entry.
