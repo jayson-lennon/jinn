@@ -79,7 +79,7 @@ Entries are added or amended **only with human approval**.
 - (keybinds) Route row actions are `ActionFn` closures that receive an `ActionCtx` (`&mut AppState`, `&Slices`) lent by the intent handler at dispatch; actions capture no capabilities and never mint caps — state outside the slice's cells is reached only through the lent context.
 - (discovery) Project discovery walks ancestors from the session cwd up to either a VCS root or `$HOME`, whichever comes first; `$HOME` is exclusive.
 - (discovery) VCS roots are detected by marker files (`.git`, `.hg`, `.fslckout`, `.fossil`, `.jj`), not by shelling out to a VCS CLI.
-- (discovery) A discovery coordinator orchestrates project, browser-binary, file-listing, and skills scans across ancestor dirs; a notifier surfaces settled results to the session.
+- (discovery) The skills, prompt-template, and context-file scans run per session inside the session-init slice's keyed discovery worker; the browser-binary and file-listing scans remain separate kameo actors outside the slice.
 - (history) Auto-prune respects a minimum entry age: entries at or below the age boundary are protected from pruning.
 - (history) Auto-prune skips entries that are already excluded/forced (no duplicate mutations), and a user force-include overrides a worker force-exclude.
 - (history) Auto-prune strategies exclude stale/redundant entries from LLM context; the wired strategies are `anchor_shield`, `anchored_assistant`, `broken_edit`, `consecutive_reads`, `double_edit`, `edit_read`, `read_edit`, `regex`, `todo_prune`, `tool_age_window`, `trivial_assistant`. `min_age` is not a strategy — it is a shared helper (`is_within_min_age`) giving individual workers an age floor.
@@ -322,3 +322,4 @@ Entries are added or amended **only with human approval**.
 - (bridges) Discovery results return to the kameo bus via reverse relays carrying the kernel's `SkillsLoaded`, `PromptTemplatesLoaded`, and `ContextFilesLoaded` types — the first production trouper→kameo relays; kernel consumers are unchanged.
 - (discovery) A session's discovery settle waits at most a fixed budget for all three scans and publishes the settled event with a delayed reason naming the missing resources; late scans still write state and publish their events after the settle.
 - (bridges) The discord slice imports `ServiceStatusUpdate` and `ActorLifecycle` from `jinn-slices`/`jinn-core-types`; no slice→slice Cargo edge exists.
+- (slices) Discovery worker entities activate on demand under the public path `jinn.discovery/<session_id>` as permanent children of the slice's supervisor (5 restarts per 10 s budget, then escalate) — the first production use of trouper partition sets and supervision.

@@ -194,10 +194,15 @@ pub fn install_actors(
 /// The factory closure captures `AppPaths` (the scan inputs are
 /// launch-wide) and clones `State` per activation; each entity mints
 /// its own write authorities in [`worker::WorkerDeps::for_session`].
-fn partition_spec(
+///
+/// `args_template` is merged with the entity `"key"` at activation;
+/// production passes `{}` and tests may inject e.g. a shortened
+/// settle budget ([`worker::SETTLE_BUDGET_ARG`]).
+fn partition_spec_with_args(
     system: &trouper::system::ActorSystem,
     paths: &jinn_domain::common::app_paths::AppPaths,
     state: &State,
+    args_template: serde_json::Value,
 ) -> trouper::pool::PartitionSpec {
     let paths = paths.clone();
     let state = state.clone();
@@ -216,9 +221,52 @@ fn partition_spec(
                 },
             )
         },
-        args_template: Some(serde_json::json!({})),
+        args_template: Some(args_template),
         opts: trouper::system::SpawnOpts::default(),
     }
+}
+
+/// Builds the partition spec with the production args template.
+fn partition_spec(
+    system: &trouper::system::ActorSystem,
+    paths: &jinn_domain::common::app_paths::AppPaths,
+    state: &State,
+) -> trouper::pool::PartitionSpec {
+    partition_spec_with_args(system, paths, state, serde_json::json!({}))
+}
+
+/// Installs the discovery partition set with a custom entity args
+/// template (test seam: inject a shortened settle budget).
+///
+/// Registers the worker's command schemas first — the install
+/// validates the shard-key contract against the registry's schema
+/// table.
+///
+/// # Errors
+///
+/// Returns an error when the partition set install fails.
+pub fn install_partition_set_with_args(
+    system: &trouper::system::ActorSystem,
+    paths: &jinn_domain::common::app_paths::AppPaths,
+    state: &State,
+    args_template: serde_json::Value,
+) -> Result<(), error_stack::Report<SliceActivateError>> {
+    use error_stack::ResultExt;
+
+    system.register_schema::<crate::commands::RunDiscovery>();
+    system.register_schema::<crate::commands::RescanSkills>();
+    system.register_schema::<crate::commands::RescanPrompts>();
+    system.register_schema::<crate::commands::RescanContext>();
+    system
+        .install_partition_set(partition_spec_with_args(
+            system,
+            paths,
+            state,
+            args_template,
+        ))
+        .change_context(SliceActivateError)
+        .attach("installing the jinn.discovery partition set")?;
+    Ok(())
 }
 
 /// The supervision budget for one discovery entity: the kameo actors'
@@ -249,6 +297,10 @@ type ChildSpawnFn = std::sync::Arc<
 /// (a full spawn — slot insert included) at the same path. Passed to
 /// both `spawn_child` at activation and the supervision engine's
 /// restart path.
+///
+/// The merged genesis args may carry a `settle_budget_ms` override
+/// ([`worker::SETTLE_BUDGET_ARG`]); the template is `{}` in production,
+/// so the default budget applies there.
 fn entity_spawn_fn(
     system: &trouper::system::ActorSystem,
     paths: &jinn_domain::common::app_paths::AppPaths,
@@ -262,10 +314,24 @@ fn entity_spawn_fn(
               path: &trouper::actor::ActorPath,
               args: &serde_json::Value| {
             let session_id = entity_key(args);
-            let deps = worker::WorkerDeps::for_session(&system_handle, &state, &paths, session_id);
+            let settle_budget = settle_budget_from_args(args);
+            let deps = worker::WorkerDeps::for_session_with_budget(
+                &system_handle,
+                &state,
+                &paths,
+                session_id,
+                settle_budget,
+            );
             worker::SessionDiscoveryWorker::spawn(system, path.clone(), deps);
         },
     )
+}
+
+/// Reads the optional `settle_budget_ms` genesis-arg override.
+fn settle_budget_from_args(args: &serde_json::Value) -> Option<std::time::Duration> {
+    args.get(worker::SETTLE_BUDGET_ARG)
+        .and_then(serde_json::Value::as_u64)
+        .map(std::time::Duration::from_millis)
 }
 
 /// Registers one discovery entity under the supervisor: the spec goes

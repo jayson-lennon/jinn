@@ -13,8 +13,10 @@
 //! - a [`RunDiscovery`] arms a settle waiter joining the three scans
 //!   under a fixed budget ([`SETTLE_BUDGET`]);
 //! - settling within the budget publishes [`SessionDiscoverySettled`]
-//!   with `delayed: None`; the budget firing publishes with the same
-//!   `"discovery delayed by <resource>"` reason the coordinator used;
+//!   with `delayed: None`; the budget firing publishes the
+//!   coordinator's `"discovery delayed by <resources>"` reason naming
+//!   the resources still missing, and the snapshot counts only the
+//!   scans that finished in time;
 //! - scans that finish after a timed settle still write state and
 //!   publish their event (the waiter never cancels them);
 //! - manual rescans run one resource only and never settle;
@@ -29,6 +31,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
@@ -51,13 +54,29 @@ use crate::contracts::{DiscoverySnapshot, SessionDiscoverySettled};
 use crate::scans;
 
 /// The settle budget: how long a discovery run waits for all three
-/// scans before settling with a delayed reason.
+/// scans before settling with a delayed reason. Production value;
+/// tests inject a shorter one via the entity args (`settle_budget_ms`)
+/// so a timed settle is exercisable in wall-clock-friendly time.
 pub const SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// The resource name the delayed reason names for the skills scan —
-/// the coordinator's reason format named the missing resource, skills
-/// first.
-const DELAYED_SKILLS: &str = "discovery delayed by skills";
+/// The genesis-arg key carrying an override settle budget (ms).
+pub const SETTLE_BUDGET_ARG: &str = "settle_budget_ms";
+
+/// The resources a discovery run collects, in the order the delayed
+/// reason names them (the coordinator's `missing_names` order).
+const RESOURCES: [(&Resource, &str); 3] = [
+    (&Resource::Skills, "skills"),
+    (&Resource::Prompts, "prompts"),
+    (&Resource::Context, "context"),
+];
+
+/// One of the three discovery resources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Resource {
+    Skills,
+    Prompts,
+    Context,
+}
 
 /// The per-session discovery worker.
 ///
@@ -90,6 +109,10 @@ pub struct SessionDiscoveryWorker {
     user_prompts_dir: PathBuf,
     /// The system-installed prompts dir.
     system_prompts_dir: PathBuf,
+    /// How long a discovery run waits for all three scans. The
+    /// production default ([`SETTLE_BUDGET`]); tests may shorten it via
+    /// the entity's genesis args.
+    settle_budget: std::time::Duration,
 }
 
 /// The authorities and inputs one worker entity is granted at genesis.
@@ -115,18 +138,24 @@ pub struct WorkerDeps {
     pub user_prompts_dir: PathBuf,
     /// The system-installed prompts dir.
     pub system_prompts_dir: PathBuf,
+    /// The settle budget (production default unless overridden).
+    pub settle_budget: std::time::Duration,
 }
 
 impl WorkerDeps {
     /// Mints the per-entity authorities for one session: shared state
     /// and system handle, fresh caps, launch-wide scan inputs from
     /// the launch's `AppPaths`.
+    ///
+    /// `settle_budget` overrides the default wait (tests inject a
+    /// shorter one); `None` uses [`SETTLE_BUDGET`].
     #[must_use]
-    pub fn for_session(
+    pub fn for_session_with_budget(
         system: &ActorSystem,
         state: &State,
         paths: &jinn_domain::common::app_paths::AppPaths,
         session_id: SessionId,
+        settle_budget: Option<std::time::Duration>,
     ) -> Self {
         Self {
             session_id,
@@ -139,7 +168,19 @@ impl WorkerDeps {
             global_skills_dir: paths.skills_dir(),
             user_prompts_dir: paths.prompts_dir(),
             system_prompts_dir: paths.system_prompts_dir(),
+            settle_budget: settle_budget.unwrap_or(SETTLE_BUDGET),
         }
+    }
+
+    /// Mints the per-entity authorities with the default settle budget.
+    #[must_use]
+    pub fn for_session(
+        system: &ActorSystem,
+        state: &State,
+        paths: &jinn_domain::common::app_paths::AppPaths,
+        session_id: SessionId,
+    ) -> Self {
+        Self::for_session_with_budget(system, state, paths, session_id, None)
     }
 }
 
@@ -179,6 +220,7 @@ impl SessionDiscoveryWorker {
                         user_prompts_dir,
                         system_prompts_dir,
                         system,
+                        settle_budget,
                     } = deps.to_builder(&system_handle);
                     Ok(Self {
                         session_id,
@@ -192,6 +234,7 @@ impl SessionDiscoveryWorker {
                         global_skills_dir,
                         user_prompts_dir,
                         system_prompts_dir,
+                        settle_budget,
                     })
                 })
             })
@@ -421,12 +464,20 @@ impl SessionDiscoveryWorker {
         let current_run = self.run.clone();
         let system = self.system.clone();
         let session_id = self.session_id.clone();
+        let settle_budget = self.settle_budget;
         tokio::spawn(async move {
-            let waited = tokio::time::timeout(SETTLE_BUDGET, async {
+            // Shared so the timed-out settle can still read the
+            // resources that finished within the budget.
+            let finished: Arc<Mutex<Vec<(Resource, ResourceOutcome)>>> =
+                Arc::new(Mutex::new(Vec::new()));
+            let waiter = SettleWaiter {
+                finished: Arc::clone(&finished),
+            };
+            let waited = tokio::time::timeout(settle_budget, async {
                 tokio::join!(
-                    join_outcome(skills),
-                    join_outcome(prompts),
-                    join_outcome(context)
+                    waiter.join(Resource::Skills, skills),
+                    waiter.join(Resource::Prompts, prompts),
+                    waiter.join(Resource::Context, context),
                 )
             })
             .await;
@@ -439,13 +490,19 @@ impl SessionDiscoveryWorker {
             let (snapshot, delayed) = match waited {
                 Ok((skills, prompts, context)) => (snapshot_of(skills, prompts, context), None),
                 Err(_elapsed) => {
-                    // The budget fired: settle now. The resource tasks
-                    // keep running (their handles are detached here),
-                    // so late resources still land.
-                    (
-                        DiscoverySnapshot::default(),
-                        Some(DELAYED_SKILLS.to_owned()),
-                    )
+                    // The budget fired: settle now with the outcomes
+                    // already recorded; the still-running resources are
+                    // missing. Their tasks keep going (the waiter never
+                    // cancels), so late resources still land.
+                    let missing = {
+                        let done = finished.lock().expect("settle outcome lock");
+                        RESOURCES
+                            .iter()
+                            .filter(|(resource, _)| !done.iter().any(|(done, _)| done == *resource))
+                            .map(|(_, name)| (*name).to_owned())
+                            .collect::<Vec<_>>()
+                    };
+                    (snapshot_of_finished(&finished), delayed_reason(&missing))
                 }
             };
             publish(
@@ -475,6 +532,7 @@ struct SessionDiscoveryWorkerDepsBuilder {
     user_prompts_dir: PathBuf,
     system_prompts_dir: PathBuf,
     system: ActorSystem,
+    settle_budget: std::time::Duration,
 }
 
 impl WorkerDeps {
@@ -491,6 +549,7 @@ impl WorkerDeps {
             user_prompts_dir: self.user_prompts_dir.clone(),
             system_prompts_dir: self.system_prompts_dir.clone(),
             system: system.clone(),
+            settle_budget: self.settle_budget,
         }
     }
 }
@@ -498,6 +557,28 @@ impl WorkerDeps {
 /// A gated-out resource: zero counts, no error, no settle contribution.
 fn skipped() -> tokio::task::JoinHandle<ResourceOutcome> {
     tokio::spawn(async { ResourceOutcome::Skipped })
+}
+
+/// The settle waiter's per-resource join: awaits one resource task and
+/// records its outcome in the shared finished map, so a budget-timeout
+/// settle can still count the resources that made it in time.
+struct SettleWaiter {
+    finished: Arc<Mutex<Vec<(Resource, ResourceOutcome)>>>,
+}
+
+impl SettleWaiter {
+    async fn join(
+        &self,
+        resource: Resource,
+        handle: tokio::task::JoinHandle<ResourceOutcome>,
+    ) -> ResourceOutcome {
+        let outcome = join_outcome(handle).await;
+        self.finished
+            .lock()
+            .expect("settle outcome lock")
+            .push((resource, outcome.clone()));
+        outcome
+    }
 }
 
 /// Folds the three outcomes into the settle snapshot.
@@ -514,6 +595,33 @@ fn snapshot_of(
         context_file_count: context.count(),
         context_error: context.error(),
     }
+}
+
+/// Folds only the finished outcomes into a partial settle snapshot —
+/// the coordinator's behavior on a timed settle, where missing
+/// resources contributed zero counts and no error.
+fn snapshot_of_finished(finished: &Mutex<Vec<(Resource, ResourceOutcome)>>) -> DiscoverySnapshot {
+    let pull = |resource: Resource| {
+        finished
+            .lock()
+            .expect("settle outcome lock")
+            .iter()
+            .find(|(done, _)| *done == resource)
+            .map(|(_, outcome)| outcome.clone())
+            .unwrap_or(ResourceOutcome::Skipped)
+    };
+    snapshot_of(
+        pull(Resource::Skills),
+        pull(Resource::Prompts),
+        pull(Resource::Context),
+    )
+}
+
+/// The coordinator's delayed-reason format, naming the missing
+/// resources in its `missing_names` order: `"discovery delayed by
+/// skills, prompts"`.
+fn delayed_reason(missing: &[String]) -> Option<String> {
+    (!missing.is_empty()).then(|| format!("discovery delayed by {}", missing.join(", ")))
 }
 
 /// One resource's outcome, as the settle waiter reads it.

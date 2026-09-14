@@ -114,6 +114,7 @@ dotenvy = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 mockito = { workspace = true }
+kameo = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tempfile = { workspace = true }
 ctor = "0.8"
