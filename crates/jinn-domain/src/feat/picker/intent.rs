@@ -114,16 +114,9 @@ fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
         PickerKind::Session => {
             state.frontend.session_picker_mut().reset();
         }
-        PickerKind::Persona | PickerKind::Skill => {
+        PickerKind::Persona | PickerKind::Skill | PickerKind::Theme => {
             // Spec-driven when the registry holds their spec; nothing to
             // prepare in the legacy path.
-        }
-        PickerKind::Theme => {
-            state.frontend.theme_picker_mut().reset();
-            // Save current theme so ESC can restore it.
-            *state.frontend.theme_preview_original_mut() = Some(state.frontend.theme.clone());
-            // Load discovered themes as entries.
-            load_theme_picker_entries(state);
         }
         PickerKind::SessionLifecycle => {
             state.frontend.session_lifecycle_picker_mut().reset();
@@ -194,44 +187,6 @@ pub fn handle_refresh_endpoints(state: &mut AppState) -> IntentResult {
     )
 }
 
-/// Loads themes into the theme picker from the plugin contribution cache.
-///
-/// The built-in default always leads; contributed themes follow in name
-/// order. Opening the picker never touches the filesystem — it reads
-/// whatever the themes plugin last pushed (a dead plugin means default only).
-fn load_theme_picker_entries(state: &mut AppState) {
-    use crate::feat::theme::ThemeEntry;
-
-    let mut entries = vec![ThemeEntry {
-        name: "default".to_owned(),
-        theme: crate::feat::theme::default_theme(),
-    }];
-
-    // A user-contributed "default" replaces the built-in entry's look
-    // while keeping its reserved slot.
-    if let (Some(entry), Some(contributed)) = (entries.first_mut(), state.plugins.theme("default"))
-    {
-        entry.theme = contributed.theme.clone();
-    }
-
-    for (name, contributed) in state.plugins.themes() {
-        if name == "default" {
-            continue;
-        }
-        entries.push(ThemeEntry {
-            name: name.to_owned(),
-            theme: contributed.theme.clone(),
-        });
-    }
-
-    // Default stays pinned first; the rest follow in case-insensitive name order.
-    let mut rest = entries.split_off(1);
-    rest.sort_by_key(|e| e.name.to_lowercase());
-    entries.extend(rest);
-
-    state.frontend.theme_picker_mut().set_items(entries);
-}
-
 /// Loads plugins into the plugin picker from the plugin contribution cache.
 ///
 /// One read-only entry per known plugin (name + latest phase), in name
@@ -249,17 +204,6 @@ fn load_plugin_picker_entries(state: &mut AppState) {
         .collect();
 
     state.frontend.plugin_picker_mut().set_items(entries);
-}
-
-/// Previews the selected theme in real-time when the Theme picker is active.
-fn preview_theme_if_active(state: &mut AppState) {
-    if state.frontend.scope_stack.picker_kind() != Some(&PickerKind::Theme) {
-        return;
-    }
-    if let Some(entry) = state.frontend.theme_picker().selected_item() {
-        state.frontend.theme = entry.theme.clone();
-        state.invalidate_theme_caches();
-    }
 }
 
 /// Resets the preview scroll offset when the active picker's spec opts in
@@ -345,12 +289,11 @@ pub fn handle_picker_confirm(
     }
 
     match state.frontend.scope_stack.picker_kind().copied() {
-        // Persona and Skill are fully spec-driven; the registry guard above
-        // runs their confirm hook. Reaching the match means the registry is
-        // empty (test seams) — nothing to do.
+        // Persona, Skill, and Theme are fully spec-driven; the registry
+        // guard above runs their confirm hook. Reaching the match means the
+        // registry is empty (test seams) — nothing to do.
         Some(PickerKind::Provider) => (confirm_provider(state), None),
         Some(PickerKind::Session) => (confirm_session(state), None),
-        Some(PickerKind::Theme) => (confirm_theme(state), None),
         Some(PickerKind::SessionLifecycle) => (confirm_session_lifecycle(state), None),
         Some(PickerKind::Project) => (confirm_project(state), None),
         Some(PickerKind::ReasoningEffort) => (confirm_reasoning_effort(state), None),
@@ -362,7 +305,8 @@ pub fn handle_picker_confirm(
             | PickerKind::Persona
             | PickerKind::TaskList
             | PickerKind::Plugin
-            | PickerKind::Skill,
+            | PickerKind::Skill
+            | PickerKind::Theme,
         )
         | None => (IntentResult::empty(), None),
         Some(PickerKind::Tool) => (confirm_tool(state), None),
@@ -377,7 +321,7 @@ pub fn handle_move_up(state: &mut AppState, pickers: &jinn_picker::PickerRegistr
         picker.move_up(viewport);
     }
     reset_preview_scroll(state, pickers);
-    preview_theme_if_active(state);
+    crate::feat::picker::action::run_selection_change(state, pickers);
     IntentResult::empty()
 }
 
@@ -392,7 +336,7 @@ pub fn handle_move_down(
         picker.move_down(viewport);
     }
     reset_preview_scroll(state, pickers);
-    preview_theme_if_active(state);
+    crate::feat::picker::action::run_selection_change(state, pickers);
     IntentResult::empty()
 }
 
@@ -404,7 +348,7 @@ pub fn handle_page_up(state: &mut AppState, pickers: &jinn_picker::PickerRegistr
         picker.page_up(viewport);
     }
     reset_preview_scroll(state, pickers);
-    preview_theme_if_active(state);
+    crate::feat::picker::action::run_selection_change(state, pickers);
     IntentResult::empty()
 }
 
@@ -419,7 +363,7 @@ pub fn handle_page_down(
         picker.page_down(viewport);
     }
     reset_preview_scroll(state, pickers);
-    preview_theme_if_active(state);
+    crate::feat::picker::action::run_selection_change(state, pickers);
     IntentResult::empty()
 }
 
@@ -554,22 +498,6 @@ fn confirm_endpoint(state: &mut AppState) -> IntentResult {
     state.frontend.scope_stack.pop();
 
     IntentResult::empty().with_message(MarkSessionInteracted { session_id })
-}
-
-/// Confirms the selected theme and persists it to preferences.
-fn confirm_theme(state: &mut AppState) -> IntentResult {
-    let Some(entry) = state.frontend.theme_picker().selected_item() else {
-        return IntentResult::empty();
-    };
-    let theme_name = entry.name.clone();
-
-    // Theme is already previewed (set on move). Just persist.
-    *state.frontend.theme_preview_original_mut() = None;
-    state.frontend.scope_stack.pop();
-
-    IntentResult::new_message(UpdateAppState {
-        updates: vec![AppStateUpdate::SetTheme(Some(theme_name))],
-    })
 }
 
 /// Confirms the selected session and dispatches a switch command.
@@ -2808,6 +2736,73 @@ mod tests {
     }
 
     #[rstest::rstest]
+    #[test]
+    fn move_down_previews_the_theme_when_the_registry_holds_the_spec() {
+        // Given an open theme picker whose second entry is a distinct theme,
+        // with the domain registry in play.
+        let registry = crate::feat::picker::registry::build_picker_registry();
+        let mut other = crate::feat::theme::default_theme();
+        other.focus_accent = ratatui::style::Color::Red;
+        let mut state = AppState::default();
+        state.plugins.set_themes(
+            "theme-loader",
+            vec![("other".to_owned(), None, other.clone())],
+        );
+        crate::feat::picker::intent::handle_open_picker(&mut state, PickerKind::Theme, &registry);
+
+        // When moving the selection down one entry.
+        handle_move_down(&mut state, &registry);
+
+        // Then the highlighted theme is applied live (spec selection-change
+        // hook ran through the move handler).
+        assert_eq!(
+            state.frontend.theme.focus_accent,
+            ratatui::style::Color::Red
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn move_down_skips_selection_change_when_the_spec_has_no_hook() {
+        // Given an open provider picker (its kind maps to no spec) with two
+        // entries and the domain registry in play.
+        let registry = crate::feat::picker::registry::build_picker_registry();
+        let mut state = state_with_provider_picker(2);
+        let theme_before = state.frontend.theme.clone();
+
+        // When moving the selection down.
+        handle_move_down(&mut state, &registry);
+
+        // Then the app theme is untouched (no selection-change dispatch).
+        assert_eq!(state.frontend.theme.focus_accent, theme_before.focus_accent);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn page_down_previews_the_theme_when_the_registry_holds_the_spec() {
+        // Given an open theme picker whose second entry is a distinct theme,
+        // with the domain registry in play.
+        let registry = crate::feat::picker::registry::build_picker_registry();
+        let mut other = crate::feat::theme::default_theme();
+        other.focus_accent = ratatui::style::Color::Red;
+        let mut state = AppState::default();
+        state.plugins.set_themes(
+            "theme-loader",
+            vec![("other".to_owned(), None, other.clone())],
+        );
+        crate::feat::picker::intent::handle_open_picker(&mut state, PickerKind::Theme, &registry);
+
+        // When paging down (selection jumps to the last entry).
+        handle_page_down(&mut state, &registry);
+
+        // Then the highlighted theme is applied live.
+        assert_eq!(
+            state.frontend.theme.focus_accent,
+            ratatui::style::Color::Red
+        );
+    }
+
+    #[rstest::rstest]
     fn handle_page_down_advances_selection_by_half_viewport() {
         // Given a provider picker with 20 entries, selection at 0, viewport 10.
         let mut state = state_with_provider_picker(20);
@@ -2836,52 +2831,6 @@ mod tests {
 
         // Then selection decrements by 5.
         assert_eq!(state.provider.provider_picker.selection(), 5);
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn theme_picker_lists_default_first_then_contributed_sorted() {
-        // Given a cache with unsorted contributed themes.
-        let mut state = AppState::default();
-        state.plugins.set_themes(
-            "theme-loader",
-            vec![
-                ("zeta".to_owned(), None, crate::feat::theme::default_theme()),
-                ("Beta".to_owned(), None, crate::feat::theme::default_theme()),
-                (
-                    "alpha".to_owned(),
-                    None,
-                    crate::feat::theme::default_theme(),
-                ),
-            ],
-        );
-
-        // When opening the theme picker.
-        handle_open_picker(&mut state, PickerKind::Theme, &empty_pickers());
-
-        // Then default leads and the rest follow case-insensitively sorted.
-        let names: Vec<String> = state
-            .frontend
-            .theme_picker()
-            .items()
-            .iter()
-            .map(|e| e.name.clone())
-            .collect();
-        assert_eq!(names, vec!["default", "alpha", "Beta", "zeta"]);
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn theme_picker_empty_cache_shows_default_only() {
-        // Given no plugin contributions (dead or absent themes plugin).
-        let mut state = AppState::default();
-
-        // When opening the theme picker.
-        handle_open_picker(&mut state, PickerKind::Theme, &empty_pickers());
-
-        // Then the picker offers exactly the built-in default.
-        assert_eq!(state.frontend.theme_picker().items().len(), 1);
-        assert_eq!(state.frontend.theme_picker().items()[0].name, "default");
     }
 
     use crate::feat::plugin_coordinator_actor::protocol::PluginPhase;

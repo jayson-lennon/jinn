@@ -75,6 +75,36 @@ pub(crate) fn run_active_hook(
     fold(state, outcome)
 }
 
+/// Runs the active picker's selection-change hook when its spec declares
+/// one — the live preview fired after the cursor moved or the page turned.
+/// A no-op when no spec is active or the spec has no selection-change
+/// behavior (unmigrated/hookless pickers are untouched).
+pub fn run_selection_change(state: &mut AppState, registry: &PickerRegistry) {
+    let Some(kind) = state.frontend.scope_stack.picker_kind().copied() else {
+        return;
+    };
+    let Some(id) = crate::feat::picker::registry::spec_id_for_kind(&kind) else {
+        return;
+    };
+    let Some(spec) = registry.get(id) else {
+        return;
+    };
+    if !spec.has_selection_change() {
+        return;
+    }
+    // The cursor position lives in the picker's selection storage, whose
+    // concrete type only the typed spec knows — resolve it through the
+    // erased seam, then run the hook.
+    let picker_id = jinn_picker::PickerId::new(spec.id().as_str());
+    let index = {
+        let host = crate::feat::picker::host_impl::AppStateRenderHost::new(state);
+        spec.selected_index(&host)
+    };
+    let mut host = AppStatePickerHost::new(state);
+    let mut ctx = ActionCtx::new(picker_id, &mut host);
+    spec.run_selection_change(index, &mut ctx);
+}
+
 /// The lifecycle hook to run for the active picker.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Hook {
@@ -139,6 +169,7 @@ mod tests {
     use super::*;
     use crate::common::app_state::FocusScope;
     use crate::feat::picker::registry::SKILL_ID;
+    use crate::feat::ui::picker_states::PickerExt;
     use crate::protocol::ChatEntryKind;
 
     fn state_with_skill_picker() -> AppState {
@@ -223,5 +254,38 @@ mod tests {
             state.frontend.scope_stack.picker_kind().is_none(),
             "close outcome must pop the picker scope"
         );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn theme_close_via_the_esc_path_restores_the_snapshotted_theme() {
+        // Given an open theme picker that previewed a different theme after
+        // opening (open snapshotted the pre-open theme).
+        let registry = crate::feat::picker::registry::build_picker_registry();
+        let mut state = AppState::default();
+        let original_accent = state.frontend.theme.focus_accent;
+        let mut other = crate::feat::theme::default_theme();
+        other.focus_accent = ratatui::style::Color::Red;
+        state.plugins.set_themes(
+            "theme-loader",
+            vec![("other".to_owned(), None, other.clone())],
+        );
+        crate::feat::picker::intent::handle_open_picker(
+            &mut state,
+            crate::feat::picker::PickerKind::Theme,
+            &registry,
+        );
+        state.frontend.theme = other;
+
+        // When ESC closes the picker through the IntentHandler path.
+        let result = try_close_active(&mut state, &registry);
+
+        // Then the hook ran (legacy restores must not double-apply).
+        assert!(result.is_some());
+        // And the pre-open theme is restored.
+        assert_eq!(state.frontend.theme.focus_accent, original_accent);
+        // And the snapshot is consumed and the scope popped.
+        assert!(state.frontend.theme_preview_original().is_none());
+        assert!(state.frontend.scope_stack.picker_kind().is_none());
     }
 }

@@ -14,6 +14,8 @@ use jinn_picker::PickerRegistry;
 pub const PERSONA_ID: &str = "persona";
 /// The id of the skill picker's spec.
 pub const SKILL_ID: &str = "skill";
+/// The id of the theme picker's spec.
+pub const THEME_ID: &str = "theme";
 
 /// Maps a legacy `PickerKind` onto its spec id, `None` while the kind has
 /// not migrated yet.
@@ -25,6 +27,7 @@ pub fn spec_id_for_kind(kind: &crate::feat::picker::PickerKind) -> Option<&'stat
     match kind {
         crate::feat::picker::PickerKind::Persona => Some(PERSONA_ID),
         crate::feat::picker::PickerKind::Skill => Some(SKILL_ID),
+        crate::feat::picker::PickerKind::Theme => Some(THEME_ID),
         _ => None,
     }
 }
@@ -36,6 +39,7 @@ pub fn build_picker_registry() -> PickerRegistry {
     let mut registry = PickerRegistry::new();
     registry.register(super::persona_spec::persona_spec());
     registry.register(super::skill_spec::skill_spec());
+    registry.register(super::theme_spec::theme_spec());
     registry
 }
 
@@ -54,7 +58,7 @@ mod tests {
     fn migrated_kinds_map_onto_registered_specs_and_vice_versa() {
         // Given the domain's picker registry and the kind→id adapter.
         let registry = build_picker_registry();
-        let migrated = [PickerKind::Persona, PickerKind::Skill];
+        let migrated = [PickerKind::Persona, PickerKind::Skill, PickerKind::Theme];
 
         // When mapping each migrated kind and listing registered ids.
         let mapped_ids: Vec<&str> = migrated.iter().filter_map(spec_id_for_kind).collect();
@@ -76,7 +80,6 @@ mod tests {
         let unmigrated = [
             PickerKind::Provider,
             PickerKind::Session,
-            PickerKind::Theme,
             PickerKind::SessionLifecycle,
             PickerKind::CompactionModel,
             PickerKind::ReasoningEffort,

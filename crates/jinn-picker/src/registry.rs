@@ -112,6 +112,11 @@ pub trait ErasedPickerSpec: Send + Sync {
     /// Whether a selection-change hook is declared.
     fn has_selection_change(&self) -> bool;
 
+    /// The currently highlighted index, read from the host's lent selection
+    /// storage. `0` when no compatible storage is lent (an empty picker's
+    /// hook never runs — the index is only consulted to pick an entry).
+    fn selected_index(&self, host: &dyn PickerHost) -> usize;
+
     /// The custom status line for this frame; `None` renders a blank row.
     fn status_line(&self, ctx: &StatusCtx<'_>) -> Option<Line<'static>>;
 
@@ -249,6 +254,14 @@ where
 
     fn has_selection_change(&self) -> bool {
         self.selection_change.is_some()
+    }
+
+    fn selected_index(&self, host: &dyn PickerHost) -> usize {
+        host.selection_state_ref(self.id)
+            .and_then(|any| {
+                any.downcast_ref::<jinn_selection_widget::SelectionState<PickerEntry<T>>>()
+            })
+            .map_or(0, jinn_selection_widget::SelectionState::selection)
     }
 
     fn status_line(&self, ctx: &StatusCtx<'_>) -> Option<Line<'static>> {
@@ -677,9 +690,7 @@ mod tests {
             let state = host
                 .selection_state(PickerId::new("scv"))
                 .and_then(|any| {
-                    any.downcast_mut::<jinn_selection_widget::SelectionState<
-                        PickerEntry<Entry>,
-                    >>()
+                    any.downcast_mut::<jinn_selection_widget::SelectionState<PickerEntry<Entry>>>()
                 })
                 .expect("storage");
             state.set_items(items);
@@ -702,10 +713,11 @@ mod tests {
         let fired_sink = std::sync::Arc::clone(&fired);
         let mut registry = PickerRegistry::new();
         registry.register(
-            PickerSpec::<Entry>::new(PickerId::new("scoob"))
-                .on_selection_change(move |_entry: &Entry, _ctx: &mut ActionCtx<'_>| {
+            PickerSpec::<Entry>::new(PickerId::new("scoob")).on_selection_change(
+                move |_entry: &Entry, _ctx: &mut ActionCtx<'_>| {
                     *fired_sink.lock().expect("lock") = true;
-                }),
+                },
+            ),
         );
         let spec = registry.get("scoob").expect("registered");
 

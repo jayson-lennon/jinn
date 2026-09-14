@@ -177,7 +177,7 @@ fn body_hash_key(body: &str) -> String {
 /// The status line: how many discovered skills are enabled for the session.
 // The hook signature is Option so `bottom_rows()` stays truthful even if the
 // status ever becomes conditional; geometry reserves the row either way.
-#[allow(clippy::unnecessary_wraps, reason = "hook signature is Option<Line>")]
+#[expect(clippy::unnecessary_wraps, reason = "hook signature is Option<Line>")]
 fn skill_status(ctx: &StatusCtx<'_>) -> Option<Line<'static>> {
     let state = state_ref_of(ctx);
     let picker = state.frontend.skill_picker();

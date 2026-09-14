@@ -23,7 +23,6 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
     match ctx.state.frontend.scope_stack.picker_kind().copied() {
         Some(PickerKind::Provider) => render_provider_picker(frame, area, ctx),
         Some(PickerKind::Session) => render_session_picker(frame, area, ctx),
-        Some(PickerKind::Theme) => render_theme_picker(frame, area, ctx),
         Some(PickerKind::SessionLifecycle) => {
             render_session_lifecycle_picker(frame, area, ctx);
         }
@@ -41,10 +40,10 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
         Some(PickerKind::Tool) => {
             jinn_domain::feat::picker::render::render_tool_picker(frame, area, ctx);
         }
-        // Persona and Skill render entirely through their specs above; with
-        // an empty registry (test seams) there is nothing to draw. `None`
-        // (no picker scope) is also a no-op here.
-        Some(PickerKind::Persona | PickerKind::Skill) | None => {}
+        // Persona, Skill, and Theme render entirely through their specs
+        // above; with an empty registry (test seams) there is nothing to
+        // draw. `None` (no picker scope) is also a no-op here.
+        Some(PickerKind::Persona | PickerKind::Skill | PickerKind::Theme) | None => {}
         Some(PickerKind::TaskList) => {
             jinn_domain::feat::picker::render::render_task_list_picker(frame, area, ctx);
         }
@@ -68,11 +67,6 @@ fn render_provider_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
 /// Renders the session picker overlay (delegates to slice).
 fn render_session_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
     jinn_domain::feat::session::render::render_session_picker(frame, area, ctx);
-}
-
-/// Renders the theme picker overlay (delegates to domain render).
-fn render_theme_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    jinn_domain::feat::picker::render::render_theme_picker(frame, area, ctx);
 }
 
 /// Renders the session lifecycle picker overlay (delegates to domain render).
@@ -251,6 +245,101 @@ mod tests {
         assert!(
             status_row.contains("Active:"),
             "row above must be the status line; got {status_row:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn theme_picker_draws_status_and_keybind_rows_via_spec() {
+        // Given a theme picker open, rendered through its spec.
+        let mut state = AppState::default();
+        state.frontend.scope_stack.push(FocusScope::Picker {
+            kind: PickerKind::Theme,
+        });
+        let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
+
+        // When rendering.
+        let area = Rect::new(0, 0, 100, 30);
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("terminal");
+        terminal
+            .draw(|frame| {
+                let slices = jinn_slices::Slices::new();
+                let views = jinn_domain::common::overlay_views::OverlayViews::new();
+                let ctx =
+                    jinn_domain::RenderCtx::new(&state, &slices, &views).with_pickers(&pickers);
+                super::render_picker(frame, area, &ctx);
+            })
+            .expect("draw");
+
+        // Then the popup draws the spec's two bottom rows: the "Current:"
+        // status line above the standard keybind line.
+        let popup = compute_popup_rect(area);
+        let inner_bottom = popup.y + popup.height.saturating_sub(2);
+        let buffer = terminal.backend().buffer();
+        let keybind_row: String = ((popup.x + 1)..(popup.x + popup.width - 1))
+            .map(|x| buffer[(x, inner_bottom)].symbol())
+            .collect();
+        let status_row: String = ((popup.x + 1)..(popup.x + popup.width - 1))
+            .map(|x| buffer[(x, inner_bottom - 1)].symbol())
+            .collect();
+        assert!(
+            keybind_row.contains("Enter confirm"),
+            "bottom row must be the keybind line; got {keybind_row:?}"
+        );
+        assert!(
+            status_row.contains("Current: default"),
+            "row above must be the status line; got {status_row:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn theme_picker_draws_swatch_rows_via_the_spec_row_hook() {
+        // Given an open theme picker whose storage holds wrapped entries
+        // (the same shape the spec's open hook produces).
+        let mut state = AppState::default();
+        state.frontend.scope_stack.push(FocusScope::Picker {
+            kind: PickerKind::Theme,
+        });
+        let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
+        let wrapped = pickers
+            .make_items(
+                jinn_domain::feat::picker::registry::THEME_ID,
+                vec![jinn_domain::feat::theme::ThemeEntry {
+                    name: "gruvbox".to_owned(),
+                    theme: state.frontend.theme.clone(),
+                }],
+            )
+            .expect("theme spec registered");
+        state.frontend.theme_picker_mut().set_items(wrapped);
+
+        // When rendering the picker.
+        let area = Rect::new(0, 0, 100, 30);
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("terminal");
+        terminal
+            .draw(|frame| {
+                let slices = jinn_slices::Slices::new();
+                let views = jinn_domain::common::overlay_views::OverlayViews::new();
+                let ctx =
+                    jinn_domain::RenderCtx::new(&state, &slices, &views).with_pickers(&pickers);
+                super::render_picker(frame, area, &ctx);
+            })
+            .expect("draw");
+
+        // Then the entry's swatch and name appear — rows are not blank and
+        // the name is drawn.
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect();
+        assert!(
+            rendered.contains('\u{2588}') && rendered.contains("gruvbox"),
+            "theme picker must draw its swatch + name rows; got {rendered:?}"
         );
     }
 

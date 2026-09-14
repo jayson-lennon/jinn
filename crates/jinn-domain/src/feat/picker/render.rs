@@ -1,4 +1,4 @@
-//! Picker rendering for the theme picker and shared picker test helpers.
+//! Picker rendering for unmigrated pickers and shared picker test helpers.
 
 use crate::common::render_ctx::RenderCtx;
 use crate::feat::ui::picker_states::PickerExt;
@@ -8,19 +8,6 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::Line;
-
-/// Renders the theme picker overlay using [`SelectionWidget`].
-///
-/// Telescope-style layout: bordered popup with filter input at top,
-/// horizontal separator, scrollable theme entries.
-pub fn render_theme_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    let state = ctx.state;
-    let widget = SelectionWidget::new(state.frontend.theme_picker())
-        .title(Line::from(" Themes "))
-        .title_style(Style::default().fg(state.frontend.theme.popup_title))
-        .footer(Line::from(" ESC to cancel, Enter to apply "));
-    widget.render(frame, area);
-}
 
 /// Renders the tool picker overlay.
 pub fn render_tool_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {

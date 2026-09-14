@@ -38,7 +38,7 @@ pub struct PickerStates {
 
     /// Theme picker state (items, filter text, selection index).
     /// OWNER: IntentHandler (theme picker navigation).
-    pub theme_picker: jinn_selection_widget::SelectionState<ThemeEntry>,
+    pub theme_picker: jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ThemeEntry>>,
 
     /// Saved theme before preview - restored on ESC.
     /// OWNER: IntentHandler (set on theme picker open, consumed on confirm/cancel).
@@ -145,9 +145,13 @@ pub trait PickerExt {
     ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PersonaEntry>>;
 
     /// Read-only access to the theme picker state.
-    fn theme_picker(&self) -> &jinn_selection_widget::SelectionState<ThemeEntry>;
+    fn theme_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ThemeEntry>>;
     /// Mutable access to the theme picker state.
-    fn theme_picker_mut(&mut self) -> &mut jinn_selection_widget::SelectionState<ThemeEntry>;
+    fn theme_picker_mut(
+        &mut self,
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ThemeEntry>>;
     /// Read-only access to the saved theme before preview.
     fn theme_preview_original(&self) -> &Option<Theme>;
     /// Mutable access to the saved theme before preview.
@@ -268,11 +272,15 @@ impl PickerExt for super::frontend_state::FrontendState {
         &mut self.pickers.persona_picker
     }
 
-    fn theme_picker(&self) -> &jinn_selection_widget::SelectionState<ThemeEntry> {
+    fn theme_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ThemeEntry>> {
         &self.pickers.theme_picker
     }
 
-    fn theme_picker_mut(&mut self) -> &mut jinn_selection_widget::SelectionState<ThemeEntry> {
+    fn theme_picker_mut(
+        &mut self,
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ThemeEntry>> {
         &mut self.pickers.theme_picker
     }
 

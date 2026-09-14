@@ -263,9 +263,8 @@ where
                 let entry = {
                     let storage =
                         ctx.selection::<jinn_selection_widget::SelectionState<crate::entry::PickerEntry<T>>>();
-                    storage.and_then(|state| {
-                        state.items().get(index).map(|item| item.entry().clone())
-                    })
+                    storage
+                        .and_then(|state| state.items().get(index).map(|item| item.entry().clone()))
                 };
                 let Some(entry) = entry else {
                     return;
@@ -513,16 +512,14 @@ mod tests {
             jinn_selection_widget::SelectionState::new(),
         );
         {
-            let state = crate::host::PickerHost::selection_state(
-                &mut host,
-                crate::id::PickerId::new("sc"),
-            )
-                .and_then(|any| {
-                    any.downcast_mut::<jinn_selection_widget::SelectionState<
+            let state =
+                crate::host::PickerHost::selection_state(&mut host, crate::id::PickerId::new("sc"))
+                    .and_then(|any| {
+                        any.downcast_mut::<jinn_selection_widget::SelectionState<
                         crate::entry::PickerEntry<Entry>,
                     >>()
-                })
-                .expect("storage");
+                    })
+                    .expect("storage");
             state.set_items(items);
         }
 

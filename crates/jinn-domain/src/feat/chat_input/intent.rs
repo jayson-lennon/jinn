@@ -692,14 +692,6 @@ pub fn handle_enter_normal_mode_with_pickers(
         return result;
     }
 
-    // If leaving the theme picker without confirming, restore the original theme.
-    if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::Theme)
-        && let Some(original) = state.frontend.theme_preview_original_mut().take()
-    {
-        state.frontend.theme = original;
-        state.invalidate_theme_caches();
-    }
-
     // If leaving the tool picker without confirming, restore the original disabled_tools.
     if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::Tool)
         && let Some(snapshot) = state.frontend.tool_picker_snapshot_mut().take()
