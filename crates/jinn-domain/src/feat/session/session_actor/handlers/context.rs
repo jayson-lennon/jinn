@@ -170,8 +170,9 @@ impl SessionPersistenceActor {
         reason = "trait contract requires #[allow(clippy::unused_self)]self method"
     )]
     ///
-    /// The [`PromptScanActor`] writes each session's discovered prompt set
-    /// directly into that session's ephemeral state before emitting the event,
+    /// The session-init slice's discovery worker writes each session's
+    /// discovered prompt set directly into that session's ephemeral state
+    /// before emitting the event,
     /// so there is no global mirror to update. The handler exists only to keep
     /// the event dispatch arm explicit (and to make future per-session-side
     /// reactions easy to add).

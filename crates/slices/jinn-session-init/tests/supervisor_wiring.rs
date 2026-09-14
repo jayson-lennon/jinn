@@ -17,7 +17,6 @@ use jinn_domain::common::app_state::AppState;
 use jinn_domain::common::state::State;
 use jinn_domain::protocol::SessionId;
 use jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated;
-use trouper::topics::Topic;
 
 /// Polls `check` until it passes or the retry budget runs out.
 async fn wait_for(check: impl Fn() -> bool) {
@@ -150,19 +149,18 @@ async fn manual_rescan_reaches_only_the_addressed_session() {
     }
 
     // When a rescan command is addressed to the first session only.
-    wired
+    let sent = wired
         .fabric
         .system()
-        .send(
-            wired.fabric.system().envelope(
-                <jinn_session_init::commands::RunDiscovery as trouper::schema::Schema>::schema_id(),
-                trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
-                serde_json::json!({
-                    "session_id": wired.session_id.to_string(),
-                }),
-            ),
-        )
+        .send(wired.fabric.system().envelope(
+            <jinn_session_init::commands::RunDiscovery as trouper::schema::Schema>::schema_id(),
+            trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
+            serde_json::json!({
+                "session_id": wired.session_id.to_string(),
+            }),
+        ))
         .await;
+    assert!(sent.is_ok(), "partition send must resolve: {sent:?}");
 
     // Then only the addressed session discovers skills.
     wait_for(|| {
@@ -185,19 +183,18 @@ async fn worker_settles_and_notifier_writes_the_summary_entry() {
     write_skill(&wired.home, "test-skill");
 
     // When a full discovery runs via the partition path.
-    wired
+    let sent = wired
         .fabric
         .system()
-        .send(
-            wired.fabric.system().envelope(
-                <jinn_session_init::commands::RunDiscovery as trouper::schema::Schema>::schema_id(),
-                trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
-                serde_json::json!({
-                    "session_id": wired.session_id.to_string(),
-                }),
-            ),
-        )
+        .send(wired.fabric.system().envelope(
+            <jinn_session_init::commands::RunDiscovery as trouper::schema::Schema>::schema_id(),
+            trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
+            serde_json::json!({
+                "session_id": wired.session_id.to_string(),
+            }),
+        ))
         .await;
+    assert!(sent.is_ok(), "partition send must resolve: {sent:?}");
 
     // Then the settle fires and the notifier writes one transient entry.
     wait_for(|| {

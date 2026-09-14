@@ -71,7 +71,7 @@ pub fn scan_skills(dir: &Path) -> Vec<Skill> {
 /// `project_dirs` are ordered least-local → most-local (i.e. from the root
 /// of the bounded walk down to the cwd). Each entry is an already-suffixed
 /// `<root>/.agents/skills` directory (as returned by
-/// [`project_skills_dirs`](crate::feat::discovery::project_skills_dirs));
+/// the session-init slice's ancestor walk (its `project_skills_dirs`));
 /// it is scanned directly. Later entries in `project_dirs` override earlier
 /// ones, and all project skills override the global and system ones.
 ///

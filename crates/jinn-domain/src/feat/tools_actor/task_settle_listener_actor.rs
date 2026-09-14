@@ -34,7 +34,7 @@ use crate::common::services::bus_service::BusService;
 use crate::feat::context::protocol::event::ContextFilesLoaded;
 use crate::feat::mcp_actor::protocol::{McpConnectionStatus, McpServerStatus};
 use crate::feat::provider::protocol::event::PromptTemplatesLoaded;
-use crate::feat::skills::skills_scan_actor::SkillsLoaded;
+use crate::feat::skills::SkillsLoaded;
 use crate::protocol::SessionId;
 
 /// Dependencies for spawning a [`TaskSettleListenerActor`].

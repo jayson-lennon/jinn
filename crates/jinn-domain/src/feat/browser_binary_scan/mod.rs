@@ -1,9 +1,8 @@
 //! Browser binary scan actor — verifies the configured browser binary at startup.
 //!
-//! Runs once on [`EnvironmentLoaded`] (program start only, not per-session,
-//! unlike [`SkillsScanActor`](crate::feat::skills::skills_scan_actor::SkillsScanActor)).
-//! It resolves the configured [`BrowserBinary`] via [`resolve_browser_binary`]
-//! and publishes the result on the bus.
+//! Runs once on [`EnvironmentLoaded`] (program start only, not
+//! per-session). It resolves the configured [`BrowserBinary`] via
+//! [`resolve_browser_binary`] and publishes the result on the bus.
 //!
 //! ## Why events, not direct dashboard writes
 //!

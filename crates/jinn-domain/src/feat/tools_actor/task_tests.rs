@@ -170,7 +170,7 @@ async fn settle_child_discovery(
         error: None,
     })
     .await;
-    bus.publish(crate::feat::skills::skills_scan_actor::SkillsLoaded {
+    bus.publish(crate::feat::skills::SkillsLoaded {
         session_id: child_id.clone(),
         skills: vec![],
         error: None,
@@ -898,7 +898,7 @@ async fn settle_waiter_counts_error_events_as_settled() {
         })
         .await;
     harness
-        .publish(crate::feat::skills::skills_scan_actor::SkillsLoaded {
+        .publish(crate::feat::skills::SkillsLoaded {
             session_id: child_id.clone(),
             skills: vec![],
             error: Some("scan failed".to_owned()),
@@ -1038,7 +1038,7 @@ async fn listener_stops_on_channel_close() {
 
     // When a matching discovery event arrives (the abort check fires).
     harness
-        .publish(crate::feat::skills::skills_scan_actor::SkillsLoaded {
+        .publish(crate::feat::skills::SkillsLoaded {
             session_id: child_id.clone(),
             skills: vec![],
             error: None,

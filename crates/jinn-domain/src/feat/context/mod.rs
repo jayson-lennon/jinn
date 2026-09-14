@@ -26,16 +26,13 @@
 //! # Contents
 //!
 //! This module defines the compaction assembly logic and supporting types.
-//! Also contains the **ContextActor** (prompt assembly, pinning, templates)
-//! and **PromptScanActor** (template scanning).
+//! Also contains the **ContextActor** (prompt assembly, pinning, templates).
 
 pub mod assemble;
 pub mod assembly_state;
-pub mod context_files_scan_actor;
 pub mod context_size_actor;
 pub mod env_context;
 
-pub mod prompt_scan_actor;
 pub mod prompt_template;
 pub mod protocol;
 pub mod strategy;

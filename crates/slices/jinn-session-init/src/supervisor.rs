@@ -29,7 +29,7 @@ use jinn_domain::feat::provider::protocol::command::RescanPromptTemplates;
 use jinn_domain::feat::session_lifecycle::protocol::event::{SessionCreated, SessionCwdChanged};
 use jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted;
 use jinn_domain::init::EnvironmentLoaded;
-use jinn_domain::feat::skills::skills_scan_actor::ScanSkills;
+use jinn_domain::feat::skills::ScanSkills;
 use jinn_session_msg::SessionSetupCompleted;
 
 use crate::commands::{RescanContext, RescanPrompts, RescanSkills, RunDiscovery};

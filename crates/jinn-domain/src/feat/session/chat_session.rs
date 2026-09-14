@@ -174,13 +174,13 @@ pub struct SessionCoreEphemeral {
     /// Discovered resources for THIS session, scoped to its cwd tree.
     /// Populated by the scan actors (skills / prompts / context-files).
     /// Ephemeral: not persisted, re-scanned from disk on session load.
-    /// OWNER: scan actors (SkillsScanActor / PromptScanActor / context-files actor).
+    /// OWNER: the session-init slice's discovery worker.
     /// See `.plans/project-locals/plan.md` decision D3 — per-session isolation.
     #[serde(skip)]
     pub discovered_skills: Vec<crate::feat::skills::Skill>,
 
     /// Discovered prompt templates for this session (merged global + project).
-    /// OWNER: PromptScanActor.
+    /// OWNER: the session-init slice's discovery worker.
     #[serde(skip)]
     pub discovered_prompt_templates: crate::feat::context::prompt_template::PromptTemplateStore,
 

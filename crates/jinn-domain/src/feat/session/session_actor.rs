@@ -60,7 +60,7 @@ use crate::feat::session_lifecycle::protocol::command::{
     CancelLifecycleCommand, FinishSessionSetup, FinishSessionTeardown, RunSessionSetup,
     RunSessionTeardown, SetSessionCwd,
 };
-use crate::feat::skills::skills_scan_actor::SkillsLoaded;
+use crate::feat::skills::SkillsLoaded;
 use crate::feat::tools_actor::protocol::event::{
     ToolBatchCompleted, ToolCallReceived, ToolCallStreaming, ToolExecutionCompleted,
     ToolExecutionOutput, ToolExecutionStarted, ToolUseStarted, ToolsRegistered, ToolsUnregistered,

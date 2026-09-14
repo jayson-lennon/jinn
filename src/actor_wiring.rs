@@ -800,61 +800,6 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
             );
         }
 
-        // Prompt scan actor.
-        let _prompt_scan = spawn_tracked!(
-            &services.bus,
-            "prompt-scan",
-            "PromptScanActor",
-            jinn_domain::feat::context::prompt_scan_actor::PromptScanActor::supervise(
-                &root,
-                jinn_domain::feat::context::prompt_scan_actor::PromptScanActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                    session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
-
-        // Context-files scan actor.
-        let _context_files = spawn_tracked!(
-            &services.bus,
-            "context-files-scan",
-            "ContextFilesScanActor",
-            jinn_domain::feat::context::context_files_scan_actor::ContextFilesScanActor::supervise(
-                &root,
-                jinn_domain::feat::context::context_files_scan_actor::ContextFilesScanActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                    session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
-
-        // Skills scan actor.
-        let _skills_scan = spawn_tracked!(
-            &services.bus,
-            "skills-scan",
-            "SkillsScanActor",
-            jinn_domain::feat::skills::skills_scan_actor::SkillsScanActor::supervise(
-                &root,
-                jinn_domain::feat::skills::skills_scan_actor::SkillsScanActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                    session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-                    frontend_cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
-
         // Directory lister actor (`@path` file popup).
         let _directory_lister = spawn_tracked!(
             &services.bus,
@@ -866,39 +811,6 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
                     deps: actor_deps.clone(),
                     state: state.clone(),
                     frontend_cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
-
-        // Discovery coordinator.
-        let _discovery_coordinator = spawn_tracked!(
-            &services.bus,
-            "discovery-coordinator",
-            "DiscoveryCoordinatorActor",
-            jinn_domain::feat::discovery_coordinator::DiscoveryCoordinatorActor::supervise(
-                &root,
-                jinn_domain::feat::discovery_coordinator::DiscoveryCoordinatorActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
-
-        // Discovery notifier.
-        let _discovery_notifier = spawn_tracked!(
-            &services.bus,
-            "discovery-notifier",
-            "DiscoveryNotifierActor",
-            jinn_domain::feat::discovery_notifier::DiscoveryNotifierActor::supervise(
-                &root,
-                jinn_domain::feat::discovery_notifier::DiscoveryNotifierActorDeps {
-                    deps: actor_deps.clone(),
                 },
             )
             .restart_policy(kameo::supervision::RestartPolicy::Never)
