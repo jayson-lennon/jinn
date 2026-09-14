@@ -318,3 +318,5 @@ Entries are added or amended **only with human approval**.
 - (build) Releases ship two cargo-binstall tarballs per tag: `x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` (cross-built from Linux via mingw-w64).
 - (build) The windows-gnu cross target's linker is configured in the checked-in `.cargo/config.toml`; the config is inert for native Linux builds.
 - (build) Release binaries are self-contained on both platforms: bundled SQLite in the target graph, no SQLite DLL/import-library requirement.
+- (pickers) Picker behavior is described by builder-built PickerSpecs in the jinn-picker crate (no jinn-domain dependency); keymap bindings, the picker keybind line, and footer-row geometry all derive from a spec's bind rows.
+- (pickers) Migrated pickers resolve kind-specific keys through one data-carried picker-action intent dispatched via their spec's bind table — not dedicated intent variants — and open/close hooks own snapshots and ESC-revert.
