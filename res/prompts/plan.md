@@ -28,9 +28,20 @@ Before any analysis, read `.agents/RECORD.md` if it exists. This file is the pro
 - **Contradictions gate the plan.** If the intended feature changes, breaks, or replaces the behavior described by any entry, surface the conflict as a dialectic question before proposing a plan. Do not silently work around a recorded fact.
 - **Gaps are opportunities to fill the record.** If the feature establishes a new high-level fact about the application, capture it as a verbatim, scoped entry and surface it in the plan's "Record Updates" section for human approval. Do not record implementation minutiae.
 - **Absence is not a constraint.** If an area has no entry, or the file is missing, proceed normally — absence simply means nothing is recorded there yet, and the feature may establish the first entry.
+- **Bootstrapping.** If `.agents/RECORD.md` does not exist, the plan's Record Updates section must lead with one bootstrap item: _create the file with the Canonical Preamble (embedded at the end of this prompt) as its body, copied verbatim, followed by the proposed entries._ The preamble is never rewritten, abbreviated, or extended — only the tagged entries beneath it are authored.
 - **You do not edit the record mid-planning.** Propose additions/amendments in the plan only; they take effect at the **end of implementation**, never at plan approval.
 
-Use the record's format rules (factual, scoped, high-level) and templates when proposing any new entry, so proposed additions are well-formed and unambiguous.
+When the record exists, its format rules govern proposed entries. When it does not exist (or for any proposed entry, as a floor), the following entry format contract applies:
+
+### Entry Format Contract (mandatory when the record is missing; good practice otherwise)
+
+- **Factual, present tense.** Entries assert how the application works _now_, written as they will read immediately after the approved implementation. Any entry containing "will", "should", "later", "future", "reserved", "roadmap", or a version milestone ("v1", "v0.2") is plan-speak — rewrite it as a present-tense fact or drop that half.
+- **Single tag.** Each entry is a markdown list line beginning with exactly one subsystem tag: `- (video) ...`. Tags are lowercase, short, subsystem-shaped. If two tags seem necessary, split the entry or re-scope it. For a new project, invent tags freely.
+- **Single concept, one sentence.** If a semicolon would be needed to join two facts, write two entries.
+- **Template-shaped.** `[Scope] currently [does X / is Y].` · `[Scope] persists [what] to [where].` · `[Input/event] is handled by [actor/subsystem], which [action].` · `[Scope] is bounded by [constraint].`
+- **Durable, not task-shaped.** Tasks, goals, TODOs, and version milestones are never entries.
+- **On-disk form.** Entries are plain markdown list lines — no surrounding quotes, no rationale, no prose wrapper.
+- **Application facts, not environment facts.** Record rules of the application ("camera sources are configured by by-id paths"), not descriptions of the authoring machine's hardware.
 
 ## Instructions
 
@@ -68,7 +79,7 @@ Use the record's format rules (factual, scoped, high-level) and templates when p
     - Once the architecture is sound, propose a **High-Level Plan** as a _regular chat response_.
     - **Format Constraint:** The Plan must be _brief_ and readable. It should contain the Problem, Solution, Phases (as a numbered or bulleted list), Acceptance Criteria, and a table of tests cases.
     - **Do NOT** include deep code snippets, dependency lists, or detailed algorithms in the high-level plan. The goal is to confirm _direction_, not _implementation details_.
-    - **Record Updates (if any):** If the feature changes a recorded fact or establishes a new one, include a "Record Updates" section listing the exact verbatim entries to add or amend in `.agents/RECORD.md`. These take effect **during implementation**, not at plan approval: the approved plan will produce an "Update the Record" task that writes them at the end of implementation, verified against the actual changes. DO NOT EDIT THE RECORD during planning.
+    - **Record Updates (if any):** If the feature changes a recorded fact or establishes a new one, include a "Record Updates" section listing the exact verbatim entries to add or amend in `.agents/RECORD.md`. Entries must already be in final on-disk form per the Step 0 Entry Format Contract — the section contains bootstrap items and entry lines only, never rationales. When the record is missing, the section leads with the file bootstrap (create `.agents/RECORD.md` with the Canonical Preamble verbatim); when it exists, entries only — never preamble changes. These take effect **during implementation**, not at plan approval: the approved plan will produce an "Update the Record" task that writes them at the end of implementation, verified against the actual changes. DO NOT EDIT THE RECORD during planning.
     - **CRITICAL:** WAIT FOR USER APPROVAL.
 
 ## Notes
@@ -79,5 +90,47 @@ Use the record's format rules (factual, scoped, high-level) and templates when p
 - The Plan **must** have a table of test cases.
 
 </instructions>
+
+## Canonical Preamble
+
+When bootstrapping `.agents/RECORD.md`, the file's body is exactly the following, copied verbatim between (and not including) the BEGIN/END markers, followed by the proposed entries as markdown list lines.
+
+<!-- RECORD-PREAMBLE-BEGIN -->
+
+# The Record
+
+A curated list of factual, scoped statements asserting the application's **current** state. Authoritative for the present, never the future.
+
+The planner consults this file before proposing a plan. If a feature **contradicts** an entry here, the contradiction is surfaced before the plan proceeds. If a feature **establishes a new high-level fact**, a verbatim entry is proposed for human approval as part of the plan.
+
+## Format Rules
+
+- **Factual.** Assert how things are _now_. Never future intent ("we will...", "should..."). Each entry is the current state of the application.
+- **Scoped.** Name what each entry applies to — repo, app, frontend, or a named subsystem. An unscoped fact (e.g. "uses Fossil") is ambiguous: is that the repo, or the app's supported VCS list? Always disambiguate.
+- **High-level.** One-liners (a few sentences at most). Capture decisions and facts a planner needs, not implementation minutiae.
+- **Single tag.** Each entry carries exactly one subsystem tag as a `(tag)` prefix: `- (tools) The bash tool runs...`. One entry, one tag — this keeps tag usage a meaningful coverage metric (a tag growing large signals over-specification or a tag that should split). If you cannot decide between two tags for an entry, that is a signal to **re-evaluate the entry itself**, not to assign both. Use `(tag)` rather than `[tag]` to avoid colliding with markdown task-list (checkbox) syntax.
+- **Tag subsystem scope.** It's not always obvious what tag to use for a given record entry. Pick based on existing tags or somewhat related subsystem. As particular tags start to become numerous, evaluate whether a new tag (subsystem) should be created based on the content of the tags. It's normal for subsystems to form after-the-fact so feel free to propose re-tagging of existing records.
+- **Singular concept.** Each entry should be a single sentence and only concerned with a single concept. Prefer multiple entries versus combining many things into one.
+
+## Templates
+
+| Pattern     | Form                                                             | Example                                                                                             |
+| ----------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| State       | `[Scope] currently [does X / is Y].`                             | "(TUI) The TUI's first screen at startup is the chat screen."                                       |
+| Persistence | `[Scope] persists [what] to [where].`                            | "(sessions) Sessions persist to SQLite."                                                            |
+| Flow        | `[Input/event] is handled by [actor/subsystem], which [action].` | "(tools) File edits route through the `edit` tool, which requires a unique match or `replace_all`." |
+| Boundary    | `[Scope] is bounded by [constraint].`                            | "(projects) Project discovery walks ancestors until a VCS root or `$HOME`, whichever comes first."  |
+
+## Absence
+
+A missing record, or an un-recorded area, simply means the list has no entry there yet. Absence is not a constraint — it is an open question, and a feature that fills a gap may establish the first entry for that area (proposed for human approval as part of the plan).
+
+## Editing
+
+Entries are added or amended **only with human approval**.
+
+---
+
+<!-- RECORD-PREAMBLE-END -->
 
 ## TASK
