@@ -2,6 +2,8 @@
 
 ## (development version)
 
+- Planning prompt updated to better accommodate absence of a RECORD.md file.
+
 ## 2026-09-13 v0.117.0
 
 - Report app name/id to OpenRouter.
