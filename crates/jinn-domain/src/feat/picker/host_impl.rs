@@ -91,9 +91,10 @@ impl PickerHost for AppStatePickerHost<'_> {
 
     fn preview_cache(&self, id: PickerId) -> Option<jinn_picker::SharedPreviewCache> {
         match id.as_str() {
-            SKILL_ID => Some(std::sync::Arc::clone(
-                &self.state.frontend.caches.skill_preview_cache,
-            ) as jinn_picker::SharedPreviewCache),
+            SKILL_ID => Some(
+                std::sync::Arc::clone(&self.state.frontend.caches.skill_preview_cache)
+                    as jinn_picker::SharedPreviewCache,
+            ),
             _ => None,
         }
     }
@@ -112,7 +113,10 @@ mod tests {
 
     /// Lent-storage fake: hands out typed selection state by id.
     struct FakeHost {
-        states: std::collections::HashMap<String, jinn_selection_widget::SelectionState<crate::feat::persona::PersonaEntry>>,
+        states: std::collections::HashMap<
+            String,
+            jinn_selection_widget::SelectionState<crate::feat::persona::PersonaEntry>,
+        >,
         scrolls: PickerScrolls,
     }
 
@@ -126,19 +130,20 @@ mod tests {
     }
 
     impl PickerHost for FakeHost {
-        fn preview_cache(
-            &self,
-            _id: PickerId,
-        ) -> Option<jinn_picker::SharedPreviewCache> {
+        fn preview_cache(&self, _id: PickerId) -> Option<jinn_picker::SharedPreviewCache> {
             None
         }
 
         fn selection_state(&mut self, id: PickerId) -> Option<&mut dyn std::any::Any> {
-            self.states.get_mut(id.as_str()).map(|s| s as &mut dyn std::any::Any)
+            self.states
+                .get_mut(id.as_str())
+                .map(|s| s as &mut dyn std::any::Any)
         }
 
         fn selection_state_ref(&self, id: PickerId) -> Option<&dyn std::any::Any> {
-            self.states.get(id.as_str()).map(|s| s as &dyn std::any::Any)
+            self.states
+                .get(id.as_str())
+                .map(|s| s as &dyn std::any::Any)
         }
 
         fn state_any(&mut self) -> &mut dyn std::any::Any {
@@ -180,6 +185,7 @@ mod tests {
         }
     }
 
+    #[rstest::rstest]
     #[test]
     fn selection_state_lends_typed_storage_by_id() {
         // Given a host state whose persona picker holds items.
@@ -187,7 +193,10 @@ mod tests {
         let items = {
             let registry = crate::feat::picker::registry::build_picker_registry();
             registry
-                .make_items(crate::feat::picker::registry::PERSONA_ID, vec![test_persona("a")])
+                .make_items(
+                    crate::feat::picker::registry::PERSONA_ID,
+                    vec![test_persona("a")],
+                )
                 .expect("persona spec is registered")
         };
         state.frontend.persona_picker_mut().set_items(items);
@@ -197,11 +206,9 @@ mod tests {
             let mut host = AppStatePickerHost::new(&mut state);
             host.selection_state(PickerId::new(PERSONA_ID))
                 .expect("persona is mapped")
-                .downcast_ref::<
-                    jinn_selection_widget::SelectionState<
-                        jinn_picker::PickerEntry<crate::feat::persona::PersonaEntry>,
-                    >,
-                >()
+                .downcast_ref::<jinn_selection_widget::SelectionState<
+                    jinn_picker::PickerEntry<crate::feat::persona::PersonaEntry>,
+                >>()
                 .is_some()
         };
 
@@ -212,6 +219,7 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
     #[test]
     fn unmapped_ids_lend_nothing() {
         // Given a default host state.
@@ -223,6 +231,7 @@ mod tests {
         assert!(host.selection_state(PickerId::new("nope")).is_none());
     }
 
+    #[rstest::rstest]
     #[test]
     fn skill_scrolls_use_the_legacy_slot_until_migration() {
         // Given a host state.
@@ -342,9 +351,10 @@ impl PickerHost for AppStateRenderHost<'_> {
 
     fn preview_cache(&self, id: PickerId) -> Option<jinn_picker::SharedPreviewCache> {
         match id.as_str() {
-            SKILL_ID => Some(std::sync::Arc::clone(
-                &self.state.frontend.caches.skill_preview_cache,
-            ) as jinn_picker::SharedPreviewCache),
+            SKILL_ID => Some(
+                std::sync::Arc::clone(&self.state.frontend.caches.skill_preview_cache)
+                    as jinn_picker::SharedPreviewCache,
+            ),
             _ => None,
         }
     }

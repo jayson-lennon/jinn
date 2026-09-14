@@ -10,7 +10,8 @@ use ratatui::text::Line;
 
 /// Renders the reasoning effort picker overlay using [`SelectionWidget`].
 ///
-/// Telescope-style layout matching [`crate::feat::picker::render::render_persona_picker`]:
+/// Telescope-style layout matching the other picker popups (bordered popup,
+/// filter on top, separator, scrollable entries):
 /// bordered popup with filter input at top, separator, scrollable effort entries.
 /// The footer shows the currently-active effort (the one marked `is_active` by
 /// the loader), or "none" when nothing is active (both stores unset).

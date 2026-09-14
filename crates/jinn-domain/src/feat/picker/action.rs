@@ -140,12 +140,9 @@ mod tests {
 
     fn state_with_skill_picker() -> AppState {
         let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::Picker {
-                kind: crate::feat::picker::PickerKind::Skill,
-            });
+        state.frontend.scope_stack.push(FocusScope::Picker {
+            kind: crate::feat::picker::PickerKind::Skill,
+        });
         state
     }
 
@@ -157,6 +154,7 @@ mod tests {
         registry
     }
 
+    #[rstest::rstest]
     #[test]
     fn picker_action_unknown_id_is_a_no_op() {
         // Given an open skill picker and the domain registry.
@@ -171,6 +169,7 @@ mod tests {
         assert!(result.message_names.is_empty());
     }
 
+    #[rstest::rstest]
     #[test]
     fn picker_action_with_wrong_active_picker_is_ignored() {
         // Given an open skill picker.
@@ -184,6 +183,7 @@ mod tests {
         assert!(result.messages.is_empty());
     }
 
+    #[rstest::rstest]
     #[test]
     fn picker_action_resolves_the_row_and_runs_it() {
         // Given an open skill picker whose test spec declares a `<tab>` row
@@ -205,6 +205,7 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
     #[test]
     fn picker_action_close_outcome_pops_the_scope() {
         // Given an open skill picker.

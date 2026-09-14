@@ -12,9 +12,7 @@ use crate::feat::preferences_actor::protocol::app_state_command::{AppStateUpdate
 use crate::feat::preferences_actor::protocol::command::{PreferenceUpdate, UpdatePreferences};
 use crate::feat::provider::ProviderState;
 use crate::feat::provider::picker_entry::PickerEntry;
-use crate::feat::provider::protocol::command::{
-    LoadProviderPickerEntries, ProviderSwitch,
-};
+use crate::feat::provider::protocol::command::{LoadProviderPickerEntries, ProviderSwitch};
 use crate::feat::session::model_selection::{AlloyStrategy, ModelSelection};
 use crate::feat::session::protocol::load_session_picker_entries::LoadSessionPickerEntries;
 use crate::feat::session::protocol::mark_session_interacted::MarkSessionInteracted;
@@ -270,8 +268,8 @@ fn reset_preview_scroll(state: &mut AppState, registry: &jinn_picker::PickerRegi
     let Some(kind) = state.frontend.scope_stack.picker_kind().copied() else {
         return;
     };
-    let Some(spec) = crate::feat::picker::registry::spec_id_for_kind(&kind)
-        .and_then(|id| registry.get(id))
+    let Some(spec) =
+        crate::feat::picker::registry::spec_id_for_kind(&kind).and_then(|id| registry.get(id))
     else {
         return;
     };
@@ -366,18 +364,19 @@ pub fn handle_picker_confirm(
         Some(PickerKind::McpServer) => (crate::feat::mcp::intent::confirm_mcp(state), None),
         Some(PickerKind::Endpoint) => (confirm_endpoint(state), None),
 
-        Some(PickerKind::CompactionModel | PickerKind::TaskList | PickerKind::Plugin)
-        | Some(PickerKind::Skill)
+        Some(
+            PickerKind::CompactionModel
+            | PickerKind::TaskList
+            | PickerKind::Plugin
+            | PickerKind::Skill,
+        )
         | None => (IntentResult::empty(), None),
         Some(PickerKind::Tool) => (confirm_tool(state), None),
     }
 }
 
 /// Moves the selection up in the active picker.
-pub fn handle_move_up(
-    state: &mut AppState,
-    pickers: &jinn_picker::PickerRegistry,
-) -> IntentResult {
+pub fn handle_move_up(state: &mut AppState, pickers: &jinn_picker::PickerRegistry) -> IntentResult {
     validator::validate_picker_move_up(state);
     let viewport = active_viewport(state);
     if let Some(picker) = state.active_picker_ops() {
@@ -404,10 +403,7 @@ pub fn handle_move_down(
 }
 
 /// Pages the selection up by half the visible window in the active picker.
-pub fn handle_page_up(
-    state: &mut AppState,
-    pickers: &jinn_picker::PickerRegistry,
-) -> IntentResult {
+pub fn handle_page_up(state: &mut AppState, pickers: &jinn_picker::PickerRegistry) -> IntentResult {
     validator::validate_picker_page_up(state);
     let viewport = active_viewport(state);
     if let Some(picker) = state.active_picker_ops() {
@@ -862,7 +858,11 @@ pub fn handle_project_lifecycle_confirm(state: &mut AppState) -> IntentResult {
 
     // Re-enter the lifecycle picker. `handle_open_picker` pushes a fresh
     // `Picker { SessionLifecycle }` scope.
-    handle_open_picker(state, PickerKind::SessionLifecycle, &jinn_picker::PickerRegistry::new())
+    handle_open_picker(
+        state,
+        PickerKind::SessionLifecycle,
+        &jinn_picker::PickerRegistry::new(),
+    )
 }
 
 /// Removes the highlighted project from the curated list (`d`).
@@ -959,7 +959,9 @@ mod tests {
     use super::*;
 
     /// Wraps persona entries through the persona spec's hooks for storage.
-    fn wrap_persona_entries(entries: Vec<crate::feat::persona::PersonaEntry>) -> Vec<jinn_picker::PickerEntry<crate::feat::persona::PersonaEntry>> {
+    fn wrap_persona_entries(
+        entries: Vec<crate::feat::persona::PersonaEntry>,
+    ) -> Vec<jinn_picker::PickerEntry<crate::feat::persona::PersonaEntry>> {
         crate::feat::picker::registry::build_picker_registry()
             .make_items(crate::feat::picker::registry::PERSONA_ID, entries)
             .expect("persona spec is registered")
@@ -971,7 +973,6 @@ mod tests {
     use crate::feat::session::ChatSessionState;
     use crate::feat::todo_list::TaskStatus;
     use crate::feat::todo_list::picker_entry::RowStatus;
-    use crate::protocol::ChatEntryKind;
     use jinn_selection_widget::TreeItem;
 
     #[rstest::rstest]
@@ -1588,7 +1589,10 @@ mod tests {
                 theme: crate::feat::theme::default_theme(),
             },
         ];
-        state.frontend.persona_picker_mut().set_items(wrap_persona_entries(entries));
+        state
+            .frontend
+            .persona_picker_mut()
+            .set_items(wrap_persona_entries(entries));
         state.frontend.persona_picker_mut().move_down(1); // coder
         state.frontend.persona_picker_mut().move_down(1); // writer
 

@@ -87,6 +87,7 @@ impl PickerOutcome {
 mod tests {
     use super::*;
 
+    #[rstest::rstest]
     #[test]
     fn new_message_records_the_message_type() {
         // Given a message outcome.
@@ -99,6 +100,7 @@ mod tests {
         assert!(!outcome.close);
     }
 
+    #[rstest::rstest]
     #[test]
     fn merge_combines_messages_and_close_wins() {
         // Given an open outcome and a closing outcome.

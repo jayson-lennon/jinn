@@ -46,9 +46,7 @@ impl FakeHost {
     where
         T: PickerItem,
     {
-        self.states
-            .get(&id)?
-            .downcast_ref::<SelectionState<T>>()
+        self.states.get(&id)?.downcast_ref::<SelectionState<T>>()
     }
 }
 

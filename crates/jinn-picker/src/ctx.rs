@@ -44,7 +44,8 @@ impl<'a> ActionCtx<'a> {
     /// `SelectionState<PickerEntry<T>>` type.
     #[must_use]
     pub fn selection<S: std::any::Any>(&mut self) -> Option<&mut S> {
-        self.host.selection_state(self.picker_id)?
+        self.host
+            .selection_state(self.picker_id)?
             .downcast_mut::<S>()
     }
 
@@ -93,7 +94,8 @@ impl<'a> StatusCtx<'a> {
     /// Downcast read lend of this picker's selection storage.
     #[must_use]
     pub fn selection<S: std::any::Any>(&self) -> Option<&S> {
-        self.host.selection_state_ref(self.picker_id)?
+        self.host
+            .selection_state_ref(self.picker_id)?
             .downcast_ref::<S>()
     }
 

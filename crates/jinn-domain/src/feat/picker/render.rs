@@ -1,4 +1,4 @@
-//! Picker rendering for persona and theme pickers.
+//! Picker rendering for the theme picker and shared picker test helpers.
 
 use crate::common::render_ctx::RenderCtx;
 use crate::feat::ui::picker_states::PickerExt;
@@ -8,35 +8,6 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::Line;
-
-/// Renders the persona picker overlay using [`SelectionWidget`].
-///
-/// Telescope-style layout: bordered popup with filter input at top,
-/// horizontal separator, scrollable persona entries.
-pub fn render_persona_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    let state = ctx.state;
-    let footer = {
-        use ratatui::style::Style;
-        use ratatui::text::{Line, Span};
-        let gray = Style::default().fg(state.frontend.theme.muted_text);
-        let active_name = state
-            .context
-            .active_persona()
-            .map_or("none", |p| p.name.as_str());
-        Line::from(vec![
-            Span::styled("Active: ".to_owned(), gray),
-            Span::styled(
-                active_name.to_owned(),
-                Style::default().fg(state.frontend.theme.primary_text),
-            ),
-        ])
-    };
-    let widget = SelectionWidget::new(state.frontend.persona_picker())
-        .title(Line::from(" Personas "))
-        .title_style(Style::default().fg(state.frontend.theme.popup_title))
-        .footer(footer);
-    widget.render(frame, area);
-}
 
 /// Renders the theme picker overlay using [`SelectionWidget`].
 ///
@@ -163,7 +134,10 @@ mod tests {
             .pickers
             .get(id)
             .expect("skill spec registered in the domain registry");
-        assert!(spec.render(frame, area, &host), "spec render must drive the preview widget");
+        assert!(
+            spec.render(frame, area, &host),
+            "spec render must drive the preview widget"
+        );
     }
 
     /// Two skills with the same name but different bodies (the cross-session

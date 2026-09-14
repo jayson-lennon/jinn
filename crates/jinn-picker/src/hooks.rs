@@ -25,7 +25,7 @@ use crate::preview_key::PreviewKey;
 /// Boxed closure type behind [`PickerLoadFn`].
 type BoxedLoad<T> = Arc<dyn Fn(&mut LoadCtx<'_>) -> Vec<T> + Send + Sync>;
 /// Boxed closure type behind [`PickerRowFn`].
-type BoxedRow<T> = Arc<dyn Fn(&T, RowCtx<'_>) -> Line<'static> + Send + Sync>;
+type BoxedRow<T> = Arc<dyn Fn(&T, &RowCtx<'_>) -> Line<'static> + Send + Sync>;
 /// Boxed closure type behind [`PickerSearchFn`].
 type BoxedSearch<T> = Arc<dyn Fn(&T) -> String + Send + Sync>;
 /// Boxed closure type behind [`PickerPreviewFn`].
@@ -110,14 +110,14 @@ impl<T> PickerRowFn<T> {
     #[must_use]
     pub fn new<F>(f: F) -> Self
     where
-        F: Fn(&T, RowCtx<'_>) -> Line<'static> + Send + Sync + 'static,
+        F: Fn(&T, &RowCtx<'_>) -> Line<'static> + Send + Sync + 'static,
     {
         Self(Arc::new(f))
     }
 
     /// Runs the hook through the wrapper seam.
     #[must_use]
-    pub fn run(&self, entry: &T, ctx: RowCtx<'_>) -> Line<'static> {
+    pub fn run(&self, entry: &T, ctx: &RowCtx<'_>) -> Line<'static> {
         (self.0)(entry, ctx)
     }
 }
@@ -311,11 +311,11 @@ impl std::fmt::Debug for PickerBindAction {
 
 #[cfg(test)]
 mod tests {
-#![allow(
-    clippy::expect_used,
-    clippy::indexing_slicing,
-    reason = "test module, panics are acceptable"
-)]
+    #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        reason = "test module, panics are acceptable"
+    )]
 
     use super::*;
 
@@ -325,6 +325,7 @@ mod tests {
         name: String,
     }
 
+    #[rstest::rstest]
     #[test]
     fn load_hook_delegates_to_the_stored_closure() {
         // Given a load hook producing one entry.
@@ -344,10 +345,11 @@ mod tests {
         assert_eq!(entries[0].name, "alpha");
     }
 
+    #[rstest::rstest]
     #[test]
     fn row_hook_receives_selection_and_match_data() {
         // Given a row hook echoing its context.
-        let hook = PickerRowFn::new(|entry: &Entry, ctx: RowCtx<'_>| {
+        let hook = PickerRowFn::new(|entry: &Entry, ctx: &RowCtx<'_>| {
             Line::from(format!("{}{}", entry.name, ctx.match_ranges.len()))
         });
 
@@ -357,7 +359,7 @@ mod tests {
         };
         let line = hook.run(
             &entry,
-            RowCtx {
+            &RowCtx {
                 is_selected: true,
                 match_ranges: std::slice::from_ref(&(0..1)),
             },
@@ -367,6 +369,7 @@ mod tests {
         assert_eq!(line.to_string(), "x1");
     }
 
+    #[rstest::rstest]
     #[test]
     fn search_hook_computes_the_label() {
         // Given a search hook joining name twice.
@@ -381,10 +384,12 @@ mod tests {
         assert_eq!(hook.run(&entry), "s s");
     }
 
+    #[rstest::rstest]
     #[test]
     fn lifecycle_hook_runs_and_returns_outcome() {
         // Given a lifecycle hook that closes.
-        let hook = PickerLifecycleFn::new(|_ctx: &mut ActionCtx<'_>| PickerOutcome::empty().close());
+        let hook =
+            PickerLifecycleFn::new(|_ctx: &mut ActionCtx<'_>| PickerOutcome::empty().close());
 
         // When running it... (cannot run without a host; assert clone/debug
         // shape instead of inventing state).
@@ -393,6 +398,7 @@ mod tests {
         assert!(format!("{cloned:?}").contains("PickerLifecycleFn"));
     }
 
+    #[rstest::rstest]
     #[test]
     fn status_hook_none_renders_no_line() {
         // Given a status hook returning None.

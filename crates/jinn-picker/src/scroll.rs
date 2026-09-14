@@ -35,6 +35,7 @@ impl PickerScrolls {
 mod tests {
     use super::*;
 
+    #[rstest::rstest]
     #[test]
     fn unread_scrolls_default_to_zero() {
         // Given fresh scroll storage.
@@ -45,6 +46,7 @@ mod tests {
         assert_eq!(scrolls.get(PickerId::new("skill")), 0);
     }
 
+    #[rstest::rstest]
     #[test]
     fn set_stores_and_reset_clears_scroll() {
         // Given storage holding a scroll for "skill".

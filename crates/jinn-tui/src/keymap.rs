@@ -1959,8 +1959,6 @@ mod leak_check {
 
     #[rstest::rstest]
     #[test]
-    #[rstest::rstest]
-    #[test]
     fn skill_scope_ctrl_u_fires_the_spec_paging_action() {
         // Given a keymap with the domain's skill spec rows bound.
         use crate::app::WhichKeyInstance;

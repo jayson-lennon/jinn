@@ -6,10 +6,10 @@
 //! messages, and closes.
 
 use jinn_picker::ActionCtx;
+use jinn_picker::PickerEntry;
 use jinn_picker::PickerId;
 use jinn_picker::PickerOutcome;
 use jinn_picker::PickerSpec;
-use jinn_picker::PickerEntry;
 use jinn_picker::StatusCtx;
 use ratatui::style::Style;
 use ratatui::text::Line;
@@ -18,9 +18,7 @@ use crate::common::app_state::AppState;
 use crate::feat::context::protocol::command::LoadPersonaPickerEntries;
 use crate::feat::ui::picker_states::PickerExt;
 
-use crate::feat::preferences_actor::protocol::app_state_command::{
-    AppStateUpdate, UpdateAppState,
-};
+use crate::feat::preferences_actor::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use crate::feat::session::protocol::mark_session_interacted::MarkSessionInteracted;
 
 /// The kernel entry this picker's items wrap in storage.
@@ -34,14 +32,16 @@ pub fn persona_spec() -> PickerSpec<PersonaEntry> {
         .on_open(|ctx| {
             // Fresh filter + selection each open; the session actor fills
             // the picker with persona entries.
-            ctx.selection::<jinn_selection_widget::SelectionState<PickerEntry<PersonaEntry>>>()
-                .map(|picker| picker.reset());
+            if let Some(picker) =
+                ctx.selection::<jinn_selection_widget::SelectionState<PickerEntry<PersonaEntry>>>()
+            {
+                picker.reset();
+            }
             PickerOutcome::new_message(LoadPersonaPickerEntries)
         })
         .on_confirm(confirm_persona)
         .status(persona_status)
 }
-
 
 /// Enter on the persona picker: set the active persona, bind it to the
 /// session, close, and persist both updates via messages.
@@ -85,25 +85,20 @@ fn confirm_persona(ctx: &mut ActionCtx<'_>) -> PickerOutcome {
 
 /// The status line: the currently active persona (blank when none).
 fn persona_status(ctx: &StatusCtx<'_>) -> Option<Line<'static>> {
-    let state = ctx
-        .state_any_ref()
-        .downcast_ref::<AppState>()
-        .expect("domain host lends AppState");
+    let state = ctx.state_any_ref().downcast_ref::<AppState>()?;
     let theme = &state.frontend.theme;
-    let active_name = state.context.active_persona().map_or("none", |p| p.name.as_str());
+    let active_name = state
+        .context
+        .active_persona()
+        .map_or("none", |p| p.name.as_str());
     Some(Line::from(vec![
-        ratatui::text::Span::styled(
-            "Active: ".to_owned(),
-            Style::default().fg(theme.muted_text),
-        ),
+        ratatui::text::Span::styled("Active: ".to_owned(), Style::default().fg(theme.muted_text)),
         ratatui::text::Span::styled(
             active_name.to_owned(),
             Style::default().fg(theme.primary_text),
         ),
     ]))
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -123,11 +118,12 @@ mod tests {
     fn state_with_open_picker() -> AppState {
         let mut state = AppState::default();
         state.session.insert(ChatSessionState::new());
-        state.session.set_active(state.session.active_session_id().clone());
         state
-            .frontend
-            .scope_stack
-            .push(FocusScope::Picker { kind: PickerKind::Persona });
+            .session
+            .set_active(state.session.active_session_id().clone());
+        state.frontend.scope_stack.push(FocusScope::Picker {
+            kind: PickerKind::Persona,
+        });
         state
     }
 
@@ -158,14 +154,12 @@ mod tests {
         }
     }
 
+    #[rstest::rstest]
     #[test]
     fn on_open_emits_load_command_and_resets_state() {
         // Given an open persona picker with a dirty filter.
         let mut state = state_with_open_picker();
-        wrap(
-            &mut state,
-            vec![test_entry("a"), test_entry("b")],
-        );
+        wrap(&mut state, vec![test_entry("a"), test_entry("b")]);
         let spec = {
             let registry = crate::feat::picker::registry::build_picker_registry();
             registry.get(PERSONA_ID).expect("persona spec registered")
@@ -191,11 +185,14 @@ mod tests {
         assert!(!outcome.close);
     }
 
+    #[rstest::rstest]
     #[test]
     fn on_confirm_sets_persona_and_session_binding_then_closes() {
         // Given an open persona picker with "writer" selected.
         let mut state = state_with_open_picker();
-        state.context.set_personas(vec![persona("coder"), persona("writer")]);
+        state
+            .context
+            .set_personas(vec![persona("coder"), persona("writer")]);
         wrap(&mut state, vec![test_entry("coder"), test_entry("writer")]);
         state.frontend.persona_picker_mut().move_down(1);
         state.frontend.persona_picker_mut().move_down(1);
@@ -214,10 +211,7 @@ mod tests {
             state.context.active_persona().map(|p| p.name.as_str()),
             Some("writer"),
         );
-        assert_eq!(
-            state.active_session().profile().persona_name,
-            "writer",
-        );
+        assert_eq!(state.active_session().profile().persona_name, "writer",);
         // And the outcome closes the picker and persists both updates.
         assert!(outcome.close, "confirm must close the picker");
         assert!(
@@ -238,6 +232,7 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
     #[test]
     fn on_confirm_with_no_selection_is_a_no_op() {
         // Given an open persona picker with no items.
@@ -257,6 +252,7 @@ mod tests {
         assert!(!outcome.close);
     }
 
+    #[rstest::rstest]
     #[test]
     fn status_line_names_the_active_persona() {
         // Given an app state with "coder" active.
@@ -278,6 +274,7 @@ mod tests {
         assert_eq!(text, "Active: coder");
     }
 
+    #[rstest::rstest]
     #[test]
     fn status_line_says_none_when_no_persona_active() {
         // Given an app state with no active persona.

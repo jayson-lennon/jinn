@@ -36,7 +36,8 @@ pub struct FrontendCaches {
     pub entry_line_cache: RwLock<crate::feat::ui::chat_log::line_count_cache::EntryLineCache>,
     /// Cached rendered lines for skill-preview popups. An `Arc` handle so
     /// the skill picker's host lens can lend it to the spec's render path.
-    pub skill_preview_cache: std::sync::Arc<crate::feat::skills::skill_preview_cache::SkillPreviewCache>,
+    pub skill_preview_cache:
+        std::sync::Arc<crate::feat::skills::skill_preview_cache::SkillPreviewCache>,
     /// Cached rendered lines for session preview popups.
     pub session_preview_cache:
         RwLock<crate::feat::ui::sidebar::sessions::preview::SessionPreviewCache>,

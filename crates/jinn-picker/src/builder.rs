@@ -104,7 +104,7 @@ where
     #[must_use]
     pub fn row<F>(mut self, f: F) -> Self
     where
-        F: Fn(&T, RowCtx<'_>) -> Line<'static> + Send + Sync + 'static,
+        F: Fn(&T, &RowCtx<'_>) -> Line<'static> + Send + Sync + 'static,
     {
         self.hooks.row = Some(PickerRowFn::new(f));
         self
@@ -172,12 +172,7 @@ where
     /// [`Self::bind`] with the `navigation` category hint (preview
     /// scrolling and the like).
     #[must_use]
-    pub fn bind_navigation<F>(
-        self,
-        notation: &'static str,
-        label: &'static str,
-        action: F,
-    ) -> Self
+    pub fn bind_navigation<F>(self, notation: &'static str, label: &'static str, action: F) -> Self
     where
         F: Fn(&mut ActionCtx<'_>) -> PickerOutcome + Send + Sync + 'static,
     {
@@ -232,7 +227,13 @@ where
 
     /// Shared tail of [`Self::bind`] / [`Self::bind_navigation`]: the row
     /// and its action are pushed in lockstep so they stay index-aligned.
-    fn push_bind<F>(mut self, notation: &'static str, label: &'static str, category_hint: &'static str, action: F) -> Self
+    fn push_bind<F>(
+        mut self,
+        notation: &'static str,
+        label: &'static str,
+        category_hint: &'static str,
+        action: F,
+    ) -> Self
     where
         F: Fn(&mut ActionCtx<'_>) -> PickerOutcome + Send + Sync + 'static,
     {
@@ -247,7 +248,10 @@ where
 
     /// Dismantles the spec for registration (crate-private; the registry
     /// erases these parts into a boxed `ErasedPickerSpec`).
-    #[expect(clippy::type_complexity, reason = "one-shot dismantle into the registry")]
+    #[expect(
+        clippy::type_complexity,
+        reason = "one-shot dismantle into the registry"
+    )]
     pub(crate) fn into_parts(
         self,
     ) -> (
@@ -291,11 +295,11 @@ where
 
 #[cfg(test)]
 mod tests {
-#![allow(
-    clippy::expect_used,
-    clippy::indexing_slicing,
-    reason = "test module, panics are acceptable"
-)]
+    #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        reason = "test module, panics are acceptable"
+    )]
 
     use super::*;
     use crate::id::PickerId;
@@ -306,14 +310,29 @@ mod tests {
         name: String,
     }
 
+    #[rstest::rstest]
     #[test]
     fn spec_defaults_to_list_widget_and_standard_tail() {
         // Given a bare spec.
         let spec = PickerSpec::<Entry>::new(PickerId::new("t1"));
 
         // When dismantling it for registration.
-        let (id, title, kind, _reset, _has_status, binds, _actions, tail, _load, _hooks, _status, _open, _confirm, _close) =
-            spec.into_parts();
+        let (
+            id,
+            title,
+            kind,
+            _reset,
+            _has_status,
+            binds,
+            _actions,
+            tail,
+            _load,
+            _hooks,
+            _status,
+            _open,
+            _confirm,
+            _close,
+        ) = spec.into_parts();
 
         // Then defaults apply: id-titled list picker with no binds.
         assert_eq!(id, PickerId::new("t1"));
@@ -323,20 +342,36 @@ mod tests {
         assert_eq!(tail, Tail::Standard);
     }
 
+    #[rstest::rstest]
     #[test]
     fn declaring_a_status_reserves_a_bottom_row() {
         // Given a spec with a status hook.
-        let spec = PickerSpec::<Entry>::new(PickerId::new("t2"))
-            .status(|_ctx: &StatusCtx<'_>| None);
+        let spec =
+            PickerSpec::<Entry>::new(PickerId::new("t2")).status(|_ctx: &StatusCtx<'_>| None);
 
         // When dismantling it.
-        let (_id, _title, _kind, _reset, has_status, _binds, _actions, _tail, _load, _hooks, _status, _open, _confirm, _close) =
-            spec.into_parts();
+        let (
+            _id,
+            _title,
+            _kind,
+            _reset,
+            has_status,
+            _binds,
+            _actions,
+            _tail,
+            _load,
+            _hooks,
+            _status,
+            _open,
+            _confirm,
+            _close,
+        ) = spec.into_parts();
 
         // Then the status row is reserved.
         assert!(has_status);
     }
 
+    #[rstest::rstest]
     #[test]
     fn binds_and_actions_stay_index_aligned() {
         // Given a spec with two binds in different categories.
@@ -349,8 +384,22 @@ mod tests {
             });
 
         // When dismantling it.
-        let (_id, _title, _kind, _reset, _has_status, binds, actions, _tail, _load, _hooks, _status, _open, _confirm, _close) =
-            spec.into_parts();
+        let (
+            _id,
+            _title,
+            _kind,
+            _reset,
+            _has_status,
+            binds,
+            actions,
+            _tail,
+            _load,
+            _hooks,
+            _status,
+            _open,
+            _confirm,
+            _close,
+        ) = spec.into_parts();
 
         // Then rows carry declaration order and their hints.
         assert_eq!(binds.len(), 2);

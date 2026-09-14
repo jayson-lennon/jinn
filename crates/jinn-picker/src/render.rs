@@ -13,11 +13,11 @@
 
 use jinn_selection_widget::PreviewSelectionWidget;
 use jinn_selection_widget::SelectionWidget;
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::text::Span;
-use ratatui::Frame;
 
 use crate::ctx::StatusCtx;
 use crate::host::Palette;
@@ -78,10 +78,9 @@ where
 {
     let palette = host.palette();
     let id = spec.id();
-    let Some(selection) = host
-        .selection_state_ref(id)
-        .and_then(|any| any.downcast_ref::<jinn_selection_widget::SelectionState<crate::entry::PickerEntry<T>>>())
-    else {
+    let Some(selection) = host.selection_state_ref(id).and_then(|any| {
+        any.downcast_ref::<jinn_selection_widget::SelectionState<crate::entry::PickerEntry<T>>>()
+    }) else {
         // No compatible storage lent — the caller falls back to legacy.
         return false;
     };
@@ -140,11 +139,11 @@ where
 
 #[cfg(test)]
 mod tests {
-#![allow(
-    clippy::expect_used,
-    clippy::indexing_slicing,
-    reason = "test module, panics are acceptable"
-)]
+    #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        reason = "test module, panics are acceptable"
+    )]
 
     use super::*;
     use crate::registry::BindRow;
@@ -171,6 +170,7 @@ mod tests {
         }
     }
 
+    #[rstest::rstest]
     #[test]
     fn keybind_line_lists_rows_with_standard_tail() {
         // Given two bind rows and a standard tail.
@@ -186,6 +186,7 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
     #[test]
     fn keybind_line_without_tail_omits_it() {
         // Given bind rows and Tail::None.
@@ -198,6 +199,7 @@ mod tests {
         assert_eq!(line.text(), "<c-r> refresh");
     }
 
+    #[rstest::rstest]
     #[test]
     fn keybind_line_styles_keys_with_accent_and_text_with_muted() {
         // Given one bind row.
@@ -211,6 +213,7 @@ mod tests {
         assert_eq!(line.0[1].style.fg, Some(palette().muted_text));
     }
 
+    #[rstest::rstest]
     #[test]
     fn keybind_line_from_an_empty_row_set_is_only_the_tail() {
         // Given no bind rows with a standard tail.
@@ -221,6 +224,7 @@ mod tests {
         assert_eq!(line.text(), "Enter confirm · ESC cancel");
     }
 
+    #[rstest::rstest]
     #[test]
     fn palette_converts_to_selection_colors() {
         // Given a palette.

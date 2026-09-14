@@ -343,12 +343,14 @@ fn draw_picker(state: &State) -> String {
         area: ratatui::layout::Rect,
         ctx: &crate::common::render_ctx::RenderCtx<'_>,
     ) {
-        let host =
-            crate::feat::picker::host_impl::AppStateRenderHost::new(ctx.state);
+        let host = crate::feat::picker::host_impl::AppStateRenderHost::new(ctx.state);
         let id = crate::feat::picker::registry::spec_id_for_kind(&PickerKind::Skill)
             .expect("skill is spec-mapped");
         let spec = ctx.pickers.get(id).expect("skill spec registered");
-        assert!(spec.render(frame, area, &host), "spec render must draw the picker");
+        assert!(
+            spec.render(frame, area, &host),
+            "spec render must draw the picker"
+        );
     }
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -426,12 +428,7 @@ async fn rescan_after_body_edit_renders_new_content() {
         first_output.contains("OLD body"),
         "initial render shows OLD body"
     );
-    let entries_after_first = state
-        .read()
-        .frontend
-        .caches
-        .skill_preview_cache
-        .len();
+    let entries_after_first = state.read().frontend.caches.skill_preview_cache.len();
     assert_eq!(entries_after_first, 1, "old body populates one cache entry");
 
     // When the SKILL.md body is edited on disk and rescanned.
@@ -457,12 +454,7 @@ async fn rescan_after_body_edit_renders_new_content() {
         "render after rescan must show the edited body"
     );
     assert_eq!(
-        state
-            .read()
-            .frontend
-            .caches
-            .skill_preview_cache
-            .len(),
+        state.read().frontend.caches.skill_preview_cache.len(),
         entries_after_first + 1,
         "edited body produces a new cache key, not a stale hit"
     );

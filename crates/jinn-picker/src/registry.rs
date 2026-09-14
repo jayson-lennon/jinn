@@ -11,9 +11,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::Line;
-use ratatui::Frame;
 
 use crate::ctx::ActionCtx;
 use crate::ctx::LoadCtx;
@@ -201,8 +201,6 @@ where
         &self.binds
     }
 
-
-
     fn run_action(&self, action: &str, ctx: &mut ActionCtx<'_>) -> PickerOutcome {
         let Some(index) = self.binds.iter().position(|row| row.notation == action) else {
             return PickerOutcome::empty();
@@ -246,11 +244,9 @@ where
         let mut load_ctx = LoadCtx::new(host);
         let entries = load.run(&mut load_ctx);
         let items = make_items(entries, &self.hooks);
-        if let Some(selection) = load_ctx
-            .host()
-            .selection_state(self.id)
-            .and_then(|any| any.downcast_mut::<jinn_selection_widget::SelectionState<PickerEntry<T>>>())
-        {
+        if let Some(selection) = load_ctx.host().selection_state(self.id).and_then(|any| {
+            any.downcast_mut::<jinn_selection_widget::SelectionState<PickerEntry<T>>>()
+        }) {
             selection.set_items(items);
         }
     }
@@ -316,8 +312,22 @@ impl PickerRegistry {
     {
         // Move the builder's fields into the erased wrapper. Access is via
         // the crate-private accessors below (builder fields are private).
-        let (id, title, widget_kind, reset_scroll_on_selection_change, has_status, binds, actions, keybind_tail, load, hooks, status, on_open, on_confirm, on_close) =
-            spec.into_parts();
+        let (
+            id,
+            title,
+            widget_kind,
+            reset_scroll_on_selection_change,
+            has_status,
+            binds,
+            actions,
+            keybind_tail,
+            load,
+            hooks,
+            status,
+            on_open,
+            on_confirm,
+            on_close,
+        ) = spec.into_parts();
         let typed = TypedSpec {
             id,
             title,
@@ -387,11 +397,11 @@ impl PickerRegistry {
 
 #[cfg(test)]
 mod tests {
-#![allow(
-    clippy::expect_used,
-    clippy::indexing_slicing,
-    reason = "test module, panics are acceptable"
-)]
+    #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        reason = "test module, panics are acceptable"
+    )]
 
     use super::*;
     use crate::builder::PickerSpec;
@@ -405,6 +415,7 @@ mod tests {
         name: String,
     }
 
+    #[rstest::rstest]
     #[test]
     fn registry_round_trips_a_registered_spec_by_id() {
         // Given a registry with one registered spec.
@@ -428,6 +439,7 @@ mod tests {
         assert_eq!(spec.widget_kind(), WidgetKind::List);
     }
 
+    #[rstest::rstest]
     #[test]
     fn get_by_unknown_id_is_none() {
         // Given a registry with one spec.
@@ -439,16 +451,16 @@ mod tests {
         assert!(registry.get("unknown").is_none());
     }
 
+    #[rstest::rstest]
     #[test]
     fn run_action_dispatches_by_row_notation() {
         // Given a spec whose toggle action records a message.
         let mut registry = PickerRegistry::new();
-        registry.register(
-            PickerSpec::<Entry>::new(PickerId::new("dispatch"))
-                .bind("<tab>", "toggle", |_ctx: &mut ActionCtx<'_>| {
-                    PickerOutcome::new_message(String::from("toggled"))
-                }),
-        );
+        registry.register(PickerSpec::<Entry>::new(PickerId::new("dispatch")).bind(
+            "<tab>",
+            "toggle",
+            |_ctx: &mut ActionCtx<'_>| PickerOutcome::new_message(String::from("toggled")),
+        ));
         let spec = registry.get("dispatch").expect("registered");
 
         // When running the action by notation.
@@ -461,16 +473,16 @@ mod tests {
         assert!(!outcome.close);
     }
 
+    #[rstest::rstest]
     #[test]
     fn run_action_with_unknown_notation_is_an_empty_outcome() {
         // Given a registered spec with one bind.
         let mut registry = PickerRegistry::new();
-        registry.register(
-            PickerSpec::<Entry>::new(PickerId::new("noop"))
-                .bind("<tab>", "toggle", |_ctx: &mut ActionCtx<'_>| {
-                    PickerOutcome::empty()
-                }),
-        );
+        registry.register(PickerSpec::<Entry>::new(PickerId::new("noop")).bind(
+            "<tab>",
+            "toggle",
+            |_ctx: &mut ActionCtx<'_>| PickerOutcome::empty(),
+        ));
         let spec = registry.get("noop").expect("registered");
 
         // When running an undeclared action name.
@@ -483,6 +495,7 @@ mod tests {
         assert!(!outcome.close);
     }
 
+    #[rstest::rstest]
     #[test]
     fn absent_lifecycle_hooks_yield_empty_outcomes() {
         // Given a spec with no lifecycle hooks.
@@ -493,8 +506,11 @@ mod tests {
         // When running open, confirm, and close.
         let mut host = FakeHost::new();
         let mut ctx = ActionCtx::new(PickerId::new("bare"), &mut host);
-        let (open, confirm, close) =
-            (spec.run_open(&mut ctx), spec.run_confirm(&mut ctx), spec.run_close(&mut ctx));
+        let (open, confirm, close) = (
+            spec.run_open(&mut ctx),
+            spec.run_confirm(&mut ctx),
+            spec.run_close(&mut ctx),
+        );
 
         // Then all three are empty, non-closing outcomes.
         assert!(open.message_names.is_empty() && !open.close);
@@ -502,6 +518,7 @@ mod tests {
         assert!(close.message_names.is_empty() && !close.close);
     }
 
+    #[rstest::rstest]
     #[test]
     fn make_items_builds_through_the_spec_hooks() {
         // Given a spec with a search hook.
@@ -513,15 +530,19 @@ mod tests {
 
         // When building items through the registry.
         let items = registry
-            .make_items::<Entry>("typed", vec![Entry {
-                name: String::from("a"),
-            }])
+            .make_items::<Entry>(
+                "typed",
+                vec![Entry {
+                    name: String::from("a"),
+                }],
+            )
             .expect("typed match");
 
         // Then the search hook produced the display label.
         assert_eq!(PickerItem::display_label(&items[0]), "search-a");
     }
 
+    #[rstest::rstest]
     #[test]
     fn make_items_with_wrong_entry_type_is_none() {
         // Given a spec registered with Entry.
@@ -533,6 +554,7 @@ mod tests {
         assert!(registry.make_items::<String>("mismatch", vec![]).is_none());
     }
 
+    #[rstest::rstest]
     #[test]
     fn ids_lists_registered_spec_ids() {
         // Given a registry with one spec.
@@ -544,6 +566,7 @@ mod tests {
         assert_eq!(registry.ids(), ["solo"]);
     }
 
+    #[rstest::rstest]
     #[test]
     fn reload_items_fills_selection_storage_through_the_host() {
         // Given a spec with a load hook.
@@ -561,7 +584,8 @@ mod tests {
 
         // When reloading items into a host with empty storage.
         let mut host = FakeHost::new();
-        host.set_selection::<crate::entry::PickerEntry<Entry>>(PickerId::new("loadtest"),
+        host.set_selection::<crate::entry::PickerEntry<Entry>>(
+            PickerId::new("loadtest"),
             jinn_selection_widget::SelectionState::new(),
         );
         spec.reload_items(&mut host);
@@ -573,5 +597,4 @@ mod tests {
         assert_eq!(state.items().len(), 1);
         assert_eq!(PickerItem::display_label(&state.items()[0]), "loaded");
     }
-
 }

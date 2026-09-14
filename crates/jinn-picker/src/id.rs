@@ -34,6 +34,7 @@ impl fmt::Display for PickerId {
 mod tests {
     use super::*;
 
+    #[rstest::rstest]
     #[test]
     fn id_preserves_and_displays_its_name() {
         // Given a picker id.

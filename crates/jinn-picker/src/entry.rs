@@ -88,12 +88,15 @@ impl<T> RenderHooks<T> {
         };
         let line = row.run(
             entry,
-            RowCtx {
+            &RowCtx {
                 is_selected: false,
                 match_ranges: &[],
             },
         );
-        line.spans.iter().map(|span| span.content.to_string()).collect()
+        line.spans
+            .iter()
+            .map(|span| span.content.to_string())
+            .collect()
     }
 }
 
@@ -154,7 +157,7 @@ where
         };
         row.run(
             &self.entry,
-            RowCtx {
+            &RowCtx {
                 is_selected,
                 match_ranges: &[],
             },
@@ -177,7 +180,7 @@ where
         };
         row.run(
             &self.entry,
-            RowCtx {
+            &RowCtx {
                 is_selected,
                 match_ranges: match_indices,
             },
@@ -196,13 +199,7 @@ where
         // The live path renders without a cache reference of its own; the
         // widget's cached path (`preview_lines_cached` with the spec's
         // domain-supplied cache) is the caching route.
-        preview.run(
-            &self.entry,
-            &PreviewCtx {
-                width,
-                cache: None,
-            },
-        )
+        preview.run(&self.entry, &PreviewCtx { width, cache: None })
     }
 
     fn cache_key(&self) -> Option<String> {
@@ -240,11 +237,11 @@ where
 
 #[cfg(test)]
 mod tests {
-#![allow(
-    clippy::expect_used,
-    clippy::indexing_slicing,
-    reason = "test module, panics are acceptable"
-)]
+    #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        reason = "test module, panics are acceptable"
+    )]
 
     use super::*;
 
@@ -254,12 +251,13 @@ mod tests {
         description: String,
     }
 
+    #[rstest::rstest]
     #[test]
     fn search_hook_runs_once_per_entry_at_load() {
         // Given a search hook counting its invocations.
+        use std::sync::Arc as StdArc;
         use std::sync::atomic::AtomicUsize;
         use std::sync::atomic::Ordering;
-        use std::sync::Arc as StdArc;
         let counter = StdArc::new(AtomicUsize::new(0));
         let counter_clone = Arc::clone(&counter);
         let hooks = RenderHooks {
@@ -289,11 +287,12 @@ mod tests {
         assert_eq!(items[1].display_label(), "b two");
     }
 
+    #[rstest::rstest]
     #[test]
     fn row_hook_renders_through_the_adapter() {
         // Given hooks with a row renderer.
         let hooks = RenderHooks {
-            row: Some(PickerRowFn::new(|entry: &Entry, ctx: RowCtx<'_>| {
+            row: Some(PickerRowFn::new(|entry: &Entry, ctx: &RowCtx<'_>| {
                 if ctx.is_selected {
                     Line::from(format!("> {}", entry.name))
                 } else {
@@ -319,11 +318,12 @@ mod tests {
         assert_eq!(selected.to_string(), "> row");
     }
 
+    #[rstest::rstest]
     #[test]
     fn fallback_label_uses_row_text_without_a_search_hook() {
         // Given hooks with only a row renderer.
         let hooks = RenderHooks {
-            row: Some(PickerRowFn::new(|entry: &Entry, _ctx: RowCtx<'_>| {
+            row: Some(PickerRowFn::new(|entry: &Entry, _ctx: &RowCtx<'_>| {
                 Line::from(vec![
                     Span::styled(entry.name.clone(), Style::default()),
                     Span::raw(" — "),
@@ -346,6 +346,7 @@ mod tests {
         assert_eq!(items[0].display_label(), "name — desc");
     }
 
+    #[rstest::rstest]
     #[test]
     fn preview_key_flows_into_the_cache_identity() {
         // Given hooks with a preview key.
@@ -368,6 +369,7 @@ mod tests {
         assert_eq!(items[0].cache_key(), Some(String::from("key-k")));
     }
 
+    #[rstest::rstest]
     #[test]
     fn absent_hooks_degrade_to_defaults() {
         // Given empty hooks.

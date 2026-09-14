@@ -49,20 +49,15 @@ mod tests {
     use super::*;
     use crate::feat::picker::PickerKind;
 
+    #[rstest::rstest]
     #[test]
     fn migrated_kinds_map_onto_registered_specs_and_vice_versa() {
         // Given the domain's picker registry and the kind→id adapter.
         let registry = build_picker_registry();
-        let migrated = [
-            PickerKind::Persona,
-            PickerKind::Skill,
-        ];
+        let migrated = [PickerKind::Persona, PickerKind::Skill];
 
         // When mapping each migrated kind and listing registered ids.
-        let mapped_ids: Vec<&str> = migrated
-            .iter()
-            .filter_map(spec_id_for_kind)
-            .collect();
+        let mapped_ids: Vec<&str> = migrated.iter().filter_map(spec_id_for_kind).collect();
         let mut registered_ids = registry.ids();
         registered_ids.sort_unstable();
 
@@ -74,6 +69,7 @@ mod tests {
         assert_eq!(mapped_ids.len(), migrated.len());
     }
 
+    #[rstest::rstest]
     #[test]
     fn unmigrated_kinds_have_no_spec_id() {
         // Given every kind that has not migrated in the pilot.

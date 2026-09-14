@@ -54,8 +54,7 @@ pub struct PickerStates {
 
     /// Skill picker state - shows all discovered skills with toggle state.
     /// OWNER: IntentHandler (populated on skill picker open).
-    pub skill_picker:
-        jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SkillEntry>>,
+    pub skill_picker: jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SkillEntry>>,
 
     /// Snapshot of disabled skills before picker opens - restored on ESC.
     /// OWNER: IntentHandler (set on skill picker open, consumed on confirm/cancel).
@@ -137,7 +136,9 @@ pub trait PickerExt {
     ) -> &mut jinn_selection_widget::TreePickerState<SessionTreeEntry>;
 
     /// Read-only access to the persona picker state.
-    fn persona_picker(&self) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PersonaEntry>>;
+    fn persona_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PersonaEntry>>;
     /// Mutable access to the persona picker state.
     fn persona_picker_mut(
         &mut self,
@@ -162,9 +163,13 @@ pub trait PickerExt {
     fn tool_picker_snapshot_mut(&mut self) -> &mut Option<HashSet<String>>;
 
     /// Read-only access to the skill picker state.
-    fn skill_picker(&self) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SkillEntry>>;
+    fn skill_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SkillEntry>>;
     /// Mutable access to the skill picker state.
-    fn skill_picker_mut(&mut self) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SkillEntry>>;
+    fn skill_picker_mut(
+        &mut self,
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SkillEntry>>;
     /// Read-only access to the disabled skills snapshot.
     fn skill_picker_snapshot(&self) -> &Option<HashSet<String>>;
     /// Mutable access to the disabled skills snapshot.

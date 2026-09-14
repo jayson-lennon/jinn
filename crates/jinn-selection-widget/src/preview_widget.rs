@@ -341,8 +341,7 @@ impl<T: PickerItem + PreviewContent> RenderCtx<'_, T> {
         if self.footers.is_empty() {
             return;
         }
-        let rows = Layout::vertical(vec![Constraint::Length(1); self.footers.len()])
-            .split(area);
+        let rows = Layout::vertical(vec![Constraint::Length(1); self.footers.len()]).split(area);
         for (line, row) in self.footers.iter().zip(rows.iter()) {
             let paragraph = Paragraph::new(line.clone())
                 .style(Style::default().fg(self.colors.footer))

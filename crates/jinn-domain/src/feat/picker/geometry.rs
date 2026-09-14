@@ -51,9 +51,7 @@ pub fn measure_active_picker_results_height(
         .and_then(|id| registry.get(id))
     {
         Some(spec) => match spec.widget_kind() {
-            WidgetKind::Preview => {
-                skill_results_height(inner, popup_area, spec.bottom_rows())
-            }
+            WidgetKind::Preview => skill_results_height(inner, popup_area, spec.bottom_rows()),
             WidgetKind::List | WidgetKind::Tree => {
                 standard_results_height(inner, spec.bottom_rows())
             }

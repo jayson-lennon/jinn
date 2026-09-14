@@ -50,7 +50,10 @@ pub fn bind_picker_spec_rows(
 ) {
     for spec in registry.all() {
         let Some(scope) = picker_spec_scope(spec.id()) else {
-            tracing::warn!(picker = spec.id().as_str(), "no static scope for picker spec");
+            tracing::warn!(
+                picker = spec.id().as_str(),
+                "no static scope for picker spec"
+            );
             continue;
         };
         for row in spec.binds() {
@@ -858,6 +861,7 @@ mod picker_spec_row_tests {
     /// registers none either — so `bind_picker_spec_rows` must be a
     /// no-op for the pilot stubs and must land rows once specs declare
     /// binds. This test pins the mechanism with a throwaway spec.
+    #[rstest::rstest]
     #[test]
     fn spec_rows_land_in_the_picker_scope_as_picker_actions() {
         // Given a registry with a spec that declares one general and one
@@ -892,6 +896,7 @@ mod picker_spec_row_tests {
         );
     }
 
+    #[rstest::rstest]
     #[test]
     fn spec_navigation_rows_resolve_without_shadowing_base_binds() {
         // Given a registry with a navigation-hinted bind.

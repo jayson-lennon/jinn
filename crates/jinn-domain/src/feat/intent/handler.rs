@@ -485,7 +485,8 @@ impl IntentHandler {
             Intent::PickerInsertChar { ch } => feat::picker::intent::handle_insert_char(state, *ch),
             Intent::PickerBackspace => feat::picker::intent::handle_backspace(state),
             Intent::PickerConfirm => {
-                let (result, maybe_intent) = feat::picker::intent::handle_picker_confirm(state, pickers);
+                let (result, maybe_intent) =
+                    feat::picker::intent::handle_picker_confirm(state, pickers);
                 if let Some(intent) = maybe_intent {
                     let redispatch = IntentHandler::handle(&intent, state, slices, routes, pickers);
                     result.merge(redispatch)
@@ -576,13 +577,11 @@ impl IntentHandler {
             Intent::SidebarPersonaEdit => {
                 feat::ui::sidebar::pins::pins_section::handle_sidebar_persona_edit(state, pickers)
             }
-            Intent::SessionNewWithLifecycle => {
-                feat::picker::intent::handle_open_picker(
-                    state,
-                    PickerKind::SessionLifecycle,
-                    pickers,
-                )
-            }
+            Intent::SessionNewWithLifecycle => feat::picker::intent::handle_open_picker(
+                state,
+                PickerKind::SessionLifecycle,
+                pickers,
+            ),
             Intent::SidebarSessionClose => {
                 // First press - show confirmation prompt.
                 // The interceptor (try_handle_close_session_prompt) handles the second press.
@@ -1063,10 +1062,10 @@ mod tests {
     }
 
     fn empty_pickers() -> jinn_picker::PickerRegistry {
-    jinn_picker::PickerRegistry::new()
-}
+        jinn_picker::PickerRegistry::new()
+    }
 
-fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {
+    fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {
         crate::common::slices::key_routes::KeyRoutes::new()
     }
     use crate::common::app_state::{AppState, FocusScope, RenameSessionInputState};
@@ -1716,8 +1715,13 @@ fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {
         state.frontend.cancel_stream_prompt = true;
 
         // When handling NoOp (unmapped key).
-        let result =
-            IntentHandler::handle(&Intent::NoOp, &mut state, &empty_slices(), &empty_routes(), &empty_pickers());
+        let result = IntentHandler::handle(
+            &Intent::NoOp,
+            &mut state,
+            &empty_slices(),
+            &empty_routes(),
+            &empty_pickers(),
+        );
 
         // Then the prompt is dismissed and no CancelStream command is emitted.
         assert!(!state.frontend.cancel_stream_prompt);
@@ -1739,8 +1743,13 @@ fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {
         state.frontend.close_session_prompt = true;
 
         // When handling NoOp (unmapped key).
-        let _result =
-            IntentHandler::handle(&Intent::NoOp, &mut state, &empty_slices(), &empty_routes(), &empty_pickers());
+        let _result = IntentHandler::handle(
+            &Intent::NoOp,
+            &mut state,
+            &empty_slices(),
+            &empty_routes(),
+            &empty_pickers(),
+        );
 
         // Then the prompt is dismissed.
         assert!(!state.frontend.close_session_prompt);
@@ -1753,8 +1762,13 @@ fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {
         let mut state = AppState::default();
 
         // When handling NoOp.
-        let result =
-            IntentHandler::handle(&Intent::NoOp, &mut state, &empty_slices(), &empty_routes(), &empty_pickers());
+        let result = IntentHandler::handle(
+            &Intent::NoOp,
+            &mut state,
+            &empty_slices(),
+            &empty_routes(),
+            &empty_pickers(),
+        );
 
         // Then result is empty.
         assert!(result.message_names.is_empty());
@@ -2025,7 +2039,13 @@ fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {
         let mut state = AppState::default();
 
         // When switching tabs twice.
-        IntentHandler::handle(&Intent::SwitchTab, &mut state, &slices, &empty_routes(), &empty_pickers());
+        IntentHandler::handle(
+            &Intent::SwitchTab,
+            &mut state,
+            &slices,
+            &empty_routes(),
+            &empty_pickers(),
+        );
         // Then the base is the registered tab.
         assert_eq!(
             state.frontend.scope_stack.base(),
@@ -2033,7 +2053,13 @@ fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {
         );
 
         // When switching tabs again.
-        IntentHandler::handle(&Intent::SwitchTab, &mut state, &slices, &empty_routes(), &empty_pickers());
+        IntentHandler::handle(
+            &Intent::SwitchTab,
+            &mut state,
+            &slices,
+            &empty_routes(),
+            &empty_pickers(),
+        );
         // Then the cycle wraps to Normal.
         assert_eq!(state.frontend.scope_stack.base(), &FocusScope::Normal);
     }

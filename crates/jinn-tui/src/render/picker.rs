@@ -23,7 +23,6 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
     match ctx.state.frontend.scope_stack.picker_kind().copied() {
         Some(PickerKind::Provider) => render_provider_picker(frame, area, ctx),
         Some(PickerKind::Session) => render_session_picker(frame, area, ctx),
-        Some(PickerKind::Persona) => render_persona_picker(frame, area, ctx),
         Some(PickerKind::Theme) => render_theme_picker(frame, area, ctx),
         Some(PickerKind::SessionLifecycle) => {
             render_session_lifecycle_picker(frame, area, ctx);
@@ -42,9 +41,9 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
         Some(PickerKind::Tool) => {
             jinn_domain::feat::picker::render::render_tool_picker(frame, area, ctx);
         }
-        // Skill renders entirely through its spec above; with an empty
-        // registry (test seams) there is nothing to draw.
-        Some(PickerKind::Skill) => {}
+        // Persona and Skill render entirely through their specs above; with
+        // an empty registry (test seams) there is nothing to draw.
+        Some(PickerKind::Persona | PickerKind::Skill) | None => {}
         Some(PickerKind::TaskList) => {
             jinn_domain::feat::picker::render::render_task_list_picker(frame, area, ctx);
         }
@@ -69,11 +68,6 @@ fn render_provider_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
 /// Renders the session picker overlay (delegates to slice).
 fn render_session_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
     jinn_domain::feat::session::render::render_session_picker(frame, area, ctx);
-}
-
-/// Renders the persona picker overlay (delegates to domain render).
-fn render_persona_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    jinn_domain::feat::picker::render::render_persona_picker(frame, area, ctx);
 }
 
 /// Renders the theme picker overlay (delegates to domain render).
@@ -173,8 +167,8 @@ mod tests {
             .draw(|frame| {
                 let slices = jinn_slices::Slices::new();
                 let views = jinn_domain::common::overlay_views::OverlayViews::new();
-                let ctx = jinn_domain::RenderCtx::new(&state, &slices, &views)
-                    .with_pickers(&pickers);
+                let ctx =
+                    jinn_domain::RenderCtx::new(&state, &slices, &views).with_pickers(&pickers);
                 super::render_picker(frame, area, &ctx);
             })
             .expect("draw");
@@ -206,12 +200,10 @@ mod tests {
         // one (bottom rows are spec-owned), else from the legacy kind.
         let declared = jinn_domain::feat::picker::registry::spec_id_for_kind(&kind)
             .and_then(|id| pickers.get(id))
-            .map(|spec| spec.bottom_rows())
-            .unwrap_or_else(|| kind.footer_rows());
+            .map_or_else(|| kind.footer_rows(), |spec| spec.bottom_rows());
 
         assert_eq!(
-            drawn_footer_rows,
-            declared,
+            drawn_footer_rows, declared,
             "picker {kind} draws {drawn_footer_rows} footer rows but declares {declared}",
         );
     }
@@ -221,10 +213,9 @@ mod tests {
     fn persona_picker_draws_status_and_keybind_rows_via_spec() {
         // Given a persona picker open, rendered through its spec.
         let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::Picker { kind: PickerKind::Persona });
+        state.frontend.scope_stack.push(FocusScope::Picker {
+            kind: PickerKind::Persona,
+        });
         let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
 
         // When rendering.
@@ -235,8 +226,8 @@ mod tests {
             .draw(|frame| {
                 let slices = jinn_slices::Slices::new();
                 let views = jinn_domain::common::overlay_views::OverlayViews::new();
-                let ctx = jinn_domain::RenderCtx::new(&state, &slices, &views)
-                    .with_pickers(&pickers);
+                let ctx =
+                    jinn_domain::RenderCtx::new(&state, &slices, &views).with_pickers(&pickers);
                 super::render_picker(frame, area, &ctx);
             })
             .expect("draw");

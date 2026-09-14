@@ -81,7 +81,7 @@ fn state_ref_of<'a>(ctx: &'a StatusCtx<'_>) -> &'a AppState {
 
 /// Renders one picker row: the enabled marker, the skill name (highlighted
 /// on filter matches), and the project badge for project-scoped skills.
-fn skill_row(entry: &SkillEntry, ctx: RowCtx<'_>) -> Line<'static> {
+fn skill_row(entry: &SkillEntry, ctx: &RowCtx<'_>) -> Line<'static> {
     let style = if ctx.is_selected {
         Style::default()
             .fg(entry.theme.primary_text)
@@ -154,13 +154,14 @@ fn render_skill_preview(entry: &SkillEntry, ctx: &PreviewCtx<'_>) -> Vec<Line<'s
 /// Splits match indices from `search_text = "{name} {description}"` into
 /// name-portion ranges, clamped to the name's byte length. Description
 /// indices are dropped — the row highlights the name only.
-fn split_match_indices(indices: &[std::ops::Range<usize>], name_len: usize)
--> Vec<std::ops::Range<usize>> {
+fn split_match_indices(
+    indices: &[std::ops::Range<usize>],
+    name_len: usize,
+) -> Vec<std::ops::Range<usize>> {
     indices
         .iter()
-        .filter_map(|range| {
-            (range.start < name_len).then(|| range.start..range.end.min(name_len))
-        })
+        .filter(|range| range.start < name_len)
+        .map(|range| range.start..range.end.min(name_len))
         .collect()
 }
 
@@ -174,6 +175,9 @@ fn body_hash_key(body: &str) -> String {
 }
 
 /// The status line: how many discovered skills are enabled for the session.
+// The hook signature is Option so `bottom_rows()` stays truthful even if the
+// status ever becomes conditional; geometry reserves the row either way.
+#[allow(clippy::unnecessary_wraps, reason = "hook signature is Option<Line>")]
 fn skill_status(ctx: &StatusCtx<'_>) -> Option<Line<'static>> {
     let state = state_ref_of(ctx);
     let picker = state.frontend.skill_picker();
@@ -282,9 +286,7 @@ fn skill_load(ctx: &mut ActionCtx<'_>) -> PickerOutcome {
     // file I/O.
     let tool_call_id = ChatEntryId::new().to_string();
     let location = skill_path.to_string_lossy().to_string();
-    let xml = format!(
-        "<skill name=\"{name}\" location=\"{location}\">\n{body}\n</skill>"
-    );
+    let xml = format!("<skill name=\"{name}\" location=\"{location}\">\n{body}\n</skill>");
     let arguments = serde_json::json!({ "name": name }).to_string();
 
     state.active_session_mut().push_entry(ChatEntry::tool_call(
@@ -292,12 +294,7 @@ fn skill_load(ctx: &mut ActionCtx<'_>) -> PickerOutcome {
         "skill",
         arguments,
     ));
-    let mut result = ChatEntry::tool_result(
-        tool_call_id,
-        "skill",
-        xml,
-        ToolResultStatus::Success,
-    );
+    let mut result = ChatEntry::tool_result(tool_call_id, "skill", xml, ToolResultStatus::Success);
     result.pin_position = Some(PinPosition::Relative);
     state.active_session_mut().push_entry(result);
 
@@ -503,6 +500,7 @@ mod tests {
 
     // ── Rendering ─────────────────────────────────────────────────────
 
+    #[rstest::rstest]
     #[test]
     fn row_renders_marker_name_and_selected_background() {
         // Given an enabled and a disabled entry.
@@ -528,14 +526,20 @@ mod tests {
         };
 
         // When rendering unselected rows.
-        let enabled_row = skill_row(&enabled, RowCtx {
-            is_selected: false,
-            match_ranges: &[],
-        });
-        let disabled_row = skill_row(&disabled, RowCtx {
-            is_selected: false,
-            match_ranges: &[],
-        });
+        let enabled_row = skill_row(
+            &enabled,
+            &RowCtx {
+                is_selected: false,
+                match_ranges: &[],
+            },
+        );
+        let disabled_row = skill_row(
+            &disabled,
+            &RowCtx {
+                is_selected: false,
+                match_ranges: &[],
+            },
+        );
 
         // Then the marker reflects the enabled state.
         assert!(enabled_row.to_string().starts_with('\u{2713}'));
@@ -543,16 +547,20 @@ mod tests {
         assert!(enabled_row.to_string().contains('a'));
 
         // And a selected row carries the selection background.
-        let selected = skill_row(&enabled, RowCtx {
-            is_selected: true,
-            match_ranges: &[],
-        });
+        let selected = skill_row(
+            &enabled,
+            &RowCtx {
+                is_selected: true,
+                match_ranges: &[],
+            },
+        );
         assert_eq!(
             selected.spans[1].style.bg,
             Some(crate::feat::theme::default_theme().picker_selected_bg),
         );
     }
 
+    #[rstest::rstest]
     #[test]
     fn row_highlights_only_the_name_on_filter_matches() {
         // Given an entry with match ranges spanning name and description.
@@ -568,10 +576,13 @@ mod tests {
 
         // When rendering with a match range covering "b c" (bytes 2..5,
         // crossing the name/description boundary).
-        let row = skill_row(&entry, RowCtx {
-            is_selected: false,
-            match_ranges: &[2..5],
-        });
+        let row = skill_row(
+            &entry,
+            &RowCtx {
+                is_selected: false,
+                match_ranges: &[2..5],
+            },
+        );
 
         // Then the row still names the skill (highlighting clamped, not
         // crashing, on the boundary-crossing range).
@@ -579,6 +590,7 @@ mod tests {
         assert!(text.contains("web"), "row text must keep the name: {text}");
     }
 
+    #[rstest::rstest]
     #[test]
     fn project_scoped_skills_render_a_badge() {
         // Given an entry discovered from a project directory.
@@ -595,16 +607,20 @@ mod tests {
         };
 
         // When rendering its row.
-        let row = skill_row(&entry, RowCtx {
-            is_selected: false,
-            match_ranges: &[],
-        });
+        let row = skill_row(
+            &entry,
+            &RowCtx {
+                is_selected: false,
+                match_ranges: &[],
+            },
+        );
 
         // Then the badge is appended.
         let text: String = row.spans.iter().map(|s| s.content.to_string()).collect();
         assert!(text.contains("(project)"), "badge missing: {text}");
     }
 
+    #[rstest::rstest]
     #[test]
     fn preview_renders_the_markdown_body() {
         // Given an entry with a markdown body.
@@ -630,6 +646,7 @@ mod tests {
         assert!(rendered.contains("Hello World"));
     }
 
+    #[rstest::rstest]
     #[test]
     fn preview_of_an_empty_body_is_empty() {
         // Given an entry with no body.
@@ -653,6 +670,7 @@ mod tests {
         assert!(render_skill_preview(&entry, &ctx).is_empty());
     }
 
+    #[rstest::rstest]
     #[test]
     fn status_line_reports_enabled_over_total() {
         // Given a loaded skill picker with one of two skills disabled.
@@ -663,7 +681,7 @@ mod tests {
         let _ = run(&mut state, skill_toggle);
 
         // When reading the status line.
-        let registry = crate::feat::picker::registry::build_picker_registry();
+        let _registry = crate::feat::picker::registry::build_picker_registry();
         let handle = crate::feat::picker::host_impl::AppStateRenderHost::new(&state);
         let ctx = StatusCtx::new(PickerId::new(SKILL_ID), &handle);
         let line = spec()
@@ -677,6 +695,7 @@ mod tests {
 
     // ── TAB toggle ────────────────────────────────────────────────────
 
+    #[rstest::rstest]
     #[test]
     fn toggle_flips_enabled_and_advances_the_cursor() {
         // Given an open skill picker (first entry selected, enabled).
@@ -692,6 +711,7 @@ mod tests {
         assert_eq!(state.frontend.skill_picker().selection(), 1);
     }
 
+    #[rstest::rstest]
     #[test]
     fn toggle_is_a_full_no_op_on_a_loaded_skill() {
         // Given an open picker whose selected skill is loaded (pinned in
@@ -699,15 +719,16 @@ mod tests {
         let mut state = state_with_skills();
         let _ = run(&mut state, open_skill);
         {
-            let name = state.frontend.skill_picker().items()[0].entry().name.clone();
+            let name = state.frontend.skill_picker().items()[0]
+                .entry()
+                .name
+                .clone();
             let call_id = ChatEntryId::new().to_string();
-            state
-                .active_session_mut()
-                .push_entry(ChatEntry::tool_call(
-                    call_id.clone(),
-                    "skill",
-                    serde_json::json!({ "name": name }).to_string(),
-                ));
+            state.active_session_mut().push_entry(ChatEntry::tool_call(
+                call_id.clone(),
+                "skill",
+                serde_json::json!({ "name": name }).to_string(),
+            ));
             let mut result = ChatEntry::tool_result(
                 call_id,
                 "skill",
@@ -728,6 +749,7 @@ mod tests {
 
     // ── CTRL+L load ───────────────────────────────────────────────────
 
+    #[rstest::rstest]
     #[test]
     fn load_pushes_a_pinned_tool_pair_and_marks_the_session() {
         // Given an open skill picker with the first entry selected.
@@ -759,14 +781,14 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
     #[test]
     fn load_auto_enables_durably_against_enter_and_esc() {
         // Given an open picker with "web-coder" disabled and selected.
         let mut state = state_with_skills();
         state
             .active_session_mut()
-            .set_disabled_skills(std::collections::HashSet::from(["web-coder"
-                .to_owned()]));
+            .set_disabled_skills(std::collections::HashSet::from(["web-coder".to_owned()]));
         let _ = run(&mut state, open_skill);
         state.frontend.skill_picker_mut().move_down(1);
 
@@ -793,20 +815,22 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
     #[test]
     fn load_of_an_already_loaded_skill_pushes_a_transient_and_stays_open() {
         // Given an open picker whose selected skill is already loaded.
         let mut state = state_with_skills();
         let _ = run(&mut state, open_skill);
-        let name = state.frontend.skill_picker().items()[0].entry().name.clone();
+        let name = state.frontend.skill_picker().items()[0]
+            .entry()
+            .name
+            .clone();
         let call_id = ChatEntryId::new().to_string();
-        state
-            .active_session_mut()
-            .push_entry(ChatEntry::tool_call(
-                call_id.clone(),
-                "skill",
-                serde_json::json!({ "name": name }).to_string(),
-            ));
+        state.active_session_mut().push_entry(ChatEntry::tool_call(
+            call_id.clone(),
+            "skill",
+            serde_json::json!({ "name": name }).to_string(),
+        ));
         let mut result = ChatEntry::tool_result(
             call_id,
             "skill",
@@ -834,6 +858,7 @@ mod tests {
         assert!(!outcome.close);
     }
 
+    #[rstest::rstest]
     #[test]
     fn load_with_no_selection_is_a_no_op() {
         // Given an open skill picker with no entries.
@@ -851,6 +876,7 @@ mod tests {
 
     // ── Preview scrolling ─────────────────────────────────────────────
 
+    #[rstest::rstest]
     #[test]
     fn scroll_down_then_up_returns_to_zero_by_page_size() {
         // Given an open skill picker.
@@ -873,6 +899,7 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
     #[test]
     fn scroll_up_saturates_at_zero() {
         // Given an open skill picker.
@@ -895,6 +922,7 @@ mod tests {
 
     // ── CTRL+R refresh ────────────────────────────────────────────────
 
+    #[rstest::rstest]
     #[test]
     fn refresh_emits_all_three_scan_commands() {
         // Given an open skill picker.
@@ -916,6 +944,7 @@ mod tests {
 
     // ── Lifecycle ─────────────────────────────────────────────────────
 
+    #[rstest::rstest]
     #[test]
     fn open_resets_state_snapshots_and_loads_entries() {
         // Given state with a dirty picker (items + filter from a prior open)
@@ -942,8 +971,7 @@ mod tests {
         }
         state
             .active_session_mut()
-            .set_disabled_skills(std::collections::HashSet::from(["web-coder"
-                .to_owned()]));
+            .set_disabled_skills(std::collections::HashSet::from(["web-coder".to_owned()]));
 
         // When opening.
         let outcome = run(&mut state, open_skill);
@@ -954,7 +982,10 @@ mod tests {
         let items = state.frontend.skill_picker().items();
         assert_eq!(items.len(), 2);
         assert!(items[0].entry().enabled);
-        assert!(!items[1].entry().enabled, "disabled skill must load disabled");
+        assert!(
+            !items[1].entry().enabled,
+            "disabled skill must load disabled"
+        );
         // And the revert snapshot holds the pre-open disabled set.
         assert_eq!(
             state.frontend.skill_picker_snapshot().clone(),
@@ -962,6 +993,7 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
     #[test]
     fn confirm_commits_the_disabled_set_and_closes() {
         // Given an open picker with "web-coder" toggled off.
@@ -983,6 +1015,7 @@ mod tests {
         assert!(outcome.close);
     }
 
+    #[rstest::rstest]
     #[test]
     fn close_restores_the_snapshotted_disabled_set() {
         // Given an open picker whose user toggled a new disable on top of
@@ -990,14 +1023,7 @@ mod tests {
         let mut state = state_with_skills();
         let _ = run(&mut state, open_skill);
         let _ = run(&mut state, skill_toggle); // disable "phased-task-loop"
-        assert!(
-            !state
-                .frontend
-                .skill_picker()
-                .items()[0]
-                .entry()
-                .enabled,
-        );
+        assert!(!state.frontend.skill_picker().items()[0].entry().enabled,);
 
         // When closing via ESC.
         let outcome = run(&mut state, close_skill);
@@ -1009,6 +1035,7 @@ mod tests {
 
     // ── Storage contract ─────────────────────────────────────────────
 
+    #[rstest::rstest]
     #[test]
     fn host_lends_the_wrapped_skill_storage() {
         // Given state whose skill picker holds wrapped items.
@@ -1025,6 +1052,9 @@ mod tests {
         };
 
         // Then it downcasts to the wrapped selection storage.
-        assert!(lend, "skill lend must downcast to SelectionState<PickerEntry<SkillEntry>>");
+        assert!(
+            lend,
+            "skill lend must downcast to SelectionState<PickerEntry<SkillEntry>>"
+        );
     }
 }
