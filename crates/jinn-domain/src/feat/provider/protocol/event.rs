@@ -156,3 +156,11 @@ pub struct PromptTemplatesLoaded {
 }
 
 impl crate::common::bus::BusMessage for PromptTemplatesLoaded {}
+
+jinn_slices::crossing_schema!(PromptTemplatesLoaded, "PromptTemplatesLoaded",
+trouper::schema::SchemaKind::Event,
+description: "Prompt templates loaded after a rescan.",
+fields: [
+    "session_id" => trouper::schema::FieldTy::Uuid,
+    "templates" => trouper::schema::FieldTy::List(Box::new(trouper::schema::FieldTy::Json)),
+]);

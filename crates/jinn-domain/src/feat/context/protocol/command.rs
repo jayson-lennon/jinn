@@ -54,3 +54,8 @@ pub struct ScanContextFiles {
 }
 
 impl BusMessage for ScanContextFiles {}
+
+jinn_slices::crossing_schema!(ScanContextFiles, "ScanContextFiles",
+trouper::schema::SchemaKind::Command,
+description: "Scan project context files for a session.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);

@@ -65,6 +65,7 @@ pub async fn launch_for_test(core: AppCore, mut services: jinn_domain::Services)
             panic!("dashboard slice activation failed: {error}");
         }
         activate_quake_bar(&mut services);
+        activate_session_init(&mut services).await;
         // Bindings generate after all activations so every slice's rows exist.
         jinn_tui::keymap_gen::bind_route_rows(&services.key_routes, &mut keymap);
     }
@@ -130,6 +131,41 @@ async fn drain_quake_bar_routes(services: &jinn_domain::Services) {
         },
     )
     .await;
+}
+
+/// Activates the session-init slice over the kernel's registries and
+/// drains its crossing routes.
+///
+/// Session-init attaches no route rows (headless discovery), so the
+/// harness call is exactly the production pairing: activate, then
+/// drain. The drain must complete before the first trigger publishes —
+/// `launch_for_test` composes before any session exists, so ordering
+/// holds by construction here.
+#[expect(
+    clippy::panic,
+    reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
+)]
+async fn activate_session_init(services: &mut jinn_domain::Services) {
+    // `Services` is cheap to clone (Arc fields); the clone side-steps
+    // the host's mutable viewport borrow for the activation call.
+    let services_snapshot = services.clone();
+    let state = jinn_domain::common::state::State::new(
+        jinn_domain::common::app_state::AppState::default(),
+    );
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    if let Err(error) = jinn_session_init::activate(&mut host, &services_snapshot, state) {
+        panic!("session-init slice activation failed: {error}");
+    }
+    if let Err(error) = host.finalize(&|_key| None) {
+        panic!("session-init slice finalize failed: {error}");
+    }
+    jinn_session_init::bridge::drain_routes(services).await;
 }
 
 /// A composed [`TuiApp`]: fake services plus every slice activated.

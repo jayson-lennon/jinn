@@ -31,6 +31,11 @@ pub struct EnvironmentLoaded {
 
 impl BusMessage for EnvironmentLoaded {}
 
+jinn_slices::crossing_schema!(EnvironmentLoaded, "EnvironmentLoaded",
+trouper::schema::SchemaKind::Event,
+description: "The environment has been loaded and API keys are available.",
+fields: ["config" => trouper::schema::FieldTy::Json]);
+
 /// Ask message to retrieve the loaded environment config.
 ///
 /// Downstream actors use this during their `on_start` to pull config

@@ -131,6 +131,11 @@ pub struct RescanPromptTemplates {
 }
 impl BusMessage for RescanPromptTemplates {}
 
+jinn_slices::crossing_schema!(RescanPromptTemplates, "RescanPromptTemplates",
+trouper::schema::SchemaKind::Command,
+description: "Rescan prompt templates for a session.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
+
 /// Load entries for the provider/model picker.
 ///
 /// The provider actor receives this, loads entries from the provider registry,

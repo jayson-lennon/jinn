@@ -40,3 +40,16 @@ pub struct SessionCwdChanged {
 impl crate::common::bus::BusMessage for SessionCwdChanged {}
 
 impl crate::common::bus::BusMessage for SessionCreated {}
+
+jinn_slices::crossing_schema!(SessionCreated, "SessionCreated",
+trouper::schema::SchemaKind::Event,
+description: "A new chat session was created.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
+
+jinn_slices::crossing_schema!(SessionCwdChanged, "SessionCwdChanged",
+trouper::schema::SchemaKind::Event,
+description: "A session's working directory changed.",
+fields: [
+    "session_id" => trouper::schema::FieldTy::Uuid,
+    "cwd" => trouper::schema::FieldTy::Str,
+]);

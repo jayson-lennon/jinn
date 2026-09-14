@@ -39,3 +39,8 @@ impl SessionLoadCompleted {
 }
 
 impl BusMessage for SessionLoadCompleted {}
+
+jinn_slices::crossing_schema!(SessionLoadCompleted, "SessionLoadCompleted",
+trouper::schema::SchemaKind::Event,
+description: "A session was loaded from disk and inserted into state.",
+fields: ["session" => trouper::schema::FieldTy::Json]);

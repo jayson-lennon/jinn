@@ -1,0 +1,31 @@
+[package]
+name = "jinn-session-init"
+version = "0.116.1"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Core types: SessionId keys every command and event.
+jinn-core-types = { workspace = true }
+# Slice host verbs (`forward`/`reverse` staging, AppSliceHost) and the
+# crossing_schema! macro.
+jinn-slices = { workspace = true }
+# The trouper runtime: ServiceActors, topics, schemas, partition sets.
+trouper = { workspace = true }
+# The kernel seam, per the recorded §7.1(4) exception: State + the caps
+# mint (activation grants actors their write handles), the trouper
+# bridge relay spawn functions, scan_cwd_for_session's gate, and the
+# kernel event types this slice translates and returns via relays.
+jinn-domain = { workspace = true, features = ["test-harness"] }
+jinn-session-msg = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+wherror = { workspace = true }
+error-stack = { workspace = true }
+
+[dev-dependencies]
+jinn-testutil = { workspace = true }
+rstest = { workspace = true }
+tempfile = { workspace = true }

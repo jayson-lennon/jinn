@@ -248,6 +248,15 @@ impl ActorSystemBuilder {
         // hook + overlay geometry. Composition owns exactly this call.
         jinn_quake_bar_activate(&mut services);
 
+        // ── Session-init slice ────────────────────────────────────────
+        // Activation installs the discovery partition set, spawns the
+        // supervisor + notifier on trouper, and stages the crossing
+        // routes. Must precede the readiness publish at the tail of
+        // this function: the supervisor's subscriptions must exist
+        // before the first `EnvironmentLoaded` trigger.
+        jinn_session_init_activate(&mut services, state.clone());
+        jinn_session_init::bridge::drain_routes(&services).await;
+
         // ── Infrastructure actors ──────────────────────────────────────────
 
         // System-ready actor: signals main thread when all actors started.
@@ -1662,4 +1671,36 @@ async fn jinn_discord_activate(
         panic!("discord slice finalize failed: {error}");
     }
     activated
+}
+
+/// Activates the session-init slice over the kernel's registries.
+///
+/// The slice installs the discovery partition set, spawns its trouper
+/// actors, and stages the crossing routes; `finalize` collects the
+/// staged set so the drain's relays match. Slice integration is
+/// exactly this call plus `bridge::drain_routes`.
+#[expect(
+    clippy::panic,
+    reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
+)]
+fn jinn_session_init_activate(
+    services: &mut Services,
+    state: jinn_domain::common::state::State,
+) {
+    // `Services` is cheap to clone (Arc fields); the clone side-steps
+    // the host's mutable viewport borrow for the activation call.
+    let services_snapshot = services.clone();
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    if let Err(error) = jinn_session_init::activate(&mut host, &services_snapshot, state) {
+        panic!("session-init slice activation failed: {error}");
+    }
+    if let Err(error) = host.finalize(&|_key| None) {
+        panic!("session-init slice finalize failed: {error}");
+    }
 }

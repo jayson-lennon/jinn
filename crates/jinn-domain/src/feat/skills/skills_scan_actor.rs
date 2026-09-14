@@ -274,7 +274,20 @@ pub struct ScanSkills {
 
 impl crate::common::bus::BusMessage for SkillsLoaded {}
 
+jinn_slices::crossing_schema!(SkillsLoaded, "SkillsLoaded",
+trouper::schema::SchemaKind::Event,
+description: "Skills have been scanned and loaded for a session.",
+fields: [
+    "session_id" => trouper::schema::FieldTy::Uuid,
+    "skills" => trouper::schema::FieldTy::List(Box::new(trouper::schema::FieldTy::Json)),
+]);
+
 impl crate::common::bus::BusMessage for ScanSkills {}
+
+jinn_slices::crossing_schema!(ScanSkills, "ScanSkills",
+trouper::schema::SchemaKind::Command,
+description: "Trigger a skills scan for a session.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
 
 #[cfg(test)]
 mod tests;

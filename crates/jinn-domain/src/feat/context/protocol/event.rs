@@ -66,3 +66,11 @@ pub struct ContextFilesLoaded {
 }
 
 impl BusMessage for ContextFilesLoaded {}
+
+jinn_slices::crossing_schema!(ContextFilesLoaded, "ContextFilesLoaded",
+trouper::schema::SchemaKind::Event,
+description: "Project context files scanned and loaded for a session.",
+fields: [
+    "session_id" => trouper::schema::FieldTy::Uuid,
+    "files" => trouper::schema::FieldTy::List(Box::new(trouper::schema::FieldTy::Json)),
+]);
