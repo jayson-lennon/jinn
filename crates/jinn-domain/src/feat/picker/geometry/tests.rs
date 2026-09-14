@@ -69,16 +69,16 @@ fn measure_provider_picker_reserves_two_footer_rows() {
 
 #[rstest::rstest]
 #[test]
-fn measure_persona_picker_reserves_one_footer_row() {
-    // Given a Persona picker active (one footer).
+fn measure_persona_picker_reserves_two_bottom_rows() {
+    // Given a Persona picker active (status + keybind footer via its spec).
     let state = state_with_picker(PickerKind::Persona);
 
     // When measuring at LARGE_FRAME.
     let height = measure_active_picker_results_height(&state, LARGE_FRAME, &registry());
 
-    // Then the height is inner minus chrome (2) minus one footer.
-    // At LARGE_FRAME the popup inner is 39 rows; 39 - 2 - 1 = 36.
-    assert_eq!(height, 36);
+    // Then the height is inner minus chrome (2) minus the spec's two bottom
+    // rows. At LARGE_FRAME the popup inner is 39 rows; 39 - 2 - 2 = 35.
+    assert_eq!(height, 35);
 }
 
 #[rstest::rstest]

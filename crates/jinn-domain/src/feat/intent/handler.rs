@@ -579,7 +579,7 @@ impl IntentHandler {
                 feat::ui::sidebar::pins::pins_section::handle_pins_pin_cycle(state)
             }
             Intent::SidebarPersonaEdit => {
-                feat::ui::sidebar::pins::pins_section::handle_sidebar_persona_edit(state)
+                feat::ui::sidebar::pins::pins_section::handle_sidebar_persona_edit(state, pickers)
             }
             Intent::SessionNewWithLifecycle => {
                 feat::picker::intent::handle_open_picker(

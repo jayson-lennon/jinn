@@ -7,6 +7,19 @@ use ratatui::layout::Rect;
 
 /// Renders the active picker overlay, dispatching on [`PickerKind`].
 pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
+    // Spec-driven kinds render through the registry first; the legacy arms
+    // below stay authoritative for kinds without a spec.
+    if let Some(kind) = ctx.state.frontend.scope_stack.picker_kind().copied()
+        && let Some(id) = jinn_domain::feat::picker::registry::spec_id_for_kind(&kind)
+        && let Some(spec) = ctx.pickers.get(id)
+    {
+        let host = jinn_domain::feat::picker::host_impl::AppStateRenderHost::new(ctx.state);
+        if spec.render(frame, area, &host) {
+            return;
+        }
+        // The spec rendered nothing (storage not wrapped yet) — fall
+        // through to the legacy renderer below.
+    }
     match ctx.state.frontend.scope_stack.picker_kind().copied() {
         Some(PickerKind::Provider) => render_provider_picker(frame, area, ctx),
         Some(PickerKind::Session) => render_session_picker(frame, area, ctx),
@@ -200,6 +213,52 @@ mod tests {
             drawn_footer_rows,
             declared,
             "picker {kind} draws {drawn_footer_rows} footer rows but declares {declared}",
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn persona_picker_draws_status_and_keybind_rows_via_spec() {
+        // Given a persona picker open, rendered through its spec.
+        let mut state = AppState::default();
+        state
+            .frontend
+            .scope_stack
+            .push(FocusScope::Picker { kind: PickerKind::Persona });
+        let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
+
+        // When rendering.
+        let area = Rect::new(0, 0, 100, 30);
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("terminal");
+        terminal
+            .draw(|frame| {
+                let slices = jinn_slices::Slices::new();
+                let views = jinn_domain::common::overlay_views::OverlayViews::new();
+                let ctx = jinn_domain::RenderCtx::new(&state, &slices, &views)
+                    .with_pickers(&pickers);
+                super::render_picker(frame, area, &ctx);
+            })
+            .expect("draw");
+
+        // Then the popup draws the spec's two bottom rows: the "Active:"
+        // status line above the standard keybind line.
+        let popup = compute_popup_rect(area);
+        let inner_bottom = popup.y + popup.height.saturating_sub(2);
+        let buffer = terminal.backend().buffer();
+        let keybind_row: String = ((popup.x + 1)..(popup.x + popup.width - 1))
+            .map(|x| buffer[(x, inner_bottom)].symbol())
+            .collect();
+        let status_row: String = ((popup.x + 1)..(popup.x + popup.width - 1))
+            .map(|x| buffer[(x, inner_bottom - 1)].symbol())
+            .collect();
+        assert!(
+            keybind_row.contains("Enter confirm"),
+            "bottom row must be the keybind line; got {keybind_row:?}"
+        );
+        assert!(
+            status_row.contains("Active:"),
+            "row above must be the status line; got {status_row:?}"
         );
     }
 }

@@ -33,7 +33,8 @@ pub struct PickerStates {
 
     /// Persona picker state (items, filter text, selection index).
     /// OWNER: IntentHandler (persona picker navigation).
-    pub persona_picker: jinn_selection_widget::SelectionState<PersonaEntry>,
+    pub persona_picker:
+        jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PersonaEntry>>,
 
     /// Theme picker state (items, filter text, selection index).
     /// OWNER: IntentHandler (theme picker navigation).
@@ -141,9 +142,11 @@ pub trait PickerExt {
     ) -> &mut jinn_selection_widget::TreePickerState<SessionTreeEntry>;
 
     /// Read-only access to the persona picker state.
-    fn persona_picker(&self) -> &jinn_selection_widget::SelectionState<PersonaEntry>;
+    fn persona_picker(&self) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PersonaEntry>>;
     /// Mutable access to the persona picker state.
-    fn persona_picker_mut(&mut self) -> &mut jinn_selection_widget::SelectionState<PersonaEntry>;
+    fn persona_picker_mut(
+        &mut self,
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PersonaEntry>>;
 
     /// Read-only access to the theme picker state.
     fn theme_picker(&self) -> &jinn_selection_widget::SelectionState<ThemeEntry>;
@@ -258,11 +261,15 @@ impl PickerExt for super::frontend_state::FrontendState {
         &mut self.pickers.session_picker
     }
 
-    fn persona_picker(&self) -> &jinn_selection_widget::SelectionState<PersonaEntry> {
+    fn persona_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PersonaEntry>> {
         &self.pickers.persona_picker
     }
 
-    fn persona_picker_mut(&mut self) -> &mut jinn_selection_widget::SelectionState<PersonaEntry> {
+    fn persona_picker_mut(
+        &mut self,
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PersonaEntry>> {
         &mut self.pickers.persona_picker
     }
 

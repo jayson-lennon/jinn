@@ -8,7 +8,7 @@
 
 use crate::common::app_state::AppState;
 use crate::common::app_state::FocusScope;
-use crate::feat::context::protocol::command::{LoadPersonaPickerEntries, ScanContextFiles};
+use crate::feat::context::protocol::command::ScanContextFiles;
 use crate::feat::preferences_actor::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use crate::feat::preferences_actor::protocol::command::{PreferenceUpdate, UpdatePreferences};
 use crate::feat::provider::ProviderState;
@@ -72,8 +72,8 @@ pub fn handle_open_picker(
     match kind {
         PickerKind::Provider => IntentResult::new_message(LoadProviderPickerEntries),
         PickerKind::Session => IntentResult::new_message(LoadSessionPickerEntries),
-        PickerKind::Persona => IntentResult::new_message(LoadPersonaPickerEntries),
-        PickerKind::Theme
+        PickerKind::Persona
+        | PickerKind::Theme
         | PickerKind::Tool
         | PickerKind::Skill
         | PickerKind::TaskList
@@ -376,9 +376,18 @@ pub fn handle_picker_confirm(
     }
 
     match state.frontend.scope_stack.picker_kind().copied() {
+        // Persona is fully spec-driven; its confirm runs through the
+        // registry (with an empty registry — test seams — it no-ops).
+        Some(PickerKind::Persona) => (
+            crate::feat::picker::action::run_active_hook(
+                state,
+                pickers,
+                crate::feat::picker::action::Hook::Confirm,
+            ),
+            None,
+        ),
         Some(PickerKind::Provider) => (confirm_provider(state), None),
         Some(PickerKind::Session) => (confirm_session(state), None),
-        Some(PickerKind::Persona) => (confirm_persona(state), None),
         Some(PickerKind::Theme) => (confirm_theme(state), None),
         Some(PickerKind::SessionLifecycle) => (confirm_session_lifecycle(state), None),
         Some(PickerKind::Project) => (confirm_project(state), None),
@@ -523,38 +532,6 @@ fn resolve_provider_selection(provider: &ProviderState, highlighted: String) -> 
             strategy: AlloyStrategy::RoundRobin { index: 0 },
         }
     }
-}
-
-/// Confirms the selected persona and sets it as active.
-fn confirm_persona(state: &mut AppState) -> IntentResult {
-    let Some(entry) = state.frontend.persona_picker().selected_item() else {
-        return IntentResult::empty();
-    };
-    let persona_name = entry.name.clone();
-
-    // Find the matching persona and set it as active.
-    let persona = state
-        .context
-        .personas()
-        .iter()
-        .find(|p| p.name == persona_name)
-        .cloned();
-    if let Some(p) = persona {
-        state.context.set_active_persona(Some(p));
-    }
-
-    // Also update the active session's persona binding.
-    let session_id = state.session.active_session_id().clone();
-    state
-        .active_session_mut()
-        .set_persona_name(persona_name.clone());
-
-    state.frontend.scope_stack.pop();
-
-    IntentResult::new_message(UpdateAppState {
-        updates: vec![AppStateUpdate::SetPersona(Some(persona_name))],
-    })
-    .with_message(MarkSessionInteracted { session_id })
 }
 
 /// Confirms the selected reasoning effort and applies it.
@@ -1176,6 +1153,13 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
+
+    /// Wraps persona entries through the persona spec's hooks for storage.
+    fn wrap_persona_entries(entries: Vec<crate::feat::persona::PersonaEntry>) -> Vec<jinn_picker::PickerEntry<crate::feat::persona::PersonaEntry>> {
+        crate::feat::picker::registry::build_picker_registry()
+            .make_items(crate::feat::picker::registry::PERSONA_ID, entries)
+            .expect("persona spec is registered")
+    }
 
     fn empty_pickers() -> jinn_picker::PickerRegistry {
         jinn_picker::PickerRegistry::new()
@@ -1800,11 +1784,21 @@ mod tests {
                 theme: crate::feat::theme::default_theme(),
             },
         ];
-        state.frontend.persona_picker_mut().set_items(entries);
+        state.frontend.persona_picker_mut().set_items(wrap_persona_entries(entries));
         state.frontend.persona_picker_mut().move_down(1); // coder
         state.frontend.persona_picker_mut().move_down(1); // writer
 
-        let result = confirm_persona(&mut state);
+        // Persona confirm runs through its spec (registry dispatch).
+        state
+            .frontend
+            .scope_stack
+            .push(crate::common::app_state::FocusScope::Picker {
+                kind: PickerKind::Persona,
+            });
+        let (result, _redispatch) = handle_picker_confirm(
+            &mut state,
+            &crate::feat::picker::registry::build_picker_registry(),
+        );
 
         // Then the active persona is "writer", not "coder".
         assert_eq!(
@@ -2221,11 +2215,23 @@ mod tests {
             is_active: false,
             theme: crate::feat::theme::default_theme(),
         };
-        state.frontend.persona_picker_mut().set_items(vec![entry]);
+        state
+            .frontend
+            .persona_picker_mut()
+            .set_items(wrap_persona_entries(vec![entry]));
         state.frontend.persona_picker_mut().move_down(1);
 
-        // When confirming.
-        let result = confirm_persona(&mut state);
+        // When confirming through the persona spec (registry dispatch).
+        state
+            .frontend
+            .scope_stack
+            .push(crate::common::app_state::FocusScope::Picker {
+                kind: PickerKind::Persona,
+            });
+        let (result, _redispatch) = handle_picker_confirm(
+            &mut state,
+            &crate::feat::picker::registry::build_picker_registry(),
+        );
 
         // Then a MarkSessionInteracted message is emitted.
         assert!(

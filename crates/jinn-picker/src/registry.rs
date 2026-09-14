@@ -110,8 +110,11 @@ pub trait ErasedPickerSpec: Send + Sync {
 
     /// The erased render driver: dispatches on the widget kind and drives
     /// the corresponding selection widget with the spec's title, footers,
-    /// colors, preview scroll, and preview cache.
-    fn render(&self, frame: &mut Frame<'_>, area: Rect, host: &dyn PickerHost);
+    /// colors, preview scroll, and preview cache. Returns `false` when the
+    /// host lent no compatible storage (e.g. the kind is mapped but its
+    /// storage has not been wrapped yet) — callers fall back to the
+    /// legacy renderer.
+    fn render(&self, frame: &mut Frame<'_>, area: Rect, host: &dyn PickerHost) -> bool;
 
     /// Downcast seam for the registry's typed window: the spec back as an
     /// `Any` handle so `make_items` can recover the entry type.
@@ -244,8 +247,8 @@ where
         }
     }
 
-    fn render(&self, frame: &mut Frame<'_>, area: Rect, host: &dyn PickerHost) {
-        crate::render::render_spec(self, frame, area, host);
+    fn render(&self, frame: &mut Frame<'_>, area: Rect, host: &dyn PickerHost) -> bool {
+        crate::render::render_spec(self, frame, area, host)
     }
 
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {

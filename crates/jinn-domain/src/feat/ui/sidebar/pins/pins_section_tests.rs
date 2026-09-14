@@ -45,7 +45,10 @@ fn sidebar_persona_edit_opens_picker_when_persona_focused() {
         .set_sidebar_section(SidebarSectionId::Persona);
 
     // When handling sidebar persona edit.
-    let result = handle_sidebar_persona_edit(&mut state);
+    let result = handle_sidebar_persona_edit(
+        &mut state,
+        &crate::feat::picker::registry::build_picker_registry(),
+    );
 
     // Then the persona picker is active.
     assert_eq!(
@@ -72,7 +75,10 @@ fn sidebar_persona_edit_noop_when_pins_focused() {
         .set_sidebar_section(SidebarSectionId::Pins);
 
     // When handling sidebar persona edit.
-    let result = handle_sidebar_persona_edit(&mut state);
+    let result = handle_sidebar_persona_edit(
+        &mut state,
+        &crate::feat::picker::registry::build_picker_registry(),
+    );
 
     // Then nothing changed.
     assert!(!state.frontend.scope_stack.is_picker());

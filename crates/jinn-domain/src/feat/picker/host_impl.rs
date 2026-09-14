@@ -178,22 +178,32 @@ mod tests {
     fn selection_state_lends_typed_storage_by_id() {
         // Given a host state whose persona picker holds items.
         let mut state = AppState::default();
-        state
-            .frontend
-            .persona_picker_mut()
-            .set_items(vec![test_persona("a")]);
+        let items = {
+            let registry = crate::feat::picker::registry::build_picker_registry();
+            registry
+                .make_items(crate::feat::picker::registry::PERSONA_ID, vec![test_persona("a")])
+                .expect("persona spec is registered")
+        };
+        state.frontend.persona_picker_mut().set_items(items);
 
         // When lending the selection state for the persona id.
         let mapped = {
             let mut host = AppStatePickerHost::new(&mut state);
             host.selection_state(PickerId::new(PERSONA_ID))
                 .expect("persona is mapped")
-                .downcast_ref::<jinn_selection_widget::SelectionState<crate::feat::persona::PersonaEntry>>()
+                .downcast_ref::<
+                    jinn_selection_widget::SelectionState<
+                        jinn_picker::PickerEntry<crate::feat::persona::PersonaEntry>,
+                    >,
+                >()
                 .is_some()
         };
 
-        // Then the lend downcasts back to the typed selection state.
-        assert!(mapped, "persona lend should downcast to its SelectionState");
+        // Then the lend downcasts back to the wrapped selection storage.
+        assert!(
+            mapped,
+            "persona lend should downcast to its wrapped SelectionState"
+        );
     }
 
     #[test]
@@ -253,5 +263,78 @@ pub(crate) mod test_support {
             popup_title: ratatui::style::Color::Cyan,
             primary_text: ratatui::style::Color::White,
         }
+    }
+}
+
+/// Read-only lens over [`AppState`] for the render path, where no mutable
+/// access exists (the render pass holds only a read guard). Read-side host
+/// operations are answered; mutable lends are not.
+pub struct AppStateRenderHost<'a> {
+    state: &'a AppState,
+}
+
+impl<'a> AppStateRenderHost<'a> {
+    /// Wraps the render pass's state snapshot.
+    #[must_use]
+    pub fn new(state: &'a AppState) -> Self {
+        Self { state }
+    }
+}
+
+impl PickerHost for AppStateRenderHost<'_> {
+    fn selection_state(&mut self, _id: PickerId) -> Option<&mut dyn std::any::Any> {
+        None // render never mutates through this lens
+    }
+
+    fn selection_state_ref(&self, id: PickerId) -> Option<&dyn std::any::Any> {
+        match id.as_str() {
+            PERSONA_ID => Some(self.state.frontend.persona_picker() as &dyn std::any::Any),
+            SKILL_ID => Some(self.state.frontend.skill_picker() as &dyn std::any::Any),
+            _ => None,
+        }
+    }
+
+    fn state_any(&mut self) -> &mut dyn std::any::Any {
+        unreachable!("AppStateRenderHost is read-only; specs must not call state_any in render")
+    }
+
+    fn state_any_ref(&self) -> &dyn std::any::Any {
+        self.state
+    }
+
+    fn palette(&self) -> Palette {
+        let theme = &self.state.frontend.theme;
+        // Chrome fields mirror the selection widget's defaults, matching
+        // [`AppStatePickerHost::palette`].
+        Palette {
+            border: ratatui::style::Color::DarkGray,
+            filter_text: ratatui::style::Color::White,
+            separator: ratatui::style::Color::DarkGray,
+            footer: ratatui::style::Color::DarkGray,
+            highlight_bg: ratatui::style::Color::DarkGray,
+            muted_text: theme.muted_text,
+            accent_action: theme.accent_action,
+            popup_title: theme.popup_title,
+            primary_text: theme.primary_text,
+        }
+    }
+
+    fn session_id(&self) -> jinn_core_types::SessionId {
+        self.state.session.active_session_id().clone()
+    }
+
+    fn preview_scroll(&self, id: PickerId) -> usize {
+        if id.as_str() == SKILL_ID {
+            return self.state.frontend.skill_preview_scroll();
+        }
+        self.state.frontend.pickers.pickers_scrolls.get(id)
+    }
+
+    fn set_preview_scroll(&mut self, _id: PickerId, _scroll: usize) {
+        // Read-only lens: render never stores scrolls.
+    }
+
+    fn reset_preview_scroll(&mut self, _id: PickerId) {
+        // Read-only lens: render never clears scrolls.
     }
 }

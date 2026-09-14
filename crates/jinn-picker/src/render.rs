@@ -72,7 +72,8 @@ pub(crate) fn render_spec<T>(
     frame: &mut Frame<'_>,
     area: Rect,
     host: &dyn PickerHost,
-) where
+) -> bool
+where
     T: std::fmt::Debug + Send + Sync + 'static,
 {
     let palette = host.palette();
@@ -81,8 +82,8 @@ pub(crate) fn render_spec<T>(
         .selection_state_ref(id)
         .and_then(|any| any.downcast_ref::<jinn_selection_widget::SelectionState<crate::entry::PickerEntry<T>>>())
     else {
-        // No storage lent for this picker — nothing to render.
-        return;
+        // No compatible storage lent — the caller falls back to legacy.
+        return false;
     };
 
     // Status line (or blank placeholder) above the keybind line.
@@ -132,6 +133,8 @@ pub(crate) fn render_spec<T>(
                 .render(frame, area);
         }
     }
+
+    true
 }
 
 #[cfg(test)]
