@@ -31,7 +31,11 @@ use super::validator;
 
 /// Opens a picker of the given kind. Sets mode to Picker and optionally
 /// requests picker entries from the actor system.
-pub fn handle_open_picker(state: &mut AppState, kind: PickerKind) -> IntentResult {
+pub fn handle_open_picker(
+    state: &mut AppState,
+    kind: PickerKind,
+    pickers: &jinn_picker::PickerRegistry,
+) -> IntentResult {
     if validator::validate_open_picker(state, &kind).is_err() {
         return IntentResult::empty();
     }
@@ -49,6 +53,19 @@ pub fn handle_open_picker(state: &mut AppState, kind: PickerKind) -> IntentResul
     }
 
     state.frontend.scope_stack.push(FocusScope::Picker { kind });
+
+    // Spec-driven pickers own their open-time preparation entirely —
+    // but only when the registry actually holds their spec; otherwise the
+    // legacy open path still runs.
+    if crate::feat::picker::registry::spec_id_for_kind(&kind)
+        .is_some_and(|id| pickers.get(id).is_some())
+    {
+        return crate::feat::picker::action::run_active_hook(
+            state,
+            pickers,
+            crate::feat::picker::action::Hook::Open,
+        );
+    }
 
     reset_picker_for_open(state, kind);
 
@@ -330,9 +347,32 @@ pub fn handle_backspace(state: &mut AppState) -> IntentResult {
 /// Returns `(IntentResult, Option<Intent>)`. For Provider and
 /// Session pickers, the second element is `None`. For Keymap picker, returns
 /// `(IntentResult::empty(), Some(selected_intent))` so the caller can re-dispatch.
-pub fn handle_picker_confirm(state: &mut AppState) -> (IntentResult, Option<Intent>) {
+pub fn handle_picker_confirm(
+    state: &mut AppState,
+    pickers: &jinn_picker::PickerRegistry,
+) -> (IntentResult, Option<Intent>) {
     if validator::validate_picker_confirm(state).is_err() {
         return (IntentResult::empty(), None);
+    }
+
+    // Spec-driven pickers own their confirm behavior entirely — but only
+    // when the registry actually holds their spec; otherwise the legacy
+    // confirm path still runs.
+    if state
+        .frontend
+        .scope_stack
+        .picker_kind()
+        .and_then(crate::feat::picker::registry::spec_id_for_kind)
+        .is_some_and(|id| pickers.get(id).is_some())
+    {
+        return (
+            crate::feat::picker::action::run_active_hook(
+                state,
+                pickers,
+                crate::feat::picker::action::Hook::Confirm,
+            ),
+            None,
+        );
     }
 
     match state.frontend.scope_stack.picker_kind().copied() {
@@ -876,7 +916,7 @@ pub fn handle_project_lifecycle_confirm(state: &mut AppState) -> IntentResult {
 
     // Re-enter the lifecycle picker. `handle_open_picker` pushes a fresh
     // `Picker { SessionLifecycle }` scope.
-    handle_open_picker(state, PickerKind::SessionLifecycle)
+    handle_open_picker(state, PickerKind::SessionLifecycle, &jinn_picker::PickerRegistry::new())
 }
 
 /// Removes the highlighted project from the curated list (`d`).
@@ -1136,6 +1176,10 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
+
+    fn empty_pickers() -> jinn_picker::PickerRegistry {
+        jinn_picker::PickerRegistry::new()
+    }
     use crate::feat::session::ChatSessionState;
     use crate::feat::todo_list::TaskStatus;
     use crate::feat::todo_list::picker_entry::RowStatus;
@@ -1382,7 +1426,7 @@ mod tests {
             .set_model(ModelSelection::Single("ollama/llama3".to_owned()));
 
         // When opening the provider picker.
-        handle_open_picker(&mut state, PickerKind::Provider);
+        handle_open_picker(&mut state, PickerKind::Provider, &empty_pickers());
 
         // Then alloy_mode is false (single mode).
         assert!(
@@ -1406,7 +1450,7 @@ mod tests {
         });
 
         // When opening the provider picker.
-        handle_open_picker(&mut state, PickerKind::Provider);
+        handle_open_picker(&mut state, PickerKind::Provider, &empty_pickers());
 
         // Then alloy_mode is true (alloy mode).
         assert!(
@@ -1893,7 +1937,7 @@ mod tests {
         });
 
         // When opening the endpoint picker.
-        handle_open_picker(&mut state, PickerKind::Endpoint);
+        handle_open_picker(&mut state, PickerKind::Endpoint, &empty_pickers());
 
         // Then no picker scope is pushed (the gate rejected it).
         assert!(
@@ -2332,7 +2376,7 @@ mod tests {
             }]);
 
         // Open the picker: pushes the Skill scope and snapshots disabled_skills.
-        handle_open_picker(&mut state, PickerKind::Skill);
+        handle_open_picker(&mut state, PickerKind::Skill, &empty_pickers());
         state
     }
 
@@ -2464,7 +2508,7 @@ mod tests {
             .set_disabled_skills(std::collections::HashSet::from(["web-coder".to_owned()]));
         // Reopen to take a fresh snapshot and reload entries from the disabled set.
         state.frontend.scope_stack.pop();
-        handle_open_picker(&mut state, PickerKind::Skill);
+        handle_open_picker(&mut state, PickerKind::Skill, &empty_pickers());
 
         assert!(!state.frontend.skill_picker().items()[0].enabled);
         assert!(
@@ -2508,7 +2552,7 @@ mod tests {
             .active_session_mut()
             .set_disabled_skills(std::collections::HashSet::from(["web-coder".to_owned()]));
         state.frontend.scope_stack.pop();
-        handle_open_picker(&mut state, PickerKind::Skill);
+        handle_open_picker(&mut state, PickerKind::Skill, &empty_pickers());
         state
     }
 
@@ -2567,7 +2611,7 @@ mod tests {
         state
             .session
             .set_active(state.session.active_session_id().clone());
-        handle_open_picker(&mut state, PickerKind::Skill);
+        handle_open_picker(&mut state, PickerKind::Skill, &empty_pickers());
 
         // When loading with no selection.
         let result = handle_skill_load_selected(&mut state);
@@ -2612,7 +2656,7 @@ mod tests {
         assert_eq!(state.frontend.caches.skill_preview_cache.read().len(), 1);
 
         // When the skill picker is opened.
-        handle_open_picker(&mut state, PickerKind::Skill);
+        handle_open_picker(&mut state, PickerKind::Skill, &empty_pickers());
 
         // Then the cache is preserved (bodies haven't changed).
         assert_eq!(state.frontend.caches.skill_preview_cache.read().len(), 1);
@@ -2992,7 +3036,7 @@ mod tests {
         let len_before = state.frontend.scope_stack.len();
 
         // When confirming.
-        let (result, follow_up) = handle_picker_confirm(&mut state);
+        let (result, follow_up) = handle_picker_confirm(&mut state, &empty_pickers());
 
         // Then no commands, no follow-up, and the scope stack is unchanged.
         assert!(result.message_names.is_empty(), "no commands");
@@ -3540,7 +3584,7 @@ mod tests {
         );
 
         // When opening the theme picker.
-        handle_open_picker(&mut state, PickerKind::Theme);
+        handle_open_picker(&mut state, PickerKind::Theme, &empty_pickers());
 
         // Then default leads and the rest follow case-insensitively sorted.
         let names: Vec<String> = state
@@ -3560,7 +3604,7 @@ mod tests {
         let mut state = AppState::default();
 
         // When opening the theme picker.
-        handle_open_picker(&mut state, PickerKind::Theme);
+        handle_open_picker(&mut state, PickerKind::Theme, &empty_pickers());
 
         // Then the picker offers exactly the built-in default.
         assert_eq!(state.frontend.theme_picker().items().len(), 1);
@@ -3586,7 +3630,7 @@ mod tests {
         ]);
 
         // When opening the plugin picker.
-        handle_open_picker(&mut state, PickerKind::Plugin);
+        handle_open_picker(&mut state, PickerKind::Plugin, &empty_pickers());
 
         // Then the picker holds one entry per cached plugin.
         assert_eq!(state.frontend.plugin_picker().items().len(), 2);
@@ -3598,7 +3642,7 @@ mod tests {
         let mut state = AppState::default();
 
         // When opening the plugin picker.
-        handle_open_picker(&mut state, PickerKind::Plugin);
+        handle_open_picker(&mut state, PickerKind::Plugin, &empty_pickers());
 
         // Then the picker holds zero entries.
         assert!(state.frontend.plugin_picker().items().is_empty());
@@ -3613,7 +3657,7 @@ mod tests {
         ]);
 
         // When opening the plugin picker.
-        handle_open_picker(&mut state, PickerKind::Plugin);
+        handle_open_picker(&mut state, PickerKind::Plugin, &empty_pickers());
 
         // Then entries follow name order (BTreeMap iteration).
         let names: Vec<&str> = state
@@ -3632,7 +3676,7 @@ mod tests {
         let mut state = plugin_state_with(&[("flood", PluginPhase::Unresponsive)]);
 
         // When opening the plugin picker.
-        handle_open_picker(&mut state, PickerKind::Plugin);
+        handle_open_picker(&mut state, PickerKind::Plugin, &empty_pickers());
 
         // Then the entry carries that phase.
         assert_eq!(
@@ -3645,10 +3689,10 @@ mod tests {
     fn confirm_plugin_picker_is_noop() {
         // Given a plugin picker open with one entry.
         let mut state = plugin_state_with(&[("theme-loader", PluginPhase::Running)]);
-        handle_open_picker(&mut state, PickerKind::Plugin);
+        handle_open_picker(&mut state, PickerKind::Plugin, &empty_pickers());
 
         // When confirming the selection.
-        let (result, redispatch) = handle_picker_confirm(&mut state);
+        let (result, redispatch) = handle_picker_confirm(&mut state, &empty_pickers());
 
         // Then nothing is emitted and nothing is re-dispatched.
         assert!(result.message_names.is_empty());

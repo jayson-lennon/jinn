@@ -447,6 +447,7 @@ fn session_new_works_when_sidebar_sessions_focused() {
         &mut state,
         &empty_slices(),
         &empty_routes(),
+        &empty_pickers(),
     );
 
     // Then a new session is created.
@@ -478,6 +479,7 @@ fn session_new_works_when_not_in_sidebar() {
         &mut state,
         &empty_slices(),
         &empty_routes(),
+        &empty_pickers(),
     );
 
     // Then a new session is created (no section restriction outside sidebar).
@@ -632,6 +634,10 @@ use crate::feat::session::tool_result_status::ToolResultStatus;
 /// exercise slices or route rows.
 fn empty_slices() -> crate::common::slices::Slices {
     crate::common::slices::Slices::new()
+}
+
+fn empty_pickers() -> jinn_picker::PickerRegistry {
+    jinn_picker::PickerRegistry::new()
 }
 
 fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {

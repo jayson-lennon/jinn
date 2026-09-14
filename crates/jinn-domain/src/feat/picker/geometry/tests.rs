@@ -7,7 +7,13 @@ use crate::common::app_state::AppState;
 use crate::feat::picker::geometry::{
     PICKER_VIEWPORT_FALLBACK, measure_active_picker_results_height,
 };
+/// The domain's registry (spec-backed kinds measure from their specs).
 use crate::feat::ui::picker_states::PickerExt;
+
+/// The domain's registry (spec-backed kinds measure from their specs).
+fn registry() -> jinn_picker::PickerRegistry {
+    crate::feat::picker::registry::build_picker_registry()
+}
 
 /// Frame area used by the standard popup-fit scenarios below. Large enough
 /// that the popup hits its max-height cap and is wide enough to exercise the
@@ -21,7 +27,7 @@ fn measure_returns_fallback_when_no_picker_active() {
     let state = AppState::default();
 
     // When measuring the active picker viewport.
-    let height = measure_active_picker_results_height(&state, LARGE_FRAME);
+    let height = measure_active_picker_results_height(&state, LARGE_FRAME, &registry());
 
     // Then the fallback height is returned.
     assert_eq!(height, PICKER_VIEWPORT_FALLBACK);
@@ -54,7 +60,7 @@ fn measure_provider_picker_reserves_two_footer_rows() {
     let state = state_with_picker(PickerKind::Provider);
 
     // When measuring at LARGE_FRAME.
-    let height = measure_active_picker_results_height(&state, LARGE_FRAME);
+    let height = measure_active_picker_results_height(&state, LARGE_FRAME, &registry());
 
     // Then the height is inner minus chrome (2) minus two footers.
     // At LARGE_FRAME the popup inner is 39 rows; 39 - 2 - 2 = 35.
@@ -68,7 +74,7 @@ fn measure_persona_picker_reserves_one_footer_row() {
     let state = state_with_picker(PickerKind::Persona);
 
     // When measuring at LARGE_FRAME.
-    let height = measure_active_picker_results_height(&state, LARGE_FRAME);
+    let height = measure_active_picker_results_height(&state, LARGE_FRAME, &registry());
 
     // Then the height is inner minus chrome (2) minus one footer.
     // At LARGE_FRAME the popup inner is 39 rows; 39 - 2 - 1 = 36.
@@ -85,7 +91,7 @@ fn measure_skill_picker_uses_vertical_split_when_wide() {
     // (popup width = frame*0.8 must be >= VERTICAL_SPLIT_MIN_WIDTH=101,
     // so frame width >= 127).
     let wide = Rect::new(0, 0, 140, 50);
-    let height = measure_active_picker_results_height(&state, wide);
+    let height = measure_active_picker_results_height(&state, wide, &registry());
 
     // Then height is content minus skill list chrome (inner - 1 footer - 2 chrome).
     // Popup inner height is 39; 39 - 1 - 2 = 36.
@@ -100,7 +106,7 @@ fn measure_skill_picker_uses_horizontal_split_when_narrow() {
 
     // When measuring at a narrow frame (width < VERTICAL_SPLIT_MIN_WIDTH).
     let narrow = Rect::new(0, 0, 40, 50);
-    let height = measure_active_picker_results_height(&state, narrow);
+    let height = measure_active_picker_results_height(&state, narrow, &registry());
 
     // Then height is fixed at HORIZONTAL_LIST_ROWS.
     assert_eq!(height, jinn_selection_widget::HORIZONTAL_LIST_ROWS);
@@ -114,7 +120,7 @@ fn measure_never_returns_zero_on_tiny_terminal() {
 
     // When measuring at a 1x1 frame.
     let tiny = Rect::new(0, 0, 1, 1);
-    let height = measure_active_picker_results_height(&state, tiny);
+    let height = measure_active_picker_results_height(&state, tiny, &registry());
 
     // Then height is at least 1.
     assert!(height >= 1);

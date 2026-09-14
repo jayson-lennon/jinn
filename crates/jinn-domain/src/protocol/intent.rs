@@ -117,6 +117,17 @@ pub enum Intent {
     PickerBackspace,
     /// Confirm the current picker selection.
     PickerConfirm,
+    /// Run a spec-driven picker's declared bind action.
+    ///
+    /// One data-carried intent replaces per-picker variants as pickers
+    /// migrate: `picker` is the spec's registry id, `action` the bind
+    /// row's notation. Resolved through the picker's own bind table.
+    PickerAction {
+        /// The picker spec's registry id (e.g. `"skill"`).
+        picker: String,
+        /// The bind row's action (e.g. `"<tab>"`).
+        action: String,
+    },
     /// Move the picker selection up.
     PickerMoveUp,
     /// Move the picker selection down.
@@ -458,6 +469,9 @@ impl std::fmt::Display for Intent {
             Intent::PickerInsertChar { ch } => write!(f, "picker insert '{ch}'"),
             Intent::PickerBackspace => write!(f, "picker backspace"),
             Intent::PickerConfirm => write!(f, "picker confirm"),
+            Intent::PickerAction { picker, action } => {
+                write!(f, "picker action {action} ({picker})")
+            }
             Intent::PickerMoveUp => write!(f, "picker move up"),
             Intent::PickerMoveDown => write!(f, "picker move down"),
             Intent::PickerPageUp => write!(f, "picker page up"),

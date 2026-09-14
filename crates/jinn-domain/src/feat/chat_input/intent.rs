@@ -664,12 +664,32 @@ pub fn handle_enter_insert_mode(state: &mut AppState) -> IntentResult {
 ///
 /// Simply switches out of the current mode. Does NOT cancel streams or drain
 /// queues - the cancel confirmation prompt handles that via `NormalEscape`.
+/// Registry-less variant for internal callers that can only reach
+/// unmigrated pickers (the session-lifecycle chain); spec-driven
+/// close hooks need the app's registry via
+/// [`handle_enter_normal_mode_with_pickers`].
 pub fn handle_enter_normal_mode(state: &mut AppState) -> IntentResult {
+    handle_enter_normal_mode_with_pickers(state, &jinn_picker::PickerRegistry::new())
+}
+
+/// Handles `EnterNormalMode` with the picker registry: spec-driven
+/// pickers run their `on_close` hook (snapshot revert) before the
+/// legacy per-kind restores. The intent handler passes the app's
+/// registry so migrated pickers revert correctly.
+pub fn handle_enter_normal_mode_with_pickers(
+    state: &mut AppState,
+    pickers: &jinn_picker::PickerRegistry,
+) -> IntentResult {
     // If autocomplete is active, dismiss it and stay in the current scope.
     // Two-level ESC: first press closes popup, second press exits mode.
     if state.active_chat_input().autocomplete().is_some() {
         state.active_chat_input_mut().deactivate_autocomplete();
         return IntentResult::empty();
+    }
+
+    // Spec-driven pickers own their close behavior (snapshot revert).
+    if let Some(result) = crate::feat::picker::action::try_close_active(state, pickers) {
+        return result;
     }
 
     // If leaving the theme picker without confirming, restore the original theme.

@@ -146,9 +146,11 @@ mod tests {
     #[case::mcp_server(PickerKind::McpServer)]
     #[case::plugin(PickerKind::Plugin)]
     fn picker_draws_footer_rows_matching_kind_declaration(#[case] kind: PickerKind) {
-        // Given a picker scope of this kind with the default (empty) state.
+        // Given a picker scope of this kind with the default (empty) state,
+        // and the domain's picker registry.
         let mut state = AppState::default();
         state.frontend.scope_stack.push(FocusScope::Picker { kind });
+        let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
 
         // When rendering the picker overlay.
         let area = Rect::new(0, 0, 100, 30);
@@ -158,7 +160,8 @@ mod tests {
             .draw(|frame| {
                 let slices = jinn_slices::Slices::new();
                 let views = jinn_domain::common::overlay_views::OverlayViews::new();
-                let ctx = jinn_domain::RenderCtx::new(&state, &slices, &views);
+                let ctx = jinn_domain::RenderCtx::new(&state, &slices, &views)
+                    .with_pickers(&pickers);
                 super::render_picker(frame, area, &ctx);
             })
             .expect("draw");
@@ -186,11 +189,17 @@ mod tests {
             drawn_footer_rows += 1;
         }
 
+        // The declared footer count comes from the spec when the kind has
+        // one (bottom rows are spec-owned), else from the legacy kind.
+        let declared = jinn_domain::feat::picker::registry::spec_id_for_kind(&kind)
+            .and_then(|id| pickers.get(id))
+            .map(|spec| spec.bottom_rows())
+            .unwrap_or_else(|| kind.footer_rows());
+
         assert_eq!(
             drawn_footer_rows,
-            kind.footer_rows(),
-            "picker {kind} draws {drawn_footer_rows} footer rows but declares {}",
-            kind.footer_rows(),
+            declared,
+            "picker {kind} draws {drawn_footer_rows} footer rows but declares {declared}",
         );
     }
 }

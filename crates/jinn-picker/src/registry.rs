@@ -75,6 +75,15 @@ pub trait ErasedPickerSpec: Send + Sync {
     /// Whether a custom status hook is declared.
     fn has_status(&self) -> bool;
 
+    /// Whether an open hook is declared.
+    fn has_open(&self) -> bool;
+
+    /// Whether a confirm hook is declared.
+    fn has_confirm(&self) -> bool;
+
+    /// Whether a close hook is declared.
+    fn has_close(&self) -> bool;
+
     /// The declared bind rows, in declaration order.
     fn binds(&self) -> &[BindRow];
 
@@ -104,8 +113,9 @@ pub trait ErasedPickerSpec: Send + Sync {
     /// colors, preview scroll, and preview cache.
     fn render(&self, frame: &mut Frame<'_>, area: Rect, host: &dyn PickerHost);
 
-    /// Downcast seam for the registry's typed window.
-    fn as_any(&self) -> &dyn std::any::Any;
+    /// Downcast seam for the registry's typed window: the spec back as an
+    /// `Any` handle so `make_items` can recover the entry type.
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync>;
 }
 
 impl std::fmt::Debug for dyn ErasedPickerSpec {
@@ -164,9 +174,23 @@ where
         self.has_status
     }
 
+    fn has_open(&self) -> bool {
+        self.on_open.is_some()
+    }
+
+    fn has_confirm(&self) -> bool {
+        self.on_confirm.is_some()
+    }
+
+    fn has_close(&self) -> bool {
+        self.on_close.is_some()
+    }
+
     fn binds(&self) -> &[BindRow] {
         &self.binds
     }
+
+
 
     fn run_action(&self, action: &str, ctx: &mut ActionCtx<'_>) -> PickerOutcome {
         let Some(index) = self.binds.iter().position(|row| row.notation == action) else {
@@ -224,45 +248,45 @@ where
         crate::render::render_spec(self, frame, area, host);
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
         self
     }
 }
 
-/// A typed window onto one registered spec.
-///
-/// Domain reload paths need the entry type to wrap domain entries into
-/// [`PickerEntry`] items; this keeps the hooks crate-private while making
-/// item-building public.
-pub struct TypedPicker<'a, T>
-where
-    T: std::fmt::Debug + Send + Sync + 'static,
-{
-    spec: &'a TypedSpec<T>,
-}
+/// A shared handle to one erased spec (cheap to clone, `Send + Sync`).
+#[derive(Clone)]
+pub struct SpecHandle(Arc<dyn ErasedPickerSpec>);
 
-impl<T> TypedPicker<'_, T>
-where
-    T: std::fmt::Debug + Send + Sync + 'static,
-{
-    /// Builds widget items from domain entries via the spec's hooks — the
-    /// search hook runs exactly once per entry here.
-    #[must_use]
-    pub fn make_items(&self, entries: Vec<T>) -> Vec<PickerEntry<T>> {
-        make_items(entries, &self.spec.hooks)
+impl std::ops::Deref for SpecHandle {
+    type Target = dyn ErasedPickerSpec;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
     }
 }
 
 /// All registered picker specs, keyed by [`PickerId::as_str`].
-#[derive(Default)]
+///
+/// Clone follows the `Services`-container rule: specs register once at
+/// composition, clones share the same table. The interior lock exists so a
+/// late registration (spec migration in progress) stays sound against
+/// concurrent lookup; it is never contended in normal operation.
+#[derive(Clone, Default)]
 pub struct PickerRegistry {
-    specs: HashMap<&'static str, Box<dyn ErasedPickerSpec>>,
+    specs: std::sync::Arc<std::sync::RwLock<HashMap<&'static str, Arc<dyn ErasedPickerSpec>>>>,
 }
 
 impl std::fmt::Debug for PickerRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PickerRegistry")
-            .field("ids", &self.specs.keys().collect::<Vec<_>>())
+            .field(
+                "ids",
+                &self
+                    .specs
+                    .read()
+                    .map(|specs| specs.keys().copied().collect::<Vec<_>>())
+                    .unwrap_or_default(),
+            )
             .finish()
     }
 }
@@ -299,30 +323,54 @@ impl PickerRegistry {
             on_confirm,
             on_close,
         };
-        self.specs.insert(id.as_str(), Box::new(typed));
+        if let Ok(mut specs) = self.specs.write() {
+            specs.insert(id.as_str(), Arc::new(typed));
+        }
     }
 
     /// Looks a spec up by id string (intents carry runtime `String`s).
     #[must_use]
-    pub fn get(&self, id: &str) -> Option<&dyn ErasedPickerSpec> {
-        self.specs.get(id).map(std::convert::AsRef::as_ref)
+    pub fn get(&self, id: &str) -> Option<SpecHandle> {
+        self.specs.read().ok()?.get(id).cloned().map(SpecHandle)
     }
 
-    /// A typed window onto the spec registered under `id`, for callers that
-    /// build wrapped items (domain reload paths).
+    /// Builds widget items from domain entries via the registered spec's
+    /// hooks — the search hook runs exactly once per entry here. Domain
+    /// reload paths call this instead of touching spec internals.
     #[must_use]
-    pub fn get_typed<T>(&self, id: &str) -> Option<TypedPicker<'_, T>>
+    pub fn make_items<T>(&self, id: &str, entries: Vec<T>) -> Option<Vec<PickerEntry<T>>>
     where
         T: std::fmt::Debug + Send + Sync + 'static,
     {
-        let any = self.specs.get(id)?.as_any();
-        any.downcast_ref::<TypedSpec<T>>()
-            .map(|spec| TypedPicker { spec })
+        let spec = Arc::clone(&self.get(id)?.0);
+        let typed = spec.as_any_arc().downcast::<TypedSpec<T>>().ok()?;
+        Some(crate::entry::make_items(entries, &typed.hooks))
     }
 
-    /// Every registered spec.
-    pub fn all(&self) -> impl Iterator<Item = &dyn ErasedPickerSpec> {
-        self.specs.values().map(std::convert::AsRef::as_ref)
+    /// A cheap handle-sharing clone for per-frame contexts (RenderCtx is
+    /// rebuilt every frame; this avoids double-locking bookkeeping noise).
+    #[must_use]
+    pub fn clone_shallow(&self) -> Self {
+        Self {
+            specs: std::sync::Arc::clone(&self.specs),
+        }
+    }
+
+    /// Every registered spec, as clonable cheap handles.
+    #[must_use]
+    pub fn all(&self) -> Vec<SpecHandle> {
+        self.specs
+            .read()
+            .map(|specs| specs.values().cloned().map(SpecHandle).collect())
+            .unwrap_or_default()
+    }
+
+    /// Every registered spec id.
+    pub fn ids(&self) -> Vec<&'static str> {
+        self.specs
+            .read()
+            .map(|specs| specs.keys().copied().collect())
+            .unwrap_or_default()
     }
 }
 
@@ -444,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn get_typed_builds_items_through_the_spec_hooks() {
+    fn make_items_builds_through_the_spec_hooks() {
         // Given a spec with a search hook.
         let mut registry = PickerRegistry::new();
         registry.register(
@@ -452,25 +500,37 @@ mod tests {
                 .search(|entry: &Entry| format!("search-{}", entry.name)),
         );
 
-        // When building items through the typed window.
-        let typed = registry.get_typed::<Entry>("typed").expect("typed");
-        let items = typed.make_items(vec![Entry {
-            name: String::from("a"),
-        }]);
+        // When building items through the registry.
+        let items = registry
+            .make_items::<Entry>("typed", vec![Entry {
+                name: String::from("a"),
+            }])
+            .expect("typed match");
 
         // Then the search hook produced the display label.
         assert_eq!(PickerItem::display_label(&items[0]), "search-a");
     }
 
     #[test]
-    fn get_typed_with_wrong_entry_type_is_none() {
+    fn make_items_with_wrong_entry_type_is_none() {
         // Given a spec registered with Entry.
         let mut registry = PickerRegistry::new();
         registry.register(PickerSpec::<Entry>::new(PickerId::new("mismatch")));
 
-        // When requesting a typed window with a different entry type.
-        // Then no window is returned.
-        assert!(registry.get_typed::<String>("mismatch").is_none());
+        // When building items with a different entry type.
+        // Then nothing is returned.
+        assert!(registry.make_items::<String>("mismatch", vec![]).is_none());
+    }
+
+    #[test]
+    fn ids_lists_registered_spec_ids() {
+        // Given a registry with one spec.
+        let mut registry = PickerRegistry::new();
+        registry.register(PickerSpec::<Entry>::new(PickerId::new("solo")));
+
+        // When listing ids.
+        // Then the registered id appears.
+        assert_eq!(registry.ids(), ["solo"]);
     }
 
     #[test]

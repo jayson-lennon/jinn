@@ -63,6 +63,12 @@ pub struct PickerStates {
     /// Reset to 0 when the selection changes.
     pub skill_preview_scroll: usize,
 
+    /// Preview pane scroll offsets for spec-driven pickers, keyed by
+    /// picker id. Replaces per-picker scroll fields as pickers migrate;
+    /// `skill_preview_scroll` above is the legacy skill-specific slot and
+    /// goes away when the skill picker migrates.
+    pub pickers_scrolls: jinn_picker::PickerScrolls,
+
     /// Session lifecycle picker state (items, filter text, selection index).
     /// OWNER: IntentHandler (lifecycle picker navigation).
     pub session_lifecycle_picker: jinn_selection_widget::SelectionState<SessionLifecycleEntry>,

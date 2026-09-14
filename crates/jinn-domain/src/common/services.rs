@@ -149,6 +149,12 @@ pub struct Services {
     /// by the kameo→trouper bridge. See `.plans/actor-canvas/plan.md`.
     #[debug(skip)]
     pub trouper_system: trouper::system::ActorSystem,
+
+    /// Generic picker spec registry. Populated by domain composition
+    /// (feat/picker/registry) after construction; specs register as they
+    /// migrate off the legacy per-kind handlers.
+    #[debug(skip)]
+    pub picker_registry: jinn_picker::PickerRegistry,
 }
 
 impl Services {
@@ -226,6 +232,7 @@ impl Services {
             trouper_system: trouper::system::ActorSystem::new(
                 trouper::system::SystemConfig::production(),
             ),
+            picker_registry: jinn_picker::PickerRegistry::new(),
         }
     }
 
@@ -283,6 +290,7 @@ impl Services {
             trouper_system: trouper::system::ActorSystem::new(
                 trouper::system::SystemConfig::production(),
             ),
+            picker_registry: jinn_picker::PickerRegistry::new(),
         }
     }
 }

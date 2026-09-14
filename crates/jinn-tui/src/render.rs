@@ -33,7 +33,8 @@ pub fn render(app: &mut TuiApp, frame: &mut Frame<'_>) {
     apply_pre_render_mutation(app, area);
 
     let state = app.core.state.read();
-    let ctx = RenderCtx::new(&state, &app.services.slices, &app.services.overlay_views);
+    let ctx = RenderCtx::new(&state, &app.services.slices, &app.services.overlay_views)
+        .with_pickers(&app.services.picker_registry);
 
     // Layout kind comes from the base scope's registration: a dynamic
     // tab scope renders full-width (no chat chrome); everything else is
@@ -84,7 +85,11 @@ fn apply_pre_render_mutation(app: &mut TuiApp, area: Rect) {
     // intents scroll against the real on-screen height instead of a stale
     // hardcoded constant.
     let picker_viewport =
-        jinn_domain::feat::picker::geometry::measure_active_picker_results_height(&wstate, area);
+        jinn_domain::feat::picker::geometry::measure_active_picker_results_height(
+            &wstate,
+            area,
+            &app.services.picker_registry,
+        );
     wstate.frontend.set_picker_results_viewport(picker_viewport);
     let full_width = is_full_width_tab(&app.services.slices, wstate.frontend.scope_stack.base());
     let pre_layout = AppFrameLayout::new(

@@ -402,6 +402,9 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
             b.bind("<Tab>", Intent::ToolToggleSelected, KeyCategory::General);
         })
         .scope(Scope::PickerSkill, |b| {
+            // Skill spec rows land here via bind_picker_spec_rows once the
+            // skill spec declares its binds; until then the legacy binds
+            // remain so the scope never loses its keys mid-migration.
             add_picker_base(b);
             b.bind("<Tab>", Intent::SkillToggleSelected, KeyCategory::General)
              .bind("<c-l>", Intent::SkillLoadSelected, KeyCategory::General)

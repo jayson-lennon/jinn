@@ -80,6 +80,7 @@ jinn-discord-msg = { workspace = true }
 jinn-quake-bar = { workspace = true }
 jinn-session-msg = { workspace = true }
 jinn-slices = { workspace = true }
+jinn-picker = { workspace = true }
 
 jinn-web-fetch = { workspace = true }
 jinn-web-search = { workspace = true }

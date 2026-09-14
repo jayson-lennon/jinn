@@ -182,7 +182,11 @@ pub fn handle_sidebar_persona_edit(state: &mut AppState) -> IntentResult {
     ) {
         return IntentResult::empty();
     }
-    crate::feat::picker::intent::handle_open_picker(state, PickerKind::Persona)
+    crate::feat::picker::intent::handle_open_picker(
+        state,
+        PickerKind::Persona,
+        &jinn_picker::PickerRegistry::new(),
+    )
 }
 
 /// Handles `PinsUnpin`.
