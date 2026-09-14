@@ -13,6 +13,7 @@ pub mod registry;
 pub mod render;
 pub mod skill_spec;
 pub mod theme_spec;
+pub mod tool_spec;
 
 pub mod style;
 pub mod validator;

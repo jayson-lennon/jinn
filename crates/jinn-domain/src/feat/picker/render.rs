@@ -9,27 +9,6 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::Line;
 
-/// Renders the tool picker overlay.
-pub fn render_tool_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    let state = ctx.state;
-    let enabled_count = state
-        .frontend
-        .tool_picker()
-        .items()
-        .iter()
-        .filter(|t| t.enabled)
-        .count();
-    let total = state.frontend.tool_picker().items().len();
-    let footer = Line::from(format!(
-        " TAB toggle \u{00b7} {enabled_count}/{total} enabled \u{00b7} Enter confirm \u{00b7} ESC cancel "
-    ));
-    let widget = SelectionWidget::new(state.frontend.tool_picker())
-        .title(Line::from(" Tools "))
-        .title_style(Style::default().fg(state.frontend.theme.popup_title))
-        .footer(footer);
-    widget.render(frame, area);
-}
-
 /// Renders the plugin picker overlay — a read-only list of loaded plugins.
 ///
 /// One row per plugin (name + lifecycle phase). Plugins are managed outside

@@ -37,13 +37,11 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
         Some(PickerKind::Endpoint) => {
             jinn_domain::feat::endpoint::picker_render::render_endpoint_picker(frame, area, ctx);
         }
-        Some(PickerKind::Tool) => {
-            jinn_domain::feat::picker::render::render_tool_picker(frame, area, ctx);
-        }
-        // Persona, Skill, and Theme render entirely through their specs
-        // above; with an empty registry (test seams) there is nothing to
-        // draw. `None` (no picker scope) is also a no-op here.
-        Some(PickerKind::Persona | PickerKind::Skill | PickerKind::Theme) | None => {}
+        // Persona, Skill, Theme, and Tool render entirely through their
+        // specs above; with an empty registry (test seams) there is nothing
+        // to draw. `None` (no picker scope) is also a no-op here.
+        Some(PickerKind::Persona | PickerKind::Skill | PickerKind::Theme | PickerKind::Tool)
+        | None => {}
         Some(PickerKind::TaskList) => {
             jinn_domain::feat::picker::render::render_task_list_picker(frame, area, ctx);
         }

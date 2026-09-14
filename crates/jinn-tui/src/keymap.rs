@@ -398,8 +398,9 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
             b.bind("<c-r>", Intent::RefreshEndpoints, KeyCategory::General);
         })
         .scope(Scope::PickerTool, |b| {
+            // The tool spec's TAB toggle row lands here via
+            // bind_picker_spec_rows.
             add_picker_base(b);
-            b.bind("<Tab>", Intent::ToolToggleSelected, KeyCategory::General);
         })
         .scope(Scope::PickerSkill, |b| {
             // Skill spec rows (TAB toggle, CTRL+L load, CTRL+U/D preview
@@ -1954,6 +1955,39 @@ mod leak_check {
         assert!(
             matches!(intent, jinn_domain::Intent::PickerPageUp),
             "PageUp in PickerSkill must route to list paging; got {intent:?}",
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn tool_scope_tab_fires_the_spec_toggle_action() {
+        // Given a keymap with the domain's tool spec rows bound.
+        use crate::app::WhichKeyInstance;
+        use jinn_domain::{Key, KeyEvent, Modifiers};
+
+        let mut keymap = init();
+        crate::keymap_gen::bind_picker_spec_rows(
+            &jinn_domain::feat::picker::registry::build_picker_registry(),
+            &mut keymap,
+        );
+        let mut wk = WhichKeyInstance::new(keymap, Scope::PickerTool);
+
+        // When pressing Tab.
+        let tab = KeyEvent {
+            key: Key::Tab,
+            modifiers: Modifiers::none(),
+        };
+        let intent = wk.handle_key(tab);
+
+        // Then it resolves to the tool spec's toggle action.
+        let intent = intent.expect("Tab in PickerTool must fire an intent");
+        assert!(
+            matches!(
+                &intent,
+                jinn_domain::Intent::PickerAction { picker, action }
+                    if picker == "tool" && action == "<tab>"
+            ),
+            "Tab in PickerTool must fire the spec toggle action; got {intent:?}",
         );
     }
 

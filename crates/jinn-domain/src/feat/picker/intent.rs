@@ -17,7 +17,6 @@ use crate::feat::session::model_selection::{AlloyStrategy, ModelSelection};
 use crate::feat::session::protocol::load_session_picker_entries::LoadSessionPickerEntries;
 use crate::feat::session::protocol::mark_session_interacted::MarkSessionInteracted;
 use crate::feat::session::protocol::session_load_requested::SessionLoadRequested;
-use crate::feat::tools_actor::tool_entry::ToolEntry;
 
 use crate::feat::ui::picker_states::PickerExt;
 use crate::protocol::{Intent, IntentResult, PickerKind};
@@ -114,7 +113,7 @@ fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
         PickerKind::Session => {
             state.frontend.session_picker_mut().reset();
         }
-        PickerKind::Persona | PickerKind::Skill | PickerKind::Theme => {
+        PickerKind::Persona | PickerKind::Skill | PickerKind::Theme | PickerKind::Tool => {
             // Spec-driven when the registry holds their spec; nothing to
             // prepare in the legacy path.
         }
@@ -126,13 +125,6 @@ fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
         }
         PickerKind::ReasoningEffort => {
             state.frontend.reasoning_effort_picker_mut().reset();
-        }
-        PickerKind::Tool => {
-            state.frontend.tool_picker_mut().reset();
-            // Snapshot current disabled tools for ESC revert.
-            *state.frontend.tool_picker_snapshot_mut() =
-                Some(state.active_session().disabled_tools().clone());
-            load_tool_picker_entries(state);
         }
         PickerKind::TaskList => {
             state.frontend.task_list_picker_mut().reset();
@@ -300,16 +292,19 @@ pub fn handle_picker_confirm(
         Some(PickerKind::McpServer) => (crate::feat::mcp::intent::confirm_mcp(state), None),
         Some(PickerKind::Endpoint) => (confirm_endpoint(state), None),
 
+        // Persona, Skill, Theme, and Tool are fully spec-driven; the
+        // registry guard above runs their confirm hook. Reaching the match
+        // means the registry is empty (test seams) — nothing to do.
         Some(
             PickerKind::CompactionModel
             | PickerKind::Persona
             | PickerKind::TaskList
             | PickerKind::Plugin
             | PickerKind::Skill
-            | PickerKind::Theme,
+            | PickerKind::Theme
+            | PickerKind::Tool,
         )
         | None => (IntentResult::empty(), None),
-        Some(PickerKind::Tool) => (confirm_tool(state), None),
     }
 }
 
@@ -614,65 +609,6 @@ fn confirm_session_lifecycle(state: &mut AppState) -> IntentResult {
         None,
     )
 }
-/// Marks each entry as enabled/disabled based on the session's `disabled_tools` set.
-fn load_tool_picker_entries(state: &mut AppState) {
-    let active_session = state.active_session();
-    let disabled = active_session.disabled_tools();
-    let provider_name = active_session.model_selection().provider_name().to_owned();
-    let theme = state.frontend.theme.clone();
-
-    let active_id = state.session.active_session_id().clone();
-    let mut entries: Vec<ToolEntry> = state
-        .context
-        .tools_for_session(&active_id)
-        .into_iter()
-        .filter(|def| def.available_for_provider(&provider_name))
-        .map(|def| {
-            let name = def.name.clone();
-            let description = def.description.clone();
-            ToolEntry {
-                name: name.clone(),
-                description: description.clone(),
-                search_text: format!("{name} {description}"),
-                enabled: !disabled.contains(&def.name),
-                theme: theme.clone(),
-            }
-        })
-        .collect();
-
-    entries.sort_by_key(|e| e.name.to_lowercase());
-
-    state.frontend.tool_picker_mut().set_items(entries);
-}
-
-/// Confirms the tool picker: collects disabled tool names from picker entries
-/// and writes them to the active session's profile.
-fn confirm_tool(state: &mut AppState) -> IntentResult {
-    let disabled: std::collections::HashSet<String> = state
-        .frontend
-        .tool_picker()
-        .items()
-        .iter()
-        .filter(|entry| !entry.enabled)
-        .map(|entry| entry.name.clone())
-        .collect();
-
-    state.active_session_mut().set_disabled_tools(disabled);
-    *state.frontend.tool_picker_snapshot_mut() = None;
-    state.frontend.scope_stack.pop();
-    IntentResult::empty()
-}
-
-/// Toggles the `enabled` state of the currently selected tool entry.
-pub fn handle_tool_toggle(state: &mut AppState) -> IntentResult {
-    state.frontend.tool_picker_mut().with_selected_mut(|entry| {
-        entry.enabled = !entry.enabled;
-    });
-    let viewport = active_viewport(state);
-    state.frontend.tool_picker_mut().move_down(viewport);
-    IntentResult::empty()
-}
-
 /// Populates the skill picker entries from discovered skills.
 ///
 /// Populates the task list picker entries from the active session's task list.
@@ -2552,151 +2488,6 @@ mod tests {
         assert!(!result.message_names.is_empty());
         // And the picker now shows one entry.
         assert_eq!(state.frontend.project_picker().items().len(), 1);
-    }
-
-    fn setup_state_with_web_search_tool(model: &str) -> AppState {
-        let mut state = AppState::default();
-        let origin = ChatSessionState::new();
-        state.session.insert(origin);
-        state
-            .session
-            .set_active(state.session.active_session_id().clone());
-        state
-            .active_session_mut()
-            .set_model(ModelSelection::Single(model.to_owned()));
-
-        state.context.global_tool_definitions.insert(
-            "openrouter:web_search".to_owned(),
-            crate::protocol::ToolDefinition {
-                name: "openrouter:web_search".to_owned(),
-                description: "Search the web".to_owned(),
-                parameters: serde_json::json!({}),
-                prompt_snippet: None,
-                prompt_guidelines: vec![],
-                server_tool_type: Some(jinn_provider::ServerToolType::OpenrouterWebSearch),
-            },
-        );
-        state
-    }
-
-    #[rstest::rstest]
-    fn load_tool_picker_entries_marks_config_seeded_disabled_tools() {
-        // Given state whose active session profile has the registered
-        // web_search tool disabled (as seeded from jinn.toml disabled_tools
-        // at session creation).
-        let mut state = setup_state_with_web_search_tool("openrouter/openai/gpt-oss-120b");
-        state.active_session_mut().set_disabled_tools(
-            ["openrouter:web_search"]
-                .iter()
-                .map(|s| (*s).to_owned())
-                .collect(),
-        );
-
-        // When loading tool picker entries.
-        load_tool_picker_entries(&mut state);
-
-        // Then the seeded-disabled tool renders as disabled (crossed out) in
-        // the picker.
-        let entry = state
-            .frontend
-            .tool_picker()
-            .items()
-            .iter()
-            .find(|e| e.name == "openrouter:web_search")
-            .expect("web_search entry present");
-        assert!(
-            !entry.enabled,
-            "config-seeded disabled tool must show as disabled"
-        );
-    }
-
-    #[rstest::rstest]
-    fn load_tool_picker_entries_marks_task_disabled_in_subagent_session() {
-        // Given a state whose active session is a subagent (parent-linked)
-        // with the task tool in its disabled set (the spawn stamp).
-        let mut state = AppState::default();
-        let parent_id = crate::protocol::SessionId::new();
-        let child = ChatSessionState::new_child(&parent_id, true);
-        state.session.insert(child);
-        state
-            .session
-            .set_active(state.session.active_session_id().clone());
-        state
-            .active_session_mut()
-            .profile_mut()
-            .disabled_tools
-            .insert(crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned());
-        state.context.global_tool_definitions.insert(
-            crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned(),
-            crate::protocol::ToolDefinition {
-                name: crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned(),
-                description: "Delegate a sub-task to a subagent".to_owned(),
-                parameters: serde_json::json!({}),
-                prompt_snippet: None,
-                prompt_guidelines: vec![],
-                server_tool_type: None,
-            },
-        );
-
-        // When loading tool picker entries.
-        load_tool_picker_entries(&mut state);
-
-        // Then the task tool renders as disabled in the picker.
-        let entry = state
-            .frontend
-            .tool_picker()
-            .items()
-            .iter()
-            .find(|e| e.name == crate::feat::tools_actor::task::TASK_TOOL_NAME)
-            .expect("task entry present");
-        assert!(
-            !entry.enabled,
-            "a subagent session's spawn stamp must show task as disabled"
-        );
-    }
-
-    #[rstest::rstest]
-    fn load_tool_picker_entries_hides_web_search_for_non_openrouter_model() {
-        // Given state on a non-openrouter model with a web_search tool registered.
-        let mut state = setup_state_with_web_search_tool("zai/glm-4.6");
-
-        // When loading tool picker entries.
-        load_tool_picker_entries(&mut state);
-
-        // Then the web_search tool is NOT offered (it can't run on this provider).
-        let names: Vec<&str> = state
-            .frontend
-            .tool_picker()
-            .items()
-            .iter()
-            .map(|e| e.name.as_str())
-            .collect();
-        assert!(
-            !names.contains(&"openrouter:web_search"),
-            "web_search should be hidden for non-openrouter model, got: {names:?}"
-        );
-    }
-
-    #[rstest::rstest]
-    fn load_tool_picker_entries_shows_web_search_for_openrouter_model() {
-        // Given state on an openrouter model with a web_search tool registered.
-        let mut state = setup_state_with_web_search_tool("openrouter/openai/gpt-oss-120b");
-
-        // When loading tool picker entries.
-        load_tool_picker_entries(&mut state);
-
-        // Then the web_search tool IS offered.
-        let names: Vec<&str> = state
-            .frontend
-            .tool_picker()
-            .items()
-            .iter()
-            .map(|e| e.name.as_str())
-            .collect();
-        assert!(
-            names.contains(&"openrouter:web_search"),
-            "web_search should be visible for openrouter model, got: {names:?}"
-        );
     }
 
     #[rstest::rstest]

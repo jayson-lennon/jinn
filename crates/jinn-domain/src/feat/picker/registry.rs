@@ -16,6 +16,8 @@ pub const PERSONA_ID: &str = "persona";
 pub const SKILL_ID: &str = "skill";
 /// The id of the theme picker's spec.
 pub const THEME_ID: &str = "theme";
+/// The id of the tool picker's spec.
+pub const TOOL_ID: &str = "tool";
 
 /// Maps a legacy `PickerKind` onto its spec id, `None` while the kind has
 /// not migrated yet.
@@ -28,6 +30,7 @@ pub fn spec_id_for_kind(kind: &crate::feat::picker::PickerKind) -> Option<&'stat
         crate::feat::picker::PickerKind::Persona => Some(PERSONA_ID),
         crate::feat::picker::PickerKind::Skill => Some(SKILL_ID),
         crate::feat::picker::PickerKind::Theme => Some(THEME_ID),
+        crate::feat::picker::PickerKind::Tool => Some(TOOL_ID),
         _ => None,
     }
 }
@@ -40,6 +43,7 @@ pub fn build_picker_registry() -> PickerRegistry {
     registry.register(super::persona_spec::persona_spec());
     registry.register(super::skill_spec::skill_spec());
     registry.register(super::theme_spec::theme_spec());
+    registry.register(super::tool_spec::tool_spec());
     registry
 }
 
@@ -58,7 +62,12 @@ mod tests {
     fn migrated_kinds_map_onto_registered_specs_and_vice_versa() {
         // Given the domain's picker registry and the kind→id adapter.
         let registry = build_picker_registry();
-        let migrated = [PickerKind::Persona, PickerKind::Skill, PickerKind::Theme];
+        let migrated = [
+            PickerKind::Persona,
+            PickerKind::Skill,
+            PickerKind::Theme,
+            PickerKind::Tool,
+        ];
 
         // When mapping each migrated kind and listing registered ids.
         let mapped_ids: Vec<&str> = migrated.iter().filter_map(spec_id_for_kind).collect();
@@ -83,7 +92,6 @@ mod tests {
             PickerKind::SessionLifecycle,
             PickerKind::CompactionModel,
             PickerKind::ReasoningEffort,
-            PickerKind::Tool,
             PickerKind::TaskList,
         ];
 

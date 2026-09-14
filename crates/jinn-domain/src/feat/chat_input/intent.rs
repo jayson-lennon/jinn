@@ -692,13 +692,6 @@ pub fn handle_enter_normal_mode_with_pickers(
         return result;
     }
 
-    // If leaving the tool picker without confirming, restore the original disabled_tools.
-    if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::Tool)
-        && let Some(snapshot) = state.frontend.tool_picker_snapshot_mut().take()
-    {
-        state.active_session_mut().set_disabled_tools(snapshot);
-    }
-
     // If leaving the MCP server picker without confirming, restore the original
     // enabled MCP server set.
     if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::McpServer)

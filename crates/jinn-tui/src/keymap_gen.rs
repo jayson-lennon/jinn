@@ -76,6 +76,7 @@ fn picker_spec_scope(id: jinn_picker::PickerId) -> Option<Scope> {
     match id.as_str() {
         "persona" => Some(Scope::PickerPersona),
         "skill" => Some(Scope::PickerSkill),
+        "tool" => Some(Scope::PickerTool),
         _ => None,
     }
 }

@@ -46,7 +46,7 @@ pub struct PickerStates {
 
     /// Tool picker state - shows all registered tools with toggle state.
     /// OWNER: IntentHandler (populated on tool picker open).
-    pub tool_picker: jinn_selection_widget::SelectionState<ToolEntry>,
+    pub tool_picker: jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ToolEntry>>,
 
     /// Snapshot of disabled tools before picker opens - restored on ESC.
     /// OWNER: IntentHandler (set on tool picker open, consumed on confirm/cancel).
@@ -158,9 +158,13 @@ pub trait PickerExt {
     fn theme_preview_original_mut(&mut self) -> &mut Option<Theme>;
 
     /// Read-only access to the tool picker state.
-    fn tool_picker(&self) -> &jinn_selection_widget::SelectionState<ToolEntry>;
+    fn tool_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ToolEntry>>;
     /// Mutable access to the tool picker state.
-    fn tool_picker_mut(&mut self) -> &mut jinn_selection_widget::SelectionState<ToolEntry>;
+    fn tool_picker_mut(
+        &mut self,
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ToolEntry>>;
     /// Read-only access to the disabled tools snapshot.
     fn tool_picker_snapshot(&self) -> &Option<HashSet<String>>;
     /// Mutable access to the disabled tools snapshot.
@@ -292,11 +296,15 @@ impl PickerExt for super::frontend_state::FrontendState {
         &mut self.pickers.theme_preview_original
     }
 
-    fn tool_picker(&self) -> &jinn_selection_widget::SelectionState<ToolEntry> {
+    fn tool_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ToolEntry>> {
         &self.pickers.tool_picker
     }
 
-    fn tool_picker_mut(&mut self) -> &mut jinn_selection_widget::SelectionState<ToolEntry> {
+    fn tool_picker_mut(
+        &mut self,
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ToolEntry>> {
         &mut self.pickers.tool_picker
     }
 

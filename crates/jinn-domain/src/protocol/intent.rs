@@ -140,8 +140,6 @@ pub enum Intent {
     PickerMoveCursorLeft,
     /// Move the picker filter cursor right.
     PickerMoveCursorRight,
-    /// Toggle the selected tool's enabled/disabled state in the tool picker.
-    ToolToggleSelected,
     /// Toggle the selected MCP server's enabled/disabled state in the MCP picker.
     McpToggleSelected,
     /// Restart the selected MCP server's connection (MCP inspector `<c-r>`).
@@ -468,7 +466,6 @@ impl std::fmt::Display for Intent {
             Intent::PickerPageDown => write!(f, "picker page down"),
             Intent::PickerMoveCursorLeft => write!(f, "picker cursor left"),
             Intent::PickerMoveCursorRight => write!(f, "picker cursor right"),
-            Intent::ToolToggleSelected => write!(f, "toggle tool"),
             Intent::McpToggleSelected => write!(f, "toggle mcp server"),
             Intent::McpRestartSelected => write!(f, "restart mcp server"),
             Intent::McpTogglePreview => write!(f, "toggle mcp preview"),

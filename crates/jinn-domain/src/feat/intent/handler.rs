@@ -509,7 +509,6 @@ impl IntentHandler {
             Intent::PickerPageDown => feat::picker::intent::handle_page_down(state, pickers),
             Intent::PickerMoveCursorLeft => feat::picker::intent::handle_move_cursor_left(state),
             Intent::PickerMoveCursorRight => feat::picker::intent::handle_move_cursor_right(state),
-            Intent::ToolToggleSelected => feat::picker::intent::handle_tool_toggle(state),
             Intent::McpToggleSelected => feat::mcp::intent::handle_mcp_toggle(state),
             Intent::McpRestartSelected => feat::mcp::intent::handle_mcp_restart_selected(state),
             Intent::McpTogglePreview => feat::mcp::intent::handle_mcp_toggle_preview(state),
