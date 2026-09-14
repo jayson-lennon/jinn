@@ -29,7 +29,6 @@ pub fn reload_skill_picker_entries(
             let name = skill.name.clone();
             let description = skill.description.clone();
             crate::feat::skills::skill_entry::SkillEntry {
-                search_text: format!("{name} {description}"),
                 name,
                 description,
                 body: skill.body.clone(),

@@ -510,7 +510,6 @@ mod tests {
         let mut enabled = SkillEntry {
             name: String::from("a"),
             description: String::from("desc"),
-            search_text: String::from("a desc"),
             body: String::new(),
             enabled: true,
             source: SkillSource::Global,
@@ -520,7 +519,6 @@ mod tests {
         let disabled = SkillEntry {
             name: String::from("b"),
             description: String::from("desc"),
-            search_text: String::from("b desc"),
             body: String::new(),
             enabled: false,
             source: SkillSource::Global,
@@ -569,7 +567,6 @@ mod tests {
         let entry = SkillEntry {
             name: String::from("web"),
             description: String::from("coder"),
-            search_text: String::from("web coder"),
             body: String::new(),
             enabled: true,
             source: SkillSource::Global,
@@ -599,7 +596,6 @@ mod tests {
         let entry = SkillEntry {
             name: String::from("local"),
             description: String::from("desc"),
-            search_text: String::from("local desc"),
             body: String::new(),
             enabled: true,
             source: SkillSource::Project {
@@ -629,7 +625,6 @@ mod tests {
         let entry = SkillEntry {
             name: String::from("doc"),
             description: String::from("d"),
-            search_text: String::from("doc d"),
             body: String::from("# Hello World"),
             enabled: true,
             source: SkillSource::Global,
@@ -655,7 +650,6 @@ mod tests {
         let entry = SkillEntry {
             name: String::from("empty"),
             description: String::from("d"),
-            search_text: String::from("empty d"),
             body: String::new(),
             enabled: true,
             source: SkillSource::Global,
@@ -960,7 +954,6 @@ mod tests {
                     vec![SkillEntry {
                         name: String::from("stale"),
                         description: String::new(),
-                        search_text: String::from("stale"),
                         body: String::new(),
                         enabled: true,
                         source: SkillSource::Global,
@@ -1039,8 +1032,8 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn escape_through_the_intent_handler_closes_the_skill_picker() {
-        use crate::common::slices::key_routes::KeyRoutes;
         use crate::common::slices::Slices;
+        use crate::common::slices::key_routes::KeyRoutes;
         use crate::feat::intent::handler::IntentHandler;
         use crate::protocol::Intent;
 

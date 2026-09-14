@@ -109,73 +109,7 @@ mod tests {
     )]
     use super::*;
     use crate::feat::picker::registry::PERSONA_ID;
-    use jinn_picker::PickerScrolls;
 
-    /// Lent-storage fake: hands out typed selection state by id.
-    struct FakeHost {
-        states: std::collections::HashMap<
-            String,
-            jinn_selection_widget::SelectionState<crate::feat::persona::PersonaEntry>,
-        >,
-        scrolls: PickerScrolls,
-    }
-
-    impl FakeHost {
-        fn new() -> Self {
-            Self {
-                states: std::collections::HashMap::new(),
-                scrolls: PickerScrolls::default(),
-            }
-        }
-    }
-
-    impl PickerHost for FakeHost {
-        fn preview_cache(&self, _id: PickerId) -> Option<jinn_picker::SharedPreviewCache> {
-            None
-        }
-
-        fn selection_state(&mut self, id: PickerId) -> Option<&mut dyn std::any::Any> {
-            self.states
-                .get_mut(id.as_str())
-                .map(|s| s as &mut dyn std::any::Any)
-        }
-
-        fn selection_state_ref(&self, id: PickerId) -> Option<&dyn std::any::Any> {
-            self.states
-                .get(id.as_str())
-                .map(|s| s as &dyn std::any::Any)
-        }
-
-        fn state_any(&mut self) -> &mut dyn std::any::Any {
-            self as &mut dyn std::any::Any
-        }
-
-        fn state_any_ref(&self) -> &dyn std::any::Any {
-            self as &dyn std::any::Any
-        }
-
-        fn palette(&self) -> Palette {
-            test_support::test_palette()
-        }
-
-        fn session_id(&self) -> jinn_core_types::SessionId {
-            jinn_core_types::SessionId::new()
-        }
-
-        fn preview_scroll(&self, id: PickerId) -> usize {
-            self.scrolls.get(id)
-        }
-
-        fn set_preview_scroll(&mut self, id: PickerId, scroll: usize) {
-            self.scrolls.set(id, scroll);
-        }
-
-        fn reset_preview_scroll(&mut self, id: PickerId) {
-            self.scrolls.reset(id);
-        }
-    }
-
-    /// A minimal persona entry for storage lends.
     fn test_persona(name: &str) -> crate::feat::persona::PersonaEntry {
         crate::feat::persona::PersonaEntry {
             name: name.to_owned(),
@@ -255,28 +189,6 @@ mod tests {
         assert_eq!(skill_scroll, 7);
         assert_eq!(stored, 7);
         assert_eq!(other_scroll, 3);
-    }
-}
-
-/// Test-support helpers for picker feature modules.
-#[cfg(test)]
-pub(crate) mod test_support {
-    use jinn_picker::Palette;
-
-    /// A stable chrome palette matching the selection widget defaults.
-    #[must_use]
-    pub fn test_palette() -> Palette {
-        Palette {
-            border: ratatui::style::Color::DarkGray,
-            filter_text: ratatui::style::Color::White,
-            separator: ratatui::style::Color::DarkGray,
-            footer: ratatui::style::Color::DarkGray,
-            highlight_bg: ratatui::style::Color::DarkGray,
-            muted_text: ratatui::style::Color::Gray,
-            accent_action: ratatui::style::Color::LightRed,
-            popup_title: ratatui::style::Color::Cyan,
-            primary_text: ratatui::style::Color::White,
-        }
     }
 }
 

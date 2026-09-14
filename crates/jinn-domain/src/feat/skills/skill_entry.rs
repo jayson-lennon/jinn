@@ -2,13 +2,6 @@
 
 use crate::feat::skills::SkillSource;
 use crate::feat::theme::Theme;
-use crate::feat::ui::chat_log::markdown::render_markdown;
-use jinn_selection_widget::PickerItem;
-use jinn_selection_widget::PreviewContent;
-use jinn_selection_widget::highlight::highlight_text_with_bg;
-use ratatui::style::Style;
-use ratatui::text::{Line, Span};
-use std::ops::Range;
 
 /// A skill entry ready for display in the skill picker.
 #[derive(Debug, Clone)]
@@ -17,9 +10,6 @@ pub struct SkillEntry {
     pub name: String,
     /// Human-readable skill description.
     pub description: String,
-    /// Combined searchable text: `"{name} {description}"`.
-    /// Used for fuzzy matching so users can search by description terms.
-    pub search_text: String,
     /// Markdown body content (from SKILL.md, after stripping frontmatter).
     pub body: String,
     /// Whether the skill is currently enabled for this session.
@@ -30,145 +20,17 @@ pub struct SkillEntry {
     pub theme: Theme,
 }
 
-impl PickerItem for SkillEntry {
-    fn display_label(&self) -> &str {
-        &self.search_text
-    }
-
-    fn render_row(&self, is_selected: bool) -> Line<'static> {
-        let style = if is_selected {
-            Style::default()
-                .fg(self.theme.primary_text)
-                .bg(self.theme.picker_selected_bg)
-        } else {
-            Style::default()
-        };
-
-        let (marker, marker_color) = if self.enabled {
-            ("\u{2713} ", self.theme.focus_accent) // ✓
-        } else {
-            ("\u{2717} ", self.theme.error_text) // ✗
-        };
-
-        let marker_span = Span::styled(marker.to_owned(), Style::default().fg(marker_color));
-        let name_span = Span::styled(self.name.clone(), style);
-        let mut spans = vec![marker_span, name_span];
-        if let Some(badge) = self.project_badge_span() {
-            spans.push(badge);
-        }
-        Line::from(spans)
-    }
-
-    fn render_row_with_highlight(
-        &self,
-        is_selected: bool,
-        match_indices: &[Range<usize>],
-    ) -> Line<'static> {
-        let style = if is_selected {
-            Style::default()
-                .fg(self.theme.primary_text)
-                .bg(self.theme.picker_selected_bg)
-        } else {
-            Style::default()
-        };
-
-        let (marker, marker_color) = if self.enabled {
-            ("\u{2713} ", self.theme.focus_accent)
-        } else {
-            ("\u{2717} ", self.theme.error_text)
-        };
-
-        let marker_span = Span::styled(marker.to_owned(), Style::default().fg(marker_color));
-
-        // Match indices are byte offsets into search_text = "{name} {description}".
-        // Only highlight the name portion in the row (description is in the preview pane).
-        let (name_indices, _desc_indices) = split_match_indices(match_indices, self.name.len());
-
-        let name_spans = highlight_text_with_bg(
-            &self.name,
-            style,
-            &name_indices,
-            self.theme.picker_highlight_bg,
-        );
-
-        let mut spans = vec![marker_span];
-        spans.extend(name_spans);
-        if let Some(badge) = self.project_badge_span() {
-            spans.push(badge);
-        }
-        Line::from(spans)
-    }
-}
-
-impl SkillEntry {
-    /// Badge span indicating project-scoped provenance, if applicable.
-    ///
-    /// Appended to the row after the skill name. Global skills render no badge.
-    fn project_badge_span(&self) -> Option<Span<'static>> {
-        match &self.source {
-            SkillSource::Project { .. } => Some(Span::styled(
-                " (project)".to_owned(),
-                Style::default().fg(self.theme.muted_text),
-            )),
-            SkillSource::Global => None,
-        }
-    }
-}
-
-impl PreviewContent for SkillEntry {
-    fn cache_key(&self) -> Option<String> {
-        Some(body_hash_key(&self.body))
-    }
-    fn preview_lines(&self, width: usize) -> Vec<Line<'static>> {
-        if self.body.is_empty() {
-            return Vec::new();
-        }
-        render_markdown(&self.body, width as u16, &self.theme)
-    }
-}
-
 /// Stable cache key for a skill body: the decimal content hash.
 ///
 /// Keyed on body content (not name) so that editing a SKILL.md or a project
 /// skill shadowing a global of the same name produces a distinct cache entry
-/// — the render cache never serves the wrong markdown.
+/// — the render cache never serves the wrong markdown. The skill spec's
+/// `.preview_key` hook delegates here.
 pub(crate) fn body_hash_key(body: &str) -> String {
     use std::hash::Hasher as _;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     hasher.write(body.as_bytes());
     hasher.finish().to_string()
-}
-
-/// Splits match indices from `search_text = "{name} {description}"` into
-/// name-portion and description-portion indices.
-///
-/// The space separator occupies byte offset `name_len`. Description indices
-/// are remapped to be relative to the start of the description string.
-fn split_match_indices(
-    indices: &[Range<usize>],
-    name_len: usize,
-) -> (Vec<Range<usize>>, Vec<Range<usize>>) {
-    let desc_offset = name_len + 1; // +1 for the space separator.
-
-    let mut name_indices = Vec::new();
-    let mut desc_indices = Vec::new();
-
-    for range in indices {
-        // Name portion: clamp to [0, name_len)
-        if range.start < name_len {
-            let end = range.end.min(name_len);
-            name_indices.push(range.start..end);
-        }
-
-        // Description portion: remap to [0, description.len())
-        if range.end > desc_offset {
-            let start = range.start.saturating_sub(desc_offset);
-            let end = range.end.saturating_sub(desc_offset);
-            desc_indices.push(start..end);
-        }
-    }
-
-    (name_indices, desc_indices)
 }
 
 #[cfg(test)]
@@ -182,158 +44,19 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::feat::theme::default_theme;
-
-    fn make_entry(name: &str, description: &str, enabled: bool) -> SkillEntry {
-        make_entry_with_source(name, description, enabled, SkillSource::Global)
-    }
-
-    fn make_entry_with_source(
-        name: &str,
-        description: &str,
-        enabled: bool,
-        source: SkillSource,
-    ) -> SkillEntry {
-        SkillEntry {
-            name: name.to_owned(),
-            description: description.to_owned(),
-            search_text: format!("{name} {description}"),
-            body: String::new(),
-            enabled,
-            source,
-            theme: default_theme(),
-        }
-    }
 
     #[rstest::rstest]
-    fn display_label_returns_search_text() {
-        // Given a skill entry with name and description.
-        let entry = make_entry("phased-task-loop", "Structured workflow", true);
-
-        // When getting the display label.
-        let label = entry.display_label();
-
-        // Then it contains both name and description.
-        assert_eq!(label, "phased-task-loop Structured workflow");
-    }
-
-    #[rstest::rstest]
-    fn render_row_enabled_shows_checkmark() {
-        let entry = make_entry("web-coder", "Expert web dev", true);
-        let line = entry.render_row(false);
-        let rendered = line.to_string();
-        assert!(rendered.contains('\u{2713}'), "should contain ✓");
-        assert!(!rendered.contains('\u{2717}'), "should not contain ✗");
-    }
-
-    #[rstest::rstest]
-    fn render_row_disabled_shows_cross() {
-        let entry = make_entry("web-coder", "Expert web dev", false);
-        let line = entry.render_row(false);
-        let rendered = line.to_string();
-        assert!(rendered.contains('\u{2717}'), "should contain ✗");
-        assert!(!rendered.contains('\u{2713}'), "should not contain ✓");
-    }
-
-    #[rstest::rstest]
-    fn render_row_with_highlight_only_highlights_name() {
-        // Given a skill entry where the match spans both name and description.
-        let entry = make_entry("web-coder", "Expert web development", true);
-
-        // search_text = "web-coder Expert web development"
-        // Match "web" at byte offsets 0..3 (name portion).
-        let match_indices = vec![0..3];
-
-        // When rendering with highlight.
-        let line = entry.render_row_with_highlight(false, &match_indices);
-
-        // Then the row contains the name.
-        let rendered = line.to_string();
-        assert!(rendered.contains("web-coder"));
-    }
-
-    #[rstest::rstest]
-    fn split_match_indices_partitions_correctly() {
-        // Given match indices spanning across name/description boundary.
-        // search_text = "abc xyz" (name="abc", desc="xyz", separator at byte 3)
-        let name_len = 3;
-
-        // When splitting indices that span the boundary.
-        let (name_idx, desc_idx) = split_match_indices(&[0..5], name_len);
-
-        // Then name gets [0..3] and description gets [0..1].
-        assert_eq!(name_idx, vec![0..3]);
-        assert_eq!(desc_idx, vec![0..1]);
-    }
-
-    #[rstest::rstest]
-    fn split_match_indices_name_only_match() {
-        // Given match indices only in the name portion.
-        let (name_idx, desc_idx) = split_match_indices(&[0..2], 5);
-
-        // Then only name indices are populated.
-        assert_eq!(name_idx, vec![0..2]);
-        assert!(desc_idx.is_empty());
-    }
-
-    #[rstest::rstest]
-    fn split_match_indices_description_only_match() {
-        // Given match indices only in the description portion.
-        // search_text = "hello world" (name=5, separator at 5, desc starts at 6)
-        let (name_idx, desc_idx) = split_match_indices(&[6..11], 5);
-
-        // Then only description indices are populated (remapped to 0..5).
-        assert!(name_idx.is_empty());
-        assert_eq!(desc_idx, vec![0..5]);
-    }
-
-    #[rstest::rstest]
-    fn preview_lines_renders_markdown_body() {
-        // Given a skill entry with a markdown body.
-        let mut entry = make_entry("test-skill", "A test skill", true);
-        entry.body = "# Hello World\n\nThis is a test.".to_owned();
-
-        // When rendering preview lines.
-        let lines = entry.preview_lines(80);
-
-        // Then lines are produced containing the body text.
-        assert!(!lines.is_empty(), "should produce lines from markdown body");
-        let rendered: String = lines.iter().map(std::string::ToString::to_string).collect();
-        assert!(
-            rendered.contains("Hello World"),
-            "rendered output should contain body text"
-        );
-    }
-
-    #[rstest::rstest]
-    fn cache_key_is_body_content_hash() {
+    fn body_hash_key_distinguishes_body_not_name() {
         // Given two entries with the same name but different bodies, and a
         // third with a different name but the same body as the first.
-        let mut a = make_entry("my-skill", "desc", true);
-        a.body = "# body one".to_owned();
-        let mut b = make_entry("my-skill", "desc", true);
-        b.body = "# body two".to_owned();
-        let mut c = make_entry("other-name", "desc", true);
-        c.body = "# body one".to_owned();
+        let a = body_hash_key("# body one");
+        let b = body_hash_key("# body two");
+        let c = body_hash_key("# body one");
 
-        // When getting cache keys.
+        // When hashing the bodies.
         // Then same body -> same key, different body -> different key,
         // regardless of skill name.
-        assert_eq!(a.cache_key(), c.cache_key());
-        assert_ne!(a.cache_key(), b.cache_key());
-    }
-    #[rstest::rstest]
-    fn preview_lines_empty_for_empty_body() {
-        // Given a skill entry with an empty body.
-        let entry = make_entry("no-body", "No body here", true);
-
-        // When rendering preview lines.
-        let lines = entry.preview_lines(80);
-
-        // Then no lines are produced.
-        assert!(
-            lines.is_empty(),
-            "empty body should produce no preview lines"
-        );
+        assert_eq!(a, c);
+        assert_ne!(a, b);
     }
 }

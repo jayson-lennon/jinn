@@ -166,7 +166,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn clear_empties_all_entries() {
-        let mut cache = SkillPreviewCache::new();
+        let cache = SkillPreviewCache::new();
         cache.insert(body_key("# a"), 80, vec![line("a")]);
         cache.insert(body_key("# b"), 100, vec![line("b")]);
         assert_eq!(cache.len(), 2);
@@ -181,7 +181,7 @@ mod tests {
     fn get_returns_an_owned_clone_not_a_reference() {
         // The PreviewCache trait returns owned Vec<Line>, so callers can hold
         // the result across the cache being mutated.
-        let mut cache = SkillPreviewCache::new();
+        let cache = SkillPreviewCache::new();
         cache.insert(body_key("# k"), 80, vec![line("v")]);
         let got = cache.get(&body_key("# k"), 80).expect("entry should exist");
         cache.clear();

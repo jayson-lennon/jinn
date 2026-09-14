@@ -16,8 +16,8 @@ use ratatui::style::Style;
 use ratatui::text::Line;
 
 use crate::common::app_state::AppState;
-use crate::feat::persona::render_persona_row;
 use crate::feat::context::protocol::command::LoadPersonaPickerEntries;
+use crate::feat::persona::render_persona_row;
 use crate::feat::ui::picker_states::PickerExt;
 
 use crate::feat::preferences_actor::protocol::app_state_command::{AppStateUpdate, UpdateAppState};

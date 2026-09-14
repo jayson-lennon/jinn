@@ -700,13 +700,6 @@ pub fn handle_enter_normal_mode_with_pickers(
         state.invalidate_theme_caches();
     }
 
-    // If leaving the skill picker without confirming, restore the original disabled_skills.
-    if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::Skill)
-        && let Some(snapshot) = state.frontend.skill_picker_snapshot_mut().take()
-    {
-        state.active_session_mut().set_disabled_skills(snapshot);
-    }
-
     // If leaving the tool picker without confirming, restore the original disabled_tools.
     if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::Tool)
         && let Some(snapshot) = state.frontend.tool_picker_snapshot_mut().take()

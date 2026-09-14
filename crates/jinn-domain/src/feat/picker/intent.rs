@@ -345,16 +345,9 @@ pub fn handle_picker_confirm(
     }
 
     match state.frontend.scope_stack.picker_kind().copied() {
-        // Persona is fully spec-driven; its confirm runs through the
-        // registry (with an empty registry — test seams — it no-ops).
-        Some(PickerKind::Persona) => (
-            crate::feat::picker::action::run_active_hook(
-                state,
-                pickers,
-                crate::feat::picker::action::Hook::Confirm,
-            ),
-            None,
-        ),
+        // Persona and Skill are fully spec-driven; the registry guard above
+        // runs their confirm hook. Reaching the match means the registry is
+        // empty (test seams) — nothing to do.
         Some(PickerKind::Provider) => (confirm_provider(state), None),
         Some(PickerKind::Session) => (confirm_session(state), None),
         Some(PickerKind::Theme) => (confirm_theme(state), None),
@@ -366,6 +359,7 @@ pub fn handle_picker_confirm(
 
         Some(
             PickerKind::CompactionModel
+            | PickerKind::Persona
             | PickerKind::TaskList
             | PickerKind::Plugin
             | PickerKind::Skill,
