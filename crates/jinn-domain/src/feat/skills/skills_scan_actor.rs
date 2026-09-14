@@ -18,7 +18,6 @@ use crate::common::services::bus_service::BusService;
 use kameo::prelude::{Actor, ActorRef, Context, Message};
 use serde::{Deserialize, Serialize};
 
-use crate::common::actor::scan_actor::scan_cwd_for_session;
 use crate::common::actor_deps::{ActorDeps, BusPublish};
 use crate::common::services::Services;
 use crate::common::state::State;
@@ -29,6 +28,17 @@ use crate::feat::session_lifecycle::protocol::event::{
 use crate::feat::skills::scan::scan_skills_merged;
 use crate::feat::skills::skill::Skill;
 use crate::init::env_init_actor::EnvironmentLoaded;
+
+fn scan_cwd_for_session(
+    state: &crate::common::state::State,
+    session_id: &crate::SessionId,
+) -> Option<std::path::PathBuf> {
+    let guard = state.read();
+    let session = guard.try_session(session_id)?;
+    let cwd = session.cwd();
+    (cwd != std::path::Path::new(".")).then(|| cwd.to_path_buf())
+}
+
 
 /// Dependencies for [`SkillsScanActor`].
 #[derive(Clone)]

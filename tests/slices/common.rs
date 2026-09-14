@@ -65,7 +65,7 @@ pub async fn launch_for_test(core: AppCore, mut services: jinn_domain::Services)
             panic!("dashboard slice activation failed: {error}");
         }
         activate_quake_bar(&mut services);
-        activate_session_init(&mut services).await;
+        activate_session_init(&mut services, &core).await;
         // Bindings generate after all activations so every slice's rows exist.
         jinn_tui::keymap_gen::bind_route_rows(&services.key_routes, &mut keymap);
     }
@@ -145,13 +145,14 @@ async fn drain_quake_bar_routes(services: &jinn_domain::Services) {
     clippy::panic,
     reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
 )]
-async fn activate_session_init(services: &mut jinn_domain::Services) {
+async fn activate_session_init(
+    services: &mut jinn_domain::Services,
+    core: &jinn_domain::AppCore,
+) {
     // `Services` is cheap to clone (Arc fields); the clone side-steps
     // the host's mutable viewport borrow for the activation call.
     let services_snapshot = services.clone();
-    let state = jinn_domain::common::state::State::new(
-        jinn_domain::common::app_state::AppState::default(),
-    );
+    let state = core.state.clone();
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,
         &mut services.viewport,

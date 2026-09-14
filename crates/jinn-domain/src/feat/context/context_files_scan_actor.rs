@@ -5,7 +5,7 @@
 //!   ([`EnvironmentLoaded`], [`SessionCreated`], [`SessionSetupCompleted`],
 //!   [`SessionLoadCompleted`], [`SessionCwdChanged`]). Each event resolves a
 //!   session id, applies the `"."`-sentinel gate via
-//!   [`scan_cwd_for_session`](crate::common::actor::scan_actor::scan_cwd_for_session),
+//!   [`scan_cwd_for_session`](scan_cwd_for_session),
 //!   and scans when the cwd is settled.
 //! - **Command-driven** (manual reload): subscribes to
 //!   [`ScanContextFiles`] commands.
@@ -30,6 +30,17 @@ use crate::feat::session_lifecycle::protocol::event::{
     SessionCreated, SessionCwdChanged, SessionSetupCompleted,
 };
 use crate::init::env_init_actor::EnvironmentLoaded;
+
+fn scan_cwd_for_session(
+    state: &crate::common::state::State,
+    session_id: &crate::SessionId,
+) -> Option<std::path::PathBuf> {
+    let guard = state.read();
+    let session = guard.try_session(session_id)?;
+    let cwd = session.cwd();
+    (cwd != std::path::Path::new(".")).then(|| cwd.to_path_buf())
+}
+
 
 /// Dependencies for [`ContextFilesScanActor`].
 #[derive(Clone)]
@@ -102,7 +113,7 @@ impl Message<EnvironmentLoaded> for ContextFilesScanActor {
 
     async fn handle(&mut self, _msg: EnvironmentLoaded, _ctx: &mut Context<Self, Self::Reply>) {
         let session_id = self.state.read().session.active_session_id().clone();
-        if crate::common::actor::scan_actor::scan_cwd_for_session(&self.state, &session_id)
+        if scan_cwd_for_session(&self.state, &session_id)
             .is_some()
         {
             self.run_scan(&session_id).await;
@@ -114,7 +125,7 @@ impl Message<SessionCreated> for ContextFilesScanActor {
     type Reply = ();
 
     async fn handle(&mut self, msg: SessionCreated, _ctx: &mut Context<Self, Self::Reply>) {
-        if crate::common::actor::scan_actor::scan_cwd_for_session(&self.state, &msg.session_id)
+        if scan_cwd_for_session(&self.state, &msg.session_id)
             .is_some()
         {
             self.run_scan(&msg.session_id).await;
@@ -126,7 +137,7 @@ impl Message<SessionSetupCompleted> for ContextFilesScanActor {
     type Reply = ();
 
     async fn handle(&mut self, msg: SessionSetupCompleted, _ctx: &mut Context<Self, Self::Reply>) {
-        if crate::common::actor::scan_actor::scan_cwd_for_session(&self.state, &msg.session_id)
+        if scan_cwd_for_session(&self.state, &msg.session_id)
             .is_some()
         {
             self.run_scan(&msg.session_id).await;
@@ -138,7 +149,7 @@ impl Message<SessionLoadCompleted> for ContextFilesScanActor {
     type Reply = ();
 
     async fn handle(&mut self, msg: SessionLoadCompleted, _ctx: &mut Context<Self, Self::Reply>) {
-        if crate::common::actor::scan_actor::scan_cwd_for_session(&self.state, msg.session_id())
+        if scan_cwd_for_session(&self.state, msg.session_id())
             .is_some()
         {
             self.run_scan(msg.session_id()).await;
@@ -150,7 +161,7 @@ impl Message<SessionCwdChanged> for ContextFilesScanActor {
     type Reply = ();
 
     async fn handle(&mut self, msg: SessionCwdChanged, _ctx: &mut Context<Self, Self::Reply>) {
-        if crate::common::actor::scan_actor::scan_cwd_for_session(&self.state, &msg.session_id)
+        if scan_cwd_for_session(&self.state, &msg.session_id)
             .is_some()
         {
             self.run_scan(&msg.session_id).await;
