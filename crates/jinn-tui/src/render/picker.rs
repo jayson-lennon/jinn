@@ -22,14 +22,14 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
     }
     match ctx.state.frontend.scope_stack.picker_kind().copied() {
         Some(PickerKind::Provider) => render_provider_picker(frame, area, ctx),
-        Some(PickerKind::Session) => render_session_picker(frame, area, ctx),
         Some(PickerKind::Endpoint) => {
             jinn_domain::feat::endpoint::picker_render::render_endpoint_picker(frame, area, ctx);
         }
         // Persona, Skill, Theme, Tool, McpServer, SessionLifecycle,
-        // ReasoningEffort, Plugin, and TaskList render entirely through their
-        // specs above; with an empty registry (test seams) there is nothing
-        // to draw. `None` (no picker scope) is also a no-op here.
+        // ReasoningEffort, Plugin, TaskList, and Session render entirely
+        // through their specs above; with an empty registry (test seams)
+        // there is nothing to draw. `None` (no picker scope) is also a
+        // no-op here.
         Some(
             PickerKind::Persona
             | PickerKind::Skill
@@ -39,7 +39,8 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
             | PickerKind::SessionLifecycle
             | PickerKind::ReasoningEffort
             | PickerKind::Plugin
-            | PickerKind::TaskList,
+            | PickerKind::TaskList
+            | PickerKind::Session,
         )
         | None => {}
         Some(PickerKind::Project) => {
@@ -51,11 +52,6 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
 /// Renders the provider picker overlay (delegates to slice).
 fn render_provider_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
     jinn_domain::feat::provider::render::render_provider_picker(frame, area, ctx);
-}
-
-/// Renders the session picker overlay (delegates to slice).
-fn render_session_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    jinn_domain::feat::session::render::render_session_picker(frame, area, ctx);
 }
 
 /// Renders the session lifecycle picker overlay (delegates to domain render).

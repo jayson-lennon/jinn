@@ -14,9 +14,7 @@ use crate::feat::provider::ProviderState;
 use crate::feat::provider::picker_entry::PickerEntry;
 use crate::feat::provider::protocol::command::{LoadProviderPickerEntries, ProviderSwitch};
 use crate::feat::session::model_selection::{AlloyStrategy, ModelSelection};
-use crate::feat::session::protocol::load_session_picker_entries::LoadSessionPickerEntries;
 use crate::feat::session::protocol::mark_session_interacted::MarkSessionInteracted;
-use crate::feat::session::protocol::session_load_requested::SessionLoadRequested;
 
 use crate::feat::ui::picker_states::PickerExt;
 use crate::protocol::{Intent, IntentResult, PickerKind};
@@ -66,12 +64,12 @@ pub fn handle_open_picker(
 
     match kind {
         PickerKind::Provider => IntentResult::new_message(LoadProviderPickerEntries),
-        PickerKind::Session => IntentResult::new_message(LoadSessionPickerEntries),
         PickerKind::Persona
         | PickerKind::Skill
         | PickerKind::Theme
         | PickerKind::Tool
         | PickerKind::McpServer
+        | PickerKind::Session
         | PickerKind::SessionLifecycle
         | PickerKind::ReasoningEffort
         | PickerKind::TaskList
@@ -99,9 +97,6 @@ fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
                 ModelSelection::Alloy { .. }
             ));
         }
-        PickerKind::Session => {
-            state.frontend.session_picker_mut().reset();
-        }
         PickerKind::Persona
         | PickerKind::Skill
         | PickerKind::Theme
@@ -110,7 +105,8 @@ fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
         | PickerKind::SessionLifecycle
         | PickerKind::ReasoningEffort
         | PickerKind::Plugin
-        | PickerKind::TaskList => {
+        | PickerKind::TaskList
+        | PickerKind::Session => {
             // Spec-driven when the registry holds their spec; nothing to
             // prepare in the legacy path.
         }
@@ -239,7 +235,6 @@ pub fn handle_picker_confirm(
         // guard above runs their confirm hook. Reaching the match means the
         // registry is empty (test seams) — nothing to do.
         Some(PickerKind::Provider) => (confirm_provider(state), None),
-        Some(PickerKind::Session) => (confirm_session(state), None),
         Some(PickerKind::Project) => (confirm_project(state), None),
         Some(PickerKind::Endpoint) => (confirm_endpoint(state), None),
 
@@ -251,6 +246,7 @@ pub fn handle_picker_confirm(
             PickerKind::McpServer
             | PickerKind::Persona
             | PickerKind::ReasoningEffort
+            | PickerKind::Session
             | PickerKind::SessionLifecycle
             | PickerKind::TaskList
             | PickerKind::Plugin
@@ -423,19 +419,6 @@ fn confirm_endpoint(state: &mut AppState) -> IntentResult {
     state.frontend.scope_stack.pop();
 
     IntentResult::empty().with_message(MarkSessionInteracted { session_id })
-}
-
-/// Confirms the selected session and dispatches a switch command.
-fn confirm_session(state: &mut AppState) -> IntentResult {
-    let Some(entry) = state.frontend.session_picker().selected_item() else {
-        return IntentResult::empty();
-    };
-    let session_id = entry.session_id.clone();
-
-    state.session.begin_load(session_id.clone());
-    state.frontend.scope_stack.pop();
-
-    IntentResult::new_message(SessionLoadRequested { session_id })
 }
 
 /// Populates the skill picker entries from discovered skills.

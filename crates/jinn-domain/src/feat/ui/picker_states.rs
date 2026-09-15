@@ -28,7 +28,8 @@ use crate::feat::tools_actor::tool_entry::ToolEntry;
 pub struct PickerStates {
     /// Session picker state (items, filter text, selection index).
     /// OWNER: IntentHandler (session picker navigation).
-    pub session_picker: jinn_selection_widget::TreePickerState<SessionTreeEntry>,
+    pub session_picker:
+        jinn_selection_widget::TreePickerState<jinn_picker::PickerEntry<SessionTreeEntry>>,
 
     /// Persona picker state (items, filter text, selection index).
     /// OWNER: IntentHandler (persona picker navigation).
@@ -129,11 +130,13 @@ pub struct PickerStates {
 /// This decouples consumers from the internal storage layout of `FrontendState`.
 pub trait PickerExt {
     /// Read-only access to the session picker state.
-    fn session_picker(&self) -> &jinn_selection_widget::TreePickerState<SessionTreeEntry>;
+    fn session_picker(
+        &self,
+    ) -> &jinn_selection_widget::TreePickerState<jinn_picker::PickerEntry<SessionTreeEntry>>;
     /// Mutable access to the session picker state.
     fn session_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::TreePickerState<SessionTreeEntry>;
+    ) -> &mut jinn_selection_widget::TreePickerState<jinn_picker::PickerEntry<SessionTreeEntry>>;
 
     /// Read-only access to the persona picker state.
     fn persona_picker(
@@ -253,13 +256,16 @@ pub trait PickerExt {
 }
 
 impl PickerExt for super::frontend_state::FrontendState {
-    fn session_picker(&self) -> &jinn_selection_widget::TreePickerState<SessionTreeEntry> {
+    fn session_picker(
+        &self,
+    ) -> &jinn_selection_widget::TreePickerState<jinn_picker::PickerEntry<SessionTreeEntry>> {
         &self.pickers.session_picker
     }
 
     fn session_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::TreePickerState<SessionTreeEntry> {
+    ) -> &mut jinn_selection_widget::TreePickerState<jinn_picker::PickerEntry<SessionTreeEntry>>
+    {
         &mut self.pickers.session_picker
     }
 

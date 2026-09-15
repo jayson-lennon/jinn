@@ -15,6 +15,7 @@ pub mod reasoning_effort_spec;
 pub mod registry;
 pub mod render;
 pub mod session_lifecycle_spec;
+pub mod session_spec;
 pub mod skill_spec;
 pub mod task_list_spec;
 pub mod theme_spec;

@@ -16,6 +16,7 @@ use crate::feat::picker::registry::MCP_SERVER_ID;
 use crate::feat::picker::registry::PERSONA_ID;
 use crate::feat::picker::registry::PLUGIN_ID;
 use crate::feat::picker::registry::REASONING_EFFORT_ID;
+use crate::feat::picker::registry::SESSION_ID;
 use crate::feat::picker::registry::SESSION_LIFECYCLE_ID;
 use crate::feat::picker::registry::SKILL_ID;
 use crate::feat::picker::registry::TASK_LIST_ID;
@@ -57,6 +58,7 @@ impl PickerHost for AppStatePickerHost<'_> {
             TASK_LIST_ID => {
                 Some(self.state.frontend.task_list_picker_mut() as &mut dyn std::any::Any)
             }
+            SESSION_ID => Some(self.state.frontend.session_picker_mut() as &mut dyn std::any::Any),
             _ => None,
         }
     }
@@ -76,6 +78,7 @@ impl PickerHost for AppStatePickerHost<'_> {
             }
             PLUGIN_ID => Some(self.state.frontend.plugin_picker() as &dyn std::any::Any),
             TASK_LIST_ID => Some(self.state.frontend.task_list_picker() as &dyn std::any::Any),
+            SESSION_ID => Some(self.state.frontend.session_picker() as &dyn std::any::Any),
             _ => None,
         }
     }
@@ -260,6 +263,7 @@ impl PickerHost for AppStateRenderHost<'_> {
             }
             PLUGIN_ID => Some(self.state.frontend.plugin_picker() as &dyn std::any::Any),
             TASK_LIST_ID => Some(self.state.frontend.task_list_picker() as &dyn std::any::Any),
+            SESSION_ID => Some(self.state.frontend.session_picker() as &dyn std::any::Any),
             _ => None,
         }
     }
