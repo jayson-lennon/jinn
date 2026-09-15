@@ -394,25 +394,24 @@ mod tests {
     use crate::common::app_state::AppState;
     use crate::common::focus::FocusScope;
     use crate::common::render_ctx::RenderCtx;
-    use crate::feat::todo_list::TaskPosition;
+    use crate::feat::todo_list::{PhaseInput, TaskStatus};
 
     fn setup_with_tasks() -> AppState {
         let mut app = AppState::default();
         let session = app.session.active_session_mut();
-        let pid = session.task_list_mut().add_phase("Research");
-        session
-            .task_list_mut()
-            .add_task(&pid, "Read docs", TaskPosition::End)
-            .unwrap();
-        session
-            .task_list_mut()
-            .add_task(&pid, "Call API", TaskPosition::End)
-            .unwrap();
-        let pid2 = session.task_list_mut().add_phase("Build");
-        session
-            .task_list_mut()
-            .add_task(&pid2, "Write code", TaskPosition::End)
-            .unwrap();
+        session.task_list_mut().set_from_inputs(&[
+            PhaseInput {
+                description: "Research".to_owned(),
+                tasks: vec![
+                    ("Read docs".to_owned(), TaskStatus::Pending),
+                    ("Call API".to_owned(), TaskStatus::Pending),
+                ],
+            },
+            PhaseInput {
+                description: "Build".to_owned(),
+                tasks: vec![("Write code".to_owned(), TaskStatus::Pending)],
+            },
+        ]);
         app
     }
 
@@ -730,22 +729,20 @@ mod tests {
         // Given 3 phases: first has pending tasks (active), second has pending tasks, third all completed.
         let mut app = AppState::default();
         let session = app.session.active_session_mut();
-        let p1 = session.task_list_mut().add_phase("Research");
-        session
-            .task_list_mut()
-            .add_task(&p1, "Read docs", TaskPosition::End)
-            .unwrap();
-        let p2 = session.task_list_mut().add_phase("Build");
-        session
-            .task_list_mut()
-            .add_task(&p2, "Write code", TaskPosition::End)
-            .unwrap();
-        let p3 = session.task_list_mut().add_phase("Test");
-        let t3 = session
-            .task_list_mut()
-            .add_task(&p3, "Run tests", TaskPosition::End)
-            .unwrap();
-        session.task_list_mut().complete_task(&t3).unwrap();
+        session.task_list_mut().set_from_inputs(&[
+            PhaseInput {
+                description: "Research".to_owned(),
+                tasks: vec![("Read docs".to_owned(), TaskStatus::Pending)],
+            },
+            PhaseInput {
+                description: "Build".to_owned(),
+                tasks: vec![("Write code".to_owned(), TaskStatus::Pending)],
+            },
+            PhaseInput {
+                description: "Test".to_owned(),
+                tasks: vec![("Run tests".to_owned(), TaskStatus::Completed)],
+            },
+        ]);
         let list = session.task_list().clone();
 
         // When rendering (no focus).
@@ -765,17 +762,16 @@ mod tests {
         // Given a phase with all tasks completed.
         let mut app = AppState::default();
         let session = app.session.active_session_mut();
-        let p1 = session.task_list_mut().add_phase("Research");
-        let t1 = session
-            .task_list_mut()
-            .add_task(&p1, "Read docs", TaskPosition::End)
-            .unwrap();
-        session.task_list_mut().complete_task(&t1).unwrap();
-        let p2 = session.task_list_mut().add_phase("Build");
-        session
-            .task_list_mut()
-            .add_task(&p2, "Write code", TaskPosition::End)
-            .unwrap();
+        session.task_list_mut().set_from_inputs(&[
+            PhaseInput {
+                description: "Research".to_owned(),
+                tasks: vec![("Read docs".to_owned(), TaskStatus::Completed)],
+            },
+            PhaseInput {
+                description: "Build".to_owned(),
+                tasks: vec![("Write code".to_owned(), TaskStatus::Pending)],
+            },
+        ]);
         let list = session.task_list().clone();
 
         // When rendering.
@@ -795,16 +791,16 @@ mod tests {
         // Given 2 phases: first has pending tasks (active), second has pending tasks (upcoming/blocked).
         let mut app = AppState::default();
         let session = app.session.active_session_mut();
-        let p1 = session.task_list_mut().add_phase("Research");
-        session
-            .task_list_mut()
-            .add_task(&p1, "Read docs", TaskPosition::End)
-            .unwrap();
-        let p2 = session.task_list_mut().add_phase("Build");
-        session
-            .task_list_mut()
-            .add_task(&p2, "Write code", TaskPosition::End)
-            .unwrap();
+        session.task_list_mut().set_from_inputs(&[
+            PhaseInput {
+                description: "Research".to_owned(),
+                tasks: vec![("Read docs".to_owned(), TaskStatus::Pending)],
+            },
+            PhaseInput {
+                description: "Build".to_owned(),
+                tasks: vec![("Write code".to_owned(), TaskStatus::Pending)],
+            },
+        ]);
         let list = session.task_list().clone();
 
         // When rendering.
@@ -824,16 +820,16 @@ mod tests {
         // Given 2 phases with pending tasks, focused on first (active) phase.
         let mut app = AppState::default();
         let session = app.session.active_session_mut();
-        let p1 = session.task_list_mut().add_phase("Research");
-        session
-            .task_list_mut()
-            .add_task(&p1, "Read docs", TaskPosition::End)
-            .unwrap();
-        let p2 = session.task_list_mut().add_phase("Build");
-        session
-            .task_list_mut()
-            .add_task(&p2, "Write code", TaskPosition::End)
-            .unwrap();
+        session.task_list_mut().set_from_inputs(&[
+            PhaseInput {
+                description: "Research".to_owned(),
+                tasks: vec![("Read docs".to_owned(), TaskStatus::Pending)],
+            },
+            PhaseInput {
+                description: "Build".to_owned(),
+                tasks: vec![("Write code".to_owned(), TaskStatus::Pending)],
+            },
+        ]);
         let list = session.task_list().clone();
         setup_focused_on_phase(&mut app, 0);
 

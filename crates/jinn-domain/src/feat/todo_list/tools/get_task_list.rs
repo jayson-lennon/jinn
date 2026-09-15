@@ -13,17 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-//! `get_task_list` built-in tool - returns the full task list.
+//! `get_list` built-in tool - returns the full task list.
 
 use crate::feat::tools_actor::BoxedToolFuture;
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition, ToolResult};
 
-/// Returns the tool definition for `get_task_list`.
+/// Returns the tool definition for `get_list`.
 pub fn definition() -> ToolDefinition {
     ToolDefinition {
-        name: "todo_get_task_list".to_owned(),
+        name: "todo_get_list".to_owned(),
         description: "Get the full todo list with all phases and tasks. \
-            Returns the current state of the todo list for review."
+            Returns the current state of the todo list, plus the next task to work on."
             .to_owned(),
         prompt_snippet: Some("Review the current task list".to_owned()),
         prompt_guidelines: vec![],
@@ -36,7 +36,7 @@ pub fn definition() -> ToolDefinition {
     }
 }
 
-/// Executes the `get_task_list` tool.
+/// Executes the `get_list` tool.
 pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
     Box::pin(async move {
         let Some(state) = ctx.state else {
@@ -95,7 +95,7 @@ mod tests {
     )]
     use crate::common::app_state::AppState;
     use crate::common::state::State;
-    use crate::feat::todo_list::TaskPosition;
+    use crate::feat::todo_list::{PhaseInput, TaskStatus};
     use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext};
     use crate::protocol::SessionId;
 
@@ -135,7 +135,7 @@ mod tests {
 
         let call = ToolCall {
             id: "call-1".to_owned(),
-            name: "todo_get_task_list".to_owned(),
+            name: "todo_get_list".to_owned(),
             arguments: "{}".to_owned(),
         };
         let ctx = make_context(Some(state), Some(session_id));
@@ -157,16 +157,15 @@ mod tests {
         {
             let mut w = state.write_test_no_cap();
             let session = w.session_mut(&session_id);
-            let pid = session.task_list_mut().add_phase("Build");
-            session
-                .task_list_mut()
-                .add_task(&pid, "Write code", TaskPosition::End)
-                .unwrap();
+            session.task_list_mut().set_from_inputs(&[PhaseInput {
+                description: "Build".to_owned(),
+                tasks: vec![("Write code".to_owned(), TaskStatus::Pending)],
+            }]);
         }
 
         let call = ToolCall {
             id: "call-1".to_owned(),
-            name: "todo_get_task_list".to_owned(),
+            name: "todo_get_list".to_owned(),
             arguments: "{}".to_owned(),
         };
         let ctx = make_context(Some(state), Some(session_id));
@@ -189,16 +188,15 @@ mod tests {
         {
             let mut w = state.write_test_no_cap();
             let session = w.session_mut(&session_id);
-            let pid = session.task_list_mut().add_phase("Build");
-            session
-                .task_list_mut()
-                .add_task(&pid, "Write code", TaskPosition::End)
-                .unwrap();
+            session.task_list_mut().set_from_inputs(&[PhaseInput {
+                description: "Build".to_owned(),
+                tasks: vec![("Write code".to_owned(), TaskStatus::Pending)],
+            }]);
         }
 
         let call = ToolCall {
             id: "call-1".to_owned(),
-            name: "todo_get_task_list".to_owned(),
+            name: "todo_get_list".to_owned(),
             arguments: "{}".to_owned(),
         };
         let ctx = make_context(Some(state), Some(session_id));
@@ -217,7 +215,7 @@ mod tests {
     fn get_task_list_requires_state() {
         let call = ToolCall {
             id: "call-1".to_owned(),
-            name: "todo_get_task_list".to_owned(),
+            name: "todo_get_list".to_owned(),
             arguments: "{}".to_owned(),
         };
         let ctx = make_context(None, Some(SessionId::new()));

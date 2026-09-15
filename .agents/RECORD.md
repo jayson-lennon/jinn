@@ -322,3 +322,8 @@ Entries are added or amended **only with human approval**.
 - (tools) The bash tool evaluates commands against the resolved project command policy before spawn; a match returns a failed tool result carrying the rule's message and the command never runs.
 - (tools) Project command policy is resolved by cwd prefix match at tool-call time with the longest configured project path winning.
 - (tools) Command policy guards only the bash tool; interactive terminals and MCP-provided tools are unguarded.
+- (todo) The todo tool surface is three tools: `todo_set_list`, `todo_set_phase`, `todo_get_list`.
+- (todo) Todo writes are declarative: statuses (`pending`, `completed`, `cancelled`) are declared in the payload; no tool payload or todo render references ids.
+- (todo) `todo_set_phase` replaces the first phase whose description matches the payload description, or appends a new phase when none matches.
+- (todo) `postponed` is not a declarable status and no tool mints it; the status survives only for legacy persisted sessions.
+- (todo) The next-task indicator remains derived from list state and renders after every write and in `todo_get_list`.

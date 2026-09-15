@@ -16,17 +16,14 @@
 //! Todo list tool registry.
 //!
 //! Wires each todo list tool module into a list of (definition, execute) pairs
-//! for registration by the tool orchestrator.
+//! for registration by the tool orchestrator. The surface is three tools:
+//! `todo_set_list` (whole-list write), `todo_set_phase` (one-phase write),
+//! and `todo_get_list` (read).
 
-pub mod add_phase;
-pub mod add_task;
-pub mod cancel_task;
-pub mod complete_task;
-pub mod get_phase;
 pub mod get_task_list;
-pub mod postpone_task;
-pub mod postpone_to_phase;
 pub mod set_list;
+pub mod set_phase;
+pub mod task_payload;
 
 use crate::feat::tools_actor::BoxedToolFuture;
 use crate::feat::tools_actor::registry::BuiltinToolEntry;
@@ -38,48 +35,18 @@ use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition
 pub fn tool_entries() -> Vec<BuiltinToolEntry> {
     vec![
         (
-            add_phase::definition(),
-            add_phase::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
-            false,
-        ),
-        (
-            add_task::definition(),
-            add_task::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
-            false,
-        ),
-        (
-            cancel_task::definition(),
-            cancel_task::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
-            false,
-        ),
-        (
-            complete_task::definition(),
-            complete_task::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
-            false,
-        ),
-        (
-            postpone_task::definition(),
-            postpone_task::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
-            false,
-        ),
-        (
-            postpone_to_phase::definition(),
-            postpone_to_phase::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
-            false,
-        ),
-        (
             get_task_list::definition(),
             get_task_list::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
             false,
         ),
         (
-            get_phase::definition(),
-            get_phase::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
+            set_list::definition(),
+            set_list::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
             false,
         ),
         (
-            set_list::definition(),
-            set_list::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
+            set_phase::definition(),
+            set_phase::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
             false,
         ),
     ]
@@ -88,14 +55,8 @@ pub fn tool_entries() -> Vec<BuiltinToolEntry> {
 /// Returns all todo list tool definitions (for prompt injection).
 pub fn tool_definitions() -> Vec<ToolDefinition> {
     vec![
-        add_phase::definition(),
-        add_task::definition(),
-        cancel_task::definition(),
-        complete_task::definition(),
-        postpone_task::definition(),
-        postpone_to_phase::definition(),
         get_task_list::definition(),
-        get_phase::definition(),
         set_list::definition(),
+        set_phase::definition(),
     ]
 }
