@@ -2543,7 +2543,7 @@ dependencies = [
 
 [[package]]
 name = "jinn"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -2593,7 +2593,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-cli"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "clap",
  "clap-verbosity-flag",
@@ -2610,7 +2610,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-common"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "dirs",
  "error-stack",
@@ -2626,7 +2626,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-core-types"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "rstest",
  "serde",
@@ -2636,7 +2636,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-dashboard"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "error-stack",
  "jinn-core-types",
@@ -2701,7 +2701,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-domain"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "anstyle",
  "anstyle-lossy",
@@ -2776,7 +2776,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-mcp"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "axum",
  "ctor",
@@ -2797,7 +2797,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-plugin"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "error-stack",
  "jinn-plugin-api",
@@ -2815,7 +2815,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-plugin-api"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "jsonschema",
  "rstest",
@@ -2833,7 +2833,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-provider"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -2857,7 +2857,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-provider-config"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "dirs",
  "error-stack",
@@ -2877,7 +2877,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-quake-bar"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "error-stack",
  "jiff",
@@ -2896,7 +2896,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-selection-widget"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "fuzzy-matcher",
  "jinn-testutil",
@@ -2907,7 +2907,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-session-msg"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "jinn-core-types",
  "jinn-slices",
@@ -2934,7 +2934,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-slices"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "derive_more",
  "error-stack",
@@ -2956,7 +2956,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-testutil"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "jinn-slices",
  "kameo",
@@ -2970,7 +2970,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-theme"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "anstyle",
  "anstyle-lossy",
@@ -2986,7 +2986,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-tui"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "arboard",
  "crossterm",
@@ -3018,7 +3018,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-web-fetch"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3040,7 +3040,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-web-search"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "async-trait",
  "ctor",
@@ -3930,7 +3930,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "persona-loader"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "error-stack",
  "jinn-plugin-api",
@@ -5645,7 +5645,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "stall-watchdog"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "jinn-plugin-api",
  "jinn-plugin-sdk",
@@ -5810,7 +5810,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -5923,7 +5923,7 @@ dependencies = [
 
 [[package]]
 name = "theme-loader"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "error-stack",
  "jinn-plugin-api",
@@ -6254,7 +6254,7 @@ checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
 name = "tool-call-watchdog"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "jinn-plugin-api",
  "jinn-plugin-sdk",
@@ -6792,6 +6792,8 @@ checksum = "1b2cb4fbb9995eeb36ac86fadf24031ccd58f99d6b4b2d7b911db70bddb80d90"
 [[package]]
 name = "trouper"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92dc4cce6f14fc55ae7ac73caf5d2447f378e8e5f6fec41ee4864a6849113e42"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -7011,7 +7013,7 @@ dependencies = [
 
 [[package]]
 name = "url-citations"
-version = "0.117.0"
+version = "0.118.0"
 dependencies = [
  "form_urlencoded",
  "jinn-plugin-api",

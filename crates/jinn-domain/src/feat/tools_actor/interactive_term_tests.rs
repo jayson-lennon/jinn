@@ -37,6 +37,7 @@ fn call(command: &str) -> ToolCall {
 fn ctx_with(session_id: Option<SessionId>, cwd: &str) -> ToolContext {
     ToolContext {
         cwd: PathBuf::from(cwd),
+        command_policy: crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
         timeout: None,
         state: None,
         session_id,

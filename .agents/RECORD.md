@@ -318,3 +318,7 @@ Entries are added or amended **only with human approval**.
 - (build) Releases ship two cargo-binstall tarballs per tag: `x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` (cross-built from Linux via mingw-w64).
 - (build) The windows-gnu cross target's linker is configured in the checked-in `.cargo/config.toml`; the config is inert for native Linux builds.
 - (build) Release binaries are self-contained on both platforms: bundled SQLite in the target graph, no SQLite DLL/import-library requirement.
+- (preferences) A `[[projects]]` entry in `jinn.toml` may carry a command policy of user-authored regex patterns with corrective messages, applied to tool commands whose cwd falls inside the project path.
+- (tools) The bash tool evaluates commands against the resolved project command policy before spawn; a match returns a failed tool result carrying the rule's message and the command never runs.
+- (tools) Project command policy is resolved by cwd prefix match at tool-call time with the longest configured project path winning.
+- (tools) Command policy guards only the bash tool; interactive terminals and MCP-provided tools are unguarded.

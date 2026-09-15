@@ -145,9 +145,11 @@ mod tests {
         let projects = vec![
             crate::feat::project::ProjectConfig {
                 path: std::path::PathBuf::from("/zzz"),
+                command_policy: Vec::new(),
             },
             crate::feat::project::ProjectConfig {
                 path: std::path::PathBuf::from("/aaa"),
+                command_policy: Vec::new(),
             },
         ];
 

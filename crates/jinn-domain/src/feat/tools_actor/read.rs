@@ -330,6 +330,8 @@ mod tests {
 
     fn test_ctx() -> crate::feat::tools_actor::tool_types::ToolContext {
         crate::feat::tools_actor::tool_types::ToolContext {
+            command_policy:
+                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
             cwd: PathBuf::from("/tmp"),
             timeout: None,
             state: None,
@@ -429,6 +431,8 @@ mod tests {
 
         let ctx = crate::feat::tools_actor::tool_types::ToolContext {
             cwd: dir.path().to_owned(),
+            command_policy:
+                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -513,6 +517,8 @@ mod tests {
 
         let ctx = ToolContext {
             cwd: dir.path().to_owned(),
+            command_policy:
+                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -560,6 +566,8 @@ mod tests {
 
         let ctx = ToolContext {
             cwd: dir.path().to_owned(),
+            command_policy:
+                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,

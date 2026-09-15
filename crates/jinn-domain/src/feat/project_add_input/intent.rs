@@ -55,11 +55,10 @@ pub fn handle_project_add_input_confirm(state: &mut AppState) -> IntentResult {
     // Optimistic update so the picker (if open underneath) reflects the add
     // immediately; the PreferencesActor re-applies the canonical result on its
     // broadcast and dedupes via AddProject::apply.
-    state
-        .frontend
-        .preferences
-        .projects
-        .push(ProjectConfig { path: path.clone() });
+    state.frontend.preferences.projects.push(ProjectConfig {
+        path: path.clone(),
+        command_policy: Vec::new(),
+    });
 
     // Pop scope and clear state.
     state.frontend.scope_stack.pop();
