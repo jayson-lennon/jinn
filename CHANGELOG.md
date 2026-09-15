@@ -1,5 +1,7 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Do not make edits)**
 
+## (development)
+
 ## 2026-09-13 v0.118.0
 
 - Fix build dependency error (`trouper` was not published to crates.io).
