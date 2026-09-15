@@ -32,8 +32,10 @@ pub struct QuakeBarCanvasActor {
 }
 
 impl ServiceActor for QuakeBarCanvasActor {
+    // Never invoked: the spawn helper injects the cell via `start_with`,
+    // and the trait-required signature has nothing to await.
     async fn start(_args: &serde_json::Value) -> Result<Self, error_stack::Report<RegistryError>> {
-        // Never called: the spawn helper injects the cell via `start_with`.
+        async {}.await;
         Err(
             error_stack::IntoReport::into_report(RegistryError::InvalidSpec).attach(
                 "QuakeBarCanvasActor is spawned via start_with; start requires the typed cell",

@@ -1780,7 +1780,7 @@ mod tests {
         let mut actor = test_actor().await;
         let session_id = {
             let mut state = actor.state.write_test_no_cap();
-            state.frontend.scope_stack.clear_overlays();
+            state.frontend.scope_clear_overlays();
             state
                 .active_session_mut()
                 .set_lifecycle_name(Some("test".to_owned()));
@@ -1809,7 +1809,7 @@ mod tests {
         // Then the scope stack does not have Input on it.
         let state = actor.state.read();
         assert!(!matches!(
-            state.frontend.scope_stack.current(),
+            state.frontend.scope(),
             crate::common::app_state::FocusScope::Input
         ));
     }

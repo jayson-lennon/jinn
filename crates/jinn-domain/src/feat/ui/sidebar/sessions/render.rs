@@ -76,10 +76,10 @@ impl SidebarSection for SessionsSection {
         let state = ctx.state;
         let sessions = sorted_open_sessions(state);
         let theme = &state.frontend.theme;
-        let sidebar_focused = state.frontend.scope_stack.is_sidebar();
+        let sidebar_focused = state.frontend.is_sidebar();
         let section_focused = sidebar_focused
             && matches!(
-                state.frontend.scope_stack.sidebar_section(),
+                state.frontend.sidebar_section(),
                 Some(SidebarSectionId::Sessions)
             );
 
@@ -189,8 +189,8 @@ pub fn render_close_session_prompt_for_state(
 ) {
     let state = ctx.state;
     if !state.frontend.close_session_prompt
-        || !state.frontend.scope_stack.is_sidebar()
-        || state.frontend.scope_stack.sidebar_section() != Some(SidebarSectionId::Sessions)
+        || !state.frontend.is_sidebar()
+        || state.frontend.sidebar_section() != Some(SidebarSectionId::Sessions)
     {
         return;
     }
@@ -223,8 +223,8 @@ pub fn render_archive_tree_prompt_for_state(
     let Some(prompt) = &state.frontend.archive_tree_prompt else {
         return;
     };
-    if !state.frontend.scope_stack.is_sidebar()
-        || state.frontend.scope_stack.sidebar_section() != Some(SidebarSectionId::Sessions)
+    if !state.frontend.is_sidebar()
+        || state.frontend.sidebar_section() != Some(SidebarSectionId::Sessions)
     {
         return;
     }

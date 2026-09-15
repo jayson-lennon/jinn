@@ -111,10 +111,10 @@ impl SidebarSection for PinsSection {
                     .add_modifier(Modifier::BOLD),
             )])]
         } else {
-            let sidebar_focused = state.frontend.scope_stack.is_sidebar();
+            let sidebar_focused = state.frontend.is_sidebar();
             let section_focused = sidebar_focused
                 && matches!(
-                    state.frontend.scope_stack.sidebar_section(),
+                    state.frontend.sidebar_section(),
                     Some(SidebarSectionId::Pins)
                 );
             build_entry_list(
@@ -177,7 +177,7 @@ pub fn pins_section_content_height(state: &AppState) -> u16 {
 pub fn handle_sidebar_persona_edit(state: &mut AppState) -> IntentResult {
     use crate::feat::ui::sidebar::section_trait::SidebarSectionId;
     if !matches!(
-        state.frontend.scope_stack.sidebar_section(),
+        state.frontend.sidebar_section(),
         Some(SidebarSectionId::Persona)
     ) {
         return IntentResult::empty();

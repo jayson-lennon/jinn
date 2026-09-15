@@ -97,12 +97,9 @@ impl PreferencesActor {
             self.state.with_preferences(&self.cap, |view| {
                 let frontend = view.frontend();
                 frontend.preferences = prefs.clone();
-                if matches!(
-                    frontend.scope_stack.current(),
-                    crate::common::focus::FocusScope::Picker {
-                        kind: crate::feat::picker::PickerKind::Project
-                    }
-                ) {
+                if frontend.is_picker()
+                    && frontend.picker_kind() == Some(crate::feat::picker::PickerKind::Project)
+                {
                     crate::feat::picker::intent::load_project_picker_entries(frontend);
                 }
             });

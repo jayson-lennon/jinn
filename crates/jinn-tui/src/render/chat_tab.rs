@@ -35,7 +35,7 @@ pub(super) fn render_chat_tab(
     ctx: &RenderCtx,
     rects: &mut Vec<Rect>,
 ) {
-    let sidebar_focused = ctx.state.frontend.scope_stack.is_sidebar();
+    let sidebar_focused = ctx.state.frontend.is_sidebar();
 
     // Compute sub-areas at the bottom of the content area.
     let content_area = layout.content;

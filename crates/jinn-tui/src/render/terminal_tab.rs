@@ -36,7 +36,7 @@ pub fn render_terminal_tab(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx<'_
     frame.render_widget(Clear, area);
 
     let capturing = matches!(
-        ctx.state.frontend.scope_stack.current(),
+        ctx.state.frontend.scope(),
         jinn_domain::FocusScope::TerminalControl
     );
     let border_color = if capturing {
@@ -235,10 +235,7 @@ mod tests {
 
     fn app_with_terminal_screen(screen: &str, cursor: (u16, u16)) -> AppState {
         let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
             "term-1",
@@ -284,11 +281,8 @@ mod tests {
     #[tokio::test]
     async fn renders_hint_when_no_session() {
         // Given an app with no mirrored session.
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        let state = AppState::default();
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
         let app = crate::TuiApp::test_builder().state(state).build().await;
 
         // When rendering the terminal tab.
@@ -317,10 +311,7 @@ mod tests {
         // Given an app whose mirror carries a styled cell grid: red bold "R"
         // followed by default-colored plain text.
         let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
         let styled = {
             use jinn_domain::feat::interactive_term::emulator::{
                 CellStyle, ScreenCells, TermCell, TermColor,
@@ -390,10 +381,7 @@ mod tests {
         use jinn_domain::feat::interactive_term::emulator::{ScreenCells, TermCell};
 
         let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
         let mut cells = vec![TermCell::Styled { ch: 'S', style }];
         cells.resize(200, TermCell::Blank);
         state.frontend.terminal.apply_screen(
@@ -487,10 +475,7 @@ mod tests {
         // Given a mirror whose grid contains a wide char followed by its
         // spacer (as the emulator emits for double-width glyphs).
         let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
         let styled = {
             use jinn_domain::feat::interactive_term::emulator::{CellStyle, ScreenCells, TermCell};
             let mut cells = vec![
@@ -544,8 +529,8 @@ mod tests {
     /// Renders the overlay for a state whose scope is `scope`, returning the
     /// buffer, so border-color/clear cases share one setup path.
     async fn rendered_overlay_with_scope(scope: FocusScope) -> ratatui::buffer::Buffer {
-        let mut state = AppState::default();
-        state.frontend.scope_stack.swap_base(scope);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_swap_base(scope);
         {
             let mut term = state.frontend.terminal.clone();
             term.apply_screen(
@@ -635,10 +620,7 @@ mod tests {
     async fn border_hint_shows_a_custom_configured_toggle_key() {
         // Given an app whose preferences configure `<m-g>` as the toggle.
         let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
             "term-1",
@@ -718,10 +700,7 @@ mod tests {
             })
             .expect("seed draw");
         let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
         {
             let mut term = state.frontend.terminal.clone();
             term.apply_screen(
@@ -762,10 +741,7 @@ mod tests {
     async fn cursor_position_is_set_when_visible_and_skipped_when_hidden() {
         // Given a mirror with an unhidden cursor at (1, 3).
         let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
         {
             let mut term = state.frontend.terminal.clone();
             term.apply_screen(

@@ -168,11 +168,10 @@ pub fn handle_session_lifecycle_setup(
 
     state.session.insert(new_session);
     state.session.set_active(new_id.clone());
-    state.frontend.scope_stack.clear_overlays();
+    state.frontend.scope_clear_overlays();
     state
         .frontend
-        .scope_stack
-        .push(crate::common::app_state::FocusScope::Input);
+        .scope_push(crate::common::app_state::FocusScope::Input);
 
     // Build the session-created event.
     let created_event = SessionCreated {
@@ -270,7 +269,7 @@ pub fn handle_arg_input_confirm(state: &mut AppState) -> IntentResult {
     };
 
     // Pop ArgInput scope.
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
     // Clear arg input state.
     state.frontend.arg_input = crate::common::app_state::ArgInputState::default();
 
@@ -476,7 +475,7 @@ mod tests {
     #[rstest::rstest]
     fn session_lifecycle_setup_with_blank_creates_session() {
         // Given default state (no lifecycles configured).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         // Set the active session's cwd to a distinct value so inheritance is
         // distinguishable from default_cwd() (the app launch dir).
         let inherited_cwd = std::path::PathBuf::from("/tmp/inherited-project");
@@ -506,7 +505,7 @@ mod tests {
     fn explicit_cwd_override_overrides_inherited_cwd() {
         // Given a state whose active session has a distinct CWD and a
         // pending creation stashed on the frontend (as the project picker does).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .set_cwd(std::path::PathBuf::from("/tmp/active-project"));
@@ -538,7 +537,7 @@ mod tests {
     fn pending_creation_cwd_is_used_when_no_explicit_cwd_given() {
         // Given a state whose active session has a distinct CWD and a
         // pending creation stashed on the frontend.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .set_cwd(std::path::PathBuf::from("/tmp/active-project"));
@@ -564,7 +563,7 @@ mod tests {
     #[rstest::rstest]
     fn setup_stamps_project_from_pending_creation() {
         // Given a state with a pending creation stashed from the projects UI.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.pending_creation =
             Some(crate::feat::ui::frontend_state::PendingSessionCreation {
                 project_dir: std::path::PathBuf::from("/home/user/projects/jinn"),
@@ -584,7 +583,7 @@ mod tests {
     #[rstest::rstest]
     fn setup_without_pending_creation_leaves_project_none() {
         // Given a default state with no pending creation stash.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling SessionLifecycleSetup.
         let _result = handle_session_lifecycle_setup(&mut state, "", &[], None);
@@ -596,7 +595,7 @@ mod tests {
     #[rstest::rstest]
     fn setup_consumes_stash_exactly_once() {
         // Given a state that already consumed a pending creation.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.pending_creation =
             Some(crate::feat::ui::frontend_state::PendingSessionCreation {
                 project_dir: std::path::PathBuf::from("/tmp/first-project"),
@@ -618,7 +617,7 @@ mod tests {
     fn scripted_lifecycle_setup_pre_seeds_inherited_cwd_in_memory() {
         // Given a state whose active session has a distinct CWD, and a
         // lifecycle with a setup_command (so the script path is taken).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let inherited_cwd = std::path::PathBuf::from("/tmp/inherited-project");
         state.active_session_mut().set_cwd(inherited_cwd.clone());
         state
@@ -649,7 +648,7 @@ mod tests {
     #[rstest::rstest]
     fn session_lifecycle_setup_with_lifecycle_emits_command() {
         // Given a state with a lifecycle that has a setup_command.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let old_id = state.session.active_session_id().clone();
         state
             .frontend
@@ -687,7 +686,7 @@ mod tests {
     #[rstest::rstest]
     fn session_lifecycle_setup_with_args_renders_command() {
         // Given a lifecycle with $1 in the setup_command.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
             .preferences
@@ -725,11 +724,10 @@ mod tests {
     #[rstest::rstest]
     fn session_lifecycle_setup_clears_overlays_and_pushes_input() {
         // Given a state with a picker overlay.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_stack
-            .push(crate::common::app_state::FocusScope::Picker {
+            .scope_push(crate::common::app_state::FocusScope::Picker {
                 kind: crate::protocol::PickerKind::Provider,
             });
 
@@ -738,7 +736,7 @@ mod tests {
 
         // Then overlays are cleared and Input scope is pushed.
         assert!(matches!(
-            state.frontend.scope_stack.current(),
+            state.frontend.scope(),
             crate::common::app_state::FocusScope::Input
         ));
     }
@@ -746,7 +744,7 @@ mod tests {
     #[rstest::rstest]
     fn session_close_without_lifecycle_emits_close_session() {
         // Given a state with two sessions.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let second_session = ChatSessionState::new();
         let second_id = second_session.session_id().clone();
         state.session.insert(second_session);
@@ -763,7 +761,7 @@ mod tests {
     #[rstest::rstest]
     fn session_close_with_teardown_emits_close_session() {
         // Given a session with a lifecycle that has a teardown_command.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
             .preferences
@@ -802,7 +800,7 @@ mod tests {
     #[rstest::rstest]
     fn session_close_last_session_emits_close_session() {
         // Given a state with only one session.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let _session_id = state.session.active_session_id().clone();
         assert_eq!(state.session.session_count(), 1);
 
@@ -817,7 +815,7 @@ mod tests {
     #[rstest::rstest]
     fn session_new_delegates_to_blank_lifecycle() {
         // Given default state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let old_id = state.session.active_session_id().clone();
         state
             .active_session_mut()
@@ -836,7 +834,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_confirm_splits_input_into_args() {
         // Given an arg input state with text.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.lifecycle_name = "fossil branch".to_owned();
         state.frontend.arg_input.text.input = "my-branch target-dir".to_owned();
         state.frontend.arg_input.text.cursor_pos = state.frontend.arg_input.text.input.len();
@@ -876,7 +874,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_confirm_rejects_empty_input_when_params_needed() {
         // Given an arg input state with empty input for a template that expects $1.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.lifecycle_name = "test".to_owned();
         state.frontend.arg_input.text.input = String::new();
         state
@@ -908,7 +906,7 @@ mod tests {
 
     #[rstest::rstest]
     fn arg_input_insert_char_appends_to_input() {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = String::new();
         state.frontend.arg_input.text.cursor_pos = 0;
 
@@ -920,7 +918,7 @@ mod tests {
 
     #[rstest::rstest]
     fn arg_input_delete_removes_last_grapheme() {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "abc".to_owned();
         state.frontend.arg_input.text.cursor_pos = 3;
 
@@ -932,7 +930,7 @@ mod tests {
 
     #[rstest::rstest]
     fn arg_input_cursor_left_moves_cursor() {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "abc".to_owned();
         state.frontend.arg_input.text.cursor_pos = 3;
 
@@ -943,7 +941,7 @@ mod tests {
 
     #[rstest::rstest]
     fn arg_input_cursor_right_moves_cursor() {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "abc".to_owned();
         state.frontend.arg_input.text.cursor_pos = 0;
 
@@ -955,7 +953,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_cursor_right_reaches_end_of_input() {
         // Given cursor one grapheme before end.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "ab".to_owned();
         state.frontend.arg_input.text.cursor_pos = 1;
 
@@ -969,7 +967,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_cursor_right_at_end_stays() {
         // Given cursor already at end.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "abc".to_owned();
         state.frontend.arg_input.text.cursor_pos = 3;
 
@@ -983,7 +981,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_delete_forward_removes_char_after_cursor() {
         // Given input "abc" with cursor at position 1 (after 'a').
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "abc".to_owned();
         state.frontend.arg_input.text.cursor_pos = 1;
 
@@ -998,7 +996,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_delete_forward_at_end_does_nothing() {
         // Given input "abc" with cursor at end.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "abc".to_owned();
         state.frontend.arg_input.text.cursor_pos = 3;
 
@@ -1013,7 +1011,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_delete_forward_at_start_removes_first_char() {
         // Given input "abc" with cursor at start.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "abc".to_owned();
         state.frontend.arg_input.text.cursor_pos = 0;
 
@@ -1028,7 +1026,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_arg_input_accepts_sufficient_args() {
         // Given a state with a $1 $2 lifecycle and two args provided.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.lifecycle_name = "test".to_owned();
         state.frontend.arg_input.text.input = "foo bar".to_owned();
         state
@@ -1056,7 +1054,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_arg_input_rejects_insufficient_args() {
         // Given a state with a $1 $2 lifecycle and only one arg.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.lifecycle_name = "test".to_owned();
         state.frontend.arg_input.text.input = "foo".to_owned();
         state
@@ -1090,7 +1088,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_arg_input_accepts_empty_input_when_no_params() {
         // Given a state with a lifecycle that has no params.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.lifecycle_name = "blank".to_owned();
         state.frontend.arg_input.text.input = String::new();
 
@@ -1104,7 +1102,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_arg_input_accepts_splat_without_numbered_params() {
         // Given a state with a $@ lifecycle and any args.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.lifecycle_name = "test".to_owned();
         state.frontend.arg_input.text.input = "anything".to_owned();
         state
@@ -1132,7 +1130,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_arg_input_rejects_when_named_param_missing() {
         // Given a state with a <branch> <target> lifecycle and only one arg.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.lifecycle_name = "test".to_owned();
         state.frontend.arg_input.text.input = "my-branch".to_owned();
         state
@@ -1160,7 +1158,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_confirm_accepts_sufficient_args() {
         // Given a state with a $1 $2 lifecycle and both args provided.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.lifecycle_name = "test".to_owned();
         state.frontend.arg_input.text.input = "foo bar".to_owned();
         state.frontend.arg_input.text.cursor_pos = 7;
@@ -1199,7 +1197,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_confirm_treats_quoted_input_as_single_arg() {
         // Given an arg input state with quoted text.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.lifecycle_name = "fossil branch".to_owned();
         state.frontend.arg_input.text.input = r#""my branch" target"#.to_owned();
         state.frontend.arg_input.text.cursor_pos = state.frontend.arg_input.text.input.len();
@@ -1237,7 +1235,7 @@ mod tests {
     #[rstest::rstest]
     fn empty_session_is_preserved_on_new_session() {
         // Given default state with a single empty session.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let old_id = state.session.active_session_id().clone();
         assert!(state.active_session().is_empty());
 
@@ -1253,7 +1251,7 @@ mod tests {
     #[rstest::rstest]
     fn session_with_history_is_preserved_on_new_session() {
         // Given an active session with history.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let old_id = state.session.active_session_id().clone();
         state
             .active_session_mut()
@@ -1273,7 +1271,7 @@ mod tests {
     #[rstest::rstest]
     fn lifecycle_setup_seeds_reasoning_effort_from_global_default() {
         // Given a global default effort of High.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.app_state.reasoning_effort = Some(crate::ReasoningEffort::High);
 
         // When creating a new session via lifecycle setup.
@@ -1290,7 +1288,7 @@ mod tests {
     #[rstest::rstest]
     fn lifecycle_setup_seeds_none_reasoning_effort_when_global_unset() {
         // Given no global default effort.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.app_state.reasoning_effort = None;
 
         // When creating a new session via lifecycle setup.
@@ -1307,7 +1305,7 @@ mod tests {
     #[rstest::rstest]
     fn lifecycle_setup_seeds_disabled_tools_and_skills_from_preferences() {
         // Given preferences disabling a tool and a skill.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.preferences.disabled_tools =
             ["bash"].iter().map(|s| (*s).to_owned()).collect();
         state.frontend.preferences.disabled_skills = ["phased-task-loop"]
@@ -1332,7 +1330,7 @@ mod tests {
     #[rstest::rstest]
     fn lifecycle_setup_with_auto_enabled_mcp_returns_enablement_message() {
         // Given preferences with one auto-enabled MCP server.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.preferences.mcp_server = [(
             "excalimate".to_owned(),
             crate::feat::mcp::McpServerConfig {
@@ -1362,7 +1360,7 @@ mod tests {
     #[rstest::rstest]
     fn lifecycle_setup_without_auto_enable_emits_no_enablement_message() {
         // Given preferences with a server that is NOT auto-enabled.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.preferences.mcp_server = [(
             "manual".to_owned(),
             crate::feat::mcp::McpServerConfig {
@@ -1391,7 +1389,7 @@ mod tests {
     #[rstest::rstest]
     fn scripted_lifecycle_setup_with_auto_enable_attaches_enablement_message() {
         // Given a scripted lifecycle and one auto-enabled server.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
             .preferences
@@ -1440,7 +1438,7 @@ mod tests {
     #[rstest::rstest]
     fn lifecycle_setup_preserves_empty_session_when_creating_lifecycle_session() {
         // Given a single empty session (app just started).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         assert_eq!(state.session.session_count(), 1);
 
         // When creating a new session with a lifecycle.
@@ -1476,7 +1474,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_delete_multi_byte_grapheme_at_boundary() {
         // Given input with a multi-byte emoji at the start and cursor at end.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "ab\u{1F600}".to_owned(); // "ab😀"
         state.frontend.arg_input.text.cursor_pos = state.frontend.arg_input.text.input.len();
 
@@ -1491,7 +1489,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_delete_at_position_zero_does_nothing() {
         // Given input with cursor at position 0.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "abc".to_owned();
         state.frontend.arg_input.text.cursor_pos = 0;
 
@@ -1506,7 +1504,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_delete_forward_multi_byte_grapheme() {
         // Given input with a multi-byte emoji after cursor.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "\u{1F600}bc".to_owned(); // "😀bc"
         state.frontend.arg_input.text.cursor_pos = 0;
 
@@ -1521,7 +1519,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_cursor_left_multi_byte_grapheme() {
         // Given input with a multi-byte emoji at the end and cursor at end.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "a\u{1F600}".to_owned(); // "a😀"
         state.frontend.arg_input.text.cursor_pos = state.frontend.arg_input.text.input.len(); // 5
 
@@ -1535,7 +1533,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_cursor_right_multi_byte_grapheme() {
         // Given input with a multi-byte emoji at position 1 and cursor at 1.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "a\u{1F600}b".to_owned(); // "a😀b"
         state.frontend.arg_input.text.cursor_pos = 1;
 
@@ -1549,7 +1547,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_paste_updates_cursor_position() {
         // Given input with existing text and cursor at position 2.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "abcd".to_owned();
         state.frontend.arg_input.text.cursor_pos = 2;
 
@@ -1564,7 +1562,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_paste_at_end_appends() {
         // Given input with cursor at end.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "abc".to_owned();
         state.frontend.arg_input.text.cursor_pos = 3;
 
@@ -1579,7 +1577,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_paste_empty_does_nothing() {
         // Given input with cursor at position 2.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input.text.input = "abcd".to_owned();
         state.frontend.arg_input.text.cursor_pos = 2;
 
@@ -1599,8 +1597,8 @@ mod tests {
         use crate::common::focus::FocusScope;
         use crate::feat::session_lifecycle::builtin::LifecycleCommand;
 
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarSessions);
         state.frontend.sessions_section.selected_index = Some(0);
         state
             .frontend
@@ -1627,8 +1625,8 @@ mod tests {
         // Given a session with no lifecycle name in NothingRan state.
         use crate::common::focus::FocusScope;
 
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarSessions);
         state.frontend.sessions_section.selected_index = Some(0);
 
         // When handling rerun setup.
@@ -1644,8 +1642,8 @@ mod tests {
         // Given a session with a lifecycle that has no setup command.
         use crate::common::focus::FocusScope;
 
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarSessions);
         state.frontend.sessions_section.selected_index = Some(0);
         state
             .frontend
@@ -1688,8 +1686,8 @@ mod tests {
         // Given a sidebar sessions view with no selected index.
         use crate::common::focus::FocusScope;
 
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarSessions);
         // No selected_index set.
 
         // When handling rerun setup.
@@ -1722,7 +1720,7 @@ mod tests {
     fn abandon_via_enter_normal_mode_clears_pending_creation() {
         // Given a state with a pending session creation stashed from a
         // project-picker confirm (midway through the lifecycle/args chain).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let active_cwd = state.active_session().cwd().to_path_buf();
         state.frontend.pending_creation =
             Some(crate::feat::ui::frontend_state::PendingSessionCreation {
@@ -1743,7 +1741,7 @@ mod tests {
     #[rstest::rstest]
     fn build_run_session_teardown_renders_command_with_args() {
         // Given a session with a lifecycle that has a teardown command.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
             .preferences
@@ -1779,7 +1777,7 @@ mod tests {
     #[rstest::rstest]
     fn build_run_session_teardown_returns_none_without_teardown_command() {
         // Given a session whose lifecycle has no teardown command.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
             .preferences
@@ -1805,7 +1803,7 @@ mod tests {
     #[rstest::rstest]
     fn build_run_session_teardown_returns_none_without_lifecycle_name() {
         // Given a session with no lifecycle name.
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
         let session_id = state.session.active_session_id().clone();
 
         // When building the teardown command.
@@ -1818,7 +1816,7 @@ mod tests {
     #[rstest::rstest]
     fn build_run_session_teardown_renders_positional_arg_from_stored_args() {
         // Given a lifecycle teardown with $1 and a session storing the arg.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
             .preferences

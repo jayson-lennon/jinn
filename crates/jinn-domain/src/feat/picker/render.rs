@@ -199,7 +199,7 @@ mod tests {
     fn render_skill_picker_same_name_different_bodies_cache_independently() {
         // Given a picker holding two same-named skills with different bodies
         // (as two sessions' shadowing would produce).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let skill = |body: &str| crate::feat::skills::Skill {
             name: "shared".to_owned(),
             description: "shadowed".to_owned(),
@@ -211,7 +211,7 @@ mod tests {
         state
             .active_session_mut()
             .set_discovered_skills(vec![skill("# GLOBAL body"), skill("# PROJECT body")]);
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Skill,
         });
         {
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn render_skill_picker_caches_preview_per_skill_and_width() {
         // Given a picker populated with two skills and a selection on the first.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .set_discovered_skills(vec![crate::feat::skills::Skill {
@@ -268,7 +268,7 @@ mod tests {
                 base_dir: std::path::PathBuf::from("/tmp/web-coder"),
                 source: crate::feat::skills::SkillSource::Global,
             }]);
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Skill,
         });
         {
@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn render_skill_picker_switch_and_back_does_not_re_render_cached_skill() {
         // Given a picker with two skills, selection on the first.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().set_discovered_skills(vec![
             crate::feat::skills::Skill {
                 name: "web-coder".to_owned(),
@@ -329,7 +329,7 @@ mod tests {
                 source: crate::feat::skills::SkillSource::Global,
             },
         ]);
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Skill,
         });
         {
@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn render_skill_picker_width_change_creates_new_cache_entry() {
         // Given a picker with one skill.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .set_discovered_skills(vec![crate::feat::skills::Skill {
@@ -395,7 +395,7 @@ mod tests {
                 base_dir: std::path::PathBuf::from("/tmp/web-coder"),
                 source: crate::feat::skills::SkillSource::Global,
             }]);
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Skill,
         });
         {
@@ -444,7 +444,7 @@ mod tests {
     #[test]
     fn render_project_picker_footer_documents_keybindings() {
         // Given a project picker with one entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         {
             let theme = state.frontend.theme.clone();
             let entry = crate::feat::project::picker_entry::ProjectEntry::new(
@@ -453,7 +453,7 @@ mod tests {
             );
             state.frontend.project_picker_mut().set_items(vec![entry]);
         }
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Project,
         });
 
@@ -520,7 +520,7 @@ mod tests {
         use crate::feat::skills::reload::reload_skill_picker_entries;
 
         // Given an open skill picker with one entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .set_discovered_skills(vec![crate::feat::skills::Skill {
@@ -531,7 +531,7 @@ mod tests {
                 base_dir: std::path::PathBuf::from("/tmp/web-coder"),
                 source: crate::feat::skills::SkillSource::Global,
             }]);
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Skill,
         });
         {

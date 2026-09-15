@@ -656,7 +656,7 @@ pub fn handle_enter_insert_mode(state: &mut AppState) -> IntentResult {
         state.active_session_mut().restore_history_position();
     }
 
-    state.frontend.scope_stack.push(FocusScope::Input);
+    state.frontend.scope_push(FocusScope::Input);
     IntentResult::empty()
 }
 
@@ -673,7 +673,7 @@ pub fn handle_enter_normal_mode(state: &mut AppState) -> IntentResult {
     }
 
     // If leaving the theme picker without confirming, restore the original theme.
-    if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::Theme)
+    if state.frontend.picker_kind() == Some(crate::protocol::PickerKind::Theme)
         && let Some(original) = state.frontend.theme_preview_original_mut().take()
     {
         state.frontend.theme = original;
@@ -681,14 +681,14 @@ pub fn handle_enter_normal_mode(state: &mut AppState) -> IntentResult {
     }
 
     // If leaving the skill picker without confirming, restore the original disabled_skills.
-    if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::Skill)
+    if state.frontend.picker_kind() == Some(crate::protocol::PickerKind::Skill)
         && let Some(snapshot) = state.frontend.skill_picker_snapshot_mut().take()
     {
         state.active_session_mut().set_disabled_skills(snapshot);
     }
 
     // If leaving the tool picker without confirming, restore the original disabled_tools.
-    if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::Tool)
+    if state.frontend.picker_kind() == Some(crate::protocol::PickerKind::Tool)
         && let Some(snapshot) = state.frontend.tool_picker_snapshot_mut().take()
     {
         state.active_session_mut().set_disabled_tools(snapshot);
@@ -696,7 +696,7 @@ pub fn handle_enter_normal_mode(state: &mut AppState) -> IntentResult {
 
     // If leaving the MCP server picker without confirming, restore the original
     // enabled MCP server set.
-    if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::McpServer)
+    if state.frontend.picker_kind() == Some(crate::protocol::PickerKind::McpServer)
         && let Some(snapshot) = state.frontend.mcp_server_picker_snapshot_mut().take()
     {
         state.active_session_mut().set_enabled_mcp_servers(snapshot);
@@ -705,10 +705,10 @@ pub fn handle_enter_normal_mode(state: &mut AppState) -> IntentResult {
     // TaskList picker is read-only and always opened from SidebarTaskList.
     // Pop only the picker to preserve the sidebar scope (rather than clearing all
     // overlays, which would drop SidebarTaskList and strand the user in Normal).
-    if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::TaskList)
-        && state.frontend.scope_stack.is_picker()
+    if state.frontend.picker_kind() == Some(crate::protocol::PickerKind::TaskList)
+        && state.frontend.is_picker()
     {
-        state.frontend.scope_stack.pop();
+        state.frontend.scope_pop();
         return IntentResult::empty();
     }
 
@@ -722,7 +722,7 @@ pub fn handle_enter_normal_mode(state: &mut AppState) -> IntentResult {
     // Using clear_overlays() instead of pop() ensures that ESC from Input mode
     // always lands in Normal, even when a sidebar scope is stacked below Input
     // (e.g., [Normal, SidebarPersona, Input] → [Normal]).
-    state.frontend.scope_stack.clear_overlays();
+    state.frontend.scope_clear_overlays();
     IntentResult::empty()
 }
 

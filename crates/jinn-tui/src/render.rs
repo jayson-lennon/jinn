@@ -44,10 +44,14 @@ pub fn render(app: &mut TuiApp, frame: &mut Frame<'_>) {
         state.active_chat_input().visual_line_count() as u16,
         area.height / 2,
         state.frontend.sidebar_width,
-        is_full_width_tab(&app.services.slices, state.frontend.scope_stack.base()),
+        is_full_width_tab(&app.services.slices, &state.frontend.scope_base()),
     );
-    let sidebar_focused = state.frontend.scope_stack.is_sidebar();
-    let active_scope = state.frontend.scope_stack.current();
+    let sidebar_focused = state.frontend.is_sidebar();
+    let active_scope = state.frontend.with_scope(
+        |s| s.stack.current().clone(),
+        || jinn_domain::FocusScope::Input,
+    );
+    let active_scope_ref = &active_scope;
 
     let mut rects = vec![];
     render_base_layers(
@@ -62,7 +66,7 @@ pub fn render(app: &mut TuiApp, frame: &mut Frame<'_>) {
         sidebar_focused,
         &mut rects,
     );
-    if let Some(rect) = render_active_overlay(frame, area, &ctx, active_scope) {
+    if let Some(rect) = render_active_overlay(frame, area, &ctx, active_scope_ref) {
         rects.push(rect);
     }
     // The which-key help popup paints last so it sits above every overlay
@@ -86,7 +90,7 @@ fn apply_pre_render_mutation(app: &mut TuiApp, area: Rect) {
     let picker_viewport =
         jinn_domain::feat::picker::geometry::measure_active_picker_results_height(&wstate, area);
     wstate.frontend.set_picker_results_viewport(picker_viewport);
-    let full_width = is_full_width_tab(&app.services.slices, wstate.frontend.scope_stack.base());
+    let full_width = is_full_width_tab(&app.services.slices, &wstate.frontend.scope_base());
     let pre_layout = AppFrameLayout::new(
         area,
         wstate.active_chat_input().visual_line_count() as u16,
@@ -97,7 +101,7 @@ fn apply_pre_render_mutation(app: &mut TuiApp, area: Rect) {
     // The terminal overlay's inner rect sizes the pty (WYSIWYG). Computed
     // every frame while open; deduped by the mirror, sent through the bridge.
     if matches!(
-        wstate.frontend.scope_stack.current(),
+        wstate.frontend.scope(),
         jinn_domain::FocusScope::TerminalView | jinn_domain::FocusScope::TerminalControl
     ) {
         let inner =
@@ -122,7 +126,7 @@ fn apply_pre_render_mutation(app: &mut TuiApp, area: Rect) {
         AppFrameLayout::Chat(chat) => {
             let text_width = chat.main.width.saturating_sub(2) as usize;
             wstate.active_chat_input_mut().set_wrap_width(text_width);
-            if wstate.frontend.scope_stack.current().mode() == Mode::Input {
+            if wstate.frontend.scope().mode() == Mode::Input {
                 let inner_height = chat.input.height.saturating_sub(1) as usize;
                 wstate
                     .active_chat_input_mut()
@@ -145,7 +149,7 @@ fn apply_pre_render_mutation(app: &mut TuiApp, area: Rect) {
 fn refresh_mcp_inspector_snapshot(state: &mut jinn_domain::AppState) {
     use jinn_domain::FocusScope;
     let is_mcp_picker = matches!(
-        state.frontend.scope_stack.current(),
+        &state.frontend.scope(),
         FocusScope::Picker {
             kind: jinn_domain::PickerKind::McpServer
         },
@@ -212,8 +216,8 @@ fn render_base_layers(
             // scope's slot resolves through the viewport. An unregistered
             // slot renders nothing (blank tab — a wiring bug caught by
             // the startup pairing check, not silently here).
-            let base = ctx.state.frontend.scope_stack.base();
-            if let FocusScope::Dynamic(id) = base
+            let base = ctx.state.frontend.scope_base();
+            if let FocusScope::Dynamic(ref id) = base
                 && let Some(slot) = slices.tab_slot(id)
             {
                 let cx = jinn_domain::common::slices::ViewCx {

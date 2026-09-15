@@ -16,7 +16,7 @@ pub(super) fn render_minimap(
     ctx: &RenderCtx,
 ) {
     let state = ctx.state;
-    let focus_scope = state.frontend.scope_stack.current();
+    let focus_scope = state.frontend.scope();
     let theme = &state.frontend.theme;
 
     let arrow_color = if matches!(focus_scope, jinn_domain::FocusScope::Normal) {

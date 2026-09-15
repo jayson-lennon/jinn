@@ -32,7 +32,7 @@ pub fn handle_session_continue(state: &mut AppState) -> IntentResult {
     use crate::feat::ui::sidebar::section_trait::SidebarSectionId;
 
     if !matches!(
-        state.frontend.scope_stack.sidebar_section(),
+        state.frontend.sidebar_section(),
         Some(SidebarSectionId::Sessions)
     ) {
         return IntentResult::empty();
@@ -76,14 +76,14 @@ mod tests {
     #[rstest::rstest]
     fn returns_enqueue_resume_command_for_selected_session() {
         // Given a state with two sessions, sidebar focused on sessions section.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         // Create a second session.
         let second_id = crate::protocol::SessionId::new();
         let mut second_session = crate::feat::session::chat_session::ChatSessionState::new();
         second_session.set_session_id(second_id);
         state.session.insert(second_session);
         // Focus sidebar on sessions section.
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        state.frontend.scope_push(FocusScope::SidebarSessions);
         // Navigate to select the second entry in the sorted list.
         navigate_sidebar(&SidebarIntent::MoveDown, &mut state);
 
@@ -105,8 +105,8 @@ mod tests {
     #[rstest::rstest]
     fn noop_when_no_session_selected() {
         // Given a state with sidebar focused but no selected session.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarSessions);
         // No selection set.
         assert!(state.frontend.sessions_section.selected_index.is_none());
 
@@ -120,8 +120,8 @@ mod tests {
     #[rstest::rstest]
     fn noop_when_not_in_sessions_section() {
         // Given a state with sidebar focused on a different section.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarPersona);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarPersona);
 
         // When handling session continue.
         let result = handle_session_continue(&mut state);
@@ -133,18 +133,18 @@ mod tests {
     #[rstest::rstest]
     fn scope_stack_unchanged_after_continue() {
         // Given a state with sidebar focused on sessions section.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarSessions);
         navigate_sidebar(&SidebarIntent::MoveDown, &mut state);
-        let scope_before = state.frontend.scope_stack.current().clone();
+        let scope_before = state.frontend.scope().clone();
 
         // When handling session continue.
         let _result = handle_session_continue(&mut state);
 
         // Then the scope stack is unchanged.
         assert_eq!(
-            state.frontend.scope_stack.current(),
-            &scope_before,
+            state.frontend.scope(),
+            scope_before,
             "scope should not change after session continue"
         );
     }

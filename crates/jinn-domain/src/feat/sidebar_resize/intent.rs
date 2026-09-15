@@ -12,7 +12,7 @@ const MIN_SIDEBAR_WIDTH: u16 = 15;
 
 /// Enters sidebar resize mode by pushing `FocusScope::SidebarResize`.
 pub fn handle_resize_enter(state: &mut AppState) -> IntentResult {
-    state.frontend.scope_stack.push(FocusScope::SidebarResize);
+    state.frontend.scope_push(FocusScope::SidebarResize);
     IntentResult::empty()
 }
 
@@ -61,7 +61,7 @@ pub fn handle_resize_contract(state: &mut AppState) -> IntentResult {
 /// Uses `clear_overlays()` so ESC always returns to the base scope,
 /// regardless of how the user entered resize mode.
 pub fn handle_resize_leave(state: &mut AppState) -> IntentResult {
-    state.frontend.scope_stack.clear_overlays();
+    state.frontend.scope_clear_overlays();
     IntentResult::empty()
 }
 
@@ -82,21 +82,15 @@ mod tests {
     #[rstest::rstest]
     fn enter_pushes_sidebar_resize_scope() {
         // Given app state in Normal scope.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.clear_overlays();
-        assert!(matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::Normal
-        ));
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_clear_overlays();
+        assert!(matches!(state.frontend.scope(), FocusScope::Normal));
 
         // When handling SidebarResizeEnter.
         let result = handle_resize_enter(&mut state);
 
         // Then SidebarResize is the current scope.
-        assert!(matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::SidebarResize
-        ));
+        assert!(matches!(state.frontend.scope(), FocusScope::SidebarResize));
         // And no commands are emitted.
         assert!(result.message_names.is_empty());
     }
@@ -104,7 +98,7 @@ mod tests {
     #[rstest::rstest]
     fn expand_increments_sidebar_width() {
         // Given default state (sidebar_width = 30).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling SidebarResizeExpand.
         let _ = handle_resize_expand(&mut state);
@@ -116,7 +110,7 @@ mod tests {
     #[rstest::rstest]
     fn expand_emits_update_preferences_command() {
         // Given default state (sidebar_width = 30).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling SidebarResizeExpand.
         let result = handle_resize_expand(&mut state);
@@ -128,7 +122,7 @@ mod tests {
     #[rstest::rstest]
     fn contract_decrements_sidebar_width() {
         // Given default state (sidebar_width = 30).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling SidebarResizeContract.
         let _ = handle_resize_contract(&mut state);
@@ -140,7 +134,7 @@ mod tests {
     #[rstest::rstest]
     fn contract_emits_update_preferences_command() {
         // Given default state (sidebar_width = 30).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling SidebarResizeContract.
         let result = handle_resize_contract(&mut state);
@@ -152,7 +146,7 @@ mod tests {
     #[rstest::rstest]
     fn contract_clamps_at_minimum() {
         // Given state with sidebar_width at minimum (15).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.sidebar_width = MIN_SIDEBAR_WIDTH;
 
         // When handling SidebarResizeContract.
@@ -167,17 +161,14 @@ mod tests {
     #[rstest::rstest]
     fn leave_clears_overlays() {
         // Given state in SidebarResize scope (stack: Normal, SidebarResize).
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarResize);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarResize);
 
         // When handling SidebarResizeLeave.
         let result = handle_resize_leave(&mut state);
 
         // Then scope is back to Normal.
-        assert!(matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::Normal
-        ));
+        assert!(matches!(state.frontend.scope(), FocusScope::Normal));
         // And no commands are emitted.
         assert!(result.message_names.is_empty());
     }
@@ -185,24 +176,21 @@ mod tests {
     #[rstest::rstest]
     fn leave_from_sidebar_returns_to_normal() {
         // Given state entered from Sidebar scope (stack: Normal, Sidebar, SidebarResize).
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarPersona);
-        state.frontend.scope_stack.push(FocusScope::SidebarResize);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarPersona);
+        state.frontend.scope_push(FocusScope::SidebarResize);
 
         // When handling SidebarResizeLeave.
         handle_resize_leave(&mut state);
 
         // Then clear_overlays returns to Normal (not Sidebar).
-        assert!(matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::Normal
-        ));
+        assert!(matches!(state.frontend.scope(), FocusScope::Normal));
     }
 
     #[rstest::rstest]
     fn multiple_expands_accumulate() {
         // Given default state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When expanding three times.
         handle_resize_expand(&mut state);

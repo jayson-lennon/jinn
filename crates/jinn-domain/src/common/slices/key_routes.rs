@@ -91,11 +91,10 @@ pub fn apply_scope_signal(result: &mut IntentResult, state: &mut AppState) {
         return;
     };
     match signal {
-        ScopeSignal::Push(id) => state.frontend.scope_stack.push(FocusScope::Dynamic(id)),
+        ScopeSignal::Push(id) => state.frontend.scope_push(FocusScope::Dynamic(id)),
         ScopeSignal::PopIf(id) => {
-            if matches!(state.frontend.scope_stack.current(), FocusScope::Dynamic(cur) if *cur == id)
-            {
-                state.frontend.scope_stack.pop();
+            if matches!(&state.frontend.scope(), FocusScope::Dynamic(cur) if *cur == id) {
+                state.frontend.scope_pop();
             }
         }
     }

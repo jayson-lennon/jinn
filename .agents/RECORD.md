@@ -333,3 +333,5 @@ Entries are added or amended **only with human approval**.
 - (slices) The status-bar slice is a crate owning the status bar element and the status-hint cell; the IntentHandler writes the hint and the element renders it.
 - (ui) The status hint renders warning-colored on the status bar's second line in place of the model string and clears on the next intent.
 - (ui) The cancel-stream, close-session, and archive-tree confirm prompts live in FrontendState and render near their invocation areas, outside the status bar.
+- (slices) The scope-focus slice is a crate owning the focus-scope stack, TUI signals, and quit latch behind one cell; the IntentHandler writes through a facade on FrontendState.
+- (ui) FocusScope, ScopeStack, and TuiSignals are shared vocabulary defined in jinn-slices and re-exported by the kernel.

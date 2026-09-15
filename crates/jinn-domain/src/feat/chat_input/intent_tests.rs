@@ -25,7 +25,7 @@ fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {
 #[rstest::rstest]
 fn insert_char_appends_to_buffer() {
     // Given a default AppState.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling InsertChar('x').
     let _ = crate::feat::chat_input::intent::handle_insert_char('x', &mut state);
@@ -37,7 +37,7 @@ fn insert_char_appends_to_buffer() {
 #[rstest::rstest]
 fn insert_char_emits_no_commands() {
     // Given a default AppState.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling InsertChar('x').
     let result = crate::feat::chat_input::intent::handle_insert_char('x', &mut state);
@@ -49,7 +49,7 @@ fn insert_char_emits_no_commands() {
 #[rstest::rstest]
 fn delete_grapheme_removes_last_char() {
     // Given a state with "ab" in the input buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("ab");
 
     // When handling DeleteGrapheme.
@@ -62,7 +62,7 @@ fn delete_grapheme_removes_last_char() {
 #[rstest::rstest]
 fn delete_grapheme_emits_no_commands() {
     // Given a state with "ab" in the input buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("ab");
 
     // When handling DeleteGrapheme.
@@ -75,7 +75,7 @@ fn delete_grapheme_emits_no_commands() {
 #[rstest::rstest]
 fn delete_grapheme_forward_removes_next_char() {
     // Given a state with "ab" and cursor at start.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("ab");
     state.active_chat_input_mut().move_cursor_to_start();
 
@@ -89,7 +89,7 @@ fn delete_grapheme_forward_removes_next_char() {
 #[rstest::rstest]
 fn delete_grapheme_forward_emits_no_commands() {
     // Given a state with "ab" and cursor at start.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("ab");
     state.active_chat_input_mut().move_cursor_to_start();
 
@@ -103,7 +103,7 @@ fn delete_grapheme_forward_emits_no_commands() {
 #[rstest::rstest]
 fn submit_message_returns_enqueue_command() {
     // Given a state with "hello" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hi");
 
     // When handling SubmitMessage.
@@ -118,7 +118,7 @@ fn submit_message_returns_enqueue_command() {
 #[rstest::rstest]
 fn submit_message_clears_input_buffer() {
     // Given a state with "hello" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hi");
 
     // When handling SubmitMessage.
@@ -131,7 +131,7 @@ fn submit_message_clears_input_buffer() {
 #[rstest::rstest]
 fn submit_message_noop_with_empty_buffer() {
     // Given a state with an empty buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling SubmitMessage.
     let result = crate::feat::chat_input::intent::handle_submit_message(&mut state);
@@ -143,7 +143,7 @@ fn submit_message_noop_with_empty_buffer() {
 #[rstest::rstest]
 fn submit_message_completes_and_submits_when_hash_autocomplete_active() {
     // Given a state with text and hash autocomplete active.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("#cod");
     let matches = vec![AutocompleteMatch {
         name: "code-review".to_owned(),
@@ -169,7 +169,7 @@ fn submit_message_completes_and_submits_when_hash_autocomplete_active() {
 #[rstest::rstest]
 fn submit_message_with_hash_autocomplete_clears_buffer() {
     // Given a state with text and hash autocomplete active.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("#cod");
     let matches = vec![AutocompleteMatch {
         name: "code-review".to_owned(),
@@ -191,7 +191,7 @@ fn submit_message_with_hash_autocomplete_clears_buffer() {
 #[rstest::rstest]
 fn toggle_input_mode_flips_steer_to_queue() {
     // Given default state (mode = Steer).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     assert_eq!(
         state.active_chat_input().input_mode(),
         InputMode::Steer,
@@ -210,7 +210,7 @@ fn toggle_input_mode_flips_steer_to_queue() {
 #[rstest::rstest]
 fn toggle_input_mode_is_sticky_across_submissions() {
     // Given default (Steer) mode with text typed.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     state.active_chat_input_mut().insert_text("h");
 
@@ -228,7 +228,7 @@ fn toggle_input_mode_is_sticky_across_submissions() {
 #[rstest::rstest]
 fn queue_submit_always_enqueues() {
     // Given Queue mode (toggled from default Steer) with text typed, mid-stream.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     crate::feat::chat_input::intent::handle_toggle_input_mode(&mut state); // Steer → Queue
     state.session.active_session_mut().begin_streaming();
     state.active_chat_input_mut().insert_text("h");
@@ -251,7 +251,7 @@ fn steer_submit_while_busy_routes_to_steer(
     #[values(PhaseKind::Streaming, PhaseKind::Sending)] phase: PhaseKind,
 ) {
     // Given default (Steer) mode + a non-Idle phase with text typed.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     match phase {
         PhaseKind::Streaming => state.session.active_session_mut().begin_streaming(),
@@ -290,7 +290,7 @@ fn steer_submit_while_busy_routes_to_steer(
 #[test]
 fn steer_submit_while_idle_falls_back_to_enqueue() {
     // Given default (Steer) mode + Idle phase with text typed.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     state.active_chat_input_mut().insert_text("h");
 
@@ -318,7 +318,7 @@ fn steer_submit_while_idle_falls_back_to_enqueue() {
 #[rstest::rstest]
 fn autocomplete_confirm_no_op_when_no_autocomplete() {
     // Given a state with no autocomplete active.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling AutocompleteConfirm.
     let result = crate::feat::chat_input::intent::handle_autocomplete_confirm(&mut state);
@@ -330,7 +330,7 @@ fn autocomplete_confirm_no_op_when_no_autocomplete() {
 #[rstest::rstest]
 fn move_cursor_left_moves_cursor() {
     // Given a state with "ab" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("ab");
     assert_eq!(state.active_chat_input().cursor_pos(), 2);
 
@@ -344,7 +344,7 @@ fn move_cursor_left_moves_cursor() {
 #[rstest::rstest]
 fn move_cursor_left_emits_no_commands() {
     // Given a state with "ab" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("ab");
     assert_eq!(state.active_chat_input().cursor_pos(), 2);
 
@@ -358,7 +358,7 @@ fn move_cursor_left_emits_no_commands() {
 #[rstest::rstest]
 fn move_cursor_right_moves_cursor() {
     // Given a state with cursor at start.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("ab");
     state.active_chat_input_mut().move_cursor_to_start();
 
@@ -372,7 +372,7 @@ fn move_cursor_right_moves_cursor() {
 #[rstest::rstest]
 fn move_cursor_right_emits_no_commands() {
     // Given a state with cursor at start.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("ab");
     state.active_chat_input_mut().move_cursor_to_start();
 
@@ -386,7 +386,7 @@ fn move_cursor_right_emits_no_commands() {
 #[rstest::rstest]
 fn move_cursor_to_start_moves_cursor() {
     // Given a state with "hello" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hi");
 
     // When handling MoveCursorToStart.
@@ -399,7 +399,7 @@ fn move_cursor_to_start_moves_cursor() {
 #[rstest::rstest]
 fn move_cursor_to_start_emits_no_commands() {
     // Given a state with "hello" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hi");
 
     // When handling MoveCursorToStart.
@@ -412,7 +412,7 @@ fn move_cursor_to_start_emits_no_commands() {
 #[rstest::rstest]
 fn move_cursor_to_end_moves_cursor() {
     // Given a state with cursor at start.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_grapheme_at_cursor('a');
     state.active_chat_input_mut().move_cursor_to_start();
 
@@ -426,7 +426,7 @@ fn move_cursor_to_end_moves_cursor() {
 #[rstest::rstest]
 fn move_cursor_to_end_emits_no_commands() {
     // Given a state with cursor at start.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_grapheme_at_cursor('a');
     state.active_chat_input_mut().move_cursor_to_start();
 
@@ -440,7 +440,7 @@ fn move_cursor_to_end_emits_no_commands() {
 #[rstest::rstest]
 fn move_cursor_word_left_moves_cursor() {
     // Given a state with "hello world".
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hi");
 
     // When handling MoveCursorWordLeft.
@@ -453,7 +453,7 @@ fn move_cursor_word_left_moves_cursor() {
 #[rstest::rstest]
 fn move_cursor_word_left_emits_no_commands() {
     // Given a state with "hello world".
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hi");
 
     // When handling MoveCursorWordLeft.
@@ -466,7 +466,7 @@ fn move_cursor_word_left_emits_no_commands() {
 #[rstest::rstest]
 fn move_cursor_word_right_moves_cursor() {
     // Given a state with "hi" and cursor at start.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hi");
     state.active_chat_input_mut().move_cursor_to_start();
 
@@ -480,7 +480,7 @@ fn move_cursor_word_right_moves_cursor() {
 #[rstest::rstest]
 fn move_cursor_word_right_emits_no_commands() {
     // Given a state with "hi" and cursor at start.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hi");
     state.active_chat_input_mut().move_cursor_to_start();
 
@@ -494,7 +494,7 @@ fn move_cursor_word_right_emits_no_commands() {
 #[rstest::rstest]
 fn cursor_left_reactivates_autocomplete_when_re_entering_token() {
     // Given a state with "#code " in the buffer (autocomplete was dismissed by space).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("#code ");
     // Cursor is at end (after space). Move left twice to get back into "code".
     state.active_chat_input_mut().move_cursor_left(); // cursor on space
@@ -513,7 +513,7 @@ fn cursor_left_reactivates_autocomplete_when_re_entering_token() {
 #[rstest::rstest]
 fn cursor_left_reactivates_autocomplete_emits_no_commands() {
     // Given a state with "#code " in the buffer (autocomplete was dismissed by space).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("#code ");
     // Cursor is at end (after space). Move left twice to get back into "code".
     state.active_chat_input_mut().move_cursor_left(); // cursor on space
@@ -529,7 +529,7 @@ fn cursor_left_reactivates_autocomplete_emits_no_commands() {
 #[rstest::rstest]
 fn backspace_reactivates_autocomplete_when_re_entering_token() {
     // Given a state with "#code " and cursor at end.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("#code ");
 
     // When handling DeleteGrapheme (removes the space).
@@ -545,7 +545,7 @@ fn backspace_reactivates_autocomplete_when_re_entering_token() {
 #[rstest::rstest]
 fn backspace_reactivates_autocomplete_emits_no_commands() {
     // Given a state with "#code " and cursor at end.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("#code ");
 
     // When handling DeleteGrapheme (removes the space).
@@ -558,7 +558,7 @@ fn backspace_reactivates_autocomplete_emits_no_commands() {
 #[rstest::rstest]
 fn cursor_move_away_from_token_does_not_reactivate() {
     // Given a state with "hello #code" and cursor at end.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hello #code");
 
     // When moving cursor left past the token boundary (into "hello ").
@@ -580,7 +580,7 @@ fn cursor_move_away_from_token_does_not_reactivate() {
 #[rstest::rstest]
 fn cursor_move_away_emits_no_commands() {
     // Given a state with "hello #code" and cursor at end.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hello #code");
 
     // When moving cursor left past the token boundary (into "hello ").
@@ -599,7 +599,7 @@ fn cursor_move_away_emits_no_commands() {
 #[rstest::rstest]
 fn move_cursor_up_delegates_to_state() {
     // Given a default state.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_grapheme_at_cursor('a');
 
     // When handling MoveCursorUp.
@@ -612,7 +612,7 @@ fn move_cursor_up_delegates_to_state() {
 #[rstest::rstest]
 fn move_cursor_down_delegates_to_state() {
     // Given a default state.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_grapheme_at_cursor('a');
 
     // When handling MoveCursorDown.
@@ -625,22 +625,19 @@ fn move_cursor_down_delegates_to_state() {
 #[rstest::rstest]
 fn enter_insert_mode_sets_mode_to_input() {
     // Given a state in Normal mode.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling EnterInsertMode.
     let _ = crate::feat::chat_input::intent::handle_enter_insert_mode(&mut state);
 
     // Then scope_stack has Input on top.
-    assert_eq!(
-        state.frontend.scope_stack.current().mode(),
-        crate::protocol::Mode::Input
-    );
+    assert_eq!(state.frontend.scope().mode(), crate::protocol::Mode::Input);
 }
 
 #[rstest::rstest]
 fn enter_insert_mode_emits_no_commands() {
     // Given a state in Normal mode.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling EnterInsertMode.
     let result = crate::feat::chat_input::intent::handle_enter_insert_mode(&mut state);
@@ -654,20 +651,20 @@ fn enter_normal_mode_returns_to_normal_scope() {
     // Given a state in Input mode.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
 
     // When handling EnterNormalMode.
     let _ = crate::feat::chat_input::intent::handle_enter_normal_mode(&mut state);
 
     // Then scope_stack is back to Normal.
-    assert_eq!(state.frontend.scope_stack.current(), &FocusScope::Normal);
+    assert_eq!(state.frontend.scope(), FocusScope::Normal);
 }
 
 #[rstest::rstest]
 fn enter_normal_mode_clears_pending_creation() {
     // Given a state with a stale pending session creation stash.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.frontend.pending_creation =
         Some(crate::feat::ui::frontend_state::PendingSessionCreation {
             project_dir: std::path::PathBuf::from("/tmp/stale"),
@@ -687,8 +684,8 @@ fn enter_normal_mode_from_input_emits_no_commands() {
     // Given a state in Input mode.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
 
     // When handling EnterNormalMode.
     let result = crate::feat::chat_input::intent::handle_enter_normal_mode(&mut state);
@@ -703,8 +700,8 @@ fn enter_normal_mode_clears_picker_kind_when_leaving_picker() {
     use crate::common::app_state::FocusScope;
     use crate::protocol::PickerKind;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Picker {
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Picker {
         kind: PickerKind::Provider,
     });
 
@@ -712,8 +709,8 @@ fn enter_normal_mode_clears_picker_kind_when_leaving_picker() {
     let _ = crate::feat::chat_input::intent::handle_enter_normal_mode(&mut state);
 
     // Then scope_stack is back to Normal (no picker).
-    assert!(!state.frontend.scope_stack.is_picker());
-    assert_eq!(state.frontend.scope_stack.current(), &FocusScope::Normal);
+    assert!(!state.frontend.is_picker());
+    assert_eq!(state.frontend.scope(), FocusScope::Normal);
 }
 
 #[rstest::rstest]
@@ -722,8 +719,8 @@ fn enter_normal_mode_from_picker_emits_no_commands() {
     use crate::common::app_state::FocusScope;
     use crate::protocol::PickerKind;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Picker {
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Picker {
         kind: PickerKind::Provider,
     });
 
@@ -739,16 +736,16 @@ fn enter_normal_mode_from_input_with_sidebar_returns_to_normal() {
     // Given a state with sidebar and input on the scope stack.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::SidebarPersona);
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state.frontend.scope_push(FocusScope::Input);
 
     // When handling EnterNormalMode.
     let _ = crate::feat::chat_input::intent::handle_enter_normal_mode(&mut state);
 
     // Then scope_stack is back to Normal (not SidebarPersona).
-    assert_eq!(state.frontend.scope_stack.current(), &FocusScope::Normal);
-    assert!(!state.frontend.scope_stack.is_sidebar());
+    assert_eq!(state.frontend.scope(), FocusScope::Normal);
+    assert!(!state.frontend.is_sidebar());
 }
 
 #[rstest::rstest]
@@ -756,9 +753,9 @@ fn enter_normal_mode_from_sidebar_input_emits_no_commands() {
     // Given a state with sidebar and input on the scope stack.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::SidebarPersona);
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state.frontend.scope_push(FocusScope::Input);
 
     // When handling EnterNormalMode.
     let result = crate::feat::chat_input::intent::handle_enter_normal_mode(&mut state);
@@ -772,8 +769,8 @@ fn enter_normal_mode_does_not_cancel_stream() {
     // Given a state in Input mode with active stream.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
     state.active_session_mut().begin_streaming();
 
     // When handling EnterNormalMode.
@@ -793,8 +790,8 @@ fn enter_normal_mode_preserves_streaming_phase() {
     // Given a state in Input mode with active stream.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
     state.active_session_mut().begin_streaming();
 
     // When handling EnterNormalMode.
@@ -812,8 +809,8 @@ fn enter_normal_mode_does_not_drain_queue() {
     // Given a state in Input mode with active stream and queued messages.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
     state.active_session_mut().begin_streaming();
     state
         .active_session_mut()
@@ -840,8 +837,8 @@ fn enter_normal_mode_with_queue_emits_no_cancel_stream() {
     // Given a state in Input mode with active stream and queued messages.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
     state.active_session_mut().begin_streaming();
     state
         .active_session_mut()
@@ -871,7 +868,7 @@ fn normal_escape_does_not_clear_selection() {
     // Given a state with a selected entry.
     use crate::protocol::ChatEntry;
 
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_session_mut().push_entry(ChatEntry::user("hi"));
     // push_entry auto-selects index 0.
     assert_eq!(state.active_session().selected_entry_index(), Some(0));
@@ -890,7 +887,7 @@ fn normal_escape_emits_no_commands() {
     // Given a state with a selected entry.
     use crate::protocol::ChatEntry;
 
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_session_mut().push_entry(ChatEntry::user("hi"));
     // push_entry auto-selects index 0.
     assert_eq!(state.active_session().selected_entry_index(), Some(0));
@@ -905,7 +902,7 @@ fn normal_escape_emits_no_commands() {
 #[rstest::rstest]
 fn normal_escape_sets_cancel_prompt_when_streaming() {
     // Given a state in Normal mode with an active stream.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_session_mut().begin_streaming();
 
     // When handling NormalEscape.
@@ -918,7 +915,7 @@ fn normal_escape_sets_cancel_prompt_when_streaming() {
 #[rstest::rstest]
 fn normal_escape_when_streaming_emits_no_commands() {
     // Given a state in Normal mode with an active stream.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_session_mut().begin_streaming();
 
     // When handling NormalEscape.
@@ -931,7 +928,7 @@ fn normal_escape_when_streaming_emits_no_commands() {
 #[rstest::rstest]
 fn normal_escape_noop_when_idle_and_no_selection() {
     // Given a state that is idle with no selection.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling NormalEscape.
     let _ = crate::feat::chat_input::intent::handle_normal_escape(&mut state);
@@ -943,7 +940,7 @@ fn normal_escape_noop_when_idle_and_no_selection() {
 #[rstest::rstest]
 fn normal_escape_when_idle_emits_no_commands() {
     // Given a state that is idle with no selection.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling NormalEscape.
     let result = crate::feat::chat_input::intent::handle_normal_escape(&mut state);
@@ -955,7 +952,7 @@ fn normal_escape_when_idle_emits_no_commands() {
 #[rstest::rstest]
 fn slash_at_position_0_triggers_autocomplete() {
     // Given a default AppState.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling InsertChar('/').
     let _ = crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
@@ -972,7 +969,7 @@ fn slash_at_position_0_triggers_autocomplete() {
 #[rstest::rstest]
 fn slash_at_position_0_emits_no_commands() {
     // Given a default AppState.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling InsertChar('/').
     let result = crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
@@ -984,7 +981,7 @@ fn slash_at_position_0_emits_no_commands() {
 #[rstest::rstest]
 fn slash_does_not_trigger_with_content() {
     // Given a state with "hello" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hello");
 
     // When handling InsertChar('/').
@@ -1000,7 +997,7 @@ fn slash_does_not_trigger_with_content() {
 #[rstest::rstest]
 fn slash_with_content_emits_no_commands() {
     // Given a state with "hello" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hello");
 
     // When handling InsertChar('/').
@@ -1013,7 +1010,7 @@ fn slash_with_content_emits_no_commands() {
 #[rstest::rstest]
 fn slash_autocomplete_shows_new_command() {
     // Given a state where '/' was typed at position 0.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
 
     // Then the autocomplete popup has the /new command.
@@ -1028,7 +1025,7 @@ fn slash_autocomplete_shows_new_command() {
 #[rstest::rstest]
 fn slash_autocomplete_filters_on_typing() {
     // Given a state with '/n' typed.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
     crate::feat::chat_input::intent::handle_insert_char('n', &mut state);
 
@@ -1048,7 +1045,7 @@ fn slash_autocomplete_filters_on_typing() {
 #[rstest::rstest]
 fn slash_autocomplete_tab_completes_name() {
     // Given a state with slash autocomplete active.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
 
     // Navigate to the "new" entry (default selection is the last entry).
@@ -1064,7 +1061,7 @@ fn slash_autocomplete_tab_completes_name() {
 #[rstest::rstest]
 fn slash_autocomplete_tab_confirm_emits_no_commands() {
     // Given a state with slash autocomplete active.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
 
     // When confirming autocomplete (Tab).
@@ -1077,7 +1074,7 @@ fn slash_autocomplete_tab_confirm_emits_no_commands() {
 #[rstest::rstest]
 fn slash_autocomplete_dismisses_on_space() {
     // Given a state with slash autocomplete active.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
 
     // When pressing space.
@@ -1093,7 +1090,7 @@ fn slash_autocomplete_dismisses_on_space() {
 #[rstest::rstest]
 fn slash_autocomplete_reactivates_on_cursor_reentry() {
     // Given a state with "/ne " (autocomplete dismissed by space).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
     crate::feat::chat_input::intent::handle_insert_char('n', &mut state);
     crate::feat::chat_input::intent::handle_insert_char('e', &mut state);
@@ -1115,7 +1112,7 @@ fn slash_autocomplete_reactivates_on_cursor_reentry() {
 #[rstest::rstest]
 fn slash_autocomplete_cursor_reentry_emits_no_commands() {
     // Given a state with "/ne " (autocomplete dismissed by space).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
     crate::feat::chat_input::intent::handle_insert_char('n', &mut state);
     crate::feat::chat_input::intent::handle_insert_char('e', &mut state);
@@ -1134,7 +1131,7 @@ fn slash_autocomplete_cursor_reentry_emits_no_commands() {
 #[rstest::rstest]
 fn slash_autocomplete_does_not_reactivate_after_cursor_leaves_token() {
     // Given a state with "a /ne" and cursor at end.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("a /ne");
 
     // When moving cursor left to the space before '/'.
@@ -1153,7 +1150,7 @@ fn slash_autocomplete_does_not_reactivate_after_cursor_leaves_token() {
 #[rstest::rstest]
 fn slash_autocomplete_cursor_leaves_token_emits_no_commands() {
     // Given a state with "a /ne" and cursor at end.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("a /ne");
 
     // When moving cursor left to the space before '/'.
@@ -1169,7 +1166,7 @@ fn slash_autocomplete_cursor_leaves_token_emits_no_commands() {
 #[rstest::rstest]
 fn submit_new_command_creates_session() {
     // Given a state with "/new" in the buffer (no autocomplete active).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let old_id = state.session.active_session_id().clone();
     state.active_chat_input_mut().insert_text("/new");
 
@@ -1185,7 +1182,7 @@ fn submit_new_command_creates_session() {
 #[rstest::rstest]
 fn submit_new_command_emits_no_enqueue_command() {
     // Given a state with "/new" in the buffer (no autocomplete active).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("/new");
 
     // When handling SubmitMessage.
@@ -1204,7 +1201,7 @@ fn submit_new_command_emits_no_enqueue_command() {
 #[rstest::rstest]
 fn submit_unknown_slash_command_sends_as_chat() {
     // Given a state with "/lol" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("/lol");
 
     // When handling SubmitMessage.
@@ -1232,7 +1229,7 @@ fn submit_unknown_slash_command_sends_as_chat() {
 #[rstest::rstest]
 fn submit_unknown_slash_command_clears_buffer() {
     // Given a state with "/lol" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("/lol");
 
     // When handling SubmitMessage.
@@ -1245,7 +1242,7 @@ fn submit_unknown_slash_command_clears_buffer() {
 #[rstest::rstest]
 fn submit_compact_slash_command_pushes_system_message() {
     // Given a state with "/compact" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("/compact");
 
     // When handling SubmitMessage.
@@ -1272,7 +1269,7 @@ fn submit_compact_slash_command_pushes_system_message() {
 #[rstest::rstest]
 fn submit_compact_slash_command_clears_buffer() {
     // Given a state with "/compact" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("/compact");
 
     // When handling SubmitMessage.
@@ -1285,7 +1282,7 @@ fn submit_compact_slash_command_clears_buffer() {
 #[rstest::rstest]
 fn tab_completes_name_without_executing() {
     // Given a state with slash autocomplete active ("/" typed, popup showing entries).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
     let old_id = state.session.active_session_id().clone();
 
@@ -1307,7 +1304,7 @@ fn tab_completes_name_without_executing() {
 #[rstest::rstest]
 fn tab_confirm_slash_emits_no_commands() {
     // Given a state with slash autocomplete active ("/" typed, popup showing "new").
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
 
     // When confirming autocomplete (Tab).
@@ -1320,7 +1317,7 @@ fn tab_confirm_slash_emits_no_commands() {
 #[rstest::rstest]
 fn enter_completes_and_executes_slash_command() {
     // Given a state with slash autocomplete active ("/" typed, popup showing entries).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
     let old_id = state.session.active_session_id().clone();
 
@@ -1342,7 +1339,7 @@ fn enter_completes_and_executes_slash_command() {
 #[rstest::rstest]
 fn enter_slash_command_emits_no_enqueue() {
     // Given a state with slash autocomplete active ("/" typed, popup showing "new").
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
 
     // When pressing Enter (SubmitMessage with autocomplete active).
@@ -1361,7 +1358,7 @@ fn enter_slash_command_emits_no_enqueue() {
 #[rstest::rstest]
 fn paste_text_inserts_into_chat_input() {
     // Given a default AppState.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling PasteText with "hello\nworld".
     let _ = crate::feat::chat_input::intent::handle_paste_text("hello\nworld", &mut state);
@@ -1373,7 +1370,7 @@ fn paste_text_inserts_into_chat_input() {
 #[rstest::rstest]
 fn paste_text_emits_no_commands() {
     // Given a default AppState.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling PasteText with "hello\nworld".
     let result = crate::feat::chat_input::intent::handle_paste_text("hello\nworld", &mut state);
@@ -1385,7 +1382,7 @@ fn paste_text_emits_no_commands() {
 #[rstest::rstest]
 fn paste_text_inserts_at_cursor_position() {
     // Given a state with "hello" and cursor at position 2.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hello");
     state.active_chat_input_mut().move_cursor_to_start();
     state.active_chat_input_mut().move_cursor_right();
@@ -1402,7 +1399,7 @@ fn paste_text_inserts_at_cursor_position() {
 #[rstest::rstest]
 fn paste_text_at_cursor_emits_no_commands() {
     // Given a state with "hello" and cursor at position 2.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hello");
     state.active_chat_input_mut().move_cursor_to_start();
     state.active_chat_input_mut().move_cursor_right();
@@ -1418,7 +1415,7 @@ fn paste_text_at_cursor_emits_no_commands() {
 #[rstest::rstest]
 fn hash_triggers_after_newline() {
     // Given a state with "hello\n" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hello\n");
 
     // When handling InsertChar('#').
@@ -1436,7 +1433,7 @@ fn hash_triggers_after_newline() {
 #[rstest::rstest]
 fn hash_after_newline_emits_no_commands() {
     // Given a state with "hello\n" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hello\n");
 
     // When handling InsertChar('#').
@@ -1449,7 +1446,7 @@ fn hash_after_newline_emits_no_commands() {
 #[rstest::rstest]
 fn hash_triggers_after_newline_at_line_start() {
     // Given a state with "\n" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("\n");
 
     // When handling InsertChar('#').
@@ -1465,7 +1462,7 @@ fn hash_triggers_after_newline_at_line_start() {
 #[rstest::rstest]
 fn hash_after_newline_start_emits_no_commands() {
     // Given a state with "\n" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("\n");
 
     // When handling InsertChar('#').
@@ -1478,7 +1475,7 @@ fn hash_after_newline_start_emits_no_commands() {
 #[rstest::rstest]
 fn hash_does_not_trigger_after_non_boundary_char() {
     // Given a state with "hello" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hello");
 
     // When handling InsertChar('#').
@@ -1494,7 +1491,7 @@ fn hash_does_not_trigger_after_non_boundary_char() {
 #[rstest::rstest]
 fn hash_after_non_boundary_emits_no_commands() {
     // Given a state with "hello" in the buffer.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hello");
 
     // When handling InsertChar('#').
@@ -1507,7 +1504,7 @@ fn hash_after_non_boundary_emits_no_commands() {
 #[rstest::rstest]
 fn hash_reactivates_when_cursor_enters_token_after_newline() {
     // Given a state with "hello\n#code" in buffer and no autocomplete.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hello\n#code");
 
     // When moving cursor left into the "#code" token.
@@ -1524,7 +1521,7 @@ fn hash_reactivates_when_cursor_enters_token_after_newline() {
 #[rstest::rstest]
 fn hash_cursor_reentry_emits_no_commands() {
     // Given a state with "hello\n#code" in buffer and no autocomplete.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hello\n#code");
 
     // When moving cursor left into the "#code" token.
@@ -1538,7 +1535,7 @@ fn hash_cursor_reentry_emits_no_commands() {
 #[rstest::rstest]
 fn cursor_right_past_token_deactivates_autocomplete() {
     // Given a state with "#code hello" and autocomplete active at token_start=0.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("#code hello");
     state
         .active_chat_input_mut()
@@ -1571,7 +1568,7 @@ fn cursor_right_past_token_deactivates_autocomplete() {
 #[rstest::rstest]
 fn cursor_right_within_token_keeps_autocomplete_active() {
     // Given a state with "#code" and autocomplete active at token_start=0.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("#code");
     state
         .active_chat_input_mut()
@@ -1593,8 +1590,8 @@ fn enter_normal_mode_deactivates_hash_autocomplete() {
     // Given a state in Input scope with hash autocomplete active.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
     state
         .active_chat_input_mut()
         .activate_autocomplete(0, AutocompleteTrigger::Hash, vec![]);
@@ -1614,8 +1611,8 @@ fn enter_normal_mode_with_hash_autocomplete_stays_in_input_scope() {
     // Given a state in Input scope with hash autocomplete active.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
     state
         .active_chat_input_mut()
         .activate_autocomplete(0, AutocompleteTrigger::Hash, vec![]);
@@ -1625,8 +1622,8 @@ fn enter_normal_mode_with_hash_autocomplete_stays_in_input_scope() {
 
     // Then scope is still Input (not Normal).
     assert_eq!(
-        state.frontend.scope_stack.current(),
-        &FocusScope::Input,
+        state.frontend.scope(),
+        FocusScope::Input,
         "scope should stay in Input after dismissing autocomplete"
     );
 }
@@ -1636,8 +1633,8 @@ fn enter_normal_mode_deactivates_slash_autocomplete() {
     // Given a state in Input scope with slash autocomplete active.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
     state
         .active_chat_input_mut()
         .activate_autocomplete(0, AutocompleteTrigger::Slash, vec![]);
@@ -1657,8 +1654,8 @@ fn enter_normal_mode_with_slash_autocomplete_stays_in_input_scope() {
     // Given a state in Input scope with slash autocomplete active.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
     state
         .active_chat_input_mut()
         .activate_autocomplete(0, AutocompleteTrigger::Slash, vec![]);
@@ -1668,8 +1665,8 @@ fn enter_normal_mode_with_slash_autocomplete_stays_in_input_scope() {
 
     // Then scope is still Input (not Normal).
     assert_eq!(
-        state.frontend.scope_stack.current(),
-        &FocusScope::Input,
+        state.frontend.scope(),
+        FocusScope::Input,
         "scope should stay in Input after dismissing slash autocomplete"
     );
 }
@@ -1679,16 +1676,16 @@ fn enter_normal_mode_without_autocomplete_switches_to_normal() {
     // Given a state in Input scope with no autocomplete.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
 
     // When handling EnterNormalMode.
     let _ = crate::feat::chat_input::intent::handle_enter_normal_mode(&mut state);
 
     // Then scope switches to Normal.
     assert_eq!(
-        state.frontend.scope_stack.current(),
-        &FocusScope::Normal,
+        state.frontend.scope(),
+        FocusScope::Normal,
         "ESC should switch to Normal when no autocomplete is active"
     );
 }
@@ -1698,8 +1695,8 @@ fn enter_normal_mode_dismissing_autocomplete_emits_no_commands() {
     // Given a state in Input scope with hash autocomplete active.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
     state
         .active_chat_input_mut()
         .activate_autocomplete(0, AutocompleteTrigger::Hash, vec![]);
@@ -1717,8 +1714,8 @@ fn hash_autocomplete_populates_matches_from_template_store() {
     use crate::common::app_state::FocusScope;
     use crate::feat::context::protocol::prompt_template::PromptTemplate;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
     state.active_session_mut().set_discovered_prompt_templates(
         crate::feat::context::prompt_template::PromptTemplateStore::from_vec(vec![
             PromptTemplate {
@@ -1754,8 +1751,8 @@ fn slash_autocomplete_populates_matches_from_slash_commands() {
     // Given a state in Input mode.
     use crate::common::app_state::FocusScope;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
 
     // When inserting '/' at position 0.
     let _ = crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
@@ -1779,8 +1776,8 @@ fn ctrl_clear_input_empties_chat_input_via_handler() {
     use crate::feat::intent::handler::IntentHandler;
     use crate::protocol::Intent;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
     let _ = crate::feat::chat_input::intent::handle_insert_char('h', &mut state);
     let _ = crate::feat::chat_input::intent::handle_insert_char('i', &mut state);
     assert!(!state.active_chat_input().is_empty());
@@ -1803,8 +1800,8 @@ fn ctrl_clear_input_empties_chat_input_via_handler() {
     );
     assert!(result.message_names.is_empty(), "no commands emitted");
     assert_eq!(
-        state.frontend.scope_stack.current(),
-        &FocusScope::Input,
+        state.frontend.scope(),
+        FocusScope::Input,
         "scope remains Input (no quit, no escape)"
     );
 }
@@ -1816,8 +1813,8 @@ fn ctrl_clear_input_empty_is_noop_via_handler() {
     use crate::feat::intent::handler::IntentHandler;
     use crate::protocol::Intent;
 
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Input);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Input);
     assert!(state.active_chat_input().is_empty());
 
     // When handling CtrlClear via the IntentHandler.
@@ -1833,8 +1830,8 @@ fn ctrl_clear_input_empty_is_noop_via_handler() {
     assert_eq!(state.active_chat_input().cursor_pos(), 0, "cursor still 0");
     assert!(result.message_names.is_empty(), "no commands emitted");
     assert_eq!(
-        state.frontend.scope_stack.current(),
-        &FocusScope::Input,
+        state.frontend.scope(),
+        FocusScope::Input,
         "scope remains Input"
     );
 }
@@ -1855,7 +1852,7 @@ fn ctrl_clear_input_empty_is_noop_via_handler() {
 /// Activates the `@` popup at the cursor and optionally seeds
 // `frontend.file_picker` with a listing. Returns the AppState for chaining.
 fn at_popup_with_entries(entries: Vec<crate::feat::file_lister::FileEntry>) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     // Type `@` at the start of the buffer to activate the popup.
     let _ = crate::feat::chat_input::intent::handle_insert_char('@', &mut state);
     state.frontend.file_picker = crate::feat::file_lister::FilePickerState::with_entries(entries);
@@ -1869,7 +1866,7 @@ fn at_popup_with_filter_and_entries(
     filter: &str,
     entries: Vec<crate::feat::file_lister::FileEntry>,
 ) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let _ = crate::feat::chat_input::intent::handle_insert_char('@', &mut state);
     for ch in filter.chars() {
         let _ = crate::feat::chat_input::intent::handle_insert_char(ch, &mut state);
@@ -1907,7 +1904,7 @@ fn emits_list_directory(result: &crate::protocol::IntentResult) -> bool {
 #[rstest::rstest]
 fn at_at_start_of_buffer_activates_popup() {
     // Given a default AppState.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling InsertChar('@') at the start of the buffer.
     let _ = crate::feat::chat_input::intent::handle_insert_char('@', &mut state);
@@ -1921,7 +1918,7 @@ fn at_at_start_of_buffer_activates_popup() {
 #[rstest::rstest]
 fn at_after_space_activates_popup() {
     // Given a buffer with a space.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("hello ");
 
     // When handling InsertChar('@').
@@ -1937,7 +1934,7 @@ fn at_after_space_activates_popup() {
 #[rstest::rstest]
 fn at_after_newline_activates_popup() {
     // Given a buffer ending in a newline.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("line1\n");
 
     // When handling InsertChar('@').
@@ -1953,7 +1950,7 @@ fn at_after_newline_activates_popup() {
 #[rstest::rstest]
 fn at_mid_word_does_not_activate_popup() {
     // Given a buffer with text but no trailing boundary.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("foo");
 
     // When handling InsertChar('@').
@@ -1969,7 +1966,7 @@ fn at_mid_word_does_not_activate_popup() {
 #[rstest::rstest]
 fn at_activation_emits_list_directory() {
     // Given a default AppState.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling InsertChar('@').
     let result = crate::feat::chat_input::intent::handle_insert_char('@', &mut state);
@@ -1988,7 +1985,7 @@ fn at_activation_emits_list_directory() {
 #[rstest::rstest]
 fn at_at_stays_literal_no_popup() {
     // Given a default AppState.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When typing `@@`.
     let _ = crate::feat::chat_input::intent::handle_insert_char('@', &mut state);
@@ -2166,7 +2163,7 @@ fn cursor_left_within_token_keeps_popup_active() {
 fn cursor_left_past_token_start_deactivates_popup() {
     // Given a buffer `x @foo` with the @ popup active and the cursor after `foo`.
     // The `@` is at a valid boundary (preceded by a space).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_chat_input_mut().insert_text("x ");
     let _ = crate::feat::chat_input::intent::handle_insert_char('@', &mut state);
     state.frontend.file_picker =
@@ -2209,7 +2206,7 @@ fn cursor_right_within_token_keeps_popup_active() {
 #[rstest::rstest]
 fn cursor_right_past_token_end_deactivates_popup() {
     // Given a buffer `@foo bar` with the @ popup active and the cursor after `foo`.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let _ = crate::feat::chat_input::intent::handle_insert_char('@', &mut state);
     state.frontend.file_picker =
         crate::feat::file_lister::FilePickerState::with_entries(vec![dir_entry("foo")]);

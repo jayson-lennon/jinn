@@ -58,7 +58,7 @@ mod tests {
     #[rstest::rstest]
     fn session_new_creates_fresh_session() {
         // Given a state with an existing session.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let old_id = state.session.active_session_id().clone();
         state
             .active_session_mut()
@@ -70,7 +70,7 @@ mod tests {
         // Then a new session is created.
         assert_ne!(*state.session.active_session_id(), old_id);
         assert!(state.active_session().history().is_empty());
-        assert!(!state.frontend.scope_stack.is_picker());
+        assert!(!state.frontend.is_picker());
         // And the old session is preserved in the sessions map.
         assert!(state.session.contains(&old_id));
     }
@@ -78,11 +78,10 @@ mod tests {
     #[rstest::rstest]
     fn session_new_closes_picker_and_creates_session() {
         // Given a state with an active picker.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_stack
-            .push(crate::common::app_state::FocusScope::Picker {
+            .scope_push(crate::common::app_state::FocusScope::Picker {
                 kind: PickerKind::Provider,
             });
         let old_id = state.session.active_session_id().clone();
@@ -93,13 +92,13 @@ mod tests {
         // Then a new session is created.
         assert_ne!(*state.session.active_session_id(), old_id);
         // And the picker is closed.
-        assert!(!state.frontend.scope_stack.is_picker());
+        assert!(!state.frontend.is_picker());
     }
 
     #[rstest::rstest]
     fn refresh_models_posts_transient_message() {
         // Given a state with a provider.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .set_model(ModelSelection::Single("ollama".to_owned()));
@@ -119,7 +118,7 @@ mod tests {
     #[rstest::rstest]
     fn refresh_models_returns_refresh_command() {
         // Given a state with a provider.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .set_model(ModelSelection::Single("ollama".to_owned()));
@@ -135,7 +134,7 @@ mod tests {
     #[rstest::rstest]
     fn refresh_models_noop_with_no_provider() {
         // Given a state with no provider.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling RefreshModels.
         let result = handle_refresh_models(&mut state);
@@ -147,7 +146,7 @@ mod tests {
     #[rstest::rstest]
     fn rescan_prompt_templates_posts_system_message() {
         // Given a default state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let initial_len = state.active_session().history().len();
 
         // When handling RescanPromptTemplates.
@@ -160,7 +159,7 @@ mod tests {
     #[rstest::rstest]
     fn rescan_prompt_templates_returns_rescan_command() {
         // Given a default state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let _initial_len = state.active_session().history().len();
 
         // When handling RescanPromptTemplates.
@@ -174,7 +173,7 @@ mod tests {
     fn session_new_inherits_active_session_cwd() {
         // Given a state whose active session has a distinct CWD (not the app
         // launch dir).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let inherited_cwd = std::path::PathBuf::from("/tmp/inherited-project");
         state.active_session_mut().set_cwd(inherited_cwd.clone());
         assert_ne!(state.active_session().cwd(), state.session.default_cwd());

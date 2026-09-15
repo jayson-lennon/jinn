@@ -57,11 +57,11 @@ fn capitalize(word: &str) -> String {
 /// chat. The terminal is an overlay (`<M-t>`), not a tab, so it never
 /// highlights a tab.
 fn active_tab_index(slices: &jinn_slices::Slices, ctx: &RenderCtx) -> usize {
-    match ctx.state.frontend.scope_stack.base() {
+    match ctx.state.frontend.scope_base() {
         jinn_domain::FocusScope::Dynamic(id) => slices
             .tab_scopes()
             .iter()
-            .position(|scope| scope == id)
+            .position(|scope| *scope == id)
             .map_or(0, |idx| idx + 1),
         _ => 0,
     }
@@ -109,8 +109,7 @@ mod tests {
             .state
             .write_test_no_cap()
             .frontend
-            .scope_stack
-            .swap_base(scope);
+            .scope_swap_base(scope);
         app
     }
 

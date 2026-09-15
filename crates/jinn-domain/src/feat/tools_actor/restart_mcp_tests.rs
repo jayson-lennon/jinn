@@ -34,7 +34,6 @@ use crate::feat::mcp_coordinator_actor::{McpCoordinatorActor, McpCoordinatorActo
 use crate::feat::preferences_actor::UserPreferences;
 use crate::feat::tools_actor::restart_mcp::execute;
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext};
-use crate::feat::ui::frontend_state::FrontendState;
 use crate::protocol::SessionId;
 use kameo::actor::Spawn;
 
@@ -102,15 +101,9 @@ fn ctx_with_coordinator(
         args: vec![],
         ..Default::default()
     };
-    let frontend = FrontendState {
-        preferences: UserPreferences {
-            mcp_server: [("excalimate".to_owned(), config)].into_iter().collect(),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let app = AppState {
-        frontend,
+    let mut app = AppState::default();
+    app.frontend.preferences = UserPreferences {
+        mcp_server: [("excalimate".to_owned(), config)].into_iter().collect(),
         ..Default::default()
     };
     let state = State::new(app);

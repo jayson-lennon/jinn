@@ -206,7 +206,7 @@ fn wrap_description(text: &str, available_width: usize) -> Vec<String> {
 
 /// Returns the expanded phase index if the sidebar is focused on the task list section.
 fn expanded_phase_index(state: &AppState) -> Option<usize> {
-    if state.frontend.scope_stack.sidebar_section() == Some(SidebarSectionId::TaskList) {
+    if state.frontend.sidebar_section() == Some(SidebarSectionId::TaskList) {
         state.frontend.task_list_section.selected_phase_index
     } else {
         None
@@ -397,7 +397,7 @@ mod tests {
     use crate::feat::todo_list::TaskPosition;
 
     fn setup_with_tasks() -> AppState {
-        let mut app = AppState::default();
+        let mut app = AppState::default_with_scope_focus();
         let session = app.session.active_session_mut();
         let pid = session.task_list_mut().add_phase("Research");
         session
@@ -418,7 +418,7 @@ mod tests {
 
     /// Helper: set up focus on a specific phase so it expands.
     fn setup_focused_on_phase(app: &mut AppState, phase_index: usize) {
-        app.frontend.scope_stack.push(FocusScope::SidebarTaskList);
+        app.frontend.scope_push(FocusScope::SidebarTaskList);
         app.frontend.task_list_section.selected_phase_index = Some(phase_index);
     }
 
@@ -434,7 +434,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn content_height_is_zero_when_empty() {
-        let app = AppState::default();
+        let app = AppState::default_with_scope_focus();
         let section = TaskListSection;
         let slices = jinn_slices::Slices::new();
         let overlay_views = crate::common::overlay_views::OverlayViews::new();
@@ -502,7 +502,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn navigate_returns_exhausted_without_selection() {
-        let mut app = AppState::default();
+        let mut app = AppState::default_with_scope_focus();
         let result = navigate(&SidebarIntent::MoveDown, &mut app);
         assert_eq!(result, SectionNavResult::Exhausted);
     }
@@ -564,7 +564,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn receive_cursor_no_panic_on_empty_list() {
-        let mut app = AppState::default();
+        let mut app = AppState::default_with_scope_focus();
         receive_cursor(&mut app, EnterFrom::Top);
         assert_eq!(app.frontend.task_list_section.selected_phase_index, None);
     }
@@ -688,7 +688,7 @@ mod tests {
         // Given a sidebar of default width (30) with three phases, the last one's
         // description chosen to wrap at the buggy render width (24) but not the
         // correct one (26).
-        let mut app = AppState::default();
+        let mut app = AppState::default_with_scope_focus();
         app.frontend.sidebar_width = 30;
         let session = app.session.active_session_mut();
         session
@@ -728,7 +728,7 @@ mod tests {
     #[test]
     fn active_phase_header_uses_streaming_color() {
         // Given 3 phases: first has pending tasks (active), second has pending tasks, third all completed.
-        let mut app = AppState::default();
+        let mut app = AppState::default_with_scope_focus();
         let session = app.session.active_session_mut();
         let p1 = session.task_list_mut().add_phase("Research");
         session
@@ -763,7 +763,7 @@ mod tests {
     #[test]
     fn completed_phase_header_uses_muted_text_color() {
         // Given a phase with all tasks completed.
-        let mut app = AppState::default();
+        let mut app = AppState::default_with_scope_focus();
         let session = app.session.active_session_mut();
         let p1 = session.task_list_mut().add_phase("Research");
         let t1 = session
@@ -793,7 +793,7 @@ mod tests {
     #[test]
     fn upcoming_phase_header_uses_primary_text_color() {
         // Given 2 phases: first has pending tasks (active), second has pending tasks (upcoming/blocked).
-        let mut app = AppState::default();
+        let mut app = AppState::default_with_scope_focus();
         let session = app.session.active_session_mut();
         let p1 = session.task_list_mut().add_phase("Research");
         session
@@ -822,7 +822,7 @@ mod tests {
     #[test]
     fn selected_active_phase_header_has_reversed_and_streaming_color() {
         // Given 2 phases with pending tasks, focused on first (active) phase.
-        let mut app = AppState::default();
+        let mut app = AppState::default_with_scope_focus();
         let session = app.session.active_session_mut();
         let p1 = session.task_list_mut().add_phase("Research");
         session
@@ -859,7 +859,7 @@ mod tests {
 
     /// Sets viewport + content so `preview_scroll` can page and clamp.
     fn setup_preview(viewport: u16, content_lines: usize, scroll: usize) -> AppState {
-        let mut app = AppState::default();
+        let mut app = AppState::default_with_scope_focus();
         app.frontend.task_list_section.preview_viewport_height = viewport;
         app.frontend.task_list_section.preview_content_line_count = content_lines;
         app.frontend.task_list_section.preview_scroll = scroll;

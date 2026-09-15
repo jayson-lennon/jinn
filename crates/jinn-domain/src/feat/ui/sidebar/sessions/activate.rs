@@ -19,7 +19,7 @@ pub fn handle_session_activate(state: &mut AppState) -> IntentResult {
     use crate::feat::ui::sidebar::section_trait::SidebarSectionId;
 
     if !matches!(
-        state.frontend.scope_stack.sidebar_section(),
+        state.frontend.sidebar_section(),
         Some(SidebarSectionId::Sessions)
     ) {
         return IntentResult::empty();
@@ -33,7 +33,7 @@ pub fn handle_session_activate(state: &mut AppState) -> IntentResult {
     };
 
     state.session.set_active(entry.id.clone());
-    state.frontend.scope_stack.swap_base(FocusScope::Normal);
+    state.frontend.scope_swap_base(FocusScope::Normal);
     IntentResult::empty()
 }
 
@@ -51,7 +51,7 @@ pub fn handle_session_activate_insert(state: &mut AppState) -> IntentResult {
     use crate::feat::ui::sidebar::section_trait::SidebarSectionId;
 
     if !matches!(
-        state.frontend.scope_stack.sidebar_section(),
+        state.frontend.sidebar_section(),
         Some(SidebarSectionId::Sessions)
     ) {
         return IntentResult::empty();
@@ -65,8 +65,8 @@ pub fn handle_session_activate_insert(state: &mut AppState) -> IntentResult {
     };
 
     state.session.set_active(entry.id.clone());
-    state.frontend.scope_stack.swap_base(FocusScope::Normal);
-    state.frontend.scope_stack.push(FocusScope::Input);
+    state.frontend.scope_swap_base(FocusScope::Normal);
+    state.frontend.scope_push(FocusScope::Input);
     IntentResult::empty()
 }
 
@@ -87,7 +87,7 @@ mod tests {
 
     /// Two sessions exist in state; cursor points at the second-inserted session.
     fn state_with_two_sessions_cursor_on_second() -> (AppState, SessionId) {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let _first = state.session.active_session_id().clone();
         let second_session = crate::feat::session::chat_session::ChatSessionState::default();
         let second = second_session.session_id().clone();
@@ -99,7 +99,7 @@ mod tests {
             .position(|e| e.id == second)
             .expect("second session present");
         state.frontend.sessions_section.selected_index = Some(target_idx);
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        state.frontend.scope_push(FocusScope::SidebarSessions);
         (state, second)
     }
 
@@ -122,8 +122,8 @@ mod tests {
     #[rstest::rstest]
     fn activate_session_with_no_cursor_emits_nothing() {
         // Given sessions sidebar but no selected index.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarSessions);
         // selected_index stays None.
 
         // When activating.
@@ -136,7 +136,7 @@ mod tests {
     #[rstest::rstest]
     fn activate_outside_sessions_section_emits_nothing() {
         // Given Normal scope (not sessions sidebar).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When activating.
         let result = handle_session_activate(&mut state);
@@ -165,38 +165,35 @@ mod tests {
         handle_session_activate_insert(&mut state);
 
         // Then the top of the stack is Input (insert mode).
-        assert_eq!(state.frontend.scope_stack.current(), &FocusScope::Input);
+        assert_eq!(state.frontend.scope(), FocusScope::Input);
         // And the base is Normal so ESC can return there via clear_overlays.
-        assert_eq!(
-            state.frontend.scope_stack.parent(),
-            Some(&FocusScope::Normal)
-        );
+        assert_eq!(state.frontend.scope_parent(), Some(FocusScope::Normal));
     }
 
     #[rstest::rstest]
     fn activate_insert_outside_sessions_section_is_noop() {
         // Given Normal scope (not sessions sidebar).
-        let mut state = AppState::default();
-        let initial_scope = state.frontend.scope_stack.current().clone();
+        let mut state = AppState::default_with_scope_focus();
+        let initial_scope = state.frontend.scope().clone();
 
         // When activating into insert mode.
         handle_session_activate_insert(&mut state);
 
         // Then the scope is unchanged.
-        assert_eq!(state.frontend.scope_stack.current(), &initial_scope);
+        assert_eq!(state.frontend.scope(), initial_scope);
     }
 
     #[rstest::rstest]
     fn activate_insert_with_no_selected_index_is_noop() {
         // Given sessions sidebar but no selected index.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
-        let initial_scope = state.frontend.scope_stack.current().clone();
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarSessions);
+        let initial_scope = state.frontend.scope().clone();
 
         // When activating into insert mode.
         handle_session_activate_insert(&mut state);
 
         // Then the scope is unchanged.
-        assert_eq!(state.frontend.scope_stack.current(), &initial_scope);
+        assert_eq!(state.frontend.scope(), initial_scope);
     }
 }

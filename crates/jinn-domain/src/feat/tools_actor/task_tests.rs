@@ -71,7 +71,7 @@ async fn task_ctx(harness: &TestHarness, state: &State, session_id: SessionId) -
 /// Seeds a parent session with a distinctive model, cwd, persona, disabled
 /// tool, and MCP servers; returns the state and the parent id.
 fn parent_fixture() -> (State, SessionId) {
-    let state = State::new(AppState::default());
+    let state = State::new(AppState::default_with_scope_focus());
     let parent_id = SessionId::new();
     state.write_test_no_cap().session.get_or_create(&parent_id);
     {
@@ -743,7 +743,7 @@ async fn parent_cancel_leaves_child_running_and_unregisters_pair() {
 async fn task_fails_when_parent_session_is_missing() {
     // Given a context naming a session that was never seeded.
     let harness = TestHarness::new().await;
-    let state = State::new(AppState::default());
+    let state = State::new(AppState::default_with_scope_focus());
     let ctx = task_ctx(&harness, &state, SessionId::new()).await;
 
     // When executing a task call.

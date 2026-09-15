@@ -440,7 +440,9 @@ async fn disable_cycle_calls_fail_fast_after_teardown() {
     let session_id = SessionId::new();
 
     let services = harness.services().await;
-    let state = crate::common::state::State::new(crate::common::app_state::AppState::default());
+    let state = crate::common::state::State::new(
+        crate::common::app_state::AppState::default_with_scope_focus(),
+    );
     state.write_test_no_cap().session.get_or_create(&session_id);
     state
         .write_test_no_cap()

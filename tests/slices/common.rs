@@ -67,13 +67,17 @@ pub async fn launch_for_test(core: AppCore, mut services: jinn_domain::Services)
         }
         activate_quake_bar(&mut services);
         activate_status_bar(&mut services);
+        activate_scope_focus(&mut services);
+        core.state
+            .write_test_no_cap()
+            .frontend
+            .attach_slices(services.slices.clone());
         activate_session_init(&mut services, &core).await;
         // Bindings generate after all activations so every slice's rows exist.
         jinn_tui::keymap_gen::bind_route_rows(&services.key_routes, &mut keymap);
     }
 
-    let initial_scope =
-        jinn_tui::app::scope_for_focus(core.state.read().frontend.scope_stack.current());
+    let initial_scope = jinn_tui::app::scope_for_focus(&core.state.read().frontend.scope());
 
     TuiApp {
         core,
@@ -124,6 +128,21 @@ fn activate_quake_bar(services: &mut jinn_domain::Services) {
     clippy::panic,
     reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
 )]
+fn activate_scope_focus(services: &mut jinn_domain::Services) {
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_scope_focus::activate(&mut host);
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("scope-focus slice finalize failed: {error}");
+    }
+}
+
 fn activate_status_bar(services: &mut jinn_domain::Services) {
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,

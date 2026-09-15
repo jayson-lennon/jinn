@@ -21,7 +21,7 @@ use crate::protocol::intent::IntentResult;
 #[must_use]
 pub fn selected_sessions_sidebar_target(state: &AppState) -> Option<crate::protocol::SessionId> {
     if !matches!(
-        state.frontend.scope_stack.sidebar_section(),
+        state.frontend.sidebar_section(),
         Some(SidebarSectionId::Sessions)
     ) {
         return None;
@@ -39,10 +39,10 @@ pub fn handle_toggle_overlay(
 ) -> IntentResult {
     // Already open (view or control): any toggle closes it.
     if matches!(
-        state.frontend.scope_stack.current(),
+        state.frontend.scope(),
         FocusScope::TerminalView | FocusScope::TerminalControl
     ) {
-        state.frontend.scope_stack.pop();
+        state.frontend.scope_pop();
         return IntentResult::empty();
     }
     // Resolve the target: explicit (sidebar selection) or active session.
@@ -65,7 +65,7 @@ pub fn handle_toggle_overlay(
     }
     // If a different popup holds the top of the stack, it is replaced: the
     // overlay mounts on the base scope (Esc semantics for the buried popup).
-    state.frontend.scope_stack.clear_overlays();
-    state.frontend.scope_stack.push(FocusScope::TerminalView);
+    state.frontend.scope_clear_overlays();
+    state.frontend.scope_push(FocusScope::TerminalView);
     IntentResult::empty()
 }

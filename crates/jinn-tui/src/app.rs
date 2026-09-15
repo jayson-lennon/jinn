@@ -108,7 +108,7 @@ impl TuiApp {
                 // (e.g., app starts in Input mode).
                 {
                     let state = self.core.state.read();
-                    let scope = scope_for_focus(state.frontend.scope_stack.current());
+                    let scope = scope_for_focus(&state.frontend.scope());
                     drop(state);
                     self.which_key.set_scope(scope);
                 }
@@ -286,7 +286,7 @@ impl TuiApp {
 
         // Step 6: Update scope based on new focus.
         let state_read = self.core.state.read();
-        let new_scope = scope_for_focus(state_read.frontend.scope_stack.current());
+        let new_scope = scope_for_focus(&state_read.frontend.scope());
         drop(state_read);
         self.which_key.set_scope(new_scope.clone());
     }

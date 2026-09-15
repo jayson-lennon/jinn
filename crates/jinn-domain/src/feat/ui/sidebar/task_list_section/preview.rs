@@ -114,10 +114,7 @@ fn popup_width(frame_area: Rect, sidebar_x: u16) -> u16 {
 /// The popup is hidden when the task list section is not focused, the task list
 /// is empty, no phase is selected, or the selected index is out of range.
 fn previewed_phase(state: &AppState) -> Option<&Phase> {
-    if !matches!(
-        state.frontend.scope_stack.current(),
-        FocusScope::SidebarTaskList
-    ) {
+    if !matches!(state.frontend.scope(), FocusScope::SidebarTaskList) {
         return None;
     }
     let list = state.active_session().task_list();
@@ -291,7 +288,7 @@ mod tests {
     }
 
     fn setup_two_phases_focused_on(phase_index: usize) -> AppState {
-        let mut app = AppState::default();
+        let mut app = AppState::default_with_scope_focus();
         let session = app.session.active_session_mut();
         let p0 = session.task_list_mut().add_phase("Research");
         session
@@ -303,7 +300,7 @@ mod tests {
             .task_list_mut()
             .add_task(&p1, "Write code", TaskPosition::End)
             .unwrap();
-        app.frontend.scope_stack.push(FocusScope::SidebarTaskList);
+        app.frontend.scope_push(FocusScope::SidebarTaskList);
         app.frontend.task_list_section.selected_phase_index = Some(phase_index);
         app
     }
@@ -312,8 +309,8 @@ mod tests {
     #[test]
     fn popup_hidden_when_section_unfocused() {
         // Given a populated task list but no SidebarTaskList focus.
-        let mut app = setup_two_phases_focused_on(0);
-        app.frontend.scope_stack.pop();
+        let app = setup_two_phases_focused_on(0);
+        app.frontend.scope_pop();
 
         // When rendering the popup.
         let text = render_popup_text(&app);
@@ -454,10 +451,10 @@ mod tests {
     #[test]
     fn popup_phase_with_no_tasks_shows_placeholder() {
         // Given focus on an empty phase.
-        let mut app = AppState::default();
+        let mut app = AppState::default_with_scope_focus();
         let session = app.session.active_session_mut();
         let _p0 = session.task_list_mut().add_phase("Empty Phase");
-        app.frontend.scope_stack.push(FocusScope::SidebarTaskList);
+        app.frontend.scope_push(FocusScope::SidebarTaskList);
         app.frontend.task_list_section.selected_phase_index = Some(0);
 
         // When rendering the popup.
@@ -504,7 +501,7 @@ mod tests {
         // Given a focused phase with one 60-char task description.
         // Popup inner width = 72 - 2 = 70, so text_width = 70 - 6 = 64 -> fits on 1 line.
         // Sidebar text_width = 30 - 6 = 24, which would wrap it to 3 lines (the bug).
-        let mut app = AppState::default();
+        let mut app = AppState::default_with_scope_focus();
         let session = app.session.active_session_mut();
         let p0 = session.task_list_mut().add_phase("Research");
         let long_desc = "x".repeat(60);
@@ -512,7 +509,7 @@ mod tests {
             .task_list_mut()
             .add_task(&p0, &long_desc, TaskPosition::End)
             .unwrap();
-        app.frontend.scope_stack.push(FocusScope::SidebarTaskList);
+        app.frontend.scope_push(FocusScope::SidebarTaskList);
         app.frontend.task_list_section.selected_phase_index = Some(0);
 
         // When measuring preview geometry.

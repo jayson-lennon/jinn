@@ -91,7 +91,7 @@ pub(crate) fn confirm_mcp(state: &mut AppState) -> IntentResult {
         .active_session_mut()
         .set_enabled_mcp_servers(enabled.clone());
     *state.frontend.mcp_server_picker_snapshot_mut() = None;
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
 
     // Signal the MCP lifecycle actor to spawn/kill `McpActor`s for the diff
     // between this desired set and the currently-running ones.
@@ -161,7 +161,7 @@ mod tests {
     use crate::feat::theme::default_theme;
 
     fn state_with_selected_mcp_entry(name: &str) -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let entry =
             McpServerEntry::new(name.to_owned(), "npx ...".to_owned(), true, default_theme());
         state
@@ -186,7 +186,7 @@ mod tests {
     #[rstest::rstest]
     fn restart_selected_with_no_selection_emits_nothing() {
         // Given the MCP inspector open with no items.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.mcp_server_picker_mut().set_items(vec![]);
 
         // When restarting.
@@ -200,7 +200,7 @@ mod tests {
     fn restart_selected_keeps_picker_open() {
         // Given the MCP inspector open.
         let mut state = state_with_selected_mcp_entry("excalimate");
-        state.frontend.scope_stack.push(crate::FocusScope::Picker {
+        state.frontend.scope_push(crate::FocusScope::Picker {
             kind: crate::PickerKind::McpServer,
         });
 
@@ -209,7 +209,7 @@ mod tests {
 
         // Then the picker scope is still on the stack.
         assert!(matches!(
-            state.frontend.scope_stack.current(),
+            state.frontend.scope(),
             crate::FocusScope::Picker {
                 kind: crate::PickerKind::McpServer
             }

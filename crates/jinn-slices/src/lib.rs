@@ -30,32 +30,47 @@
 )]
 
 pub mod cell;
+pub mod cwd_root;
 pub mod fabric;
+pub mod focus;
 pub mod host;
 pub mod line_input;
+pub mod mode;
 pub mod overlay;
+pub mod picker_kind;
 pub mod render_facts;
 pub mod route;
+pub mod scope_focus_state;
 pub mod service_status;
+pub mod sidebar_section_id;
 pub mod slice_scope;
 pub mod slices;
 pub mod status_bar_state;
+pub mod tui_signals;
 pub mod view;
 
 pub use cell::TypedCell;
+pub use cwd_root::CwdRoot;
 pub use fabric::ActorShutdownCompleted;
 pub use fabric::ActorStarted;
 pub use fabric::ActorStarting;
+pub use focus::{FocusScope, ScopeStack};
 pub use host::ConfigSectionError;
 pub use host::Direction;
 pub use host::SliceHost;
 pub use line_input::LineInput;
+pub use mode::Mode;
 pub use overlay::OverlayViewFn;
 pub use overlay::OverlayViews;
+pub use picker_kind::PickerKind;
 pub use render_facts::AppFact;
 pub use render_facts::RenderFacts;
+pub use scope_focus_state::ScopeFocusState;
+pub use scope_focus_state::scope_focus_slot;
+pub use sidebar_section_id::SidebarSectionId;
 pub use status_bar_state::StatusBarState;
 pub use status_bar_state::status_bar_slot;
+pub use tui_signals::TuiSignals;
 
 /// The slice host specialized to jinn's render facts — the spelling
 /// slices use in their `activate` signatures instead of naming the

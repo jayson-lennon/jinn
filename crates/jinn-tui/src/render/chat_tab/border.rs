@@ -9,7 +9,7 @@ use ratatui::style::Style;
 ///
 /// The color reflects sidebar focus state and resize mode.
 pub fn render_border(frame: &mut Frame<'_>, border: Rect, ctx: &RenderCtx) {
-    let focus_scope = ctx.state.frontend.scope_stack.current();
+    let focus_scope = ctx.state.frontend.scope();
     let theme = &ctx.state.frontend.theme;
 
     let border_color = match focus_scope {
@@ -55,8 +55,7 @@ mod tests {
             .state
             .write_test_no_cap()
             .frontend
-            .scope_stack
-            .push(jinn_domain::FocusScope::SidebarPersona);
+            .scope_push(jinn_domain::FocusScope::SidebarPersona);
         let (mut terminal, _area) = setup_term(80, 24);
 
         // When rendering.
@@ -108,8 +107,7 @@ mod tests {
             .state
             .write_test_no_cap()
             .frontend
-            .scope_stack
-            .push(jinn_domain::FocusScope::SidebarResize);
+            .scope_push(jinn_domain::FocusScope::SidebarResize);
         let (mut terminal, _area) = setup_term(80, 24);
 
         // When rendering.

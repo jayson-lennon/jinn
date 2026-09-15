@@ -48,7 +48,7 @@ pub fn handle_open_picker(state: &mut AppState, kind: PickerKind) -> IntentResul
         return IntentResult::empty();
     }
 
-    state.frontend.scope_stack.push(FocusScope::Picker { kind });
+    state.frontend.scope_push(FocusScope::Picker { kind });
 
     reset_picker_for_open(state, kind);
 
@@ -246,7 +246,7 @@ fn load_plugin_picker_entries(state: &mut AppState) {
 
 /// Previews the selected theme in real-time when the Theme picker is active.
 fn preview_theme_if_active(state: &mut AppState) {
-    if state.frontend.scope_stack.picker_kind() != Some(&PickerKind::Theme) {
+    if state.frontend.picker_kind() != Some(PickerKind::Theme) {
         return;
     }
     if let Some(entry) = state.frontend.theme_picker().selected_item() {
@@ -257,7 +257,7 @@ fn preview_theme_if_active(state: &mut AppState) {
 
 /// Resets the preview scroll offset to 0 when the skill picker is active.
 fn reset_preview_scroll(state: &mut AppState) {
-    if state.frontend.scope_stack.picker_kind() == Some(&PickerKind::Skill) {
+    if state.frontend.picker_kind() == Some(PickerKind::Skill) {
         state.frontend.set_skill_preview_scroll(0);
     }
 }
@@ -335,7 +335,7 @@ pub fn handle_picker_confirm(state: &mut AppState) -> (IntentResult, Option<Inte
         return (IntentResult::empty(), None);
     }
 
-    match state.frontend.scope_stack.picker_kind().copied() {
+    match state.frontend.picker_kind() {
         Some(PickerKind::Provider) => (confirm_provider(state), None),
         Some(PickerKind::Session) => (confirm_session(state), None),
         Some(PickerKind::Persona) => (confirm_persona(state), None),
@@ -442,7 +442,7 @@ fn confirm_provider(state: &mut AppState) -> IntentResult {
     let last_model = Some(model_selection.clone());
     let session_id = state.session.active_session_id().clone();
 
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
     IntentResult::empty()
         .with_message(ProviderSwitch {
             session_id,
@@ -509,7 +509,7 @@ fn confirm_persona(state: &mut AppState) -> IntentResult {
         .active_session_mut()
         .set_persona_name(persona_name.clone());
 
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
 
     IntentResult::new_message(UpdateAppState {
         updates: vec![AppStateUpdate::SetPersona(Some(persona_name))],
@@ -532,7 +532,7 @@ fn confirm_reasoning_effort(state: &mut AppState) -> IntentResult {
 
     state.active_session_mut().profile_mut().reasoning_effort = Some(effort);
 
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
 
     IntentResult::empty()
         .with_message(MarkSessionInteracted { session_id })
@@ -562,7 +562,7 @@ fn confirm_endpoint(state: &mut AppState) -> IntentResult {
 
     state.active_session_mut().profile_mut().endpoint = endpoint;
 
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
 
     IntentResult::empty().with_message(MarkSessionInteracted { session_id })
 }
@@ -576,7 +576,7 @@ fn confirm_theme(state: &mut AppState) -> IntentResult {
 
     // Theme is already previewed (set on move). Just persist.
     *state.frontend.theme_preview_original_mut() = None;
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
 
     IntentResult::new_message(UpdateAppState {
         updates: vec![AppStateUpdate::SetTheme(Some(theme_name))],
@@ -591,7 +591,7 @@ fn confirm_session(state: &mut AppState) -> IntentResult {
     let session_id = entry.session_id.clone();
 
     state.session.begin_load(session_id.clone());
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
 
     IntentResult::new_message(SessionLoadRequested { session_id })
 }
@@ -654,7 +654,7 @@ fn confirm_session_lifecycle(state: &mut AppState) -> IntentResult {
 
     let lifecycle_name = entry.name.clone();
     let has_args = entry.has_args;
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
 
     if has_args {
         // Save context and open the arg input popup.
@@ -684,8 +684,7 @@ fn confirm_session_lifecycle(state: &mut AppState) -> IntentResult {
         };
         state
             .frontend
-            .scope_stack
-            .push(crate::common::app_state::FocusScope::ArgInput);
+            .scope_push(crate::common::app_state::FocusScope::ArgInput);
         return IntentResult::empty();
     }
 
@@ -742,7 +741,7 @@ fn confirm_tool(state: &mut AppState) -> IntentResult {
 
     state.active_session_mut().set_disabled_tools(disabled);
     *state.frontend.tool_picker_snapshot_mut() = None;
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
     IntentResult::empty()
 }
 
@@ -851,7 +850,7 @@ fn confirm_project(state: &mut AppState) -> IntentResult {
             project_dir: entry.path.clone(),
             starting_cwd: entry.path.clone(),
         });
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
 
     crate::feat::session_lifecycle::intent::handle_session_lifecycle_setup(state, "", &[], None)
 }
@@ -872,7 +871,7 @@ pub fn handle_project_lifecycle_confirm(state: &mut AppState) -> IntentResult {
             project_dir: entry.path.clone(),
             starting_cwd: entry.path.clone(),
         });
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
 
     // Re-enter the lifecycle picker. `handle_open_picker` pushes a fresh
     // `Picker { SessionLifecycle }` scope.
@@ -917,7 +916,7 @@ fn confirm_skill(state: &mut AppState) -> IntentResult {
 
     state.active_session_mut().set_disabled_skills(disabled);
     *state.frontend.skill_picker_snapshot_mut() = None;
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
     IntentResult::empty()
 }
 
@@ -963,7 +962,7 @@ pub fn handle_skill_toggle(state: &mut AppState) -> IntentResult {
 /// so several skills can be loaded in one visit.
 pub fn handle_skill_load_selected(state: &mut AppState) -> IntentResult {
     // Defensive: only act from the skill picker.
-    if state.frontend.scope_stack.picker_kind() != Some(&PickerKind::Skill) {
+    if state.frontend.picker_kind() != Some(PickerKind::Skill) {
         return IntentResult::empty();
     }
 
@@ -1106,7 +1105,7 @@ fn resort_provider_picker(picker: &mut jinn_selection_widget::SelectionState<Pic
 ///
 /// No-op unless the skill picker is the active scope.
 pub fn handle_refresh_skills(state: &mut AppState) -> IntentResult {
-    if state.frontend.scope_stack.picker_kind() != Some(&PickerKind::Skill) {
+    if state.frontend.picker_kind() != Some(PickerKind::Skill) {
         return IntentResult::empty();
     }
 
@@ -1148,7 +1147,7 @@ mod tests {
     #[rstest::rstest]
     fn confirm_provider_rejects_unavailable() {
         // If the ! were deleted, unavailable providers could be confirmed.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1183,7 +1182,7 @@ mod tests {
     #[rstest::rstest]
     fn confirm_provider_accepts_available() {
         // Counter-test: confirms that available providers ARE accepted.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1217,13 +1216,13 @@ mod tests {
     #[rstest::rstest]
     fn handle_model_toggle_flips_selected() {
         // Given a picker with two available entries.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
             .session
             .set_active(state.session.active_session_id().clone());
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Provider,
         });
 
@@ -1274,13 +1273,13 @@ mod tests {
     #[rstest::rstest]
     fn handle_model_toggle_keeps_cursor_in_place() {
         // Given a picker with two entries, cursor on the first, in alloy mode.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
             .session
             .set_active(state.session.active_session_id().clone());
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Provider,
         });
 
@@ -1334,13 +1333,13 @@ mod tests {
     #[rstest::rstest]
     fn handle_model_toggle_toggles_off() {
         // Given a picker with one entry already selected.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
             .session
             .set_active(state.session.active_session_id().clone());
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Provider,
         });
 
@@ -1374,7 +1373,7 @@ mod tests {
     #[rstest::rstest]
     fn open_picker_sets_single_mode_for_single_model_session() {
         // Given a session on a single model.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1397,7 +1396,7 @@ mod tests {
     #[rstest::rstest]
     fn open_picker_sets_alloy_mode_for_alloy_session() {
         // Given a session on an alloy of two models.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1421,13 +1420,13 @@ mod tests {
     #[rstest::rstest]
     fn toggle_alloy_mode_flips_false_to_true() {
         // Given a provider picker in single mode.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
             .session
             .set_active(state.session.active_session_id().clone());
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Provider,
         });
         state.provider.set_alloy_mode(false);
@@ -1442,13 +1441,13 @@ mod tests {
     #[rstest::rstest]
     fn toggle_alloy_mode_flips_true_to_false() {
         // Given a provider picker in alloy mode.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
             .session
             .set_active(state.session.active_session_id().clone());
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Provider,
         });
         state.provider.set_alloy_mode(true);
@@ -1466,7 +1465,7 @@ mod tests {
     #[rstest::rstest]
     fn toggle_into_alloy_mode_pre_checks_current_single_model() {
         // Given a provider picker in single mode with the session on a single model.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1475,7 +1474,7 @@ mod tests {
         state
             .active_session_mut()
             .set_model(ModelSelection::Single("ollama/llama3".to_owned()));
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Provider,
         });
         let entries = vec![
@@ -1533,7 +1532,7 @@ mod tests {
     #[rstest::rstest]
     fn toggle_into_alloy_mode_pre_checks_all_alloy_members() {
         // Given a provider picker in single mode with the session on an alloy.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1543,7 +1542,7 @@ mod tests {
             models: vec!["ollama/llama3".to_owned(), "openrouter/gpt-4".to_owned()],
             strategy: AlloyStrategy::RoundRobin { index: 0 },
         });
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Provider,
         });
         let entries = vec![
@@ -1599,13 +1598,13 @@ mod tests {
     #[rstest::rstest]
     fn toggle_out_of_alloy_mode_clears_all_checks() {
         // Given a provider picker in alloy mode with two entries checked.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
             .session
             .set_active(state.session.active_session_id().clone());
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Provider,
         });
         let entries = vec![
@@ -1662,7 +1661,7 @@ mod tests {
     #[rstest::rstest]
     fn confirm_provider_with_multiple_selected_creates_alloy() {
         // Given a picker with two available entries, both selected.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1723,7 +1722,7 @@ mod tests {
         // If the match were inverted, the wrong persona would be set.
         use crate::feat::persona::PersonaEntry;
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1779,7 +1778,7 @@ mod tests {
         // If the session override were never set, the profile would stay None.
         use crate::feat::reasoning::{ReasoningEffort, ReasoningEffortEntry};
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1817,7 +1816,7 @@ mod tests {
         use crate::feat::endpoint::picker_entry::EndpointEntry;
         use crate::feat::theme::default_theme;
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1852,7 +1851,7 @@ mod tests {
         use crate::feat::endpoint::picker_entry::EndpointEntry;
         use crate::feat::theme::default_theme;
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1884,7 +1883,7 @@ mod tests {
         // Given a session on an alloy of two models.
         use crate::feat::session::model_selection::{AlloyStrategy, ModelSelection};
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1900,7 +1899,7 @@ mod tests {
 
         // Then no picker scope is pushed (the gate rejected it).
         assert!(
-            !state.frontend.scope_stack.is_picker(),
+            !state.frontend.is_picker(),
             "endpoint picker must not open for an alloy model"
         );
     }
@@ -1910,7 +1909,7 @@ mod tests {
         // Given a session on a single model (the picker applies to it).
         use crate::feat::session::model_selection::ModelSelection;
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1944,7 +1943,7 @@ mod tests {
         // Given a session on an alloy of two models.
         use crate::feat::session::model_selection::{AlloyStrategy, ModelSelection};
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -1976,7 +1975,7 @@ mod tests {
         // Now each session owns its own value; the global seeds new sessions only.
         use crate::feat::reasoning::{ReasoningEffort, ReasoningEffortEntry, resolve_effort};
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // Session B: seeded with High (its own, frozen value).
         let mut b = ChatSessionState::new();
@@ -2036,7 +2035,7 @@ mod tests {
         use crate::common::app_state::FocusScope;
         use crate::feat::reasoning::{ReasoningEffort, ReasoningEffortEntry};
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -2054,7 +2053,7 @@ mod tests {
             .reasoning_effort_picker_mut()
             .set_items(vec![entry]);
         state.frontend.reasoning_effort_picker_mut().move_down(1);
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::ReasoningEffort,
         });
 
@@ -2064,9 +2063,8 @@ mod tests {
         // Then the picker scope has been popped (no ReasoningEffort scope remains).
         let still_open = state
             .frontend
-            .scope_stack
             .picker_kind()
-            .is_some_and(|k| *k == PickerKind::ReasoningEffort);
+            .is_some_and(|k| k == PickerKind::ReasoningEffort);
         assert!(!still_open, "picker scope should be popped after confirm");
     }
 
@@ -2076,7 +2074,7 @@ mod tests {
         // only be saved on a later (unrelated) event.
         use crate::feat::reasoning::{ReasoningEffort, ReasoningEffortEntry};
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -2114,7 +2112,7 @@ mod tests {
         // not inherit the chosen effort.
         use crate::feat::reasoning::{ReasoningEffort, ReasoningEffortEntry};
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -2161,7 +2159,7 @@ mod tests {
         // the persona change.
         use crate::feat::persona::PersonaEntry;
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -2200,7 +2198,7 @@ mod tests {
     fn confirm_session_lifecycle_finds_correct_lifecycle_for_args() {
         // If the match were inverted, find() would locate the WRONG lifecycle,
         // producing the wrong template_display in the arg_input state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -2251,7 +2249,7 @@ mod tests {
     #[rstest::rstest]
     fn load_lifecycle_picker_entries_populates_picker() {
         // If the function were a no-op, the picker would remain empty.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // Add lifecycle entries to preferences.
         state.frontend.preferences.session_lifecycles = vec![
@@ -2281,7 +2279,7 @@ mod tests {
         use crate::feat::skills::Skill;
         use std::path::PathBuf;
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -2316,7 +2314,7 @@ mod tests {
         use crate::feat::skills::Skill;
         use std::path::PathBuf;
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -2343,7 +2341,7 @@ mod tests {
     fn skill_load_pushes_pinned_tool_result_for_selected_skill() {
         // Given an open skill picker with "web-coder" highlighted.
         let mut state = setup_with_open_skill_picker();
-        let scope_len_before = state.frontend.scope_stack.len();
+        let scope_len_before = state.frontend.scope_len();
 
         // When loading the highlighted skill.
         let _ = handle_skill_load_selected(&mut state);
@@ -2355,13 +2353,13 @@ mod tests {
         );
         // And the picker stays open (no scope pop) for multi-load workflows.
         assert_eq!(
-            state.frontend.scope_stack.len(),
+            state.frontend.scope_len(),
             scope_len_before,
             "a successful load must not pop the skill picker scope"
         );
         assert!(
             matches!(
-                state.frontend.scope_stack.current(),
+                state.frontend.scope(),
                 FocusScope::Picker {
                     kind: PickerKind::Skill
                 }
@@ -2466,7 +2464,7 @@ mod tests {
             .active_session_mut()
             .set_disabled_skills(std::collections::HashSet::from(["web-coder".to_owned()]));
         // Reopen to take a fresh snapshot and reload entries from the disabled set.
-        state.frontend.scope_stack.pop();
+        state.frontend.scope_pop();
         handle_open_picker(&mut state, PickerKind::Skill);
 
         assert!(!state.frontend.skill_picker().items()[0].enabled);
@@ -2510,7 +2508,7 @@ mod tests {
         state
             .active_session_mut()
             .set_disabled_skills(std::collections::HashSet::from(["web-coder".to_owned()]));
-        state.frontend.scope_stack.pop();
+        state.frontend.scope_pop();
         handle_open_picker(&mut state, PickerKind::Skill);
         state
     }
@@ -2564,7 +2562,7 @@ mod tests {
     #[rstest::rstest]
     fn skill_load_with_no_selection_is_noop() {
         // Given an open skill picker with no entries.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -2748,7 +2746,7 @@ mod tests {
         // Given state with skills and the skill picker active.
         let mut state = setup_state_with_skills();
         load_skill_picker_entries(&mut state);
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Skill,
         });
 
@@ -2769,7 +2767,7 @@ mod tests {
         // Given state with skills and the skill picker active.
         let mut state = setup_state_with_skills();
         load_skill_picker_entries(&mut state);
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Skill,
         });
 
@@ -2803,7 +2801,7 @@ mod tests {
     #[rstest::rstest]
     fn refresh_skills_noop_when_skill_picker_not_active() {
         // Given state without the skill picker active.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling RefreshSkills.
         let result = handle_refresh_skills(&mut state);
@@ -2815,7 +2813,7 @@ mod tests {
     fn setup_state_with_task_list() -> (AppState, crate::feat::todo_list::TaskId) {
         use crate::feat::todo_list::TaskPosition;
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let mut origin = ChatSessionState::new();
 
         // Phase 1 with 2 tasks (one Pending, one Completed).
@@ -2976,7 +2974,7 @@ mod tests {
     #[rstest::rstest]
     fn load_task_list_picker_entries_empty_task_list_no_panic() {
         // Given a default session with an empty task list.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When loading.
         load_task_list_picker_entries(&mut state);
@@ -2989,10 +2987,10 @@ mod tests {
     fn handle_picker_confirm_task_list_is_noop_and_keeps_scope() {
         // Given state with the TaskList picker scope on the stack.
         let (mut state, _postponed_id) = setup_state_with_task_list();
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::TaskList,
         });
-        let len_before = state.frontend.scope_stack.len();
+        let len_before = state.frontend.scope_len();
 
         // When confirming.
         let (result, follow_up) = handle_picker_confirm(&mut state);
@@ -3001,12 +2999,12 @@ mod tests {
         assert!(result.message_names.is_empty(), "no commands");
         assert!(follow_up.is_none(), "no follow-up");
         assert_eq!(
-            state.frontend.scope_stack.len(),
+            state.frontend.scope_len(),
             len_before,
             "scope stack must remain unchanged on no-op confirm"
         );
         assert!(matches!(
-            state.frontend.scope_stack.current(),
+            state.frontend.scope(),
             FocusScope::Picker {
                 kind: PickerKind::TaskList
             }
@@ -3016,9 +3014,9 @@ mod tests {
     #[rstest::rstest]
     fn esc_from_task_list_picker_restores_sidebar_task_list_scope() {
         // Given a scope stack like: [Normal, SidebarTaskList, Picker(TaskList)].
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarTaskList);
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarTaskList);
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::TaskList,
         });
 
@@ -3027,25 +3025,22 @@ mod tests {
 
         // Then we should return to SidebarTaskList, not Normal.
         assert!(
-            matches!(
-                state.frontend.scope_stack.current(),
-                FocusScope::SidebarTaskList
-            ),
+            matches!(state.frontend.scope(), FocusScope::SidebarTaskList),
             "Esc from TaskList picker should restore SidebarTaskList scope, got: {:?}",
-            state.frontend.scope_stack.current()
+            state.frontend.scope()
         );
     }
 
     /// Builds a state with the provider picker open (Provider scope), `n` available
     /// single-model entries `model-0..model-n`, and the first entry highlighted.
     fn state_with_provider_picker(n: usize) -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
             .session
             .set_active(state.session.active_session_id().clone());
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Provider,
         });
         let entries: Vec<crate::protocol::PickerEntry> = (0..n)
@@ -3202,7 +3197,7 @@ mod tests {
     /// Builds an AppState with a project picker open, the active session's CWD
     /// set to a distinct value, and `n` curated project entries loaded.
     fn state_with_project_picker(paths: &[&str]) -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -3211,7 +3206,7 @@ mod tests {
         state
             .active_session_mut()
             .set_cwd(std::path::PathBuf::from("/tmp/active-session-cwd"));
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Project,
         });
         let projects: Vec<crate::feat::project::ProjectConfig> = paths
@@ -3274,7 +3269,7 @@ mod tests {
 
         // Then the project scope was popped and the lifecycle picker opened.
         assert!(matches!(
-            state.frontend.scope_stack.current(),
+            state.frontend.scope(),
             FocusScope::Picker {
                 kind: PickerKind::SessionLifecycle
             }
@@ -3314,7 +3309,7 @@ mod tests {
     }
 
     fn setup_state_with_web_search_tool(model: &str) -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();
         state.session.insert(origin);
         state
@@ -3373,7 +3368,7 @@ mod tests {
     fn load_tool_picker_entries_marks_task_disabled_in_subagent_session() {
         // Given a state whose active session is a subagent (parent-linked)
         // with the task tool in its disabled set (the spawn stamp).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let parent_id = crate::protocol::SessionId::new();
         let child = ChatSessionState::new_child(&parent_id, true);
         state.session.insert(child);
@@ -3529,7 +3524,7 @@ mod tests {
     #[test]
     fn theme_picker_lists_default_first_then_contributed_sorted() {
         // Given a cache with unsorted contributed themes.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.plugins.set_themes(
             "theme-loader",
             vec![
@@ -3561,7 +3556,7 @@ mod tests {
     #[test]
     fn theme_picker_empty_cache_shows_default_only() {
         // Given no plugin contributions (dead or absent themes plugin).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When opening the theme picker.
         handle_open_picker(&mut state, PickerKind::Theme);
@@ -3574,7 +3569,7 @@ mod tests {
     use crate::feat::plugin_coordinator_actor::protocol::PluginPhase;
 
     fn plugin_state_with(phases: &[(&str, PluginPhase)]) -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for (name, phase) in phases {
             state.plugins.set_phase((*name).to_owned(), *phase);
         }
@@ -3599,7 +3594,7 @@ mod tests {
     #[rstest::rstest]
     fn open_plugin_picker_with_empty_cache_opens_empty() {
         // Given no plugins in the contribution cache.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When opening the plugin picker.
         handle_open_picker(&mut state, PickerKind::Plugin);
@@ -3658,9 +3653,6 @@ mod tests {
         assert!(result.message_names.is_empty());
         assert!(redispatch.is_none());
         // And the picker is still open (read-only; Enter does not close).
-        assert_eq!(
-            state.frontend.scope_stack.picker_kind(),
-            Some(&PickerKind::Plugin)
-        );
+        assert_eq!(state.frontend.picker_kind(), Some(PickerKind::Plugin));
     }
 }

@@ -12,7 +12,7 @@ use crate::protocol::{ChatEntry, Mode, PickerKind, SessionId};
 #[rstest::rstest]
 fn push_entry_adds_to_history() {
     // Given a new AppState.
-    let mut data = AppState::default();
+    let mut data = AppState::default_with_scope_focus();
     let entry = ChatEntry::user("hello");
 
     // When pushing an entry via the active session.
@@ -194,7 +194,7 @@ fn focus_scope_display(#[case] scope: FocusScope, #[case] expected: &str) {
 #[rstest::rstest]
 fn session_mut_or_create_sets_cwd_from_default_cwd() {
     // Given an AppState with a custom default CWD.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state
         .session
         .set_default_cwd(std::path::PathBuf::from("/custom/cwd"));
@@ -242,8 +242,8 @@ fn len_increases_after_push() {
 #[rstest::rstest]
 fn active_picker_ops_returns_some_when_picker_active() {
     // Given an AppState with a Picker scope pushed.
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Picker {
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Picker {
         kind: PickerKind::Provider,
     });
 
@@ -257,7 +257,7 @@ fn active_picker_ops_returns_some_when_picker_active() {
 #[rstest::rstest]
 fn active_picker_ops_returns_none_when_no_picker() {
     // Given an AppState in Input mode (default, no picker).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When getting active picker ops.
     let ops = state.active_picker_ops();
@@ -269,7 +269,7 @@ fn active_picker_ops_returns_none_when_no_picker() {
 #[rstest::rstest]
 fn session_mut_or_create_does_not_overwrite_existing_session_cwd() {
     // Given an AppState with a session that has a specific CWD.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state
         .session
         .set_default_cwd(std::path::PathBuf::from("/new/default"));

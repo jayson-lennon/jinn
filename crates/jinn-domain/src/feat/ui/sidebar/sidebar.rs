@@ -125,7 +125,6 @@ impl Default for Sidebar {
 pub fn navigate_sidebar(direction: &SidebarIntent, state: &mut AppState) {
     let focused = state
         .frontend
-        .scope_stack
         .sidebar_section()
         .unwrap_or(SidebarSectionId::Persona);
     let result = dispatch_navigate(focused, direction, state);
@@ -146,7 +145,7 @@ pub fn navigate_sidebar(direction: &SidebarIntent, state: &mut AppState) {
                     state.active_session_mut().restore_history_position();
                 }
                 clear_cursor(focused, state);
-                state.frontend.scope_stack.set_sidebar_section(target);
+                state.frontend.scope_set_sidebar_section(target);
                 let enter_from = match direction {
                     SidebarIntent::MoveDown => EnterFrom::Top,
                     SidebarIntent::MoveUp => EnterFrom::Bottom,
@@ -266,7 +265,6 @@ fn section_has_cursor(id: SidebarSectionId, state: &AppState) -> bool {
 pub fn jump_to_section(direction: &SidebarIntent, state: &mut AppState) {
     let focused = state
         .frontend
-        .scope_stack
         .sidebar_section()
         .unwrap_or(SidebarSectionId::Persona);
     let neighbor_fn: fn(SidebarSectionId) -> Option<SidebarSectionId> = match direction {
@@ -284,7 +282,7 @@ pub fn jump_to_section(direction: &SidebarIntent, state: &mut AppState) {
                 state.active_session_mut().restore_history_position();
             }
 
-            state.frontend.scope_stack.set_sidebar_section(target);
+            state.frontend.scope_set_sidebar_section(target);
 
             // Save history position when entering Pins without receive_cursor.
             if target == SidebarSectionId::Pins

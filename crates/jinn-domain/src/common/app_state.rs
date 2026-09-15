@@ -54,7 +54,7 @@ impl AppState {
     /// Use for operations that work the same way on all picker types
     /// (insert char, backspace, move up/down, cursor left/right).
     pub fn active_picker_ops(&mut self) -> Option<&mut dyn jinn_selection_widget::PickerOps> {
-        let kind = self.frontend.scope_stack.picker_kind().copied()?;
+        let kind = self.frontend.picker_kind()?;
         match kind {
             PickerKind::Provider => Some(&mut self.provider.provider_picker),
             PickerKind::Session => Some(self.frontend.session_picker_mut()),
@@ -78,8 +78,28 @@ impl AppState {
     /// Returns `None` if no picker is currently active.
     /// Companion to [`AppState::active_picker_ops`] for the read-only
     /// `is_filter_empty` check used by the `CtrlClear` intent.
+    /// TEST-ONLY: an `AppState` whose scope-focus cell is activated and
+    /// attached, so facade writes/reads behave like production wiring.
+    #[doc(hidden)]
+    pub fn default_with_scope_focus() -> Self {
+        let state = Self::default();
+        let slices = jinn_slices::Slices::new();
+        if slices
+            .register(
+                jinn_slices::scope_focus_slot(),
+                jinn_slices::ScopeFocusState::default(),
+            )
+            .is_err()
+        {
+            // Already registered: this AppState's Slices was seeded
+            // before; attaching it again is the intent.
+        }
+        state.frontend.attach_slices(slices);
+        state
+    }
+
     pub fn active_picker_ops_ref(&self) -> Option<&dyn jinn_selection_widget::PickerOps> {
-        let kind = self.frontend.scope_stack.picker_kind().copied()?;
+        let kind = self.frontend.picker_kind()?;
         match kind {
             PickerKind::Provider => Some(&self.provider.provider_picker),
             PickerKind::Session => Some(self.frontend.session_picker()),

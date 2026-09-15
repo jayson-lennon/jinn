@@ -1,23 +1,9 @@
 //! The [`Intent`] enum - one variant per user-initiated action.
 use crate::protocol::{PickerKind, SessionId};
 
-/// The search root for the directory picker.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CwdRoot {
-    /// Search from the active session's current CWD.
-    Session,
-    /// Search from the user's home directory.
-    Home,
-}
-
-impl std::fmt::Display for CwdRoot {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CwdRoot::Session => write!(f, "session"),
-            CwdRoot::Home => write!(f, "home"),
-        }
-    }
-}
+/// The search root for the directory picker (shared vocabulary from
+/// `jinn-slices`; the scope-focus cell carries it in `TuiSignals`).
+pub use jinn_slices::cwd_root::CwdRoot;
 
 /// A user-initiated action.
 ///

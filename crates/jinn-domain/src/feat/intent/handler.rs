@@ -58,11 +58,10 @@ fn apply_scope_signal(result: &mut IntentResult, state: &mut AppState) {
     use crate::common::app_state::FocusScope;
     if let Some(signal) = result.scope_signal.take() {
         match signal {
-            ScopeSignal::Push(id) => state.frontend.scope_stack.push(FocusScope::Dynamic(id)),
+            ScopeSignal::Push(id) => state.frontend.scope_push(FocusScope::Dynamic(id)),
             ScopeSignal::PopIf(id) => {
-                if matches!(state.frontend.scope_stack.current(), FocusScope::Dynamic(cur) if *cur == id)
-                {
-                    state.frontend.scope_stack.pop();
+                if matches!(&state.frontend.scope(), FocusScope::Dynamic(cur) if *cur == id) {
+                    state.frontend.scope_pop();
                 }
             }
         }
@@ -82,7 +81,7 @@ fn try_slice_input_hook(
     routes: &crate::common::slices::key_routes::KeyRoutes,
 ) -> Option<IntentResult> {
     use crate::common::app_state::FocusScope;
-    let FocusScope::Dynamic(scope) = state.frontend.scope_stack.current() else {
+    let FocusScope::Dynamic(scope) = &state.frontend.scope() else {
         return None;
     };
     let hook = routes.input_hook(scope)?;
@@ -112,9 +111,8 @@ fn next_tab_base(
     if tabs.is_empty() {
         return FocusScope::Normal;
     }
-    let current = state.frontend.scope_stack.base();
-    let position = match current {
-        FocusScope::Dynamic(id) => tabs.iter().position(|tab| tab == id),
+    let position = match state.frontend.scope_base() {
+        FocusScope::Dynamic(id) => tabs.iter().position(|tab| tab == &id),
         _ => None,
     };
     match position {
@@ -153,7 +151,9 @@ impl IntentHandler {
         slices: &crate::common::slices::Slices,
         routes: &crate::common::slices::key_routes::KeyRoutes,
     ) -> IntentResult {
-        state.frontend.tui_signals.clear();
+        state
+            .frontend
+            .update_scope(|s| s.signals = jinn_slices::TuiSignals::new());
         // Status hints are transient: any fresh intent dismisses the previous
         // one (the handler arms that raise one run after this line).
         crate::feat::ui::status_hint::set_hint(state, slices, None);
@@ -252,7 +252,7 @@ impl IntentHandler {
         match intent {
             Intent::InsertChar { ch }
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::ArgInput
                 ) =>
             {
@@ -260,7 +260,7 @@ impl IntentHandler {
             }
             Intent::DeleteGrapheme
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::ArgInput
                 ) =>
             {
@@ -268,7 +268,7 @@ impl IntentHandler {
             }
             Intent::MoveCursorLeft
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::ArgInput
                 ) =>
             {
@@ -276,7 +276,7 @@ impl IntentHandler {
             }
             Intent::MoveCursorRight
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::ArgInput
                 ) =>
             {
@@ -284,7 +284,7 @@ impl IntentHandler {
             }
             Intent::DeleteGraphemeForward
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::ArgInput
                 ) =>
             {
@@ -292,19 +292,19 @@ impl IntentHandler {
             }
             Intent::EnterNormalMode
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::ArgInput
                 ) =>
             {
                 // ESC cancels arg input - pop scope, clear state.
-                state.frontend.scope_stack.pop();
+                state.frontend.scope_pop();
                 state.frontend.arg_input = crate::common::app_state::ArgInputState::default();
                 crate::protocol::IntentResult::empty()
             }
 
             Intent::InsertChar { ch }
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::CwdInput
                 ) =>
             {
@@ -312,7 +312,7 @@ impl IntentHandler {
             }
             Intent::DeleteGrapheme
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::CwdInput
                 ) =>
             {
@@ -320,7 +320,7 @@ impl IntentHandler {
             }
             Intent::DeleteGraphemeForward
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::CwdInput
                 ) =>
             {
@@ -328,7 +328,7 @@ impl IntentHandler {
             }
             Intent::MoveCursorLeft
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::CwdInput
                 ) =>
             {
@@ -336,7 +336,7 @@ impl IntentHandler {
             }
             Intent::MoveCursorRight
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::CwdInput
                 ) =>
             {
@@ -344,7 +344,7 @@ impl IntentHandler {
             }
             Intent::EnterNormalMode
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::CwdInput
                 ) =>
             {
@@ -354,7 +354,7 @@ impl IntentHandler {
 
             Intent::InsertChar { ch }
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::ProjectAddInput
                 ) =>
             {
@@ -362,7 +362,7 @@ impl IntentHandler {
             }
             Intent::DeleteGrapheme
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::ProjectAddInput
                 ) =>
             {
@@ -370,7 +370,7 @@ impl IntentHandler {
             }
             Intent::DeleteGraphemeForward
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::ProjectAddInput
                 ) =>
             {
@@ -378,7 +378,7 @@ impl IntentHandler {
             }
             Intent::MoveCursorLeft
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::ProjectAddInput
                 ) =>
             {
@@ -386,7 +386,7 @@ impl IntentHandler {
             }
             Intent::MoveCursorRight
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::ProjectAddInput
                 ) =>
             {
@@ -394,7 +394,7 @@ impl IntentHandler {
             }
             Intent::EnterNormalMode
                 if matches!(
-                    state.frontend.scope_stack.current(),
+                    state.frontend.scope(),
                     crate::common::app_state::FocusScope::ProjectAddInput
                 ) =>
             {
@@ -431,7 +431,7 @@ impl IntentHandler {
             Intent::MoveCursorUp => feat::chat_input::intent::handle_move_cursor_up(state),
             Intent::MoveCursorDown => feat::chat_input::intent::handle_move_cursor_down(state),
 
-            Intent::PasteText { text } => match state.frontend.scope_stack.current() {
+            Intent::PasteText { text } => match state.frontend.scope() {
                 crate::common::app_state::FocusScope::Input => {
                     feat::chat_input::intent::handle_paste_text(text, state)
                 }
@@ -811,9 +811,9 @@ impl IntentHandler {
                 // open closes it first (Esc semantics). While the user
                 // holds control, Tab is inert — handback is the only
                 // exit.
-                match state.frontend.scope_stack.current() {
+                match state.frontend.scope() {
                     crate::common::app_state::FocusScope::TerminalView => {
-                        state.frontend.scope_stack.pop();
+                        state.frontend.scope_pop();
                         return IntentResult::empty();
                     }
                     crate::common::app_state::FocusScope::TerminalControl => {
@@ -822,7 +822,7 @@ impl IntentHandler {
                     _ => {}
                 }
                 let new_base = next_tab_base(state, slices);
-                state.frontend.scope_stack.swap_base(new_base);
+                state.frontend.scope_swap_base(new_base);
                 IntentResult::empty()
             }
             Intent::ToggleTerminalOverlay { session_id } => {
@@ -1086,8 +1086,8 @@ mod tests {
     #[rstest::rstest]
     fn paste_text_ignored_in_normal_scope() {
         // Given an AppState in Normal scope.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.clear_overlays();
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_clear_overlays();
 
         // When handling PasteText.
         let result = IntentHandler::handle(
@@ -1107,11 +1107,10 @@ mod tests {
     #[rstest::rstest]
     fn paste_text_inserts_in_input_scope() {
         // Given an AppState in Input scope.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_stack
-            .push(crate::common::app_state::FocusScope::Input);
+            .scope_push(crate::common::app_state::FocusScope::Input);
 
         // When handling PasteText.
         let result = IntentHandler::handle(
@@ -1131,11 +1130,10 @@ mod tests {
     #[rstest::rstest]
     fn disabled_input_box_rejects_insert_char() {
         // Given an AppState in Input scope with the input box disabled.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_stack
-            .push(crate::common::app_state::FocusScope::Input);
+            .scope_push(crate::common::app_state::FocusScope::Input);
         state.active_chat_input_mut().set_enabled(false);
 
         // When handling InsertChar.
@@ -1154,11 +1152,10 @@ mod tests {
     #[rstest::rstest]
     fn enabled_input_box_accepts_insert_char() {
         // Given an AppState in Input scope with the input box enabled.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_stack
-            .push(crate::common::app_state::FocusScope::Input);
+            .scope_push(crate::common::app_state::FocusScope::Input);
         state.active_chat_input_mut().set_enabled(false);
         state.active_chat_input_mut().set_enabled(true);
 
@@ -1177,7 +1174,7 @@ mod tests {
     #[rstest::rstest]
     fn disabled_input_box_does_not_block_normal_scope() {
         // Given an AppState in Normal scope with the input box disabled.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_chat_input_mut().set_enabled(false);
 
         // When handling EnterNormalMode (a non-editing intent).
@@ -1191,7 +1188,7 @@ mod tests {
         // Then the intent still routes — the gate is editing-only.
         assert!(
             matches!(
-                state.frontend.scope_stack.current(),
+                state.frontend.scope(),
                 crate::common::app_state::FocusScope::Normal
             ),
             "Normal intent should still route when input box is disabled"
@@ -1202,11 +1199,8 @@ mod tests {
     #[rstest::rstest]
     fn rename_insert_char_inserts_into_rename_input() {
         // Given state in RenameSessionInput scope with partial input.
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::RenameSessionInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::RenameSessionInput);
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hel".to_owned(),
@@ -1232,11 +1226,8 @@ mod tests {
     #[rstest::rstest]
     fn rename_cursor_left_moves_cursor_in_rename_input() {
         // Given state in RenameSessionInput scope with cursor at end.
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::RenameSessionInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::RenameSessionInput);
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hello".to_owned(),
@@ -1260,11 +1251,8 @@ mod tests {
     #[rstest::rstest]
     fn rename_cursor_right_moves_cursor_in_rename_input() {
         // Given state in RenameSessionInput scope with cursor at start.
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::RenameSessionInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::RenameSessionInput);
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hi".to_owned(),
@@ -1288,11 +1276,8 @@ mod tests {
     #[rstest::rstest]
     fn rename_delete_grapheme_deletes_in_rename_input() {
         // Given state in RenameSessionInput scope with cursor at end.
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::RenameSessionInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::RenameSessionInput);
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hello".to_owned(),
@@ -1317,11 +1302,8 @@ mod tests {
     #[rstest::rstest]
     fn rename_delete_forward_deletes_in_rename_input() {
         // Given state in RenameSessionInput scope with cursor at position 1.
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::RenameSessionInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::RenameSessionInput);
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hello".to_owned(),
@@ -1347,8 +1329,8 @@ mod tests {
     #[test]
     fn insert_char_routes_to_arg_input_when_scope_is_arg_input() {
         // Given ArgInput scope is active.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::ArgInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::ArgInput);
         state.frontend.arg_input = crate::common::app_state::ArgInputState {
             lifecycle_name: "test".to_owned(),
             template_display: "<arg>".to_owned(),
@@ -1378,8 +1360,8 @@ mod tests {
     #[test]
     fn insert_char_routes_to_chat_input_when_scope_is_normal() {
         // Given Normal scope (default) with Input overlay.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::Input);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::Input);
 
         // When handling InsertChar.
         let _result = IntentHandler::handle(
@@ -1401,8 +1383,8 @@ mod tests {
     #[test]
     fn delete_grapheme_routes_to_arg_input_when_scope_is_arg_input() {
         // Given ArgInput scope with some text.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::ArgInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::ArgInput);
         state.frontend.arg_input = crate::common::app_state::ArgInputState {
             lifecycle_name: "test".to_owned(),
             template_display: "<arg>".to_owned(),
@@ -1428,8 +1410,8 @@ mod tests {
     #[test]
     fn move_cursor_left_routes_to_arg_input_when_scope_is_arg_input() {
         // Given ArgInput scope with cursor at end.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::ArgInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::ArgInput);
         state.frontend.arg_input = crate::common::app_state::ArgInputState {
             lifecycle_name: "test".to_owned(),
             template_display: "<arg>".to_owned(),
@@ -1455,8 +1437,8 @@ mod tests {
     #[test]
     fn move_cursor_right_routes_to_arg_input_when_scope_is_arg_input() {
         // Given ArgInput scope with cursor at start.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::ArgInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::ArgInput);
         state.frontend.arg_input = crate::common::app_state::ArgInputState {
             lifecycle_name: "test".to_owned(),
             template_display: "<arg>".to_owned(),
@@ -1482,8 +1464,8 @@ mod tests {
     #[test]
     fn delete_forward_routes_to_arg_input_when_scope_is_arg_input() {
         // Given ArgInput scope with cursor at start.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::ArgInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::ArgInput);
         state.frontend.arg_input = crate::common::app_state::ArgInputState {
             lifecycle_name: "test".to_owned(),
             template_display: "<arg>".to_owned(),
@@ -1509,8 +1491,8 @@ mod tests {
     #[test]
     fn enter_normal_mode_pops_arg_input_scope() {
         // Given ArgInput scope is active.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::ArgInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::ArgInput);
         state.frontend.arg_input = crate::common::app_state::ArgInputState {
             lifecycle_name: "test".to_owned(),
             template_display: "<arg>".to_owned(),
@@ -1529,10 +1511,7 @@ mod tests {
         );
 
         // Then ArgInput scope is popped and state cleared.
-        assert!(!matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::ArgInput
-        ));
+        assert!(!matches!(state.frontend.scope(), FocusScope::ArgInput));
         assert!(state.frontend.arg_input.text.input.is_empty());
     }
 
@@ -1540,8 +1519,8 @@ mod tests {
     #[test]
     fn paste_text_in_picker_scope_routes_to_picker() {
         // Given Picker scope is active.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::Picker {
             kind: crate::protocol::PickerKind::Persona,
         });
 
@@ -1563,11 +1542,8 @@ mod tests {
     #[test]
     fn paste_text_in_rename_session_scope_routes_to_rename() {
         // Given RenameSessionInput scope is active.
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::RenameSessionInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::RenameSessionInput);
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "old".to_owned(),
@@ -1593,7 +1569,7 @@ mod tests {
     #[test]
     fn cancel_stream_prompt_esc_confirms() {
         // Given cancel_stream_prompt is showing.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.cancel_stream_prompt = true;
 
         // When handling NormalEscape.
@@ -1620,7 +1596,7 @@ mod tests {
     #[test]
     fn cancel_stream_prompt_other_intent_dismisses() {
         // Given cancel_stream_prompt is showing.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.cancel_stream_prompt = true;
 
         // When handling a different intent (InsertChar).
@@ -1639,7 +1615,7 @@ mod tests {
     #[test]
     fn cancel_stream_prompt_not_showing_returns_none() {
         // Given cancel_stream_prompt is NOT showing.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.cancel_stream_prompt = false;
 
         // When handling NormalEscape.
@@ -1659,7 +1635,7 @@ mod tests {
     #[test]
     fn close_session_prompt_sidebar_close_confirms() {
         // Given close_session_prompt is showing.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.close_session_prompt = true;
 
         // When handling SidebarSessionClose.
@@ -1678,7 +1654,7 @@ mod tests {
     #[test]
     fn close_session_prompt_other_intent_dismisses() {
         // Given close_session_prompt is showing.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.close_session_prompt = true;
 
         // When handling a different intent (ScrollUp).
@@ -1697,7 +1673,7 @@ mod tests {
     #[test]
     fn cancel_stream_prompt_noop_dismisses() {
         // Given cancel_stream_prompt is showing.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.cancel_stream_prompt = true;
 
         // When handling NoOp (unmapped key).
@@ -1720,7 +1696,7 @@ mod tests {
     #[test]
     fn close_session_prompt_noop_dismisses() {
         // Given close_session_prompt is showing.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.close_session_prompt = true;
 
         // When handling NoOp (unmapped key).
@@ -1735,7 +1711,7 @@ mod tests {
     #[test]
     fn noop_is_empty_when_no_prompt() {
         // Given default state with no prompts showing.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling NoOp.
         let result =
@@ -1750,7 +1726,7 @@ mod tests {
         // Given a state with two sessions.
         use crate::feat::session::chat_session::ChatSessionState;
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let first_id = state.session.active_session_id().clone();
 
         let mut second = ChatSessionState::new();
@@ -1787,9 +1763,9 @@ mod tests {
     #[rstest::rstest]
     fn switch_tab_is_inert_while_user_holds_terminal_control() {
         // Given the terminal-control overlay open (user holds control).
-        let mut state = AppState::default();
-        state.frontend.scope_stack.clear_overlays();
-        state.frontend.scope_stack.push(FocusScope::TerminalControl);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_clear_overlays();
+        state.frontend.scope_push(FocusScope::TerminalControl);
 
         // When switching tabs.
         IntentHandler::handle(
@@ -1800,20 +1776,14 @@ mod tests {
         );
 
         // Then the scope stays TerminalControl — handback is the only exit.
-        assert_eq!(
-            state.frontend.scope_stack.current(),
-            &FocusScope::TerminalControl
-        );
+        assert_eq!(state.frontend.scope(), FocusScope::TerminalControl);
     }
 
     #[rstest::rstest]
     fn take_control_pushes_control_scope_and_flags_user() {
         // Given an AppState whose terminal tab shows a session.
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
 
         // When handling TerminalTakeControl.
         IntentHandler::handle(
@@ -1824,10 +1794,7 @@ mod tests {
         );
 
         // Then the scope is TerminalControl.
-        assert_eq!(
-            state.frontend.scope_stack.current(),
-            &FocusScope::TerminalControl
-        );
+        assert_eq!(state.frontend.scope(), FocusScope::TerminalControl);
         // And the mirror records the user as control holder.
         assert_eq!(
             state.frontend.terminal.control,
@@ -1838,7 +1805,7 @@ mod tests {
     #[rstest::rstest]
     fn toggle_opens_view_overlay_for_live_session() {
         // Given default state whose active session has a live terminal.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let chat = state.session.active_session_id().clone();
         state.frontend.terminal.set_live(&chat, true);
 
@@ -1851,16 +1818,13 @@ mod tests {
         );
 
         // Then the overlay opens in view mode.
-        assert_eq!(
-            state.frontend.scope_stack.current(),
-            &FocusScope::TerminalView
-        );
+        assert_eq!(state.frontend.scope(), FocusScope::TerminalView);
     }
 
     #[rstest::rstest]
     fn toggle_without_live_term_is_inert() {
         // Given default state with no live terminals.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When toggling the terminal overlay.
         IntentHandler::handle(
@@ -1871,13 +1835,13 @@ mod tests {
         );
 
         // Then the scope stays Input (default scope; no overlay opened).
-        assert_eq!(state.frontend.scope_stack.current(), &FocusScope::Input);
+        assert_eq!(state.frontend.scope(), FocusScope::Input);
     }
 
     #[rstest::rstest]
     fn set_hint_is_a_noop_without_the_status_bar_cell() {
         // Given state with no activated status-bar slice (bare `Slices`).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let slices = empty_slices();
 
         // When an intent arm raises a hint through the write seam.
@@ -1893,10 +1857,35 @@ mod tests {
     }
 
     #[rstest::rstest]
+    fn default_scope_is_input_through_the_facade() {
+        // Given a default state (no scope-focus wiring attached).
+        let state = AppState::default();
+
+        // When reading the current scope through the facade.
+        let scope = state.frontend.scope();
+
+        // Then it is Input — the historical default boot scope.
+        assert_eq!(scope, FocusScope::Input);
+    }
+
+    #[rstest::rstest]
+    fn scope_writes_are_noop_without_the_cell() {
+        // Given a state whose scope-focus cell was never minted.
+        let state = AppState::default();
+
+        // When pushing a scope through the facade.
+        state.frontend.scope_push(FocusScope::Normal);
+
+        // Then the read still returns the unattached default (no panic,
+        // no storage) — the removability property.
+        assert_eq!(state.frontend.scope(), FocusScope::Input);
+    }
+
+    #[rstest::rstest]
     fn toggle_without_live_term_sets_a_status_hint() {
         // Given default state with no live terminals and an activated
         // status-bar cell (the hint's storage).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let slices = status_bar_slices();
 
         // When toggling the terminal overlay.
@@ -1908,7 +1897,7 @@ mod tests {
         );
 
         // Then no overlay opened (still the default scope).
-        assert_eq!(state.frontend.scope_stack.current(), &FocusScope::Input);
+        assert_eq!(state.frontend.scope(), FocusScope::Input);
         // And a status hint explains the inert press.
         let hint = crate::feat::ui::status_hint::hint(&slices);
         assert!(
@@ -1921,7 +1910,7 @@ mod tests {
     #[rstest::rstest]
     fn next_intent_dismisses_a_raised_status_hint() {
         // Given a state carrying a hint from a failed overlay toggle.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let slices = status_bar_slices();
         crate::feat::ui::status_hint::set_hint(&mut state, &slices, Some("stale hint".to_owned()));
 
@@ -1935,7 +1924,7 @@ mod tests {
     #[rstest::rstest]
     fn toggle_closes_an_open_overlay() {
         // Given an open terminal overlay (view mode).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let chat = state.session.active_session_id().clone();
         state.frontend.terminal.set_live(&chat, true);
         IntentHandler::handle(
@@ -1955,14 +1944,14 @@ mod tests {
 
         // Then the overlay closes back to the base scope (the input scope the
         // overlay replaced does not resurrect).
-        assert_eq!(state.frontend.scope_stack.current(), &FocusScope::Normal);
+        assert_eq!(state.frontend.scope(), FocusScope::Normal);
     }
 
     #[rstest::rstest]
     fn toggle_with_explicit_session_targets_that_session() {
         // Given a state where the *selected* session (not the active one) has
         // a live terminal.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let selected = crate::protocol::SessionId::new();
         state.frontend.terminal.set_live(&selected, true);
 
@@ -1977,16 +1966,13 @@ mod tests {
         );
 
         // Then the overlay opens.
-        assert_eq!(
-            state.frontend.scope_stack.current(),
-            &FocusScope::TerminalView
-        );
+        assert_eq!(state.frontend.scope(), FocusScope::TerminalView);
     }
 
     #[rstest::rstest]
     fn switch_tab_with_no_registered_tab_stays_normal() {
         // Given default (Normal) state and no dynamic tab registered.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When switching tabs.
         IntentHandler::handle(
@@ -1997,7 +1983,7 @@ mod tests {
         );
 
         // Then the base is Normal (chat is the only tab).
-        assert_eq!(state.frontend.scope_stack.base(), &FocusScope::Normal);
+        assert_eq!(state.frontend.scope_base(), FocusScope::Normal);
     }
 
     #[rstest::rstest]
@@ -2009,26 +1995,26 @@ mod tests {
             tab.clone(),
             jinn_slices::SlotKey::builtin("dashboard", "tab"),
         );
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When switching tabs twice.
         IntentHandler::handle(&Intent::SwitchTab, &mut state, &slices, &empty_routes());
         // Then the base is the registered tab.
         assert_eq!(
-            state.frontend.scope_stack.base(),
-            &FocusScope::Dynamic(tab.clone())
+            state.frontend.scope_base(),
+            FocusScope::Dynamic(tab.clone())
         );
 
         // When switching tabs again.
         IntentHandler::handle(&Intent::SwitchTab, &mut state, &slices, &empty_routes());
         // Then the cycle wraps to Normal.
-        assert_eq!(state.frontend.scope_stack.base(), &FocusScope::Normal);
+        assert_eq!(state.frontend.scope_base(), FocusScope::Normal);
     }
 
     #[rstest::rstest]
     fn switch_tab_while_overlay_open_closes_it() {
         // Given an open terminal overlay over the Normal base.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let chat = state.session.active_session_id().clone();
         state.frontend.terminal.set_live(&chat, true);
         IntentHandler::handle(
@@ -2037,10 +2023,7 @@ mod tests {
             &empty_slices(),
             &empty_routes(),
         );
-        assert_eq!(
-            state.frontend.scope_stack.current(),
-            &FocusScope::TerminalView
-        );
+        assert_eq!(state.frontend.scope(), FocusScope::TerminalView);
 
         // When switching tabs.
         IntentHandler::handle(
@@ -2051,18 +2034,15 @@ mod tests {
         );
 
         // Then the overlay closed (back to base, not a tab flip).
-        assert_eq!(state.frontend.scope_stack.current(), &FocusScope::Normal);
-        assert_eq!(state.frontend.scope_stack.base(), &FocusScope::Normal);
+        assert_eq!(state.frontend.scope(), FocusScope::Normal);
+        assert_eq!(state.frontend.scope_base(), FocusScope::Normal);
     }
 
     #[rstest::rstest]
     fn send_key_outside_control_scope_is_inert() {
         // Given an AppState in TerminalView (no control).
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
 
         // When handling TerminalSendKey.
         let result = IntentHandler::handle(
@@ -2082,12 +2062,9 @@ mod tests {
     #[rstest::rstest]
     fn handback_releases_flag_pops_scope_and_sends_nothing() {
         // Given an AppState where the user holds control with a screen mirror.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let handback_slices = status_bar_slices();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
             "term-1",
@@ -2112,10 +2089,7 @@ mod tests {
         );
 
         // Then the scope pops back to TerminalView.
-        assert_eq!(
-            state.frontend.scope_stack.current(),
-            &FocusScope::TerminalView
-        );
+        assert_eq!(state.frontend.scope(), FocusScope::TerminalView);
         // And the mirror flips back to agent control.
         assert_eq!(
             state.frontend.terminal.control,
@@ -2139,11 +2113,8 @@ mod tests {
     fn push_screen_when_idle_enqueues_user_message() {
         // Given an AppState in the TerminalView overlay with a screen mirror,
         // and the session is idle.
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
             "term-1",
@@ -2176,11 +2147,8 @@ mod tests {
     fn push_screen_while_busy_steers_via_buffer() {
         // Given an AppState in the TerminalView overlay with a screen mirror,
         // while the session is mid-turn (Streaming).
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
             "term-1",
@@ -2219,11 +2187,8 @@ mod tests {
     #[rstest::rstest]
     fn push_screen_yanks_the_screen_text() {
         // Given an AppState in the TerminalView overlay with a screen mirror.
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
             "term-1",
@@ -2243,7 +2208,7 @@ mod tests {
 
         // Then the screen text was also staged for the clipboard.
         assert_eq!(
-            state.frontend.tui_signals.yank_text.as_deref(),
+            state.frontend.signals_snapshot().yank_text.as_deref(),
             Some("yank-and-push-marker"),
             "push must also yank (I = yank + push)"
         );
@@ -2252,11 +2217,8 @@ mod tests {
     #[rstest::rstest]
     fn yank_stages_screen_text_and_sets_line_count_hint() {
         // Given an AppState in the TerminalView overlay with a multi-line mirror.
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
         let yank_slices = status_bar_slices();
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
@@ -2277,7 +2239,7 @@ mod tests {
 
         // Then the screen text was staged for the clipboard.
         assert_eq!(
-            state.frontend.tui_signals.yank_text.as_deref(),
+            state.frontend.signals_snapshot().yank_text.as_deref(),
             Some("line one\nline two\nline three")
         );
         // And the status hint reports the copied line count.
@@ -2291,12 +2253,9 @@ mod tests {
     #[rstest::rstest]
     fn yank_without_live_terminal_sets_a_hint_and_stages_nothing() {
         // Given an AppState in the TerminalView overlay with no mirror.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let yank_slices = status_bar_slices();
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
 
         // When handling TerminalYank.
         IntentHandler::handle(
@@ -2307,7 +2266,7 @@ mod tests {
         );
 
         // Then nothing was staged for the clipboard.
-        assert!(state.frontend.tui_signals.yank_text.is_none());
+        assert!(state.frontend.signals_snapshot().yank_text.is_none());
         // And a status hint explains the inert press.
         let hint = crate::feat::ui::status_hint::hint(&yank_slices);
         assert!(
@@ -2343,15 +2302,12 @@ mod tests {
     fn close_overlay_from_view_leaves_control_with_agent() {
         // Given an AppState with the overlay open in view mode (agent holds
         // control; the user never took it).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.terminal.control =
             crate::feat::interactive_term::terminal_tab_state::TermControlHolder::Agent;
         let chat = state.session.active_session_id().clone();
         state.frontend.terminal.set_live(&chat, true);
-        state
-            .frontend
-            .scope_stack
-            .swap_base(FocusScope::TerminalView);
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
 
         // When toggling the overlay closed.
         IntentHandler::handle(
@@ -2364,10 +2320,7 @@ mod tests {
         // Then the overlay closed (pop on a base-only stack is a no-op, so
         // the view scope remains as the base) and the control flag stayed
         // Agent.
-        assert_eq!(
-            state.frontend.scope_stack.current(),
-            &FocusScope::TerminalView
-        );
+        assert_eq!(state.frontend.scope(), FocusScope::TerminalView);
         assert_eq!(
             state.frontend.terminal.control,
             crate::feat::interactive_term::terminal_tab_state::TermControlHolder::Agent,

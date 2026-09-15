@@ -66,8 +66,7 @@ async fn picker_popup_rect_is_selectable() {
         .state
         .write_test_no_cap()
         .frontend
-        .scope_stack
-        .push(jinn_domain::FocusScope::Picker {
+        .scope_push(jinn_domain::FocusScope::Picker {
             kind: jinn_domain::PickerKind::Provider,
         });
 
@@ -101,8 +100,7 @@ async fn content_area_rect_is_selectable() {
         .state
         .write_test_no_cap()
         .frontend
-        .scope_stack
-        .push(jinn_domain::FocusScope::Picker {
+        .scope_push(jinn_domain::FocusScope::Picker {
             kind: jinn_domain::PickerKind::Provider,
         });
 
@@ -157,8 +155,7 @@ async fn minimap_arrow_is_yellow_when_normal_scope() {
         .state
         .write_test_no_cap()
         .frontend
-        .scope_stack
-        .clear_overlays();
+        .scope_clear_overlays();
     app.core
         .state
         .write_test_no_cap()
@@ -191,8 +188,7 @@ async fn minimap_arrow_is_darkgray_when_input_scope() {
         .state
         .write_test_no_cap()
         .frontend
-        .scope_stack
-        .push(FocusScope::Input);
+        .scope_push(FocusScope::Input);
     app.core
         .state
         .write_test_no_cap()
@@ -247,8 +243,7 @@ async fn cwd_input_popup_renders_and_is_selectable() {
         .state
         .write_test_no_cap()
         .frontend
-        .scope_stack
-        .push(FocusScope::CwdInput);
+        .scope_push(FocusScope::CwdInput);
     let (mut terminal, _area) = setup_term(80, 24);
 
     // When rendering.
@@ -318,11 +313,9 @@ async fn mcp_inspector_renders_server_list_and_logs_pane() {
             default_theme(),
         );
         w.frontend.mcp_server_picker_mut().set_items(vec![entry]);
-        w.frontend
-            .scope_stack
-            .push(jinn_domain::FocusScope::Picker {
-                kind: jinn_domain::PickerKind::McpServer,
-            });
+        w.frontend.scope_push(jinn_domain::FocusScope::Picker {
+            kind: jinn_domain::PickerKind::McpServer,
+        });
     }
 
     let (mut terminal, _area) = setup_term(100, 30);
@@ -389,11 +382,9 @@ async fn mcp_inspector_tools_pane_renders_tool_names() {
         );
         entry.preview_mode = McpPreviewMode::Tools;
         w.frontend.mcp_server_picker_mut().set_items(vec![entry]);
-        w.frontend
-            .scope_stack
-            .push(jinn_domain::FocusScope::Picker {
-                kind: jinn_domain::PickerKind::McpServer,
-            });
+        w.frontend.scope_push(jinn_domain::FocusScope::Picker {
+            kind: jinn_domain::PickerKind::McpServer,
+        });
     }
 
     let (mut terminal, _area) = setup_term(100, 30);
@@ -428,8 +419,7 @@ async fn which_key_help_renders_above_the_terminal_overlay() {
         .state
         .write_test_no_cap()
         .frontend
-        .scope_stack
-        .swap_base(jinn_domain::FocusScope::TerminalView);
+        .scope_swap_base(jinn_domain::FocusScope::TerminalView);
     app.which_key.active = true;
 
     let (mut terminal, _area) = setup_term(80, 24);

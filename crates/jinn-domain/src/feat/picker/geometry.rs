@@ -33,7 +33,7 @@ const CHROME_ROWS_SKILL_LIST: u16 = 2;
 /// is at least 1, even on tiny terminals, so the navigation math never
 /// divides or windows against zero.
 pub fn measure_active_picker_results_height(state: &AppState, frame_area: Rect) -> u16 {
-    let Some(kind) = state.frontend.scope_stack.picker_kind().copied() else {
+    let Some(kind) = state.frontend.picker_kind() else {
         return PICKER_VIEWPORT_FALLBACK;
     };
 

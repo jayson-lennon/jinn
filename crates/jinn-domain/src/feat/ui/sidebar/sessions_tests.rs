@@ -49,7 +49,7 @@ fn entry_last_is_error(state: &AppState, id: &crate::protocol::SessionId) -> boo
 
 // Helper: create state with N sessions.
 fn state_with_sessions(count: usize) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     // Default state already has 1 session. Add more as needed.
     for i in 1..count {
         let session = ChatSessionState::new();
@@ -73,7 +73,7 @@ fn section_id_is_sessions() {
 #[rstest::rstest]
 fn content_height_with_one_session() {
     let section = SessionsSection::new();
-    let state = AppState::default();
+    let state = AppState::default_with_scope_focus();
     assert_eq!(
         {
             let slices = jinn_slices::Slices::new();
@@ -179,7 +179,7 @@ fn navigate_up_at_top_returns_exhausted() {
 
 #[rstest::rstest]
 fn navigate_action_returns_moved() {
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let result = navigate(&SidebarIntent::Action(crate::Intent::Quit), &mut state);
     assert_eq!(result, SectionNavResult::Moved);
 }
@@ -323,7 +323,7 @@ fn receive_cursor_from_bottom_positions_at_last_index() {
 #[rstest::rstest]
 fn receive_cursor_noop_when_empty() {
     // Given state with no sessions (manually clear default).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.session.sessions_mut().clear();
 
     // When receiving cursor.
@@ -368,7 +368,7 @@ fn sorted_sessions_count_matches_hashmap() {
 #[rstest::rstest]
 fn busy_session_is_not_idle() {
     // Given a session that has active busy operations.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_session_mut().begin_busy();
 
     // When collecting sorted open sessions.
@@ -385,7 +385,7 @@ fn busy_session_is_not_idle() {
 #[rstest::rstest]
 fn idle_and_not_busy_is_idle() {
     // Given a session with no busy operations and phase Idle.
-    let state = AppState::default();
+    let state = AppState::default_with_scope_focus();
 
     // When collecting sorted open sessions.
     let sessions = sorted_open_sessions(&state);
@@ -401,7 +401,7 @@ fn idle_and_not_busy_is_idle() {
 #[rstest::rstest]
 fn working_complete_returns_to_idle() {
     // Given a session that was working but completed.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_session_mut().begin_busy();
     state.active_session_mut().complete_busy();
 
@@ -448,7 +448,7 @@ fn render_rows(
 fn render_shows_sessions_footer() {
     // Given a sessions section with default state.
     let mut section = SessionsSection::new();
-    let state = AppState::default();
+    let state = AppState::default_with_scope_focus();
 
     // When rendering.
     let rows = render_rows(&mut section, &state, 30, 5);
@@ -464,7 +464,7 @@ fn render_shows_sessions_footer() {
 #[rstest::rstest]
 fn render_shows_active_indicator_on_active_session() {
     let mut section = SessionsSection::new();
-    let state = AppState::default();
+    let state = AppState::default_with_scope_focus();
     let rows = render_rows(&mut section, &state, 30, 5);
     let combined = rows.join("\n");
     assert!(
@@ -476,7 +476,7 @@ fn render_shows_active_indicator_on_active_session() {
 #[rstest::rstest]
 fn render_shows_untitled_for_session_without_title() {
     let mut section = SessionsSection::new();
-    let state = AppState::default();
+    let state = AppState::default_with_scope_focus();
     let rows = render_rows(&mut section, &state, 30, 5);
     let combined = rows.join("\n");
     assert!(
@@ -598,8 +598,8 @@ fn render_footer_uses_focus_accent_when_sidebar_focused() {
     // Given a sessions section with sidebar focused.
     let mut section = SessionsSection::new();
     let state = {
-        let mut s = AppState::default();
-        s.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        let s = AppState::default_with_scope_focus();
+        s.frontend.scope_push(FocusScope::SidebarSessions);
         s
     };
 
@@ -628,7 +628,7 @@ fn render_footer_uses_focus_accent_when_sidebar_focused() {
 fn render_footer_uses_border_unfocused_when_sidebar_not_focused() {
     // Given a sessions section with default state (no sidebar focus).
     let mut section = SessionsSection::new();
-    let state = AppState::default();
+    let state = AppState::default_with_scope_focus();
 
     // When rendering.
     let (mut terminal, area) = setup_term(30, 5);
@@ -656,8 +656,8 @@ fn render_footer_uses_border_unfocused_when_other_sidebar_section_focused() {
     // Given a sessions section rendered while persona section is focused (not sessions).
     let mut section = SessionsSection::new();
     let state = {
-        let mut s = AppState::default();
-        s.frontend.scope_stack.push(FocusScope::SidebarPersona);
+        let s = AppState::default_with_scope_focus();
+        s.frontend.scope_push(FocusScope::SidebarPersona);
         s
     };
 
@@ -686,7 +686,7 @@ fn render_footer_uses_border_unfocused_when_other_sidebar_section_focused() {
 fn close_session_switches_to_next() {
     // Given state with 3 sessions, sessions section focused, cursor at index 0 (active session).
     let mut state = state_with_sessions(3);
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     let sessions = sorted_open_sessions(&state);
     // Active session is at index 0 (sorted newest-first, default is oldest → last, but we
     // set active to index 0 explicitly to test active-session close).
@@ -707,7 +707,7 @@ fn close_session_switches_to_next() {
 fn close_non_active_session_keeps_active() {
     // Given state with 3 sessions, sessions section focused, cursor at index 1 (not active).
     let mut state = state_with_sessions(3);
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     let sessions = sorted_open_sessions(&state);
     // Active session is at index 0.
     state.session.set_active(sessions[0].id.clone());
@@ -728,8 +728,8 @@ fn close_non_active_session_keeps_active() {
 #[rstest::rstest]
 fn close_last_session_creates_new() {
     // Given state with 1 session, sessions section focused.
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     let original_id = state.session.active_session_id().clone();
     state.frontend.sessions_section.selected_index = Some(0);
 
@@ -745,8 +745,8 @@ fn close_last_session_creates_new() {
 #[rstest::rstest]
 fn close_last_session_seeds_new_session_reasoning_effort_from_global() {
     // Given a single session with a global default effort of High.
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     state.frontend.app_state.reasoning_effort = Some(crate::ReasoningEffort::High);
     state.frontend.sessions_section.selected_index = Some(0);
 
@@ -764,8 +764,8 @@ fn close_last_session_seeds_new_session_reasoning_effort_from_global() {
 #[rstest::rstest]
 fn close_last_session_seeds_disabled_sets_from_preferences() {
     // Given a single session and preferences disabling a tool and skill.
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     state.frontend.preferences.disabled_tools = ["bash"].iter().map(|s| (*s).to_owned()).collect();
     state.frontend.preferences.disabled_skills = ["phased-task-loop"]
         .iter()
@@ -793,8 +793,8 @@ fn close_last_session_seeds_disabled_sets_from_preferences() {
 #[rstest::rstest]
 fn close_last_session_with_auto_enable_returns_enablement_message() {
     // Given a single session and one auto-enabled server in preferences.
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     state.frontend.preferences.mcp_server = [(
         "excalimate".to_owned(),
         crate::feat::mcp::McpServerConfig {
@@ -826,8 +826,8 @@ fn close_last_session_with_auto_enable_returns_enablement_message() {
 #[rstest::rstest]
 fn close_last_session_without_auto_enable_emits_no_enablement() {
     // Given a single session with no auto-enabled servers.
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     state.frontend.sessions_section.selected_index = Some(0);
 
     // When closing the last session.
@@ -846,7 +846,7 @@ fn close_last_session_without_auto_enable_emits_no_enablement() {
 fn close_session_clamps_index() {
     // Given state with 3 sessions, sessions section focused, cursor at last index.
     let mut state = state_with_sessions(3);
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     let sessions = sorted_open_sessions(&state);
     state.session.set_active(sessions[2].id.clone());
     // Move cursor to index 2 (the active session, sorted to 0, so use index 0)
@@ -865,7 +865,7 @@ fn close_session_clamps_index() {
 fn close_session_adjusts_scroll_offset() {
     // Given 20 sessions with scroll_offset at 10, sessions section focused, cursor at 10.
     let mut state = state_with_sessions(20);
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     state.frontend.sessions_section.scroll_offset = 10;
     state.frontend.sessions_section.selected_index = Some(10);
 
@@ -882,8 +882,8 @@ fn close_session_adjusts_scroll_offset() {
 #[rstest::rstest]
 fn close_session_rejected_when_streaming() {
     // Given state with a streaming session, sessions section focused.
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     state.frontend.sessions_section.selected_index = Some(0);
     state.active_session_mut().begin_streaming();
 
@@ -897,8 +897,8 @@ fn close_session_rejected_when_streaming() {
 #[rstest::rstest]
 fn close_session_rejected_when_working_phase() {
     // Given state with a session in Working phase.
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     state.frontend.sessions_section.selected_index = Some(0);
     state.active_session_mut().begin_busy();
 
@@ -912,7 +912,7 @@ fn close_session_rejected_when_working_phase() {
 #[rstest::rstest]
 fn close_session_rejected_when_wrong_section() {
     // Given state with sessions section NOT focused.
-    let state = AppState::default();
+    let state = AppState::default_with_scope_focus();
 
     // When validating close.
     let result = validate_session_close(&state);
@@ -926,7 +926,7 @@ fn render_session_title_is_red_when_last_entry_is_error() {
     // Given a session whose last history entry is an error.
     let mut section = SessionsSection::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         // Push an error entry into the active (only) session.
         s.active_session_mut()
             .push_entry(ChatEntry::error("teardown failed"));
@@ -956,7 +956,7 @@ fn render_session_title_is_normal_when_last_entry_is_not_error() {
     // Given a session whose last history entry is a user message (not error).
     let mut section = SessionsSection::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut().push_entry(ChatEntry::user("hello"));
         s
     };
@@ -982,7 +982,7 @@ fn render_session_title_is_normal_when_last_entry_is_not_error() {
 #[rstest::rstest]
 fn sorted_sessions_reports_last_entry_is_error() {
     // Given a session whose last entry is an error.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state
         .active_session_mut()
         .push_entry(ChatEntry::error("boom"));
@@ -997,7 +997,7 @@ fn sorted_sessions_reports_last_entry_is_error() {
 #[rstest::rstest]
 fn sorted_sessions_reports_last_entry_not_error() {
     // Given a session whose last entry is a user message.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state
         .active_session_mut()
         .push_entry(ChatEntry::user("hello"));
@@ -1012,7 +1012,7 @@ fn sorted_sessions_reports_last_entry_not_error() {
 #[rstest::rstest]
 fn sorted_sessions_empty_history_is_not_error() {
     // Given a session with no history entries.
-    let state = AppState::default();
+    let state = AppState::default_with_scope_focus();
 
     // When collecting sorted sessions.
     let sessions = sorted_open_sessions(&state);
@@ -1025,7 +1025,7 @@ fn sorted_sessions_empty_history_is_not_error() {
 fn activate_switches_to_cursor_session() {
     // Given state with 3 sessions, sessions section focused, cursor at index 1.
     let mut state = state_with_sessions(3);
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     let sessions = sorted_open_sessions(&state);
     state.frontend.sessions_section.selected_index = Some(1);
     let target_id = sessions[1].id.clone();
@@ -1054,7 +1054,7 @@ fn activate_is_noop_when_not_sessions_section() {
 #[rstest::rstest]
 fn session_new_with_lifecycle_opens_picker_from_normal_mode() {
     // Given default app state (Normal mode).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling the intent via IntentHandler.
     let result = crate::feat::intent::IntentHandler::handle(
@@ -1065,10 +1065,10 @@ fn session_new_with_lifecycle_opens_picker_from_normal_mode() {
     );
 
     // Then the picker scope is pushed with SessionLifecycle kind.
-    assert!(state.frontend.scope_stack.is_picker());
+    assert!(state.frontend.is_picker());
     assert_eq!(
-        state.frontend.scope_stack.picker_kind(),
-        Some(&crate::protocol::PickerKind::SessionLifecycle)
+        state.frontend.picker_kind(),
+        Some(crate::protocol::PickerKind::SessionLifecycle)
     );
     // And no commands emitted (lifecycle entries are loaded synchronously).
     assert!(result.message_names.is_empty());
@@ -1077,8 +1077,8 @@ fn session_new_with_lifecycle_opens_picker_from_normal_mode() {
 #[rstest::rstest]
 fn session_new_with_lifecycle_opens_picker_from_sidebar_sessions() {
     // Given sidebar focused on sessions section.
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::SidebarSessions);
 
     // When handling the intent via IntentHandler.
     let result = crate::feat::intent::IntentHandler::handle(
@@ -1089,10 +1089,10 @@ fn session_new_with_lifecycle_opens_picker_from_sidebar_sessions() {
     );
 
     // Then the picker scope is pushed with SessionLifecycle kind.
-    assert!(state.frontend.scope_stack.is_picker());
+    assert!(state.frontend.is_picker());
     assert_eq!(
-        state.frontend.scope_stack.picker_kind(),
-        Some(&crate::protocol::PickerKind::SessionLifecycle)
+        state.frontend.picker_kind(),
+        Some(crate::protocol::PickerKind::SessionLifecycle)
     );
     // And no commands emitted (lifecycle entries are loaded synchronously).
     assert!(result.message_names.is_empty());
@@ -1101,7 +1101,7 @@ fn session_new_with_lifecycle_opens_picker_from_sidebar_sessions() {
 #[rstest::rstest]
 fn teardown_only_emits_run_session_teardown() {
     // Given a session with a lifecycle that has a teardown command.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.frontend.preferences.session_lifecycles.push(
         crate::feat::preferences_actor::user_preferences::SessionLifecycle {
             name: "fossil branch".to_owned(),
@@ -1127,8 +1127,7 @@ fn teardown_only_emits_run_session_teardown() {
     state.frontend.sessions_section.selected_index = Some(0);
     state
         .frontend
-        .scope_stack
-        .push(crate::common::app_state::FocusScope::SidebarSessions);
+        .scope_push(crate::common::app_state::FocusScope::SidebarSessions);
 
     // When handling SidebarSessionTeardown via IntentHandler.
     let result = crate::feat::intent::IntentHandler::handle(
@@ -1146,7 +1145,7 @@ fn teardown_only_emits_run_session_teardown() {
 #[rstest::rstest]
 fn teardown_only_is_noop_without_lifecycle_teardown() {
     // Given a session with a lifecycle that has NO teardown command.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.frontend.preferences.session_lifecycles.push(
         crate::feat::preferences_actor::user_preferences::SessionLifecycle {
             name: "plain".to_owned(),
@@ -1165,8 +1164,7 @@ fn teardown_only_is_noop_without_lifecycle_teardown() {
     state.frontend.sessions_section.selected_index = Some(0);
     state
         .frontend
-        .scope_stack
-        .push(crate::common::app_state::FocusScope::SidebarSessions);
+        .scope_push(crate::common::app_state::FocusScope::SidebarSessions);
 
     // When handling SidebarSessionTeardown via IntentHandler.
     let result = crate::feat::intent::IntentHandler::handle(
@@ -1183,7 +1181,7 @@ fn teardown_only_is_noop_without_lifecycle_teardown() {
 #[rstest::rstest]
 fn teardown_only_is_noop_when_session_busy() {
     // Given a session with a teardown command that is currently busy.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.frontend.preferences.session_lifecycles.push(
         crate::feat::preferences_actor::user_preferences::SessionLifecycle {
             name: "fossil branch".to_owned(),
@@ -1211,8 +1209,7 @@ fn teardown_only_is_noop_when_session_busy() {
     state.frontend.sessions_section.selected_index = Some(0);
     state
         .frontend
-        .scope_stack
-        .push(crate::common::app_state::FocusScope::SidebarSessions);
+        .scope_push(crate::common::app_state::FocusScope::SidebarSessions);
 
     // When handling SidebarSessionTeardown via IntentHandler.
     let result = crate::feat::intent::IntentHandler::handle(
@@ -1238,7 +1235,7 @@ use ratatui::style::Modifier;
 use throbber_widgets_tui::ThrobberState;
 
 fn default_theme() -> crate::feat::theme::Theme {
-    AppState::default().frontend.theme
+    AppState::default_with_scope_focus().frontend.theme
 }
 
 /// Minimal entry for exercising `entry_title_style` precedence rules.
@@ -1465,7 +1462,7 @@ fn truncate_str_returns_empty_when_max_len_zero() {
 ///   - child_a2
 /// - root_b (newest root)
 fn state_with_tree() -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // Create root_a with a title.
     let mut root_a = ChatSessionState::new();
@@ -1598,7 +1595,7 @@ fn tree_dfs_order_is_correct() {
 #[rstest::rstest]
 fn orphan_session_appears_as_root() {
     // Given a session with a parent that is not loaded.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let mut orphan = ChatSessionState::new();
     orphan.set_title("orphan".to_owned());
     orphan.set_parent_session(crate::protocol::SessionId::new());
@@ -1680,7 +1677,7 @@ fn navigate_up_from_child_goes_to_parent() {
 fn close_child_session_clamps_cursor() {
     // Given state with a tree, cursor on child_a1.
     let mut state = state_with_tree();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     let sessions = sorted_open_sessions(&state);
     let child_a1_index = sessions
         .iter()
@@ -1704,7 +1701,7 @@ fn close_child_session_clamps_cursor() {
 fn close_root_session_promotes_children_to_roots() {
     // Given state with root_a having children.
     let mut state = state_with_tree();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     let sessions = sorted_open_sessions(&state);
     let root_a_index = sessions
         .iter()
@@ -1748,7 +1745,7 @@ fn close_root_session_promotes_children_to_roots() {
 fn activate_child_session_switches_active() {
     // Given state with a tree, cursor on child_a1.
     let mut state = state_with_tree();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     let sessions = sorted_open_sessions(&state);
     let child_a1_index = sessions
         .iter()
@@ -1806,7 +1803,7 @@ fn render_tree_shows_tree_characters() {
 fn archiving_intermediate_parent_reparents_grandchild_under_grandparent() {
     // Given state with root_a -> child_a1 -> grandchild_a1a.
     let mut state = state_with_tree();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     let sessions = sorted_open_sessions(&state);
     let child_a1_index = sessions
         .iter()
@@ -1862,7 +1859,7 @@ fn archiving_intermediate_parent_reparents_grandchild_under_grandparent() {
 fn archiving_root_does_not_create_visual_parents_for_orphaned_children() {
     // Given state with root_a having children.
     let mut state = state_with_tree();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     let sessions = sorted_open_sessions(&state);
     let root_a_index = sessions
         .iter()
@@ -1884,7 +1881,7 @@ fn archiving_root_does_not_create_visual_parents_for_orphaned_children() {
 #[rstest::rstest]
 fn multi_level_intermediate_hiding_reparents_to_nearest_loaded_ancestor() {
     // Given a chain: root -> A -> B -> leaf.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     let mut root = ChatSessionState::new();
     root.set_title("root".to_owned());
@@ -1917,7 +1914,7 @@ fn multi_level_intermediate_hiding_reparents_to_nearest_loaded_ancestor() {
     state.session.set_active(root_id.clone());
 
     // When archiving A.
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     let sessions = sorted_open_sessions(&state);
     let a_index = sessions.iter().position(|s| s.id == a_id).expect("A");
     state.frontend.sessions_section.selected_index = Some(a_index);
@@ -2027,7 +2024,7 @@ fn update_visual_parents_on_removal_reparents_only_children_of_removed_session()
     // Given a chain: root -> A -> B.
     use crate::feat::ui::sidebar::sessions::update_visual_parents_on_removal;
 
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     let mut root = ChatSessionState::new();
     root.set_title("root".to_owned());
@@ -2089,7 +2086,7 @@ fn clear_visual_parents_on_load_removes_only_entries_pointing_to_loaded_session(
     // Given a state with visual_parents entries.
     use crate::feat::ui::sidebar::sessions::clear_visual_parents_on_load;
 
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let id_x = crate::protocol::SessionId::new();
     let id_y = crate::protocol::SessionId::new();
     let loaded_id = crate::protocol::SessionId::new();
@@ -2129,7 +2126,7 @@ fn clear_visual_parents_on_load_actually_removes_entries() {
     // Given a state with a visual_parents entry that should be cleared.
     use crate::feat::ui::sidebar::sessions::clear_visual_parents_on_load;
 
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let child_id = crate::protocol::SessionId::new();
     let loaded_id = crate::protocol::SessionId::new();
 
@@ -2153,7 +2150,7 @@ fn clear_visual_parents_on_load_actually_removes_entries() {
 #[rstest::rstest]
 fn sidebar_marks_only_subagent_origin() {
     // Given a state holding a task-tool child and a plain root session.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let parent = ChatSessionState::new();
     let child = ChatSessionState::new_child(&parent.session_id().clone(), true);
     let child_id = child.session_id().clone();
@@ -2182,7 +2179,7 @@ fn sidebar_marks_only_subagent_origin() {
 fn sidebar_unmarks_forked_sessions() {
     // Given a session with a parent link but User origin — the shape of a
     // forked session (fork stamps Fork origin, which is never marked).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let parent = ChatSessionState::new();
     let mut forked = ChatSessionState::new();
     forked.set_parent_session(parent.session_id().clone());
@@ -2212,7 +2209,7 @@ use crate::feat::ui::sidebar::sessions::archive_tree::{
 /// unrelated survivor root. All sessions get titles for lookup. Returns the
 /// state and the IDs of its members.
 fn state_with_archive_tree() -> (AppState, [crate::protocol::SessionId; 4]) {
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let mut root = ChatSessionState::new();
     root.push_entry(ChatEntry::user("tree root"));
     root.set_title("tree root".to_owned());
@@ -2252,7 +2249,7 @@ fn state_with_archive_tree() -> (AppState, [crate::protocol::SessionId; 4]) {
 /// Helper: puts the sessions section into the sidebar focus stack and selects
 /// the entry with the given title.
 fn focus_sessions_and_select(state: &mut AppState, title: &str) {
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     let sessions = sorted_open_sessions(state);
     let index = sessions
         .iter()
@@ -2278,7 +2275,7 @@ fn archive_tree_members_returns_selection_and_transitive_descendants() {
 fn archive_tree_members_includes_fork_children() {
     // Given a root whose only descendant is a fork-shaped child (parent link
     // set, forked sessions are never marked as subagents).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let mut root = ChatSessionState::new();
     root.push_entry(ChatEntry::user("fork root"));
     root.set_title("fork root".to_owned());
@@ -2352,7 +2349,7 @@ fn archive_tree_members_returns_single_member_for_leaf() {
 fn archive_tree_members_rejected_when_no_selection() {
     // Given a focused sessions section with no cursor.
     let (mut state, _) = state_with_archive_tree();
-    state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+    state.frontend.scope_push(FocusScope::SidebarSessions);
     state.frontend.sessions_section.selected_index = None;
 
     // When resolving the archive-tree members.

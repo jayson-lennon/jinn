@@ -30,8 +30,7 @@ pub fn handle_enter(state: &mut AppState) -> IntentResult {
     };
     state
         .frontend
-        .scope_stack
-        .push(FocusScope::PrunerAccumulationInput);
+        .scope_push(FocusScope::PrunerAccumulationInput);
     IntentResult::empty()
 }
 
@@ -60,7 +59,7 @@ pub fn handle_confirm(state: &mut AppState) -> IntentResult {
     };
 
     // Pop scope and clear state.
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
     state.frontend.pruner_accumulation_input = PrunerAccumulationInputState::default();
 
     IntentResult::new_message(UpdatePreferences {
@@ -72,7 +71,7 @@ pub fn handle_confirm(state: &mut AppState) -> IntentResult {
 ///
 /// Pops the scope and discards the input state.
 pub fn handle_leave(state: &mut AppState) -> IntentResult {
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
     state.frontend.pruner_accumulation_input = PrunerAccumulationInputState::default();
     IntentResult::empty()
 }
@@ -146,7 +145,7 @@ mod tests {
 
     /// State seeded with a threshold so `handle_enter` has a value to display.
     fn state_with_threshold(threshold: u32) -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
             .preferences
@@ -165,7 +164,7 @@ mod tests {
 
         // Then PrunerAccumulationInput is the current scope.
         assert!(matches!(
-            state.frontend.scope_stack.current(),
+            state.frontend.scope(),
             FocusScope::PrunerAccumulationInput
         ));
         // And no commands are emitted.
@@ -189,12 +188,11 @@ mod tests {
     #[rstest::rstest]
     fn confirm_emits_update_preferences_with_parsed_value() {
         // Given state in PrunerAccumulationInput scope with input "25000".
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::Normal);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::Normal);
         state
             .frontend
-            .scope_stack
-            .push(FocusScope::PrunerAccumulationInput);
+            .scope_push(FocusScope::PrunerAccumulationInput);
         state.frontend.pruner_accumulation_input.text.input = "25000".to_owned();
 
         // When handling PrunerAccumulationConfirm.
@@ -206,10 +204,7 @@ mod tests {
             vec![std::any::type_name::<UpdatePreferences>()]
         );
         // And the scope is popped back.
-        assert!(matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::Normal
-        ));
+        assert!(matches!(state.frontend.scope(), FocusScope::Normal));
         // And input state is cleared.
         assert!(
             state
@@ -224,11 +219,10 @@ mod tests {
     #[rstest::rstest]
     fn confirm_rejects_empty_input() {
         // Given state with empty input.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_stack
-            .push(FocusScope::PrunerAccumulationInput);
+            .scope_push(FocusScope::PrunerAccumulationInput);
 
         // When handling PrunerAccumulationConfirm.
         let result = handle_confirm(&mut state);
@@ -237,7 +231,7 @@ mod tests {
         assert!(result.message_names.is_empty());
         // And scope is NOT popped (user stays in popup).
         assert!(matches!(
-            state.frontend.scope_stack.current(),
+            state.frontend.scope(),
             FocusScope::PrunerAccumulationInput
         ));
     }
@@ -245,11 +239,10 @@ mod tests {
     #[rstest::rstest]
     fn confirm_rejects_non_numeric_input() {
         // Given state with non-numeric input "abc".
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_stack
-            .push(FocusScope::PrunerAccumulationInput);
+            .scope_push(FocusScope::PrunerAccumulationInput);
         state.frontend.pruner_accumulation_input.text.input = "abc".to_owned();
 
         // When handling PrunerAccumulationConfirm.
@@ -259,7 +252,7 @@ mod tests {
         assert!(result.message_names.is_empty());
         // And scope is NOT popped.
         assert!(matches!(
-            state.frontend.scope_stack.current(),
+            state.frontend.scope(),
             FocusScope::PrunerAccumulationInput
         ));
     }
@@ -267,7 +260,7 @@ mod tests {
     #[rstest::rstest]
     fn insert_char_accepts_digit() {
         // Given state with input "1".
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.pruner_accumulation_input.text.input = "1".to_owned();
         state.frontend.pruner_accumulation_input.text.cursor_pos = 1;
 
@@ -281,7 +274,7 @@ mod tests {
     #[rstest::rstest]
     fn insert_char_rejects_non_digit() {
         // Given state with input "1".
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.pruner_accumulation_input.text.input = "1".to_owned();
         state.frontend.pruner_accumulation_input.text.cursor_pos = 1;
 
@@ -295,7 +288,7 @@ mod tests {
     #[rstest::rstest]
     fn paste_rejects_non_digit_text() {
         // Given state with input "1".
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.pruner_accumulation_input.text.input = "1".to_owned();
         state.frontend.pruner_accumulation_input.text.cursor_pos = 1;
 
@@ -309,22 +302,18 @@ mod tests {
     #[rstest::rstest]
     fn leave_discards_changes_and_pops_scope() {
         // Given state in PrunerAccumulationInput scope with input.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::Normal);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::Normal);
         state
             .frontend
-            .scope_stack
-            .push(FocusScope::PrunerAccumulationInput);
+            .scope_push(FocusScope::PrunerAccumulationInput);
         state.frontend.pruner_accumulation_input.text.input = "999".to_owned();
 
         // When handling PrunerAccumulationLeave.
         let result = handle_leave(&mut state);
 
         // Then scope is popped back.
-        assert!(matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::Normal
-        ));
+        assert!(matches!(state.frontend.scope(), FocusScope::Normal));
         // And input state is cleared.
         assert!(
             state
@@ -341,7 +330,7 @@ mod tests {
     #[rstest::rstest]
     fn delete_removes_digit_before_cursor() {
         // Given state with input "123" and cursor at end.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.pruner_accumulation_input.text.input = "123".to_owned();
         state.frontend.pruner_accumulation_input.text.cursor_pos = 3;
 
@@ -356,12 +345,11 @@ mod tests {
     #[rstest::rstest]
     fn confirm_ignores_leading_and_trailing_whitespace() {
         // Given state with whitespace-padded numeric input.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::Normal);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::Normal);
         state
             .frontend
-            .scope_stack
-            .push(FocusScope::PrunerAccumulationInput);
+            .scope_push(FocusScope::PrunerAccumulationInput);
         state.frontend.pruner_accumulation_input.text.input = "  25000  ".to_owned();
 
         // When handling PrunerAccumulationConfirm.
@@ -373,9 +361,6 @@ mod tests {
             vec![std::any::type_name::<UpdatePreferences>()]
         );
         // And scope is popped back.
-        assert!(matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::Normal
-        ));
+        assert!(matches!(state.frontend.scope(), FocusScope::Normal));
     }
 }

@@ -32,7 +32,7 @@ impl UiElement for ChatInputBoxElement {
 
     fn render(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
         let state = ctx.state;
-        let input_mode = state.frontend.scope_stack.current().mode() == Mode::Input;
+        let input_mode = state.frontend.scope().mode() == Mode::Input;
         let theme = &state.frontend.theme;
 
         let disabled = state.active_chat_input().disabled();

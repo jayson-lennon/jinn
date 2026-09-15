@@ -2565,6 +2565,7 @@ dependencies = [
  "jinn-plugin",
  "jinn-plugin-api",
  "jinn-quake-bar",
+ "jinn-scope-focus",
  "jinn-session-init",
  "jinn-session-msg",
  "jinn-slices",
@@ -2895,6 +2896,16 @@ dependencies = [
  "tokio",
  "trouper",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "jinn-scope-focus"
+version = "0.118.0"
+dependencies = [
+ "jinn-domain",
+ "jinn-slices",
+ "rstest",
+ "tokio",
 ]
 
 [[package]]

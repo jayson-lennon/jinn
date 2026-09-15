@@ -143,8 +143,8 @@ fn run_main_loop(
 
         // ── Phase 3: State read for quit/scope ──────────────────────────
         let state_read = app.core.state.read();
-        let should_quit = state_read.frontend.should_quit;
-        let scope = scope_for_focus(state_read.frontend.scope_stack.current());
+        let should_quit = state_read.frontend.quit();
+        let scope = scope_for_focus(&state_read.frontend.scope());
         drop(state_read);
         app.which_key.set_scope(scope);
 

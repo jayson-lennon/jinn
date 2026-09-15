@@ -473,7 +473,7 @@ impl<'a> HistoryRender<'a> {
     fn render_visible_entries(&mut self) {
         let viewport_top = self.scroll.clamped;
         let chat_log_active = matches!(
-            self.state.frontend.scope_stack.current(),
+            self.state.frontend.scope(),
             crate::common::app_state::FocusScope::Normal
         );
         let cursor_color = self.theme.focus_accent;

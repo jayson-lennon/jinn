@@ -105,11 +105,10 @@ mod tests {
     #[test]
     fn render_shows_title_and_seeded_value() {
         // Given the popup scope active with a seeded threshold of 10000.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_stack
-            .push(FocusScope::PrunerAccumulationInput);
+            .scope_push(FocusScope::PrunerAccumulationInput);
         state.frontend.pruner_accumulation_input = PrunerAccumulationInputState {
             text: LineInput {
                 input: "10000".to_owned(),

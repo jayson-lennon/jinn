@@ -17,11 +17,12 @@ pub(super) struct TuiSignalsSnapshot {
 impl TuiSignalsSnapshot {
     /// Extracts TUI signal flags from the given app state.
     pub(super) fn from_state(state: &jinn_domain::AppState) -> Self {
+        let signals = state.frontend.signals_snapshot();
         Self {
-            toggle_whichkey: state.frontend.tui_signals.toggle_whichkey,
-            edit_requested: state.frontend.tui_signals.edit_requested,
-            yank_text: state.frontend.tui_signals.yank_text.clone(),
-            change_cwd_requested: state.frontend.tui_signals.change_cwd_requested,
+            toggle_whichkey: signals.toggle_whichkey,
+            edit_requested: signals.edit_requested,
+            yank_text: signals.yank_text,
+            change_cwd_requested: signals.change_cwd_requested,
         }
     }
 }

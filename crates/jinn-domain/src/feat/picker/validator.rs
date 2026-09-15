@@ -52,9 +52,7 @@ pub enum PickerConfirmError {
 pub fn validate_picker_confirm(state: &AppState) -> Result<(), PickerConfirmError> {
     let kind = state
         .frontend
-        .scope_stack
         .picker_kind()
-        .copied()
         .ok_or(PickerConfirmError::NoActivePicker)?;
 
     let has_selection = match kind {
@@ -111,7 +109,7 @@ pub enum OpenPickerError {
 ///
 /// Returns an error if a picker is already active.
 pub fn validate_open_picker(state: &AppState, _kind: &PickerKind) -> Result<(), OpenPickerError> {
-    if state.frontend.scope_stack.is_picker() {
+    if state.frontend.is_picker() {
         return Err(OpenPickerError::AlreadyInPicker);
     }
     Ok(())
@@ -133,7 +131,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_picker_confirm_rejects_no_active_picker() {
         // If the validator always returned Ok, confirming with no picker would be allowed.
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
 
         let result = validate_picker_confirm(&state);
 
@@ -146,8 +144,8 @@ mod tests {
     #[rstest::rstest]
     fn validate_open_picker_rejects_when_already_in_picker() {
         // If the validator always returned Ok, nested pickers would be allowed.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        let state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Provider,
         });
 
@@ -159,7 +157,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_open_picker_allows_when_no_picker_active() {
         // Verifies the positive case - opening a picker when none is active.
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
 
         let result = validate_open_picker(&state, &PickerKind::Provider);
 
@@ -175,7 +173,7 @@ mod tests {
         // be rejected.
         use crate::feat::reasoning::{ReasoningEffort, ReasoningEffortEntry};
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let entry = ReasoningEffortEntry {
             effort: ReasoningEffort::High,
             name: "high".to_owned(),
@@ -188,7 +186,7 @@ mod tests {
             .reasoning_effort_picker_mut()
             .set_items(vec![entry]);
         state.frontend.reasoning_effort_picker_mut().move_down(1);
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::ReasoningEffort,
         });
 
@@ -204,9 +202,9 @@ mod tests {
     fn validate_picker_confirm_rejects_reasoning_without_selection() {
         // If the selection gate were broken, confirming with no selection
         // would be allowed.
-        let mut state = AppState::default();
+        let state = AppState::default_with_scope_focus();
         // No entries set, so no selection.
-        state.frontend.scope_stack.push(FocusScope::Picker {
+        state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::ReasoningEffort,
         });
 

@@ -33,10 +33,7 @@ pub fn handle_rename_session_enter(state: &mut AppState) -> IntentResult {
             cursor_pos,
         },
     };
-    state
-        .frontend
-        .scope_stack
-        .push(FocusScope::RenameSessionInput);
+    state.frontend.scope_push(FocusScope::RenameSessionInput);
     IntentResult::empty()
 }
 
@@ -69,7 +66,7 @@ pub fn handle_rename_session_confirm(state: &mut AppState) -> IntentResult {
     state.session_mut(&session_id).mark_interacted();
 
     // Pop scope and clear state.
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
     state.frontend.rename_session_input = RenameSessionInputState::default();
 
     IntentResult::new_message(PersistSession { session_id })
@@ -79,7 +76,7 @@ pub fn handle_rename_session_confirm(state: &mut AppState) -> IntentResult {
 ///
 /// Pops the scope and discards the input state.
 pub fn handle_rename_session_leave(state: &mut AppState) -> IntentResult {
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
     state.frontend.rename_session_input = RenameSessionInputState::default();
     IntentResult::empty()
 }
@@ -136,7 +133,7 @@ mod tests {
     use super::*;
 
     fn state_with_sessions(count: usize) -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for i in 1..count {
             let session = ChatSessionState::new();
             let _id = session.session_id().clone();
@@ -153,7 +150,7 @@ mod tests {
     fn enter_pushes_rename_session_input_scope() {
         // Given a state with a selected session.
         let mut state = state_with_sessions(2);
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        state.frontend.scope_push(FocusScope::SidebarSessions);
         state.frontend.sessions_section.selected_index = Some(0);
 
         // When handling SidebarRenameSession.
@@ -161,7 +158,7 @@ mod tests {
 
         // Then RenameSessionInput is the current scope.
         assert!(matches!(
-            state.frontend.scope_stack.current(),
+            state.frontend.scope(),
             FocusScope::RenameSessionInput
         ));
         // And no commands are emitted.
@@ -171,12 +168,12 @@ mod tests {
     #[rstest::rstest]
     fn enter_seeds_input_with_current_title() {
         // Given a session with a title.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let session_id = state.session.active_session_id().clone();
         state
             .session_mut(&session_id)
             .set_title("My Session".to_owned());
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        state.frontend.scope_push(FocusScope::SidebarSessions);
         state.frontend.sessions_section.selected_index = Some(0);
 
         // When handling SidebarRenameSession.
@@ -190,15 +187,15 @@ mod tests {
     #[rstest::rstest]
     fn enter_noop_when_no_selection() {
         // Given a state with no session selected.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarSessions);
 
         // When handling SidebarRenameSession.
         let result = handle_rename_session_enter(&mut state);
 
         // Then scope is unchanged.
         assert!(matches!(
-            state.frontend.scope_stack.current(),
+            state.frontend.scope(),
             FocusScope::SidebarSessions
         ));
         assert!(result.message_names.is_empty());
@@ -207,13 +204,10 @@ mod tests {
     #[rstest::rstest]
     fn confirm_updates_session_title() {
         // Given state in RenameSessionInput scope with input "New Title".
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let session_id = state.session.active_session_id().clone();
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::RenameSessionInput);
+        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state.frontend.scope_push(FocusScope::RenameSessionInput);
         state.frontend.sessions_section.selected_index = Some(0);
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
@@ -229,7 +223,7 @@ mod tests {
         assert_eq!(state.session_mut(&session_id).title(), Some("New Title"));
         // And scope is popped back.
         assert!(matches!(
-            state.frontend.scope_stack.current(),
+            state.frontend.scope(),
             FocusScope::SidebarSessions
         ));
         // And input state is cleared.
@@ -245,11 +239,8 @@ mod tests {
     #[rstest::rstest]
     fn confirm_rejects_empty_input() {
         // Given state with empty input.
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::RenameSessionInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::RenameSessionInput);
         state.frontend.sessions_section.selected_index = Some(0);
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
@@ -265,7 +256,7 @@ mod tests {
         assert!(result.message_names.is_empty());
         // And scope is NOT popped (user stays in popup).
         assert!(matches!(
-            state.frontend.scope_stack.current(),
+            state.frontend.scope(),
             FocusScope::RenameSessionInput
         ));
     }
@@ -273,7 +264,7 @@ mod tests {
     #[rstest::rstest]
     fn confirm_marks_interacted_and_persists_non_interacted_session() {
         // Given a fresh session that has never been interacted with.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let session_id = state.session.active_session_id().clone();
         assert!(
             !state
@@ -283,11 +274,8 @@ mod tests {
                 .has_interacted(),
             "fresh session should not be interacted"
         );
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::RenameSessionInput);
+        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state.frontend.scope_push(FocusScope::RenameSessionInput);
         state.frontend.sessions_section.selected_index = Some(0);
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
@@ -319,16 +307,13 @@ mod tests {
     #[rstest::rstest]
     fn leave_discards_changes() {
         // Given state in RenameSessionInput scope.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let session_id = state.session.active_session_id().clone();
         state
             .session_mut(&session_id)
             .set_title("Original".to_owned());
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::RenameSessionInput);
+        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state.frontend.scope_push(FocusScope::RenameSessionInput);
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Changed".to_owned(),
@@ -341,7 +326,7 @@ mod tests {
 
         // Then scope is popped back.
         assert!(matches!(
-            state.frontend.scope_stack.current(),
+            state.frontend.scope(),
             FocusScope::SidebarSessions
         ));
         // And input state is cleared.
@@ -355,7 +340,7 @@ mod tests {
     #[rstest::rstest]
     fn insert_char_adds_character() {
         // Given state with input "Hello".
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hello".to_owned(),
@@ -374,7 +359,7 @@ mod tests {
     #[rstest::rstest]
     fn delete_removes_grapheme_before_cursor() {
         // Given state with input "Hello" and cursor at end.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hello".to_owned(),
@@ -393,7 +378,7 @@ mod tests {
     #[rstest::rstest]
     fn delete_forward_removes_grapheme_after_cursor() {
         // Given state with input "Hello" and cursor at position 1.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hello".to_owned(),
@@ -412,7 +397,7 @@ mod tests {
     #[rstest::rstest]
     fn cursor_left_moves_back() {
         // Given state with input "Hi" and cursor at end.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hi".to_owned(),
@@ -430,7 +415,7 @@ mod tests {
     #[rstest::rstest]
     fn cursor_right_moves_forward() {
         // Given state with input "Hi" and cursor at start.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hi".to_owned(),
@@ -448,7 +433,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_delete_noop_at_position_zero() {
         // Given state with cursor at position 0 (boundary: > vs >=).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hello".to_owned(),
@@ -467,7 +452,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_delete_forward_noop_at_end() {
         // Given state with cursor at end (boundary: < vs <=).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hello".to_owned(),
@@ -486,7 +471,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_cursor_left_noop_at_position_zero() {
         // Given state with cursor at position 0 (boundary: > vs >=).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hello".to_owned(),
@@ -504,7 +489,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_cursor_right_noop_at_end() {
         // Given state with cursor at end (boundary: < vs <=).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hello".to_owned(),
@@ -522,7 +507,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_paste_inserts_text_and_advances_cursor() {
         // Given state with cursor in the middle.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hello".to_owned(),
@@ -541,7 +526,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_paste_noop_when_empty() {
         // Given state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hello".to_owned(),

@@ -6,33 +6,9 @@ use crate::Intent;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 
-/// Identifies a sidebar section. Used for focus tracking and dispatch.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum SidebarSectionId {
-    /// The pinned context entries section.
-    #[default]
-    Pins,
-    /// The active persona display section.
-    Persona,
-    /// The task list section (collapsible phases, expandable when focused).
-    TaskList,
-    /// The open sessions section.
-    Sessions,
-    /// The MCP servers section (per-session enabled servers + live status).
-    McpServers,
-}
-
-impl std::fmt::Display for SidebarSectionId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Pins => write!(f, "Pins"),
-            Self::Persona => write!(f, "Persona"),
-            Self::TaskList => write!(f, "TaskList"),
-            Self::Sessions => write!(f, "Sessions"),
-            Self::McpServers => write!(f, "McpServers"),
-        }
-    }
-}
+/// Identifies a sidebar section (shared vocabulary from `jinn-slices`;
+/// the focus stack carries it in its sidebar scopes).
+pub use jinn_slices::sidebar_section_id::SidebarSectionId;
 
 /// Result of a section navigation attempt.
 ///

@@ -83,11 +83,14 @@ impl ServerHandler for EchoServer {
         InitializeResult::new(ServerCapabilities::default())
     }
 
+    // Trait-required signature is async though this fake never awaits.
+    // Trait-required async signature; this fake never awaits.
     async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
+        async {}.await;
         Ok(ListToolsResult::with_all_items(vec![
             Self::echo_tool(),
             Self::slow_echo_tool(),

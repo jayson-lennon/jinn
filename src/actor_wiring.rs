@@ -244,6 +244,16 @@ impl ActorSystemBuilder {
         // the `gdc` route row. Slice integration is exactly this call.
         let discord_activated = jinn_discord_activate(&mut services, state.clone()).await;
 
+        // Scope-focus slice: activation mints the interaction cell
+        // (focus stack, TUI signals, quit latch). Attaches the handle
+        // the FrontendState facade resolves through — before any intent
+        // can fire.
+        state
+            .write(&intent_handler_cap)
+            .frontend
+            .attach_slices(services.slices.clone());
+        jinn_scope_focus_activate(&mut services);
+
         // Quake bar slice: activation mints the cell, spawns the actor
         // (submit-log writer), attaches rows, and registers the input
         // hook + overlay geometry. Composition owns exactly this call.
@@ -1479,6 +1489,23 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
 /// Activates the status-bar slice: its state cell only (the element
 /// itself is display chrome registered into the UI registry by the
 /// TUI composition). No routes, no actors.
+/// Activates the scope-focus slice: its state cell only. No routes,
+/// no actors, no view.
+fn jinn_scope_focus_activate(services: &mut Services) {
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_scope_focus::activate(&mut host);
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("scope-focus slice finalize failed: {error}");
+    }
+}
+
 fn jinn_status_bar_activate(services: &mut Services) {
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,

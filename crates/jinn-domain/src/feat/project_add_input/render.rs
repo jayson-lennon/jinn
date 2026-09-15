@@ -157,8 +157,8 @@ mod tests {
     use jinn_testutil::setup_term;
 
     fn state_with_input(input: &str) -> AppState {
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::ProjectAddInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::ProjectAddInput);
         state.frontend.project_add_input = ProjectAddInputState {
             text: LineInput {
                 input: input.to_owned(),

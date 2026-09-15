@@ -83,7 +83,7 @@ pub(super) fn render_audit_popup(
 /// Returns true if a higher-priority overlay is currently active.
 fn overlay_active(ctx: &RenderCtx) -> bool {
     matches!(
-        ctx.state.frontend.scope_stack.current(),
+        ctx.state.frontend.scope(),
         FocusScope::Picker { .. }
             | FocusScope::ArgInput
             | FocusScope::RenameSessionInput
@@ -422,8 +422,7 @@ mod tests {
             .state
             .write_test_no_cap()
             .frontend
-            .scope_stack
-            .push(FocusScope::Picker {
+            .scope_push(FocusScope::Picker {
                 kind: jinn_domain::PickerKind::Provider,
             });
         let (mut terminal, _area) = setup_term(80, 24);

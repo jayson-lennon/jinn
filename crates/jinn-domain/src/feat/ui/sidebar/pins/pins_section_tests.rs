@@ -16,7 +16,7 @@ use crate::feat::ui::sidebar::section_trait::{SidebarSection, SidebarSectionId};
 use crate::protocol::{ChangeSource, ChatEntry, PinPosition};
 
 fn state_with_pinned(count: usize) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let mut ids = vec![];
     for i in 0..count {
         let entry = ChatEntry::user(format!("entry {i}"));
@@ -37,19 +37,18 @@ fn state_with_pinned(count: usize) -> AppState {
 #[rstest::rstest]
 fn sidebar_persona_edit_opens_picker_when_persona_focused() {
     // Given a state with persona section focused and sidebar scope.
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::SidebarPersona);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::SidebarPersona);
     state
         .frontend
-        .scope_stack
-        .set_sidebar_section(SidebarSectionId::Persona);
+        .scope_set_sidebar_section(SidebarSectionId::Persona);
 
     // When handling sidebar persona edit.
     let result = handle_sidebar_persona_edit(&mut state);
 
     // Then the persona picker is active.
     assert_eq!(
-        state.frontend.scope_stack.picker_kind().copied(),
+        state.frontend.picker_kind(),
         Some(crate::protocol::PickerKind::Persona)
     );
     // And a LoadPersonaPickerEntries command is returned.
@@ -64,18 +63,17 @@ fn sidebar_persona_edit_opens_picker_when_persona_focused() {
 #[rstest::rstest]
 fn sidebar_persona_edit_noop_when_pins_focused() {
     // Given a state with pins section focused and sidebar scope.
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::SidebarPersona);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::SidebarPersona);
     state
         .frontend
-        .scope_stack
-        .set_sidebar_section(SidebarSectionId::Pins);
+        .scope_set_sidebar_section(SidebarSectionId::Pins);
 
     // When handling sidebar persona edit.
     let result = handle_sidebar_persona_edit(&mut state);
 
     // Then nothing changed.
-    assert!(!state.frontend.scope_stack.is_picker());
+    assert!(!state.frontend.is_picker());
     assert!(result.message_names.is_empty());
 }
 
@@ -99,7 +97,7 @@ fn pins_unpin_returns_command() {
 #[rstest::rstest]
 fn pins_unpin_noop_when_empty() {
     // Given a state with no pinned entries.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling pins unpin.
     let result = handle_pins_unpin(&mut state);
@@ -162,7 +160,7 @@ fn pins_pin_relative_returns_command() {
 #[rstest::rstest]
 fn pins_pin_cycle_rotates_top_to_bottom() {
     // Given a pinned entry at Top.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let entry = ChatEntry::user("entry");
     let entry_id = entry.id.clone();
     state.active_session_mut().push_entry(entry);
@@ -187,7 +185,7 @@ fn pins_pin_cycle_rotates_top_to_bottom() {
 #[rstest::rstest]
 fn pins_pin_cycle_noop_when_empty() {
     // Given a state with no pinned entries.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When handling pins pin cycle.
     let result = handle_pins_pin_cycle(&mut state);
@@ -199,7 +197,7 @@ fn pins_pin_cycle_noop_when_empty() {
 #[rstest::rstest]
 fn pins_pin_top_noop_when_no_selection() {
     // Given a state with pinned entries but no selection.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let entry = ChatEntry::user("entry");
     let entry_id = entry.id.clone();
     state.active_session_mut().push_entry(entry);
@@ -229,7 +227,7 @@ fn section_id_is_pins() {
 fn content_height_is_zero_when_empty() {
     // Given a PinsSection and state with no pinned entries.
     let section = PinsSection;
-    let state = AppState::default();
+    let state = AppState::default_with_scope_focus();
 
     // When asking for content height.
     let slices = jinn_slices::Slices::new();
@@ -287,7 +285,7 @@ fn render_rows(
 #[rstest::rstest]
 fn render_empty_shows_header_with_zero_count() {
     let mut section = PinsSection;
-    let state = AppState::default();
+    let state = AppState::default_with_scope_focus();
     let rows = render_rows(&mut section, &state, 40, 10);
     assert!(rows[0].contains("Pinned Context"));
     assert!(rows[0].contains('0'));
@@ -331,9 +329,9 @@ fn consecutive_pinned_entries_are_adjacent_with_no_blank_between() {
 #[rstest::rstest]
 fn render_selected_entry_has_yellow_marker_when_sidebar_focused() {
     let mut section = PinsSection;
-    let mut state = state_with_pinned(2);
+    let state = state_with_pinned(2);
     // Sidebar must be focused for the indicator to be yellow.
-    state.frontend.scope_stack.push(FocusScope::SidebarPins);
+    state.frontend.scope_push(FocusScope::SidebarPins);
 
     let (mut terminal, area) = setup_term(60, 20);
     terminal
@@ -379,7 +377,7 @@ fn render_selected_entry_has_darkgray_marker_when_not_focused() {
 fn render_sorts_entries_by_position() {
     // Given entries pinned with BOT, TOP, REL positions (added in that order).
     let mut section = PinsSection;
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     let bot_entry = ChatEntry::user("bottom entry");
     let bot_id = bot_entry.id.clone();
@@ -433,12 +431,11 @@ fn render_sorts_entries_by_position() {
 #[rstest::rstest]
 fn session_new_works_when_sidebar_sessions_focused() {
     // Given a state in Sidebar scope with Sessions section focused.
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::SidebarPersona);
+    let mut state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::SidebarPersona);
     state
         .frontend
-        .scope_stack
-        .set_sidebar_section(SidebarSectionId::Sessions);
+        .scope_set_sidebar_section(SidebarSectionId::Sessions);
     let _old_id = state.session.active_session_id().clone();
 
     // When handling SessionNew via IntentHandler.
@@ -469,7 +466,7 @@ fn session_new_works_when_sidebar_sessions_focused() {
 #[rstest::rstest]
 fn session_new_works_when_not_in_sidebar() {
     // Given a state in Normal scope (not sidebar).
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let old_id = state.session.active_session_id().clone();
 
     // When handling SessionNew via IntentHandler.
@@ -492,7 +489,7 @@ fn sync_chat_log_cursor_sets_cursor_by_entry_id_with_visual_items() {
         DEFAULT_MIN_COLLAPSE_COUNT, PROXIMITY_COUNT, build_visual_items,
     };
 
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_session_mut().push_entry(ChatEntry::user("a")); // hist 0
     for _ in 0..15 {
         let mut entry = ChatEntry::user("ignored");
@@ -556,7 +553,7 @@ fn sync_chat_log_cursor_sets_cursor_by_entry_id_with_visual_items() {
 #[rstest::rstest]
 fn sync_chat_log_cursor_sets_correct_entry_when_multiple_entries_exist() {
     // Given a session with 3 entries and the middle one pinned.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let entry_a = ChatEntry::user("entry a");
     let id_a = entry_a.id.clone();
     state.active_session_mut().push_entry(entry_a);
@@ -604,7 +601,7 @@ fn sync_chat_log_cursor_sets_correct_entry_when_multiple_entries_exist() {
 #[rstest::rstest]
 fn resolve_selected_entry_id_returns_real_session_and_entry_ids() {
     // Given a state with a pinned entry.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let entry = ChatEntry::user("pinned entry");
     let entry_id = entry.id.clone();
     state.active_session_mut().push_entry(entry);
@@ -640,7 +637,7 @@ fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {
 
 /// Build an AppState with one pinned tool-result entry.
 fn state_with_pinned_tool_result(name: &str, content: &str) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let entry = ChatEntry::tool_result("call-1", name, content, ToolResultStatus::Success);
     let entry_id = entry.id.clone();
     state.active_session_mut().push_entry(entry);
@@ -830,7 +827,7 @@ fn tool_result_with_wide_emoji_fits_narrow_sidebar() {
 #[rstest::rstest]
 fn long_content_is_truncated_to_fit_area_width() {
     // Given a pinned user entry with very long content.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let entry = ChatEntry::user("a".repeat(200));
     let entry_id = entry.id.clone();
     state.active_session_mut().push_entry(entry);

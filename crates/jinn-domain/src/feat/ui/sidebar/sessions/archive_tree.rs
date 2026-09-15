@@ -98,7 +98,7 @@ pub fn archive_tree_members(state: &AppState) -> Result<Vec<SessionId>, ArchiveT
 
     // Sessions section must be focused.
     if !matches!(
-        state.frontend.scope_stack.sidebar_section(),
+        state.frontend.sidebar_section(),
         Some(SidebarSectionId::Sessions)
     ) {
         return Err(ArchiveTreeError::WrongSection);

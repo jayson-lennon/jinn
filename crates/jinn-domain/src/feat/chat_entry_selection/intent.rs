@@ -381,7 +381,9 @@ pub fn handle_yank_selected(state: &mut AppState) -> IntentResult {
         return IntentResult::empty();
     };
     let text = entry.yank_text();
-    state.frontend.tui_signals.yank_text = Some(text);
+    state
+        .frontend
+        .update_scope(|s| s.signals.yank_text = Some(text));
     IntentResult::empty()
 }
 
@@ -541,7 +543,7 @@ mod tests {
     #[rstest::rstest]
     fn chat_entry_select_next_increments_index() {
         // Given a state with entries and selection at first.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state.active_session_mut().push_entry(ChatEntry::user("b"));
         // After push, selection is at index 1 (last pushed). Move to 0.
@@ -558,7 +560,7 @@ mod tests {
     #[rstest::rstest]
     fn chat_entry_select_next_returns_no_commands() {
         // Given a state with entries and selection at first.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state.active_session_mut().push_entry(ChatEntry::user("b"));
         // After push, selection is at index 1 (last pushed). Move to 0.
@@ -575,7 +577,7 @@ mod tests {
     #[rstest::rstest]
     fn chat_entry_select_prev_decrements_index() {
         // Given a state with entries and selection at last.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state.active_session_mut().push_entry(ChatEntry::user("b"));
         state.active_session_mut().select_prev_entry();
@@ -590,7 +592,7 @@ mod tests {
     #[rstest::rstest]
     fn chat_entry_select_prev_returns_no_commands() {
         // Given a state with entries and selection at last.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state.active_session_mut().push_entry(ChatEntry::user("b"));
         state.active_session_mut().select_prev_entry();
@@ -605,7 +607,7 @@ mod tests {
     #[rstest::rstest]
     fn chat_entry_pin_selected_returns_pin_command() {
         // Given a state with a selected entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));
@@ -626,7 +628,7 @@ mod tests {
     #[rstest::rstest]
     fn chat_entry_pin_selected_noop_with_empty_history() {
         // Given a state with no history.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling pin selected.
         let result = handle_pin_selected(&mut state);
@@ -638,7 +640,7 @@ mod tests {
     #[rstest::rstest]
     fn toggle_pin_selected_returns_unpin_command_when_pinned() {
         // Given a state with a selected pinned entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));
@@ -663,7 +665,7 @@ mod tests {
     #[rstest::rstest]
     fn expand_tool_entry_toggles_expanded_state() {
         // Given a state with a selected tool result.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::tool_result(
@@ -685,7 +687,7 @@ mod tests {
     #[rstest::rstest]
     fn expand_tool_entry_returns_no_commands() {
         // Given a state with a selected tool result.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::tool_result(
@@ -707,7 +709,7 @@ mod tests {
     #[rstest::rstest]
     fn expand_tool_entry_toggles_back_to_collapsed() {
         // Given a state with an expanded tool result.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::tool_result(
@@ -732,7 +734,7 @@ mod tests {
     #[rstest::rstest]
     fn expand_annotation_entry_toggles_expanded_state() {
         // Given a state with a selected annotation entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::annotation(vec![jinn_provider::UrlCitation {
@@ -755,7 +757,7 @@ mod tests {
     #[rstest::rstest]
     fn expand_annotation_entry_toggles_back_to_collapsed() {
         // Given a state with an expanded annotation entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::annotation(vec![jinn_provider::UrlCitation {
@@ -781,7 +783,7 @@ mod tests {
     #[rstest::rstest]
     fn expand_tool_entry_noop_with_no_selection() {
         // Given a state with entries but no selection.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::tool_result(
@@ -801,7 +803,7 @@ mod tests {
     #[rstest::rstest]
     fn expand_tool_entry_noop_with_non_tool_entry() {
         // Given a state with a selected user entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));
@@ -817,7 +819,7 @@ mod tests {
     #[rstest::rstest]
     fn expand_tool_entry_toggles_tool_call_expanded_state() {
         // Given a state with a selected tool call.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::tool_call(
             "id",
             "bash",
@@ -836,7 +838,7 @@ mod tests {
     #[rstest::rstest]
     fn expand_tool_entry_tool_call_returns_no_commands() {
         // Given a state with a selected tool call.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::tool_call(
             "id",
             "bash",
@@ -855,7 +857,7 @@ mod tests {
     #[rstest::rstest]
     fn fork_from_entry_returns_fork_command() {
         // Given a state with 3 entries, middle entry selected (index 1).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("first"));
@@ -884,7 +886,7 @@ mod tests {
     #[rstest::rstest]
     fn fork_from_entry_noop_with_no_selection() {
         // Given a state with entries but no selection.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));
@@ -900,7 +902,7 @@ mod tests {
     #[rstest::rstest]
     fn fork_from_entry_noop_with_empty_history() {
         // Given a state with no history.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling fork from entry.
         let result = handle_fork_from_entry(&mut state);
@@ -912,7 +914,7 @@ mod tests {
     #[rstest::rstest]
     fn fork_from_entry_uses_selected_index_as_ordinal() {
         // Given a state with 5 entries, entry at index 3 selected.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state
             .active_session_mut()
@@ -941,7 +943,7 @@ mod tests {
     #[rstest::rstest]
     fn yank_selected_sets_yank_text_when_entry_selected() {
         // Given a state with a selected user entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));
@@ -952,7 +954,7 @@ mod tests {
 
         // Then yank_text is set to the entry text.
         assert_eq!(
-            state.frontend.tui_signals.yank_text,
+            state.frontend.signals_snapshot().yank_text,
             Some("hello".to_owned())
         );
     }
@@ -960,7 +962,7 @@ mod tests {
     #[rstest::rstest]
     fn yank_selected_returns_no_commands() {
         // Given a state with a selected entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));
@@ -976,20 +978,20 @@ mod tests {
     #[rstest::rstest]
     fn yank_selected_noop_with_no_selection() {
         // Given a state with no entries.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling yank selected.
         let result = handle_yank_selected(&mut state);
 
         // Then yank_text is not set and no commands are emitted.
-        assert!(state.frontend.tui_signals.yank_text.is_none());
+        assert!(state.frontend.signals_snapshot().yank_text.is_none());
         assert!(result.message_names.is_empty());
     }
 
     #[rstest::rstest]
     fn yank_selected_preserves_selection_index() {
         // Given a state with 2 entries, first selected.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state
             .active_session_mut()
@@ -1007,7 +1009,7 @@ mod tests {
     #[rstest::rstest]
     fn yank_selected_extracts_assistant_text() {
         // Given a state with a selected assistant entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::assistant("response text"));
@@ -1018,7 +1020,7 @@ mod tests {
 
         // Then yank_text contains the assistant text.
         assert_eq!(
-            state.frontend.tui_signals.yank_text,
+            state.frontend.signals_snapshot().yank_text,
             Some("response text".to_owned())
         );
     }
@@ -1026,7 +1028,7 @@ mod tests {
     #[rstest::rstest]
     fn yank_selected_extracts_tool_result_text() {
         // Given a state with a selected tool result.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::tool_result(
@@ -1042,7 +1044,7 @@ mod tests {
 
         // Then yank_text contains the raw content, without the name prefix.
         assert_eq!(
-            state.frontend.tui_signals.yank_text,
+            state.frontend.signals_snapshot().yank_text,
             Some("output text".to_owned())
         );
     }
@@ -1050,7 +1052,7 @@ mod tests {
     #[rstest::rstest]
     fn yank_selected_extracts_tool_call_arguments() {
         // Given a state with a selected tool call.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::tool_call(
             "id",
             "bash",
@@ -1063,7 +1065,7 @@ mod tests {
 
         // Then yank_text contains the raw JSON arguments, without the name prefix.
         assert_eq!(
-            state.frontend.tui_signals.yank_text,
+            state.frontend.signals_snapshot().yank_text,
             Some("{\"command\":\"ls\"}".to_owned())
         );
     }
@@ -1071,7 +1073,7 @@ mod tests {
     #[rstest::rstest]
     fn toggle_ignored_block_noop_with_no_selection() {
         // Given a state with no selection.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling toggle ignored block.
         let result = handle_toggle_ignored_block(&mut state);
@@ -1083,7 +1085,7 @@ mod tests {
     #[rstest::rstest]
     fn toggle_ignored_block_noop_with_non_ignored_entry() {
         // Given a state with a selected non-ignored entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));
@@ -1103,7 +1105,7 @@ mod tests {
             DEFAULT_MIN_COLLAPSE_COUNT, PROXIMITY_COUNT, VisualItem, build_visual_items,
         };
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         for _ in 0..15 {
             let mut entry = ChatEntry::user("ignored");
@@ -1165,7 +1167,7 @@ mod tests {
             DEFAULT_MIN_COLLAPSE_COUNT, PROXIMITY_COUNT, build_visual_items,
         };
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         for _ in 0..15 {
             let mut entry = ChatEntry::user("ignored");
@@ -1232,7 +1234,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_ignore_selected_toggles_false_to_true() {
         // Given a state with a selected user entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));
@@ -1257,7 +1259,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_ignore_selected_emits_context_override_changed() {
         // Given a state with a selected user entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));
@@ -1286,7 +1288,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_ignore_selected_toggles_true_to_false() {
         // Given a state with a selected ignored user entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello").with_ignored(true));
@@ -1306,7 +1308,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_ignore_selected_noop_empty_history() {
         // Given an empty session.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling ignore selected.
         let result = handle_ignore_selected(&mut state);
@@ -1325,7 +1327,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_ignore_selected_noop_no_selection() {
         // Given a session with entries but no selection.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));
@@ -1344,7 +1346,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_ignore_selected_noop_pinned_entry() {
         // Given a state with a selected pinned entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello").with_pin(PinPosition::Top));
@@ -1368,7 +1370,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_ignore_selected_toggles_system_entry() {
         // Given a state with a selected system entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::system("system prompt"));
@@ -1389,7 +1391,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_ignore_selected_toggles_thinking_entry() {
         // Given a state with a selected thinking entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::thinking("thinking..."));
@@ -1410,7 +1412,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_ignore_selected_toggles_transient_entry() {
         // Given a state with a selected transient entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::transient("ephemeral"));
@@ -1431,7 +1433,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_ignore_selected_toggles_compaction_entry() {
         // Given a state with a selected compaction entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry {
             id: crate::protocol::ChatEntryId::new(),
             timing: crate::protocol::EntryTiming::instant_now(),
@@ -1464,7 +1466,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_reset_sets_forced_exclude_back_to_default() {
         // Given a selected entry that is ForcedExclude.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(
             ChatEntry::user("hello").with_context_override(ContextOverride::ForcedExclude),
         );
@@ -1481,7 +1483,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_reset_sets_forced_include_back_to_default() {
         // Given a selected entry that is ForcedInclude.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(
             ChatEntry::system("sys").with_context_override(ContextOverride::ForcedInclude),
         );
@@ -1498,7 +1500,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_reset_emits_events_when_override_changes() {
         // Given a selected entry that is ForcedExclude.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(
             ChatEntry::user("hello").with_context_override(ContextOverride::ForcedExclude),
         );
@@ -1525,7 +1527,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_reset_is_noop_on_already_default_entry() {
         // Given a selected entry that is already Default.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));
@@ -1541,7 +1543,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_reset_advances_cursor() {
         // Given two entries with the first selected.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("a").with_context_override(ContextOverride::ForcedExclude));
@@ -1559,7 +1561,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_reset_is_noop_on_pinned_entry() {
         // Given a selected pinned entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello").with_pin(PinPosition::Top));
@@ -1575,7 +1577,7 @@ mod tests {
     fn handle_reset_sweep_skips_pinned_entry() {
         // Given [user(ForcedExclude), user_pinned, user(ForcedExclude)],
         // entry 0 selected.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("a").with_context_override(ContextOverride::ForcedExclude));
@@ -1610,7 +1612,7 @@ mod tests {
     #[rstest::rstest]
     fn handle_reset_sweep_resets_each_entry_via_cursor_advance() {
         // Given two ForcedExclude entries with the first selected.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("a").with_context_override(ContextOverride::ForcedExclude));
@@ -1633,7 +1635,7 @@ mod tests {
     #[rstest::rstest]
     fn sweep_first_press_toggles_and_captures_state() {
         // Given a session with 3 user entries, first selected.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state.active_session_mut().push_entry(ChatEntry::user("b"));
         state.active_session_mut().push_entry(ChatEntry::user("c"));
@@ -1668,7 +1670,7 @@ mod tests {
     fn sweep_second_press_applies_captured_state() {
         // Given a session with 3 user entries, entry 0 already toggled to
         // ForcedExclude, cursor at entry 1, sweep active with ForcedExclude.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state.active_session_mut().push_entry(ChatEntry::user("b"));
         state.active_session_mut().push_entry(ChatEntry::user("c"));
@@ -1697,7 +1699,7 @@ mod tests {
     fn sweep_third_press_continues_to_bottom() {
         // Given a session with 3 user entries, sweep already applied to 0 and 1,
         // cursor at entry 2.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state.active_session_mut().push_entry(ChatEntry::user("b"));
         state.active_session_mut().push_entry(ChatEntry::user("c"));
@@ -1732,7 +1734,7 @@ mod tests {
     #[rstest::rstest]
     fn sweep_stops_at_bottom() {
         // Given a single entry session.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("only"));
@@ -1757,7 +1759,7 @@ mod tests {
     #[rstest::rstest]
     fn sweep_expired_resets_to_toggle() {
         // Given a session with 2 user entries, sweep was started but expired.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state.active_session_mut().push_entry(ChatEntry::user("b"));
         state.active_session_mut().select_prev_entry();
@@ -1793,7 +1795,7 @@ mod tests {
     #[rstest::rstest]
     fn sweep_skips_pinned_entries() {
         // Given entries [user, user_pinned, user], entry 0 selected.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         let pinned_entry = ChatEntry::user("pinned").with_pin(PinPosition::Top);
         state.active_session_mut().push_entry(pinned_entry);
@@ -1830,7 +1832,7 @@ mod tests {
     #[rstest::rstest]
     fn sweep_skips_pinned_at_bottom_stops() {
         // Given entries [user, pinned], entry 0 selected.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state
             .active_session_mut()
@@ -1856,7 +1858,7 @@ mod tests {
     #[rstest::rstest]
     fn sweep_continues_with_forced_include_target() {
         // Given a session with 2 user entries, entry 0 already ForcedExclude.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("a").with_ignored(true));
@@ -1889,7 +1891,7 @@ mod tests {
             DEFAULT_MIN_COLLAPSE_COUNT, PROXIMITY_COUNT, VisualItem, build_visual_items,
         };
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("before"));
@@ -1975,7 +1977,7 @@ mod tests {
             DEFAULT_MIN_COLLAPSE_COUNT, PROXIMITY_COUNT, build_visual_items,
         };
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("before"));
@@ -2056,7 +2058,7 @@ mod tests {
             DEFAULT_MIN_COLLAPSE_COUNT, PROXIMITY_COUNT, VisualItem, build_visual_items,
         };
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("before"));
@@ -2148,7 +2150,7 @@ mod tests {
             DEFAULT_MIN_COLLAPSE_COUNT, PROXIMITY_COUNT, VisualItem, build_visual_items,
         };
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state.active_session_mut().push_entry(ChatEntry::user("b"));
         for _ in 0..10 {
@@ -2296,7 +2298,7 @@ mod tests {
         // 10 entries is enough that a mid-press collapse forms (entries 0..2
         // excluded -> collapse, well before the proximity-protected tail of
         // the last 3).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         build_in_context_history(&mut state, 10);
         assert_eq!(state.active_session().selected_entry_index(), Some(0));
 
@@ -2338,7 +2340,7 @@ mod tests {
     #[rstest::rstest]
     fn sweep_advances_exactly_one_entry_across_multiple_presses() {
         // Given 10 in-context user entries with the cursor on the first.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         build_in_context_history(&mut state, 10);
 
         // When handling ignore selected five times (five presses within the
@@ -2378,7 +2380,7 @@ mod tests {
         // Given 50 in-context user entries with the cursor on the first.
         // A large history is where the bug was most visible: press 3 used to
         // chain ~47 entries to the proximity tail in a single keypress.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         build_in_context_history(&mut state, 50);
 
         // When handling ignore selected twice.
@@ -2415,7 +2417,7 @@ mod tests {
     fn sweep_memory_persists_after_collapse_forms() {
         // Given 10 in-context user entries with the cursor on the first, with
         // two entries already excluded so the next press forms a collapse.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         build_in_context_history(&mut state, 10);
         handle_ignore_selected(&mut state); // entry 0 -> ForcedExclude
         handle_ignore_selected(&mut state); // entry 1 -> ForcedExclude
@@ -2494,7 +2496,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_next_moves_to_next_compaction() {
         // Given history user,A,user,B with the cursor on compaction A.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (a_id, b_id) = build_two_compaction_history(&mut state);
         select_at(&mut state, 1);
         assert_eq!(state.active_session().selected_cursor_id(), Some(&a_id));
@@ -2512,7 +2514,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_prev_moves_to_prev_compaction() {
         // Given history user,A,user,B with the cursor on compaction B.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (a_id, b_id) = build_two_compaction_history(&mut state);
         select_at(&mut state, 3);
         assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
@@ -2530,7 +2532,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_next_noop_at_last_compaction() {
         // Given the cursor on the last compaction B.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (_a_id, b_id) = build_two_compaction_history(&mut state);
         select_at(&mut state, 3);
 
@@ -2548,7 +2550,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_prev_noop_at_first_compaction() {
         // Given the cursor on the first compaction A.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (a_id, _b_id) = build_two_compaction_history(&mut state);
         select_at(&mut state, 1);
 
@@ -2566,7 +2568,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_next_noop_when_no_selection() {
         // Given the canonical history with no active selection.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         build_two_compaction_history(&mut state);
         state.active_session_mut().clear_selection();
         assert!(state.active_session().selected_cursor_id().is_none());
@@ -2585,7 +2587,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_prev_anchors_on_last_entry_when_no_selection() {
         // Given the canonical history with no active selection.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (_a_id, b_id) = build_two_compaction_history(&mut state);
         state.active_session_mut().clear_selection();
         assert!(state.active_session().selected_cursor_id().is_none());
@@ -2603,7 +2605,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_next_noop_when_no_compactions() {
         // Given a history with no compactions.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state
             .active_session_mut()
@@ -2625,7 +2627,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_prev_noop_when_no_compactions() {
         // Given a history with no compactions.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state
             .active_session_mut()
@@ -2647,7 +2649,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_next_noop_when_history_empty() {
         // Given an empty session.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling jump to next compaction.
         let result = handle_jump_next_entry(
@@ -2663,7 +2665,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_prev_noop_when_history_empty() {
         // Given an empty session.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling jump to previous compaction.
         let result = handle_jump_prev_entry(
@@ -2698,7 +2700,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_next_moves_to_next_pinned() {
         // Given history user,A,user,B with the cursor on pinned entry A.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (a_id, b_id) = build_two_pinned_history(&mut state);
         select_at(&mut state, 1);
         assert_eq!(state.active_session().selected_cursor_id(), Some(&a_id));
@@ -2716,7 +2718,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_prev_moves_to_prev_pinned() {
         // Given history user,A,user,B with the cursor on pinned entry B.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (a_id, b_id) = build_two_pinned_history(&mut state);
         select_at(&mut state, 3);
         assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
@@ -2734,7 +2736,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_next_noop_at_last_pinned() {
         // Given the cursor on the last pinned entry B.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (_a_id, b_id) = build_two_pinned_history(&mut state);
         select_at(&mut state, 3);
 
@@ -2752,7 +2754,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_prev_noop_at_first_pinned() {
         // Given the cursor on the first pinned entry A.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (a_id, _b_id) = build_two_pinned_history(&mut state);
         select_at(&mut state, 1);
 
@@ -2770,7 +2772,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_next_noop_when_no_pinned() {
         // Given a history with no pinned entries.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state
             .active_session_mut()
@@ -2792,7 +2794,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_prev_noop_when_no_pinned() {
         // Given a history with no pinned entries.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(ChatEntry::user("a"));
         state
             .active_session_mut()
@@ -2814,7 +2816,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_prev_anchors_on_last_when_no_selection() {
         // Given the canonical history with no active selection.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (_a_id, b_id) = build_two_pinned_history(&mut state);
         state.active_session_mut().clear_selection();
         assert!(state.active_session().selected_cursor_id().is_none());
@@ -2832,7 +2834,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_next_noop_when_history_empty_pinned() {
         // Given an empty session.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling jump to next pinned entry.
         let result = handle_jump_next_entry(
@@ -2885,7 +2887,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_next_moves_to_next_annotation() {
         // Given history user,A,user,B with the cursor on annotation entry A.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (a_id, b_id) = build_two_annotation_history(&mut state);
         select_at(&mut state, 1);
         assert_eq!(state.active_session().selected_cursor_id(), Some(&a_id));
@@ -2903,7 +2905,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_prev_moves_to_prev_annotation() {
         // Given history user,A,user,B with the cursor on annotation entry B.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (a_id, b_id) = build_two_annotation_history(&mut state);
         select_at(&mut state, 3);
         assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
@@ -2921,7 +2923,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_next_noop_at_last_annotation() {
         // Given the cursor on the last annotation entry B.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (_a_id, b_id) = build_two_annotation_history(&mut state);
         select_at(&mut state, 3);
 
@@ -2939,7 +2941,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_prev_noop_at_first_annotation() {
         // Given the cursor on the first annotation entry A.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (a_id, _b_id) = build_two_annotation_history(&mut state);
         select_at(&mut state, 1);
 
@@ -2957,7 +2959,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_next_noop_when_history_empty_annotation() {
         // Given an empty session.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling jump to next annotation entry.
         let result = handle_jump_next_entry(
@@ -2973,7 +2975,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_prev_noop_when_history_empty_annotation() {
         // Given an empty session.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling jump to previous annotation entry.
         let result = handle_jump_prev_entry(
@@ -2989,7 +2991,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_next_returns_no_commands() {
         // Given history with a compaction, cursor on compaction A.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         build_two_compaction_history(&mut state);
         select_at(&mut state, 1);
 
@@ -3006,7 +3008,7 @@ mod jump_compaction_tests {
     #[rstest::rstest]
     fn jump_prev_returns_no_commands() {
         // Given history with a compaction, cursor on compaction B.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         build_two_compaction_history(&mut state);
         select_at(&mut state, 3);
 
@@ -3097,7 +3099,7 @@ mod jump_compaction_tests {
         // (older) and compaction B (newer).
         // Regression: `]c` previously no-op'd because selected_history_index() is
         // None on a collapsed block, anchoring at history.len() (past the end).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (_a_id, b_id, _vi_idx) = build_collapsed_block_between_compactions(&mut state);
         assert!(
             state.active_session().is_selected_collapsed_block(),
@@ -3124,7 +3126,7 @@ mod jump_compaction_tests {
         // (older) and compaction B (newer).
         // Regression: `[c` previously jumped to the NEWEST compaction (B) because
         // the None anchor fell back to history.len(), scanning the whole history.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let (a_id, b_id, _vi_idx) = build_collapsed_block_between_compactions(&mut state);
         assert!(
             state.active_session().is_selected_collapsed_block(),
@@ -3168,7 +3170,7 @@ mod new_session_from_entry_tests {
     #[rstest::rstest]
     fn new_session_from_entry_switches_active_session_on_user_entry() {
         // Given a state with a selected User entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("a metaprompt"));
@@ -3185,7 +3187,7 @@ mod new_session_from_entry_tests {
     #[rstest::rstest]
     fn new_session_from_entry_returns_push_chat_entry() {
         // Given a state with a selected User entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("a metaprompt"));
@@ -3208,7 +3210,7 @@ mod new_session_from_entry_tests {
     #[rstest::rstest]
     fn new_session_from_entry_emits_session_created() {
         // Given a state with a selected User entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("a metaprompt"));
@@ -3231,7 +3233,7 @@ mod new_session_from_entry_tests {
     #[rstest::rstest]
     fn new_session_from_entry_no_dispatch_command() {
         // Given a state with a selected User entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("a metaprompt"));
@@ -3254,7 +3256,7 @@ mod new_session_from_entry_tests {
     #[rstest::rstest]
     fn new_session_from_entry_preserves_old_session_in_map() {
         // Given a state with a selected User entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("a metaprompt"));
@@ -3271,7 +3273,7 @@ mod new_session_from_entry_tests {
     #[rstest::rstest]
     fn new_session_from_entry_inherits_active_session_cwd() {
         // Given a state whose active session has a distinct CWD.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let inherited_cwd = std::path::PathBuf::from("/tmp/inherited-project");
         state.active_session_mut().set_cwd(inherited_cwd.clone());
         state
@@ -3289,7 +3291,7 @@ mod new_session_from_entry_tests {
     #[rstest::rstest]
     fn new_session_from_entry_noop_on_system_kind() {
         // Given a state with a selected System entry.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::system("status update"));
@@ -3307,7 +3309,7 @@ mod new_session_from_entry_tests {
     #[rstest::rstest]
     fn new_session_from_entry_noop_on_no_selection() {
         // Given a state with entries but no selection.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));

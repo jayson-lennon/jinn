@@ -101,11 +101,8 @@ mod tests {
     #[rstest::rstest]
     fn rename_popup_shows_title() {
         // Given a state in RenameSessionInput scope with input.
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::RenameSessionInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::RenameSessionInput);
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "My Session".to_owned(),
@@ -149,11 +146,8 @@ mod tests {
     #[rstest::rstest]
     fn rename_popup_shows_input_text() {
         // Given a state with input "Hello World".
-        let mut state = AppState::default();
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::RenameSessionInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::RenameSessionInput);
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Hello World".to_owned(),
@@ -190,12 +184,9 @@ mod tests {
     #[rstest::rstest]
     fn rename_popup_prefix_uses_focus_accent_color() {
         // Given a state with input "Test".
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let expected_color = state.frontend.theme.focus_accent;
-        state
-            .frontend
-            .scope_stack
-            .push(FocusScope::RenameSessionInput);
+        state.frontend.scope_push(FocusScope::RenameSessionInput);
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Test".to_owned(),

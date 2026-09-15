@@ -10,7 +10,7 @@ use jinn_domain::RenderCtx;
 ///
 /// Color reflects the current focus scope.
 pub(super) fn render_chat_bottom_line(frame: &mut Frame<'_>, content_area: Rect, ctx: &RenderCtx) {
-    let focus_scope = ctx.state.frontend.scope_stack.current();
+    let focus_scope = ctx.state.frontend.scope();
     let theme = &ctx.state.frontend.theme;
 
     let line_y = content_area.y + content_area.height.saturating_sub(1);
@@ -55,8 +55,7 @@ mod tests {
             .state
             .write_test_no_cap()
             .frontend
-            .scope_stack
-            .clear_overlays();
+            .scope_clear_overlays();
         let (mut terminal, _area) = setup_term(80, 24);
 
         // When rendering.
@@ -86,8 +85,7 @@ mod tests {
             .state
             .write_test_no_cap()
             .frontend
-            .scope_stack
-            .push(FocusScope::Input);
+            .scope_push(FocusScope::Input);
         let (mut terminal, _area) = setup_term(80, 24);
 
         // When rendering.
@@ -116,8 +114,7 @@ mod tests {
             .state
             .write_test_no_cap()
             .frontend
-            .scope_stack
-            .push(FocusScope::SidebarPersona);
+            .scope_push(FocusScope::SidebarPersona);
         let (mut terminal, _area) = setup_term(80, 24);
 
         // When rendering.

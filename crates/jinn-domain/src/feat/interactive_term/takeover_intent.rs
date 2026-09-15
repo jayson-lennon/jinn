@@ -50,7 +50,7 @@ pub fn handle_take_control(state: &mut AppState) -> crate::protocol::intent::Int
         flag.set(ControlHolder::User);
     }
     state.frontend.terminal.set_control(TermControlHolder::User);
-    state.frontend.scope_stack.push(FocusScope::TerminalControl);
+    state.frontend.scope_push(FocusScope::TerminalControl);
     crate::protocol::intent::IntentResult::empty()
 }
 
@@ -61,7 +61,7 @@ pub fn handle_send_key(
     _label: String,
 ) -> crate::protocol::intent::IntentResult {
     // No-op unless the user actually holds control.
-    if state.frontend.scope_stack.current() != &FocusScope::TerminalControl {
+    if state.frontend.scope() != FocusScope::TerminalControl {
         return crate::protocol::intent::IntentResult::empty();
     }
     // The overlay targets the active chat session's terminal.
@@ -93,7 +93,7 @@ pub fn handle_handback(
     state: &mut AppState,
     slices: &crate::common::slices::Slices,
 ) -> crate::protocol::intent::IntentResult {
-    if state.frontend.scope_stack.current() != &FocusScope::TerminalControl {
+    if state.frontend.scope() != FocusScope::TerminalControl {
         return crate::protocol::intent::IntentResult::empty();
     }
     if let Some(flag) = control() {
@@ -103,7 +103,7 @@ pub fn handle_handback(
         .frontend
         .terminal
         .set_control(TermControlHolder::Agent);
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
     crate::feat::ui::status_hint::set_hint(state, slices, Some(HANDLED_HINT.to_owned()));
     crate::protocol::intent::IntentResult::empty()
 }
@@ -139,7 +139,7 @@ pub fn handle_yank(
     state: &mut AppState,
     slices: &crate::common::slices::Slices,
 ) -> crate::protocol::intent::IntentResult {
-    if state.frontend.scope_stack.current() != &FocusScope::TerminalView {
+    if state.frontend.scope() != FocusScope::TerminalView {
         return crate::protocol::intent::IntentResult::empty();
     }
     let Some(screen) = active_screen(state) else {
@@ -151,7 +151,9 @@ pub fn handle_yank(
         return crate::protocol::intent::IntentResult::empty();
     };
     let lines = screen.lines().count();
-    state.frontend.tui_signals.yank_text = Some(screen);
+    state
+        .frontend
+        .update_scope(|s| s.signals.yank_text = Some(screen));
     crate::feat::ui::status_hint::set_hint(
         state,
         slices,
@@ -170,7 +172,7 @@ pub fn handle_push_screen(
     state: &mut AppState,
     slices: &crate::common::slices::Slices,
 ) -> crate::protocol::intent::IntentResult {
-    if state.frontend.scope_stack.current() != &FocusScope::TerminalView {
+    if state.frontend.scope() != FocusScope::TerminalView {
         return crate::protocol::intent::IntentResult::empty();
     }
     let Some(screen) = active_screen(state) else {
@@ -182,7 +184,9 @@ pub fn handle_push_screen(
         return crate::protocol::intent::IntentResult::empty();
     };
     let lines = screen.lines().count();
-    state.frontend.tui_signals.yank_text = Some(screen.clone());
+    state
+        .frontend
+        .update_scope(|s| s.signals.yank_text = Some(screen.clone()));
     crate::feat::ui::status_hint::set_hint(
         state,
         slices,

@@ -18,7 +18,7 @@ const LARGE_FRAME: Rect = Rect::new(0, 0, 120, 50);
 #[test]
 fn measure_returns_fallback_when_no_picker_active() {
     // Given default app state with no picker open.
-    let state = AppState::default();
+    let state = AppState::default_with_scope_focus();
 
     // When measuring the active picker viewport.
     let height = measure_active_picker_results_height(&state, LARGE_FRAME);
@@ -31,7 +31,7 @@ fn measure_returns_fallback_when_no_picker_active() {
 #[test]
 fn measure_writes_into_state_field() {
     // Given a default app state.
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
 
     // When writing a measured viewport directly.
     state.frontend.set_picker_results_viewport(7);
@@ -42,8 +42,8 @@ fn measure_writes_into_state_field() {
 
 fn state_with_picker(kind: PickerKind) -> AppState {
     use crate::common::app_state::FocusScope;
-    let mut state = AppState::default();
-    state.frontend.scope_stack.push(FocusScope::Picker { kind });
+    let state = AppState::default_with_scope_focus();
+    state.frontend.scope_push(FocusScope::Picker { kind });
     state
 }
 

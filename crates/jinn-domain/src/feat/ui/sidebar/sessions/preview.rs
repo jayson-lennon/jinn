@@ -115,10 +115,7 @@ pub fn render_session_preview_for_state(
     ctx: &RenderCtx,
 ) {
     let state = ctx.state;
-    if !matches!(
-        state.frontend.scope_stack.current(),
-        FocusScope::SidebarSessions
-    ) {
+    if !matches!(state.frontend.scope(), FocusScope::SidebarSessions) {
         return;
     }
     let Some(idx) = state.frontend.sessions_section.selected_index else {

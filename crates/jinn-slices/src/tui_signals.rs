@@ -13,21 +13,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, not, see <https://www.gnu.org/licenses/>.
 
-//! Signals from the [`IntentHandler`] for the outer platform layer.
+//! Signals from the intent handler for the outer platform layer
+//! (shared vocabulary; the kernel re-exports under `jinn_domain`).
 //!
-//! The [`IntentHandler`] sets these flags during processing. The platform layer
+//! The intent handler sets these flags during processing. The platform layer
 //! (`TuiApp` or headless runner) reads them after each `handle()` call and
 //! performs the corresponding platform-specific action.
 //!
 //! All flags are cleared at the start of each `handle()` call so they are
 //! always fresh.
 
-/// Flags set by the [`IntentHandler`] for the outer platform layer to act on.
+/// Flags set by the intent handler for the outer platform layer to act on.
 ///
-/// These represent requests that cannot be fulfilled by the [`IntentHandler`]
+/// These represent requests that cannot be fulfilled by the intent handler
 /// itself because they require platform-specific machinery (TUI widgets,
 /// external editor, split manager, etc.).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TuiSignals {
     /// The which-key popup should be toggled (shown ↔ hidden).
     pub toggle_whichkey: bool,
@@ -39,7 +40,7 @@ pub struct TuiSignals {
     pub yank_text: Option<String>,
 
     /// Request to change CWD via external command. Carries the search root.
-    pub change_cwd_requested: Option<crate::protocol::CwdRoot>,
+    pub change_cwd_requested: Option<crate::cwd_root::CwdRoot>,
 }
 
 impl Default for TuiSignals {
@@ -86,7 +87,7 @@ mod tests {
         let mut signals = TuiSignals::new();
         signals.toggle_whichkey = true;
         signals.edit_requested = true;
-        signals.change_cwd_requested = Some(crate::protocol::CwdRoot::Session);
+        signals.change_cwd_requested = Some(crate::cwd_root::CwdRoot::Session);
 
         // When clearing.
         signals.clear();

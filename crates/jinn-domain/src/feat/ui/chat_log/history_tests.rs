@@ -23,8 +23,8 @@ const G: u16 = GUTTER_WIDTH; // = 2
 /// Chat log rendering tests need Normal scope so that the gutter cursor
 /// bar and selection highlighting are active.
 fn normal_state() -> AppState {
-    let mut s = AppState::default();
-    s.frontend.scope_stack.clear_overlays();
+    let s = AppState::default_with_scope_focus();
+    s.frontend.scope_clear_overlays();
     s
 }
 
@@ -67,7 +67,7 @@ fn render_few_messages_bottom_aligned() {
     // Given a ChatLogElement with one user entry in a 40x10 viewport.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut().push_entry(ChatEntry::user("hello"));
         s
     };
@@ -157,7 +157,7 @@ fn unselected_not_ignored_entry_shows_context_color() {
     // Given a ChatLogElement with 2 entries, second selected, first not ignored.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut().push_entry(ChatEntry::user("hello"));
         s.active_session_mut().push_entry(ChatEntry::user("world"));
         // push_entry auto-selects last (index 1). Entry 0 is unselected, not ignored.
@@ -191,7 +191,7 @@ fn unselected_ignored_entry_shows_gray() {
     // Given a ChatLogElement with 2 entries, first ignored, second selected.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut()
             .push_entry(ChatEntry::user("hello").with_ignored(true));
         s.active_session_mut().push_entry(ChatEntry::user("world"));
@@ -226,7 +226,7 @@ fn unselected_ignored_pinned_entry_shows_context_color() {
     // Given a ChatLogElement with 2 entries: first ignored+pinned, second selected.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut().push_entry(
             ChatEntry::user("hello")
                 .with_ignored(true)
@@ -267,11 +267,11 @@ fn selected_entry_gutter_is_dark_gray_when_unfocused() {
     // Given a ChatLogElement with a selected entry, sidebar focused.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut().push_entry(ChatEntry::user("hello"));
         s.active_session_mut().push_entry(ChatEntry::user("world"));
         s.active_session_mut().select_prev_entry(); // index 0
-        s.frontend.scope_stack.push(FocusScope::SidebarPersona);
+        s.frontend.scope_push(FocusScope::SidebarPersona);
         s
     };
 
@@ -303,11 +303,11 @@ fn selected_entry_gutter_is_dark_gray_when_input_focused() {
     // Given a ChatLogElement with a selected entry, input focused.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut().push_entry(ChatEntry::user("hello"));
         s.active_session_mut().push_entry(ChatEntry::user("world"));
         s.active_session_mut().select_prev_entry(); // index 0
-        s.frontend.scope_stack.push(FocusScope::Input);
+        s.frontend.scope_push(FocusScope::Input);
         s
     };
 
@@ -339,7 +339,7 @@ fn render_stores_viewport_state() {
     // Given a ChatLogElement with entries.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut().push_entry(ChatEntry::user("hello"));
         s.active_session_mut().push_entry(ChatEntry::user("world"));
         s
@@ -370,7 +370,7 @@ fn render_pinned_entry_shows_pin_in_gutter() {
     // Given a ChatLogElement with one pinned user entry.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut()
             .push_entry(ChatEntry::user("hello").with_pin(PinPosition::Top));
         s
@@ -408,7 +408,7 @@ fn render_unpinned_entry_has_no_pin_icon() {
     // Given a ChatLogElement with one unpinned user entry.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut().push_entry(ChatEntry::user("hello"));
         s
     };
@@ -445,7 +445,7 @@ fn render_pinned_multi_line_entry_shows_exactly_one_pin() {
     // Given a ChatLogElement with one pinned multi-line user entry.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut().push_entry(
             ChatEntry::user("line one\nline two\nline three").with_pin(PinPosition::Top),
         );
@@ -528,7 +528,7 @@ fn render_thinking_entry_appears_above_assistant() {
     // Given a ChatLogElement with thinking then assistant entries.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut()
             .push_entry(ChatEntry::thinking("reasoning"));
         s.active_session_mut()
@@ -600,7 +600,7 @@ fn render_pinned_unselected_entry_gutter_has_default_bg() {
     // Given a ChatLogElement with a pinned entry and an unpinned entry (unpinned selected).
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut()
             .push_entry(ChatEntry::user("pinned").with_pin(PinPosition::Top));
         s.active_session_mut()
@@ -679,10 +679,10 @@ fn render_pinned_selected_unfocused_entry_gutter_has_border_unfocused_bg() {
     // Given a ChatLogElement with one pinned entry selected, sidebar focused.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut()
             .push_entry(ChatEntry::user("hello").with_pin(PinPosition::Top));
-        s.frontend.scope_stack.push(FocusScope::SidebarPersona);
+        s.frontend.scope_push(FocusScope::SidebarPersona);
         s
     };
 
@@ -716,7 +716,7 @@ fn render_long_session_shows_last_entry_at_bottom() {
     // Assistant entries are not padded, so they wrap at word boundaries.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         for i in 0..20 {
             s.active_session_mut()
                 .push_entry(ChatEntry::assistant(format!(
@@ -760,7 +760,7 @@ fn render_scroll_to_bottom_shows_full_last_entry() {
     // Given a ChatLogElement with assistant entries containing word-wrapping text.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         for i in 0..15 {
             s.active_session_mut()
                 .push_entry(ChatEntry::assistant(format!(
@@ -860,7 +860,7 @@ fn render_scroll_down_through_tall_entry_works() {
     // Given a tall entry (50 lines) in a small (10-line) viewport, scrolled to show
     // the middle of the entry.
     let mut element = ChatLogElement::new();
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let long_text: String = (0..50)
         .map(|i| format!("line {i}"))
         .collect::<Vec<_>>()
@@ -909,7 +909,7 @@ fn render_tall_entry_snaps_when_completely_below_viewport() {
     // Given a tall entry at the end and the viewport scrolled to the top,
     // with the tall entry selected.
     let mut element = ChatLogElement::new();
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     // Push 20 short entries to fill space.
     for i in 0..20 {
         state
@@ -969,7 +969,7 @@ fn virtualization_populates_cache_after_render() {
     // Given a ChatLogElement with many entries.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         for i in 0..30 {
             s.active_session_mut()
                 .push_entry(ChatEntry::assistant(format!("msg {i}")));
@@ -1007,7 +1007,7 @@ fn expand_collapse_invalidates_and_rerenders() {
         .join("\n");
     let entry = ChatEntry::tool_result("call1", "bash", &long_content, ToolResultStatus::Success);
     let entry_id = entry.id.clone();
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_session_mut().push_entry(entry);
 
     let (mut terminal, area) = setup_term(80, 30);
@@ -1065,7 +1065,7 @@ fn resize_clears_cache_and_rerenders() {
     // Given a ChatLogElement rendered at width 40.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         for i in 0..5 {
             s.active_session_mut()
                 .push_entry(ChatEntry::assistant(format!("message {i}")));
@@ -1121,7 +1121,7 @@ fn streaming_content_change_invalidates_cache() {
     let mut element = ChatLogElement::new();
     let (mut terminal, area) = setup_term(40, 10);
 
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_session_mut().begin_streaming();
     state
         .active_session_mut()
@@ -1185,7 +1185,7 @@ fn render_transient_entry_has_muted_text_color() {
     // Given a ChatLogElement with a transient entry.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut()
             .push_entry(ChatEntry::transient("Welcome to jinn!"));
         s
@@ -1298,7 +1298,7 @@ fn render_annotation_entry_collapsed_by_default_shows_hint() {
     use jinn_provider::UrlCitation;
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         s.active_session_mut()
             .push_entry(ChatEntry::annotation(vec![UrlCitation {
                 url: "https://example.com/a".to_owned(),
@@ -1349,7 +1349,7 @@ fn render_annotation_entry_expanded_shows_source_title_and_url() {
     use jinn_provider::UrlCitation;
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         let entry = ChatEntry::annotation(vec![UrlCitation {
             url: "https://example.com/a".to_owned(),
             title: "Source A".to_owned(),
@@ -1405,7 +1405,7 @@ fn task_waiting_fixture(
     use crate::feat::session::chat_entry::ChatEntryKind;
     use crate::feat::tools_actor::task::TASK_TOOL_NAME;
 
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     let call_id = "tc_task_render";
     let entry = ChatEntry::tool_call(call_id, TASK_TOOL_NAME, r#"{"prompt": "hi"}"#);
     let entry = {
@@ -1471,7 +1471,7 @@ fn waiting_line_renders_for_pending_task_call_with_running_child() {
 fn waiting_line_absent_for_non_task_tool_call() {
     // Given a pending non-task tool call entry.
     let mut element = ChatLogElement::new();
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_session_mut().push_entry(ChatEntry::tool_call(
         "tc_read",
         "read",
@@ -1504,7 +1504,7 @@ fn waiting_line_absent_when_task_call_has_paired_result() {
 
     // Given a task call with its completed (paired) result.
     let mut element = ChatLogElement::new();
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     {
         let s = state.active_session_mut();
         s.push_entry(ChatEntry::tool_call("tc_done", TASK_TOOL_NAME, "{}"));
@@ -1543,7 +1543,7 @@ fn waiting_line_absent_when_child_not_in_memory() {
     // Given a linked task call whose child session is not loaded.
     let mut element = ChatLogElement::new();
     let state = {
-        let mut s = AppState::default();
+        let mut s = AppState::default_with_scope_focus();
         let entry = ChatEntry::tool_call("tc_orphan", TASK_TOOL_NAME, "{}");
         let entry = {
             use crate::feat::session::chat_entry::ChatEntryKind;
@@ -1645,7 +1645,7 @@ fn task_call_entry_renders_on_subagent_block() {
 
     // Given a session containing only a pending task call.
     let mut element = ChatLogElement::new();
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state
         .active_session_mut()
         .push_entry(ChatEntry::tool_call("tc_block", TASK_TOOL_NAME, "{}"));
@@ -1687,7 +1687,7 @@ fn task_call_entry_renders_on_subagent_block() {
 fn non_task_call_entry_does_not_use_subagent_block() {
     // Given a session containing a non-task tool call.
     let mut element = ChatLogElement::new();
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     state.active_session_mut().push_entry(ChatEntry::tool_call(
         "tc_plain",
         "read",
@@ -1724,7 +1724,7 @@ fn completed_task_result_shows_finished_status_row() {
 
     // Given a task call with its completed success result.
     let mut element = ChatLogElement::new();
-    let mut state = AppState::default();
+    let mut state = AppState::default_with_scope_focus();
     {
         let s = state.active_session_mut();
         s.push_entry(ChatEntry::tool_call("tc_status", TASK_TOOL_NAME, "{}"));

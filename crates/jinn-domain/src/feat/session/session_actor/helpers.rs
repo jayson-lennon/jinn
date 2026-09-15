@@ -46,7 +46,7 @@ pub(crate) async fn test_actor() -> super::SessionPersistenceActor {
     use crate::feat::context::strategy::token_estimator::TiktokenCounter;
 
     super::SessionPersistenceActor {
-        state: State::new(AppState::default()),
+        state: State::new(AppState::default_with_scope_focus()),
         cap: crate::common::tcaps::mint::mint_session_cap(),
         frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
         context_cap: crate::common::tcaps::mint::mint_context_cap(),

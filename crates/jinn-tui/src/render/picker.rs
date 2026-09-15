@@ -7,7 +7,7 @@ use ratatui::layout::Rect;
 
 /// Renders the active picker overlay, dispatching on [`PickerKind`].
 pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    match ctx.state.frontend.scope_stack.picker_kind().copied() {
+    match ctx.state.frontend.picker_kind() {
         Some(PickerKind::Provider) => render_provider_picker(frame, area, ctx),
         Some(PickerKind::Session) => render_session_picker(frame, area, ctx),
         Some(PickerKind::Persona) => render_persona_picker(frame, area, ctx),
@@ -147,8 +147,8 @@ mod tests {
     #[case::plugin(PickerKind::Plugin)]
     fn picker_draws_footer_rows_matching_kind_declaration(#[case] kind: PickerKind) {
         // Given a picker scope of this kind with the default (empty) state.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::Picker { kind });
+        let state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::Picker { kind });
 
         // When rendering the picker overlay.
         let area = Rect::new(0, 0, 100, 30);

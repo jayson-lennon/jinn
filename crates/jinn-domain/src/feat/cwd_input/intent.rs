@@ -24,7 +24,7 @@ pub fn handle_cwd_input_enter(state: &mut AppState) -> IntentResult {
     text.set(shorten_path(state.active_session().cwd()));
 
     state.frontend.cwd_input = CwdInputState { text };
-    state.frontend.scope_stack.push(FocusScope::CwdInput);
+    state.frontend.scope_push(FocusScope::CwdInput);
     IntentResult::empty()
 }
 
@@ -48,7 +48,7 @@ pub fn handle_cwd_input_confirm(state: &mut AppState) -> IntentResult {
             cwd: path,
         };
 
-        state.frontend.scope_stack.pop();
+        state.frontend.scope_pop();
         state.frontend.cwd_input = CwdInputState::default();
         return IntentResult::new_message(msg);
     }
@@ -60,7 +60,7 @@ pub fn handle_cwd_input_confirm(state: &mut AppState) -> IntentResult {
 ///
 /// Pops the scope and discards the input state.
 pub fn handle_cwd_input_leave(state: &mut AppState) -> IntentResult {
-    state.frontend.scope_stack.pop();
+    state.frontend.scope_pop();
     state.frontend.cwd_input = CwdInputState::default();
     IntentResult::empty()
 }
@@ -116,7 +116,7 @@ mod tests {
     #[rstest::rstest]
     fn enter_pushes_cwd_input_scope_and_seeds_cwd() {
         // Given a state whose active session has a known absolute cwd.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .set_cwd(std::path::PathBuf::from("/tmp/some-project"));
@@ -126,10 +126,7 @@ mod tests {
 
         // Then CwdInput is the current scope and the input is seeded with the
         // session cwd (tilde-compressed by shorten_path), cursor at the end.
-        assert!(matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::CwdInput
-        ));
+        assert!(matches!(state.frontend.scope(), FocusScope::CwdInput));
         assert_eq!(state.frontend.cwd_input.text.input, "/tmp/some-project");
         assert_eq!(
             state.frontend.cwd_input.text.cursor_pos,
@@ -141,7 +138,7 @@ mod tests {
     #[rstest::rstest]
     fn enter_seeds_tilde_compressed_path_when_cwd_under_home() {
         // Given a session whose cwd is under $HOME.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let home = dirs::home_dir().expect("home dir exists");
         state
             .active_session_mut()
@@ -157,7 +154,7 @@ mod tests {
     #[rstest::rstest]
     fn enter_leaves_cursor_at_end_of_seeded_text() {
         // Given a session with a known absolute cwd.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .set_cwd(std::path::PathBuf::from("/tmp/some-project"));
@@ -173,7 +170,7 @@ mod tests {
     #[rstest::rstest]
     fn enter_seeds_absolute_path_when_cwd_not_under_home() {
         // Given a session whose cwd is not under $HOME.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .set_cwd(std::path::PathBuf::from("/tmp/some-project"));
@@ -188,18 +185,15 @@ mod tests {
     #[rstest::rstest]
     fn leave_pops_scope_and_clears_state() {
         // Given a state with cwd_input scope pushed + some typed text.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::CwdInput);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::CwdInput);
         state.frontend.cwd_input.text.input = "/some/path".to_owned();
 
         // When leaving.
         let result = handle_cwd_input_leave(&mut state);
 
         // Then the scope is popped and state is cleared.
-        assert!(!matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::CwdInput
-        ));
+        assert!(!matches!(state.frontend.scope(), FocusScope::CwdInput));
         assert_eq!(state.frontend.cwd_input.text.input, "");
         assert!(result.message_names.is_empty());
     }
@@ -211,7 +205,7 @@ mod tests {
         // immediate confirm with no edits.
         let temp = tempfile::tempdir().expect("tempdir");
         let target = std::fs::canonicalize(temp.path()).expect("canonicalize");
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().set_cwd(target);
         handle_cwd_input_enter(&mut state); // seeds the box with the cwd
 
@@ -229,7 +223,7 @@ mod tests {
         // Given a tempdir and a session whose cwd is the tempdir's parent.
         let temp = tempfile::tempdir().expect("tempdir");
         let target = temp.path(); // target is itself a real dir
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .set_cwd(target.parent().unwrap().to_path_buf());
@@ -251,11 +245,11 @@ mod tests {
         // the cwd input scope pushed and some typed text.
         let temp = tempfile::tempdir().expect("tempdir");
         let target = temp.path();
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .set_cwd(target.parent().unwrap().to_path_buf());
-        state.frontend.scope_stack.push(FocusScope::CwdInput);
+        state.frontend.scope_push(FocusScope::CwdInput);
         state.frontend.cwd_input.text.input =
             target.file_name().unwrap().to_string_lossy().to_string();
 
@@ -263,29 +257,23 @@ mod tests {
         let _ = handle_cwd_input_confirm(&mut state);
 
         // Then the scope was popped and the input state was cleared.
-        assert!(!matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::CwdInput
-        ));
+        assert!(!matches!(state.frontend.scope(), FocusScope::CwdInput));
         assert_eq!(state.frontend.cwd_input.text.input, "");
     }
 
     #[rstest::rstest]
     fn confirm_nonexistent_path_stays_open_unchanged() {
         // Given a state with cwd_input scope pushed + a bad path.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let original_cwd = state.active_session().cwd().to_owned();
-        state.frontend.scope_stack.push(FocusScope::CwdInput);
+        state.frontend.scope_push(FocusScope::CwdInput);
         state.frontend.cwd_input.text.input = "/this/does/not/exist".to_owned();
 
         // When confirming.
         let result = handle_cwd_input_confirm(&mut state);
 
         // Then nothing changed: scope intact, cwd unchanged, input intact.
-        assert!(matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::CwdInput
-        ));
+        assert!(matches!(state.frontend.scope(), FocusScope::CwdInput));
         assert_eq!(state.active_session().cwd(), original_cwd);
         assert_eq!(state.frontend.cwd_input.text.input, "/this/does/not/exist");
         assert!(result.message_names.is_empty());
@@ -294,18 +282,15 @@ mod tests {
     #[rstest::rstest]
     fn confirm_empty_input_is_noop() {
         // Given a state with cwd_input scope pushed + empty input.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let original_cwd = state.active_session().cwd().to_owned();
-        state.frontend.scope_stack.push(FocusScope::CwdInput);
+        state.frontend.scope_push(FocusScope::CwdInput);
 
         // When confirming with empty input.
         let result = handle_cwd_input_confirm(&mut state);
 
         // Then nothing changed.
-        assert!(matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::CwdInput
-        ));
+        assert!(matches!(state.frontend.scope(), FocusScope::CwdInput));
         assert_eq!(state.active_session().cwd(), original_cwd);
         assert!(result.message_names.is_empty());
     }

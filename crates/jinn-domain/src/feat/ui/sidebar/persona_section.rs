@@ -60,10 +60,10 @@ impl SidebarSection for PersonaSection {
 
     fn render(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
         let state = ctx.state;
-        let sidebar_focused = state.frontend.scope_stack.is_sidebar();
+        let sidebar_focused = state.frontend.is_sidebar();
         let section_focused = sidebar_focused
             && matches!(
-                state.frontend.scope_stack.sidebar_section(),
+                state.frontend.sidebar_section(),
                 Some(SidebarSectionId::Persona)
             );
         let theme = &state.frontend.theme;

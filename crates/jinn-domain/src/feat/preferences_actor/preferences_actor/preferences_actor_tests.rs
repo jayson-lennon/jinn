@@ -21,7 +21,9 @@ async fn set_compaction_model_overwrites_previous() {
     let _actor = harness
         .spawn_actor::<PreferencesActor>(PreferencesActorDeps {
             deps: harness.actor_deps().await,
-            state: crate::common::state::State::new(crate::common::app_state::AppState::default()),
+            state: crate::common::state::State::new(
+                crate::common::app_state::AppState::default_with_scope_focus(),
+            ),
             cap: crate::common::tcaps::mint::mint_frontend_cap(),
         })
         .await;
@@ -66,7 +68,9 @@ async fn emits_preferences_updated_event() {
     let _actor = harness
         .spawn_actor::<PreferencesActor>(PreferencesActorDeps {
             deps: harness.actor_deps().await,
-            state: crate::common::state::State::new(crate::common::app_state::AppState::default()),
+            state: crate::common::state::State::new(
+                crate::common::app_state::AppState::default_with_scope_focus(),
+            ),
             cap: crate::common::tcaps::mint::mint_frontend_cap(),
         })
         .await;
@@ -100,7 +104,9 @@ async fn empty_diffs_does_not_change_storage() {
     let _actor = harness
         .spawn_actor::<PreferencesActor>(PreferencesActorDeps {
             deps: harness.actor_deps().await,
-            state: crate::common::state::State::new(crate::common::app_state::AppState::default()),
+            state: crate::common::state::State::new(
+                crate::common::app_state::AppState::default_with_scope_focus(),
+            ),
             cap: crate::common::tcaps::mint::mint_frontend_cap(),
         })
         .await;
@@ -134,7 +140,9 @@ async fn empty_diffs_does_not_change_storage() {
 async fn persist_writes_frontend_preferences() {
     // Given a preferences actor.
     let harness = TestHarness::new().await;
-    let state = crate::common::state::State::new(crate::common::app_state::AppState::default());
+    let state = crate::common::state::State::new(
+        crate::common::app_state::AppState::default_with_scope_focus(),
+    );
     let _actor = harness
         .spawn_actor::<PreferencesActor>(PreferencesActorDeps {
             deps: harness.actor_deps().await,
@@ -174,11 +182,13 @@ async fn persist_reloads_open_project_picker_items() {
 
     // Given a state with the project picker open and zero entries.
     let harness = TestHarness::new().await;
-    let state = crate::common::state::State::new(crate::common::app_state::AppState::default());
+    let state = crate::common::state::State::new(
+        crate::common::app_state::AppState::default_with_scope_focus(),
+    );
     {
         let mut guard = state.write_test_no_cap();
         load_project_picker_entries(&mut guard.frontend);
-        guard.frontend.scope_stack.push(FocusScope::Picker {
+        guard.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Project,
         });
         assert_eq!(

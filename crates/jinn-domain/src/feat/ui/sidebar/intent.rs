@@ -13,7 +13,7 @@ pub fn handle_sidebar_focus(state: &mut AppState) -> IntentResult {
     use crate::common::app_state::FocusScope;
     use crate::feat::ui::sidebar::section_trait::{EnterFrom, SidebarSectionId};
 
-    state.frontend.scope_stack.push(FocusScope::SidebarPersona);
+    state.frontend.scope_push(FocusScope::SidebarPersona);
 
     // If a section already has cursor state, restore it.
     let has_existing_cursor = state.frontend.persona_section.cursor.is_some()
@@ -29,7 +29,7 @@ pub fn handle_sidebar_focus(state: &mut AppState) -> IntentResult {
         } else {
             SidebarSectionId::Persona
         };
-        state.frontend.scope_stack.set_sidebar_section(section);
+        state.frontend.scope_set_sidebar_section(section);
 
         // Save history position when restoring to Pins with existing cursor.
         if section == SidebarSectionId::Pins && !state.active_session().has_saved_history_position()
@@ -56,8 +56,7 @@ pub fn handle_sidebar_leave(state: &mut AppState) -> IntentResult {
     state.active_session_mut().scroll_to_selected();
     state
         .frontend
-        .scope_stack
-        .swap_base(crate::common::app_state::FocusScope::Normal);
+        .scope_swap_base(crate::common::app_state::FocusScope::Normal);
     IntentResult::empty()
 }
 
@@ -71,11 +70,10 @@ pub fn handle_sidebar_focus_sessions(state: &mut AppState) -> IntentResult {
     use crate::common::app_state::FocusScope;
     use crate::feat::ui::sidebar::section_trait::{EnterFrom, SidebarSectionId};
 
-    if state.frontend.scope_stack.is_sidebar() {
+    if state.frontend.is_sidebar() {
         // Already in sidebar \u{2014} switch section directly.
         let current_section = state
             .frontend
-            .scope_stack
             .sidebar_section()
             .unwrap_or(SidebarSectionId::Persona);
 
@@ -94,12 +92,11 @@ pub fn handle_sidebar_focus_sessions(state: &mut AppState) -> IntentResult {
         // Switch to sessions.
         state
             .frontend
-            .scope_stack
-            .set_sidebar_section(SidebarSectionId::Sessions);
+            .scope_set_sidebar_section(SidebarSectionId::Sessions);
         crate::feat::ui::sidebar::sessions::navigate::receive_cursor(state, EnterFrom::Top);
     } else {
         // Not in sidebar \u{2014} enter sidebar directly on Sessions.
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        state.frontend.scope_push(FocusScope::SidebarSessions);
         crate::feat::ui::sidebar::sessions::navigate::receive_cursor(state, EnterFrom::Top);
     }
 
@@ -121,20 +118,20 @@ mod tests {
     #[rstest::rstest]
     fn sidebar_focus_pushes_sidebar_scope() {
         // Given default app state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling sidebar focus.
         let result = handle_sidebar_focus(&mut state);
 
         // Then Sidebar is on the scope stack.
-        assert!(state.frontend.scope_stack.is_sidebar());
+        assert!(state.frontend.is_sidebar());
         assert!(result.message_names.is_empty());
     }
 
     #[rstest::rstest]
     fn sidebar_focus_defaults_to_persona() {
         // Given default app state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling sidebar focus.
         handle_sidebar_focus(&mut state);
@@ -148,7 +145,7 @@ mod tests {
         // Given a state with a pre-existing pins selection.
         use crate::protocol::{ChatEntry, PinPosition};
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let entry = ChatEntry::user("test");
         let id = entry.id.clone();
         state.active_session_mut().push_entry(entry);
@@ -167,36 +164,36 @@ mod tests {
     #[rstest::rstest]
     fn sidebar_leave_returns_to_normal_scope() {
         // Given a state with Sidebar pushed onto the scope stack.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarPersona);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarPersona);
 
         // When handling sidebar leave.
         let result = handle_sidebar_leave(&mut state);
 
         // Then scope is back to Normal.
-        assert_eq!(state.frontend.scope_stack.current(), &FocusScope::Normal);
+        assert_eq!(state.frontend.scope(), FocusScope::Normal);
         assert!(result.message_names.is_empty());
     }
 
     #[rstest::rstest]
     fn sidebar_leave_from_input_always_returns_to_normal() {
         // Given a state that entered sidebar from Input mode.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::Input);
-        state.frontend.scope_stack.push(FocusScope::SidebarPersona);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::Input);
+        state.frontend.scope_push(FocusScope::SidebarPersona);
 
         // When handling sidebar leave.
         handle_sidebar_leave(&mut state);
 
         // Then scope is Normal (not Input).
-        assert_eq!(state.frontend.scope_stack.current(), &FocusScope::Normal);
+        assert_eq!(state.frontend.scope(), FocusScope::Normal);
     }
 
     #[rstest::rstest]
     fn sidebar_leave_does_not_set_cancel_prompt_when_streaming() {
         // Given a state in Sidebar with an active stream.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarPersona);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarPersona);
         state.active_session_mut().begin_streaming();
 
         // When handling sidebar leave.
@@ -206,22 +203,19 @@ mod tests {
         assert!(!state.frontend.cancel_stream_prompt);
         assert!(result.message_names.is_empty());
         // And scope is back to Normal.
-        assert_eq!(state.frontend.scope_stack.current(), &FocusScope::Normal);
+        assert_eq!(state.frontend.scope(), FocusScope::Normal);
     }
 
     #[rstest::rstest]
     fn sidebar_focus_sessions_from_normal_enters_sessions_section() {
         // Given default app state (Normal scope).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling sidebar focus sessions.
         let result = handle_sidebar_focus_sessions(&mut state);
 
         // Then scope is SidebarSessions.
-        assert_eq!(
-            state.frontend.scope_stack.current(),
-            &FocusScope::SidebarSessions
-        );
+        assert_eq!(state.frontend.scope(), FocusScope::SidebarSessions);
         // And sessions section has a cursor.
         assert!(state.frontend.sessions_section.selected_index.is_some());
         assert!(result.message_names.is_empty());
@@ -230,34 +224,28 @@ mod tests {
     #[rstest::rstest]
     fn sidebar_focus_sessions_from_input_enters_sessions_section() {
         // Given Input scope.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::Input);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::Input);
 
         // When handling sidebar focus sessions.
         handle_sidebar_focus_sessions(&mut state);
 
         // Then scope is SidebarSessions.
-        assert_eq!(
-            state.frontend.scope_stack.current(),
-            &FocusScope::SidebarSessions
-        );
+        assert_eq!(state.frontend.scope(), FocusScope::SidebarSessions);
     }
 
     #[rstest::rstest]
     fn sidebar_focus_sessions_from_sidebar_persona_jumps_to_sessions() {
         // Given SidebarPersona scope with persona cursor.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarPersona);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarPersona);
         state.frontend.persona_section.cursor = Some(0);
 
         // When handling sidebar focus sessions.
         handle_sidebar_focus_sessions(&mut state);
 
         // Then scope is SidebarSessions.
-        assert_eq!(
-            state.frontend.scope_stack.current(),
-            &FocusScope::SidebarSessions
-        );
+        assert_eq!(state.frontend.scope(), FocusScope::SidebarSessions);
         // And persona cursor is cleared.
         assert!(state.frontend.persona_section.cursor.is_none());
         // And sessions has cursor.
@@ -267,18 +255,15 @@ mod tests {
     #[rstest::rstest]
     fn sidebar_focus_sessions_already_on_sessions_is_noop() {
         // Given SidebarSessions scope with cursor at index 0.
-        let mut state = AppState::default();
-        state.frontend.scope_stack.push(FocusScope::SidebarSessions);
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_push(FocusScope::SidebarSessions);
         state.frontend.sessions_section.selected_index = Some(0);
 
         // When handling sidebar focus sessions.
         let result = handle_sidebar_focus_sessions(&mut state);
 
         // Then scope stays SidebarSessions.
-        assert_eq!(
-            state.frontend.scope_stack.current(),
-            &FocusScope::SidebarSessions
-        );
+        assert_eq!(state.frontend.scope(), FocusScope::SidebarSessions);
         // And cursor is unchanged.
         assert_eq!(state.frontend.sessions_section.selected_index, Some(0));
         assert!(result.message_names.is_empty());
@@ -288,22 +273,19 @@ mod tests {
     fn sidebar_focus_sessions_from_sidebar_pins_jumps_to_sessions() {
         // Given SidebarPins scope.
         use crate::protocol::{ChatEntry, PinPosition};
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let entry = ChatEntry::user("test");
         let id = entry.id.clone();
         state.active_session_mut().push_entry(entry);
         state.active_session_mut().pin_entry(&id, PinPosition::Top);
         state.frontend.pins.select_by_id(id);
-        state.frontend.scope_stack.push(FocusScope::SidebarPins);
+        state.frontend.scope_push(FocusScope::SidebarPins);
 
         // When handling sidebar focus sessions.
         handle_sidebar_focus_sessions(&mut state);
 
         // Then scope is SidebarSessions.
-        assert_eq!(
-            state.frontend.scope_stack.current(),
-            &FocusScope::SidebarSessions
-        );
+        assert_eq!(state.frontend.scope(), FocusScope::SidebarSessions);
         // And sessions has a cursor.
         assert!(state.frontend.sessions_section.selected_index.is_some());
     }
@@ -313,7 +295,7 @@ mod tests {
         // Given a session with 10 entries, entry 2 pinned, viewport state populated.
         use crate::protocol::{ChatEntry, PinPosition};
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for i in 0..10 {
             state
                 .active_session_mut()
@@ -334,7 +316,7 @@ mod tests {
         state.active_session().set_rendered_scroll_offset(5); // viewport at bottom
 
         // Enter sidebar pins - this saves history position and syncs cursor to pin.
-        state.frontend.scope_stack.push(FocusScope::SidebarPins);
+        state.frontend.scope_push(FocusScope::SidebarPins);
         crate::feat::ui::sidebar::pins::pins_section::receive_cursor(
             &mut state,
             crate::feat::ui::sidebar::section_trait::EnterFrom::Top,

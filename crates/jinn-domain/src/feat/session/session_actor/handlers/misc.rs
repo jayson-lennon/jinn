@@ -45,7 +45,7 @@ impl SessionPersistenceActor {
         // Startup scans arrive while no picker is open.
         let is_picker_active = {
             let state = self.state.read();
-            state.frontend.scope_stack.picker_kind() == Some(&PickerKind::Skill)
+            state.frontend.picker_kind() == Some(PickerKind::Skill)
         };
 
         if !is_picker_active {

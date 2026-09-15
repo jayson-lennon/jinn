@@ -27,7 +27,7 @@ pub fn validate_session_close(state: &AppState) -> Result<(), SessionCloseError>
 
     // Sessions section must be focused.
     if !matches!(
-        state.frontend.scope_stack.sidebar_section(),
+        state.frontend.sidebar_section(),
         Some(SidebarSectionId::Sessions)
     ) {
         return Err(SessionCloseError::WrongSection);

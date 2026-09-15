@@ -70,6 +70,7 @@ path = "src/lib.rs"
 
 [dependencies]
 jinn-cli = { workspace = true }
+jinn-scope-focus = { workspace = true }
 jinn-plugin = { workspace = true }
 jinn-plugin-api = { workspace = true }
 jinn-tui = { workspace = true }
@@ -127,6 +128,7 @@ jinn-dashboard = { workspace = true }
 jinn-quake-bar = { workspace = true }
 jinn-discord = { workspace = true }
 jinn-session-init = { workspace = true }
+jinn-scope-focus = { workspace = true }
 jinn-status-bar = { workspace = true }
 jinn-testutil = { workspace = true }
 ratatui = { workspace = true }
@@ -143,6 +145,7 @@ jinn-core-types = { path = "crates/jinn-core-types" }
 jinn-dashboard = { path = "crates/slices/jinn-dashboard" }
 jinn-quake-bar = { path = "crates/slices/jinn-quake-bar" }
 jinn-session-init = { path = "crates/slices/jinn-session-init" }
+jinn-scope-focus = { path = "crates/slices/jinn-scope-focus" }
 jinn-status-bar = { path = "crates/slices/jinn-status-bar" }
 jinn-slices = { path = "crates/jinn-slices" }
 jinn-session-msg = { path = "crates/jinn-session-msg" }

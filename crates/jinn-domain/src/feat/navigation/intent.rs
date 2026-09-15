@@ -121,7 +121,9 @@ pub fn handle_scroll_to_bottom(state: &mut AppState) -> IntentResult {
 
 /// Opens the input in an external editor.
 pub fn handle_edit_input(state: &mut AppState) -> IntentResult {
-    state.frontend.tui_signals.edit_requested = true;
+    state
+        .frontend
+        .update_scope(|s| s.signals.edit_requested = true);
     IntentResult::empty()
 }
 
@@ -130,7 +132,9 @@ pub fn handle_edit_input(state: &mut AppState) -> IntentResult {
 /// Sets the `change_cwd_requested` TUI signal so the outer platform layer
 /// can suspend the TUI and run the configured picker command.
 pub fn handle_change_cwd(state: &mut AppState, root: crate::protocol::CwdRoot) -> IntentResult {
-    state.frontend.tui_signals.change_cwd_requested = Some(root);
+    state
+        .frontend
+        .update_scope(|s| s.signals.change_cwd_requested = Some(root));
     IntentResult::empty()
 }
 
@@ -151,7 +155,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_up_decrements_scroll_offset() {
         // Given a state with entries.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for _ in 0..20 {
             state
                 .active_session_mut()
@@ -170,7 +174,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_up_returns_no_commands() {
         // Given a state with entries.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for _ in 0..20 {
             state
                 .active_session_mut()
@@ -188,7 +192,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_down_increments_scroll_offset() {
         // Given a state with entries.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for _ in 0..20 {
             state
                 .active_session_mut()
@@ -205,7 +209,7 @@ mod tests {
     #[rstest::rstest]
     fn mouse_scroll_up_decrements_scroll_offset() {
         // Given a state with entries.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for _ in 0..20 {
             state
                 .active_session_mut()
@@ -222,7 +226,7 @@ mod tests {
     #[rstest::rstest]
     fn mouse_scroll_down_increments_scroll_offset() {
         // Given a state with entries.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for _ in 0..20 {
             state
                 .active_session_mut()
@@ -238,7 +242,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_to_top_sets_offset_to_zero() {
         // Given a state scrolled down.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for _ in 0..20 {
             state
                 .active_session_mut()
@@ -256,7 +260,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_to_top_returns_no_commands() {
         // Given a state scrolled down.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for _ in 0..20 {
             state
                 .active_session_mut()
@@ -274,7 +278,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_to_bottom_resets_scroll() {
         // Given a state scrolled up from bottom.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for _ in 0..20 {
             state
                 .active_session_mut()
@@ -292,7 +296,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_to_bottom_returns_no_commands() {
         // Given a state scrolled up from bottom.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for _ in 0..20 {
             state
                 .active_session_mut()
@@ -310,19 +314,19 @@ mod tests {
     #[rstest::rstest]
     fn edit_input_sets_tui_signal() {
         // Given a default state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling EditInput.
         let _result = handle_edit_input(&mut state);
 
         // Then the edit_requested signal is set.
-        assert!(state.frontend.tui_signals.edit_requested);
+        assert!(state.frontend.signals_snapshot().edit_requested);
     }
 
     #[rstest::rstest]
     fn edit_input_returns_no_commands() {
         // Given a default state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling EditInput.
         let result = handle_edit_input(&mut state);
@@ -334,7 +338,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_to_top_skips_empty_assistant_at_index_0() {
         // Given history [empty_assistant, user].
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::assistant(""));
@@ -352,7 +356,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_to_bottom_skips_empty_assistant_at_last_index() {
         // Given history [user, empty_assistant].
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));
@@ -370,7 +374,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_up_half_page_with_known_viewport() {
         // Given a state with entries and a viewport of 10.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for i in 0..30 {
             state
                 .active_session_mut()
@@ -403,7 +407,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_down_half_page_with_known_viewport() {
         // Given a state scrolled up with a viewport of 10.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for i in 0..30 {
             state
                 .active_session_mut()
@@ -436,7 +440,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_to_top_selects_first_selectable_entry() {
         // Given history with [user_0, user_1, user_2].
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for i in 0..3 {
             state
                 .active_session_mut()
@@ -453,7 +457,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_to_bottom_selects_last_selectable_entry() {
         // Given history with [user_0, user_1, user_2].
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         for i in 0..3 {
             state
                 .active_session_mut()
@@ -470,7 +474,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_to_top_with_multiple_empty_assistants_at_start() {
         // Given history [empty_asst, empty_asst, user].
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::assistant(""));
@@ -491,7 +495,7 @@ mod tests {
     #[rstest::rstest]
     fn scroll_to_bottom_with_multiple_empty_assistants_at_end() {
         // Given history [user, empty_asst, empty_asst].
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .push_entry(ChatEntry::user("hello"));
@@ -512,14 +516,14 @@ mod tests {
     #[rstest::rstest]
     fn change_cwd_sets_signal_to_session_root() {
         // Given default state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling ChangeCwd with Session root.
         let result = handle_change_cwd(&mut state, crate::protocol::CwdRoot::Session);
 
         // Then the signal is set with Session root.
         assert_eq!(
-            state.frontend.tui_signals.change_cwd_requested,
+            state.frontend.signals_snapshot().change_cwd_requested,
             Some(crate::protocol::CwdRoot::Session)
         );
         // And no commands are emitted.
@@ -529,14 +533,14 @@ mod tests {
     #[rstest::rstest]
     fn change_cwd_sets_signal_to_home_root() {
         // Given default state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When handling ChangeCwd with Home root.
         let result = handle_change_cwd(&mut state, crate::protocol::CwdRoot::Home);
 
         // Then the signal is set with Home root.
         assert_eq!(
-            state.frontend.tui_signals.change_cwd_requested,
+            state.frontend.signals_snapshot().change_cwd_requested,
             Some(crate::protocol::CwdRoot::Home)
         );
         // And no commands are emitted.

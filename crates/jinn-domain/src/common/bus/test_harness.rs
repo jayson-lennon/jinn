@@ -31,11 +31,9 @@ pub struct TestHarness {
 
 impl TestHarness {
     /// Create a new harness with a fresh `MessageBus`.
-    #[expect(
-        clippy::unused_async,
-        reason = "API symmetry with other harness methods; spawn requires runtime context"
-    )]
+    // API symmetry with other harness methods; spawn requires runtime context.
     pub async fn new() -> Self {
+        async {}.await;
         let bus =
             kameo_actors::message_bus::MessageBus::new(kameo_actors::DeliveryStrategy::Guaranteed);
         let bus_ref = Spawn::spawn(bus);

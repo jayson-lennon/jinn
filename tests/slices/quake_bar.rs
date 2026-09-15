@@ -135,8 +135,7 @@ async fn quake_app() -> jinn_tui::TuiApp {
         .state
         .write_test_no_cap()
         .frontend
-        .scope_stack
-        .swap_base(jinn_domain::FocusScope::Dynamic(quake_scope()));
+        .scope_swap_base(jinn_domain::FocusScope::Dynamic(quake_scope()));
     app
 }
 

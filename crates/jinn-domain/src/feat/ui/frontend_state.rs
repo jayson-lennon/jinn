@@ -2,7 +2,7 @@
 
 use parking_lot::RwLock;
 
-use crate::common::focus::{FocusScope, ScopeStack};
+use crate::common::focus::FocusScope;
 use crate::common::tui_signals::TuiSignals;
 use crate::feat::cwd_input::state::CwdInputState;
 use crate::feat::preferences_actor::UserPreferences;
@@ -10,6 +10,7 @@ use crate::feat::preferences_actor::app_state_file::AppStateFile;
 use crate::feat::project_add_input::state::ProjectAddInputState;
 use crate::feat::pruner_accumulation_input::state::PrunerAccumulationInputState;
 use crate::feat::rename_session_input::state::RenameSessionInputState;
+use jinn_slices::SidebarSectionId;
 
 use crate::feat::session_lifecycle::arg_input_state::ArgInputState;
 use crate::feat::theme::Theme;
@@ -74,11 +75,6 @@ pub struct PendingSessionCreation {
 /// anti-pattern.
 #[derive(Debug)]
 pub struct FrontendState {
-    /// Set to `true` when the user has requested to quit.
-    /// OWNER: IntentHandler (Quit intent),
-    ///        shutdown-tracker (ProceedWithShutdown command).
-    pub should_quit: bool,
-
     /// Pins sidebar section state - selection index within the pinned entries list.
     /// OWNER: IntentHandler (pins navigation).
     pub pins: PinsState,
@@ -101,10 +97,6 @@ pub struct FrontendState {
     /// MCP servers sidebar section state - cursor tracking.
     /// OWNER: IntentHandler (sidebar navigation).
     pub mcp_servers_section: McpServersSectionState,
-    /// Signals from the IntentHandler for the outer platform layer.
-    /// OWNER: IntentHandler (cleared and set each handle() call).
-    pub tui_signals: TuiSignals,
-
     /// Cached copy of user preferences from `jinn.toml`.
     /// Updated by `PreferencesActor` inline after persisting to `jinn.toml` (authoritative),
     /// and by the `IntentHandler` for immediate UI feedback (exempt).
@@ -114,10 +106,6 @@ pub struct FrontendState {
     /// Updated by `AppStateActor` inline after persisting to `state.toml` (authoritative),
     /// and by the `IntentHandler` for immediate UI feedback (exempt).
     pub app_state: AppStateFile,
-
-    /// Focus scope stack - single source of truth for what the user is focused on.
-    /// OWNER: IntentHandler (push/pop on scope transitions).
-    pub scope_stack: ScopeStack,
 
     /// The current resolved theme (colors for the render pipeline).
     /// OWNER: IntentHandler (theme picker preview, exempt), AppStateActor (authoritative, on state.toml change).
@@ -205,24 +193,31 @@ pub struct FrontendState {
     /// `@path` file popup state.
     /// OWNER: DirectoryListerActor (entries, loading, expected_request_id).
     pub file_picker: crate::feat::file_lister::FilePickerState,
+
+    /// Late-attached handle to the slice registry, carrying the
+    /// scope-focus cell (the focus stack, TUI signals, and quit latch).
+    /// Attached once at wiring, before any intent can fire; a clone of
+    /// `Slices` shares its cells, so cells minted after the attach are
+    /// visible here. Before attach (or without the slice's
+    /// `activate()`), facade reads return defaults and writes no-op —
+    /// the removability property.
+    /// (Composition attaches once; direct pokes defeat the facade.)
+    #[doc(hidden)]
+    pub scope_focus: std::sync::OnceLock<jinn_slices::Slices>,
 }
 
 impl Default for FrontendState {
     fn default() -> Self {
-        let mut scope_stack = ScopeStack::default();
-        scope_stack.push(FocusScope::Input);
         Self {
-            should_quit: false,
+            scope_focus: std::sync::OnceLock::new(),
             pins: PinsState::default(),
             sidebar: SidebarState,
             persona_section: PersonaSectionState::default(),
             sessions_section: SessionsSectionState::default(),
             task_list_section: TaskListSectionState::default(),
             mcp_servers_section: McpServersSectionState::default(),
-            tui_signals: TuiSignals::new(),
             preferences: UserPreferences::default(),
             app_state: AppStateFile::default(),
-            scope_stack,
             theme: crate::feat::theme::default_theme(),
             caches: FrontendCaches::default(),
             cancel_stream_prompt: false,
@@ -244,6 +239,162 @@ impl Default for FrontendState {
             sidebar_width: 30,
             file_picker: crate::feat::file_lister::FilePickerState::default(),
         }
+    }
+}
+
+impl FrontendState {
+    /// Attaches the slice registry handle carrying the scope-focus
+    /// cell. Called once at wiring; later calls are ignored.
+    pub fn attach_slices(&self, slices: jinn_slices::Slices) {
+        let _ = self.scope_focus.set(slices);
+    }
+
+    /// Resolves the scope-focus cell, if the handle is attached and the
+    /// slice's `activate()` minted it.
+    fn scope_cell(&self) -> Option<jinn_slices::cell::TypedCell<jinn_slices::ScopeFocusState>> {
+        let slices = self.scope_focus.get()?;
+        slices.reader::<jinn_slices::ScopeFocusState>(&jinn_slices::scope_focus_slot())
+    }
+
+    /// Runs `f` against the scope-focus state (stack, signals, quit).
+    /// A no-op when the cell is absent (slice not activated) — writes
+    /// are silently dropped, matching the no-slice configuration.
+    pub fn update_scope<F>(&self, f: F)
+    where
+        F: FnOnce(&mut jinn_slices::ScopeFocusState),
+    {
+        if let Some(cell) = self.scope_cell() {
+            cell.update(f);
+        }
+    }
+
+    /// Reads the scope-focus state through `f`, falling back to
+    /// `default` when the cell is absent.
+    #[must_use]
+    pub fn with_scope<R, F, D>(&self, f: F, default: D) -> R
+    where
+        F: FnOnce(&jinn_slices::ScopeFocusState) -> R,
+        D: FnOnce() -> R,
+    {
+        match self.scope_cell() {
+            Some(cell) => f(&cell.read()),
+            None => default(),
+        }
+    }
+
+    /// The current (top) focus scope; [`FocusScope::Input`] before the
+    /// slice is activated.
+    #[must_use]
+    pub fn scope(&self) -> FocusScope {
+        self.with_scope(|s| s.stack.current().clone(), || FocusScope::Input)
+    }
+
+    /// Whether a quit has been requested; `false` before the slice is
+    /// activated.
+    #[must_use]
+    pub fn quit(&self) -> bool {
+        self.with_scope(|s| s.quit, || false)
+    }
+
+    /// Latches (or clears) the quit request.
+    pub fn set_quit(&self, quit: bool) {
+        self.update_scope(|s| s.quit = quit);
+    }
+
+    /// A snapshot copy of the current TUI signals; all-clear before the
+    /// slice is activated.
+    #[must_use]
+    pub fn signals_snapshot(&self) -> TuiSignals {
+        self.with_scope(|s| s.signals.clone(), TuiSignals::new)
+    }
+
+    /// The picker kind of the current scope, if a picker is focused.
+    #[must_use]
+    pub fn picker_kind(&self) -> Option<jinn_slices::PickerKind> {
+        self.with_scope(|s| s.stack.picker_kind().copied(), || None)
+    }
+
+    /// Runs `f` with the current (top) scope. Prefer [`Self::scope`]
+    /// for a clone.
+    pub fn with_current<R, F, D>(&self, f: F, default: D) -> R
+    where
+        F: FnOnce(&FocusScope) -> R,
+        D: FnOnce() -> R,
+    {
+        self.with_scope(|s| f(s.stack.current()), default)
+    }
+
+    /// Pushes a scope (entering an overlay).
+    pub fn scope_push(&self, scope: FocusScope) {
+        self.update_scope(|s| s.stack.push(scope));
+    }
+
+    /// Pops the top scope (leaving an overlay). No-op at the base.
+    pub fn scope_pop(&self) {
+        self.update_scope(|s| {
+            let _ = s.stack.pop();
+        });
+    }
+
+    /// Pops all overlay scopes, returning to the base.
+    pub fn scope_clear_overlays(&self) {
+        self.update_scope(|s| s.stack.clear_overlays());
+    }
+
+    /// Replaces the base scope and clears overlays.
+    pub fn scope_swap_base(&self, new_base: FocusScope) {
+        self.update_scope(|s| s.stack.swap_base(new_base));
+    }
+
+    /// Swaps the top scope for a different sidebar section (no-op when
+    /// the current scope is not a sidebar section).
+    pub fn scope_set_sidebar_section(&self, section: SidebarSectionId) {
+        self.update_scope(|s| s.stack.set_sidebar_section(section));
+    }
+
+    /// The focused sidebar section, if a sidebar scope is active.
+    #[must_use]
+    pub fn sidebar_section(&self) -> Option<SidebarSectionId> {
+        self.with_scope(|s| s.stack.sidebar_section(), || None)
+    }
+
+    /// Whether the current scope is a picker.
+    #[must_use]
+    pub fn is_picker(&self) -> bool {
+        self.with_scope(|s| s.stack.is_picker(), || false)
+    }
+
+    /// Whether the current scope is any sidebar section.
+    #[must_use]
+    pub fn is_sidebar(&self) -> bool {
+        self.with_scope(|s| s.stack.is_sidebar(), || false)
+    }
+
+    /// The scope one level below the top.
+    #[must_use]
+    pub fn scope_parent(&self) -> Option<FocusScope> {
+        self.with_scope(|s| s.stack.parent().cloned(), || None)
+    }
+
+    /// The base (bottom) scope.
+    #[must_use]
+    pub fn scope_base(&self) -> FocusScope {
+        self.with_scope(|s| s.stack.base().clone(), || FocusScope::Input)
+    }
+
+    /// Whether the stack has any scopes (always `true` after default).
+    #[must_use]
+    pub fn scope_len(&self) -> usize {
+        self.with_scope(|s| s.stack.len(), || 0)
+    }
+
+    /// Drains the TUI signals: returns the current flags and resets
+    /// them to all-clear (consume-once semantics for the run loop).
+    #[must_use]
+    pub fn take_signals(&self) -> TuiSignals {
+        let taken = self.signals_snapshot();
+        self.update_scope(|s| s.signals = TuiSignals::new());
+        taken
     }
 }
 
