@@ -1117,3 +1117,28 @@ fn set_phase_from_input_matches_description_after_trimming() {
     assert_eq!(list.phases().len(), 1);
     assert_eq!(list.phases()[0].description(), "Build");
 }
+
+#[rstest::rstest]
+#[test]
+fn serde_legacy_deferred_task_loads_and_renders() {
+    // Given legacy persisted JSON with a task stored under the "Deferred" alias.
+    let json = r#"{"phases":[{"id":"pabc","description":"Research","tasks":[
+        {"id":"txyz","description":"Old work","status":"Deferred"},
+        {"id":"tmmm","description":"Live work","status":"Pending"}
+    ]}]}"#;
+
+    // When deserializing.
+    let list: TaskList = serde_json::from_str(json).unwrap();
+
+    // Then the legacy task loads as Postponed without error.
+    assert_eq!(list.phases().len(), 1);
+    assert_eq!(list.phases()[0].tasks()[0].status(), TaskStatus::Postponed);
+    // And it is filtered from tool-facing renders.
+    let rendered = list.render_text_with_blockers();
+    assert!(
+        !rendered.contains("Old work"),
+        "postponed task should not render; got: {rendered}"
+    );
+    // And the pending sibling still renders.
+    assert!(rendered.contains("Live work"));
+}
