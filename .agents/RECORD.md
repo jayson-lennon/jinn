@@ -330,3 +330,6 @@ Entries are added or amended **only with human approval**.
 - (tools) The bash tool evaluates commands against the resolved project command policy before spawn; a match returns a failed tool result carrying the rule's message and the command never runs.
 - (tools) Project command policy is resolved by cwd prefix match at tool-call time with the longest configured project path winning.
 - (tools) Command policy guards only the bash tool; interactive terminals and MCP-provided tools are unguarded.
+- (slices) The status-bar slice is a crate owning the status bar element and the status-hint cell; the IntentHandler writes the hint and the element renders it.
+- (ui) The status hint renders warning-colored on the status bar's second line in place of the model string and clears on the next intent.
+- (ui) The cancel-stream, close-session, and archive-tree confirm prompts live in FrontendState and render near their invocation areas, outside the status bar.
