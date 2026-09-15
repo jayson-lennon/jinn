@@ -83,7 +83,7 @@ mod tests {
 
     fn test_actor() -> SidebarStateActor {
         SidebarStateActor {
-            state: State::new(AppState::default()),
+            state: State::new(AppState::default_with_scope_focus()),
             session_cap: crate::common::tcaps::mint::mint_session_cap(),
             frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
         }
@@ -108,7 +108,9 @@ mod tests {
             state.session.insert(s2);
             state.session.insert(s3);
             state.session.set_active(id3.clone());
-            state.frontend.sessions_section.selected_index = Some(2);
+            state
+                .frontend
+                .update_sections(|s| s.sessions.selected_index = Some(2));
             id3
         };
 
@@ -126,7 +128,12 @@ mod tests {
 
         // Then selected_index is clamped to 1 (max valid index).
         let state = actor.state.read();
-        assert_eq!(state.frontend.sessions_section.selected_index, Some(1));
+        assert_eq!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None),
+            Some(1)
+        );
     }
 
     #[rstest::rstest]
@@ -137,7 +144,9 @@ mod tests {
         let removed_id = {
             let mut state = actor.state.write_test_no_cap();
             let id = state.session.active_session_id().clone();
-            state.frontend.sessions_section.selected_index = Some(0);
+            state
+                .frontend
+                .update_sections(|s| s.sessions.selected_index = Some(0));
             id
         };
 
@@ -157,7 +166,12 @@ mod tests {
 
         // Then cursor stays at 0.
         let state = actor.state.read();
-        assert_eq!(state.frontend.sessions_section.selected_index, Some(0));
+        assert_eq!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None),
+            Some(0)
+        );
     }
 
     #[rstest::rstest]
@@ -174,7 +188,9 @@ mod tests {
             state.session.insert(s1);
             state.session.insert(s2);
             state.session.insert(s3);
-            state.frontend.sessions_section.selected_index = Some(0);
+            state
+                .frontend
+                .update_sections(|s| s.sessions.selected_index = Some(0));
             id3
         };
 
@@ -192,6 +208,11 @@ mod tests {
 
         // Then cursor stays at 0.
         let state = actor.state.read();
-        assert_eq!(state.frontend.sessions_section.selected_index, Some(0));
+        assert_eq!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None),
+            Some(0)
+        );
     }
 }

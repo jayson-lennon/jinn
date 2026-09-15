@@ -26,7 +26,9 @@ pub fn selected_sessions_sidebar_target(state: &AppState) -> Option<crate::proto
     ) {
         return None;
     }
-    let index = state.frontend.sessions_section.selected_index?;
+    let index = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)?;
     let sessions = crate::feat::ui::sidebar::sessions::sorted_open_sessions(state);
     sessions.get(index).map(|entry| entry.id.clone())
 }

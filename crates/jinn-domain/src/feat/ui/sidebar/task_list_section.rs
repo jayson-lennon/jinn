@@ -29,41 +29,16 @@ use textwrap::Options;
 /// Phases are collapsed when unfocused; the selected phase expands when focused.
 #[derive(Debug)]
 pub struct TaskListSection;
-
-/// State for the task list sidebar section.
-///
-/// Tracks which phase is selected (has cursor). `None` means the section
-/// is unfocused — all phases are collapsed.
-///
-/// The preview popup scroll is driven by three fields, all written by the render
-/// pre-pass so keypress handlers can page and clamp without re-wrapping:
-/// - `preview_scroll`           — current top line offset (the only field mutated by
-///   scroll intents and reset on navigation).
-/// - `preview_viewport_height`  — popup inner height (rows) for page size.
-/// - `preview_content_line_count` — total wrapped lines in the selected phase,
-///   used to clamp `preview_scroll` to `[0, max_offset]`.
-#[derive(Debug, Clone, Default)]
-pub struct TaskListSectionState {
-    /// Index into the task list's phases vector.
-    /// `None` when the section is unfocused.
-    pub selected_phase_index: Option<usize>,
-    /// Current scroll offset (top line index) of the task list preview popup.
-    pub preview_scroll: usize,
-    /// Inner height (rows) of the preview popup's content area, as measured by
-    /// the last render pass. Used by `PageUp`/`PageDown` to page by a viewport.
-    /// Zero before the first render; scroll handlers no-op when it is zero.
-    pub preview_viewport_height: u16,
-    /// Total wrapped content line count of the selected phase, as measured by
-    /// the last render pass. Lets the scroll handlers clamp `preview_scroll` to
-    /// `[0, max_offset]` without re-wrapping the tasks.
-    pub preview_content_line_count: usize,
-}
+pub use jinn_slices::TaskListSectionState;
 
 /// Navigate within the task list section.
 ///
 /// Moves the phase cursor up/down. Returns `Exhausted` at boundaries.
 pub fn navigate(intent: &SidebarIntent, state: &mut AppState) -> SectionNavResult {
-    let Some(index) = state.frontend.task_list_section.selected_phase_index else {
+    let Some(index) = state
+        .frontend
+        .with_sections(|s| s.task_list.selected_phase_index, || None)
+    else {
         return SectionNavResult::Exhausted;
     };
     let phase_count = state.active_session().task_list().phases().len();
@@ -73,9 +48,10 @@ pub fn navigate(intent: &SidebarIntent, state: &mut AppState) -> SectionNavResul
     match intent {
         SidebarIntent::MoveDown => {
             if index + 1 < phase_count {
-                let section = &mut state.frontend.task_list_section;
-                section.selected_phase_index = Some(index + 1);
-                section.preview_scroll = 0;
+                state.frontend.update_sections(|s| {
+                    s.task_list.selected_phase_index = Some(index + 1);
+                    s.task_list.preview_scroll = 0;
+                });
                 SectionNavResult::Moved
             } else {
                 SectionNavResult::Exhausted
@@ -83,9 +59,10 @@ pub fn navigate(intent: &SidebarIntent, state: &mut AppState) -> SectionNavResul
         }
         SidebarIntent::MoveUp => {
             if index > 0 {
-                let section = &mut state.frontend.task_list_section;
-                section.selected_phase_index = Some(index - 1);
-                section.preview_scroll = 0;
+                state.frontend.update_sections(|s| {
+                    s.task_list.selected_phase_index = Some(index - 1);
+                    s.task_list.preview_scroll = 0;
+                });
                 SectionNavResult::Moved
             } else {
                 SectionNavResult::Exhausted
@@ -103,12 +80,13 @@ pub fn receive_cursor(state: &mut AppState, enter_from: EnterFrom) {
     if phase_count == 0 {
         return;
     }
-    let section = &mut state.frontend.task_list_section;
-    section.selected_phase_index = Some(match enter_from {
-        EnterFrom::Top => 0,
-        EnterFrom::Bottom => phase_count - 1,
+    state.frontend.update_sections(|s| {
+        s.task_list.selected_phase_index = Some(match enter_from {
+            EnterFrom::Top => 0,
+            EnterFrom::Bottom => phase_count - 1,
+        });
+        s.task_list.preview_scroll = 0;
     });
-    section.preview_scroll = 0;
 }
 
 /// Scrolls the preview popup one viewport toward the oldest task line.
@@ -117,13 +95,17 @@ pub fn receive_cursor(state: &mut AppState, enter_from: EnterFrom) {
 /// `[0, max_offset]`. No-op when the viewport height has not yet been measured
 /// (e.g. before the first render).
 pub fn handle_preview_scroll_up(state: &mut AppState) -> IntentResult {
-    let section = &mut state.frontend.task_list_section;
-    if section.preview_viewport_height == 0 {
+    let viewport = state
+        .frontend
+        .with_sections(|s| s.task_list.preview_viewport_height, || 0);
+    if viewport == 0 {
         return IntentResult::empty();
     }
-    let page = usize::from(section.preview_viewport_height);
-    section.preview_scroll = section.preview_scroll.saturating_sub(page);
-    clamp_scroll(section);
+    let page = usize::from(viewport);
+    state.frontend.update_sections(|s| {
+        s.task_list.preview_scroll = s.task_list.preview_scroll.saturating_sub(page);
+        clamp_scroll(&mut s.task_list);
+    });
     IntentResult::empty()
 }
 
@@ -132,13 +114,17 @@ pub fn handle_preview_scroll_up(state: &mut AppState) -> IntentResult {
 /// Pages `preview_scroll` down by `preview_viewport_height` and clamps to
 /// `[0, max_offset]`. No-op when the viewport height has not yet been measured.
 pub fn handle_preview_scroll_down(state: &mut AppState) -> IntentResult {
-    let section = &mut state.frontend.task_list_section;
-    if section.preview_viewport_height == 0 {
+    let viewport = state
+        .frontend
+        .with_sections(|s| s.task_list.preview_viewport_height, || 0);
+    if viewport == 0 {
         return IntentResult::empty();
     }
-    let page = usize::from(section.preview_viewport_height);
-    section.preview_scroll = section.preview_scroll.saturating_add(page);
-    clamp_scroll(section);
+    let page = usize::from(viewport);
+    state.frontend.update_sections(|s| {
+        s.task_list.preview_scroll = s.task_list.preview_scroll.saturating_add(page);
+        clamp_scroll(&mut s.task_list);
+    });
     IntentResult::empty()
 }
 
@@ -207,7 +193,9 @@ fn wrap_description(text: &str, available_width: usize) -> Vec<String> {
 /// Returns the expanded phase index if the sidebar is focused on the task list section.
 fn expanded_phase_index(state: &AppState) -> Option<usize> {
     if state.frontend.sidebar_section() == Some(SidebarSectionId::TaskList) {
-        state.frontend.task_list_section.selected_phase_index
+        state
+            .frontend
+            .with_sections(|s| s.task_list.selected_phase_index, || None)
     } else {
         None
     }
@@ -418,7 +406,8 @@ mod tests {
     /// Helper: set up focus on a specific phase so it expands.
     fn setup_focused_on_phase(app: &mut AppState, phase_index: usize) {
         app.frontend.scope_push(FocusScope::SidebarTaskList);
-        app.frontend.task_list_section.selected_phase_index = Some(phase_index);
+        app.frontend
+            .update_sections(|s| s.task_list.selected_phase_index = Some(phase_index));
     }
 
     /// Extract all text content from render lines.
@@ -513,7 +502,11 @@ mod tests {
         setup_focused_on_phase(&mut app, 0);
         let result = navigate(&SidebarIntent::MoveDown, &mut app);
         assert_eq!(result, SectionNavResult::Moved);
-        assert_eq!(app.frontend.task_list_section.selected_phase_index, Some(1));
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.selected_phase_index, || None),
+            Some(1)
+        );
     }
 
     #[rstest::rstest]
@@ -523,7 +516,11 @@ mod tests {
         setup_focused_on_phase(&mut app, 1);
         let result = navigate(&SidebarIntent::MoveUp, &mut app);
         assert_eq!(result, SectionNavResult::Moved);
-        assert_eq!(app.frontend.task_list_section.selected_phase_index, Some(0));
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.selected_phase_index, || None),
+            Some(0)
+        );
     }
 
     #[rstest::rstest]
@@ -549,7 +546,11 @@ mod tests {
     fn receive_cursor_sets_first_phase_from_top() {
         let mut app = setup_with_tasks();
         receive_cursor(&mut app, EnterFrom::Top);
-        assert_eq!(app.frontend.task_list_section.selected_phase_index, Some(0));
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.selected_phase_index, || None),
+            Some(0)
+        );
     }
 
     #[rstest::rstest]
@@ -557,7 +558,11 @@ mod tests {
     fn receive_cursor_sets_last_phase_from_bottom() {
         let mut app = setup_with_tasks();
         receive_cursor(&mut app, EnterFrom::Bottom);
-        assert_eq!(app.frontend.task_list_section.selected_phase_index, Some(1));
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.selected_phase_index, || None),
+            Some(1)
+        );
     }
 
     #[rstest::rstest]
@@ -565,7 +570,11 @@ mod tests {
     fn receive_cursor_no_panic_on_empty_list() {
         let mut app = AppState::default_with_scope_focus();
         receive_cursor(&mut app, EnterFrom::Top);
-        assert_eq!(app.frontend.task_list_section.selected_phase_index, None);
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.selected_phase_index, || None),
+            None
+        );
     }
 
     #[rstest::rstest]
@@ -856,9 +865,12 @@ mod tests {
     /// Sets viewport + content so `preview_scroll` can page and clamp.
     fn setup_preview(viewport: u16, content_lines: usize, scroll: usize) -> AppState {
         let mut app = AppState::default_with_scope_focus();
-        app.frontend.task_list_section.preview_viewport_height = viewport;
-        app.frontend.task_list_section.preview_content_line_count = content_lines;
-        app.frontend.task_list_section.preview_scroll = scroll;
+        app.frontend
+            .update_sections(|s| s.task_list.preview_viewport_height = viewport);
+        app.frontend
+            .update_sections(|s| s.task_list.preview_content_line_count = content_lines);
+        app.frontend
+            .update_sections(|s| s.task_list.preview_scroll = scroll);
         app
     }
 
@@ -872,7 +884,11 @@ mod tests {
         handle_preview_scroll_up(&mut app);
 
         // Then scroll decreases by the viewport height.
-        assert_eq!(app.frontend.task_list_section.preview_scroll, 5);
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.preview_scroll, || 0),
+            5
+        );
     }
 
     #[rstest::rstest]
@@ -885,7 +901,11 @@ mod tests {
         handle_preview_scroll_down(&mut app);
 
         // Then scroll increases by the viewport height.
-        assert_eq!(app.frontend.task_list_section.preview_scroll, 5);
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.preview_scroll, || 0),
+            5
+        );
     }
 
     #[rstest::rstest]
@@ -898,7 +918,11 @@ mod tests {
         handle_preview_scroll_up(&mut app);
 
         // Then scroll clamps to 0 rather than underflowing.
-        assert_eq!(app.frontend.task_list_section.preview_scroll, 0);
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.preview_scroll, || 0),
+            0
+        );
     }
 
     #[rstest::rstest]
@@ -911,7 +935,11 @@ mod tests {
         handle_preview_scroll_down(&mut app);
 
         // Then scroll clamps to max_offset 3, not 5.
-        assert_eq!(app.frontend.task_list_section.preview_scroll, 3);
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.preview_scroll, || 0),
+            3
+        );
     }
 
     #[rstest::rstest]
@@ -924,7 +952,11 @@ mod tests {
         handle_preview_scroll_up(&mut app);
 
         // Then scroll is unchanged.
-        assert_eq!(app.frontend.task_list_section.preview_scroll, 7);
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.preview_scroll, || 0),
+            7
+        );
     }
 
     #[rstest::rstest]
@@ -937,7 +969,11 @@ mod tests {
         handle_preview_scroll_down(&mut app);
 
         // Then scroll is unchanged.
-        assert_eq!(app.frontend.task_list_section.preview_scroll, 7);
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.preview_scroll, || 0),
+            7
+        );
     }
 
     #[rstest::rstest]
@@ -946,14 +982,19 @@ mod tests {
         // Given a task list with scroll at 7 and focus on phase 0.
         let mut app = setup_with_tasks();
         setup_focused_on_phase(&mut app, 0);
-        app.frontend.task_list_section.preview_scroll = 7;
+        app.frontend
+            .update_sections(|s| s.task_list.preview_scroll = 7);
 
         // When moving down to the next phase.
         let result = navigate(&SidebarIntent::MoveDown, &mut app);
 
         // Then navigation moved and scroll reset to 0.
         assert_eq!(result, SectionNavResult::Moved);
-        assert_eq!(app.frontend.task_list_section.preview_scroll, 0);
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.preview_scroll, || 0),
+            0
+        );
     }
 
     #[rstest::rstest]
@@ -962,14 +1003,19 @@ mod tests {
         // Given a task list with scroll at 7 and focus on phase 1.
         let mut app = setup_with_tasks();
         setup_focused_on_phase(&mut app, 1);
-        app.frontend.task_list_section.preview_scroll = 7;
+        app.frontend
+            .update_sections(|s| s.task_list.preview_scroll = 7);
 
         // When moving up to the previous phase.
         let result = navigate(&SidebarIntent::MoveUp, &mut app);
 
         // Then navigation moved and scroll reset to 0.
         assert_eq!(result, SectionNavResult::Moved);
-        assert_eq!(app.frontend.task_list_section.preview_scroll, 0);
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.preview_scroll, || 0),
+            0
+        );
     }
 
     #[rstest::rstest]
@@ -977,12 +1023,17 @@ mod tests {
     fn receive_cursor_resets_preview_scroll() {
         // Given a task list with scroll at 7.
         let mut app = setup_with_tasks();
-        app.frontend.task_list_section.preview_scroll = 7;
+        app.frontend
+            .update_sections(|s| s.task_list.preview_scroll = 7);
 
         // When re-entering the section from the top.
         receive_cursor(&mut app, EnterFrom::Top);
 
         // Then scroll reset to 0.
-        assert_eq!(app.frontend.task_list_section.preview_scroll, 0);
+        assert_eq!(
+            app.frontend
+                .with_sections(|s| s.task_list.preview_scroll, || 0),
+            0
+        );
     }
 }

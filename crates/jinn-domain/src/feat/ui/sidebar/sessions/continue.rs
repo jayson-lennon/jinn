@@ -38,7 +38,10 @@ pub fn handle_session_continue(state: &mut AppState) -> IntentResult {
         return IntentResult::empty();
     }
 
-    let Some(index) = state.frontend.sessions_section.selected_index else {
+    let Some(index) = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+    else {
         return IntentResult::empty();
     };
 
@@ -108,7 +111,11 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_push(FocusScope::SidebarSessions);
         // No selection set.
-        assert!(state.frontend.sessions_section.selected_index.is_none());
+        assert!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index.is_none(), || true)
+        );
 
         // When handling session continue.
         let result = handle_session_continue(&mut state);

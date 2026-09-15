@@ -83,8 +83,10 @@ impl SidebarSection for SessionsSection {
                 Some(SidebarSectionId::Sessions)
             );
 
-        let selected_index = state.frontend.sessions_section.selected_index;
-        let scroll_offset = state.frontend.sessions_section.scroll_offset;
+        let (selected_index, scroll_offset) = state.frontend.with_sections(
+            |s| (s.sessions.selected_index, s.sessions.scroll_offset),
+            || (None, 0),
+        );
 
         let mut lines = Vec::new();
 
@@ -194,7 +196,10 @@ pub fn render_close_session_prompt_for_state(
     {
         return;
     }
-    if state.frontend.sessions_section.selected_index.is_none() {
+    if state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index.is_none(), || true)
+    {
         return;
     }
 
@@ -228,7 +233,10 @@ pub fn render_archive_tree_prompt_for_state(
     {
         return;
     }
-    if state.frontend.sessions_section.selected_index.is_none() {
+    if state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index.is_none(), || true)
+    {
         return;
     }
 
@@ -269,11 +277,12 @@ fn render_sessions_cursor_y(sidebar_rect: Rect, state: &AppState) -> u16 {
         entry_count.min(MAX_VISIBLE_SESSIONS as u16).max(1) + 1
     };
     let sessions_top_y = sidebar_rect.y + sidebar_rect.height.saturating_sub(sessions_height);
-    let scroll_offset = state.frontend.sessions_section.scroll_offset;
+    let scroll_offset = state
+        .frontend
+        .with_sections(|s| s.sessions.scroll_offset, || 0);
     let visual_row = state
         .frontend
-        .sessions_section
-        .selected_index
+        .with_sections(|s| s.sessions.selected_index, || None)
         .unwrap_or(0)
         .saturating_sub(scroll_offset) as u16;
     sessions_top_y + visual_row

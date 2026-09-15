@@ -110,7 +110,7 @@ mod tests {
 
     /// Builds an AppState whose active session has `entry` selected.
     fn state_with_selected(entry: ChatEntry) -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.active_session_mut().push_entry(entry);
         state.active_session_mut().select_prev_entry();
         state
@@ -119,7 +119,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_rejects_when_nothing_is_selected() {
         // Given an AppState with an empty history.
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
 
         // When validating.
         let result = validate_load_subagent_session(&state);
@@ -181,7 +181,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_rejects_task_result_without_link() {
         // Given a selected task result whose call carries no link.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         {
             let s = state.active_session_mut();
             s.push_entry(task_call_entry(None));
@@ -199,7 +199,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_rejects_non_task_result_selection() {
         // Given a selected non-task tool result.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         {
             let s = state.active_session_mut();
             s.push_entry(ChatEntry::tool_call("tc_read", "read", "{}"));
@@ -236,7 +236,7 @@ mod tests {
     fn validate_resolves_linked_task_result_via_paired_call() {
         // Given a selected task result whose call is linked to a child.
         let child_id = SessionId::new();
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         {
             let s = state.active_session_mut();
             s.push_entry(task_call_entry(Some(child_id.clone())));

@@ -107,8 +107,7 @@ pub fn archive_tree_members(state: &AppState) -> Result<Vec<SessionId>, ArchiveT
     // A session must be selected.
     let index = state
         .frontend
-        .sessions_section
-        .selected_index
+        .with_sections(|s| s.sessions.selected_index, || None)
         .ok_or(ArchiveTreeError::NoSelection)?;
 
     let entries = sorted_open_sessions(state);

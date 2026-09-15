@@ -58,7 +58,7 @@ pub struct SessionView<'a> {
 }
 
 /// Combined write view for sidebar reconciliation, which interleaves
-/// session and `frontend.sessions_section` writes.
+/// session and sidebar sections (cell) writes.
 ///
 /// Used by `SidebarStateActor` and the session actor's `remove_and_replace`.
 pub struct SessionSidebarView<'a> {
@@ -93,7 +93,7 @@ impl State {
         })
     }
 
-    /// Write access for sidebar reconciliation: session + `frontend.sessions_section`.
+    /// Write access for sidebar reconciliation: session map + the sidebar sections cell.
     pub fn with_session_sidebar<R, F>(
         &self,
         _session_cap: &SessionCap,
@@ -111,7 +111,7 @@ impl State {
         })
     }
 
-    /// Write access for pin management: session + `frontend.pins`.
+    /// Write access for pin management: session map + the sidebar sections cell.
     pub fn with_session_pins<R, F>(
         &self,
         _session_cap: &SessionCap,

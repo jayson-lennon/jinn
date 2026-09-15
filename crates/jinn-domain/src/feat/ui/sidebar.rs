@@ -20,7 +20,6 @@ pub mod sessions;
 )]
 pub mod sidebar;
 pub mod sidebar_state_actor;
-pub mod state;
 pub mod task_list_section;
 
 #[cfg(test)]
@@ -34,7 +33,6 @@ pub use section_trait::{
 pub use sidebar::Sidebar;
 pub use sidebar::jump_to_section;
 pub use sidebar::navigate_sidebar;
-pub use state::SidebarState;
 
 /// Registers all built-in sidebar sections into the given sidebar.
 pub fn register_sections(sidebar: &mut Sidebar) {

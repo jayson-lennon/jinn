@@ -48,7 +48,7 @@ fn tree_entry(
 }
 
 fn default_theme() -> crate::feat::theme::Theme {
-    AppState::default().frontend.theme
+    AppState::default_with_scope_focus().frontend.theme
 }
 
 fn idle_throbber() -> ThrobberState {

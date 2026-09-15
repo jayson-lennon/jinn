@@ -24,7 +24,10 @@ pub fn handle_session_activate(state: &mut AppState) -> IntentResult {
     ) {
         return IntentResult::empty();
     }
-    let Some(index) = state.frontend.sessions_section.selected_index else {
+    let Some(index) = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+    else {
         return IntentResult::empty();
     };
     let sessions = sorted_open_sessions(state);
@@ -56,7 +59,10 @@ pub fn handle_session_activate_insert(state: &mut AppState) -> IntentResult {
     ) {
         return IntentResult::empty();
     }
-    let Some(index) = state.frontend.sessions_section.selected_index else {
+    let Some(index) = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+    else {
         return IntentResult::empty();
     };
     let sessions = sorted_open_sessions(state);
@@ -98,7 +104,9 @@ mod tests {
             .iter()
             .position(|e| e.id == second)
             .expect("second session present");
-        state.frontend.sessions_section.selected_index = Some(target_idx);
+        state
+            .frontend
+            .update_sections(|s| s.sessions.selected_index = Some(target_idx));
         state.frontend.scope_push(FocusScope::SidebarSessions);
         (state, second)
     }

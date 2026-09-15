@@ -19,29 +19,31 @@ pub fn scroll_to_cursor_split(
     frontend: &mut crate::feat::ui::frontend_state::FrontendState,
     total: usize,
 ) {
-    let Some(index) = frontend.sessions_section.selected_index else {
+    let Some(index) = frontend.with_sections(|s| s.sessions.selected_index, || None) else {
         return;
     };
     let visible = MAX_VISIBLE_SESSIONS.min(total);
     if visible == 0 {
         return;
     }
-    let offset = &mut frontend.sessions_section.scroll_offset;
+    frontend.update_sections(|s| {
+        let offset = &mut s.sessions.scroll_offset;
 
-    if index < *offset {
-        *offset = index;
-    } else if index >= *offset + visible {
-        *offset = index - visible + 1;
-    } else {
-        // index is already visible; no scroll needed.
-    }
+        if index < *offset {
+            *offset = index;
+        } else if index >= *offset + visible {
+            *offset = index - visible + 1;
+        } else {
+            // index is already visible; no scroll needed.
+        }
 
-    // Clamp offset so the window doesn't extend past the end of the list.
-    // Without this, archiving sessions can leave the offset too large,
-    // causing fewer entries to render than content_height reports and
-    // the Sessions footer label to shift upward.
-    let max_offset = total.saturating_sub(visible);
-    *offset = (*offset).min(max_offset);
+        // Clamp offset so the window doesn't extend past the end of the list.
+        // Without this, archiving sessions can leave the offset too large,
+        // causing fewer entries to render than content_height reports and
+        // the Sessions footer label to shift upward.
+        let max_offset = total.saturating_sub(visible);
+        s.sessions.scroll_offset = s.sessions.scroll_offset.min(max_offset);
+    });
 }
 
 /// No-op: session preview removed with node-graph.
@@ -60,20 +62,30 @@ pub fn navigate(intent: &SidebarIntent, state: &mut AppState) -> SectionNavResul
 
     let result = match intent {
         SidebarIntent::MoveDown => {
-            let current = state.frontend.sessions_section.selected_index.unwrap_or(0);
+            let current = state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None)
+                .unwrap_or(0);
             let new_index = current.saturating_add(1);
             if new_index >= sessions.len() {
                 return SectionNavResult::Exhausted;
             }
-            state.frontend.sessions_section.selected_index = Some(new_index);
+            state
+                .frontend
+                .update_sections(|s| s.sessions.selected_index = Some(new_index));
             SectionNavResult::Moved
         }
         SidebarIntent::MoveUp => {
-            let current = state.frontend.sessions_section.selected_index.unwrap_or(0);
+            let current = state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None)
+                .unwrap_or(0);
             if current == 0 {
                 return SectionNavResult::Exhausted;
             }
-            state.frontend.sessions_section.selected_index = Some(current - 1);
+            state
+                .frontend
+                .update_sections(|s| s.sessions.selected_index = Some(current - 1));
             SectionNavResult::Moved
         }
         SidebarIntent::Action(_) => SectionNavResult::Moved,
@@ -96,7 +108,9 @@ pub fn receive_cursor(state: &mut AppState, enter_from: EnterFrom) {
         EnterFrom::Top => 0,
         EnterFrom::Bottom => sessions.len() - 1,
     };
-    state.frontend.sessions_section.selected_index = Some(index);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(index));
     scroll_to_cursor(state);
     update_preview(state);
 }

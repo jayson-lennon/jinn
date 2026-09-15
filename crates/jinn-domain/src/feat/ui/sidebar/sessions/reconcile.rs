@@ -29,13 +29,15 @@ pub fn reconcile_split(
 ) {
     let sessions = sorted_open_sessions_split(session, frontend);
     if sessions.is_empty() {
-        frontend.sessions_section.selected_index = Some(0);
+        frontend.update_sections(|s| s.sessions.selected_index = Some(0));
         return;
     }
 
-    let current = frontend.sessions_section.selected_index.unwrap_or(0);
+    let current = frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+        .unwrap_or(0);
     let clamped = current.min(sessions.len() - 1);
-    frontend.sessions_section.selected_index = Some(clamped);
+    frontend.update_sections(|s| s.sessions.selected_index = Some(clamped));
 
     let active_id = session.active_session_id();
     let active_in_list = sessions.iter().any(|s| &s.id == active_id);
@@ -63,7 +65,7 @@ mod tests {
         active_index: usize,
         cursor_index: usize,
     ) -> (AppState, Vec<crate::protocol::SessionId>) {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         // Remove default session to control exact count.
         let default_id = state.session.active_session_id().clone();
         state.session.remove_without_replacement(&default_id);
@@ -78,7 +80,9 @@ mod tests {
             .set_active(sorted[active_index].id.clone())
             .then_some(())
             .expect("active_index is valid");
-        state.frontend.sessions_section.selected_index = Some(cursor_index);
+        state
+            .frontend
+            .update_sections(|s| s.sessions.selected_index = Some(cursor_index));
 
         (state, sorted.into_iter().map(|s| s.id).collect())
     }
@@ -96,7 +100,12 @@ mod tests {
         reconcile_after_session_removal(&mut state);
 
         // Then cursor is clamped to index 1.
-        assert_eq!(state.frontend.sessions_section.selected_index, Some(1));
+        assert_eq!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None),
+            Some(1)
+        );
         // Then active session is now the one at index 1 in the sorted list.
         let sorted = sorted_open_sessions(&state);
         assert_eq!(state.session.active_session_id(), &sorted[1].id);
@@ -115,7 +124,12 @@ mod tests {
         reconcile_after_session_removal(&mut state);
 
         // Then cursor stays at index 0.
-        assert_eq!(state.frontend.sessions_section.selected_index, Some(0));
+        assert_eq!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None),
+            Some(0)
+        );
         // Then active session is now the one at index 0 in the new sorted list.
         let sorted = sorted_open_sessions(&state);
         assert_eq!(state.session.active_session_id(), &sorted[0].id);
@@ -134,7 +148,12 @@ mod tests {
         reconcile_after_session_removal(&mut state);
 
         // Then cursor is clamped to index 1.
-        assert_eq!(state.frontend.sessions_section.selected_index, Some(1));
+        assert_eq!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None),
+            Some(1)
+        );
         // And active session is unchanged.
         assert_eq!(state.session.active_session_id(), &sorted_ids[0]);
     }
@@ -155,7 +174,12 @@ mod tests {
         reconcile_after_session_removal(&mut state);
 
         // Then cursor is at index 0.
-        assert_eq!(state.frontend.sessions_section.selected_index, Some(0));
+        assert_eq!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None),
+            Some(0)
+        );
         // And active session is the fresh session.
         let sorted = sorted_open_sessions(&state);
         assert_eq!(sorted.len(), 1);
@@ -165,16 +189,23 @@ mod tests {
     #[rstest::rstest]
     fn reconcile_does_not_panic_with_none_cursor() {
         // Given a state with 2 sessions but no cursor set.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let second = ChatSessionState::new();
         let _second_id = second.session_id().clone();
         state.session.insert(second);
-        state.frontend.sessions_section.selected_index = None;
+        state
+            .frontend
+            .update_sections(|s| s.sessions.selected_index = None);
 
         // When reconciling (selected_index is None).
         reconcile_after_session_removal(&mut state);
 
         // Then cursor defaults to 0 (unwrap_or(0)).
-        assert_eq!(state.frontend.sessions_section.selected_index, Some(0));
+        assert_eq!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None),
+            Some(0)
+        );
     }
 }

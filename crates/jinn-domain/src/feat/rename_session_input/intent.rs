@@ -11,7 +11,10 @@ use crate::protocol::IntentResult;
 /// currently selected session's title (or empty if "Untitled Session").
 /// No-op if no session is selected in the sidebar.
 pub fn handle_rename_session_enter(state: &mut AppState) -> IntentResult {
-    let Some(index) = state.frontend.sessions_section.selected_index else {
+    let Some(index) = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+    else {
         return IntentResult::empty();
     };
 
@@ -51,7 +54,10 @@ pub fn handle_rename_session_confirm(state: &mut AppState) -> IntentResult {
     }
 
     // Resolve the selected session.
-    let Some(index) = state.frontend.sessions_section.selected_index else {
+    let Some(index) = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+    else {
         return IntentResult::empty();
     };
     let sessions = sorted_open_sessions(state);
@@ -151,7 +157,9 @@ mod tests {
         // Given a state with a selected session.
         let mut state = state_with_sessions(2);
         state.frontend.scope_push(FocusScope::SidebarSessions);
-        state.frontend.sessions_section.selected_index = Some(0);
+        state
+            .frontend
+            .update_sections(|s| s.sessions.selected_index = Some(0));
 
         // When handling SidebarRenameSession.
         let result = handle_rename_session_enter(&mut state);
@@ -174,7 +182,9 @@ mod tests {
             .session_mut(&session_id)
             .set_title("My Session".to_owned());
         state.frontend.scope_push(FocusScope::SidebarSessions);
-        state.frontend.sessions_section.selected_index = Some(0);
+        state
+            .frontend
+            .update_sections(|s| s.sessions.selected_index = Some(0));
 
         // When handling SidebarRenameSession.
         let _result = handle_rename_session_enter(&mut state);
@@ -208,7 +218,9 @@ mod tests {
         let session_id = state.session.active_session_id().clone();
         state.frontend.scope_push(FocusScope::SidebarSessions);
         state.frontend.scope_push(FocusScope::RenameSessionInput);
-        state.frontend.sessions_section.selected_index = Some(0);
+        state
+            .frontend
+            .update_sections(|s| s.sessions.selected_index = Some(0));
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "New Title".to_owned(),
@@ -241,7 +253,9 @@ mod tests {
         // Given state with empty input.
         let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_push(FocusScope::RenameSessionInput);
-        state.frontend.sessions_section.selected_index = Some(0);
+        state
+            .frontend
+            .update_sections(|s| s.sessions.selected_index = Some(0));
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: String::new(),
@@ -276,7 +290,9 @@ mod tests {
         );
         state.frontend.scope_push(FocusScope::SidebarSessions);
         state.frontend.scope_push(FocusScope::RenameSessionInput);
-        state.frontend.sessions_section.selected_index = Some(0);
+        state
+            .frontend
+            .update_sections(|s| s.sessions.selected_index = Some(0));
         state.frontend.rename_session_input = RenameSessionInputState {
             text: crate::common::line_input::LineInput {
                 input: "Fresh Title".to_owned(),

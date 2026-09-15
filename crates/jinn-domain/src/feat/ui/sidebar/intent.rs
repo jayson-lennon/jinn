@@ -16,15 +16,23 @@ pub fn handle_sidebar_focus(state: &mut AppState) -> IntentResult {
     state.frontend.scope_push(FocusScope::SidebarPersona);
 
     // If a section already has cursor state, restore it.
-    let has_existing_cursor = state.frontend.persona_section.cursor.is_some()
-        || state.frontend.pins.selected_id().is_some()
-        || state.frontend.sessions_section.selected_index.is_some();
+    let (persona_has_cursor, pins_has_cursor, sessions_has_cursor) = state.frontend.with_sections(
+        |s| {
+            (
+                s.persona.cursor.is_some(),
+                s.pins.selected_id().is_some(),
+                s.sessions.selected_index.is_some(),
+            )
+        },
+        || (false, false, false),
+    );
+    let has_existing_cursor = persona_has_cursor || pins_has_cursor || sessions_has_cursor;
 
     if has_existing_cursor {
         // Restore to whichever section has a cursor.
-        let section = if state.frontend.sessions_section.selected_index.is_some() {
+        let section = if sessions_has_cursor {
             SidebarSectionId::Sessions
-        } else if state.frontend.pins.selected_id().is_some() {
+        } else if pins_has_cursor {
             SidebarSectionId::Pins
         } else {
             SidebarSectionId::Persona
@@ -137,7 +145,10 @@ mod tests {
         handle_sidebar_focus(&mut state);
 
         // Then persona section has the cursor.
-        assert_eq!(state.frontend.persona_section.cursor, Some(0));
+        assert_eq!(
+            state.frontend.with_sections(|s| s.persona.cursor, || None),
+            Some(0)
+        );
     }
 
     #[rstest::rstest]
@@ -150,15 +161,26 @@ mod tests {
         let id = entry.id.clone();
         state.active_session_mut().push_entry(entry);
         state.active_session_mut().pin_entry(&id, PinPosition::Top);
-        state.frontend.pins.select_by_id(id);
+        state
+            .frontend
+            .update_sections(|s| s.pins.select_by_id(id.clone()));
 
         // When handling sidebar focus.
         handle_sidebar_focus(&mut state);
 
         // Then pins selection is preserved (not reset to persona).
-        assert!(state.frontend.pins.selected_id().is_some());
+        assert!(
+            state
+                .frontend
+                .with_sections(|s| s.pins.selected_id().is_some(), || false)
+        );
         // And persona does NOT have cursor.
-        assert!(state.frontend.persona_section.cursor.is_none());
+        assert!(
+            state
+                .frontend
+                .with_sections(|s| s.persona.cursor, || None)
+                .is_none()
+        );
     }
 
     #[rstest::rstest]
@@ -217,7 +239,12 @@ mod tests {
         // Then scope is SidebarSessions.
         assert_eq!(state.frontend.scope(), FocusScope::SidebarSessions);
         // And sessions section has a cursor.
-        assert!(state.frontend.sessions_section.selected_index.is_some());
+        assert!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None)
+                .is_some()
+        );
         assert!(result.message_names.is_empty());
     }
 
@@ -239,7 +266,9 @@ mod tests {
         // Given SidebarPersona scope with persona cursor.
         let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_push(FocusScope::SidebarPersona);
-        state.frontend.persona_section.cursor = Some(0);
+        state
+            .frontend
+            .update_sections(|s| s.persona.cursor = Some(0));
 
         // When handling sidebar focus sessions.
         handle_sidebar_focus_sessions(&mut state);
@@ -247,9 +276,19 @@ mod tests {
         // Then scope is SidebarSessions.
         assert_eq!(state.frontend.scope(), FocusScope::SidebarSessions);
         // And persona cursor is cleared.
-        assert!(state.frontend.persona_section.cursor.is_none());
+        assert!(
+            state
+                .frontend
+                .with_sections(|s| s.persona.cursor, || None)
+                .is_none()
+        );
         // And sessions has cursor.
-        assert!(state.frontend.sessions_section.selected_index.is_some());
+        assert!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None)
+                .is_some()
+        );
     }
 
     #[rstest::rstest]
@@ -257,7 +296,9 @@ mod tests {
         // Given SidebarSessions scope with cursor at index 0.
         let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_push(FocusScope::SidebarSessions);
-        state.frontend.sessions_section.selected_index = Some(0);
+        state
+            .frontend
+            .update_sections(|s| s.sessions.selected_index = Some(0));
 
         // When handling sidebar focus sessions.
         let result = handle_sidebar_focus_sessions(&mut state);
@@ -265,7 +306,12 @@ mod tests {
         // Then scope stays SidebarSessions.
         assert_eq!(state.frontend.scope(), FocusScope::SidebarSessions);
         // And cursor is unchanged.
-        assert_eq!(state.frontend.sessions_section.selected_index, Some(0));
+        assert_eq!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None),
+            Some(0)
+        );
         assert!(result.message_names.is_empty());
     }
 
@@ -278,7 +324,9 @@ mod tests {
         let id = entry.id.clone();
         state.active_session_mut().push_entry(entry);
         state.active_session_mut().pin_entry(&id, PinPosition::Top);
-        state.frontend.pins.select_by_id(id);
+        state
+            .frontend
+            .update_sections(|s| s.pins.select_by_id(id.clone()));
         state.frontend.scope_push(FocusScope::SidebarPins);
 
         // When handling sidebar focus sessions.
@@ -287,7 +335,12 @@ mod tests {
         // Then scope is SidebarSessions.
         assert_eq!(state.frontend.scope(), FocusScope::SidebarSessions);
         // And sessions has a cursor.
-        assert!(state.frontend.sessions_section.selected_index.is_some());
+        assert!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_index, || None)
+                .is_some()
+        );
     }
 
     #[rstest::rstest]

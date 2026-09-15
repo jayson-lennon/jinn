@@ -77,7 +77,10 @@ fn validate_pin_action(state: &AppState) -> Result<(), PinsActionError> {
     if state.sorted_pinned_ids().is_empty() {
         return Err(PinsActionError::Empty);
     }
-    if state.frontend.pins.selected_id().is_none() {
+    if state
+        .frontend
+        .with_sections(|s| s.pins.selected_id().is_none(), || true)
+    {
         return Err(PinsActionError::NoSelection);
     }
     Ok(())
@@ -97,18 +100,20 @@ mod tests {
     use super::*;
 
     fn state_with_selected_pin(text: &str, position: PinPosition) -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let entry_id = {
             let index = state.active_session_mut().push_entry(ChatEntry::user(text));
             state.active_session().history()[index].id.clone()
         };
         state.active_session_mut().pin_entry(&entry_id, position);
-        state.frontend.pins.select_by_id(entry_id);
+        state
+            .frontend
+            .update_sections(|s| s.pins.select_by_id(entry_id));
         state
     }
 
     fn state_with_unselected_pin(text: &str, position: PinPosition) -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let entry_id = {
             let index = state.active_session_mut().push_entry(ChatEntry::user(text));
             state.active_session().history()[index].id.clone()
@@ -132,7 +137,7 @@ mod tests {
     #[rstest::rstest]
     fn unpin_fails_with_no_pinned_entries() {
         // Given a state with no pinned entries.
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
 
         // When validating unpin.
         let result = validate_unpin(&state);
@@ -156,7 +161,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_pin_top_returns_empty_error_when_no_pinned_entries() {
         // Given a state with no pinned entries.
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
 
         // When validating pin top.
         let result = validate_pin_top(&state);
@@ -192,7 +197,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_pin_bottom_returns_empty_error_when_no_pinned_entries() {
         // Given a state with no pinned entries.
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
 
         // When validating pin bottom.
         let result = validate_pin_bottom(&state);
@@ -216,7 +221,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_pin_relative_returns_empty_error_when_no_pinned_entries() {
         // Given a state with no pinned entries.
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
 
         // When validating pin relative.
         let result = validate_pin_relative(&state);
@@ -240,7 +245,7 @@ mod tests {
     #[rstest::rstest]
     fn validate_pin_cycle_returns_empty_error_when_no_pinned_entries() {
         // Given a state with no pinned entries.
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
 
         // When validating pin cycle.
         let result = validate_pin_cycle(&state);

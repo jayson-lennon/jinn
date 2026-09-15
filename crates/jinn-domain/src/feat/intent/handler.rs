@@ -705,8 +705,10 @@ impl IntentHandler {
 
             Intent::SidebarRenameSession => {
                 // Rename the selected session (if any).
-                let index = state.frontend.sessions_section.selected_index;
-                if index.is_some() {
+                let has_selection = state
+                    .frontend
+                    .with_sections(|s| s.sessions.selected_index.is_some(), || false);
+                if has_selection {
                     feat::rename_session_input::intent::handle_rename_session_enter(state)
                 } else {
                     IntentResult::empty()

@@ -118,7 +118,10 @@ pub fn render_session_preview_for_state(
     if !matches!(state.frontend.scope(), FocusScope::SidebarSessions) {
         return;
     }
-    let Some(idx) = state.frontend.sessions_section.selected_index else {
+    let Some(idx) = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+    else {
         return;
     };
 
@@ -138,7 +141,9 @@ pub fn render_session_preview_for_state(
     let sessions_top_y = sidebar_rect.y + sidebar_rect.height.saturating_sub(sessions_height);
 
     // Cursor position: visual row within the sessions section.
-    let scroll_offset = state.frontend.sessions_section.scroll_offset;
+    let scroll_offset = state
+        .frontend
+        .with_sections(|s| s.sessions.scroll_offset, || 0);
     let visual_row = idx.saturating_sub(scroll_offset) as u16;
     let cursor_y = sessions_top_y + visual_row;
 

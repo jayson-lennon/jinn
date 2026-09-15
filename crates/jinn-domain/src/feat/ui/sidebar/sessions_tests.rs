@@ -117,7 +117,9 @@ fn navigate_down_moves_cursor_without_switching() {
     // Given state with 3 sessions, cursor at index 0.
     let mut state = state_with_sessions(3);
     let original_active = state.session.active_session_id().clone();
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
 
     // When navigating down.
     let result = navigate(&SidebarIntent::MoveDown, &mut state);
@@ -125,7 +127,12 @@ fn navigate_down_moves_cursor_without_switching() {
     // Then the result is Moved.
     assert_eq!(result, SectionNavResult::Moved);
     // And the cursor moved to index 1.
-    assert_eq!(state.frontend.sessions_section.selected_index, Some(1));
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.selected_index, || None),
+        Some(1)
+    );
     // And the active session did NOT change.
     assert_eq!(*state.session.active_session_id(), original_active);
 }
@@ -136,7 +143,9 @@ fn navigate_up_moves_cursor_without_switching() {
     let mut state = state_with_sessions(3);
     let sessions = sorted_open_sessions(&state);
     state.session.set_active(sessions[2].id.clone());
-    state.frontend.sessions_section.selected_index = Some(2);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(2));
     let original_active = state.session.active_session_id().clone();
 
     // When navigating up.
@@ -145,7 +154,12 @@ fn navigate_up_moves_cursor_without_switching() {
     // Then the result is Moved.
     assert_eq!(result, SectionNavResult::Moved);
     // And the cursor moved to index 1.
-    assert_eq!(state.frontend.sessions_section.selected_index, Some(1));
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.selected_index, || None),
+        Some(1)
+    );
     // And the active session did NOT change.
     assert_eq!(*state.session.active_session_id(), original_active);
 }
@@ -155,7 +169,9 @@ fn navigate_down_at_bottom_returns_exhausted() {
     // Given state with 2 sessions, cursor at last index.
     let mut state = state_with_sessions(2);
     let sessions = sorted_open_sessions(&state);
-    state.frontend.sessions_section.selected_index = Some(sessions.len() - 1);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(sessions.len() - 1));
 
     // When navigating down.
     let result = navigate(&SidebarIntent::MoveDown, &mut state);
@@ -168,7 +184,9 @@ fn navigate_down_at_bottom_returns_exhausted() {
 fn navigate_up_at_top_returns_exhausted() {
     // Given state with 2 sessions, cursor at index 0.
     let mut state = state_with_sessions(2);
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
 
     // When navigating up.
     let result = navigate(&SidebarIntent::MoveUp, &mut state);
@@ -188,64 +206,104 @@ fn navigate_action_returns_moved() {
 fn scroll_to_cursor_adjusts_offset_when_cursor_above_window() {
     // Given 20 sessions with scroll_offset at 5, cursor at index 3.
     let mut state = state_with_sessions(20);
-    state.frontend.sessions_section.scroll_offset = 5;
-    state.frontend.sessions_section.selected_index = Some(3);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.scroll_offset = 5);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(3));
 
     // When scrolling to cursor.
     scroll_to_cursor(&mut state);
 
     // Then scroll_offset moves to 3.
-    assert_eq!(state.frontend.sessions_section.scroll_offset, 3);
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.scroll_offset, || 0),
+        3
+    );
 }
 
 #[rstest::rstest]
 fn scroll_to_cursor_adjusts_offset_when_cursor_below_window() {
     // Given 20 sessions with scroll_offset at 0, cursor at index 18.
     let mut state = state_with_sessions(20);
-    state.frontend.sessions_section.scroll_offset = 0;
-    state.frontend.sessions_section.selected_index = Some(18);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.scroll_offset = 0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(18));
 
     // When scrolling to cursor.
     scroll_to_cursor(&mut state);
 
     // Then scroll_offset moves to 18 - 15 + 1 = 4.
-    assert_eq!(state.frontend.sessions_section.scroll_offset, 4);
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.scroll_offset, || 0),
+        4
+    );
 }
 
 #[rstest::rstest]
 fn scroll_to_cursor_noop_when_cursor_visible() {
     // Given 20 sessions with scroll_offset at 5, cursor at index 10.
     let mut state = state_with_sessions(20);
-    state.frontend.sessions_section.scroll_offset = 5;
-    state.frontend.sessions_section.selected_index = Some(10);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.scroll_offset = 5);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(10));
 
     // When scrolling to cursor.
     scroll_to_cursor(&mut state);
 
     // Then scroll_offset stays at 5 (10 is within 5..20).
-    assert_eq!(state.frontend.sessions_section.scroll_offset, 5);
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.scroll_offset, || 0),
+        5
+    );
 }
 
 #[rstest::rstest]
 fn scroll_to_cursor_noop_when_no_selection() {
     // Given 20 sessions with no selection.
     let mut state = state_with_sessions(20);
-    state.frontend.sessions_section.scroll_offset = 5;
-    state.frontend.sessions_section.selected_index = None;
+    state
+        .frontend
+        .update_sections(|s| s.sessions.scroll_offset = 5);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = None);
 
     // When scrolling to cursor.
     scroll_to_cursor(&mut state);
 
     // Then scroll_offset stays at 5.
-    assert_eq!(state.frontend.sessions_section.scroll_offset, 5);
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.scroll_offset, || 0),
+        5
+    );
 }
 
 #[rstest::rstest]
 fn scroll_to_cursor_clamps_offset_when_list_shrinks() {
     // Given 20 sessions with scroll_offset at 5, cursor at index 10.
     let mut state = state_with_sessions(20);
-    state.frontend.sessions_section.scroll_offset = 5;
-    state.frontend.sessions_section.selected_index = Some(10);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.scroll_offset = 5);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(10));
 
     // Remove 15 sessions, leaving only 5.
     let sorted = sorted_open_sessions(&state);
@@ -253,43 +311,78 @@ fn scroll_to_cursor_clamps_offset_when_list_shrinks() {
         state.session.remove_without_replacement(&entry.id);
     }
     // Cursor is now clamped to index 4 by the caller (reconcile).
-    state.frontend.sessions_section.selected_index = Some(4);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(4));
 
     // When scrolling to cursor.
     scroll_to_cursor(&mut state);
 
     // Then scroll_offset is clamped to 0 (5 sessions fit in MAX_VISIBLE_SESSIONS).
-    assert_eq!(state.frontend.sessions_section.scroll_offset, 0);
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.scroll_offset, || 0),
+        0
+    );
 }
 
 #[rstest::rstest]
 fn navigate_down_scrolls_viewport_at_bottom() {
     // Given 20 sessions, scroll_offset at 0, cursor at index 14 (last visible).
     let mut state = state_with_sessions(20);
-    state.frontend.sessions_section.scroll_offset = 0;
-    state.frontend.sessions_section.selected_index = Some(14);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.scroll_offset = 0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(14));
 
     // When navigating down to index 15.
     navigate(&SidebarIntent::MoveDown, &mut state);
 
     // Then cursor is at 15 and scroll_offset moved to 1.
-    assert_eq!(state.frontend.sessions_section.selected_index, Some(15));
-    assert_eq!(state.frontend.sessions_section.scroll_offset, 1);
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.selected_index, || None),
+        Some(15)
+    );
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.scroll_offset, || 0),
+        1
+    );
 }
 
 #[rstest::rstest]
 fn navigate_up_scrolls_viewport_at_top() {
     // Given 20 sessions, scroll_offset at 5, cursor at index 5.
     let mut state = state_with_sessions(20);
-    state.frontend.sessions_section.scroll_offset = 5;
-    state.frontend.sessions_section.selected_index = Some(5);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.scroll_offset = 5);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(5));
 
     // When navigating up to index 4.
     navigate(&SidebarIntent::MoveUp, &mut state);
 
     // Then cursor is at 4 and scroll_offset moved to 4.
-    assert_eq!(state.frontend.sessions_section.selected_index, Some(4));
-    assert_eq!(state.frontend.sessions_section.scroll_offset, 4);
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.selected_index, || None),
+        Some(4)
+    );
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.scroll_offset, || 0),
+        4
+    );
 }
 
 #[rstest::rstest]
@@ -301,7 +394,12 @@ fn receive_cursor_from_top_positions_at_index_zero() {
     receive_cursor(&mut state, EnterFrom::Top);
 
     // Then the selected index is 0.
-    assert_eq!(state.frontend.sessions_section.selected_index, Some(0));
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.selected_index, || None),
+        Some(0)
+    );
 }
 
 #[rstest::rstest]
@@ -315,7 +413,9 @@ fn receive_cursor_from_bottom_positions_at_last_index() {
 
     // Then the selected index is the last one.
     assert_eq!(
-        state.frontend.sessions_section.selected_index,
+        state
+            .frontend
+            .with_sections(|s| s.sessions.selected_index, || None),
         Some(count - 1)
     );
 }
@@ -330,7 +430,12 @@ fn receive_cursor_noop_when_empty() {
     receive_cursor(&mut state, EnterFrom::Top);
 
     // Then no index is selected.
-    assert_eq!(state.frontend.sessions_section.selected_index, None);
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.selected_index, || None),
+        None
+    );
 }
 
 #[rstest::rstest]
@@ -491,7 +596,7 @@ fn render_shows_down_arrow_when_entries_hidden_below() {
     let mut section = SessionsSection::new();
     let state = {
         let mut s = state_with_sessions(20);
-        s.frontend.sessions_section.scroll_offset = 0;
+        s.frontend.update_sections(|s| s.sessions.scroll_offset = 0);
         s
     };
     // content_height = 3 + 15 = 18, but we'll render in a taller area to be safe.
@@ -513,7 +618,7 @@ fn render_shows_up_arrow_when_entries_hidden_above() {
     let mut section = SessionsSection::new();
     let state = {
         let mut s = state_with_sessions(20);
-        s.frontend.sessions_section.scroll_offset = 5;
+        s.frontend.update_sections(|s| s.sessions.scroll_offset = 5);
         s
     };
     let rows = render_rows(&mut section, &state, 30, 20);
@@ -532,7 +637,7 @@ fn render_shows_both_arrows_when_viewport_in_middle() {
     let mut section = SessionsSection::new();
     let state = {
         let mut s = state_with_sessions(20);
-        s.frontend.sessions_section.scroll_offset = 3;
+        s.frontend.update_sections(|s| s.sessions.scroll_offset = 3);
         s
     };
     let rows = render_rows(&mut section, &state, 30, 20);
@@ -571,7 +676,7 @@ fn render_arrow_has_inverted_colors() {
     let mut section = SessionsSection::new();
     let state = {
         let mut s = state_with_sessions(20);
-        s.frontend.sessions_section.scroll_offset = 0;
+        s.frontend.update_sections(|s| s.sessions.scroll_offset = 0);
         s
     };
     let (mut terminal, area) = setup_term(30, 20);
@@ -692,7 +797,9 @@ fn close_session_switches_to_next() {
     // set active to index 0 explicitly to test active-session close).
     state.session.set_active(sessions[0].id.clone());
     let closing_id = sessions[0].id.clone();
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
 
     // When closing the active session.
     handle_session_close(&mut state);
@@ -714,7 +821,9 @@ fn close_non_active_session_keeps_active() {
     let active_id = state.session.active_session_id().clone();
     // Close session at index 1 (non-active).
     let closing_id = sessions[1].id.clone();
-    state.frontend.sessions_section.selected_index = Some(1);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(1));
 
     // When closing the non-active session.
     handle_session_close(&mut state);
@@ -731,7 +840,9 @@ fn close_last_session_creates_new() {
     let mut state = AppState::default_with_scope_focus();
     state.frontend.scope_push(FocusScope::SidebarSessions);
     let original_id = state.session.active_session_id().clone();
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
 
     // When closing the session.
     handle_session_close(&mut state);
@@ -739,7 +850,12 @@ fn close_last_session_creates_new() {
     // Then a new session is created.
     assert_eq!(state.session.session_count(), 1);
     assert_ne!(*state.session.active_session_id(), original_id);
-    assert_eq!(state.frontend.sessions_section.selected_index, Some(0));
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.selected_index, || None),
+        Some(0)
+    );
 }
 
 #[rstest::rstest]
@@ -748,7 +864,9 @@ fn close_last_session_seeds_new_session_reasoning_effort_from_global() {
     let mut state = AppState::default_with_scope_focus();
     state.frontend.scope_push(FocusScope::SidebarSessions);
     state.frontend.app_state.reasoning_effort = Some(crate::ReasoningEffort::High);
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
 
     // When closing the last session (forces a replacement).
     handle_session_close(&mut state);
@@ -771,7 +889,9 @@ fn close_last_session_seeds_disabled_sets_from_preferences() {
         .iter()
         .map(|s| (*s).to_owned())
         .collect();
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
 
     // When closing the last session (forces a replacement).
     handle_session_close(&mut state);
@@ -806,7 +926,9 @@ fn close_last_session_with_auto_enable_returns_enablement_message() {
     .into_iter()
     .collect();
     let original_id = state.session.active_session_id().clone();
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
 
     // When closing the last session (forces a replacement).
     let result = handle_session_close(&mut state);
@@ -828,7 +950,9 @@ fn close_last_session_without_auto_enable_emits_no_enablement() {
     // Given a single session with no auto-enabled servers.
     let mut state = AppState::default_with_scope_focus();
     state.frontend.scope_push(FocusScope::SidebarSessions);
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
 
     // When closing the last session.
     let result = handle_session_close(&mut state);
@@ -850,13 +974,17 @@ fn close_session_clamps_index() {
     let sessions = sorted_open_sessions(&state);
     state.session.set_active(sessions[2].id.clone());
     // Move cursor to index 2 (the active session, sorted to 0, so use index 0)
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
 
     // When closing.
     handle_session_close(&mut state);
 
     // Then index is clamped to valid range.
-    let selected = state.frontend.sessions_section.selected_index;
+    let selected = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None);
     assert!(selected.is_some());
     assert!(selected.unwrap() < state.session.session_count());
 }
@@ -866,8 +994,12 @@ fn close_session_adjusts_scroll_offset() {
     // Given 20 sessions with scroll_offset at 10, sessions section focused, cursor at 10.
     let mut state = state_with_sessions(20);
     state.frontend.scope_push(FocusScope::SidebarSessions);
-    state.frontend.sessions_section.scroll_offset = 10;
-    state.frontend.sessions_section.selected_index = Some(10);
+    state.frontend.update_sections(|s| {
+        s.sessions.scroll_offset = 10;
+    });
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(10));
 
     // When closing the session at index 10.
     handle_session_close(&mut state);
@@ -875,8 +1007,18 @@ fn close_session_adjusts_scroll_offset() {
     // Then scroll_offset is adjusted to keep the cursor visible.
     // After removal there are 19 sessions. The clamped index is 10.
     // scroll_to_cursor ensures index 10 is visible in a window of 15 from offset 10.
-    assert_eq!(state.frontend.sessions_section.selected_index, Some(10));
-    assert!(state.frontend.sessions_section.scroll_offset <= 10);
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.selected_index, || None),
+        Some(10)
+    );
+    assert!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.scroll_offset, || 0)
+            <= 10
+    );
 }
 
 #[rstest::rstest]
@@ -884,7 +1026,9 @@ fn close_session_rejected_when_streaming() {
     // Given state with a streaming session, sessions section focused.
     let mut state = AppState::default_with_scope_focus();
     state.frontend.scope_push(FocusScope::SidebarSessions);
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
     state.active_session_mut().begin_streaming();
 
     // When validating close.
@@ -899,7 +1043,9 @@ fn close_session_rejected_when_working_phase() {
     // Given state with a session in Working phase.
     let mut state = AppState::default_with_scope_focus();
     state.frontend.scope_push(FocusScope::SidebarSessions);
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
     state.active_session_mut().begin_busy();
 
     // When validating close.
@@ -1027,7 +1173,9 @@ fn activate_switches_to_cursor_session() {
     let mut state = state_with_sessions(3);
     state.frontend.scope_push(FocusScope::SidebarSessions);
     let sessions = sorted_open_sessions(&state);
-    state.frontend.sessions_section.selected_index = Some(1);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(1));
     let target_id = sessions[1].id.clone();
 
     // When activating.
@@ -1042,7 +1190,9 @@ fn activate_is_noop_when_not_sessions_section() {
     // Given state with persona section focused.
     let mut state = state_with_sessions(3);
     let original_active = state.session.active_session_id().clone();
-    state.frontend.sessions_section.selected_index = Some(1);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(1));
 
     // When activating.
     handle_session_activate(&mut state);
@@ -1126,7 +1276,9 @@ fn teardown_only_emits_run_session_teardown() {
     state
         .active_session_mut()
         .set_lifecycle_args(vec!["my-branch".to_owned()]);
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
     state
         .frontend
         .scope_push(crate::common::app_state::FocusScope::SidebarSessions);
@@ -1164,7 +1316,9 @@ fn teardown_only_is_noop_without_lifecycle_teardown() {
     state
         .active_session_mut()
         .set_lifecycle_name(Some("plain".to_owned()));
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
     state
         .frontend
         .scope_push(crate::common::app_state::FocusScope::SidebarSessions);
@@ -1210,7 +1364,9 @@ fn teardown_only_is_noop_when_session_busy() {
         .set_lifecycle_args(vec!["my-branch".to_owned()]);
     // Mark the session busy so close validation rejects it.
     state.active_session_mut().begin_busy();
-    state.frontend.sessions_section.selected_index = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(0));
     state
         .frontend
         .scope_push(crate::common::app_state::FocusScope::SidebarSessions);
@@ -1630,14 +1786,19 @@ fn navigate_down_from_root_goes_to_first_child() {
         .iter()
         .position(|s| entry_title(&state, &s.id).contains("root a"))
         .expect("root a");
-    state.frontend.sessions_section.selected_index = Some(root_a_index);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(root_a_index));
 
     // When navigating down.
     navigate(&SidebarIntent::MoveDown, &mut state);
 
     // Then the cursor is on the next entry (root_a's first child in DFS order).
     let new_sessions = sorted_open_sessions(&state);
-    let new_index = state.frontend.sessions_section.selected_index.unwrap();
+    let new_index = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+        .unwrap();
     assert_eq!(
         new_index,
         root_a_index + 1,
@@ -1659,13 +1820,18 @@ fn navigate_up_from_child_goes_to_parent() {
         .iter()
         .position(|s| entry_title(&state, &s.id).contains("child a1"))
         .expect("child a1");
-    state.frontend.sessions_section.selected_index = Some(child_a1_index);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(child_a1_index));
 
     // When navigating up.
     navigate(&SidebarIntent::MoveUp, &mut state);
 
     // Then the cursor is on root_a (parent).
-    let new_index = state.frontend.sessions_section.selected_index.unwrap();
+    let new_index = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+        .unwrap();
     assert_eq!(
         new_index,
         child_a1_index - 1,
@@ -1689,7 +1855,9 @@ fn close_child_session_clamps_cursor() {
         .position(|s| entry_title(&state, &s.id).contains("child a1"))
         .expect("child a1");
     let child_a1_id = sessions[child_a1_index].id.clone();
-    state.frontend.sessions_section.selected_index = Some(child_a1_index);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(child_a1_index));
 
     // When closing child_a1.
     handle_session_close(&mut state);
@@ -1698,7 +1866,10 @@ fn close_child_session_clamps_cursor() {
     assert!(!state.session.contains(&child_a1_id));
     // And the cursor is clamped to valid range.
     let remaining = sorted_open_sessions(&state);
-    let selected = state.frontend.sessions_section.selected_index.unwrap();
+    let selected = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+        .unwrap();
     assert!(selected < remaining.len());
 }
 
@@ -1713,7 +1884,9 @@ fn close_root_session_promotes_children_to_roots() {
         .position(|s| entry_title(&state, &s.id).contains("root a"))
         .expect("root a");
     let root_a_id = sessions[root_a_index].id.clone();
-    state.frontend.sessions_section.selected_index = Some(root_a_index);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(root_a_index));
 
     // When closing root_a.
     handle_session_close(&mut state);
@@ -1757,7 +1930,9 @@ fn activate_child_session_switches_active() {
         .position(|s| entry_title(&state, &s.id).contains("child a1"))
         .expect("child a1");
     let child_a1_id = sessions[child_a1_index].id.clone();
-    state.frontend.sessions_section.selected_index = Some(child_a1_index);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(child_a1_index));
 
     // When activating.
     handle_session_activate(&mut state);
@@ -1825,7 +2000,9 @@ fn archiving_intermediate_parent_reparents_grandchild_under_grandparent() {
         .find(|s| entry_title(&state, &s.id).contains("grandchild"))
         .map(|s| s.id.clone())
         .expect("grandchild");
-    state.frontend.sessions_section.selected_index = Some(child_a1_index);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(child_a1_index));
 
     // When closing child_a1 (the intermediate parent).
     handle_session_close(&mut state);
@@ -1834,12 +2011,11 @@ fn archiving_intermediate_parent_reparents_grandchild_under_grandparent() {
     assert!(!state.session.contains(&child_a1_id));
     // And the visual_parents index maps grandchild -> root_a.
     assert_eq!(
-        state
-            .frontend
-            .sessions_section
-            .visual_parents
-            .get(&grandchild_id),
-        Some(&root_a_id),
+        state.frontend.with_sections(
+            |s| s.sessions.visual_parents.get(&grandchild_id).cloned(),
+            || None
+        ),
+        Some(root_a_id.clone()),
         "grandchild should be reparented to root_a in visual_parents"
     );
     // And sorted_open_sessions shows grandchild at depth 1 under root_a.
@@ -1855,7 +2031,7 @@ fn archiving_intermediate_parent_reparents_grandchild_under_grandparent() {
     );
     assert_eq!(
         grandchild_entry.parent_id,
-        Some(root_a_id),
+        Some(root_a_id.clone()),
         "grandchild's effective parent should be root_a"
     );
 }
@@ -1871,14 +2047,19 @@ fn archiving_root_does_not_create_visual_parents_for_orphaned_children() {
         .position(|s| entry_title(&state, &s.id).contains("root a"))
         .expect("root a");
     let _root_a_id = sessions[root_a_index].id.clone();
-    state.frontend.sessions_section.selected_index = Some(root_a_index);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(root_a_index));
 
     // When closing root_a (no loaded ancestor to reparent to).
     handle_session_close(&mut state);
 
     // Then the visual_parents index should be empty (root has no loaded ancestor).
     assert!(
-        state.frontend.sessions_section.visual_parents.is_empty(),
+        state
+            .frontend
+            .with_sections(|s| s.sessions.visual_parents.clone(), || Default::default())
+            .is_empty(),
         "no visual_parents entries should exist when root is closed"
     );
 }
@@ -1922,12 +2103,17 @@ fn multi_level_intermediate_hiding_reparents_to_nearest_loaded_ancestor() {
     state.frontend.scope_push(FocusScope::SidebarSessions);
     let sessions = sorted_open_sessions(&state);
     let a_index = sessions.iter().position(|s| s.id == a_id).expect("A");
-    state.frontend.sessions_section.selected_index = Some(a_index);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(a_index));
     handle_session_close(&mut state);
 
     // Then B is reparented to root.
     assert_eq!(
-        state.frontend.sessions_section.visual_parents.get(&b_id),
+        state
+            .frontend
+            .with_sections(|s| s.sessions.visual_parents.clone(), || Default::default())
+            .get(&b_id),
         Some(&root_id),
         "B should be reparented to root"
     );
@@ -1935,12 +2121,17 @@ fn multi_level_intermediate_hiding_reparents_to_nearest_loaded_ancestor() {
     // When archiving B.
     let sessions = sorted_open_sessions(&state);
     let b_index = sessions.iter().position(|s| s.id == b_id).expect("B");
-    state.frontend.sessions_section.selected_index = Some(b_index);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(b_index));
     handle_session_close(&mut state);
 
     // Then leaf is reparented to root (transitive via B visual parent).
     assert_eq!(
-        state.frontend.sessions_section.visual_parents.get(&leaf_id),
+        state
+            .frontend
+            .with_sections(|s| s.sessions.visual_parents.clone(), || Default::default())
+            .get(&leaf_id),
         Some(&root_id),
         "leaf should be reparented to root (transitive)"
     );
@@ -2070,17 +2261,19 @@ fn update_visual_parents_on_removal_reparents_only_children_of_removed_session()
 
     // Then B is reparented to root.
     assert_eq!(
-        state.frontend.sessions_section.visual_parents.get(&b_id),
+        state
+            .frontend
+            .with_sections(|s| s.sessions.visual_parents.clone(), || Default::default())
+            .get(&b_id),
         Some(&root_id),
         "B should be reparented to root"
     );
     // And the unrelated child is NOT reparented (it has a different parent).
     assert_eq!(
-        state
-            .frontend
-            .sessions_section
-            .visual_parents
-            .get(&unrelated_child_id),
+        state.frontend.with_sections(
+            |s| s.sessions.visual_parents.get(&unrelated_child_id).cloned(),
+            || None
+        ),
         None,
         "unrelated child should not be reparented - its parent is not being removed"
     );
@@ -2098,29 +2291,35 @@ fn clear_visual_parents_on_load_removes_only_entries_pointing_to_loaded_session(
     let other_id = crate::protocol::SessionId::new();
 
     // entry_x -> loaded_id (should be removed after load)
-    state
-        .frontend
-        .sessions_section
-        .visual_parents
-        .insert(id_x.clone(), loaded_id.clone());
+    state.frontend.update_sections(|s| {
+        s.sessions
+            .visual_parents
+            .insert(id_x.clone(), loaded_id.clone());
+    });
     // entry_y -> other_id (should be kept)
-    state
-        .frontend
-        .sessions_section
-        .visual_parents
-        .insert(id_y.clone(), other_id.clone());
+    state.frontend.update_sections(|s| {
+        s.sessions
+            .visual_parents
+            .insert(id_y.clone(), other_id.clone());
+    });
 
     // When clearing on load for loaded_id.
     clear_visual_parents_on_load(&mut state, &loaded_id);
 
     // Then only entry_x is removed (pointed to loaded_id).
     assert_eq!(
-        state.frontend.sessions_section.visual_parents.get(&id_x),
+        state
+            .frontend
+            .with_sections(|s| s.sessions.visual_parents.clone(), || Default::default())
+            .get(&id_x),
         None,
         "entry pointing to loaded session should be removed"
     );
     assert_eq!(
-        state.frontend.sessions_section.visual_parents.get(&id_y),
+        state
+            .frontend
+            .with_sections(|s| s.sessions.visual_parents.clone(), || Default::default())
+            .get(&id_y),
         Some(&other_id),
         "entry pointing to other session should be kept"
     );
@@ -2135,19 +2334,28 @@ fn clear_visual_parents_on_load_actually_removes_entries() {
     let child_id = crate::protocol::SessionId::new();
     let loaded_id = crate::protocol::SessionId::new();
 
-    state
-        .frontend
-        .sessions_section
-        .visual_parents
-        .insert(child_id, loaded_id.clone());
-    assert_eq!(state.frontend.sessions_section.visual_parents.len(), 1);
+    state.frontend.update_sections(|s| {
+        s.sessions
+            .visual_parents
+            .insert(child_id, loaded_id.clone());
+    });
+    assert_eq!(
+        state
+            .frontend
+            .with_sections(|s| s.sessions.visual_parents.clone(), || Default::default())
+            .len(),
+        1
+    );
 
     // When clearing on load.
     clear_visual_parents_on_load(&mut state, &loaded_id);
 
     // Then the entry is removed.
     assert!(
-        state.frontend.sessions_section.visual_parents.is_empty(),
+        state
+            .frontend
+            .with_sections(|s| s.sessions.visual_parents.clone(), || Default::default())
+            .is_empty(),
         "visual_parents should be empty after clearing the loaded session's entries"
     );
 }
@@ -2260,7 +2468,9 @@ fn focus_sessions_and_select(state: &mut AppState, title: &str) {
         .iter()
         .position(|e| entry_title(state, &e.id) == title)
         .unwrap_or_else(|| panic!("session titled {title} not in sidebar"));
-    state.frontend.sessions_section.selected_index = Some(index);
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = Some(index));
 }
 
 #[rstest::rstest]
@@ -2355,7 +2565,9 @@ fn archive_tree_members_rejected_when_no_selection() {
     // Given a focused sessions section with no cursor.
     let (mut state, _) = state_with_archive_tree();
     state.frontend.scope_push(FocusScope::SidebarSessions);
-    state.frontend.sessions_section.selected_index = None;
+    state
+        .frontend
+        .update_sections(|s| s.sessions.selected_index = None);
 
     // When resolving the archive-tree members.
     let result = archive_tree_members(&state);
@@ -3121,13 +3333,21 @@ fn sidebar_after_archive_tree_cascade_shows_survivors_only() {
 
     // And no stale visual_parents entries remain.
     assert!(
-        state.frontend.sessions_section.visual_parents.is_empty(),
+        state
+            .frontend
+            .with_sections(|s| s.sessions.visual_parents.clone(), || Default::default())
+            .is_empty(),
         "visual_parents should be empty, got {:?}",
-        state.frontend.sessions_section.visual_parents
+        state
+            .frontend
+            .with_sections(|s| s.sessions.visual_parents.clone(), || Default::default())
     );
 
     // And the cursor is valid: either None or in bounds.
-    if let Some(index) = state.frontend.sessions_section.selected_index {
+    if let Some(index) = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+    {
         assert!(index < sessions.len(), "cursor out of bounds: {index}");
     }
 }

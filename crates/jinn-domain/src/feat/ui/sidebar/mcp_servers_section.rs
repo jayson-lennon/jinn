@@ -30,16 +30,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 const SELECTED_INDICATOR: &str = "\u{2588}";
 /// One space used as the unselected border (same as other sections).
 const UNSELECTED_BORDER: &str = " ";
-
-/// MCP servers section cursor state — stored on `FrontendState`.
-///
-/// Tracks the selected index into the configured-servers list.
-/// `None` means no cursor (section not focused).
-#[derive(Debug, Clone, Default)]
-pub struct McpServersSectionState {
-    /// Index into the configured MCP servers list.
-    pub selected_index: Option<usize>,
-}
+pub use jinn_slices::McpServersSectionState;
 
 /// The effective visual state of a single (enabled) server row.
 ///
@@ -114,15 +105,16 @@ pub fn navigate(intent: &SidebarIntent, state: &mut AppState) -> SectionNavResul
     let max_index = count - 1;
     let current = state
         .frontend
-        .mcp_servers_section
-        .selected_index
+        .with_sections(|s| s.mcp_servers.selected_index, || None)
         .unwrap_or(0);
     match intent {
         SidebarIntent::MoveDown => {
             if current >= max_index {
                 SectionNavResult::Exhausted
             } else {
-                state.frontend.mcp_servers_section.selected_index = Some(current + 1);
+                state
+                    .frontend
+                    .update_sections(|s| s.mcp_servers.selected_index = Some(current + 1));
                 SectionNavResult::Moved
             }
         }
@@ -130,7 +122,9 @@ pub fn navigate(intent: &SidebarIntent, state: &mut AppState) -> SectionNavResul
             if current == 0 {
                 SectionNavResult::Exhausted
             } else {
-                state.frontend.mcp_servers_section.selected_index = Some(current - 1);
+                state
+                    .frontend
+                    .update_sections(|s| s.mcp_servers.selected_index = Some(current - 1));
                 SectionNavResult::Moved
             }
         }
@@ -150,7 +144,9 @@ pub fn receive_cursor(state: &mut AppState, enter_from: EnterFrom) {
         EnterFrom::Top => 0,
         EnterFrom::Bottom => count - 1,
     };
-    state.frontend.mcp_servers_section.selected_index = Some(index);
+    state
+        .frontend
+        .update_sections(|s| s.mcp_servers.selected_index = Some(index));
 }
 
 /// The MCP servers sidebar section.
@@ -174,7 +170,9 @@ impl SidebarSection for McpServersSection {
                 Some(SidebarSectionId::McpServers)
             );
 
-        let cursor = state.frontend.mcp_servers_section.selected_index;
+        let cursor = state
+            .frontend
+            .with_sections(|s| s.mcp_servers.selected_index, || None);
         let theme = &state.frontend.theme;
 
         let indicator_color = if sidebar_focused {
@@ -314,7 +312,7 @@ mod tests {
     }
 
     fn state_with_servers(servers: &[(String, McpServerConfig)]) -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.preferences.mcp_server = servers.iter().cloned().collect();
         state
     }
@@ -480,7 +478,9 @@ mod tests {
         let mut state = state_with_servers(&[server("alpha"), server("beta"), server("gamma")]);
         state.active_session_mut().enable_mcp_server("alpha");
         state.active_session_mut().enable_mcp_server("gamma");
-        state.frontend.mcp_servers_section.selected_index = Some(1); // last enabled
+        state
+            .frontend
+            .update_sections(|s| s.mcp_servers.selected_index = Some(1)); // last enabled
 
         // When moving down past the last enabled server.
         let result = navigate(&SidebarIntent::MoveDown, &mut state);
@@ -501,6 +501,11 @@ mod tests {
         receive_cursor(&mut state, EnterFrom::Top);
 
         // Then the cursor lands on the first enabled server (index 0).
-        assert_eq!(state.frontend.mcp_servers_section.selected_index, Some(0));
+        assert_eq!(
+            state
+                .frontend
+                .with_sections(|s| s.mcp_servers.selected_index, || None),
+            Some(0)
+        );
     }
 }

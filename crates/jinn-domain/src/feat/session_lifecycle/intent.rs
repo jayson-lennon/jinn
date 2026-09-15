@@ -328,7 +328,10 @@ pub fn handle_session_rerun_setup(state: &mut AppState) -> IntentResult {
         return IntentResult::empty();
     }
 
-    let index = state.frontend.sessions_section.selected_index.unwrap();
+    let index = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+        .unwrap();
     let sessions = sorted_open_sessions(state);
     let Some(target_session) = sessions.get(index) else {
         return IntentResult::empty();
@@ -1599,7 +1602,9 @@ mod tests {
 
         let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_push(FocusScope::SidebarSessions);
-        state.frontend.sessions_section.selected_index = Some(0);
+        state
+            .frontend
+            .update_sections(|s| s.sessions.selected_index = Some(0));
         state
             .frontend
             .preferences
@@ -1627,7 +1632,9 @@ mod tests {
 
         let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_push(FocusScope::SidebarSessions);
-        state.frontend.sessions_section.selected_index = Some(0);
+        state
+            .frontend
+            .update_sections(|s| s.sessions.selected_index = Some(0));
 
         // When handling rerun setup.
         let result = handle_session_rerun_setup(&mut state);
@@ -1644,7 +1651,9 @@ mod tests {
 
         let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_push(FocusScope::SidebarSessions);
-        state.frontend.sessions_section.selected_index = Some(0);
+        state
+            .frontend
+            .update_sections(|s| s.sessions.selected_index = Some(0));
         state
             .frontend
             .preferences

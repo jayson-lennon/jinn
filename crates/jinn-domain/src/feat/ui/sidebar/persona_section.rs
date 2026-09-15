@@ -20,16 +20,7 @@ const SELECTED_INDICATOR: &str = "\u{2588}";
 /// One space used as the unselected border (same as pins section).
 const UNSELECTED_BORDER: &str = " ";
 
-/// Persona section cursor state - stored on `FrontendState`.
-///
-/// Tracks whether the persona section currently has the cursor.
-/// `None` means no cursor (section not focused). `Some(0)` means
-/// the single entry is selected.
-#[derive(Debug, Clone, Default)]
-pub struct PersonaSectionState {
-    /// Which entry the cursor is on. Always `None` or `Some(0)`.
-    pub cursor: Option<usize>,
-}
+pub use jinn_slices::PersonaSectionState;
 
 /// Navigate within the persona section.
 ///
@@ -44,7 +35,9 @@ pub fn navigate(intent: &SidebarIntent, _state: &mut AppState) -> SectionNavResu
 
 /// Place the cursor on this section from a given direction.
 pub fn receive_cursor(state: &mut AppState, _enter_from: EnterFrom) {
-    state.frontend.persona_section.cursor = Some(0);
+    state
+        .frontend
+        .update_sections(|s| s.persona.cursor = Some(0));
 }
 
 /// The persona sidebar section.
@@ -74,7 +67,10 @@ impl SidebarSection for PersonaSection {
             theme.border_unfocused
         };
 
-        let is_selected = section_focused && state.frontend.persona_section.cursor.is_some();
+        let is_selected = section_focused
+            && state
+                .frontend
+                .with_sections(|s| s.persona.cursor.is_some(), || false);
         let indicator = if is_selected {
             Span::styled(SELECTED_INDICATOR, Style::default().fg(indicator_color))
         } else {
@@ -165,7 +161,7 @@ mod tests {
     fn content_height_is_four_with_active_persona() {
         // Given a PersonaSection and state with an active persona.
         let section = PersonaSection;
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.context.set_active_persona(Some(Persona {
             name: "coding-assistant".to_owned(),
             description: "Expert coder".to_owned(),
@@ -185,7 +181,7 @@ mod tests {
     fn content_height_is_four_without_persona() {
         // Given a PersonaSection and state with no active persona.
         let section = PersonaSection;
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
 
         // When asking for content height.
         let slices = jinn_slices::Slices::new();
@@ -199,7 +195,7 @@ mod tests {
     #[rstest::rstest]
     fn navigate_returns_exhausted_for_move_down() {
         // Given default app state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When navigating down.
         let result = navigate(&SidebarIntent::MoveDown, &mut state);
@@ -211,7 +207,7 @@ mod tests {
     #[rstest::rstest]
     fn navigate_returns_exhausted_for_move_up() {
         // Given default app state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When navigating up.
         let result = navigate(&SidebarIntent::MoveUp, &mut state);
@@ -223,7 +219,7 @@ mod tests {
     #[rstest::rstest]
     fn navigate_returns_moved_for_action() {
         // Given default app state.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When navigating with an action intent.
         let result = navigate(&SidebarIntent::Action(Intent::Quit), &mut state);
@@ -235,13 +231,16 @@ mod tests {
     #[rstest::rstest]
     fn receive_cursor_sets_cursor_to_some_zero() {
         // Given default app state (cursor is None).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
 
         // When receiving the cursor from the top.
         receive_cursor(&mut state, EnterFrom::Top);
 
         // Then the persona section cursor is set to Some(0).
-        assert_eq!(state.frontend.persona_section.cursor, Some(0));
+        assert_eq!(
+            state.frontend.with_sections(|s| s.persona.cursor, || None),
+            Some(0)
+        );
     }
 
     use jinn_testutil::setup_term;
@@ -279,7 +278,7 @@ mod tests {
     fn render_shows_persona_header() {
         // Given a PersonaSection.
         let mut section = PersonaSection;
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
 
         // When rendering.
         let rows = render_rows(&mut section, &state, 30, 5);
@@ -292,7 +291,7 @@ mod tests {
     fn render_shows_session_persona_name() {
         // Given a PersonaSection with a session that has a custom persona.
         let mut section = PersonaSection;
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state
             .active_session_mut()
             .set_persona_name("learning-tutor".to_owned());
@@ -312,7 +311,7 @@ mod tests {
     fn render_shows_coding_assistant_by_default() {
         // Given a PersonaSection with default state.
         let mut section = PersonaSection;
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
 
         // When rendering.
         let rows = render_rows(&mut section, &state, 40, 5);

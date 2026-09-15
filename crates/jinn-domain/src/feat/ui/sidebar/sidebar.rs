@@ -216,15 +216,15 @@ fn section_has_content(id: SidebarSectionId, state: &AppState) -> bool {
 }
 
 pub(crate) fn clear_cursor(id: SidebarSectionId, state: &mut AppState) {
-    match id {
-        SidebarSectionId::Persona => state.frontend.persona_section.cursor = None,
-        SidebarSectionId::Pins => state.frontend.pins.clear_selection(),
-        SidebarSectionId::TaskList => state.frontend.task_list_section.selected_phase_index = None,
-        SidebarSectionId::McpServers => state.frontend.mcp_servers_section.selected_index = None,
+    state.frontend.update_sections(|s| match id {
+        SidebarSectionId::Persona => s.persona.cursor = None,
+        SidebarSectionId::Pins => s.pins.clear_selection(),
+        SidebarSectionId::TaskList => s.task_list.selected_phase_index = None,
+        SidebarSectionId::McpServers => s.mcp_servers.selected_index = None,
         SidebarSectionId::Sessions => {
-            state.frontend.sessions_section.selected_index = None;
+            s.sessions.selected_index = None;
         }
-    }
+    });
 }
 
 fn receive_cursor(id: SidebarSectionId, enter_from: EnterFrom, state: &mut AppState) {
@@ -239,17 +239,16 @@ fn receive_cursor(id: SidebarSectionId, enter_from: EnterFrom, state: &mut AppSt
 
 /// Check if a section has a retained cursor.
 fn section_has_cursor(id: SidebarSectionId, state: &AppState) -> bool {
-    match id {
-        SidebarSectionId::Persona => state.frontend.persona_section.cursor.is_some(),
-        SidebarSectionId::Pins => state.frontend.pins.selected_id().is_some(),
-        SidebarSectionId::TaskList => state
-            .frontend
-            .task_list_section
-            .selected_phase_index
-            .is_some(),
-        SidebarSectionId::McpServers => state.frontend.mcp_servers_section.selected_index.is_some(),
-        SidebarSectionId::Sessions => state.frontend.sessions_section.selected_index.is_some(),
-    }
+    state.frontend.with_sections(
+        |s| match id {
+            SidebarSectionId::Persona => s.persona.cursor.is_some(),
+            SidebarSectionId::Pins => s.pins.selected_id().is_some(),
+            SidebarSectionId::TaskList => s.task_list.selected_phase_index.is_some(),
+            SidebarSectionId::McpServers => s.mcp_servers.selected_index.is_some(),
+            SidebarSectionId::Sessions => s.sessions.selected_index.is_some(),
+        },
+        || false,
+    )
 }
 
 /// Jump directly to the next/previous sidebar section without clearing cursors.

@@ -121,7 +121,9 @@ fn previewed_phase(state: &AppState) -> Option<&Phase> {
     if list.is_empty() {
         return None;
     }
-    let idx = state.frontend.task_list_section.selected_phase_index?;
+    let idx = state
+        .frontend
+        .with_sections(|s| s.task_list.selected_phase_index, || None)?;
     list.phases().get(idx)
 }
 
@@ -193,10 +195,11 @@ pub fn write_preview_geometry(state: &mut AppState, frame_area: Rect, sidebar_re
     // no mutable borrow is outstanding.
     let rect = task_list_preview_popup_rect(state, frame_area, sidebar_rect, line_count);
 
-    let section = &mut state.frontend.task_list_section;
-    section.preview_content_line_count = line_count;
-    section.preview_viewport_height = rect.map_or(0u16, |r| r.height.saturating_sub(2));
-    clamp_scroll(section);
+    state.frontend.update_sections(|s| {
+        s.task_list.preview_content_line_count = line_count;
+        s.task_list.preview_viewport_height = rect.map_or(0u16, |r| r.height.saturating_sub(2));
+        clamp_scroll(&mut s.task_list);
+    });
 }
 
 /// Renders the task list preview popup when the task list section is focused.
@@ -250,7 +253,9 @@ pub fn render_task_list_preview_for_state(
         return;
     }
 
-    let scroll = state.frontend.task_list_section.preview_scroll;
+    let scroll = state
+        .frontend
+        .with_sections(|s| s.task_list.preview_scroll, || 0);
     let content = Paragraph::new(content_lines).scroll((scroll as u16, 0));
     let inner_area = Rect {
         x: popup_rect.x + 1,
@@ -301,7 +306,8 @@ mod tests {
             },
         ]);
         app.frontend.scope_push(FocusScope::SidebarTaskList);
-        app.frontend.task_list_section.selected_phase_index = Some(phase_index);
+        app.frontend
+            .update_sections(|s| s.task_list.selected_phase_index = Some(phase_index));
         app
     }
 
@@ -390,7 +396,8 @@ mod tests {
     fn popup_hidden_when_no_phase_selected() {
         // Given a focused task list with no selected phase.
         let mut app = setup_two_phases_focused_on(0);
-        app.frontend.task_list_section.selected_phase_index = None;
+        app.frontend
+            .update_sections(|s| s.task_list.selected_phase_index = None);
 
         // When rendering the popup.
         let text = render_popup_text(&app);
@@ -458,7 +465,8 @@ mod tests {
             tasks: vec![],
         }]);
         app.frontend.scope_push(FocusScope::SidebarTaskList);
-        app.frontend.task_list_section.selected_phase_index = Some(0);
+        app.frontend
+            .update_sections(|s| s.task_list.selected_phase_index = Some(0));
 
         // When rendering the popup.
         let text = render_popup_text(&app);
@@ -477,24 +485,28 @@ mod tests {
         // previously long phase (set before measurement).
         let mut app = setup_two_phases_focused_on(0);
         // Phase 0 has two short tasks; this scroll would be past the end.
-        app.frontend.task_list_section.preview_content_line_count = 0;
-        app.frontend.task_list_section.preview_viewport_height = 0;
-        app.frontend.task_list_section.preview_scroll = 99;
+        app.frontend
+            .update_sections(|s| s.task_list.preview_content_line_count = 0);
+        app.frontend
+            .update_sections(|s| s.task_list.preview_viewport_height = 0);
+        app.frontend
+            .update_sections(|s| s.task_list.preview_scroll = 99);
 
         // When the pre-render pass measures geometry for the (short) phase.
         write_preview_geometry(&mut app, frame_area(), sidebar_rect());
 
         // Then the measured viewport height is set and the stale scroll is clamped
         // to the valid range (no longer 99).
-        let section = &app.frontend.task_list_section;
+        let viewport = app
+            .frontend
+            .with_sections(|s| s.task_list.preview_viewport_height, || 0);
+        assert!(viewport > 0, "viewport must be measured");
+        let scroll = app
+            .frontend
+            .with_sections(|s| s.task_list.preview_scroll, || 0);
         assert!(
-            section.preview_viewport_height > 0,
-            "viewport must be measured"
-        );
-        assert!(
-            section.preview_scroll < 99,
-            "stale scroll must be clamped after content shrink; got {}",
-            section.preview_scroll
+            scroll < 99,
+            "stale scroll must be clamped after content shrink; got {scroll}"
         );
     }
 
@@ -512,14 +524,17 @@ mod tests {
             tasks: vec![(long_desc, TaskStatus::Pending)],
         }]);
         app.frontend.scope_push(FocusScope::SidebarTaskList);
-        app.frontend.task_list_section.selected_phase_index = Some(0);
+        app.frontend
+            .update_sections(|s| s.task_list.selected_phase_index = Some(0));
 
         // When measuring preview geometry.
         write_preview_geometry(&mut app, frame_area(), sidebar_rect());
 
         // Then the task fits on a single line (popup width), not three (sidebar width).
         assert_eq!(
-            app.frontend.task_list_section.preview_content_line_count, 1,
+            app.frontend
+                .with_sections(|s| s.task_list.preview_content_line_count, || 0),
+            1,
             "60-char task must wrap to popup width (1 line), not sidebar width (3 lines)"
         );
     }

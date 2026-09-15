@@ -44,20 +44,28 @@ pub fn navigate(intent: &SidebarIntent, state: &mut AppState) -> SectionNavResul
     }
     match intent {
         SidebarIntent::MoveDown => {
-            let current = state.frontend.pins.selection_index(&sorted_ids);
+            let current = state
+                .frontend
+                .with_sections(|s| s.pins.selection_index(&sorted_ids), || 0);
             if current >= sorted_ids.len() - 1 {
                 return SectionNavResult::Exhausted;
             }
-            state.frontend.pins.select_next(&sorted_ids);
+            state
+                .frontend
+                .update_sections(|s| s.pins.select_next(&sorted_ids));
             sync_chat_log_cursor(state);
             SectionNavResult::Moved
         }
         SidebarIntent::MoveUp => {
-            let current = state.frontend.pins.selection_index(&sorted_ids);
+            let current = state
+                .frontend
+                .with_sections(|s| s.pins.selection_index(&sorted_ids), || 0);
             if current == 0 {
                 return SectionNavResult::Exhausted;
             }
-            state.frontend.pins.select_prev(&sorted_ids);
+            state
+                .frontend
+                .update_sections(|s| s.pins.select_prev(&sorted_ids));
             sync_chat_log_cursor(state);
             SectionNavResult::Moved
         }
@@ -74,12 +82,16 @@ pub fn receive_cursor(state: &mut AppState, enter_from: EnterFrom) {
     match enter_from {
         EnterFrom::Top => {
             if let Some(first) = sorted_ids.first() {
-                state.frontend.pins.select_by_id(first.clone());
+                state
+                    .frontend
+                    .update_sections(|s| s.pins.select_by_id(first.clone()));
             }
         }
         EnterFrom::Bottom => {
             if let Some(last) = sorted_ids.last() {
-                state.frontend.pins.select_by_id(last.clone());
+                state
+                    .frontend
+                    .update_sections(|s| s.pins.select_by_id(last.clone()));
             }
         }
     }
@@ -98,8 +110,13 @@ impl SidebarSection for PinsSection {
         // Sort to match sorted_ids order (TOP → REL → BOT, stable by history).
         pinned.sort_by_key(|entry| pin_sort_key(entry.pin_position));
 
-        let selected_index = if state.frontend.pins.selected_id().is_some() {
-            state.frontend.pins.selection_index(&sorted_ids)
+        let selected_index = if state
+            .frontend
+            .with_sections(|s| s.pins.selected_id().is_some(), || false)
+        {
+            state
+                .frontend
+                .with_sections(|s| s.pins.selection_index(&sorted_ids), || 0)
         } else {
             usize::MAX // No pin will match this index.
         };
@@ -225,7 +242,9 @@ pub fn handle_pins_pin_cycle(state: &mut AppState) -> IntentResult {
         return IntentResult::empty();
     }
     let sorted_ids = state.sorted_pinned_ids();
-    let index = state.frontend.pins.selection_index(&sorted_ids);
+    let index = state
+        .frontend
+        .with_sections(|s| s.pins.selection_index(&sorted_ids), || 0);
     let mut pinned = state.active_session().pinned_entries();
     pinned.sort_by_key(|entry| pin_sort_key(entry.pin_position));
     let Some(entry) = pinned.get(index) else {
@@ -252,7 +271,10 @@ pub fn handle_pins_pin_cycle(state: &mut AppState) -> IntentResult {
 /// `selected_entry_index` to the history index of that pinned entry so the
 /// renderer scrolls to show it.
 pub(crate) fn sync_chat_log_cursor(state: &mut AppState) {
-    let Some(pinned_id) = state.frontend.pins.selected_id().cloned() else {
+    let Some(pinned_id) = state
+        .frontend
+        .with_sections(|s| s.pins.selected_id().cloned(), || None)
+    else {
         return;
     };
     if state
@@ -266,7 +288,9 @@ pub(crate) fn sync_chat_log_cursor(state: &mut AppState) {
 }
 fn resolve_selected_entry_id(state: &AppState) -> Option<(SessionId, ChatEntryId)> {
     let sorted_ids = state.sorted_pinned_ids();
-    let index = state.frontend.pins.selection_index(&sorted_ids);
+    let index = state
+        .frontend
+        .with_sections(|s| s.pins.selection_index(&sorted_ids), || 0);
     let session_id = state.session.active_session_id().clone();
 
     let mut pinned = state.active_session().pinned_entries();

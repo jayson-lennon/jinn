@@ -36,8 +36,7 @@ pub fn validate_session_close(state: &AppState) -> Result<(), SessionCloseError>
     // A session must be selected.
     let index = state
         .frontend
-        .sessions_section
-        .selected_index
+        .with_sections(|s| s.sessions.selected_index, || None)
         .ok_or(SessionCloseError::NoSelection)?;
 
     // The selected session must be idle (not streaming/sending).
@@ -69,7 +68,10 @@ pub fn handle_session_close(state: &mut AppState) -> crate::protocol::IntentResu
         return crate::protocol::IntentResult::empty();
     }
 
-    let index = state.frontend.sessions_section.selected_index.unwrap();
+    let index = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+        .unwrap();
     let sessions = sorted_open_sessions(state);
     let Some(closing) = sessions.get(index) else {
         return crate::protocol::IntentResult::empty();
@@ -160,7 +162,10 @@ pub fn handle_session_close_with_lifecycle(state: &mut AppState) -> crate::proto
         return crate::protocol::IntentResult::empty();
     }
 
-    let index = state.frontend.sessions_section.selected_index.unwrap();
+    let index = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+        .unwrap();
     let sessions = sorted_open_sessions(state);
     let Some(closing) = sessions.get(index) else {
         return crate::protocol::IntentResult::empty();

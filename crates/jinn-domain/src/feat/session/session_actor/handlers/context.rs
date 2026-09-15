@@ -63,11 +63,14 @@ impl SessionPersistenceActor {
                 .with_session_pins(&self.cap, &self.frontend_cap, |view| {
                     let is_active = view.session.map().active_session_id() == &payload.session_id;
                     let old_index = if is_active {
-                        view.frontend
-                            .pins
-                            .selection_index(&sorted_pinned_ids_from_session(
-                                view.session.map().active_session(),
-                            ))
+                        view.frontend.with_sections(
+                            |s| {
+                                s.pins.selection_index(&sorted_pinned_ids_from_session(
+                                    view.session.map().active_session(),
+                                ))
+                            },
+                            || 0,
+                        )
                     } else {
                         0
                     };
@@ -78,7 +81,8 @@ impl SessionPersistenceActor {
                     if is_active {
                         let new_sorted =
                             sorted_pinned_ids_from_session(view.session.map().active_session());
-                        view.frontend.pins.clamp_to_nearest(&new_sorted, old_index);
+                        view.frontend
+                            .update_sections(|s| s.pins.clamp_to_nearest(&new_sorted, old_index));
                     }
                 });
         }
@@ -306,7 +310,7 @@ mod tests {
         State,
         BusAudit,
     ) {
-        let state = State::new(AppState::default());
+        let state = State::new(AppState::default_with_scope_focus());
         let (actor, audit) = super::super::super::helpers::test_actor_recording().await;
         let actor = super::super::super::SessionPersistenceActor {
             state: state.clone(),
@@ -875,11 +879,9 @@ mod tests {
         let (actor, state, _audit) = create_actor().await;
         let ids = push_pinned_entries(&state, 3);
         let session_id = state.read().session.active_session_id().clone();
-        state
-            .write_test_no_cap()
-            .frontend
-            .pins
-            .select_by_id(ids[0].clone());
+        state.write_test_no_cap().frontend.update_sections(|s| {
+            s.pins.select_by_id(ids[0].clone());
+        });
 
         // When unpinning A.
         actor
@@ -891,7 +893,10 @@ mod tests {
 
         // Then the cursor lands on B (now at index 0).
         assert_eq!(
-            state.read().frontend.pins.selected_id().cloned(),
+            state
+                .read()
+                .frontend
+                .with_sections(|s| s.pins.selected_id().cloned(), || None),
             Some(ids[1].clone())
         );
     }
@@ -903,11 +908,9 @@ mod tests {
         let (actor, state, _audit) = create_actor().await;
         let ids = push_pinned_entries(&state, 3);
         let session_id = state.read().session.active_session_id().clone();
-        state
-            .write_test_no_cap()
-            .frontend
-            .pins
-            .select_by_id(ids[1].clone());
+        state.write_test_no_cap().frontend.update_sections(|s| {
+            s.pins.select_by_id(ids[1].clone());
+        });
 
         // When unpinning B.
         actor
@@ -919,7 +922,10 @@ mod tests {
 
         // Then the cursor lands on C (now at index 1).
         assert_eq!(
-            state.read().frontend.pins.selected_id().cloned(),
+            state
+                .read()
+                .frontend
+                .with_sections(|s| s.pins.selected_id().cloned(), || None),
             Some(ids[2].clone())
         );
     }
@@ -932,11 +938,9 @@ mod tests {
         let ids = push_pinned_entries(&state, 3);
         let session_id = state.read().session.active_session_id().clone();
         let selected = ids[1].clone();
-        state
-            .write_test_no_cap()
-            .frontend
-            .pins
-            .select_by_id(selected.clone());
+        state.write_test_no_cap().frontend.update_sections(|s| {
+            s.pins.select_by_id(selected.clone());
+        });
 
         // When unpinning A (a different, non-selected entry).
         actor
@@ -948,7 +952,10 @@ mod tests {
 
         // Then the cursor stays on B (its ID is still present).
         assert_eq!(
-            state.read().frontend.pins.selected_id().cloned(),
+            state
+                .read()
+                .frontend
+                .with_sections(|s| s.pins.selected_id().cloned(), || None),
             Some(selected)
         );
     }
@@ -960,11 +967,9 @@ mod tests {
         let (actor, state, _audit) = create_actor().await;
         let ids = push_pinned_entries(&state, 3);
         let session_id = state.read().session.active_session_id().clone();
-        state
-            .write_test_no_cap()
-            .frontend
-            .pins
-            .select_by_id(ids[2].clone());
+        state.write_test_no_cap().frontend.update_sections(|s| {
+            s.pins.select_by_id(ids[2].clone());
+        });
 
         // When unpinning C.
         actor
@@ -976,7 +981,10 @@ mod tests {
 
         // Then the cursor clamps to B (the new last entry).
         assert_eq!(
-            state.read().frontend.pins.selected_id().cloned(),
+            state
+                .read()
+                .frontend
+                .with_sections(|s| s.pins.selected_id().cloned(), || None),
             Some(ids[1].clone())
         );
     }
@@ -988,11 +996,9 @@ mod tests {
         let (actor, state, _audit) = create_actor().await;
         let ids = push_pinned_entries(&state, 1);
         let session_id = state.read().session.active_session_id().clone();
-        state
-            .write_test_no_cap()
-            .frontend
-            .pins
-            .select_by_id(ids[0].clone());
+        state.write_test_no_cap().frontend.update_sections(|s| {
+            s.pins.select_by_id(ids[0].clone());
+        });
 
         // When unpinning A.
         actor
@@ -1003,7 +1009,12 @@ mod tests {
             .await;
 
         // Then the cursor is cleared.
-        assert!(state.read().frontend.pins.selected_id().is_none());
+        assert!(
+            state
+                .read()
+                .frontend
+                .with_sections(|s| s.pins.selected_id().is_none(), || true)
+        );
     }
 
     #[rstest::rstest]
@@ -1013,11 +1024,9 @@ mod tests {
         let (actor, state, _audit) = create_actor().await;
         let ids = push_pinned_entries(&state, 3);
         let selected = ids[1].clone();
-        state
-            .write_test_no_cap()
-            .frontend
-            .pins
-            .select_by_id(selected.clone());
+        state.write_test_no_cap().frontend.update_sections(|s| {
+            s.pins.select_by_id(selected.clone());
+        });
 
         // When unpinning B under a non-active session id.
         actor
@@ -1029,7 +1038,10 @@ mod tests {
 
         // Then the cursor is unchanged.
         assert_eq!(
-            state.read().frontend.pins.selected_id().cloned(),
+            state
+                .read()
+                .frontend
+                .with_sections(|s| s.pins.selected_id().cloned(), || None),
             Some(selected)
         );
     }

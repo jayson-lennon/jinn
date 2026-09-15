@@ -15,12 +15,12 @@ use jinn_slices::SidebarSectionId;
 use crate::feat::session_lifecycle::arg_input_state::ArgInputState;
 use crate::feat::theme::Theme;
 use crate::feat::ui::picker_states::PickerStates;
-pub use crate::feat::ui::sidebar::mcp_servers_section::McpServersSectionState;
-pub use crate::feat::ui::sidebar::persona_section::PersonaSectionState;
-pub use crate::feat::ui::sidebar::pins::state::PinsState;
-pub use crate::feat::ui::sidebar::sessions::SessionsSectionState;
-use crate::feat::ui::sidebar::state::SidebarState;
-pub use crate::feat::ui::sidebar::task_list_section::TaskListSectionState;
+pub use jinn_slices::McpServersSectionState;
+pub use jinn_slices::PersonaSectionState;
+pub use jinn_slices::PinsState;
+pub use jinn_slices::SessionsSectionState;
+pub use jinn_slices::SidebarSections;
+pub use jinn_slices::TaskListSectionState;
 
 /// Theme-sensitive caches owned by the frontend.
 ///
@@ -79,28 +79,6 @@ pub struct PendingSessionCreation {
 /// anti-pattern.
 #[derive(Debug)]
 pub struct FrontendState {
-    /// Pins sidebar section state - selection index within the pinned entries list.
-    /// OWNER: IntentHandler (pins navigation).
-    pub pins: PinsState,
-
-    /// Sidebar state - focus tracking.
-    /// OWNER: IntentHandler (sidebar focus/leave).
-    pub sidebar: SidebarState,
-
-    /// Persona sidebar section state - cursor tracking.
-    /// OWNER: IntentHandler (sidebar navigation).
-    pub persona_section: PersonaSectionState,
-
-    /// Sessions sidebar section state - cursor tracking.
-    /// OWNER: IntentHandler (sidebar navigation).
-    pub sessions_section: SessionsSectionState,
-
-    /// Task list sidebar section state - phase cursor tracking.
-    /// OWNER: IntentHandler (sidebar navigation).
-    pub task_list_section: TaskListSectionState,
-    /// MCP servers sidebar section state - cursor tracking.
-    /// OWNER: IntentHandler (sidebar navigation).
-    pub mcp_servers_section: McpServersSectionState,
     /// Cached copy of user preferences from `jinn.toml`.
     /// Updated by `PreferencesActor` inline after persisting to `jinn.toml` (authoritative),
     /// and by the `IntentHandler` for immediate UI feedback (exempt).
@@ -214,12 +192,6 @@ impl Default for FrontendState {
     fn default() -> Self {
         Self {
             scope_focus: std::sync::OnceLock::new(),
-            pins: PinsState::default(),
-            sidebar: SidebarState,
-            persona_section: PersonaSectionState::default(),
-            sessions_section: SessionsSectionState::default(),
-            task_list_section: TaskListSectionState::default(),
-            mcp_servers_section: McpServersSectionState::default(),
             preferences: UserPreferences::default(),
             app_state: AppStateFile::default(),
             theme: crate::feat::theme::default_theme(),
@@ -258,6 +230,42 @@ impl FrontendState {
     fn scope_cell(&self) -> Option<jinn_slices::cell::TypedCell<jinn_slices::ScopeFocusState>> {
         let slices = self.scope_focus.get()?;
         slices.reader::<jinn_slices::ScopeFocusState>(&jinn_slices::scope_focus_slot())
+    }
+
+    /// Resolves the sidebar sections cell, if the handle is attached and
+    /// the sidebar slice's `activate()` minted it.
+    fn sections_cell(&self) -> Option<jinn_slices::cell::TypedCell<jinn_slices::SidebarSections>> {
+        let slices = self.scope_focus.get()?;
+        slices.reader::<jinn_slices::SidebarSections>(&jinn_slices::sidebar_sections_slot())
+    }
+
+    /// Runs `f` against the five sidebar sections' state. A no-op when the
+    /// cell is absent (slice not activated) — writes are silently dropped,
+    /// matching the no-slice configuration.
+    pub fn update_sections<F>(&self, f: F)
+    where
+        F: FnOnce(&mut jinn_slices::SidebarSections),
+    {
+        if let Some(cell) = self.sections_cell() {
+            cell.update(f);
+        }
+    }
+
+    /// Reads the sidebar sections' state through `f`, falling back to
+    /// `default` when the cell is absent.
+    #[must_use]
+    pub fn with_sections<R, F, D>(&self, f: F, default: D) -> R
+    where
+        F: FnOnce(&jinn_slices::SidebarSections) -> R,
+        D: FnOnce() -> R,
+    {
+        match self.sections_cell() {
+            Some(cell) => {
+                let guard = cell.read();
+                f(&guard)
+            }
+            None => default(),
+        }
     }
 
     /// Runs `f` against the scope-focus state (stack, signals, quit).

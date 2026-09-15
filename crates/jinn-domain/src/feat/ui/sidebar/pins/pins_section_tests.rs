@@ -29,7 +29,9 @@ fn state_with_pinned(count: usize) -> AppState {
     }
     // Select the first pinned entry.
     if let Some(first_id) = ids.first() {
-        state.frontend.pins.select_by_id(first_id.clone());
+        state
+            .frontend
+            .update_sections(|s| s.pins.select_by_id(first_id.clone()));
     }
     state
 }
@@ -174,7 +176,9 @@ fn pins_pin_cycle_rotates_top_to_bottom() {
         .active_session_mut()
         .pin_entry(&entry_id, PinPosition::Top);
     let sorted_ids = state.sorted_pinned_ids();
-    state.frontend.pins.select_by_id(sorted_ids[0].clone());
+    state
+        .frontend
+        .update_sections(|s| s.pins.select_by_id(sorted_ids[0].clone()));
 
     // When handling pins pin cycle.
     let result = handle_pins_pin_cycle(&mut state);
@@ -534,7 +538,9 @@ fn sync_chat_log_cursor_sets_cursor_by_entry_id_with_visual_items() {
     state.active_session_mut().set_visual_items(items);
 
     // Select the pinned entry in the pins section.
-    state.frontend.pins.select_by_id(pinned_id.clone());
+    state
+        .frontend
+        .update_sections(|s| s.pins.select_by_id(pinned_id.clone()));
 
     // Set cursor to something else first.
     let first_entry_id = state.active_session().history()[0].id.clone();
@@ -578,7 +584,9 @@ fn sync_chat_log_cursor_sets_correct_entry_when_multiple_entries_exist() {
     state
         .active_session_mut()
         .pin_entry(&id_b, PinPosition::Top);
-    state.frontend.pins.select_by_id(id_b.clone());
+    state
+        .frontend
+        .update_sections(|s| s.pins.select_by_id(id_b.clone()));
 
     // Set cursor to entry_a first.
     state
@@ -616,7 +624,9 @@ fn resolve_selected_entry_id_returns_real_session_and_entry_ids() {
     state
         .active_session_mut()
         .pin_entry(&entry_id, PinPosition::Top);
-    state.frontend.pins.select_by_id(entry_id);
+    state
+        .frontend
+        .update_sections(|s| s.pins.select_by_id(entry_id));
 
     // When handling pins unpin (which uses resolve_selected_entry_id internally).
     let result = handle_pins_unpin(&mut state);
@@ -846,7 +856,9 @@ fn long_content_is_truncated_to_fit_area_width() {
     state
         .active_session_mut()
         .pin_entry(&entry_id, PinPosition::Top);
-    state.frontend.pins.select_by_id(entry_id);
+    state
+        .frontend
+        .update_sections(|s| s.pins.select_by_id(entry_id));
 
     // When rendering in a narrow sidebar (25 cells).
     let mut section = PinsSection;

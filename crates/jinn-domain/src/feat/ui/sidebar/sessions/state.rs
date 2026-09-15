@@ -6,28 +6,7 @@ use crate::common::app_state::AppState;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::protocol::SessionId;
 
-/// Discriminator for sidebar list entries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SessionEntryKind {
-    Session,
-}
-
-/// Sessions section cursor state - stored on `FrontendState`.
-///
-/// Tracks the selected index within the sorted open sessions list.
-/// `None` means no cursor (section not focused).
-#[derive(Debug, Clone, Default)]
-pub struct SessionsSectionState {
-    /// Index into the sorted open sessions list.
-    pub selected_index: Option<usize>,
-    /// Scroll offset: the first session entry index that is visible.
-    pub scroll_offset: usize,
-    /// Visual-parent index: maps a loaded session to its nearest loaded ancestor
-    /// when the direct parent has been archived/removed from memory.
-    /// Updated reactively in `remove_and_replace()`, invalidated on session load.
-    /// Empty when no intermediate parents have been hidden.
-    pub visual_parents: HashMap<SessionId, SessionId>,
-}
+pub use jinn_slices::{SessionEntryKind, SessionsSectionState};
 
 #[derive(Clone)]
 pub struct SessionEntry {
@@ -220,8 +199,11 @@ pub fn sorted_open_sessions_split(
         })
         .collect();
 
-    let visual_parents = &frontend.sessions_section.visual_parents;
-    let tree = build_session_tree(entries, visual_parents);
+    let visual_parents = frontend.with_sections(
+        |s| s.sessions.visual_parents.clone(),
+        || std::collections::HashMap::new(),
+    );
+    let tree = build_session_tree(entries, &visual_parents);
 
     dfs_flatten(&tree)
 }
@@ -255,66 +237,63 @@ pub fn update_visual_parents_on_removal_split(
             // Direct parent is loaded - use it.
             Some(pid) if session.contains(pid) => Some(pid.clone()),
             // Direct parent not loaded - check if it has a visual_parents entry.
-            Some(pid) => frontend
-                .sessions_section
-                .visual_parents
-                .get(pid)
-                .cloned()
-                .or_else(|| {
-                    // The parent's parent may not be in visual_parents,
-                    // but the removed session itself might have been reparented.
-                    frontend
-                        .sessions_section
-                        .visual_parents
-                        .get(removed_id)
-                        .cloned()
-                }),
+            Some(pid) => frontend.with_sections(
+                |s| {
+                    s.sessions.visual_parents.get(pid).cloned().or_else(|| {
+                        // The parent's parent may not be in visual_parents,
+                        // but the removed session itself might have been reparented.
+                        s.sessions.visual_parents.get(removed_id).cloned()
+                    })
+                },
+                || None,
+            ),
             // No parent at all - check if the removed session itself has a visual parent.
-            None => frontend
-                .sessions_section
-                .visual_parents
-                .get(removed_id)
-                .cloned(),
+            None => frontend.with_sections(
+                |s| s.sessions.visual_parents.get(removed_id).cloned(),
+                || None,
+            ),
         }
     };
 
-    let visual_parents = &mut frontend.sessions_section.visual_parents;
+    frontend.update_sections(|s| {
+        let visual_parents = &mut s.sessions.visual_parents;
 
-    // Find direct children of the removed session and reparent them.
-    let orphan_ids: Vec<SessionId> = session
-        .iter()
-        .filter(|(_, s)| s.parent_session().as_ref() == Some(removed_id))
-        .map(|(id, _)| id.clone())
-        .collect();
+        // Find direct children of the removed session and reparent them.
+        let orphan_ids: Vec<SessionId> = session
+            .iter()
+            .filter(|(_, s)| s.parent_session().as_ref() == Some(removed_id))
+            .map(|(id, _)| id.clone())
+            .collect();
 
-    for orphan_id in orphan_ids {
-        match &effective_ancestor {
-            Some(ancestor_id) => {
-                visual_parents.insert(orphan_id, ancestor_id.clone());
-            }
-            None => {
-                visual_parents.remove(&orphan_id);
-            }
-        }
-    }
-
-    // Update transitive entries: any session already bypassing the removed session.
-    let keys_to_update: Vec<SessionId> = visual_parents
-        .iter()
-        .filter(|(_, v)| *v == removed_id)
-        .map(|(k, _)| k.clone())
-        .collect();
-
-    for key in keys_to_update {
-        match &effective_ancestor {
-            Some(ancestor_id) => {
-                visual_parents.insert(key, ancestor_id.clone());
-            }
-            None => {
-                visual_parents.remove(&key);
+        for orphan_id in orphan_ids {
+            match &effective_ancestor {
+                Some(ancestor_id) => {
+                    visual_parents.insert(orphan_id, ancestor_id.clone());
+                }
+                None => {
+                    visual_parents.remove(&orphan_id);
+                }
             }
         }
-    }
+
+        // Update transitive entries: any session already bypassing the removed session.
+        let keys_to_update: Vec<SessionId> = visual_parents
+            .iter()
+            .filter(|(_, v)| *v == removed_id)
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        for key in keys_to_update {
+            match &effective_ancestor {
+                Some(ancestor_id) => {
+                    visual_parents.insert(key, ancestor_id.clone());
+                }
+                None => {
+                    visual_parents.remove(&key);
+                }
+            }
+        }
+    });
 }
 
 /// Removes stale `visual_parents` entries when a session is loaded back.
@@ -334,10 +313,9 @@ pub fn clear_visual_parents_on_load_split(
     frontend: &mut crate::feat::ui::frontend_state::FrontendState,
     loaded_id: &SessionId,
 ) {
-    frontend
-        .sessions_section
-        .visual_parents
-        .retain(|_k, v| v != loaded_id);
+    frontend.update_sections(|s| {
+        s.sessions.visual_parents.retain(|_k, v| v != loaded_id);
+    });
 }
 
 /// Recursively appends children of `parent_id` to `result` in DFS order.

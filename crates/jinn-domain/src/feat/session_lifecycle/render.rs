@@ -228,7 +228,7 @@ mod tests {
         input: &str,
         cursor_pos: usize,
     ) -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.arg_input = ArgInputState {
             lifecycle_name: lifecycle_name.to_owned(),
             template_display: String::new(),
@@ -420,7 +420,7 @@ mod tests {
     #[rstest::rstest]
     fn arg_input_popup_background_cleared() {
         // Given a state with text in the chat area.
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
         let (mut terminal, area) = setup_term(80, 24);
 
         // First draw something in the background so we can detect if Clear works.

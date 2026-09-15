@@ -22,7 +22,10 @@ pub fn handle_session_teardown(state: &mut AppState) -> IntentResult {
         return IntentResult::empty();
     }
 
-    let index = state.frontend.sessions_section.selected_index.unwrap();
+    let index = state
+        .frontend
+        .with_sections(|s| s.sessions.selected_index, || None)
+        .unwrap();
     let sessions = sorted_open_sessions(state);
     let Some(target) = sessions.get(index) else {
         return IntentResult::empty();

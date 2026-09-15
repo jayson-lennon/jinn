@@ -49,10 +49,9 @@ impl SessionPersistenceActor {
             {
                 self.state.with_preferences(&self.frontend_cap, |ops| {
                     let frontend = ops.frontend();
-                    frontend
-                        .sessions_section
-                        .visual_parents
-                        .retain(|_k, v| v != &session_id);
+                    frontend.update_sections(|s| {
+                        s.sessions.visual_parents.retain(|_k, v| v != &session_id);
+                    });
                 });
             }
 
