@@ -338,3 +338,7 @@ Entries are added or amended **only with human approval**.
 - (todo) `todo_set_phase` replaces the first phase whose description matches the payload description, or appends a new phase when none matches.
 - (todo) `postponed` is not a declarable status and no tool mints it; the status survives only for legacy persisted sessions.
 - (todo) The next-task indicator remains derived from list state and renders after every write and in `todo_get_list`.
+- (pickers) jinn-picker renders Tree-spec pickers through TreePickerWidget over TreePickerState<PickerEntry<T>>, keeping the tree filter's ancestor expansion.
+- (pickers) The plugin picker lists each known plugin's name and lifecycle phase read-only from the coordinator's cache; Enter is a no-op.
+- (pickers) The task-list picker browses phases and tasks as a tree, hides postponed tasks, and Enter is a no-op.
+- (pickers) The session picker loads its session tree through SessionPersistenceActor from the SQLite store; confirm begins the load and emits SessionLoadRequested.
