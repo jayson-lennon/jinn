@@ -27,6 +27,7 @@ pub mod get_task_list;
 pub mod postpone_task;
 pub mod postpone_to_phase;
 pub mod set_list;
+pub mod task_payload;
 
 use crate::feat::tools_actor::BoxedToolFuture;
 use crate::feat::tools_actor::registry::BuiltinToolEntry;

@@ -13,7 +13,7 @@
 //! BDD-style tests following AGENTS.md conventions.
 //! Each test covers a single behavior.
 
-use crate::feat::todo_list::{PhaseId, TaskId, TaskList, TaskListError, TaskPosition, TaskStatus};
+use crate::feat::todo_list::{PhaseId, PhaseInput, TaskId, TaskList, TaskListError, TaskPosition, TaskStatus};
 
 // ---------------------------------------------------------------------------
 // add_phase
@@ -1438,4 +1438,188 @@ fn render_next_block_after_completion_falls_back_when_phase_missing() {
     let block = list.render_next_block_after_completion(&bogus);
     // Falls back to global next-task.
     assert!(block.starts_with("→ NEXT:"));
+}
+
+// ---------------------------------------------------------------------------
+// set_from_inputs / set_phase_from_input (declarative writes)
+// ---------------------------------------------------------------------------
+
+#[rstest::rstest]
+#[test]
+fn set_from_inputs_replaces_entire_list_with_declared_statuses() {
+    // Given a list with existing content.
+    let mut list = TaskList::new();
+    let old_pid = list.add_phase("Old");
+    list.add_task(&old_pid, "Old task", TaskPosition::End).unwrap();
+
+    // When replacing the whole list from declarative inputs.
+    list.set_from_inputs(&[
+        PhaseInput {
+            description: "Research".to_owned(),
+            tasks: vec![
+                ("Read docs".to_owned(), TaskStatus::Completed),
+                ("Call API".to_owned(), TaskStatus::Pending),
+            ],
+        },
+        PhaseInput {
+            description: "Build".to_owned(),
+            tasks: vec![("Write code".to_owned(), TaskStatus::Cancelled)],
+        },
+    ]);
+
+    // Then old content is gone and declared statuses stick.
+    assert_eq!(list.phases().len(), 2);
+    assert_eq!(list.phases()[0].description(), "Research");
+    assert_eq!(list.phases()[0].tasks()[0].status(), TaskStatus::Completed);
+    assert_eq!(list.phases()[0].tasks()[1].status(), TaskStatus::Pending);
+    // And the second phase carries its declared status too.
+    assert_eq!(list.phases()[1].tasks()[0].status(), TaskStatus::Cancelled);
+}
+
+#[rstest::rstest]
+#[test]
+fn set_from_inputs_mints_unique_ids_across_all_new_tasks() {
+    // Given inputs with several phases and tasks.
+    let inputs = [
+        PhaseInput {
+            description: "A".to_owned(),
+            tasks: vec![
+                ("t1".to_owned(), TaskStatus::Pending),
+                ("t2".to_owned(), TaskStatus::Pending),
+            ],
+        },
+        PhaseInput {
+            description: "B".to_owned(),
+            tasks: vec![("t3".to_owned(), TaskStatus::Pending)],
+        },
+    ];
+
+    // When building the list.
+    let mut list = TaskList::new();
+    list.set_from_inputs(&inputs);
+
+    // Then all phase IDs are distinct.
+    let pids: Vec<_> = list.phases().iter().map(|p| p.id.clone()).collect();
+    assert_eq!(pids.len(), 2);
+    assert_ne!(pids[0], pids[1]);
+    // And all task IDs across phases are distinct.
+    let tids: Vec<_> = list
+        .phases()
+        .iter()
+        .flat_map(|p| &p.tasks)
+        .map(|t| t.id.clone())
+        .collect();
+    let unique: std::collections::HashSet<_> = tids.iter().collect();
+    assert_eq!(unique.len(), tids.len());
+}
+
+#[rstest::rstest]
+#[test]
+fn set_phase_from_input_replaces_first_matching_description() {
+    // Given a list with two phases sharing the same description.
+    let mut list = TaskList::new();
+    let p1 = list.add_phase("Build");
+    list.add_task(&p1, "Old", TaskPosition::End).unwrap();
+    list.add_phase("Build");
+
+    // When writing to the matching description.
+    let replaced = list.set_phase_from_input(&PhaseInput {
+        description: "Build".to_owned(),
+        tasks: vec![("New".to_owned(), TaskStatus::Completed)],
+    });
+
+    // Then the first match is the one replaced.
+    assert!(replaced);
+    assert_eq!(list.phases().len(), 2);
+    // And the first phase carries the new content.
+    assert_eq!(list.phases()[0].tasks()[0].description(), "New");
+    assert_eq!(list.phases()[0].tasks()[0].status(), TaskStatus::Completed);
+    // And the second duplicate phase remains untouched and empty.
+    assert_eq!(list.phases()[1].description(), "Build");
+    assert!(list.phases()[1].tasks().is_empty());
+}
+
+#[rstest::rstest]
+#[test]
+fn set_phase_from_input_appends_when_no_description_matches() {
+    // Given a list with one phase.
+    let mut list = TaskList::new();
+    list.add_phase("Existing");
+
+    // When writing a phase with an unmatched description.
+    let replaced = list.set_phase_from_input(&PhaseInput {
+        description: "Brand new".to_owned(),
+        tasks: vec![("Task".to_owned(), TaskStatus::Pending)],
+    });
+
+    // Then it is appended, not a replacement.
+    assert!(!replaced);
+    assert_eq!(list.phases().len(), 2);
+    assert_eq!(list.phases()[1].description(), "Brand new");
+}
+
+#[rstest::rstest]
+#[test]
+fn set_phase_from_input_preserves_sibling_phases() {
+    // Given a list with two phases.
+    let mut list = TaskList::new();
+    let p1 = list.add_phase("Alpha");
+    list.add_task(&p1, "Keep me", TaskPosition::End).unwrap();
+    let p2 = list.add_phase("Beta");
+    list.add_task(&p2, "Replace target", TaskPosition::End).unwrap();
+
+    // When rewriting only Beta.
+    let replaced = list.set_phase_from_input(&PhaseInput {
+        description: "Beta".to_owned(),
+        tasks: vec![
+            ("Fresh".to_owned(), TaskStatus::Pending),
+            ("Extra".to_owned(), TaskStatus::Pending),
+        ],
+    });
+
+    // Then Beta was replaced.
+    assert!(replaced);
+    // And Alpha is untouched.
+    assert_eq!(list.phases()[0].tasks()[0].description(), "Keep me");
+    // And Beta has exactly the new tasks.
+    assert_eq!(list.phases()[1].tasks().len(), 2);
+    assert_eq!(list.phases()[1].tasks()[0].description(), "Fresh");
+}
+
+#[rstest::rstest]
+#[test]
+fn set_phase_from_input_mints_fresh_ids_not_shared_with_retained_phases() {
+    // Given a list with a phase holding a task.
+    let mut list = TaskList::new();
+    let p1 = list.add_phase("Alpha");
+    let old_tid = list.add_task(&p1, "Keep", TaskPosition::End).unwrap();
+
+    // When appending a new phase via set_phase_from_input.
+    let _ = list.set_phase_from_input(&PhaseInput {
+        description: "New phase".to_owned(),
+        tasks: vec![("t".to_owned(), TaskStatus::Pending)],
+    });
+
+    // Then the new phase's task ID differs from the retained task's ID.
+    let new_tid = list.phases()[1].tasks()[0].id.clone();
+    assert_ne!(new_tid, old_tid);
+}
+
+#[rstest::rstest]
+#[test]
+fn set_phase_from_input_matches_description_after_trimming() {
+    // Given a list whose phase description has surrounding whitespace.
+    let mut list = TaskList::new();
+    list.add_phase("  Build  ");
+
+    // When writing with a differently-trimmed description.
+    let replaced = list.set_phase_from_input(&PhaseInput {
+        description: "Build".to_owned(),
+        tasks: vec![],
+    });
+
+    // Then the existing phase is replaced (matched on trim).
+    assert!(replaced);
+    assert_eq!(list.phases().len(), 1);
+    assert_eq!(list.phases()[0].description(), "Build");
 }

@@ -174,6 +174,22 @@ impl TaskStatus {
 }
 
 // ---------------------------------------------------------------------------
+// Declarative write inputs
+// ---------------------------------------------------------------------------
+
+/// Input for one phase in a declarative write
+/// ([`TaskList::set_from_inputs`] / [`TaskList::set_phase_from_input`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhaseInput {
+    /// Human-readable phase description. Doubles as the match key for
+    /// description-keyed writes ([`TaskList::set_phase_from_input`]).
+    pub description: String,
+    /// Ordered tasks as `(description, status)` pairs; status is declared
+    /// inline rather than remembered from a previous write.
+    pub tasks: Vec<(String, TaskStatus)>,
+}
+
+// ---------------------------------------------------------------------------
 // Positioning
 // ---------------------------------------------------------------------------
 
@@ -707,6 +723,87 @@ impl TaskList {
     /// (a subagent discarding an inherited list it doesn't need).
     pub fn clear(&mut self) {
         self.phases.clear();
+    }
+
+    /// Replaces the entire task list with phases built from declarative inputs.
+    ///
+    /// The complete replacement list (with freshly minted IDs) is constructed
+    /// before `self` is touched, then swapped in atomically — input is already
+    /// validated by the tool-layer parser, so the swap cannot fail partway.
+    pub fn set_from_inputs(&mut self, phases: &[PhaseInput]) {
+        let built = {
+            // Full replacement: no legacy IDs to avoid.
+            let (mut phase_ids, mut task_ids) = (Vec::new(), Vec::new());
+            let mut built = Vec::with_capacity(phases.len());
+            for input in phases {
+                built.push(Self::build_phase(input, &mut phase_ids, &mut task_ids));
+            }
+            built
+        };
+        self.phases = built;
+    }
+
+    /// Replaces the first phase whose description matches `input.description`
+    /// (exact comparison on trimmed strings), or appends a new phase when no
+    /// phase matches.
+    ///
+    /// Returns `true` when an existing phase was replaced, `false` when a new
+    /// phase was appended. The replacement phase (with freshly minted,
+    /// collision-checked IDs) is built before `self` is mutated.
+    pub fn set_phase_from_input(&mut self, input: &PhaseInput) -> bool {
+        let built = {
+            // Seed the collision sets from the retained list so new IDs never
+            // collide with tasks in other phases.
+            let mut phase_ids: Vec<_> = self.phases.iter().map(|p| p.id.clone()).collect();
+            let mut task_ids: Vec<_> = self
+                .phases
+                .iter()
+                .flat_map(|p| &p.tasks)
+                .map(|t| t.id.clone())
+                .collect();
+            Self::build_phase(input, &mut phase_ids, &mut task_ids)
+        };
+        if let Some(phase) = self
+            .phases
+            .iter_mut()
+            .find(|p| p.description.trim() == input.description.trim())
+        {
+            *phase = built;
+            true
+        } else {
+            self.phases.push(built);
+            false
+        }
+    }
+
+    /// Builds a fresh `Phase` from one input, minting a phase ID and task IDs
+    /// that avoid every ID in the passed collision sets (extended as IDs are
+    /// minted).
+    fn build_phase(
+        input: &PhaseInput,
+        phase_ids: &mut Vec<PhaseId>,
+        task_ids: &mut Vec<TaskId>,
+    ) -> Phase {
+        let id = PhaseId::new(phase_ids);
+        phase_ids.push(id.clone());
+        let tasks = input
+            .tasks
+            .iter()
+            .map(|(description, status)| {
+                let task_id = TaskId::new(task_ids);
+                task_ids.push(task_id.clone());
+                Task {
+                    id: task_id,
+                    description: description.clone(),
+                    status: *status,
+                }
+            })
+            .collect();
+        Phase {
+            id,
+            description: input.description.clone(),
+            tasks,
+        }
     }
 
     /// Returns the phase with the given ID, if it exists.
