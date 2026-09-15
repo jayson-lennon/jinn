@@ -330,3 +330,5 @@ Entries are added or amended **only with human approval**.
 - (todo) `todo_set_phase` replaces the first phase whose description matches the payload description, or appends a new phase when none matches.
 - (todo) `postponed` is not a declarable status and no tool mints it; the status survives only for legacy persisted sessions.
 - (todo) The next-task indicator remains derived from list state and renders after every write and in `todo_get_list`.
+- (skills) jinn ships a bundled `jinn-usage` agent skill whose body routes to per-topic reference files (keybindings, workflows, configuration) installed beside its SKILL.md.
+- (skills) Bundled skill content is compile-time embedded, so installed skill docs match the running jinn binary; refreshing them requires `jinn install --force`.

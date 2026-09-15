@@ -66,7 +66,7 @@ impl Destinations {
 }
 
 /// Where a bundled resource should be installed.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Theme,
     Persona,
@@ -287,6 +287,76 @@ const BUNDLED: &[Bundled] = &[
         relative: "jinn-plugin/SKILL.md",
         contents: BundleContents::Text(include_str!(
             "../../../../../res/skills/jinn-plugin/SKILL.md"
+        )),
+    },
+    Bundled {
+        kind: Kind::Skill,
+        relative: "jinn-usage/SKILL.md",
+        contents: BundleContents::Text(include_str!(
+            "../../../../../res/skills/jinn-usage/SKILL.md"
+        )),
+    },
+    Bundled {
+        kind: Kind::Skill,
+        relative: "jinn-usage/references/keybindings.md",
+        contents: BundleContents::Text(include_str!(
+            "../../../../../res/skills/jinn-usage/references/keybindings.md"
+        )),
+    },
+    Bundled {
+        kind: Kind::Skill,
+        relative: "jinn-usage/references/context-management.md",
+        contents: BundleContents::Text(include_str!(
+            "../../../../../res/skills/jinn-usage/references/context-management.md"
+        )),
+    },
+    Bundled {
+        kind: Kind::Skill,
+        relative: "jinn-usage/references/sessions-and-subagents.md",
+        contents: BundleContents::Text(include_str!(
+            "../../../../../res/skills/jinn-usage/references/sessions-and-subagents.md"
+        )),
+    },
+    Bundled {
+        kind: Kind::Skill,
+        relative: "jinn-usage/references/pickers-and-search.md",
+        contents: BundleContents::Text(include_str!(
+            "../../../../../res/skills/jinn-usage/references/pickers-and-search.md"
+        )),
+    },
+    Bundled {
+        kind: Kind::Skill,
+        relative: "jinn-usage/references/terminal-overlay.md",
+        contents: BundleContents::Text(include_str!(
+            "../../../../../res/skills/jinn-usage/references/terminal-overlay.md"
+        )),
+    },
+    Bundled {
+        kind: Kind::Skill,
+        relative: "jinn-usage/references/mcp-servers.md",
+        contents: BundleContents::Text(include_str!(
+            "../../../../../res/skills/jinn-usage/references/mcp-servers.md"
+        )),
+    },
+    Bundled {
+        kind: Kind::Skill,
+        relative: "jinn-usage/references/chat-input-tokens.md",
+        contents: BundleContents::Text(include_str!(
+            "../../../../../res/skills/jinn-usage/references/chat-input-tokens.md"
+        )),
+    },
+    Bundled {
+        kind: Kind::Skill,
+        relative: "jinn-usage/references/models-and-providers.md",
+        contents: BundleContents::Text(include_str!(
+            "../../../../../res/skills/jinn-usage/references/models-and-providers.md"
+        )),
+    },
+    Bundled {
+        kind: Kind::Skill,
+        relative: "jinn-usage/references/configuration.md",
+        contents: BundleContents::Text(include_str!(
+            "../../../../../res/skills/jinn-usage/references/configuration.md"
         )),
     },
     // --- plugins (prebuilt wasm payloads, manifest-embedded) ---
@@ -1219,5 +1289,112 @@ mod tests {
                 .all(|e| e.enabled && e.config.is_none()),
             "fresh entries must be enabled with no config"
         );
+    }
+
+    /// Every markdown link in the jinn-usage SKILL.md router resolves to a
+    /// file registered in `BUNDLED`. A dangling reference ships a skill that
+    /// instructs agents to read files that don't exist.
+    #[rstest::rstest]
+    #[test]
+    fn jinn_usage_router_links_resolve_to_bundled_references() {
+        // Given the bundled jinn-usage SKILL.md body.
+        let skill = BUNDLED
+            .iter()
+            .find(|b| b.kind == Kind::Skill && b.relative == "jinn-usage/SKILL.md")
+            .expect("jinn-usage SKILL.md must be registered in BUNDLED");
+        let BundleContents::Text(body) = skill.contents else {
+            panic!("skill payloads are text");
+        };
+
+        // When extracting its `references/*.md` links.
+        let linked: Vec<&str> = body
+            .lines()
+            .filter_map(|line| line.split("references/").nth(1))
+            .filter_map(|rest| {
+                let end = rest.find('`')?;
+                let name = rest.get(..end)?;
+                (name.ends_with(".md")).then_some(name)
+            })
+            .collect();
+
+        // Then the router links at least the core references.
+        assert!(
+            linked.len() >= 8,
+            "expected the router to link its reference files, found {linked:?}"
+        );
+        // And every linked reference is bundled.
+        for name in linked {
+            let relative = format!("jinn-usage/references/{name}");
+            assert!(
+                BUNDLED
+                    .iter()
+                    .any(|b| b.kind == Kind::Skill && b.relative == relative),
+                "SKILL.md links references/{name} but it is not registered in BUNDLED"
+            );
+        }
+    }
+
+    /// Every file under `res/skills/jinn-usage/` has a `BUNDLED` entry. A
+    /// reference added on disk but not registered silently fails to install
+    /// (`include_str!` only catches the opposite direction).
+    #[rstest::rstest]
+    #[test]
+    fn every_jinn_usage_disk_file_is_registered_in_bundled() {
+        // Given the on-disk jinn-usage skill directory.
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../res/skills/jinn-usage");
+        let mut disk_files: Vec<String> = Vec::new();
+        if dir.join("SKILL.md").is_file() {
+            disk_files.push("jinn-usage/SKILL.md".to_string());
+        }
+        let refs = dir.join("references");
+        if refs.is_dir() {
+            for file in std::fs::read_dir(&refs).expect("read references") {
+                let file = file.expect("read reference");
+                let name = file.file_name().to_string_lossy().to_string();
+                if name.ends_with(".md") {
+                    disk_files.push(format!("jinn-usage/references/{name}"));
+                }
+            }
+        }
+
+        // When comparing against the catalogue.
+        // Then every disk file is registered.
+        for relative in &disk_files {
+            assert!(
+                BUNDLED
+                    .iter()
+                    .any(|b| b.kind == Kind::Skill && b.relative == relative),
+                "{relative} exists on disk but is not registered in BUNDLED"
+            );
+        }
+        // And the directory holds the expected set (router + 9 references).
+        assert_eq!(
+            disk_files.len(),
+            10,
+            "unexpected file count under res/skills/jinn-usage: {disk_files:?}"
+        );
+    }
+
+    /// The installed jinn-usage skill parses through the real skill scanner:
+    /// valid frontmatter, a name matching its directory, and a
+    /// non-empty description (the trigger surface agents match on).
+    #[rstest::rstest]
+    #[test]
+    fn jinn_usage_installs_as_a_discoverable_skill() {
+        // Given a fresh install.
+        let env = TestEnv::fresh();
+        env.run(false);
+
+        // When scanning the skills destination.
+        let skills = crate::feat::skills::scan_skills(&env.destinations.skills);
+
+        // Then jinn-usage is discovered by name with a usable description.
+        let usage = skills
+            .iter()
+            .find(|s| s.name == "jinn-usage")
+            .expect("jinn-usage must be discovered by the skill scanner");
+        assert!(!usage.description.trim().is_empty());
+        // And its base_dir holds the router's reference files.
+        assert!(usage.base_dir.join("references").is_dir());
     }
 }
