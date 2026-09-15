@@ -347,3 +347,4 @@ Entries are added or amended **only with human approval**.
 - (pickers) jinn_picker PickerEntry is Clone and delegates TreeItem structure to domain entries.
 - (skills) jinn ships a bundled `jinn-usage` agent skill whose body routes to per-topic reference files (keybindings, workflows, configuration) installed beside its SKILL.md.
 - (skills) Bundled skill content is compile-time embedded, so installed skill docs match the running jinn binary; refreshing them requires `jinn install --force`.
+- (plugins) Plugin authoring guidance lives in the `jinn plugin new` scaffold output and the jinn-plugin-api/sdk crate docs; no bundled agent skill covers it.
