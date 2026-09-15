@@ -79,8 +79,9 @@ pub struct PickerStates {
     pub task_list_picker:
         jinn_selection_widget::TreePickerState<jinn_picker::PickerEntry<TaskListTreeEntry>>,
 
-    pub project_picker:
-        jinn_selection_widget::SelectionState<crate::feat::project::picker_entry::ProjectEntry>,
+    pub project_picker: jinn_selection_widget::SelectionState<
+        jinn_picker::PickerEntry<crate::feat::project::picker_entry::ProjectEntry>,
+    >,
 
     /// Measured results-area row count for the currently-active picker, as
     /// written by the TUI render pre-pass each frame. Used by the picker
@@ -221,10 +222,14 @@ pub trait PickerExt {
     /// Read-only access to the project picker state.
     fn project_picker(
         &self,
-    ) -> &jinn_selection_widget::SelectionState<crate::feat::project::picker_entry::ProjectEntry>;
+    ) -> &jinn_selection_widget::SelectionState<
+        jinn_picker::PickerEntry<crate::feat::project::picker_entry::ProjectEntry>,
+    >;
     fn project_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::SelectionState<crate::feat::project::picker_entry::ProjectEntry>;
+    ) -> &mut jinn_selection_widget::SelectionState<
+        jinn_picker::PickerEntry<crate::feat::project::picker_entry::ProjectEntry>,
+    >;
 
     /// Read-only access to the MCP server picker state.
     fn mcp_server_picker(
@@ -397,15 +402,17 @@ impl PickerExt for super::frontend_state::FrontendState {
     }
     fn project_picker(
         &self,
-    ) -> &jinn_selection_widget::SelectionState<crate::feat::project::picker_entry::ProjectEntry>
-    {
+    ) -> &jinn_selection_widget::SelectionState<
+        jinn_picker::PickerEntry<crate::feat::project::picker_entry::ProjectEntry>,
+    > {
         &self.pickers.project_picker
     }
 
     fn project_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::SelectionState<crate::feat::project::picker_entry::ProjectEntry>
-    {
+    ) -> &mut jinn_selection_widget::SelectionState<
+        jinn_picker::PickerEntry<crate::feat::project::picker_entry::ProjectEntry>,
+    > {
         &mut self.pickers.project_picker
     }
 

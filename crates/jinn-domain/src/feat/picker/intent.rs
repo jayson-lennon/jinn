@@ -8,10 +8,8 @@
 
 use crate::common::app_state::AppState;
 use crate::common::app_state::FocusScope;
-use crate::feat::preferences_actor::protocol::command::{PreferenceUpdate, UpdatePreferences};
 use crate::feat::session::model_selection::ModelSelection;
 
-use crate::feat::ui::picker_states::PickerExt;
 use crate::protocol::{Intent, IntentResult, PickerKind};
 
 use super::geometry::active_viewport;
@@ -28,9 +26,11 @@ pub fn handle_open_picker(
         return IntentResult::empty();
     }
 
-    // Endpoint picker is only reachable for a Single (non-alloy) model. The
-    // backend gate (OpenRouter vs direct) runs later in the discovery actor,
-    // which owns `Services`; here we only reject the model-shape mismatch.
+    // Endpoint picker is only reachable for a Single (non-alloy) model. This
+    // gate must run BEFORE the scope push, so it cannot live in the spec's
+    // open hook (hooks run after the push). The backend gate (OpenRouter vs
+    // direct) runs later in the discovery actor, which owns `Services`; here
+    // we only reject the model-shape mismatch.
     if matches!(kind, PickerKind::Endpoint)
         && matches!(
             state.active_session().profile().model,
@@ -42,9 +42,8 @@ pub fn handle_open_picker(
 
     state.frontend.scope_stack.push(FocusScope::Picker { kind });
 
-    // Spec-driven pickers own their open-time preparation entirely —
-    // but only when the registry actually holds their spec; otherwise the
-    // legacy open path still runs.
+    // Every kind is spec-driven: the open hook owns open-time preparation.
+    // An empty registry (test seams) falls through with nothing to prepare.
     if crate::feat::picker::registry::spec_id_for_kind(&kind)
         .is_some_and(|id| pickers.get(id).is_some())
     {
@@ -54,74 +53,7 @@ pub fn handle_open_picker(
             crate::feat::picker::action::Hook::Open,
         );
     }
-
-    reset_picker_for_open(state, kind);
-
-    match kind {
-        PickerKind::Provider
-        | PickerKind::Persona
-        | PickerKind::Skill
-        | PickerKind::Theme
-        | PickerKind::Tool
-        | PickerKind::McpServer
-        | PickerKind::Session
-        | PickerKind::SessionLifecycle
-        | PickerKind::ReasoningEffort
-        | PickerKind::TaskList
-        | PickerKind::Project
-        | PickerKind::Plugin
-        | PickerKind::Endpoint => IntentResult::empty(),
-    }
-}
-
-/// Resets and repopulates the target picker's state before it is shown.
-///
-/// Each arm owns its picker's open-time preparation: reset, snapshot for
-/// ESC revert (where applicable), and synchronous entry loading.
-fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
-    match kind {
-        PickerKind::Persona
-        | PickerKind::Skill
-        | PickerKind::Theme
-        | PickerKind::Tool
-        | PickerKind::McpServer
-        | PickerKind::SessionLifecycle
-        | PickerKind::ReasoningEffort
-        | PickerKind::Plugin
-        | PickerKind::TaskList
-        | PickerKind::Session
-        | PickerKind::Provider => {
-            // Spec-driven when the registry holds their spec; nothing to
-            // prepare in the legacy path.
-        }
-        PickerKind::Project => {
-            // Defensive: a stale stash from an abandoned previous flow must
-            // never leak into a new project-picker session.
-            state.frontend.pending_creation = None;
-            state.frontend.project_picker_mut().reset();
-            load_project_picker_entries(&mut state.frontend);
-        }
-        PickerKind::Endpoint => {
-            // Spec-driven when the registry holds their spec; nothing to
-            // prepare in the legacy path.
-        }
-    }
-}
-
-/// Populates the skill picker entries from discovered skills.
-///
-/// Populates the project picker entries from `UserPreferences.projects`.
-///
-/// Entries are pre-computed display strings (tilde-compressed) so the picker
-/// never has to call `shorten_path` per-render.
-pub(crate) fn load_project_picker_entries(
-    frontend: &mut crate::feat::ui::frontend_state::FrontendState,
-) {
-    use crate::feat::project::picker_entry::{ProjectEntry, project_entries};
-
-    let theme = frontend.theme.clone();
-    let entries: Vec<ProjectEntry> = project_entries(&frontend.preferences.projects, &theme);
-    frontend.project_picker_mut().set_items(entries);
+    IntentResult::empty()
 }
 
 /// Resets the preview scroll offset when the active picker's spec opts in
@@ -185,9 +117,8 @@ pub fn handle_picker_confirm(
         return (IntentResult::empty(), None);
     }
 
-    // Spec-driven pickers own their confirm behavior entirely — but only
-    // when the registry actually holds their spec; otherwise the legacy
-    // confirm path still runs.
+    // Every kind is spec-driven: the confirm hook owns confirm behavior.
+    // An empty registry (test seams) falls through with nothing to do.
     if state
         .frontend
         .scope_stack
@@ -204,30 +135,7 @@ pub fn handle_picker_confirm(
             None,
         );
     }
-
-    match state.frontend.scope_stack.picker_kind().copied() {
-        Some(PickerKind::Project) => (confirm_project(state), None),
-
-        // Persona, Skill, Theme, Tool, McpServer, and SessionLifecycle are
-        // fully spec-driven; the registry guard above runs their confirm
-        // hook. Reaching the match means the registry is empty (test seams) —
-        // nothing to do.
-        Some(
-            PickerKind::McpServer
-            | PickerKind::Persona
-            | PickerKind::Provider
-            | PickerKind::ReasoningEffort
-            | PickerKind::Session
-            | PickerKind::SessionLifecycle
-            | PickerKind::TaskList
-            | PickerKind::Plugin
-            | PickerKind::Skill
-            | PickerKind::Theme
-            | PickerKind::Tool
-            | PickerKind::Endpoint,
-        )
-        | None => (IntentResult::empty(), None),
-    }
+    (IntentResult::empty(), None)
 }
 
 /// Moves the selection up in the active picker.
@@ -302,82 +210,6 @@ pub fn handle_move_cursor_right(state: &mut AppState) -> IntentResult {
     IntentResult::empty()
 }
 
-/// Confirms the highlighted project: stashes its dir as the pending session
-/// creation (project stamp + starting CWD), pops the picker, and delegates to
-/// a plain new session.
-///
-/// `Enter` path: the new session inherits nothing from the active session's
-/// CWD - it is created at the chosen project dir via the stash.
-fn confirm_project(state: &mut AppState) -> IntentResult {
-    let Some(entry) = state.frontend.project_picker().selected_item() else {
-        return IntentResult::empty();
-    };
-
-    // Stash the chosen dir and pop the picker before delegating, so the new
-    // session is created in Normal scope at the right CWD. The project stamp
-    // and the starting CWD start equal here but are semantically distinct:
-    // lifecycle scripts may re-cwd the session, the project never moves.
-    state.frontend.pending_creation =
-        Some(crate::feat::ui::frontend_state::PendingSessionCreation {
-            project_dir: entry.path.clone(),
-            starting_cwd: entry.path.clone(),
-        });
-    state.frontend.scope_stack.pop();
-
-    crate::feat::session_lifecycle::intent::handle_session_lifecycle_setup(state, "", &[], None)
-}
-
-/// Confirms the highlighted project and chains into the lifecycle picker.
-///
-/// `<c-enter>` path: same stash + pop as `confirm_project`, but then opens
-/// the session lifecycle picker so the user picks a recipe (and optional args).
-/// The stash survives the lifecycle -> arg-input chain because every
-/// confirmation path in that chain consumes `pending_creation`.
-pub fn handle_project_lifecycle_confirm(state: &mut AppState) -> IntentResult {
-    let Some(entry) = state.frontend.project_picker().selected_item() else {
-        return IntentResult::empty();
-    };
-
-    state.frontend.pending_creation =
-        Some(crate::feat::ui::frontend_state::PendingSessionCreation {
-            project_dir: entry.path.clone(),
-            starting_cwd: entry.path.clone(),
-        });
-    state.frontend.scope_stack.pop();
-
-    // Re-enter the lifecycle picker. `handle_open_picker` pushes a fresh
-    // `Picker { SessionLifecycle }` scope.
-    handle_open_picker(
-        state,
-        PickerKind::SessionLifecycle,
-        &jinn_picker::PickerRegistry::new(),
-    )
-}
-
-/// Removes the highlighted project from the curated list (`d`).
-///
-/// Applies the diff optimistically to `frontend.preferences.projects`,
-/// reloads the picker items so the list updates immediately, and emits
-/// `UpdatePreferences` so the `PreferencesActor` persists the change.
-/// The `PreferencesActor` will also write `frontend.preferences` inline
-/// after persisting, reconciling any divergence.
-pub fn handle_project_remove_highlighted(state: &mut AppState) -> IntentResult {
-    let Some(entry) = state.frontend.project_picker().selected_item().cloned() else {
-        return IntentResult::empty();
-    };
-
-    state
-        .frontend
-        .preferences
-        .projects
-        .retain(|p| p.path != entry.path);
-    load_project_picker_entries(&mut state.frontend);
-
-    IntentResult::new_message(UpdatePreferences {
-        updates: vec![PreferenceUpdate::RemoveProject(entry.path)],
-    })
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -388,6 +220,7 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
+    use crate::feat::ui::picker_states::PickerExt;
 
     /// Wraps persona entries through the persona spec's hooks for storage.
     fn wrap_persona_entries(
@@ -822,120 +655,6 @@ mod tests {
             .set_items(wrap_provider_entries(entries));
         state.provider.provider_picker.move_down(1); // highlight first entry
         state
-    }
-
-    /// Builds an AppState with a project picker open, the active session's CWD
-    /// set to a distinct value, and `n` curated project entries loaded.
-    fn state_with_project_picker(paths: &[&str]) -> AppState {
-        let mut state = AppState::default();
-        let origin = ChatSessionState::new();
-        state.session.insert(origin);
-        state
-            .session
-            .set_active(state.session.active_session_id().clone());
-        state
-            .active_session_mut()
-            .set_cwd(std::path::PathBuf::from("/tmp/active-session-cwd"));
-        state.frontend.scope_stack.push(FocusScope::Picker {
-            kind: PickerKind::Project,
-        });
-        let projects: Vec<crate::feat::project::ProjectConfig> = paths
-            .iter()
-            .map(|p| crate::feat::project::ProjectConfig {
-                path: std::path::PathBuf::from(p),
-                command_policy: Vec::new(),
-            })
-            .collect();
-        state.frontend.preferences.projects = projects;
-        load_project_picker_entries(&mut state.frontend);
-        // index 0 is selected by default after set_items + reset.
-        state
-    }
-
-    #[rstest::rstest]
-    fn confirm_project_creates_new_session_at_chosen_dir() {
-        // Given a project picker whose highlighted entry is /tmp/project-a.
-        let mut state = state_with_project_picker(&["/tmp/project-a", "/tmp/project-b"]);
-
-        // When confirming the highlighted project (Enter).
-        let result = confirm_project(&mut state);
-
-        // Then a new session was created (a message was emitted to drive it).
-        assert!(!result.message_names.is_empty());
-        // And the new active session's CWD is the chosen project dir, not the
-        // previously active session's CWD.
-        assert_eq!(
-            state.active_session().cwd(),
-            std::path::Path::new("/tmp/project-a"),
-        );
-        // And the stash was consumed.
-        assert!(state.frontend.pending_creation.is_none());
-    }
-
-    #[rstest::rstest]
-    fn confirm_project_leaves_previous_session_cwd_unchanged() {
-        // Given a project picker with an existing active session.
-        let mut state = state_with_project_picker(&["/tmp/project-a"]);
-        let prev_id = state.session.active_session_id().clone();
-
-        // When confirming the highlighted project.
-        let _result = confirm_project(&mut state);
-
-        // Then the previous session (now backgrounded) keeps its original CWD.
-        let prev = state
-            .session
-            .get(&prev_id)
-            .expect("previous session still exists");
-        assert_eq!(prev.cwd(), std::path::Path::new("/tmp/active-session-cwd"));
-    }
-
-    #[rstest::rstest]
-    fn confirm_project_with_lifecycle_sets_override_then_opens_lifecycle_picker() {
-        // Given a project picker whose highlighted entry is /tmp/project-a.
-        let mut state = state_with_project_picker(&["/tmp/project-a"]);
-
-        // When confirming with lifecycle (<c-enter>).
-        let _result = handle_project_lifecycle_confirm(&mut state);
-
-        // Then the project scope was popped and the lifecycle picker opened.
-        assert!(matches!(
-            state.frontend.scope_stack.current(),
-            FocusScope::Picker {
-                kind: PickerKind::SessionLifecycle
-            }
-        ));
-        // And the chosen dir is stashed in a pending creation, awaiting the
-        // lifecycle/args confirm chain.
-        let pending = state
-            .frontend
-            .pending_creation
-            .as_ref()
-            .expect("pending creation stashed");
-        assert_eq!(pending.project_dir, std::path::Path::new("/tmp/project-a"));
-        assert_eq!(pending.starting_cwd, std::path::Path::new("/tmp/project-a"));
-    }
-
-    #[rstest::rstest]
-    fn project_remove_highlighted_deletes_highlighted_entry() {
-        // Given a project picker with two entries and the first highlighted.
-        let mut state = state_with_project_picker(&["/tmp/project-a", "/tmp/project-b"]);
-
-        // When removing the highlighted entry (d).
-        let result = handle_project_remove_highlighted(&mut state);
-
-        // Then the highlighted entry is removed from preferences.projects.
-        let paths: Vec<_> = state
-            .frontend
-            .preferences
-            .projects
-            .iter()
-            .map(|p| p.path.clone())
-            .collect();
-        assert_eq!(paths, vec![std::path::PathBuf::from("/tmp/project-b")]);
-        // And an UpdatePreferences(RemoveProject) message was emitted.
-        assert!(!result.message_names.is_empty());
-        // And the picker now shows one entry.
-        assert_eq!(state.frontend.project_picker().items().len(), 1);
     }
 
     #[rstest::rstest]

@@ -1,33 +1,20 @@
 //! Picker overlay rendering - dispatches to domain-specific picker renderers.
 
-use jinn_domain::PickerKind;
 use jinn_domain::RenderCtx;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 
 /// Renders the active picker overlay, dispatching on [`PickerKind`].
 pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    // Spec-driven kinds render through the registry first; the legacy arms
-    // below stay authoritative for kinds without a spec.
+    // Every picker kind is spec-driven: render through the registry. With
+    // an empty registry (test seams) there is nothing to draw. `None`
+    // (no picker scope) is also a no-op here.
     if let Some(kind) = ctx.state.frontend.scope_stack.picker_kind().copied()
         && let Some(id) = jinn_domain::feat::picker::registry::spec_id_for_kind(&kind)
         && let Some(spec) = ctx.pickers.get(id)
     {
         let host = jinn_domain::feat::picker::host_impl::AppStateRenderHost::new(ctx.state);
-        if spec.render(frame, area, &host) {
-            return;
-        }
-        // The spec rendered nothing (storage not wrapped yet) — fall
-        // through to the legacy renderer below.
-    }
-    match ctx.state.frontend.scope_stack.picker_kind().copied() {
-        Some(PickerKind::Project) => {
-            jinn_domain::feat::picker::render::render_project_picker(frame, area, ctx);
-        }
-        // Every other picker kind now renders through its spec above; with
-        // an empty registry (test seams) there is nothing to draw. `None`
-        // (no picker scope) is also a no-op here.
-        _ => {}
+        spec.render(frame, area, &host);
     }
 }
 
@@ -81,14 +68,14 @@ mod tests {
         assert_eq!(small_popup.height, 22);
     }
 
-    /// Each picker kind must draw exactly the number of footer rows it
-    /// advertises via [`PickerKind::footer_rows`]. This is the drift-prevention
-    /// backstop for the picker viewport measurement: if a render site ever
-    /// adds or drops a footer without updating `footer_rows()`, the geometry
-    /// helper would reserve the wrong number of rows and the cursor could drift
-    /// off-screen. With an empty item list, the results area is blank, so the
-    /// consecutive non-blank rows at the bottom of the popup's inner area equal
-    /// the footer count actually drawn.
+    /// Each picker kind must draw exactly the number of footer rows its spec
+    /// declares via `bottom_rows()`. This is the drift-prevention backstop for
+    /// the picker viewport measurement: if a render site ever adds or drops a
+    /// footer without updating the spec, the geometry helper would reserve the
+    /// wrong number of rows and the cursor could drift off-screen. With an
+    /// empty item list, the results area is blank, so the consecutive
+    /// non-blank rows at the bottom of the popup's inner area equal the footer
+    /// count actually drawn.
     #[rstest::rstest]
     #[case::provider(PickerKind::Provider)]
     #[case::session(PickerKind::Session)]
@@ -147,11 +134,10 @@ mod tests {
             drawn_footer_rows += 1;
         }
 
-        // The declared footer count comes from the spec when the kind has
-        // one (bottom rows are spec-owned), else from the legacy kind.
+        // The declared footer count is spec-owned (every kind has a spec).
         let declared = jinn_domain::feat::picker::registry::spec_id_for_kind(&kind)
             .and_then(|id| pickers.get(id))
-            .map_or_else(|| kind.footer_rows(), |spec| spec.bottom_rows());
+            .map_or(1, |spec| spec.bottom_rows());
 
         assert_eq!(
             drawn_footer_rows, declared,

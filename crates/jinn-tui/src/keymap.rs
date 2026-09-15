@@ -406,10 +406,9 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
             add_picker_base(b);
         })
         .scope(Scope::PickerProject, |b| {
+            // The project spec's rows (<c-enter> new+lifecycle, <c-n> add
+            // dir, <c-d> remove) land here via bind_picker_spec_rows.
             add_picker_base(b);
-            b.bind("<c-enter>", Intent::ProjectNewAtHighlightedWithLifecycle, KeyCategory::General)
-             .bind("<c-n>", Intent::OpenProjectAddInput, KeyCategory::General)
-             .bind("<c-d>", Intent::ProjectRemoveHighlighted, KeyCategory::General);
         })
         .scope(Scope::PickerMcpServer, |b| {
             // The MCP spec's rows (TAB toggle, CTRL+R restart, CTRL+T
@@ -1062,8 +1061,12 @@ mod tests {
         use crate::app::WhichKeyInstance;
         use jinn_domain::{Key, Modifiers};
 
-        // Given a fresh keymap.
-        let keymap = init();
+        // Given a keymap with the domain's spec rows bound.
+        let mut keymap = init();
+        crate::keymap_gen::bind_picker_spec_rows(
+            &jinn_domain::feat::picker::registry::build_picker_registry(),
+            &mut keymap,
+        );
         let mut wk = WhichKeyInstance::new(keymap, Scope::PickerProject);
 
         // When pressing Ctrl+D.
@@ -1072,11 +1075,12 @@ mod tests {
             modifiers: Modifiers::ctrl(),
         });
 
-        // Then it fires ProjectRemoveHighlighted.
-        assert!(
-            matches!(intent, Some(jinn_domain::Intent::ProjectRemoveHighlighted)),
-            "<c-d> in PickerProject should fire ProjectRemoveHighlighted; got {intent:?}",
-        );
+        // Then it fires the project spec's remove action.
+        let Some(jinn_domain::Intent::PickerAction { picker, action }) = intent else {
+            panic!("<c-d> in PickerProject should fire the project remove action; got {intent:?}");
+        };
+        assert_eq!(picker, "project");
+        assert_eq!(action, "<c-d>");
     }
 
     #[rstest::rstest]

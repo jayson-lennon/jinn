@@ -16,6 +16,7 @@ use crate::feat::picker::registry::ENDPOINT_ID;
 use crate::feat::picker::registry::MCP_SERVER_ID;
 use crate::feat::picker::registry::PERSONA_ID;
 use crate::feat::picker::registry::PLUGIN_ID;
+use crate::feat::picker::registry::PROJECT_ID;
 use crate::feat::picker::registry::PROVIDER_ID;
 use crate::feat::picker::registry::REASONING_EFFORT_ID;
 use crate::feat::picker::registry::SESSION_ID;
@@ -65,6 +66,7 @@ impl PickerHost for AppStatePickerHost<'_> {
             ENDPOINT_ID => {
                 Some(self.state.frontend.endpoint_picker_mut() as &mut dyn std::any::Any)
             }
+            PROJECT_ID => Some(self.state.frontend.project_picker_mut() as &mut dyn std::any::Any),
             _ => None,
         }
     }
@@ -180,6 +182,7 @@ impl PickerHost for AppStateRenderHost<'_> {
             SESSION_ID => Some(self.state.frontend.session_picker() as &dyn std::any::Any),
             PROVIDER_ID => Some(&self.state.provider.provider_picker as &dyn std::any::Any),
             ENDPOINT_ID => Some(self.state.frontend.endpoint_picker() as &dyn std::any::Any),
+            PROJECT_ID => Some(self.state.frontend.project_picker() as &dyn std::any::Any),
             _ => None,
         }
     }
@@ -246,6 +249,7 @@ mod tests {
     use super::*;
     use crate::feat::picker::registry::ENDPOINT_ID;
     use crate::feat::picker::registry::PERSONA_ID;
+    use crate::feat::picker::registry::PROJECT_ID;
 
     fn test_persona(name: &str) -> crate::feat::persona::PersonaEntry {
         crate::feat::persona::PersonaEntry {

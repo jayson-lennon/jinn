@@ -46,7 +46,8 @@ pub fn measure_active_picker_results_height(
     let inner = Block::default().borders(Borders::ALL).inner(popup_area);
 
     // Spec-driven geometry: a spec's widget kind selects the layout math and
-    // its `bottom_rows()` reserves the footer. Legacy kinds use `footer_rows`.
+    // its `bottom_rows()` reserves the footer. Every kind is spec-driven; the
+    // fallback (empty registry, test seams) reserves the legacy single row.
     let height = match crate::feat::picker::registry::spec_id_for_kind(&kind)
         .and_then(|id| registry.get(id))
     {
@@ -56,7 +57,7 @@ pub fn measure_active_picker_results_height(
                 standard_results_height(inner, spec.bottom_rows())
             }
         },
-        None => standard_results_height(inner, kind.footer_rows()),
+        None => standard_results_height(inner, 1),
     };
 
     height.max(1)

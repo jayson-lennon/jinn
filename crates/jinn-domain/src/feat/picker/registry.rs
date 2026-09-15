@@ -35,11 +35,12 @@ pub const PROVIDER_ID: &str = "provider";
 /// The id of the endpoint picker's spec.
 pub const ENDPOINT_ID: &str = "endpoint";
 
-/// Maps a legacy `PickerKind` onto its spec id, `None` while the kind has
-/// not migrated yet.
-///
-/// The pilot migrates persona + skill; every other kind falls through to
-/// the legacy per-kind handlers.
+/// The id of the project picker's spec.
+pub const PROJECT_ID: &str = "project";
+
+/// Maps a `PickerKind` onto its spec id. Every kind has a spec; `None`
+/// therefore means the caller is holding a kind this version of the code
+/// does not know (forward-compat guard only).
 #[must_use]
 pub fn spec_id_for_kind(kind: &crate::feat::picker::PickerKind) -> Option<&'static str> {
     match kind {
@@ -55,7 +56,7 @@ pub fn spec_id_for_kind(kind: &crate::feat::picker::PickerKind) -> Option<&'stat
         crate::feat::picker::PickerKind::Session => Some(SESSION_ID),
         crate::feat::picker::PickerKind::Provider => Some(PROVIDER_ID),
         crate::feat::picker::PickerKind::Endpoint => Some(ENDPOINT_ID),
-        _ => None,
+        crate::feat::picker::PickerKind::Project => Some(PROJECT_ID),
     }
 }
 
@@ -76,6 +77,7 @@ pub fn build_picker_registry() -> PickerRegistry {
     registry.register(super::session_spec::session_spec());
     registry.register(super::provider_spec::provider_spec());
     registry.register(super::endpoint_spec::endpoint_spec());
+    registry.register(super::project_spec::project_spec());
     registry
 }
 
@@ -107,6 +109,7 @@ mod tests {
             PickerKind::Session,
             PickerKind::Provider,
             PickerKind::Endpoint,
+            PickerKind::Project,
         ];
 
         // When mapping each migrated kind and listing registered ids.
@@ -120,18 +123,5 @@ mod tests {
         expected.sort_unstable();
         assert_eq!(registered_ids, expected);
         assert_eq!(mapped_ids.len(), migrated.len());
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn unmigrated_kinds_have_no_spec_id() {
-        // Given every kind that has not migrated in the pilot.
-        let unmigrated = [PickerKind::Project];
-
-        // When mapping each kind.
-        // Then none resolves to a spec id (legacy handlers stay in charge).
-        for kind in &unmigrated {
-            assert!(spec_id_for_kind(kind).is_none(), "{kind:?} unmapped");
-        }
     }
 }

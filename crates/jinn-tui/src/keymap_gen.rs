@@ -85,6 +85,7 @@ fn picker_spec_scope(id: jinn_picker::PickerId) -> Option<Scope> {
         "session" => Some(Scope::PickerSession),
         "provider" => Some(Scope::PickerProvider),
         "endpoint" => Some(Scope::PickerEndpoint),
+        "project" => Some(Scope::PickerProject),
         _ => None,
     }
 }
@@ -951,6 +952,51 @@ mod real_registry_spec_rows {
     use crate::keymap::init;
     use crate::scope::Scope;
     use jinn_domain::{Key, KeyEvent, Modifiers};
+
+    #[rstest::rstest]
+    #[test]
+    fn project_spec_rows_resolve_in_its_scope() {
+        // Given the real domain registry (whose project spec declares
+        // <c-enter>/<c-n>/<c-d> rows) bound into a fresh keymap.
+        let registry = jinn_domain::feat::picker::registry::build_picker_registry();
+        let mut keymap = init();
+        bind_picker_spec_rows(&registry, &mut keymap);
+        let mut wk = WhichKeyInstance::new(keymap, Scope::PickerProject);
+
+        // When pressing each of the spec's keys.
+        let c_enter = KeyEvent {
+            key: Key::Enter,
+            modifiers: Modifiers::ctrl(),
+        };
+        let c_n = KeyEvent {
+            key: Key::Char('n'),
+            modifiers: Modifiers::ctrl(),
+        };
+        let c_d = KeyEvent {
+            key: Key::Char('d'),
+            modifiers: Modifiers::ctrl(),
+        };
+        let enter_intent = wk.handle_key(c_enter);
+        let n_intent = wk.handle_key(c_n);
+        let d_intent = wk.handle_key(c_d);
+
+        // Then each resolves to the project spec's action.
+        let expected = [
+            ("<c-enter>", enter_intent),
+            ("<c-n>", n_intent),
+            ("<c-d>", d_intent),
+        ];
+        for (notation, intent) in expected {
+            assert!(
+                matches!(
+                    &intent,
+                    Some(jinn_domain::Intent::PickerAction { picker, action })
+                        if picker == "project" && action == notation
+                ),
+                "{notation} must land as the project spec's action; got {intent:?}",
+            );
+        }
+    }
 
     #[rstest::rstest]
     #[test]

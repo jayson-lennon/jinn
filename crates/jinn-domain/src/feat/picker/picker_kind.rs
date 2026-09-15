@@ -87,38 +87,6 @@ impl std::fmt::Display for PickerKind {
     }
 }
 
-impl PickerKind {
-    /// Footer rows this picker kind draws at the bottom of its popup. This is
-    /// the authoritative count consumed by both the render sites (which build
-    /// the footer lines) and the geometry measurement (which must reserve the
-    /// same number of rows). Keeping the two in sync here prevents the picker
-    /// viewport from drifting from what is actually drawn.
-    ///
-    /// - `Provider`: two footer lines (refresh status + alloy mode).
-    /// - All others: exactly one footer line.
-    #[must_use]
-    pub const fn footer_rows(self) -> u16 {
-        match self {
-            Self::Provider => 2,
-            // Each single-footer kind is listed explicitly so that adding a
-            // new variant forces a deliberate decision here rather than
-            // silently defaulting to a wrong count.
-            Self::Session
-            | Self::Persona
-            | Self::Theme
-            | Self::SessionLifecycle
-            | Self::ReasoningEffort
-            | Self::Tool
-            | Self::Skill
-            | Self::TaskList
-            | Self::Project
-            | Self::McpServer
-            | Self::Plugin
-            | Self::Endpoint => 1, // Project is the only live fallback consumer.
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used, clippy::panic, reason = "test code")]

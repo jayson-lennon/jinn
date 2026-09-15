@@ -509,12 +509,6 @@ impl IntentHandler {
             Intent::PickerPageDown => feat::picker::intent::handle_page_down(state, pickers),
             Intent::PickerMoveCursorLeft => feat::picker::intent::handle_move_cursor_left(state),
             Intent::PickerMoveCursorRight => feat::picker::intent::handle_move_cursor_right(state),
-            Intent::ProjectNewAtHighlightedWithLifecycle => {
-                feat::picker::intent::handle_project_lifecycle_confirm(state)
-            }
-            Intent::ProjectRemoveHighlighted => {
-                feat::picker::intent::handle_project_remove_highlighted(state)
-            }
             Intent::SessionNew => feat::session::intent::handle_session_new(state),
             Intent::RefreshModels => feat::session::intent::handle_refresh_models(state),
             Intent::RescanPromptTemplates => {
@@ -773,9 +767,6 @@ impl IntentHandler {
             Intent::CwdInputConfirm => feat::cwd_input::intent::handle_cwd_input_confirm(state),
             Intent::CwdInputLeave => feat::cwd_input::intent::handle_cwd_input_leave(state),
 
-            Intent::OpenProjectAddInput => {
-                feat::project_add_input::intent::handle_project_add_input_enter(state)
-            }
             Intent::ProjectAddInputConfirm => {
                 feat::project_add_input::intent::handle_project_add_input_confirm(state)
             }

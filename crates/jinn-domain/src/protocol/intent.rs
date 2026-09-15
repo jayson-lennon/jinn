@@ -140,11 +140,6 @@ pub enum Intent {
     PickerMoveCursorLeft,
     /// Move the picker filter cursor right.
     PickerMoveCursorRight,
-    /// Project picker: create a new session at the highlighted dir, then open
-    /// the session lifecycle picker (project picker `<c-enter>` action).
-    ProjectNewAtHighlightedWithLifecycle,
-    /// Project picker: remove the highlighted dir from the curated project list (`d`).
-    ProjectRemoveHighlighted,
     /// Create a new session.
     SessionNew,
     /// Refresh the model list from all providers.
@@ -331,8 +326,6 @@ pub enum Intent {
     /// Cancel the cwd input popup.
     CwdInputLeave,
 
-    /// Open the project-add input popup (type a directory path).
-    OpenProjectAddInput,
     /// Confirm the project-add input - resolve, validate, and register.
     ProjectAddInputConfirm,
     /// Cancel the project-add input popup.
@@ -452,8 +445,6 @@ impl std::fmt::Display for Intent {
             Intent::PickerPageDown => write!(f, "picker page down"),
             Intent::PickerMoveCursorLeft => write!(f, "picker cursor left"),
             Intent::PickerMoveCursorRight => write!(f, "picker cursor right"),
-            Intent::ProjectNewAtHighlightedWithLifecycle => write!(f, "project new + lifecycle"),
-            Intent::ProjectRemoveHighlighted => write!(f, "remove project"),
             Intent::SessionNew => write!(f, "new session"),
             Intent::RefreshModels => write!(f, "refresh models"),
             Intent::RescanPromptTemplates => write!(f, "rescan prompt templates"),
@@ -535,7 +526,6 @@ impl std::fmt::Display for Intent {
             Intent::OpenCwdInput => write!(f, "change cwd"),
             Intent::CwdInputConfirm => write!(f, "cwd input confirm"),
             Intent::CwdInputLeave => write!(f, "cwd input leave"),
-            Intent::OpenProjectAddInput => write!(f, "add project dir"),
             Intent::ProjectAddInputConfirm => write!(f, "project-add input confirm"),
             Intent::ProjectAddInputLeave => write!(f, "project-add input leave"),
 
