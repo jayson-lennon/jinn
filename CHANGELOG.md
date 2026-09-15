@@ -2,6 +2,13 @@
 
 ## (development)
 
+- Todo tooling completely changed to reduce context tool block size and to more closely align with existing Claude + Codex tools.
+  - `todo_set_list`: rewrites the entire todo list
+  - `todo_set_phase`: rewrites a single phase
+  - `todo_get_list`: returns the entire todo list
+- Added a new `jinn-usage` skill.
+  - This enables the agent to answer meta-questions about `jinn` usage and configuration. `jinn` should now be able to edit it's configuration on your behalf.
+
 ## 2026-09-13 v0.118.0
 
 - Fix build dependency error (`trouper` was not published to crates.io).
