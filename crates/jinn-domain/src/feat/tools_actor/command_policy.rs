@@ -155,6 +155,7 @@ mod tests {
         assert_eq!(rules.is_empty(), !expected);
     }
 
+    #[rstest::rstest]
     #[test]
     fn tilde_only_path_expands_to_home_itself() {
         // Given a project configured as bare `~`.
@@ -168,6 +169,7 @@ mod tests {
         assert_eq!(rules.len(), 1);
     }
 
+    #[rstest::rstest]
     #[test]
     fn longest_prefix_project_wins_over_ancestor() {
         // Given a nested pair of configured projects, each with a distinct rule.
@@ -203,6 +205,7 @@ mod tests {
         assert_eq!(matched.is_some(), expected, "command: {command}");
     }
 
+    #[rstest::rstest]
     #[test]
     fn first_matching_rule_wins_in_config_order() {
         // Given a policy whose two rules both match the command.
@@ -218,6 +221,7 @@ mod tests {
         assert_eq!(matched, Some(("first", "first message")));
     }
 
+    #[rstest::rstest]
     #[test]
     fn empty_policy_matches_nothing() {
         // Given a policy compiled from no rules.
@@ -231,6 +235,7 @@ mod tests {
         assert!(policy.is_empty());
     }
 
+    #[rstest::rstest]
     #[test]
     fn invalid_regex_rule_is_inert_but_sibling_still_enforces() {
         // Given a policy with one invalid regex followed by one valid rule.

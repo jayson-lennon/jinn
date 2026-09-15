@@ -22,10 +22,7 @@
 //! payload is fully validated here before any task list state is touched, so
 //! the writers can build their replacement atomically.
 
-use crate::feat::todo_list::TaskStatus;
-
-/// One parsed phase: its trimmed description plus `(description, status)` task entries.
-type ParsedPhase = (String, Vec<(String, TaskStatus)>);
+use crate::feat::todo_list::{PhaseInput, TaskStatus};
 
 /// Parses the `status` field of one task entry.
 ///
@@ -89,7 +86,7 @@ fn parse_task_entry(
 ///
 /// Returns the payload error message when the phase lacks a usable
 /// `description`, has a non-array `tasks`, or any task entry is malformed.
-pub fn parse_phase_body(value: &serde_json::Value, label: &str) -> Result<ParsedPhase, String> {
+pub fn parse_phase_body(value: &serde_json::Value, label: &str) -> Result<PhaseInput, String> {
     let Some(description) = value.get("description").and_then(serde_json::Value::as_str) else {
         return Err(format!("{label} is missing 'description'"));
     };
@@ -108,7 +105,7 @@ pub fn parse_phase_body(value: &serde_json::Value, label: &str) -> Result<Parsed
             tasks.push(parse_task_entry(entry, &task_label)?);
         }
     }
-    Ok((description, tasks))
+    Ok(PhaseInput { description, tasks })
 }
 
 /// Parses the `phases` array of a whole-list payload.
@@ -119,7 +116,7 @@ pub fn parse_phase_body(value: &serde_json::Value, label: &str) -> Result<Parsed
 /// # Errors
 ///
 /// Returns the payload error message of the first malformed phase.
-pub fn parse_phases_array(entries: &[serde_json::Value]) -> Result<Vec<ParsedPhase>, String> {
+pub fn parse_phases_array(entries: &[serde_json::Value]) -> Result<Vec<PhaseInput>, String> {
     let mut phases = Vec::with_capacity(entries.len());
     for (i, value) in entries.iter().enumerate() {
         let label = format!("phase at index {i}");
@@ -132,6 +129,7 @@ pub fn parse_phases_array(entries: &[serde_json::Value]) -> Result<Vec<ParsedPha
 mod tests {
     #![allow(
         clippy::expect_used,
+        clippy::indexing_slicing,
         clippy::panic,
         clippy::uninlined_format_args,
         reason = "test code"
@@ -153,11 +151,14 @@ mod tests {
         let phases = parse_phases_array(entries).expect("parses");
 
         // Then the tasks carry Pending status.
-        assert_eq!(phases[0].0, "Research");
-        assert_eq!(phases[0].1, vec![
-            ("Read docs".to_owned(), TaskStatus::Pending),
-            ("Call API".to_owned(), TaskStatus::Pending)
-        ]);
+        assert_eq!(phases[0].description, "Research");
+        assert_eq!(
+            phases[0].tasks,
+            vec![
+                ("Read docs".to_owned(), TaskStatus::Pending),
+                ("Call API".to_owned(), TaskStatus::Pending)
+            ]
+        );
     }
 
     #[rstest::rstest]
@@ -177,9 +178,9 @@ mod tests {
         let phases = parse_phases_array(entries).expect("parses");
 
         // Then the declared statuses are preserved.
-        assert_eq!(phases[0].1[0].1, TaskStatus::Completed);
+        assert_eq!(phases[0].tasks[0].1, TaskStatus::Completed);
         // And the third task defaults to Pending.
-        assert_eq!(phases[0].1[2].1, TaskStatus::Pending);
+        assert_eq!(phases[0].tasks[2].1, TaskStatus::Pending);
     }
 
     #[rstest::rstest]
@@ -219,8 +220,8 @@ mod tests {
         let phases = parse_phase_body(&payload, "phase").expect("parses");
 
         // Then statuses normalize case-insensitively.
-        assert_eq!(phases.1[0].1, TaskStatus::Completed);
-        assert_eq!(phases.1[1].1, TaskStatus::Pending);
-        assert_eq!(phases.1[2].1, TaskStatus::Cancelled);
+        assert_eq!(phases.tasks[0].1, TaskStatus::Completed);
+        assert_eq!(phases.tasks[1].1, TaskStatus::Pending);
+        assert_eq!(phases.tasks[2].1, TaskStatus::Cancelled);
     }
 }

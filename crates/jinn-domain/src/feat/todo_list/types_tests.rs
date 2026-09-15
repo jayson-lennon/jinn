@@ -13,7 +13,9 @@
 //! BDD-style tests following AGENTS.md conventions.
 //! Each test covers a single behavior.
 
-use crate::feat::todo_list::{PhaseId, PhaseInput, TaskId, TaskList, TaskListError, TaskPosition, TaskStatus};
+use crate::feat::todo_list::{
+    PhaseId, PhaseInput, TaskId, TaskList, TaskListError, TaskPosition, TaskStatus,
+};
 
 // ---------------------------------------------------------------------------
 // add_phase
@@ -1450,7 +1452,8 @@ fn set_from_inputs_replaces_entire_list_with_declared_statuses() {
     // Given a list with existing content.
     let mut list = TaskList::new();
     let old_pid = list.add_phase("Old");
-    list.add_task(&old_pid, "Old task", TaskPosition::End).unwrap();
+    list.add_task(&old_pid, "Old task", TaskPosition::End)
+        .unwrap();
 
     // When replacing the whole list from declarative inputs.
     list.set_from_inputs(&[
@@ -1566,7 +1569,8 @@ fn set_phase_from_input_preserves_sibling_phases() {
     let p1 = list.add_phase("Alpha");
     list.add_task(&p1, "Keep me", TaskPosition::End).unwrap();
     let p2 = list.add_phase("Beta");
-    list.add_task(&p2, "Replace target", TaskPosition::End).unwrap();
+    list.add_task(&p2, "Replace target", TaskPosition::End)
+        .unwrap();
 
     // When rewriting only Beta.
     let replaced = list.set_phase_from_input(&PhaseInput {
