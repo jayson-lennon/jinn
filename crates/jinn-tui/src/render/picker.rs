@@ -27,9 +27,9 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
             jinn_domain::feat::endpoint::picker_render::render_endpoint_picker(frame, area, ctx);
         }
         // Persona, Skill, Theme, Tool, McpServer, SessionLifecycle,
-        // ReasoningEffort, and Plugin render entirely through their specs
-        // above; with an empty registry (test seams) there is nothing to
-        // draw. `None` (no picker scope) is also a no-op here.
+        // ReasoningEffort, Plugin, and TaskList render entirely through their
+        // specs above; with an empty registry (test seams) there is nothing
+        // to draw. `None` (no picker scope) is also a no-op here.
         Some(
             PickerKind::Persona
             | PickerKind::Skill
@@ -38,12 +38,10 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
             | PickerKind::McpServer
             | PickerKind::SessionLifecycle
             | PickerKind::ReasoningEffort
-            | PickerKind::Plugin,
+            | PickerKind::Plugin
+            | PickerKind::TaskList,
         )
         | None => {}
-        Some(PickerKind::TaskList) => {
-            jinn_domain::feat::picker::render::render_task_list_picker(frame, area, ctx);
-        }
         Some(PickerKind::Project) => {
             jinn_domain::feat::picker::render::render_project_picker(frame, area, ctx);
         }

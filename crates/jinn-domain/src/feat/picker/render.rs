@@ -3,29 +3,10 @@
 use crate::common::render_ctx::RenderCtx;
 use crate::feat::ui::picker_states::PickerExt;
 use jinn_selection_widget::SelectionWidget;
-use jinn_selection_widget::TreePickerWidget;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::Line;
-
-/// Renders the read-only task list browser overlay.
-///
-/// Uses [`TreePickerWidget`] to show phases as roots and tasks as their children,
-/// fully expanded. Enter is a no-op; ESC/Q close the picker.
-pub fn render_task_list_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    let state = ctx.state;
-    let gray = Style::default().fg(state.frontend.theme.muted_text);
-    let footer = Line::from(vec![ratatui::text::Span::styled(
-        "ESC to close \u{00b7} Enter no-op \u{00b7} type to filter".to_owned(),
-        gray,
-    )]);
-    let widget = TreePickerWidget::new(state.frontend.task_list_picker())
-        .title(Line::from(" Task List "))
-        .title_style(Style::default().fg(state.frontend.theme.popup_title))
-        .footer(footer);
-    widget.render(frame, area);
-}
 
 /// Renders the project picker overlay using [`SelectionWidget`].
 ///

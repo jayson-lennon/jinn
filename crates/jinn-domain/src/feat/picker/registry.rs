@@ -24,6 +24,8 @@ pub const MCP_SERVER_ID: &str = "mcp-server";
 pub const SESSION_LIFECYCLE_ID: &str = "session-lifecycle";
 /// The id of the plugin picker's spec.
 pub const PLUGIN_ID: &str = "plugin";
+/// The id of the task-list picker's spec.
+pub const TASK_LIST_ID: &str = "task-list";
 /// The id of the reasoning-effort picker's spec.
 pub const REASONING_EFFORT_ID: &str = "reasoning-effort";
 
@@ -43,6 +45,7 @@ pub fn spec_id_for_kind(kind: &crate::feat::picker::PickerKind) -> Option<&'stat
         crate::feat::picker::PickerKind::SessionLifecycle => Some(SESSION_LIFECYCLE_ID),
         crate::feat::picker::PickerKind::ReasoningEffort => Some(REASONING_EFFORT_ID),
         crate::feat::picker::PickerKind::Plugin => Some(PLUGIN_ID),
+        crate::feat::picker::PickerKind::TaskList => Some(TASK_LIST_ID),
         _ => None,
     }
 }
@@ -60,6 +63,7 @@ pub fn build_picker_registry() -> PickerRegistry {
     registry.register(super::session_lifecycle_spec::session_lifecycle_spec());
     registry.register(super::reasoning_effort_spec::reasoning_effort_spec());
     registry.register(super::plugin_spec::plugin_spec());
+    registry.register(super::task_list_spec::task_list_spec());
     registry
 }
 
@@ -87,6 +91,7 @@ mod tests {
             PickerKind::SessionLifecycle,
             PickerKind::ReasoningEffort,
             PickerKind::Plugin,
+            PickerKind::TaskList,
         ];
 
         // When mapping each migrated kind and listing registered ids.
@@ -109,7 +114,6 @@ mod tests {
         let unmigrated = [
             PickerKind::Provider,
             PickerKind::Session,
-            PickerKind::TaskList,
             PickerKind::Project,
             PickerKind::Endpoint,
         ];

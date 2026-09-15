@@ -75,7 +75,8 @@ pub struct PickerStates {
 
     /// Task list picker state - read-only zoom view of the active session's task list.
     /// OWNER: IntentHandler (populated on task list picker open).
-    pub task_list_picker: jinn_selection_widget::TreePickerState<TaskListTreeEntry>,
+    pub task_list_picker:
+        jinn_selection_widget::TreePickerState<jinn_picker::PickerEntry<TaskListTreeEntry>>,
 
     pub project_picker:
         jinn_selection_widget::SelectionState<crate::feat::project::picker_entry::ProjectEntry>,
@@ -205,11 +206,13 @@ pub trait PickerExt {
     ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ReasoningEffortEntry>>;
 
     /// Read-only access to the task list picker state.
-    fn task_list_picker(&self) -> &jinn_selection_widget::TreePickerState<TaskListTreeEntry>;
+    fn task_list_picker(
+        &self,
+    ) -> &jinn_selection_widget::TreePickerState<jinn_picker::PickerEntry<TaskListTreeEntry>>;
     /// Mutable access to the task list picker state.
     fn task_list_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::TreePickerState<TaskListTreeEntry>;
+    ) -> &mut jinn_selection_widget::TreePickerState<jinn_picker::PickerEntry<TaskListTreeEntry>>;
 
     /// Read-only access to the project picker state.
     fn project_picker(
@@ -369,13 +372,16 @@ impl PickerExt for super::frontend_state::FrontendState {
         &mut self.pickers.reasoning_effort_picker
     }
 
-    fn task_list_picker(&self) -> &jinn_selection_widget::TreePickerState<TaskListTreeEntry> {
+    fn task_list_picker(
+        &self,
+    ) -> &jinn_selection_widget::TreePickerState<jinn_picker::PickerEntry<TaskListTreeEntry>> {
         &self.pickers.task_list_picker
     }
 
     fn task_list_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::TreePickerState<TaskListTreeEntry> {
+    ) -> &mut jinn_selection_widget::TreePickerState<jinn_picker::PickerEntry<TaskListTreeEntry>>
+    {
         &mut self.pickers.task_list_picker
     }
     fn project_picker(

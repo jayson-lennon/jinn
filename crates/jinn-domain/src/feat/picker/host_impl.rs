@@ -18,6 +18,7 @@ use crate::feat::picker::registry::PLUGIN_ID;
 use crate::feat::picker::registry::REASONING_EFFORT_ID;
 use crate::feat::picker::registry::SESSION_LIFECYCLE_ID;
 use crate::feat::picker::registry::SKILL_ID;
+use crate::feat::picker::registry::TASK_LIST_ID;
 use crate::feat::picker::registry::THEME_ID;
 use crate::feat::picker::registry::TOOL_ID;
 use crate::feat::ui::picker_states::PickerExt;
@@ -53,6 +54,9 @@ impl PickerHost for AppStatePickerHost<'_> {
                 Some(self.state.frontend.reasoning_effort_picker_mut() as &mut dyn std::any::Any)
             }
             PLUGIN_ID => Some(self.state.frontend.plugin_picker_mut() as &mut dyn std::any::Any),
+            TASK_LIST_ID => {
+                Some(self.state.frontend.task_list_picker_mut() as &mut dyn std::any::Any)
+            }
             _ => None,
         }
     }
@@ -71,6 +75,7 @@ impl PickerHost for AppStatePickerHost<'_> {
                 Some(self.state.frontend.reasoning_effort_picker() as &dyn std::any::Any)
             }
             PLUGIN_ID => Some(self.state.frontend.plugin_picker() as &dyn std::any::Any),
+            TASK_LIST_ID => Some(self.state.frontend.task_list_picker() as &dyn std::any::Any),
             _ => None,
         }
     }
@@ -254,6 +259,7 @@ impl PickerHost for AppStateRenderHost<'_> {
                 Some(self.state.frontend.reasoning_effort_picker() as &dyn std::any::Any)
             }
             PLUGIN_ID => Some(self.state.frontend.plugin_picker() as &dyn std::any::Any),
+            TASK_LIST_ID => Some(self.state.frontend.task_list_picker() as &dyn std::any::Any),
             _ => None,
         }
     }

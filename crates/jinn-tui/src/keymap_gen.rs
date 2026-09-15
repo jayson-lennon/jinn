@@ -81,6 +81,7 @@ fn picker_spec_scope(id: jinn_picker::PickerId) -> Option<Scope> {
         "session-lifecycle" => Some(Scope::PickerLifecycle),
         "reasoning-effort" => Some(Scope::PickerReasoningEffort),
         "plugin" => Some(Scope::PickerPlugin),
+        "task-list" => Some(Scope::PickerTaskList),
         _ => None,
     }
 }

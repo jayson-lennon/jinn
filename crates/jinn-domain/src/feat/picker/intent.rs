@@ -109,13 +109,10 @@ fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
         | PickerKind::McpServer
         | PickerKind::SessionLifecycle
         | PickerKind::ReasoningEffort
-        | PickerKind::Plugin => {
+        | PickerKind::Plugin
+        | PickerKind::TaskList => {
             // Spec-driven when the registry holds their spec; nothing to
             // prepare in the legacy path.
-        }
-        PickerKind::TaskList => {
-            state.frontend.task_list_picker_mut().reset();
-            load_task_list_picker_entries(state);
         }
         PickerKind::Project => {
             // Defensive: a stale stash from an abandoned previous flow must
@@ -443,52 +440,6 @@ fn confirm_session(state: &mut AppState) -> IntentResult {
 
 /// Populates the skill picker entries from discovered skills.
 ///
-/// Populates the task list picker entries from the active session's task list.
-///
-/// Phases are emitted as tree roots; tasks are emitted as children of their owning
-/// phase (parent_id = the phase's id string). Postponed tasks are filtered out,
-/// matching the sidebar's `render_text` behavior.
-///
-/// Empty task lists produce an empty picker - no panic.
-fn load_task_list_picker_entries(state: &mut AppState) {
-    use crate::feat::theme::default_theme;
-    use crate::feat::todo_list::TaskStatus;
-    use crate::feat::todo_list::picker_entry::TaskListTreeEntry;
-
-    let theme = default_theme();
-    let entries: Vec<TaskListTreeEntry> = state
-        .active_session()
-        .task_list()
-        .phases()
-        .iter()
-        .flat_map(|phase| {
-            let phase_id_str = format!("phase:{}", phase.id());
-            let phase_entry = TaskListTreeEntry::new_phase(
-                phase_id_str.clone(),
-                phase.description().to_owned(),
-                theme.clone(),
-            );
-            let task_entries: Vec<TaskListTreeEntry> = phase
-                .tasks()
-                .iter()
-                .filter(|task| task.status() != TaskStatus::Postponed)
-                .map(|task| {
-                    TaskListTreeEntry::new_task(
-                        format!("task:{}", task.id()),
-                        Some(phase_id_str.clone()),
-                        task.description().to_owned(),
-                        task.status(),
-                        theme.clone(),
-                    )
-                })
-                .collect();
-            std::iter::once(phase_entry).chain(task_entries)
-        })
-        .collect();
-
-    state.frontend.task_list_picker_mut().set_items(entries);
-}
-
 /// Populates the project picker entries from `UserPreferences.projects`.
 ///
 /// Entries are pre-computed display strings (tilde-compressed) so the picker
@@ -1575,8 +1526,9 @@ mod tests {
         // must verify the *source* (Postponed) entry is excluded by ID, not by label.
         let (mut state, postponed_id) = setup_state_with_task_list();
 
-        // When loading task list picker entries.
-        load_task_list_picker_entries(&mut state);
+        // When opening the task-list picker through the real open path.
+        let registry = crate::feat::picker::registry::build_picker_registry();
+        handle_open_picker(&mut state, PickerKind::TaskList, &registry);
 
         // Then no entry has the postponed task's ID.
         let excluded_id = format!("task:{postponed_id}");
@@ -1597,8 +1549,9 @@ mod tests {
         // Given a session with two phases and mixed-status tasks.
         let (mut state, _postponed_id) = setup_state_with_task_list();
 
-        // When loading.
-        load_task_list_picker_entries(&mut state);
+        // When opening the task-list picker through the real open path.
+        let registry = crate::feat::picker::registry::build_picker_registry();
+        handle_open_picker(&mut state, PickerKind::TaskList, &registry);
 
         // Then there are exactly 2 phase roots.
         let items = state.frontend.task_list_picker().items();
@@ -1636,15 +1589,16 @@ mod tests {
         // Given a session with completed and cancelled tasks.
         let (mut state, _postponed_id) = setup_state_with_task_list();
 
-        // When loading.
-        load_task_list_picker_entries(&mut state);
+        // When opening the task-list picker through the real open path.
+        let registry = crate::feat::picker::registry::build_picker_registry();
+        handle_open_picker(&mut state, PickerKind::TaskList, &registry);
 
         // Then task rows carry their status in row_status.
 
         let items = state.frontend.task_list_picker().items();
         let statuses: Vec<_> = items
             .iter()
-            .filter_map(|e| match e.row_status() {
+            .filter_map(|e| match e.entry().row_status() {
                 RowStatus::Task(s) => Some((e.display_label(), s)),
                 RowStatus::Phase => None,
             })
@@ -1680,8 +1634,9 @@ mod tests {
         // Given a default session with an empty task list.
         let mut state = AppState::default();
 
-        // When loading.
-        load_task_list_picker_entries(&mut state);
+        // When opening the task-list picker through the real open path.
+        let registry = crate::feat::picker::registry::build_picker_registry();
+        handle_open_picker(&mut state, PickerKind::TaskList, &registry);
 
         // Then the picker is empty and nothing panicked.
         assert!(state.frontend.task_list_picker().items().is_empty());
