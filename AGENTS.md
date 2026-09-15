@@ -13,7 +13,7 @@ This document defines the _coding conventions_, _patterns_, and _architecture_ f
 The full workspace suite takes minutes. Treat suite executions as expensive:
 
 1. Run `just test` ONCE. It runs the suite with `--no-fail-fast`, captures everything to `target/test-output.log`, and prints a passed/failed summary plus failing test names.
-2. Get failure details from the capture with `just test-failures` — instant, no cargo.
+2. Get failure details from the capture with `just test-failures` — instant, no cargo. Or grep the log manually as needed.
 3. Iterate cheaply while fixing: `just test-one <test_name_filter>` runs only matching tests across the workspace.
 4. Before committing, confirm with one final `just test`.
 
