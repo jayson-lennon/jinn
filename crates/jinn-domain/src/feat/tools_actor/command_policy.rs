@@ -155,6 +155,7 @@ mod tests {
         assert_eq!(rules.is_empty(), !expected);
     }
 
+    #[rstest::rstest]
     #[test]
     #[rstest::rstest]
     fn tilde_only_path_expands_to_home_itself() {

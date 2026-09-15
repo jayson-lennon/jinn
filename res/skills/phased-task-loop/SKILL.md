@@ -19,13 +19,13 @@ A disciplined workflow for implementing multi-phase coding tasks. The task list 
 4.  **Continuous execution.** Proceed from one phase to the next without stopping. Only stop when all phases are complete or an unrecoverable error blocks progress.
 5.  **Stay in `.plans/<task>/`.** All execution plans go here. Do not create new directories.
 6.  **Never rewrite the spec.** The spec (`plan.md`) is immutable — annotate only (strikethrough, divergence notes). The task list tracks status, not checkboxes in the spec.
-7.  **One task per turn.** Each assistant turn advances exactly one task and ends with `todo_complete_task`. If a task grew beyond a single turn of work, you went too deep — split it via `todo_add_task` and pick up the new sub-task next turn.
+7.  **One task per turn.** Each assistant turn advances exactly one task and ends by flipping that task's status via `todo_set_phase`. If a task grew beyond a single turn of work, you went too deep — split it via `todo_set_phase` (rewrite the current phase with the new sub-task added) and pick up the new sub-task next turn.
 
 ---
 
 ## Concepts
 
-**Task list** — Live progress tracker, managed via `todo_*` tool calls. Update immediately when state changes (complete, cancel, postpone, add).
+**Task list** — Live progress tracker, managed via `todo_*` tool calls. Update immediately when state changes: `todo_set_phase` rewrites one phase (including its tasks' statuses), `todo_set_list` replaces the whole list.
 
 **Spec** — The file `plan.md`. Immutable reference; annotate only.
 
@@ -43,12 +43,12 @@ A disciplined workflow for implementing multi-phase coding tasks. The task list 
 
 Update the task list **at the moment a decision is made**, never retroactively:
 
-- Task's work is done → `todo_complete_task` immediately (during implementation, not batched at phase end)
-- Discovered unplanned work → `todo_add_task` or `todo_add_phase` right away
-- Task no longer needed → `todo_cancel_task` (shows as "CANCELLED: \<description\>")
-- Task belongs in a different phase → `todo_postpone_task` or `todo_postpone_to_phase`
+- Task's work is done → `todo_set_phase` flipping that task's status to `completed` immediately (during implementation, not batched at phase end)
+- Discovered unplanned work → `todo_set_phase` right away (rewrite the current phase with the extra task added; use `todo_set_list` only if a whole new phase is needed)
+- Task no longer needed → `todo_set_phase` with that task declared as `"status": "cancelled"` (renders as "CANCELLED: \<description\>")
+- Task belongs in a different phase → declare it `cancelled` in its current phase via `todo_set_phase`, and include it (pending) in the target phase via a second `todo_set_phase` call
 
-**Do not batch.** A pattern of "do five things, then call `todo_complete_task` five times" is the failure mode this skill exists to prevent. One task, one completion call, repeat.
+**Do not batch.** A pattern of "do five things, then flip five statuses in one giant `todo_set_phase`" is the failure mode this skill exists to prevent. One task done → one status flip → next task.
 
 ---
 
@@ -56,7 +56,7 @@ Update the task list **at the moment a decision is made**, never retroactively:
 
 **Repeat the following cycle until all tasks are complete.** Work per-phase, top to bottom.
 
-1.  **Check status.** Call `todo_get_task_list`. If all tasks in all phases are complete → **done, stop.** Otherwise, the NEXT block at the top of the result names the next task to work on. Begin there.
+1.  **Check status.** Call `todo_get_list`. If all tasks in all phases are complete → **done, stop.** Otherwise, the NEXT block at the top of the result names the next task to work on. Begin there.
 
 2.  **Create an execution plan.** Save to `.plans/<task>/phase-N.md` using the `save_plan` tool. Required sections:
     - **Problem** — What and why.
@@ -75,9 +75,13 @@ Update the task list **at the moment a decision is made**, never retroactively:
 
     b. **Do the work** for that one task. Run the build command after each logical group of changes.
 
-    c. **Complete the task.** Call `todo_complete_task` for the task you just finished.
+    c. **Complete the task.** Call `todo_set_phase` for the phase you are working on,
+       resending the entire phase with the finished task declared as
+       `{"description": "...", "status": "completed"}` (unchanged tasks stay in the
+       payload as-is). Marking a task complete and the task's own verification are
+       one action.
 
-    d. **Read the NEXT block** returned by `todo_complete_task`. It points at the next task (or says "phase complete — proceed to verify", or "all phases complete — stop").
+    d. **Read the NEXT block** returned by `todo_set_phase`. It points at the next task (or says "phase complete — proceed to verify", or "all phases complete — stop").
 
     e. **Repeat from (a)** with the task named by the NEXT block, until the NEXT block says the phase is complete.
 
@@ -85,11 +89,11 @@ Update the task list **at the moment a decision is made**, never retroactively:
 
     If you discover that a task cannot be implemented _as planned_ and there is no obvious solution that **aligns with the user request**, then STOP and explain the details to the user and ask how to proceed.
 
-    If you discover untracked work: call `todo_add_task` / `todo_add_phase` immediately — then resume the sub-loop at step (a) with whichever task is now next per the NEXT block.
+    If you discover untracked work: call `todo_set_phase` (or `todo_set_list` for a new phase) immediately — then resume the sub-loop at step (a) with whichever task is now next per the NEXT block.
 
-    If you discover that a task is actually larger than expected, call `todo_add_task` / `todo_add_phase` immediately — then resume the sub-loop at step (a) with whichever task is now next per the NEXT block. Do this so that you don't lose track of what needs to be done.
+    If you discover that a task is actually larger than expected, call `todo_set_phase` (or `todo_set_list` for a new phase) immediately — then resume the sub-loop at step (a) with whichever task is now next per the NEXT block. Do this so that you don't lose track of what needs to be done.
 
-3.5. **Audit before verify.** Before moving on, call `todo_get_task_list`. If any task in the current phase is not `[✓]`, **STOP and audit.** You have drifted. Pick the next pending task in this phase and return to step 3. Do not run tests. Do not commit. The list must be clean before you proceed.
+3.5. **Audit before verify.** Before moving on, call `todo_get_list`. If any task in the current phase is not `[✓]`, **STOP and audit.** You have drifted. Pick the next pending task in this phase and return to step 3. Do not run tests. Do not commit. The list must be clean before you proceed.
 
 4.  **Verify.** At the end of the phase, run the full test suite. All tests must pass. Then re-read the execution plan — for every `[ ]` acceptance criterion, verify it's met and change to `[x]`. Fix any gaps before proceeding.
 

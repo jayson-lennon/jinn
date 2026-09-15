@@ -275,7 +275,7 @@ mod tests {
     use super::*;
     use crate::common::app_state::{AppState, FocusScope};
     use crate::feat::theme::default_theme;
-    use crate::feat::todo_list::{TaskList, TaskPosition, TaskStatus};
+    use crate::feat::todo_list::{PhaseInput, TaskList, TaskStatus};
     use ratatui::{Terminal, backend::TestBackend};
 
     fn frame_area() -> Rect {
@@ -290,16 +290,16 @@ mod tests {
     fn setup_two_phases_focused_on(phase_index: usize) -> AppState {
         let mut app = AppState::default_with_scope_focus();
         let session = app.session.active_session_mut();
-        let p0 = session.task_list_mut().add_phase("Research");
-        session
-            .task_list_mut()
-            .add_task(&p0, "Read docs", TaskPosition::End)
-            .unwrap();
-        let p1 = session.task_list_mut().add_phase("Build");
-        session
-            .task_list_mut()
-            .add_task(&p1, "Write code", TaskPosition::End)
-            .unwrap();
+        session.task_list_mut().set_from_inputs(&[
+            PhaseInput {
+                description: "Research".to_owned(),
+                tasks: vec![("Read docs".to_owned(), TaskStatus::Pending)],
+            },
+            PhaseInput {
+                description: "Build".to_owned(),
+                tasks: vec![("Write code".to_owned(), TaskStatus::Pending)],
+            },
+        ]);
         app.frontend.scope_push(FocusScope::SidebarTaskList);
         app.frontend.task_list_section.selected_phase_index = Some(phase_index);
         app
@@ -453,7 +453,10 @@ mod tests {
         // Given focus on an empty phase.
         let mut app = AppState::default_with_scope_focus();
         let session = app.session.active_session_mut();
-        let _p0 = session.task_list_mut().add_phase("Empty Phase");
+        session.task_list_mut().set_from_inputs(&[PhaseInput {
+            description: "Empty Phase".to_owned(),
+            tasks: vec![],
+        }]);
         app.frontend.scope_push(FocusScope::SidebarTaskList);
         app.frontend.task_list_section.selected_phase_index = Some(0);
 
@@ -503,12 +506,11 @@ mod tests {
         // Sidebar text_width = 30 - 6 = 24, which would wrap it to 3 lines (the bug).
         let mut app = AppState::default_with_scope_focus();
         let session = app.session.active_session_mut();
-        let p0 = session.task_list_mut().add_phase("Research");
         let long_desc = "x".repeat(60);
-        session
-            .task_list_mut()
-            .add_task(&p0, &long_desc, TaskPosition::End)
-            .unwrap();
+        session.task_list_mut().set_from_inputs(&[PhaseInput {
+            description: "Research".to_owned(),
+            tasks: vec![(long_desc, TaskStatus::Pending)],
+        }]);
         app.frontend.scope_push(FocusScope::SidebarTaskList);
         app.frontend.task_list_section.selected_phase_index = Some(0);
 
@@ -527,8 +529,10 @@ mod tests {
     fn task_line_has_no_leading_margin() {
         // Given a phase with a pending task.
         let mut list = TaskList::new();
-        let pid = list.add_phase("Research");
-        list.add_task(&pid, "Read docs", TaskPosition::End).unwrap();
+        list.set_from_inputs(&[PhaseInput {
+            description: "Research".to_owned(),
+            tasks: vec![("Read docs".to_owned(), TaskStatus::Pending)],
+        }]);
         let phase = &list.phases()[0];
 
         // When rendering task lines at a generous width.
