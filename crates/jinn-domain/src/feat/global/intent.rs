@@ -128,6 +128,10 @@ mod tests {
         crate::common::slices::Slices::new()
     }
 
+    fn empty_pickers() -> jinn_picker::PickerRegistry {
+        jinn_picker::PickerRegistry::new()
+    }
+
     fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {
         crate::common::slices::key_routes::KeyRoutes::new()
     }
@@ -408,6 +412,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then scope is back to Normal (picker closed).
@@ -508,6 +513,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then scope is popped back to Normal and rename_session_input is reset.
@@ -539,6 +545,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
         assert!(state.frontend.is_picker());
         assert!(
@@ -555,6 +562,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
         assert!(!state.frontend.is_picker());
         assert_eq!(state.frontend.scope(), FocusScope::Normal);

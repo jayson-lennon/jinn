@@ -150,6 +150,7 @@ impl IntentHandler {
         state: &mut AppState,
         slices: &crate::common::slices::Slices,
         routes: &crate::common::slices::key_routes::KeyRoutes,
+        pickers: &jinn_picker::PickerRegistry,
     ) -> IntentResult {
         state
             .frontend
@@ -162,7 +163,7 @@ impl IntentHandler {
         let prev_active = state.session.active_session_id().clone();
 
         // Process the intent and get the result.
-        let mut result = Self::handle_inner(intent, state, slices, routes);
+        let mut result = Self::handle_inner(intent, state, slices, routes, pickers);
 
         if state.session.active_session_id() != &prev_active {
             result = result.with_message(crate::protocol::system::ActiveSessionChanged {
@@ -191,6 +192,7 @@ impl IntentHandler {
         state: &mut AppState,
         slices: &crate::common::slices::Slices,
         routes: &crate::common::slices::key_routes::KeyRoutes,
+        pickers: &jinn_picker::PickerRegistry,
     ) -> IntentResult {
         // Slice-registered routes go first: a dynamic intent is
         // delegated to its slice's action and never reaches the
@@ -466,19 +468,27 @@ impl IntentHandler {
                 feat::global::intent::handle_interrupt(state, session_id.as_ref())
             }
             Intent::EnterInsertMode => feat::chat_input::intent::handle_enter_insert_mode(state),
-            Intent::EnterNormalMode => feat::chat_input::intent::handle_enter_normal_mode(state),
+            Intent::EnterNormalMode => {
+                feat::chat_input::intent::handle_enter_normal_mode_with_pickers(state, pickers)
+            }
             Intent::ToggleWhichkey => feat::global::intent::handle_toggle_whichkey(state),
             Intent::ToggleAuditPopup => feat::global::intent::handle_toggle_audit_popup(state),
             Intent::NormalEscape => feat::chat_input::intent::handle_normal_escape(state),
             Intent::NoOp => IntentResult::empty(),
 
-            Intent::OpenPicker { kind } => feat::picker::intent::handle_open_picker(state, *kind),
+            Intent::OpenPicker { kind } => {
+                feat::picker::intent::handle_open_picker(state, *kind, pickers)
+            }
+            Intent::PickerAction { picker, action } => {
+                feat::picker::action::run_action(state, pickers, picker, action)
+            }
             Intent::PickerInsertChar { ch } => feat::picker::intent::handle_insert_char(state, *ch),
             Intent::PickerBackspace => feat::picker::intent::handle_backspace(state),
             Intent::PickerConfirm => {
-                let (result, maybe_intent) = feat::picker::intent::handle_picker_confirm(state);
+                let (result, maybe_intent) =
+                    feat::picker::intent::handle_picker_confirm(state, pickers);
                 if let Some(intent) = maybe_intent {
-                    let redispatch = IntentHandler::handle(&intent, state, slices, routes);
+                    let redispatch = IntentHandler::handle(&intent, state, slices, routes, pickers);
                     result.merge(redispatch)
                 } else {
                     result
@@ -487,41 +497,23 @@ impl IntentHandler {
             Intent::CtrlClear => {
                 let (result, maybe_intent) = feat::global::intent::handle_ctrl_clear(state);
                 if let Some(intent) = maybe_intent {
-                    let redispatch = IntentHandler::handle(&intent, state, slices, routes);
+                    let redispatch = IntentHandler::handle(&intent, state, slices, routes, pickers);
                     result.merge(redispatch)
                 } else {
                     result
                 }
             }
-            Intent::PickerMoveUp => feat::picker::intent::handle_move_up(state),
-            Intent::PickerMoveDown => feat::picker::intent::handle_move_down(state),
-            Intent::PickerPageUp => feat::picker::intent::handle_page_up(state),
-            Intent::PickerPageDown => feat::picker::intent::handle_page_down(state),
+            Intent::PickerMoveUp => feat::picker::intent::handle_move_up(state, pickers),
+            Intent::PickerMoveDown => feat::picker::intent::handle_move_down(state, pickers),
+            Intent::PickerPageUp => feat::picker::intent::handle_page_up(state, pickers),
+            Intent::PickerPageDown => feat::picker::intent::handle_page_down(state, pickers),
             Intent::PickerMoveCursorLeft => feat::picker::intent::handle_move_cursor_left(state),
             Intent::PickerMoveCursorRight => feat::picker::intent::handle_move_cursor_right(state),
-            Intent::ToolToggleSelected => feat::picker::intent::handle_tool_toggle(state),
-            Intent::SkillToggleSelected => feat::picker::intent::handle_skill_toggle(state),
-            Intent::McpToggleSelected => feat::mcp::intent::handle_mcp_toggle(state),
-            Intent::McpRestartSelected => feat::mcp::intent::handle_mcp_restart_selected(state),
-            Intent::McpTogglePreview => feat::mcp::intent::handle_mcp_toggle_preview(state),
-            Intent::SkillLoadSelected => feat::picker::intent::handle_skill_load_selected(state),
-            Intent::ProjectNewAtHighlightedWithLifecycle => {
-                feat::picker::intent::handle_project_lifecycle_confirm(state)
-            }
-            Intent::ProjectRemoveHighlighted => {
-                feat::picker::intent::handle_project_remove_highlighted(state)
-            }
-            Intent::ModelToggleSelected => feat::picker::intent::handle_model_toggle(state),
-            Intent::ToggleAlloyMode => feat::picker::intent::handle_toggle_alloy_mode(state),
-            Intent::PreviewScrollUp => feat::picker::intent::handle_preview_scroll_up(state),
-            Intent::PreviewScrollDown => feat::picker::intent::handle_preview_scroll_down(state),
             Intent::SessionNew => feat::session::intent::handle_session_new(state),
             Intent::RefreshModels => feat::session::intent::handle_refresh_models(state),
             Intent::RescanPromptTemplates => {
                 feat::session::intent::handle_rescan_prompt_templates(state)
             }
-            Intent::RefreshSkills => feat::picker::intent::handle_refresh_skills(state),
-            Intent::RefreshEndpoints => feat::picker::intent::handle_refresh_endpoints(state),
 
             Intent::SidebarFocus => feat::ui::sidebar::intent::handle_sidebar_focus(state),
             Intent::SidebarFocusSessions => {
@@ -570,11 +562,13 @@ impl IntentHandler {
                 feat::ui::sidebar::pins::pins_section::handle_pins_pin_cycle(state)
             }
             Intent::SidebarPersonaEdit => {
-                feat::ui::sidebar::pins::pins_section::handle_sidebar_persona_edit(state)
+                feat::ui::sidebar::pins::pins_section::handle_sidebar_persona_edit(state, pickers)
             }
-            Intent::SessionNewWithLifecycle => {
-                feat::picker::intent::handle_open_picker(state, PickerKind::SessionLifecycle)
-            }
+            Intent::SessionNewWithLifecycle => feat::picker::intent::handle_open_picker(
+                state,
+                PickerKind::SessionLifecycle,
+                pickers,
+            ),
             Intent::SidebarSessionClose => {
                 // First press - show confirmation prompt.
                 // The interceptor (try_handle_close_session_prompt) handles the second press.
@@ -773,9 +767,6 @@ impl IntentHandler {
             Intent::CwdInputConfirm => feat::cwd_input::intent::handle_cwd_input_confirm(state),
             Intent::CwdInputLeave => feat::cwd_input::intent::handle_cwd_input_leave(state),
 
-            Intent::OpenProjectAddInput => {
-                feat::project_add_input::intent::handle_project_add_input_enter(state)
-            }
             Intent::ProjectAddInputConfirm => {
                 feat::project_add_input::intent::handle_project_add_input_confirm(state)
             }
@@ -1056,6 +1047,10 @@ mod tests {
         crate::common::slices::Slices::new()
     }
 
+    fn empty_pickers() -> jinn_picker::PickerRegistry {
+        jinn_picker::PickerRegistry::new()
+    }
+
     /// `Slices` with the status-bar cell registered (as the slice's
     /// `activate` does), for hint write/read assertions.
     fn status_bar_slices() -> crate::common::slices::Slices {
@@ -1097,6 +1092,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the buffer is empty and no commands are emitted.
@@ -1120,6 +1116,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the buffer has the pasted text.
@@ -1142,6 +1139,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the buffer is empty (edit rejected) and no commands are emitted.
@@ -1165,6 +1163,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the buffer has the inserted char.
@@ -1183,6 +1182,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the intent still routes — the gate is editing-only.
@@ -1214,6 +1214,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then rename input is "Helo" (not chat input).
@@ -1241,6 +1242,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then cursor moved left.
@@ -1266,6 +1268,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then cursor moved right.
@@ -1291,6 +1294,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then last char deleted.
@@ -1317,6 +1321,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then char after cursor deleted.
@@ -1346,6 +1351,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then arg_input received the char, not the chat input.
@@ -1369,6 +1375,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the chat input received the char.
@@ -1400,6 +1407,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then arg_input had a char deleted.
@@ -1427,6 +1435,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then arg_input cursor moved.
@@ -1454,6 +1463,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then arg_input cursor moved.
@@ -1481,6 +1491,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the char after cursor was deleted from arg_input.
@@ -1508,6 +1519,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then ArgInput scope is popped and state cleared.
@@ -1532,6 +1544,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then it doesn't panic and completes (paste is handled by picker).
@@ -1559,6 +1572,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then rename input received the paste.
@@ -1578,6 +1592,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the prompt is dismissed and a CancelStream command is emitted.
@@ -1605,6 +1620,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the prompt is dismissed but no CancelStream command.
@@ -1624,6 +1640,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then no cancel command is emitted (falls through to normal escape handling).
@@ -1644,6 +1661,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the prompt is dismissed.
@@ -1663,6 +1681,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the prompt is dismissed.
@@ -1677,8 +1696,13 @@ mod tests {
         state.frontend.cancel_stream_prompt = true;
 
         // When handling NoOp (unmapped key).
-        let result =
-            IntentHandler::handle(&Intent::NoOp, &mut state, &empty_slices(), &empty_routes());
+        let result = IntentHandler::handle(
+            &Intent::NoOp,
+            &mut state,
+            &empty_slices(),
+            &empty_routes(),
+            &empty_pickers(),
+        );
 
         // Then the prompt is dismissed and no CancelStream command is emitted.
         assert!(!state.frontend.cancel_stream_prompt);
@@ -1700,8 +1724,13 @@ mod tests {
         state.frontend.close_session_prompt = true;
 
         // When handling NoOp (unmapped key).
-        let _result =
-            IntentHandler::handle(&Intent::NoOp, &mut state, &empty_slices(), &empty_routes());
+        let _result = IntentHandler::handle(
+            &Intent::NoOp,
+            &mut state,
+            &empty_slices(),
+            &empty_routes(),
+            &empty_pickers(),
+        );
 
         // Then the prompt is dismissed.
         assert!(!state.frontend.close_session_prompt);
@@ -1714,8 +1743,13 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
 
         // When handling NoOp.
-        let result =
-            IntentHandler::handle(&Intent::NoOp, &mut state, &empty_slices(), &empty_routes());
+        let result = IntentHandler::handle(
+            &Intent::NoOp,
+            &mut state,
+            &empty_slices(),
+            &empty_routes(),
+            &empty_pickers(),
+        );
 
         // Then result is empty.
         assert!(result.message_names.is_empty());
@@ -1747,6 +1781,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then no ActiveSessionChanged event (same session).
@@ -1773,6 +1808,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the scope stays TerminalControl — handback is the only exit.
@@ -1791,6 +1827,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the scope is TerminalControl.
@@ -1815,6 +1852,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the overlay opens in view mode.
@@ -1832,6 +1870,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the scope stays Input (default scope; no overlay opened).
@@ -1894,6 +1933,7 @@ mod tests {
             &mut state,
             &slices,
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then no overlay opened (still the default scope).
@@ -1915,7 +1955,13 @@ mod tests {
         crate::feat::ui::status_hint::set_hint(&mut state, &slices, Some("stale hint".to_owned()));
 
         // When handling any other intent.
-        IntentHandler::handle(&Intent::SwitchTab, &mut state, &slices, &empty_routes());
+        IntentHandler::handle(
+            &Intent::SwitchTab,
+            &mut state,
+            &slices,
+            &empty_routes(),
+            &empty_pickers(),
+        );
 
         // Then the hint is cleared.
         assert!(crate::feat::ui::status_hint::hint(&slices).is_none());
@@ -1932,6 +1978,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // When toggling again.
@@ -1940,6 +1987,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the overlay closes back to the base scope (the input scope the
@@ -1963,6 +2011,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the overlay opens.
@@ -1980,6 +2029,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the base is Normal (chat is the only tab).
@@ -1998,7 +2048,13 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
 
         // When switching tabs twice.
-        IntentHandler::handle(&Intent::SwitchTab, &mut state, &slices, &empty_routes());
+        IntentHandler::handle(
+            &Intent::SwitchTab,
+            &mut state,
+            &slices,
+            &empty_routes(),
+            &empty_pickers(),
+        );
         // Then the base is the registered tab.
         assert_eq!(
             state.frontend.scope_base(),
@@ -2006,7 +2062,13 @@ mod tests {
         );
 
         // When switching tabs again.
-        IntentHandler::handle(&Intent::SwitchTab, &mut state, &slices, &empty_routes());
+        IntentHandler::handle(
+            &Intent::SwitchTab,
+            &mut state,
+            &slices,
+            &empty_routes(),
+            &empty_pickers(),
+        );
         // Then the cycle wraps to Normal.
         assert_eq!(state.frontend.scope_base(), FocusScope::Normal);
     }
@@ -2022,6 +2084,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
         assert_eq!(state.frontend.scope(), FocusScope::TerminalView);
 
@@ -2031,6 +2094,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the overlay closed (back to base, not a tab flip).
@@ -2053,6 +2117,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then no pty write command is published.
@@ -2078,6 +2143,7 @@ mod tests {
             &mut state,
             &handback_slices,
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // When handling TerminalHandback.
@@ -2086,6 +2152,7 @@ mod tests {
             &mut state,
             &handback_slices,
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the scope pops back to TerminalView.
@@ -2130,6 +2197,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then an enqueue message is published (idle dispatch path).
@@ -2170,6 +2238,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then a steering message is published (buffer drains at next
@@ -2204,6 +2273,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the screen text was also staged for the clipboard.
@@ -2235,6 +2305,7 @@ mod tests {
             &mut state,
             &yank_slices,
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the screen text was staged for the clipboard.
@@ -2263,6 +2334,7 @@ mod tests {
             &mut state,
             &yank_slices,
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then nothing was staged for the clipboard.
@@ -2315,6 +2387,7 @@ mod tests {
             &mut state,
             &empty_slices(),
             &empty_routes(),
+            &empty_pickers(),
         );
 
         // Then the overlay closed (pop on a base-only stack is a no-op, so

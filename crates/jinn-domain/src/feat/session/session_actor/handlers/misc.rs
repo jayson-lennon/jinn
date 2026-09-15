@@ -80,9 +80,10 @@ impl SessionPersistenceActor {
             };
             let entries =
                 crate::feat::session::entries::load_session_entries_from_store(store, &theme).await;
+            let wrapped = crate::feat::session::entries::wrap_session_entries(entries);
             self.state.with_preferences(&self.frontend_cap, |ops| {
                 let frontend = ops.frontend();
-                frontend.session_picker_mut().set_items(entries);
+                frontend.session_picker_mut().set_items(wrapped);
             });
         }
     }

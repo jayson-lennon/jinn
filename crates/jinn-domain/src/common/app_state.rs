@@ -61,8 +61,11 @@ impl AppState {
             PickerKind::Persona => Some(self.frontend.persona_picker_mut()),
             PickerKind::Theme => Some(self.frontend.theme_picker_mut()),
 
+            // CompactionModel has no picker state (the kind is retired); no
+            // navigation interface exists for it.
+            PickerKind::CompactionModel => None,
+
             PickerKind::SessionLifecycle => Some(self.frontend.session_lifecycle_picker_mut()),
-            PickerKind::CompactionModel => Some(self.frontend.compaction_model_picker_mut()),
             PickerKind::ReasoningEffort => Some(self.frontend.reasoning_effort_picker_mut()),
             PickerKind::Tool => Some(self.frontend.tool_picker_mut()),
             PickerKind::Skill => Some(self.frontend.skill_picker_mut()),
@@ -117,8 +120,10 @@ impl AppState {
             PickerKind::Persona => Some(self.frontend.persona_picker()),
             PickerKind::Theme => Some(self.frontend.theme_picker()),
 
+            // CompactionModel has no picker state (the kind is retired).
+            PickerKind::CompactionModel => None,
+
             PickerKind::SessionLifecycle => Some(self.frontend.session_lifecycle_picker()),
-            PickerKind::CompactionModel => Some(self.frontend.compaction_model_picker()),
             PickerKind::ReasoningEffort => Some(self.frontend.reasoning_effort_picker()),
             PickerKind::Tool => Some(self.frontend.tool_picker()),
             PickerKind::Skill => Some(self.frontend.skill_picker()),

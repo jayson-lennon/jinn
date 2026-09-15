@@ -84,6 +84,10 @@ where
     state: &'a TreePickerState<I>,
     /// Optional footer line.
     footer: Option<Line<'a>>,
+    /// Optional footer lines rendered at the bottom of the popup, top to
+    /// bottom, one row each (more footers -> fewer result rows). Takes
+    /// precedence over `footer` when non-empty.
+    footers: Vec<Line<'a>>,
     /// Theme-dependent colors for border, text, separator, etc.
     colors: SelectionColors,
     /// Optional style override for the border title.
@@ -102,6 +106,7 @@ where
             title: Line::from(""),
             state,
             footer: None,
+            footers: Vec::new(),
             colors: SelectionColors::default(),
             title_style: None,
             tree_prefix_color: ratatui::style::Color::DarkGray,
@@ -119,6 +124,17 @@ where
     #[must_use]
     pub fn footer(mut self, footer: Line<'a>) -> Self {
         self.footer = Some(footer);
+
+        self
+    }
+
+    /// Sets optional footer lines rendered at the bottom of the popup, top
+    /// to bottom, one row each (more footers -> fewer result rows).
+    /// Replaces any previously set footers; a non-empty stack takes
+    /// precedence over [`footer`](Self::footer).
+    #[must_use]
+    pub fn footers(mut self, footers: Vec<Line<'a>>) -> Self {
+        self.footers = footers;
         self
     }
 
@@ -163,16 +179,22 @@ where
         };
         frame.render_widget(block, popup_area);
 
-        // Layout: input line -> separator -> results -> footer.
+        // Layout: input line -> separator -> results -> footer stack.
+        // One row per footer line bottom-up (more footers -> fewer result rows).
         let inner = {
             let b = Block::default().borders(Borders::ALL);
             b.inner(popup_area)
+        };
+        let footer_rows = if self.footers.is_empty() {
+            1
+        } else {
+            u16::try_from(self.footers.len()).unwrap_or(u16::MAX)
         };
         let [input_area, separator_area, results_area, footer_area] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(0),
-            Constraint::Length(1),
+            Constraint::Length(footer_rows),
         ])
         .areas(inner);
 
@@ -222,13 +244,26 @@ where
         }
         frame.render_widget(Paragraph::new(result_lines), results_area);
 
-        // Footer: right-aligned in theme color, or empty row.
-        let footer_paragraph = match &self.footer {
-            Some(line) => Paragraph::new(line.clone())
-                .style(Style::default().fg(self.colors.footer))
-                .right_aligned(),
-            None => Paragraph::new(""),
-        };
-        frame.render_widget(footer_paragraph, footer_area);
+        // Footer: a non-empty stack renders one right-aligned line per row
+        // (mirroring SelectionWidget); otherwise the single footer or an
+        // empty row.
+        if self.footers.is_empty() {
+            let footer_paragraph = match &self.footer {
+                Some(line) => Paragraph::new(line.clone())
+                    .style(Style::default().fg(self.colors.footer))
+                    .right_aligned(),
+                None => Paragraph::new(""),
+            };
+            frame.render_widget(footer_paragraph, footer_area);
+        } else {
+            let rows = Layout::vertical(vec![Constraint::Length(1); self.footers.len()])
+                .split(footer_area);
+            for (line, row_area) in self.footers.iter().zip(rows.iter()) {
+                let paragraph = Paragraph::new(line.clone())
+                    .style(Style::default().fg(self.colors.footer))
+                    .right_aligned();
+                frame.render_widget(paragraph, *row_area);
+            }
+        }
     }
 }

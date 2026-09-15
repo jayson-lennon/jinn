@@ -147,7 +147,7 @@ impl TreeItem for SessionTreeEntry {
 /// Archived sessions use dimmed styling to visually distinguish them from
 /// loaded sessions.
 impl SessionTreeEntry {
-    fn render_row_impl(
+    pub(crate) fn render_row_impl(
         &self,
         is_selected: bool,
         match_indices: &[Range<usize>],

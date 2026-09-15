@@ -158,13 +158,24 @@ pub async fn load_session_entries(services: &Services, theme: &Theme) -> Vec<Ses
     }
 }
 
+/// Wraps raw session entries as kernel `PickerEntry` items via the session
+/// spec's search hook (the single wrap point for every picker write).
+pub(crate) fn wrap_session_entries(
+    entries: Vec<SessionTreeEntry>,
+) -> Vec<jinn_picker::PickerEntry<SessionTreeEntry>> {
+    crate::feat::picker::registry::build_picker_registry()
+        .make_items(crate::feat::picker::registry::SESSION_ID, entries)
+        .unwrap_or_default()
+}
+
 /// Loads session tree entries into the picker state, ready for display.
 ///
 /// Reads from the session store via services and stores the entries via
 /// `TreePickerState::set_items`.
 pub async fn load_session_picker_items(services: &Services, state: &mut AppState) {
     let entries = load_session_entries(services, &state.frontend.theme).await;
-    state.frontend.session_picker_mut().set_items(entries);
+    let wrapped = wrap_session_entries(entries);
+    state.frontend.session_picker_mut().set_items(wrapped);
 }
 
 /// Loads session tree entries from a session store service directly.
@@ -210,7 +221,8 @@ pub async fn load_session_picker_items_from_store(
     state: &mut AppState,
 ) {
     let entries = load_session_entries_from_store(store, &state.frontend.theme).await;
-    state.frontend.session_picker_mut().set_items(entries);
+    let wrapped = wrap_session_entries(entries);
+    state.frontend.session_picker_mut().set_items(wrapped);
 }
 
 #[cfg(test)]

@@ -4,9 +4,7 @@
 //!
 //! See [`McpServerConfig`] and [`TransportKind`].
 
-pub mod intent;
 pub mod picker_entry;
-pub mod render;
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};

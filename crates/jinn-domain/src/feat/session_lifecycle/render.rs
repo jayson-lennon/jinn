@@ -2,8 +2,6 @@
 
 use crate::common::render_ctx::RenderCtx;
 use crate::feat::session_lifecycle::command_template::{CommandTemplate, split_preserving_quotes};
-use crate::feat::ui::picker_states::PickerExt;
-use jinn_selection_widget::SelectionWidget;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
@@ -73,19 +71,6 @@ pub fn arg_input_popup_rect(area: Rect, ctx: &RenderCtx) -> Rect {
         });
 
     compute_arg_input_popup_rect(area, content_rows)
-}
-
-/// Renders the session lifecycle picker overlay using [`SelectionWidget`].
-///
-/// Shows all available lifecycles (including the implicit blank) with
-/// descriptions and an args indicator.
-pub fn render_session_lifecycle_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    let state = ctx.state;
-    let widget = SelectionWidget::new(state.frontend.session_lifecycle_picker())
-        .title(Line::from(" New Session (with scripted lifecycle) "))
-        .title_style(Style::default().fg(state.frontend.theme.popup_title))
-        .footer(Line::from(" Enter to select, ESC to cancel "));
-    widget.render(frame, area);
 }
 
 /// Renders the arg input popup for a lifecycle with positional parameters.

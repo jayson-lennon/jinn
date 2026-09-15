@@ -5,7 +5,7 @@
 //! cap-holder a narrow borrowed view ([`ProviderView`]) plus read-only access to
 //! the other sub-structs the provider actor legitimately reads.
 
-use crate::PickerEntry;
+use crate::ProviderPickerEntry;
 use crate::SessionState;
 #[cfg(test)]
 use crate::common::app_state::AppState;
@@ -13,7 +13,6 @@ use crate::common::state::State;
 use crate::feat::endpoint::picker_entry::EndpointEntry;
 use crate::feat::provider::ProviderState;
 use crate::feat::provider_infra::ModelCache;
-use crate::feat::reasoning::ReasoningEffortEntry;
 use crate::feat::ui::frontend_state::FrontendState;
 use crate::feat::ui::picker_states::PickerExt;
 
@@ -42,8 +41,7 @@ impl ProviderCap {
 pub struct ProviderOps<'a>(&'a mut ProviderState);
 
 /// Narrow write-handle to the provider-owned pickers on `FrontendState`
-/// (compaction model picker, reasoning effort picker). The provider actor loads
-/// these, so it owns them.
+/// (reasoning effort picker). The provider actor loads these, so it owns them.
 pub struct FrontendProviderOps<'a>(&'a mut FrontendState);
 
 // ── Composite facade ─────────────────────────────────────────────────────────
@@ -78,7 +76,10 @@ impl FrontendProviderOps<'_> {
 
 /// Write access to the provider picker + alloy mode.
 pub trait ProviderPickerWrite {
-    fn set_provider_picker_items(&mut self, items: Vec<PickerEntry>);
+    fn set_provider_picker_items(
+        &mut self,
+        items: Vec<jinn_picker::PickerEntry<ProviderPickerEntry>>,
+    );
     fn is_alloy_mode(&self) -> bool;
 }
 
@@ -90,15 +91,16 @@ pub trait ModelCacheWrite {
 
 /// Write access to the provider-owned frontend pickers.
 pub trait FrontendProviderPickerWrite {
-    fn set_compaction_model_picker_items(&mut self, items: Vec<PickerEntry>);
-    fn set_reasoning_effort_picker_items(&mut self, items: Vec<ReasoningEffortEntry>);
     fn set_endpoint_picker_items(&mut self, items: Vec<EndpointEntry>);
     fn set_endpoint_loading(&mut self, loading: bool);
     fn set_endpoint_fetched_at(&mut self, at: Option<jiff::Timestamp>);
 }
 
 impl ProviderPickerWrite for ProviderOps<'_> {
-    fn set_provider_picker_items(&mut self, items: Vec<PickerEntry>) {
+    fn set_provider_picker_items(
+        &mut self,
+        items: Vec<jinn_picker::PickerEntry<ProviderPickerEntry>>,
+    ) {
         self.0.provider_picker.set_items(items);
     }
     fn is_alloy_mode(&self) -> bool {
@@ -116,14 +118,11 @@ impl ModelCacheWrite for ProviderOps<'_> {
 }
 
 impl FrontendProviderPickerWrite for FrontendProviderOps<'_> {
-    fn set_compaction_model_picker_items(&mut self, items: Vec<PickerEntry>) {
-        self.0.compaction_model_picker_mut().set_items(items);
-    }
-    fn set_reasoning_effort_picker_items(&mut self, items: Vec<ReasoningEffortEntry>) {
-        self.0.reasoning_effort_picker_mut().set_items(items);
-    }
     fn set_endpoint_picker_items(&mut self, items: Vec<EndpointEntry>) {
-        self.0.endpoint_picker_mut().set_items(items);
+        let wrapped = crate::feat::picker::registry::build_picker_registry()
+            .make_items(crate::feat::picker::registry::ENDPOINT_ID, items)
+            .unwrap_or_default();
+        self.0.endpoint_picker_mut().set_items(wrapped);
     }
     fn set_endpoint_loading(&mut self, loading: bool) {
         self.0.pickers.endpoint_loading = loading;
@@ -162,7 +161,7 @@ impl<'a> ProviderView<'a> {
     ///
     /// Tests are trusted — they set up state and call the production loaders.
     /// The cap exists to enforce ownership at *actor* call sites, not test sites.
-    pub(crate) fn from_app_state_for_test(app: &'a mut AppState) -> Self {
+    pub fn from_app_state_for_test(app: &'a mut AppState) -> Self {
         ProviderView {
             session: &app.session,
             provider_frontend: FrontendProviderOps(&mut app.frontend),

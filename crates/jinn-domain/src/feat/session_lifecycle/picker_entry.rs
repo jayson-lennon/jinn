@@ -1,9 +1,5 @@
 //! Session lifecycle picker entry - one row in the lifecycle selection picker.
 
-use jinn_selection_widget::PickerItem;
-use ratatui::text::{Line, Span};
-
-use crate::feat::picker::style::{active_marker, dim_style, selected_style};
 use crate::feat::theme::Theme;
 
 /// A lifecycle recipe shown in the session lifecycle picker.
@@ -19,72 +15,32 @@ pub struct SessionLifecycleEntry {
     pub theme: Theme,
 }
 
-impl PickerItem for SessionLifecycleEntry {
+impl jinn_selection_widget::TreeItem for SessionLifecycleEntry {
+    fn id(&self) -> &str {
+        &self.name
+    }
+
+    fn parent_id(&self) -> Option<&str> {
+        None
+    }
+
     fn display_label(&self) -> &str {
         &self.name
     }
 
-    fn render_row(&self, is_selected: bool) -> Line<'static> {
-        render_lifecycle_row(
-            &self.name,
-            self.description.as_deref(),
-            self.has_args,
-            is_selected,
-            &[],
-            &self.theme,
-        )
+    fn render_row(&self, _is_selected: bool) -> ratatui::text::Line<'static> {
+        // Rows render through the spec's row hook via PickerEntry; this
+        // impl only supplies tree structure (id/parent_id) and filter text.
+        ratatui::text::Line::raw(self.display_label().to_owned())
     }
 
     fn render_row_with_highlight(
         &self,
-        is_selected: bool,
-        match_indices: &[std::ops::Range<usize>],
-    ) -> Line<'static> {
-        render_lifecycle_row(
-            &self.name,
-            self.description.as_deref(),
-            self.has_args,
-            is_selected,
-            match_indices,
-            &self.theme,
-        )
+        _is_selected: bool,
+        _match_indices: &[std::ops::Range<usize>],
+    ) -> ratatui::text::Line<'static> {
+        ratatui::text::Line::raw(self.display_label().to_owned())
     }
-}
-
-/// Renders a lifecycle picker row with proper styling.
-fn render_lifecycle_row(
-    name: &str,
-    description: Option<&str>,
-    has_args: bool,
-    is_selected: bool,
-    match_indices: &[std::ops::Range<usize>],
-    theme: &Theme,
-) -> Line<'static> {
-    let base_style = selected_style(is_selected, theme);
-    let desc_style = dim_style(is_selected, theme);
-
-    let mut spans = vec![active_marker(is_selected, theme)];
-
-    if match_indices.is_empty() {
-        spans.push(Span::styled(name.to_owned(), base_style));
-    } else {
-        spans.extend(jinn_selection_widget::highlight_text_with_bg(
-            name,
-            base_style,
-            match_indices,
-            theme.picker_highlight_bg,
-        ));
-    }
-
-    if has_args {
-        spans.push(Span::styled(" *".to_owned(), desc_style));
-    }
-
-    if let Some(desc) = description {
-        spans.push(Span::styled(format!(" - {desc}"), desc_style));
-    }
-
-    Line::from(spans)
 }
 
 #[cfg(test)]
@@ -97,7 +53,9 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
+    use crate::feat::picker::session_lifecycle_spec::lifecycle_row;
     use crate::feat::theme::default_theme;
+    use jinn_picker::RowCtx;
 
     fn test_entry(name: &str, description: Option<&str>, has_args: bool) -> SessionLifecycleEntry {
         SessionLifecycleEntry {
@@ -108,40 +66,50 @@ mod tests {
         }
     }
 
-    #[rstest::rstest]
-    fn display_label_returns_name() {
-        let entry = test_entry("fossil branch", None, false);
-        assert_eq!(entry.display_label(), "fossil branch");
+    fn row_ctx(ranges: &[std::ops::Range<usize>], is_selected: bool) -> RowCtx<'_> {
+        RowCtx::flat(is_selected, ranges)
+    }
+
+    fn no_matches() -> Vec<std::ops::Range<usize>> {
+        Vec::new()
     }
 
     #[rstest::rstest]
-    fn render_row_unselected_has_spaces() {
+    fn row_unselected_has_spaces() {
         let entry = test_entry("blank", None, false);
-        let line = entry.render_row(false);
+        let ranges = no_matches();
+        let ctx = row_ctx(&ranges, false);
+        let line = lifecycle_row(&entry, &ctx);
         let text = line.to_string();
         assert!(text.starts_with("  blank"));
     }
 
     #[rstest::rstest]
-    fn render_row_selected_has_arrow() {
+    fn row_selected_has_arrow() {
         let entry = test_entry("blank", None, false);
-        let line = entry.render_row(true);
+        let ranges = no_matches();
+        let ctx = row_ctx(&ranges, true);
+        let line = lifecycle_row(&entry, &ctx);
         let text = line.to_string();
         assert!(text.starts_with("> blank"));
     }
 
     #[rstest::rstest]
-    fn render_row_shows_args_indicator() {
+    fn row_shows_args_indicator() {
         let entry = test_entry("fossil branch", None, true);
-        let line = entry.render_row(false);
+        let ranges = no_matches();
+        let ctx = row_ctx(&ranges, false);
+        let line = lifecycle_row(&entry, &ctx);
         let text = line.to_string();
         assert!(text.contains('*'));
     }
 
     #[rstest::rstest]
-    fn render_row_shows_description() {
+    fn row_shows_description() {
         let entry = test_entry("fossil branch", Some("Open a fossil branch"), false);
-        let line = entry.render_row(false);
+        let ranges = no_matches();
+        let ctx = row_ctx(&ranges, false);
+        let line = lifecycle_row(&entry, &ctx);
         let text = line.to_string();
         assert!(text.contains("Open a fossil branch"));
     }

@@ -177,7 +177,7 @@ async fn persist_writes_frontend_preferences() {
 async fn persist_reloads_open_project_picker_items() {
     use crate::common::focus::FocusScope;
     use crate::feat::picker::PickerKind;
-    use crate::feat::picker::intent::load_project_picker_entries;
+    use crate::feat::picker::project_spec::load_project_entries as load_project_picker_entries;
     use crate::feat::ui::picker_states::PickerExt;
 
     // Given a state with the project picker open and zero entries.

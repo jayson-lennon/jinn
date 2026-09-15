@@ -44,7 +44,10 @@ fn sidebar_persona_edit_opens_picker_when_persona_focused() {
         .scope_set_sidebar_section(SidebarSectionId::Persona);
 
     // When handling sidebar persona edit.
-    let result = handle_sidebar_persona_edit(&mut state);
+    let result = handle_sidebar_persona_edit(
+        &mut state,
+        &crate::feat::picker::registry::build_picker_registry(),
+    );
 
     // Then the persona picker is active.
     assert_eq!(
@@ -70,7 +73,10 @@ fn sidebar_persona_edit_noop_when_pins_focused() {
         .scope_set_sidebar_section(SidebarSectionId::Pins);
 
     // When handling sidebar persona edit.
-    let result = handle_sidebar_persona_edit(&mut state);
+    let result = handle_sidebar_persona_edit(
+        &mut state,
+        &crate::feat::picker::registry::build_picker_registry(),
+    );
 
     // Then nothing changed.
     assert!(!state.frontend.is_picker());
@@ -444,6 +450,7 @@ fn session_new_works_when_sidebar_sessions_focused() {
         &mut state,
         &empty_slices(),
         &empty_routes(),
+        &empty_pickers(),
     );
 
     // Then a new session is created.
@@ -475,6 +482,7 @@ fn session_new_works_when_not_in_sidebar() {
         &mut state,
         &empty_slices(),
         &empty_routes(),
+        &empty_pickers(),
     );
 
     // Then a new session is created (no section restriction outside sidebar).
@@ -629,6 +637,10 @@ use crate::feat::session::tool_result_status::ToolResultStatus;
 /// exercise slices or route rows.
 fn empty_slices() -> crate::common::slices::Slices {
     crate::common::slices::Slices::new()
+}
+
+fn empty_pickers() -> jinn_picker::PickerRegistry {
+    jinn_picker::PickerRegistry::new()
 }
 
 fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {

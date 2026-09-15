@@ -93,7 +93,7 @@ Entries are added or amended **only with human approval**.
 - (identity) Jinn's multimodal scope is bounded to image input (vision) and text output; it has no image-generation pipeline and no art/editing tooling.
 - (identity) The TUI is the default entrypoint; the Discord and headless frontends are alternative invocation modes.
 - (identity) The application ships three frontends: a TUI (default), a Discord gateway, and a debug-only headless mode.
-- (keybinds) Bare letters in pickers route to the filter input rather than triggering actions: `a` in the project picker types into the filter, and `d` removes the highlighted entry (not a filter character).
+- (keybinds) Bare letters in pickers route to the filter input.
 - (keybinds) In the skill scope, `PgUp` pages the picker list, not the preview, so list paging and preview scrolling are separate bindings.
 - (keybinds) In the skill scope, `Ctrl+L` loads the highlighted skill into context as a pinned ToolResult paired with a synthetic ToolCall (the same on-disk shape the `skill` tool produces); the picker stays open so several skills can be loaded in one visit.
 - (keybinds) `Ctrl+L` in the skill scope auto-enables a disabled skill before loading it.
@@ -318,14 +318,14 @@ Entries are added or amended **only with human approval**.
 - (build) Releases ship two cargo-binstall tarballs per tag: `x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` (cross-built from Linux via mingw-w64).
 - (build) The windows-gnu cross target's linker is configured in the checked-in `.cargo/config.toml`; the config is inert for native Linux builds.
 - (build) Release binaries are self-contained on both platforms: bundled SQLite in the target graph, no SQLite DLL/import-library requirement.
-- (slices) The session-init slice runs as `crates/slices/jinn-session-init`: a trouper supervisor actor translates session-lifecycle triggers and manual rescan commands into keyed commands, and a partition set activates one discovery worker per session owning that session's skills, prompt, and context-file scans, settle coalescing, and summary entry; the kameo discovery coordinator and discovery notifier actors no longer exist.
-- (bridges) Discovery results return to the kameo bus via reverse relays carrying the kernel's `SkillsLoaded`, `PromptTemplatesLoaded`, and `ContextFilesLoaded` types — the first production trouper→kameo relays; kernel consumers are unchanged.
-- (discovery) A session's discovery settle waits at most a fixed budget for all three scans and publishes the settled event with a delayed reason naming the missing resources; late scans still write state and publish their events after the settle.
-- (bridges) The discord slice imports `ServiceStatusUpdate` and `ActorLifecycle` from `jinn-slices`/`jinn-core-types`; no slice→slice Cargo edge exists.
-- (slices) The session-init supervisor routes from event payloads alone: `SessionCreated` and the manual rescan commands carry the session's cwd, the boot sequence publishes `SessionCwdChanged` for the initial session, and the supervisor holds no `State`.
-- (slices) Discovery worker entities activate on demand under the public path `jinn.discovery/<session_id>` as permanent children of the slice's supervisor (5 restarts per 10 s budget, then escalate) — the first production use of trouper partition sets and supervision.
-- (arch) App exit sweeps the trouper fabric via shutdown_graceful between the kameo supervisor cascade and the session-store checkpoint.
-- (slices) The session-init discovery worker passivates after five idle seconds and re-activates on its partition set's next trigger.
+- (pickers) Picker behavior is described by builder-built PickerSpecs in the jinn-picker crate (no jinn-domain dependency); keymap bindings, the picker keybind line, and footer-row geometry all derive from a spec's bind rows.
+- (pickers) Migrated pickers resolve kind-specific keys through one data-carried picker-action intent dispatched via their spec's bind table — not dedicated intent variants — and open/close hooks own snapshots and ESC-revert.
+- (pickers) The theme picker previews the highlighted theme live on cursor movement (invalidating theme caches per move), reverts to the snapshotted theme on ESC, and persists the choice only on confirm.
+- (pickers) The tool picker toggles the highlighted tool with TAB (advancing to the next row), filters to tools available for the session's provider, seeds disabled state from the session profile (config seeds and subagent spawn stamps), and writes the disabled set back to the session only on confirm.
+- (pickers) The MCP server picker toggles servers with TAB, restarts the selected server with CTRL+R (staying open), flips its logs/tools preview pane with CTRL+T, searches name and description, and commits the enabled set on confirm by emitting McpEnablementChanged; ESC reverts to the snapshotted set.
+- (pickers) The session-lifecycle picker starts sessions with a scripted lifecycle from jinn.toml; entries whose setup command has $-parameters hand off to the arg-input popup before setup runs.
+- (pickers) The reasoning-effort picker builds its seven effort entries inline at open and on confirm sets the session's reasoning override, emits MarkSessionInteracted, and seeds the global default via UpdateAppState.
+- (config) The compaction model is configured only by [compaction] model in jinn.toml; the compaction-model picker was removed.
 - (preferences) A `[[projects]]` entry in `jinn.toml` may carry a command policy of user-authored regex patterns with corrective messages, applied to tool commands whose cwd falls inside the project path.
 - (tools) The bash tool evaluates commands against the resolved project command policy before spawn; a match returns a failed tool result carrying the rule's message and the command never runs.
 - (tools) Project command policy is resolved by cwd prefix match at tool-call time with the longest configured project path winning.
@@ -345,3 +345,12 @@ Entries are added or amended **only with human approval**.
 - (todo) The next-task indicator remains derived from list state and renders after every write and in `todo_get_list`.
 - (slices) The chat-log-view slice is a crate owning the per-session chat log view state in one cell keyed by session id; the IntentHandler and the renderer write through ChatSession's semantic methods.
 - (slices) SessionUi persists only chat input and the steering buffer; the chat log view fields live in the chat-log-view slice's cell.
+- (pickers) jinn-picker renders Tree-spec pickers through TreePickerWidget over TreePickerState<PickerEntry<T>>, keeping the tree filter's ancestor expansion.
+- (pickers) The plugin picker lists each known plugin's name and lifecycle phase read-only from the coordinator's cache; Enter is a no-op.
+- (pickers) The task-list picker browses phases and tasks as a tree, hides postponed tasks, and Enter is a no-op.
+- (pickers) The session picker loads its session tree through SessionPersistenceActor from the SQLite store; confirm begins the load and emits SessionLoadRequested.
+- (pickers) The provider picker toggles alloy members with TAB in place, flips single/alloy mode with CTRL+A pre-checking the session's current models, refreshes models with CTRL+R, and confirm resolves Single or Alloy from the checked set plus highlight by emitting ProviderSwitch.
+- (pickers) The endpoint picker previews the selected upstream's uptime, pricing, and quantization, force-refreshes with CTRL+R, and confirm pins the session's endpoint by writing the profile and emitting MarkSessionInteracted; the auto-route sentinel clears the pin.
+- (pickers) jinn_picker PickerEntry is Clone and delegates TreeItem structure to domain entries.
+- (skills) jinn ships a bundled `jinn-usage` agent skill whose body routes to per-topic reference files (keybindings, workflows, configuration) installed beside its SKILL.md.
+- (skills) Bundled skill content is compile-time embedded, so installed skill docs match the running jinn binary; refreshing them requires `jinn install --force`.

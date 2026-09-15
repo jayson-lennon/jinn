@@ -209,6 +209,36 @@ fn render_endpoint_row(
     Line::from(all_spans)
 }
 
+impl jinn_selection_widget::TreeItem for EndpointEntry {
+    fn id(&self) -> &str {
+        if self.tag.is_empty() {
+            "__auto_route__"
+        } else {
+            &self.tag
+        }
+    }
+
+    fn parent_id(&self) -> Option<&str> {
+        None
+    }
+
+    fn display_label(&self) -> &str {
+        &self.provider_name
+    }
+
+    fn render_row(&self, is_selected: bool) -> ratatui::text::Line<'static> {
+        PickerItem::render_row_with_highlight(self, is_selected, &[])
+    }
+
+    fn render_row_with_highlight(
+        &self,
+        is_selected: bool,
+        match_indices: &[std::ops::Range<usize>],
+    ) -> ratatui::text::Line<'static> {
+        PickerItem::render_row_with_highlight(self, is_selected, match_indices)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used, clippy::panic, reason = "test code")]

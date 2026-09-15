@@ -15,7 +15,7 @@ use std::ops::Range;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::entries::*;
-use crate::feat::provider::picker_entry::PickerEntry;
+use crate::feat::provider::picker_entry::ProviderPickerEntry;
 
 fn ollama_entry() -> ProviderEntry {
     ProviderEntry {
@@ -56,7 +56,7 @@ fn make_config(
 }
 
 /// Loads entries from a registry with ollama (keyless) and openrouter (key present).
-fn load_two_providers() -> Vec<PickerEntry> {
+fn load_two_providers() -> Vec<ProviderPickerEntry> {
     let config = make_config(
         BTreeMap::from([
             ("ollama".to_owned(), ollama_entry()),
@@ -160,7 +160,7 @@ fn load_provider_entries_marks_keyless_always_available() {
 }
 
 /// Loads entries from a registry with ollama and a "fast" alias.
-fn load_entries_with_alias() -> (Vec<PickerEntry>, PickerEntry) {
+fn load_entries_with_alias() -> (Vec<ProviderPickerEntry>, ProviderPickerEntry) {
     let config = make_config(
         BTreeMap::from([("ollama".to_owned(), ollama_entry())]),
         vec![crate::feat::provider_infra::AliasEntry {
@@ -497,7 +497,7 @@ fn load_provider_entries_includes_all_remote_models() {
 fn active_provider_promoted_to_first() {
     // Given entries ["a/model", "b/model", "c/model"] with active_provider "c/model" and empty filter.
     let entries = vec![
-        PickerEntry {
+        ProviderPickerEntry {
             provider_id: "a/model".into(),
             name: "a".into(),
             provider_name: "a".into(),
@@ -512,7 +512,7 @@ fn active_provider_promoted_to_first() {
             selected: false,
             theme: default_theme(),
         },
-        PickerEntry {
+        ProviderPickerEntry {
             provider_id: "b/model".into(),
             name: "b".into(),
             provider_name: "b".into(),
@@ -527,7 +527,7 @@ fn active_provider_promoted_to_first() {
             selected: false,
             theme: default_theme(),
         },
-        PickerEntry {
+        ProviderPickerEntry {
             provider_id: "c/model".into(),
             name: "c".into(),
             provider_name: "c".into(),
@@ -557,7 +557,7 @@ fn active_provider_promoted_to_first() {
 fn active_entry_marked_active() {
     // Given entries ["a/model", "b/model", "c/model"] with active_provider "c/model" and empty filter.
     let entries = vec![
-        PickerEntry {
+        ProviderPickerEntry {
             provider_id: "a/model".into(),
             name: "a".into(),
             provider_name: "a".into(),
@@ -572,7 +572,7 @@ fn active_entry_marked_active() {
             selected: false,
             theme: default_theme(),
         },
-        PickerEntry {
+        ProviderPickerEntry {
             provider_id: "b/model".into(),
             name: "b".into(),
             provider_name: "b".into(),
@@ -587,7 +587,7 @@ fn active_entry_marked_active() {
             selected: false,
             theme: default_theme(),
         },
-        PickerEntry {
+        ProviderPickerEntry {
             provider_id: "c/model".into(),
             name: "c".into(),
             provider_name: "c".into(),
@@ -617,7 +617,7 @@ fn active_entry_marked_active() {
 fn sorted_entries_preserves_order_when_filtering() {
     // Given entries ["a/model", "b/model"] with active_provider "b/model" and non-empty filter.
     let entries = vec![
-        PickerEntry {
+        ProviderPickerEntry {
             provider_id: "a/model".into(),
             name: "a".into(),
             provider_name: "a".into(),
@@ -632,7 +632,7 @@ fn sorted_entries_preserves_order_when_filtering() {
             selected: false,
             theme: default_theme(),
         },
-        PickerEntry {
+        ProviderPickerEntry {
             provider_id: "b/model".into(),
             name: "b".into(),
             provider_name: "b".into(),
@@ -661,7 +661,7 @@ fn sorted_entries_preserves_order_when_filtering() {
 fn available_entry_comes_first() {
     // Given entries with mixed availability.
     let entries = vec![
-        PickerEntry {
+        ProviderPickerEntry {
             provider_id: "z/model".into(),
             name: "z".into(),
             provider_name: "z".into(),
@@ -676,7 +676,7 @@ fn available_entry_comes_first() {
             selected: false,
             theme: default_theme(),
         },
-        PickerEntry {
+        ProviderPickerEntry {
             provider_id: "a/model".into(),
             name: "a".into(),
             provider_name: "a".into(),
@@ -691,7 +691,7 @@ fn available_entry_comes_first() {
             selected: false,
             theme: default_theme(),
         },
-        PickerEntry {
+        ProviderPickerEntry {
             provider_id: "b/model".into(),
             name: "b".into(),
             provider_name: "b".into(),
@@ -721,7 +721,7 @@ fn available_entry_comes_first() {
 fn sorted_entries_sorts_by_model_name_within_blocks() {
     // Given entries with different model names.
     let entries = vec![
-        PickerEntry {
+        ProviderPickerEntry {
             provider_id: "a/zebra".into(),
             name: "a".into(),
             provider_name: "a".into(),
@@ -736,7 +736,7 @@ fn sorted_entries_sorts_by_model_name_within_blocks() {
             selected: false,
             theme: default_theme(),
         },
-        PickerEntry {
+        ProviderPickerEntry {
             provider_id: "b/alpha".into(),
             name: "b".into(),
             provider_name: "b".into(),
@@ -1015,8 +1015,8 @@ fn make_picker_entry(
     provider_name: &str,
     is_available: bool,
     is_alias: bool,
-) -> PickerEntry {
-    PickerEntry {
+) -> ProviderPickerEntry {
+    ProviderPickerEntry {
         provider_id: format!("{provider_name}/{model}"),
         name: provider_name.to_owned(),
         provider_name: provider_name.to_owned(),
@@ -1089,7 +1089,7 @@ fn render_row_with_highlight_preserves_provider_name_suffix() {
 
 #[rstest::rstest]
 fn display_label_includes_provider_name() {
-    // Given a PickerEntry with model "glm5.1" and provider_name "zai".
+    // Given a ProviderPickerEntry with model "glm5.1" and provider_name "zai".
     let entry = make_picker_entry("glm5.1", "zai", true, false);
 
     // Then display_label contains both model and provider name.

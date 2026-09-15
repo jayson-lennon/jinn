@@ -1,0 +1,17 @@
+[package]
+name = "jinn-picker"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+jinn-selection-widget = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-core-types = { workspace = true }
+ratatui = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+jinn-testutil = { workspace = true }
+
+[lints]
+workspace = true

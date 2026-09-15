@@ -2563,6 +2563,7 @@ dependencies = [
  "jinn-discord",
  "jinn-discord-msg",
  "jinn-domain",
+ "jinn-picker",
  "jinn-plugin",
  "jinn-plugin-api",
  "jinn-quake-bar",
@@ -2736,6 +2737,7 @@ dependencies = [
  "jinn-common",
  "jinn-core-types",
  "jinn-mcp",
+ "jinn-picker",
  "jinn-plugin",
  "jinn-plugin-api",
  "jinn-provider",
@@ -2808,6 +2810,18 @@ dependencies = [
  "tokio-util",
  "tracing",
  "wherror",
+]
+
+[[package]]
+name = "jinn-picker"
+version = "0.118.0"
+dependencies = [
+ "jinn-core-types",
+ "jinn-selection-widget",
+ "jinn-slices",
+ "jinn-testutil",
+ "ratatui",
+ "rstest",
 ]
 
 [[package]]
@@ -3056,6 +3070,7 @@ dependencies = [
  "error-stack",
  "futures",
  "jinn-domain",
+ "jinn-picker",
  "jinn-selection-widget",
  "jinn-slices",
  "jinn-status-bar",

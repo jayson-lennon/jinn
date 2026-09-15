@@ -202,6 +202,7 @@ impl ActorSystemBuilder {
             trouper_system: trouper::system::ActorSystem::new(
                 trouper::system::SystemConfig::production(),
             ),
+            picker_registry: jinn_domain::feat::picker::registry::build_picker_registry(),
         };
 
         let actor_deps = ActorDeps {
