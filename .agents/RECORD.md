@@ -342,3 +342,6 @@ Entries are added or amended **only with human approval**.
 - (pickers) The plugin picker lists each known plugin's name and lifecycle phase read-only from the coordinator's cache; Enter is a no-op.
 - (pickers) The task-list picker browses phases and tasks as a tree, hides postponed tasks, and Enter is a no-op.
 - (pickers) The session picker loads its session tree through SessionPersistenceActor from the SQLite store; confirm begins the load and emits SessionLoadRequested.
+- (pickers) The provider picker toggles alloy members with TAB in place, flips single/alloy mode with CTRL+A pre-checking the session's current models, refreshes models with CTRL+R, and confirm resolves Single or Alloy from the checked set plus highlight by emitting ProviderSwitch.
+- (pickers) The endpoint picker previews the selected upstream's uptime, pricing, and quantization, force-refreshes with CTRL+R, and confirm pins the session's endpoint by writing the profile and emitting MarkSessionInteracted; the auto-route sentinel clears the pin.
+- (pickers) jinn_picker PickerEntry is Clone and delegates TreeItem structure to domain entries.
