@@ -325,7 +325,7 @@ mod tests {
         // Then the cursor still rests on the highlighted entry.
         assert_eq!(
             state.active_session().selected_cursor_id(),
-            Some(&opener_id),
+            Some(opener_id),
             "cursor stays on the highlighted entry"
         );
     }
@@ -405,8 +405,7 @@ mod tests {
         assert!(
             state
                 .active_session()
-                .ui
-                .shown_ignored_blocks
+                .shown_ignored_blocks_snapshot()
                 .contains(&opener_id),
             "block is shown before isolate"
         );
@@ -423,8 +422,7 @@ mod tests {
         assert!(
             state
                 .active_session()
-                .ui
-                .shown_ignored_blocks
+                .shown_ignored_blocks_snapshot()
                 .contains(&opener_id),
             "forward sub-block is tracked as shown"
         );

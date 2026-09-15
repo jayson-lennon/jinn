@@ -43,7 +43,7 @@ pub fn handle_mouse_scroll_down(state: &mut AppState) -> IntentResult {
 pub fn handle_scroll_to_top(state: &mut AppState) -> IntentResult {
     state.active_session_mut().scroll_to_top();
     // Set cursor to first selectable visual item.
-    let items = state.active_session().visual_items().clone();
+    let items = state.active_session().visual_items_snapshot();
     let history = state.active_session().history();
     if items.is_empty() {
         // Fallback: walk history directly when visual items not yet computed.
@@ -80,7 +80,7 @@ pub fn handle_scroll_to_top(state: &mut AppState) -> IntentResult {
 pub fn handle_scroll_to_bottom(state: &mut AppState) -> IntentResult {
     state.active_session_mut().scroll_to_bottom();
     // Set cursor to last selectable visual item.
-    let items = state.active_session().visual_items().clone();
+    let items = state.active_session().visual_items_snapshot();
     let history = state.active_session().history();
     if items.is_empty() {
         // Fallback: walk history backwards when visual items not yet computed.

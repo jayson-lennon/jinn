@@ -376,7 +376,7 @@ fn scroll_up_from_known_offset_decrements() {
     // Given a session with scroll_offset = 50 and last_max_offset = 100.
     let mut session = ChatSessionState::new();
     session.set_last_max_offset(100);
-    session.ui.scroll_offset = Some(50);
+    session.set_scroll_offset(Some(50));
 
     // When scrolling up by 10.
     session.scroll_up(10);
@@ -390,7 +390,7 @@ fn scroll_up_saturates_at_zero() {
     // Given a session with scroll_offset = 5 and last_max_offset = 100.
     let mut session = ChatSessionState::new();
     session.set_last_max_offset(100);
-    session.ui.scroll_offset = Some(5);
+    session.set_scroll_offset(Some(5));
 
     // When scrolling up by 20.
     session.scroll_up(20);
@@ -404,7 +404,7 @@ fn scroll_down_increments_offset() {
     // Given a session with scroll_offset = 0 and last_max_offset = 100.
     let mut session = ChatSessionState::new();
     session.set_last_max_offset(100);
-    session.ui.scroll_offset = Some(0);
+    session.set_scroll_offset(Some(0));
 
     // When scrolling down by 10.
     session.scroll_down(10);
@@ -418,7 +418,7 @@ fn scroll_down_past_bottom_resets_to_auto() {
     // Given a session with scroll_offset = 95 and last_max_offset = 100.
     let mut session = ChatSessionState::new();
     session.set_last_max_offset(100);
-    session.ui.scroll_offset = Some(95);
+    session.set_scroll_offset(Some(95));
 
     // When scrolling down by 10.
     session.scroll_down(10);
@@ -432,7 +432,7 @@ fn scroll_to_top_sets_offset_to_zero() {
     // Given a session scrolled to the middle.
     let mut session = ChatSessionState::new();
     session.set_last_max_offset(100);
-    session.ui.scroll_offset = Some(50);
+    session.set_scroll_offset(Some(50));
 
     // When scrolling to top.
     session.scroll_to_top();
@@ -446,7 +446,7 @@ fn scroll_to_bottom_resets_to_auto_scroll() {
     // Given a session scrolled to the top.
     let mut session = ChatSessionState::new();
     session.set_last_max_offset(100);
-    session.ui.scroll_offset = Some(0);
+    session.set_scroll_offset(Some(0));
 
     // When scrolling to bottom.
     session.scroll_to_bottom();
@@ -459,7 +459,7 @@ fn scroll_to_bottom_resets_to_auto_scroll() {
 fn reset_scroll_clears_offset() {
     // Given a session with scroll_offset = 50.
     let mut session = ChatSessionState::new();
-    session.ui.scroll_offset = Some(50);
+    session.set_scroll_offset(Some(50));
 
     // When resetting scroll.
     session.reset_scroll();
@@ -472,7 +472,7 @@ fn reset_scroll_clears_offset() {
 fn push_entry_resets_scroll() {
     // Given a session with scroll_offset = 50.
     let mut session = ChatSessionState::new();
-    session.ui.scroll_offset = Some(50);
+    session.set_scroll_offset(Some(50));
 
     // When pushing an entry.
     session.push_entry(ChatEntry::user("hello"));
@@ -494,7 +494,7 @@ fn is_at_bottom_true_when_auto_scroll() {
 fn is_at_bottom_false_when_scrolled_up() {
     // Given a session scrolled to offset 50.
     let mut session = ChatSessionState::new();
-    session.ui.scroll_offset = Some(50);
+    session.set_scroll_offset(Some(50));
 
     // Then is_at_bottom is false.
     assert!(!session.is_at_bottom());
@@ -1183,7 +1183,7 @@ fn pin_entry_propagates_shown_to_forward_sub_block() {
     // Expand the ignored block.
     let rep_id = session.history()[1].id.clone();
     session.toggle_ignored_block_visibility(&rep_id);
-    assert!(session.ui.shown_ignored_blocks.contains(&rep_id));
+    assert!(session.shown_ignored_blocks_snapshot().contains(&rep_id));
 
     // Pin ignored-B (entry at idx 2).
     let pin_id = session.history()[2].id.clone();
@@ -1192,12 +1192,14 @@ fn pin_entry_propagates_shown_to_forward_sub_block() {
     // The forward sub-block representative (ignored-C) should be auto-shown.
     let forward_rep = session.history()[3].id.clone();
     assert!(
-        session.ui.shown_ignored_blocks.contains(&forward_rep),
+        session
+            .shown_ignored_blocks_snapshot()
+            .contains(&forward_rep),
         "forward sub-block should be auto-shown after pin inside shown block"
     );
 
     // Original block rep should still be shown.
-    assert!(session.ui.shown_ignored_blocks.contains(&rep_id));
+    assert!(session.shown_ignored_blocks_snapshot().contains(&rep_id));
 }
 
 #[rstest::rstest]
@@ -1207,7 +1209,7 @@ fn pin_entry_no_propagation_for_non_ignored() {
     session.push_entry(ChatEntry::user("normal"));
     let id = session.history()[0].id.clone();
     session.pin_entry(&id, PinPosition::Top);
-    assert!(session.ui.shown_ignored_blocks.is_empty());
+    assert!(session.shown_ignored_blocks_snapshot().is_empty());
 }
 
 #[rstest::rstest]
@@ -1227,7 +1229,9 @@ fn pin_entry_no_propagation_for_collapsed_block() {
     // Forward sub-block should NOT be shown.
     let forward_rep = session.history()[3].id.clone();
     assert!(
-        !session.ui.shown_ignored_blocks.contains(&forward_rep),
+        !session
+            .shown_ignored_blocks_snapshot()
+            .contains(&forward_rep),
         "forward sub-block should NOT be auto-shown when parent block was collapsed"
     );
 }
@@ -1251,8 +1255,8 @@ fn pin_entry_at_block_end_no_forward_propagation() {
 
     // No new shown_ignored_blocks entries - forward entry is non-ignored.
     // Only the original rep should be shown.
-    assert_eq!(session.ui.shown_ignored_blocks.len(), 1);
-    assert!(session.ui.shown_ignored_blocks.contains(&rep_id));
+    assert_eq!(session.shown_ignored_blocks_snapshot().len(), 1);
+    assert!(session.shown_ignored_blocks_snapshot().contains(&rep_id));
 }
 
 /// Regression test for: pinning an ignored entry inside an expanded block
@@ -1285,7 +1289,7 @@ fn regression_pin_in_expanded_block_keeps_all_visible() {
     // (backward sub-block + pinned entry + forward sub-block).
     let items = build_visual_items(
         session.history(),
-        &session.ui.shown_ignored_blocks,
+        &session.shown_ignored_blocks_snapshot(),
         PROXIMITY_COUNT,
         DEFAULT_MIN_COLLAPSE_COUNT,
     );
@@ -1328,16 +1332,24 @@ fn regression_toggle_h_after_pin_split_toggles_correct_sub_block() {
 
     // Both sub-blocks should be shown.
     let forward_rep = session.history()[3].id.clone();
-    assert!(session.ui.shown_ignored_blocks.contains(&rep_id));
-    assert!(session.ui.shown_ignored_blocks.contains(&forward_rep));
+    assert!(session.shown_ignored_blocks_snapshot().contains(&rep_id));
+    assert!(
+        session
+            .shown_ignored_blocks_snapshot()
+            .contains(&forward_rep)
+    );
 
     // Toggle `h` on the forward sub-block.
     session.toggle_ignored_block_visibility(&forward_rep);
 
     // Forward sub-block should now be collapsed.
-    assert!(!session.ui.shown_ignored_blocks.contains(&forward_rep));
+    assert!(
+        !session
+            .shown_ignored_blocks_snapshot()
+            .contains(&forward_rep)
+    );
     // Backward sub-block should still be shown.
-    assert!(session.ui.shown_ignored_blocks.contains(&rep_id));
+    assert!(session.shown_ignored_blocks_snapshot().contains(&rep_id));
 }
 
 /// Regression test for: unpinning an entry re-merges the sub-blocks into
@@ -1370,7 +1382,7 @@ fn regression_unpin_remerges_block_correctly() {
     // Build visual items - should re-merge into a single expanded block.
     let items = build_visual_items(
         session.history(),
-        &session.ui.shown_ignored_blocks,
+        &session.shown_ignored_blocks_snapshot(),
         PROXIMITY_COUNT,
         DEFAULT_MIN_COLLAPSE_COUNT,
     );
@@ -1392,7 +1404,7 @@ fn regression_unpin_remerges_block_correctly() {
 
     // Toggle on the original rep should now collapse the re-merged block.
     session.toggle_ignored_block_visibility(&rep_id);
-    assert!(!session.ui.shown_ignored_blocks.contains(&rep_id));
+    assert!(!session.shown_ignored_blocks_snapshot().contains(&rep_id));
 }
 
 #[rstest::rstest]
@@ -1785,7 +1797,7 @@ fn push_entry_resets_scroll_only_when_at_last() {
     session.push_entry(ChatEntry::user("b"));
     session.push_entry(ChatEntry::user("c"));
     // Scroll up and move cursor away from last.
-    session.ui.scroll_offset = Some(0);
+    session.set_scroll_offset(Some(0));
     session.set_selected_entry_index(0);
 
     // When pushing a new entry.
@@ -1802,7 +1814,7 @@ fn push_entry_resets_scroll_when_at_last() {
     session.push_entry(ChatEntry::user("a"));
     session.push_entry(ChatEntry::user("b"));
     // push auto-selects last (1).
-    session.ui.scroll_offset = Some(0);
+    session.set_scroll_offset(Some(0));
     assert_eq!(session.selected_entry_index(), Some(1));
 
     // When pushing a new entry.
@@ -2656,7 +2668,7 @@ fn save_history_position_captures_current_state() {
         .with_user_entry("second")
         .with_user_entry("third")
         .build();
-    session.ui.scroll_offset = Some(10);
+    session.set_scroll_offset(Some(10));
     let second_id = session.history()[1].id.clone();
     session.set_selected_entry_index(1);
 
@@ -2665,7 +2677,7 @@ fn save_history_position_captures_current_state() {
 
     // Then the saved position matches the current state.
     assert!(session.has_saved_history_position());
-    let saved = session.ui.saved_history_position.as_ref().expect("saved");
+    let saved = session.saved_history_position().expect("saved");
     assert_eq!(saved.scroll_offset, Some(10));
     assert_eq!(saved.selected_cursor_id, Some(second_id));
 }
@@ -2677,17 +2689,17 @@ fn restore_history_position_restores_and_clears() {
         .with_user_entry("first")
         .with_user_entry("second")
         .build();
-    session.ui.scroll_offset = Some(5);
+    session.set_scroll_offset(Some(5));
     session.set_selected_entry_index(0);
     session.save_history_position();
 
     // When modifying the state and then restoring.
-    session.ui.scroll_offset = Some(99);
+    session.set_scroll_offset(Some(99));
     session.set_selected_entry_index(1);
     session.restore_history_position();
 
     // Then the state is restored to the saved values.
-    assert_eq!(session.ui.scroll_offset, Some(5));
+    assert_eq!(session.scroll_offset(), Some(5));
     assert_eq!(session.selected_entry_index(), Some(0));
     // And the saved position is cleared.
     assert!(!session.has_saved_history_position());
@@ -2700,17 +2712,17 @@ fn discard_saved_history_position_clears_without_restoring() {
         .with_user_entry("first")
         .with_user_entry("second")
         .build();
-    session.ui.scroll_offset = Some(5);
+    session.set_scroll_offset(Some(5));
     session.set_selected_entry_index(0);
     session.save_history_position();
 
     // When modifying state and then discarding.
-    session.ui.scroll_offset = Some(99);
+    session.set_scroll_offset(Some(99));
     session.set_selected_entry_index(1);
     session.discard_saved_history_position();
 
     // Then the state is NOT restored.
-    assert_eq!(session.ui.scroll_offset, Some(99));
+    assert_eq!(session.scroll_offset(), Some(99));
     assert_eq!(session.selected_entry_index(), Some(1));
     // And the saved position is cleared.
     assert!(!session.has_saved_history_position());
@@ -2723,18 +2735,18 @@ fn save_history_position_does_not_overwrite_existing() {
         .with_user_entry("first")
         .with_user_entry("second")
         .build();
-    session.ui.scroll_offset = Some(5);
+    session.set_scroll_offset(Some(5));
     let first_id = session.history()[0].id.clone();
     session.set_selected_entry_index(0);
     session.save_history_position();
 
     // When modifying state and saving again.
-    session.ui.scroll_offset = Some(99);
+    session.set_scroll_offset(Some(99));
     session.set_selected_entry_index(1);
     session.save_history_position();
 
     // Then the original saved position is kept.
-    let saved = session.ui.saved_history_position.as_ref().expect("saved");
+    let saved = session.saved_history_position().expect("saved");
     assert_eq!(saved.scroll_offset, Some(5));
     assert_eq!(saved.selected_cursor_id, Some(first_id));
 }
@@ -2743,14 +2755,14 @@ fn save_history_position_does_not_overwrite_existing() {
 fn restore_is_noop_when_nothing_saved() {
     // Given a session with no saved position.
     let mut session = ChatSessionState::builder().with_user_entry("first").build();
-    session.ui.scroll_offset = Some(10);
+    session.set_scroll_offset(Some(10));
     session.set_selected_entry_index(0);
 
     // When restoring with nothing saved.
     session.restore_history_position();
 
     // Then the state is unchanged.
-    assert_eq!(session.ui.scroll_offset, Some(10));
+    assert_eq!(session.scroll_offset(), Some(10));
     assert_eq!(session.selected_entry_index(), Some(0));
 }
 
@@ -2932,7 +2944,9 @@ fn toggle_ignored_block_visibility_expands_block() {
 
     // Then the block is shown (first entry's ID is in shown_ignored_blocks).
     assert!(
-        session.ui.shown_ignored_blocks.contains(&block_start_id),
+        session
+            .shown_ignored_blocks_snapshot()
+            .contains(&block_start_id),
         "block should be shown after toggle"
     );
 }
@@ -2963,14 +2977,20 @@ fn toggle_ignored_block_visibility_collapses_expanded_block() {
 
     // Expand first.
     session.toggle_ignored_block_visibility(&mid_id);
-    assert!(session.ui.shown_ignored_blocks.contains(&block_start_id));
+    assert!(
+        session
+            .shown_ignored_blocks_snapshot()
+            .contains(&block_start_id)
+    );
 
     // When toggling again (same entry).
     session.toggle_ignored_block_visibility(&mid_id);
 
     // Then the block is collapsed (removed from shown_ignored_blocks).
     assert!(
-        !session.ui.shown_ignored_blocks.contains(&block_start_id),
+        !session
+            .shown_ignored_blocks_snapshot()
+            .contains(&block_start_id),
         "block should be collapsed after second toggle"
     );
 }
@@ -2989,7 +3009,7 @@ fn toggle_ignored_block_visibility_noop_for_non_ignored() {
 
     // Then nothing is in shown_ignored_blocks.
     assert!(
-        session.ui.shown_ignored_blocks.is_empty(),
+        session.shown_ignored_blocks_snapshot().is_empty(),
         "no blocks should be shown for non-ignored entry"
     );
 }
@@ -3005,7 +3025,7 @@ fn toggle_ignored_block_visibility_noop_for_unknown_id() {
     session.toggle_ignored_block_visibility(&fake_id);
 
     // Then nothing changes.
-    assert!(session.ui.shown_ignored_blocks.is_empty());
+    assert!(session.shown_ignored_blocks_snapshot().is_empty());
 }
 
 #[rstest::rstest]
@@ -3061,15 +3081,13 @@ fn toggle_ignored_block_visibility_stops_at_pinned_entry() {
     // not the first entry of the whole ignored region.
     assert!(
         session
-            .ui
-            .shown_ignored_blocks
+            .shown_ignored_blocks_snapshot()
             .contains(&second_sub_block_id),
         "representative should be the second sub-block start (index 7)"
     );
     assert!(
         !session
-            .ui
-            .shown_ignored_blocks
+            .shown_ignored_blocks_snapshot()
             .contains(&first_sub_block_start_id),
         "representative should NOT be the first sub-block start (index 3)"
     );
@@ -3128,15 +3146,13 @@ fn toggle_ignored_block_visibility_stops_at_pinned_entry_in_first_sub_block() {
     // Then the representative is the first entry of the first sub-block only.
     assert!(
         session
-            .ui
-            .shown_ignored_blocks
+            .shown_ignored_blocks_snapshot()
             .contains(&first_sub_block_start_id),
         "representative should be the first sub-block start (index 3)"
     );
     assert!(
         !session
-            .ui
-            .shown_ignored_blocks
+            .shown_ignored_blocks_snapshot()
             .contains(&second_sub_block_start_id),
         "representative should NOT be the second sub-block start (index 7)"
     );
@@ -3166,7 +3182,7 @@ fn select_next_walks_visual_items_with_collapsed_block() {
     // Force visual items computation.
     let items = build_visual_items(
         session.history(),
-        &session.ui.shown_ignored_blocks,
+        &session.shown_ignored_blocks_snapshot(),
         PROXIMITY_COUNT,
         DEFAULT_MIN_COLLAPSE_COUNT,
     );
@@ -3206,7 +3222,7 @@ fn select_prev_walks_visual_items_with_collapsed_block() {
 
     let items = build_visual_items(
         session.history(),
-        &session.ui.shown_ignored_blocks,
+        &session.shown_ignored_blocks_snapshot(),
         PROXIMITY_COUNT,
         DEFAULT_MIN_COLLAPSE_COUNT,
     );
@@ -3246,7 +3262,7 @@ fn selected_entry_returns_none_for_collapsed_block() {
 
     let items = build_visual_items(
         session.history(),
-        &session.ui.shown_ignored_blocks,
+        &session.shown_ignored_blocks_snapshot(),
         PROXIMITY_COUNT,
         DEFAULT_MIN_COLLAPSE_COUNT,
     );
@@ -3281,7 +3297,7 @@ fn toggle_entry_ignored_flips_false_to_true() {
     let idx = session.push_entry(ChatEntry::user("hello"));
     let items = build_visual_items(
         session.history(),
-        &session.ui.shown_ignored_blocks,
+        &session.shown_ignored_blocks_snapshot(),
         PROXIMITY_COUNT,
         DEFAULT_MIN_COLLAPSE_COUNT,
     );
@@ -3310,7 +3326,7 @@ fn toggle_entry_ignored_flips_forced_exclude_to_forced_include() {
     let idx = session.push_entry(ChatEntry::user("hello").with_ignored(true));
     let items = build_visual_items(
         session.history(),
-        &session.ui.shown_ignored_blocks,
+        &session.shown_ignored_blocks_snapshot(),
         PROXIMITY_COUNT,
         DEFAULT_MIN_COLLAPSE_COUNT,
     );
@@ -4317,7 +4333,7 @@ fn scroll_to_selected_entry_already_visible() {
     // Viewport showing lines 0–6 (all visible).
     session.set_rendered_scroll_offset(0);
     session.set_selected_entry_index(1);
-    session.ui.scroll_offset = Some(0);
+    session.set_scroll_offset(Some(0));
 
     // When scrolling to selected.
     session.scroll_to_selected();
@@ -4455,7 +4471,7 @@ fn move_cursor_to_first_visible_skips_empty_assistant() {
     // Must set visual items for the skipping logic to work.
     let items = build_visual_items(
         session.history(),
-        &session.ui.shown_ignored_blocks,
+        &session.shown_ignored_blocks_snapshot(),
         PROXIMITY_COUNT,
         DEFAULT_MIN_COLLAPSE_COUNT,
     );
@@ -4485,7 +4501,7 @@ fn move_cursor_to_last_visible_skips_empty_assistant() {
     // Must set visual items for the skipping logic to work.
     let items = build_visual_items(
         session.history(),
-        &session.ui.shown_ignored_blocks,
+        &session.shown_ignored_blocks_snapshot(),
         PROXIMITY_COUNT,
         DEFAULT_MIN_COLLAPSE_COUNT,
     );
@@ -4672,7 +4688,9 @@ fn pin_entry_scans_backward_to_find_block_start() {
     // ignored block). The forward sub-block starts at index 4.
     let forward_rep = session.history()[4].id.clone();
     assert!(
-        session.ui.shown_ignored_blocks.contains(&forward_rep),
+        session
+            .shown_ignored_blocks_snapshot()
+            .contains(&forward_rep),
         "forward sub-block should be shown - backward scan found correct block start"
     );
 }
@@ -4699,8 +4717,8 @@ fn pin_entry_block_start_stops_at_non_ignored_boundary() {
 
     // Then the block_start scan stops at idx 3 (doesn't cross the non-ignored boundary).
     // No forward sub-block (idx 4 is the last in its block).
-    assert!(session.ui.shown_ignored_blocks.contains(&rep2));
-    assert!(session.ui.shown_ignored_blocks.contains(&rep1));
+    assert!(session.shown_ignored_blocks_snapshot().contains(&rep2));
+    assert!(session.shown_ignored_blocks_snapshot().contains(&rep1));
 }
 
 #[rstest::rstest]
@@ -4719,8 +4737,8 @@ fn pin_entry_forward_start_at_history_end_is_noop() {
     session.pin_entry(&pin_id, PinPosition::Top);
 
     // Then no new forward sub-block is added.
-    assert_eq!(session.ui.shown_ignored_blocks.len(), 1);
-    assert!(session.ui.shown_ignored_blocks.contains(&rep_id));
+    assert_eq!(session.shown_ignored_blocks_snapshot().len(), 1);
+    assert!(session.shown_ignored_blocks_snapshot().contains(&rep_id));
 }
 
 #[rstest::rstest]
@@ -4741,7 +4759,7 @@ fn toggle_ignored_block_scans_backward_from_entry() {
     // Then the block representative is ignored-A (idx 1), not ignored-C.
     let rep_id = session.history()[1].id.clone();
     assert!(
-        session.ui.shown_ignored_blocks.contains(&rep_id),
+        session.shown_ignored_blocks_snapshot().contains(&rep_id),
         "block representative should be the first entry in the contiguous block"
     );
 }
@@ -4766,12 +4784,12 @@ fn toggle_ignored_block_does_not_cross_pinned_entry() {
 
     // Then block start is idx 2 (didn't cross pinned entry at idx 1).
     assert!(
-        session.ui.shown_ignored_blocks.contains(&id_c),
+        session.shown_ignored_blocks_snapshot().contains(&id_c),
         "block representative should be the entry after the pinned boundary"
     );
     // And idx 0 is NOT in shown_ignored_blocks.
     let id_a = session.history()[0].id.clone();
-    assert!(!session.ui.shown_ignored_blocks.contains(&id_a));
+    assert!(!session.shown_ignored_blocks_snapshot().contains(&id_a));
 }
 
 #[rstest::rstest]
@@ -5021,7 +5039,7 @@ fn selected_visual_item_returns_some_when_selected() {
     session.push_entry(ChatEntry::assistant("world"));
     let items = build_visual_items(
         session.history(),
-        &session.ui.shown_ignored_blocks,
+        &session.shown_ignored_blocks_snapshot(),
         PROXIMITY_COUNT,
         DEFAULT_MIN_COLLAPSE_COUNT,
     );
@@ -5805,4 +5823,61 @@ fn new_child_origin_is_subagent() {
     // And the parent link is still set.
     assert_eq!(child.origin(), SessionOrigin::Subagent);
     assert!(child.parent_session().is_some());
+}
+
+#[rstest::rstest]
+fn view_writes_roundtrip_without_the_cell() {
+    // Given an unattached session (no slice registry handle) with one entry.
+    let mut session = ChatSessionState::builder().with_user_entry("hello").build();
+    let entry_id = session.history()[0].id.clone();
+
+    // When performing view mutations through the facade.
+    session.set_scroll_offset(Some(42));
+    session.set_selected_cursor_id(entry_id.clone());
+
+    // Then writes land on the in-struct fallback and reads round-trip.
+    assert_eq!(session.scroll_offset(), Some(42));
+    assert_eq!(session.selected_cursor_id(), Some(entry_id));
+}
+
+#[rstest::rstest]
+fn view_reads_default_without_the_cell() {
+    // Given an unattached session with no writes.
+    let session = ChatSessionState::new();
+
+    // When reading view fields through the facade.
+    let scroll_offset = session.scroll_offset();
+
+    // Then every view field reads as its default.
+    assert_eq!(scroll_offset, None);
+    assert!(!session.has_saved_history_position());
+    assert!(session.visual_items_snapshot().is_empty());
+}
+
+#[rstest::rstest]
+fn attached_view_writes_land_in_the_cell() {
+    // Given a session attached to a registry holding the chat-log-view cell.
+    let slices = jinn_slices::Slices::new();
+    slices
+        .register(
+            jinn_slices::chat_log_views_slot(),
+            jinn_slices::ChatLogViews::new(),
+        )
+        .expect("fresh registry");
+    let mut session = ChatSessionState::new();
+    session.attach_view_slices(slices.clone());
+
+    // When writing a scroll offset through the facade.
+    session.set_scroll_offset(Some(7));
+
+    // Then the write lands in the cell, keyed by this session's id.
+    let cell = slices
+        .reader::<jinn_slices::ChatLogViews>(&jinn_slices::chat_log_views_slot())
+        .expect("cell");
+    let stored = cell.read().get(session.session_id()).cloned();
+    assert_eq!(
+        stored.and_then(|v| v.scroll_offset),
+        Some(7),
+        "attached writes must resolve the cell, not the fallback"
+    );
 }

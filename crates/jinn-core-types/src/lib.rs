@@ -8,7 +8,11 @@
 //! both foundational and domain-agnostic belong here.
 
 pub mod actor_lifecycle;
+pub mod chat_entry_id;
+pub mod context_override;
 pub mod session_id;
 
 pub use actor_lifecycle::ActorLifecycle;
+pub use chat_entry_id::ChatEntryId;
+pub use context_override::ContextOverride;
 pub use session_id::SessionId;

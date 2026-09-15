@@ -1,0 +1,15 @@
+[package]
+name = "jinn-chat-log-view"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+jinn-slices = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tokio = { workspace = true }
+jinn-domain = { workspace = true }
+
+[lints]
+workspace = true

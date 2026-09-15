@@ -18,10 +18,11 @@ use super::validator;
 pub(crate) fn advance_selection_one(session: &mut ChatSessionState) -> bool {
     let visible = session.visible_entry_range();
     let current = session.selected_entry_index();
-    let max = if session.visual_items().is_empty() {
+    let items = session.visual_items_snapshot();
+    let max = if items.is_empty() {
         session.history().len().saturating_sub(1)
     } else {
-        session.visual_items().len().saturating_sub(1)
+        items.len().saturating_sub(1)
     };
 
     let Some(cur) = current else {
@@ -247,7 +248,7 @@ pub fn handle_toggle_ignored_block(state: &mut AppState) -> IntentResult {
     };
 
     let history = session.history();
-    let items = session.visual_items();
+    let items = session.visual_items_snapshot();
 
     let entry_id = match items.get(vi_idx) {
         Some(VisualItem::CollapsedIgnoredBlock { start, .. }) => {
@@ -1121,7 +1122,7 @@ mod tests {
 
         let items = build_visual_items(
             state.active_session().history(),
-            &state.active_session().ui.shown_ignored_blocks,
+            &state.active_session().shown_ignored_blocks_snapshot(),
             PROXIMITY_COUNT,
             DEFAULT_MIN_COLLAPSE_COUNT,
         );
@@ -1140,8 +1141,7 @@ mod tests {
         assert!(
             !state
                 .active_session()
-                .ui
-                .shown_ignored_blocks
+                .shown_ignored_blocks_snapshot()
                 .contains(&block_start_id),
             "block should start collapsed"
         );
@@ -1153,8 +1153,7 @@ mod tests {
         assert!(
             state
                 .active_session()
-                .ui
-                .shown_ignored_blocks
+                .shown_ignored_blocks_snapshot()
                 .contains(&block_start_id),
             "block should be shown after toggle on collapsed block"
         );
@@ -1191,8 +1190,7 @@ mod tests {
         assert!(
             state
                 .active_session()
-                .ui
-                .shown_ignored_blocks
+                .shown_ignored_blocks_snapshot()
                 .contains(&block_start_id),
             "block should be expanded"
         );
@@ -1200,7 +1198,7 @@ mod tests {
         // Rebuild visual items (now expanded - individual Entry items).
         let items = build_visual_items(
             state.active_session().history(),
-            &state.active_session().ui.shown_ignored_blocks,
+            &state.active_session().shown_ignored_blocks_snapshot(),
             PROXIMITY_COUNT,
             DEFAULT_MIN_COLLAPSE_COUNT,
         );
@@ -1224,8 +1222,7 @@ mod tests {
         assert!(
             !state
                 .active_session()
-                .ui
-                .shown_ignored_blocks
+                .shown_ignored_blocks_snapshot()
                 .contains(&block_start_id),
             "block should be collapsed after toggle on ignored entry"
         );
@@ -1769,12 +1766,12 @@ mod tests {
         assert_eq!(state.active_session().selected_entry_index(), Some(1));
 
         // Expire the sweep by setting a stale timestamp.
-        state.active_session_mut().ui.ignore_sweep = Some((
+        state.active_session_mut().set_ignore_sweep_at(
             std::time::Instant::now()
                 .checked_sub(std::time::Duration::from_millis(200))
                 .unwrap(),
             ContextOverride::ForcedExclude,
-        ));
+        );
 
         // When handling ignore selected again (after timeout).
         let _result = handle_ignore_selected(&mut state);
@@ -1785,7 +1782,7 @@ mod tests {
             ContextOverride::ForcedExclude
         );
         // And sweep state is refreshed with a new timestamp.
-        let sweep = state.active_session_mut().ui.ignore_sweep.take();
+        let sweep = state.active_session_mut().take_ignore_sweep_raw();
         assert!(sweep.is_some(), "sweep state should be re-stored");
         let (instant, target) = sweep.unwrap();
         assert!(instant.elapsed() < std::time::Duration::from_millis(10));
@@ -1909,7 +1906,7 @@ mod tests {
         // Build visual items so the collapsed block exists.
         let items = build_visual_items(
             state.active_session().history(),
-            &state.active_session().ui.shown_ignored_blocks,
+            &state.active_session().shown_ignored_blocks_snapshot(),
             PROXIMITY_COUNT,
             DEFAULT_MIN_COLLAPSE_COUNT,
         );
@@ -1948,8 +1945,7 @@ mod tests {
         assert!(
             !state
                 .active_session()
-                .ui
-                .shown_ignored_blocks
+                .shown_ignored_blocks_snapshot()
                 .contains(&block_start_id),
             "collapsed block should NOT be expanded during sweep"
         );
@@ -1996,14 +1992,12 @@ mod tests {
         let block_start_id = state.active_session().history()[1].id.clone();
         state
             .active_session_mut()
-            .ui
-            .shown_ignored_blocks
-            .insert(block_start_id);
+            .show_ignored_block(block_start_id);
 
         // Build visual items (now expanded - individual entries).
         let items = build_visual_items(
             state.active_session().history(),
-            &state.active_session().ui.shown_ignored_blocks,
+            &state.active_session().shown_ignored_blocks_snapshot(),
             PROXIMITY_COUNT,
             DEFAULT_MIN_COLLAPSE_COUNT,
         );
@@ -2042,8 +2036,7 @@ mod tests {
         assert!(
             state
                 .active_session()
-                .ui
-                .shown_ignored_blocks
+                .shown_ignored_blocks_snapshot()
                 .contains(&forward_block_id),
             "forward sub-block should be auto-shown after un-ignore split"
         );
@@ -2080,7 +2073,7 @@ mod tests {
         // Build visual items.
         let items = build_visual_items(
             state.active_session().history(),
-            &state.active_session().ui.shown_ignored_blocks,
+            &state.active_session().shown_ignored_blocks_snapshot(),
             PROXIMITY_COUNT,
             DEFAULT_MIN_COLLAPSE_COUNT,
         );
@@ -2174,7 +2167,7 @@ mod tests {
         // Build visual items.
         let items = build_visual_items(
             state.active_session().history(),
-            &state.active_session().ui.shown_ignored_blocks,
+            &state.active_session().shown_ignored_blocks_snapshot(),
             PROXIMITY_COUNT,
             DEFAULT_MIN_COLLAPSE_COUNT,
         );
@@ -2262,8 +2255,7 @@ mod tests {
         assert!(
             !state
                 .active_session()
-                .ui
-                .shown_ignored_blocks
+                .shown_ignored_blocks_snapshot()
                 .contains(&block1_start_id),
             "first collapsed block should not be expanded"
         );
@@ -2499,7 +2491,7 @@ mod jump_compaction_tests {
         let mut state = AppState::default_with_scope_focus();
         let (a_id, b_id) = build_two_compaction_history(&mut state);
         select_at(&mut state, 1);
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&a_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
 
         // When handling jump to next compaction.
         let _result = handle_jump_next_entry(
@@ -2508,7 +2500,7 @@ mod jump_compaction_tests {
         );
 
         // Then the cursor moves to compaction B.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
     }
 
     #[rstest::rstest]
@@ -2517,7 +2509,7 @@ mod jump_compaction_tests {
         let mut state = AppState::default_with_scope_focus();
         let (a_id, b_id) = build_two_compaction_history(&mut state);
         select_at(&mut state, 3);
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
 
         // When handling jump to previous compaction.
         let _result = handle_jump_prev_entry(
@@ -2526,7 +2518,7 @@ mod jump_compaction_tests {
         );
 
         // Then the cursor moves to compaction A.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&a_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
     }
 
     #[rstest::rstest]
@@ -2543,7 +2535,7 @@ mod jump_compaction_tests {
         );
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
         assert!(result.message_names.is_empty());
     }
 
@@ -2561,7 +2553,7 @@ mod jump_compaction_tests {
         );
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&a_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
         assert!(result.message_names.is_empty());
     }
 
@@ -2599,7 +2591,7 @@ mod jump_compaction_tests {
         );
 
         // Then the anchor is the last entry, so [c lands on compaction B.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
     }
 
     #[rstest::rstest]
@@ -2611,7 +2603,7 @@ mod jump_compaction_tests {
             .active_session_mut()
             .push_entry(ChatEntry::assistant("b"));
         select_at(&mut state, 0);
-        let before = state.active_session().selected_cursor_id().cloned();
+        let before = state.active_session().selected_cursor_id();
 
         // When handling jump to next compaction.
         let result = handle_jump_next_entry(
@@ -2620,7 +2612,7 @@ mod jump_compaction_tests {
         );
 
         // Then it is a no-op.
-        assert_eq!(state.active_session().selected_cursor_id(), before.as_ref());
+        assert_eq!(state.active_session().selected_cursor_id(), before);
         assert!(result.message_names.is_empty());
     }
 
@@ -2633,7 +2625,7 @@ mod jump_compaction_tests {
             .active_session_mut()
             .push_entry(ChatEntry::assistant("b"));
         select_at(&mut state, 1);
-        let before = state.active_session().selected_cursor_id().cloned();
+        let before = state.active_session().selected_cursor_id();
 
         // When handling jump to previous compaction.
         let result = handle_jump_prev_entry(
@@ -2642,7 +2634,7 @@ mod jump_compaction_tests {
         );
 
         // Then it is a no-op.
-        assert_eq!(state.active_session().selected_cursor_id(), before.as_ref());
+        assert_eq!(state.active_session().selected_cursor_id(), before);
         assert!(result.message_names.is_empty());
     }
 
@@ -2703,7 +2695,7 @@ mod jump_compaction_tests {
         let mut state = AppState::default_with_scope_focus();
         let (a_id, b_id) = build_two_pinned_history(&mut state);
         select_at(&mut state, 1);
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&a_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
 
         // When handling jump to next pinned entry.
         let _result = handle_jump_next_entry(
@@ -2712,7 +2704,7 @@ mod jump_compaction_tests {
         );
 
         // Then the cursor moves to pinned entry B.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
     }
 
     #[rstest::rstest]
@@ -2721,7 +2713,7 @@ mod jump_compaction_tests {
         let mut state = AppState::default_with_scope_focus();
         let (a_id, b_id) = build_two_pinned_history(&mut state);
         select_at(&mut state, 3);
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
 
         // When handling jump to previous pinned entry.
         let _result = handle_jump_prev_entry(
@@ -2730,7 +2722,7 @@ mod jump_compaction_tests {
         );
 
         // Then the cursor moves to pinned entry A.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&a_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
     }
 
     #[rstest::rstest]
@@ -2747,7 +2739,7 @@ mod jump_compaction_tests {
         );
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
         assert!(result.message_names.is_empty());
     }
 
@@ -2765,7 +2757,7 @@ mod jump_compaction_tests {
         );
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&a_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
         assert!(result.message_names.is_empty());
     }
 
@@ -2778,7 +2770,7 @@ mod jump_compaction_tests {
             .active_session_mut()
             .push_entry(ChatEntry::assistant("b"));
         select_at(&mut state, 0);
-        let before = state.active_session().selected_cursor_id().cloned();
+        let before = state.active_session().selected_cursor_id();
 
         // When handling jump to next pinned entry.
         let result = handle_jump_next_entry(
@@ -2787,7 +2779,7 @@ mod jump_compaction_tests {
         );
 
         // Then it is a no-op.
-        assert_eq!(state.active_session().selected_cursor_id(), before.as_ref());
+        assert_eq!(state.active_session().selected_cursor_id(), before);
         assert!(result.message_names.is_empty());
     }
 
@@ -2800,7 +2792,7 @@ mod jump_compaction_tests {
             .active_session_mut()
             .push_entry(ChatEntry::assistant("b"));
         select_at(&mut state, 1);
-        let before = state.active_session().selected_cursor_id().cloned();
+        let before = state.active_session().selected_cursor_id();
 
         // When handling jump to previous pinned entry.
         let result = handle_jump_prev_entry(
@@ -2809,7 +2801,7 @@ mod jump_compaction_tests {
         );
 
         // Then it is a no-op.
-        assert_eq!(state.active_session().selected_cursor_id(), before.as_ref());
+        assert_eq!(state.active_session().selected_cursor_id(), before);
         assert!(result.message_names.is_empty());
     }
 
@@ -2828,7 +2820,7 @@ mod jump_compaction_tests {
         );
 
         // Then the anchor is the last entry, so [p lands on pinned entry B.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
     }
 
     #[rstest::rstest]
@@ -2890,7 +2882,7 @@ mod jump_compaction_tests {
         let mut state = AppState::default_with_scope_focus();
         let (a_id, b_id) = build_two_annotation_history(&mut state);
         select_at(&mut state, 1);
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&a_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
 
         // When handling jump to next annotation entry.
         let _result = handle_jump_next_entry(
@@ -2899,7 +2891,7 @@ mod jump_compaction_tests {
         );
 
         // Then the cursor moves to annotation entry B.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
     }
 
     #[rstest::rstest]
@@ -2908,7 +2900,7 @@ mod jump_compaction_tests {
         let mut state = AppState::default_with_scope_focus();
         let (a_id, b_id) = build_two_annotation_history(&mut state);
         select_at(&mut state, 3);
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
 
         // When handling jump to previous annotation entry.
         let _result = handle_jump_prev_entry(
@@ -2917,7 +2909,7 @@ mod jump_compaction_tests {
         );
 
         // Then the cursor moves to annotation entry A.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&a_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
     }
 
     #[rstest::rstest]
@@ -2934,7 +2926,7 @@ mod jump_compaction_tests {
         );
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&b_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
         assert!(result.message_names.is_empty());
     }
 
@@ -2952,7 +2944,7 @@ mod jump_compaction_tests {
         );
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
-        assert_eq!(state.active_session().selected_cursor_id(), Some(&a_id));
+        assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
         assert!(result.message_names.is_empty());
     }
 
@@ -3077,7 +3069,7 @@ mod jump_compaction_tests {
 
         let items = build_visual_items(
             state.active_session().history(),
-            &state.active_session().ui.shown_ignored_blocks,
+            &state.active_session().shown_ignored_blocks_snapshot(),
             PROXIMITY_COUNT,
             DEFAULT_MIN_COLLAPSE_COUNT,
         );
@@ -3115,7 +3107,7 @@ mod jump_compaction_tests {
         // Then the cursor lands on compaction B (the newer one), not a no-op.
         assert_eq!(
             state.active_session().selected_cursor_id(),
-            Some(&b_id),
+            Some(b_id),
             "]c from a collapsed block must land on the next newer compaction"
         );
     }
@@ -3142,12 +3134,12 @@ mod jump_compaction_tests {
         // Then the cursor lands on compaction A (the older one), NOT compaction B.
         assert_eq!(
             state.active_session().selected_cursor_id(),
-            Some(&a_id),
+            Some(a_id),
             "[c from a collapsed block must land on the previous older compaction, not the newest"
         );
         assert_ne!(
             state.active_session().selected_cursor_id(),
-            Some(&b_id),
+            Some(b_id),
             "[c from a collapsed block must not jump forward to compaction B"
         );
     }

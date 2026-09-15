@@ -674,7 +674,9 @@ impl TryFrom<&ChatSessionState> for NewSessionRow {
                     mcp_server_status: _mcp_server_status, // runtime
                     mcp_server_stderr: _mcp_server_stderr, // runtime
                 },
-            ui: _ui, // runtime
+            ui: _ui,                       // runtime
+            view_slices: _view_slices,     // runtime (attached at wiring)
+            view_fallback: _view_fallback, // runtime
         } = session;
 
         Ok(Self {
@@ -744,6 +746,8 @@ impl TryFrom<SessionLoadContext> for ChatSessionState {
         Ok(ChatSessionState {
             core,
             ui: SessionUi::default(),
+            view_slices: std::sync::OnceLock::new(),
+            view_fallback: parking_lot::RwLock::new(jinn_slices::ChatLogViewUi::default()),
         })
     }
 }

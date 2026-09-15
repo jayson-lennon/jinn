@@ -253,6 +253,7 @@ impl ActorSystemBuilder {
             .frontend
             .attach_slices(services.slices.clone());
         jinn_scope_focus_activate(&mut services);
+        jinn_chat_log_view_activate(&mut services, &state);
 
         // Quake bar slice: activation mints the cell, spawns the actor
         // (submit-log writer), attaches rows, and registers the input
@@ -1504,6 +1505,28 @@ fn jinn_scope_focus_activate(services: &mut Services) {
     if let Err(error) = staged {
         panic!("scope-focus slice finalize failed: {error}");
     }
+}
+
+/// Activates the chat-log-view slice: its state cell only. No routes,
+/// no actors, no view. Also attaches the registry handle on the session
+/// map so every session's view facade resolves the cell.
+fn jinn_chat_log_view_activate(services: &mut Services, state: &jinn_domain::State) {
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_chat_log_view::activate(&mut host);
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("chat-log-view slice finalize failed: {error}");
+    }
+    state
+        .read()
+        .session
+        .attach_view_slices(services.slices.clone());
 }
 
 fn jinn_status_bar_activate(services: &mut Services) {

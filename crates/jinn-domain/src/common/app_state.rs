@@ -78,8 +78,9 @@ impl AppState {
     /// Returns `None` if no picker is currently active.
     /// Companion to [`AppState::active_picker_ops`] for the read-only
     /// `is_filter_empty` check used by the `CtrlClear` intent.
-    /// TEST-ONLY: an `AppState` whose scope-focus cell is activated and
-    /// attached, so facade writes/reads behave like production wiring.
+    /// TEST-ONLY: an `AppState` whose scope-focus and chat-log-view cells
+    /// are activated and attached, so facade writes/reads behave like
+    /// production wiring.
     #[doc(hidden)]
     pub fn default_with_scope_focus() -> Self {
         let state = Self::default();
@@ -94,7 +95,17 @@ impl AppState {
             // Already registered: this AppState's Slices was seeded
             // before; attaching it again is the intent.
         }
-        state.frontend.attach_slices(slices);
+        if slices
+            .register(
+                jinn_slices::chat_log_views_slot(),
+                jinn_slices::ChatLogViews::new(),
+            )
+            .is_err()
+        {
+            // Same re-seed intent as scope-focus above.
+        }
+        state.frontend.attach_slices(slices.clone());
+        state.session.attach_view_slices(slices);
         state
     }
 

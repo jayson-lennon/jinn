@@ -2557,6 +2557,7 @@ dependencies = [
  "dotenvy",
  "error-stack",
  "jiff",
+ "jinn-chat-log-view",
  "jinn-cli",
  "jinn-dashboard",
  "jinn-discord",
@@ -2594,6 +2595,16 @@ dependencies = [
  "tracing-subscriber",
  "trouper",
  "wherror",
+]
+
+[[package]]
+name = "jinn-chat-log-view"
+version = "0.118.0"
+dependencies = [
+ "jinn-domain",
+ "jinn-slices",
+ "rstest",
+ "tokio",
 ]
 
 [[package]]

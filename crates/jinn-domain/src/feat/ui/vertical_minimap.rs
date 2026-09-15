@@ -96,7 +96,7 @@ struct VisibleEntry {
 fn compute_visible_entries(state: &AppState) -> Vec<VisibleEntry> {
     let session = state.active_session();
     let history = session.history();
-    let items = session.visual_items();
+    let items = session.visual_items_snapshot();
 
     items
         .iter()
@@ -224,7 +224,7 @@ pub fn render_vertical_minimap(
     let selected_token_count = visible.get(selected_block).and_then(|e| e.token_count);
     let (cursor_start, cursor_end) = {
         let session = state.active_session();
-        let items = session.visual_items();
+        let items = session.visual_items_snapshot();
         let history_len = session.history().len();
         // When the user has not yet placed the cursor, fall back to the last
         // visual item so above/below indicators render immediately. This
@@ -722,9 +722,10 @@ mod tests {
 
     fn setup_visual_items(state: &AppState) {
         let session = state.active_session();
+        let shown_ignored_blocks = session.shown_ignored_blocks_snapshot();
         let items = build_visual_items(
             session.history(),
-            &session.ui.shown_ignored_blocks,
+            &shown_ignored_blocks,
             PROXIMITY_COUNT,
             DEFAULT_MIN_COLLAPSE_COUNT,
         );
@@ -888,7 +889,7 @@ mod tests {
         entry.token_count = Some(100);
         state.active_session_mut().push_entry(entry);
         setup_visual_items(&state);
-        let items = state.active_session().visual_items();
+        let items = state.active_session().visual_items_snapshot();
         let history_len = state.active_session().history().len();
         let (start, end) = cursor_history_range(&items, Some(0), history_len);
         let above = compute_tokens_above(&state, start);
@@ -910,7 +911,7 @@ mod tests {
         state.active_session_mut().push_entry(thinking);
         state.active_session_mut().push_entry(user);
         setup_visual_items(&state);
-        let items = state.active_session().visual_items();
+        let items = state.active_session().visual_items_snapshot();
         let history_len = state.active_session().history().len();
         // Cursor on the user entry — the last visual item.
         let last_vi = items.len() - 1;
@@ -937,7 +938,7 @@ mod tests {
         state.active_session_mut().push_entry(e2);
         state.active_session_mut().push_entry(e3);
         setup_visual_items(&state);
-        let items = state.active_session().visual_items();
+        let items = state.active_session().visual_items_snapshot();
         let history_len = state.active_session().history().len();
 
         // Case 1: cursor on the LAST entry (history idx 2, last visual item).
@@ -972,7 +973,7 @@ mod tests {
             .active_session_mut()
             .push_entry(ChatEntry::assistant("world"));
         setup_visual_items(&state);
-        let items = state.active_session().visual_items();
+        let items = state.active_session().visual_items_snapshot();
         let history_len = state.active_session().history().len();
         let last_vi = items.len() - 1;
         let (start, end) = cursor_history_range(&items, Some(last_vi), history_len);
@@ -1021,7 +1022,7 @@ mod tests {
         state.active_session().set_visual_items(items);
 
         // Cursor on the collapsed block (vi_idx = 1).
-        let items = state.active_session().visual_items();
+        let items = state.active_session().visual_items_snapshot();
         let history_len = state.active_session().history().len();
         let (start, end) = cursor_history_range(&items, Some(1), history_len);
         assert_eq!(start, 1);

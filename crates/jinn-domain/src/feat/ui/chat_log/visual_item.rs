@@ -4,10 +4,19 @@
 //! each render pass. Ignored entries outside the proximity zone are collapsed
 //! into a single [`VisualItem::CollapsedIgnoredBlock`] summary line unless the
 //! user has explicitly expanded that block.
+//!
+//! The [`VisualItem`] type itself lives in `jinn-slices` (it is part of the
+//! chat-log view state vocabulary, which persists per-session in the
+//! chat-log-view slice's cell); the computation and resolution helpers stay
+//! kernel-resident. This module re-exports the type under the kernel path.
 
 use std::collections::HashSet;
 
 use crate::protocol::{ChatEntry, ChatEntryId};
+
+// Re-export shim: `VisualItem` moved to `jinn-slices` (chat-log view
+// vocabulary); the kernel path stays stable for consumers.
+pub use jinn_slices::VisualItem;
 
 /// Number of entries from the end that are never hidden, regardless of `ignored`.
 pub(crate) const PROXIMITY_COUNT: usize = 3;
@@ -15,24 +24,6 @@ pub(crate) const PROXIMITY_COUNT: usize = 3;
 /// Default minimum contiguous excluded entries required to collapse.
 /// Blocks with fewer entries are displayed individually.
 pub(crate) const DEFAULT_MIN_COLLAPSE_COUNT: usize = 3;
-
-/// A visual item in the chat log, computed from the flat history at render time.
-///
-/// Each item is either a real entry (referenced by its index in the flat
-/// history) or a collapsed block of consecutive ignored entries displayed as
-/// a single summary line.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum VisualItem {
-    /// A real entry, referenced by its index in the flat history.
-    Entry(usize),
-    /// A collapsed block of consecutive ignored entries.
-    CollapsedIgnoredBlock {
-        /// Index of the first ignored entry in the block (in flat history).
-        start: usize,
-        /// Number of consecutive ignored entries in this block.
-        count: usize,
-    },
-}
 
 /// Build the list of visual items from flat history.
 ///

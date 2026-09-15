@@ -552,7 +552,7 @@ fn entering_pins_saves_history_position() {
     let mut state = state_with_pinned(3);
     state.frontend.scope_push(FocusScope::SidebarPersona);
     state.frontend.persona_section.cursor = Some(0);
-    state.active_session_mut().ui.scroll_offset = Some(42);
+    state.active_session_mut().set_scroll_offset(Some(42));
     let entry_id_0 = state.active_session().history()[0].id.clone();
     state.active_session_mut().set_selected_entry_index(0);
 
@@ -562,9 +562,7 @@ fn entering_pins_saves_history_position() {
     // Then the history position was saved before sync_chat_log_cursor changed it.
     let saved = state
         .active_session()
-        .ui
-        .saved_history_position
-        .as_ref()
+        .saved_history_position()
         .expect("saved");
     assert_eq!(saved.scroll_offset, Some(42));
     assert_eq!(saved.selected_cursor_id, Some(entry_id_0));
@@ -580,7 +578,7 @@ fn leaving_pins_to_persona_restores_history_position() {
     state.frontend.scope_push(FocusScope::SidebarPins);
     let first_id = state.sorted_pinned_ids()[0].clone();
     state.frontend.pins.select_by_id(first_id);
-    state.active_session_mut().ui.scroll_offset = Some(42);
+    state.active_session_mut().set_scroll_offset(Some(42));
     state.active_session_mut().set_selected_entry_index(0);
     state.active_session_mut().save_history_position();
 
@@ -601,7 +599,7 @@ fn jump_from_pins_to_persona_restores_history_position() {
     state.frontend.scope_push(FocusScope::SidebarPins);
     let first_id = state.sorted_pinned_ids()[0].clone();
     state.frontend.pins.select_by_id(first_id);
-    state.active_session_mut().ui.scroll_offset = Some(42);
+    state.active_session_mut().set_scroll_offset(Some(42));
     state.active_session_mut().set_selected_entry_index(0);
     state.active_session_mut().save_history_position();
 
@@ -620,12 +618,12 @@ fn sidebar_leave_discards_saved_position() {
     state.frontend.scope_push(FocusScope::SidebarPins);
     let first_id = state.sorted_pinned_ids()[0].clone();
     state.frontend.pins.select_by_id(first_id);
-    state.active_session_mut().ui.scroll_offset = Some(42);
+    state.active_session_mut().set_scroll_offset(Some(42));
     state.active_session_mut().set_selected_entry_index(0);
     state.active_session_mut().save_history_position();
 
     // Modify state to simulate pin view.
-    state.active_session_mut().ui.scroll_offset = Some(10);
+    state.active_session_mut().set_scroll_offset(Some(10));
     state.active_session_mut().set_selected_entry_index(2);
 
     // When leaving the sidebar.
@@ -644,7 +642,7 @@ fn full_cycle_saves_and_restores() {
     let mut state = state_with_pinned(3);
     state.frontend.scope_push(FocusScope::SidebarPersona);
     state.frontend.persona_section.cursor = Some(0);
-    state.active_session_mut().ui.scroll_offset = Some(42);
+    state.active_session_mut().set_scroll_offset(Some(42));
     state.active_session_mut().set_selected_entry_index(0);
 
     // When navigating to Pins.
@@ -675,7 +673,7 @@ fn jump_roundtrip_saves_and_restores() {
     let mut state = state_with_pinned(3);
     state.frontend.scope_push(FocusScope::SidebarPersona);
     state.frontend.persona_section.cursor = Some(0);
-    state.active_session_mut().ui.scroll_offset = Some(42);
+    state.active_session_mut().set_scroll_offset(Some(42));
     state.active_session_mut().set_selected_entry_index(0);
 
     // When jumping to Pins.
@@ -712,7 +710,7 @@ fn jump_to_pins_with_retained_cursor_syncs_chat_log_cursor() {
     crate::feat::ui::sidebar::pins::pins_section::sync_chat_log_cursor(&mut state);
     assert_eq!(
         state.active_session().selected_cursor_id(),
-        Some(&pinned_id),
+        Some(pinned_id.clone()),
         "precondition: cursor should be on pinned entry"
     );
 
@@ -720,7 +718,7 @@ fn jump_to_pins_with_retained_cursor_syncs_chat_log_cursor() {
     jump_to_section(&SidebarIntent::MoveUp, &mut state);
     assert_ne!(
         state.active_session().selected_cursor_id(),
-        Some(&pinned_id),
+        Some(pinned_id.clone()),
         "cursor should be restored away from pin"
     );
 
@@ -730,7 +728,7 @@ fn jump_to_pins_with_retained_cursor_syncs_chat_log_cursor() {
     // Then chat log cursor is synced to the pinned entry.
     assert_eq!(
         state.active_session().selected_cursor_id(),
-        Some(&pinned_id),
+        Some(pinned_id),
         "chat log cursor should match the retained pin after jump back"
     );
 }

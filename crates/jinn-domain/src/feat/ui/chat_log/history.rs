@@ -231,7 +231,7 @@ impl<'a> HistoryRender<'a> {
     /// Must be called before `compute_line_ranges`.
     fn compute_visual_items(&mut self) {
         let session = self.state.active_session();
-        let shown_ignored_blocks = &session.ui.shown_ignored_blocks;
+        let shown_ignored_blocks = session.shown_ignored_blocks_snapshot();
         let min_collapse = self
             .state
             .frontend
@@ -240,7 +240,7 @@ impl<'a> HistoryRender<'a> {
             .unwrap_or(DEFAULT_MIN_COLLAPSE_COUNT);
         let visual_items = build_visual_items(
             self.history,
-            shown_ignored_blocks,
+            &shown_ignored_blocks,
             PROXIMITY_COUNT,
             min_collapse,
         );

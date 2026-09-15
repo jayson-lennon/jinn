@@ -1258,7 +1258,7 @@ fn render_auto_scrolls_jumped_compaction_into_view() {
     );
     assert_eq!(
         state.active_session().selected_cursor_id(),
-        Some(&compaction_id),
+        Some(compaction_id),
         "prev jump must land on the compaction entry"
     );
 

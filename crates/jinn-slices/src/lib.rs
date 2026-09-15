@@ -30,6 +30,7 @@
 )]
 
 pub mod cell;
+pub mod chat_log_view_state;
 pub mod cwd_root;
 pub mod fabric;
 pub mod focus;
@@ -50,6 +51,11 @@ pub mod tui_signals;
 pub mod view;
 
 pub use cell::TypedCell;
+pub use chat_log_view_state::ChatLogViewUi;
+pub use chat_log_view_state::ChatLogViews;
+pub use chat_log_view_state::SavedHistoryPosition;
+pub use chat_log_view_state::VisualItem;
+pub use chat_log_view_state::chat_log_views_slot;
 pub use cwd_root::CwdRoot;
 pub use fabric::ActorShutdownCompleted;
 pub use fabric::ActorStarted;

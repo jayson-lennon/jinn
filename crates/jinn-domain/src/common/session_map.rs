@@ -42,6 +42,14 @@ pub struct SessionMap {
     active_session: SessionId,
     session_load_guard: Option<SessionLoadGuard>,
     default_cwd: PathBuf,
+    /// Late-attached handle to the slice registry, carrying the
+    /// chat-log-view cell. Attached once at wiring; every session looked
+    /// up through the map gets the handle on its way out (see
+    /// `attach_view_slices` on `ChatSessionState`). Before attach, session
+    /// facades run on their in-struct fallbacks — the removability
+    /// property. (Composition attaches once on the map; direct pokes
+    /// defeat the facade.)
+    view_slices: std::sync::OnceLock<jinn_slices::Slices>,
 }
 
 impl Default for SessionMap {
@@ -56,6 +64,7 @@ impl Default for SessionMap {
             active_session: id,
             session_load_guard: None,
             default_cwd: PathBuf::from("/"),
+            view_slices: std::sync::OnceLock::new(),
         }
     }
 }
@@ -72,7 +81,36 @@ impl SessionMap {
             active_session: id,
             session_load_guard: None,
             default_cwd,
+            view_slices: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Attaches the slice registry handle carrying the chat-log-view cell.
+    /// Called once at wiring; later calls are ignored.
+    pub fn attach_view_slices(&self, slices: jinn_slices::Slices) {
+        let _ = self.view_slices.set(slices);
+    }
+
+    /// The attached handle, if any.
+    #[must_use]
+    pub fn view_slices(&self) -> Option<&jinn_slices::Slices> {
+        self.view_slices.get()
+    }
+
+    /// Hands the attached handle to `session` (a no-op before attach).
+    /// Called on every path that lets a session out of the map, so a
+    /// session's view facade resolves the cell without per-creation
+    /// wiring.
+    fn attach_view_to(&self, session: &ChatSessionState) {
+        if let Some(slices) = self.view_slices.get() {
+            session.attach_view_slices(slices.clone());
+        }
+    }
+
+    /// An owned clone of the attached handle, for `&mut` accessors that
+    /// cannot re-borrow `self` while a session reference is live.
+    fn view_handle(&self) -> Option<jinn_slices::Slices> {
+        self.view_slices.get().cloned()
     }
 
     /// Infallible - the active session is always present.
@@ -86,9 +124,12 @@ impl SessionMap {
         reason = "SessionMap invariant: active_session always valid"
     )]
     pub fn active_session(&self) -> &ChatSessionState {
-        self.sessions
+        let session = self
+            .sessions
             .get(&self.active_session)
-            .expect("SessionMap invariant violation: active_session not in map")
+            .expect("SessionMap invariant violation: active_session not in map");
+        self.attach_view_to(session);
+        session
     }
 
     /// Infallible mutable access - the active session is always present.
@@ -102,9 +143,15 @@ impl SessionMap {
         reason = "SessionMap invariant: active_session always valid"
     )]
     pub fn active_session_mut(&mut self) -> &mut ChatSessionState {
-        self.sessions
+        let view = self.view_handle();
+        let session = self
+            .sessions
             .get_mut(&self.active_session)
-            .expect("SessionMap invariant violation: active_session not in map")
+            .expect("SessionMap invariant violation: active_session not in map");
+        if let Some(slices) = view {
+            session.attach_view_slices(slices);
+        }
+        session
     }
 
     /// The active session ID.
@@ -124,12 +171,19 @@ impl SessionMap {
 
     /// Fallible lookup by ID.
     pub fn get(&self, id: &SessionId) -> Option<&ChatSessionState> {
-        self.sessions.get(id)
+        let session = self.sessions.get(id)?;
+        self.attach_view_to(session);
+        Some(session)
     }
 
     /// Fallible mutable lookup by ID.
     pub fn get_mut(&mut self, id: &SessionId) -> Option<&mut ChatSessionState> {
-        self.sessions.get_mut(id)
+        let view = self.view_handle();
+        let session = self.sessions.get_mut(id)?;
+        if let Some(slices) = view {
+            session.attach_view_slices(slices);
+        }
+        Some(session)
     }
 
     /// Infallible lookup by ID. Use when the caller knows the session exists.
@@ -140,9 +194,12 @@ impl SessionMap {
     /// may not be present.
     #[expect(clippy::expect_used, reason = "caller guarantees session exists")]
     pub fn get_unchecked(&self, id: &SessionId) -> &ChatSessionState {
-        self.sessions
+        let session = self
+            .sessions
             .get(id)
-            .expect("session must exist in SessionMap")
+            .expect("session must exist in SessionMap");
+        self.attach_view_to(session);
+        session
     }
 
     /// Infallible mutable lookup by ID. Use when the caller knows the session exists.
@@ -153,24 +210,36 @@ impl SessionMap {
     /// may not be present.
     #[expect(clippy::expect_used, reason = "caller guarantees session exists")]
     pub fn get_unchecked_mut(&mut self, id: &SessionId) -> &mut ChatSessionState {
-        self.sessions
+        let view = self.view_handle();
+        let session = self
+            .sessions
             .get_mut(id)
-            .expect("session must exist in SessionMap")
+            .expect("session must exist in SessionMap");
+        if let Some(slices) = view {
+            session.attach_view_slices(slices);
+        }
+        session
     }
 
     /// Returns mutable access to a session by ID, creating it if missing.
     pub fn get_or_create(&mut self, id: &SessionId) -> &mut ChatSessionState {
+        let view = self.view_handle();
         let default_cwd = self.default_cwd.clone();
-        self.sessions.entry(id.clone()).or_insert_with(|| {
+        let session = self.sessions.entry(id.clone()).or_insert_with(|| {
             let mut s = ChatSessionState::new();
             s.set_session_id(id.clone());
             s.set_cwd(default_cwd);
             s
-        })
+        });
+        if let Some(slices) = view {
+            session.attach_view_slices(slices);
+        }
+        session
     }
 
     /// Insert a session.
     pub fn insert(&mut self, session: ChatSessionState) {
+        self.attach_view_to(&session);
         self.sessions.insert(session.session_id().clone(), session);
     }
 
@@ -189,6 +258,7 @@ impl SessionMap {
                 // Map is empty - create a fresh session.
                 let fresh = ChatSessionState::new();
                 let fresh_id = fresh.session_id().clone();
+                self.attach_view_to(&fresh);
                 self.sessions.insert(fresh_id.clone(), fresh);
                 fresh_id
             });
@@ -206,6 +276,9 @@ impl SessionMap {
     /// Use this instead of `remove()` when the caller wants to control the
     /// profile of the fresh session (e.g. preserving model/strategy preferences).
     pub fn remove_and_replace(&mut self, id: &SessionId, fresh_session: ChatSessionState) -> bool {
+        // Attach before insert so the fresh session is wired even when it
+        // outlives the map as the sole resident.
+        self.attach_view_to(&fresh_session);
         let removed = self.sessions.remove(id).is_some();
         if !removed {
             return false;
@@ -387,7 +460,7 @@ mod tests {
         assert!(removed);
         // And the map still has a session (fresh one created).
         assert!(!map.sessions.is_empty());
-        assert!(map.active_session().session_id() != &id);
+        assert_ne!(map.active_session().session_id(), &id);
     }
 
     #[rstest::rstest]

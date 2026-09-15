@@ -519,7 +519,7 @@ fn sync_chat_log_cursor_sets_cursor_by_entry_id_with_visual_items() {
     // Build visual items (now expanded - individual Entry items).
     let items = build_visual_items(
         state.active_session().history(),
-        &state.active_session().ui.shown_ignored_blocks,
+        &state.active_session().shown_ignored_blocks_snapshot(),
         PROXIMITY_COUNT,
         DEFAULT_MIN_COLLAPSE_COUNT,
     );
@@ -535,7 +535,7 @@ fn sync_chat_log_cursor_sets_cursor_by_entry_id_with_visual_items() {
         .set_selected_cursor_id(first_entry_id);
     assert_ne!(
         state.active_session().selected_cursor_id(),
-        Some(&pinned_id),
+        Some(pinned_id.clone()),
         "precondition: cursor should not be on pinned entry"
     );
 
@@ -545,7 +545,7 @@ fn sync_chat_log_cursor_sets_cursor_by_entry_id_with_visual_items() {
     // Then the chat log cursor is set to the pinned entry by ID.
     assert_eq!(
         state.active_session().selected_cursor_id(),
-        Some(&pinned_id),
+        Some(pinned_id.clone()),
         "sync_chat_log_cursor should set cursor to pinned entry by ID"
     );
 }
@@ -583,17 +583,17 @@ fn sync_chat_log_cursor_sets_correct_entry_when_multiple_entries_exist() {
     // Then the cursor is set to entry_b (not entry_a or entry_c).
     assert_eq!(
         state.active_session().selected_cursor_id(),
-        Some(&id_b),
+        Some(id_b),
         "sync_chat_log_cursor should set cursor to the pinned entry, not others"
     );
     assert_ne!(
         state.active_session().selected_cursor_id(),
-        Some(&id_a),
+        Some(id_a),
         "cursor should not be on entry a"
     );
     assert_ne!(
         state.active_session().selected_cursor_id(),
-        Some(&id_c),
+        Some(id_c),
         "cursor should not be on entry c"
     );
 }

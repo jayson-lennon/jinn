@@ -16,10 +16,9 @@
         while `ui` stays pub for IntentHandler. Mixed pub/scoped visibility is intentional."
 )]
 
-use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::Ordering;
 
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -417,24 +416,19 @@ impl Default for SessionCore {
     }
 }
 
-/// Snapshot of chat log scroll position captured before entering the Pins section.
-///
-/// Used to restore the history viewport when the user navigates away from
-/// Pins to another sidebar section (Persona/Sessions). Discarded without
-/// restoring when the user leaves the sidebar entirely to Normal scope,
-/// indicating they wanted to view the pinned entry in the history.
-#[derive(Debug, Clone, Default)]
-pub struct SavedHistoryPosition {
-    /// The scroll offset at the time of capture.
-    pub scroll_offset: Option<u16>,
-    /// The entry ID of the cursor at the time of capture.
-    pub selected_cursor_id: Option<ChatEntryId>,
-}
+// Re-export shim: `SavedHistoryPosition` moved to `jinn-slices` (part of
+// the chat-log view vocabulary persisted in the chat-log-view slice's
+// cell); the kernel path stays stable for consumers.
+pub use jinn_slices::SavedHistoryPosition;
 
 /// UI state for a session - owned by IntentHandler (exempt from ownership restrictions).
 ///
-/// These fields control visual presentation: scroll position, selection, input text.
-#[derive(Debug)]
+/// These fields control visual presentation: the in-progress input text and
+/// the steering buffer. The per-session chat log *view* state (scroll,
+/// selection, expand/ignore sets, pins position, render caches) lives in the
+/// chat-log-view slice's cell, reached through [`ChatSessionState`]'s view
+/// facade.
+#[derive(Debug, Default)]
 pub struct SessionUi {
     /// The user's in-progress message for this session.
     pub chat_input: ChatInputBoxState,
@@ -445,75 +439,6 @@ pub struct SessionUi {
     /// boundary. Not serialized - `SessionUi` itself is in-memory only,
     /// so this field is dropped on session close.
     pub steering_buffer: SteeringBuffer,
-    /// Number of lines to skip from the top when rendering (ratatui scroll offset).
-    ///
-    /// `None` means "show the bottom of the conversation" (auto-scroll).
-    /// `Some(n)` means the user has manually scrolled to offset `n`.
-    pub scroll_offset: Option<u16>,
-    /// The entry ID of the currently selected cursor position, if any.
-    ///
-    /// This is the source of truth for selection. The visual-item index
-    /// is resolved on demand via `selected_entry_index()`.
-    /// `None` means no entry is selected.
-    pub selected_cursor_id: Option<ChatEntryId>,
-    /// The maximum scroll offset computed during the last render.
-    ///
-    /// Used by scroll handlers to resolve the "at bottom" sentinel into
-    /// a concrete offset so `scroll_up` / `scroll_down` work correctly.
-    /// Uses `AtomicU16` for interior mutability since the element receives `&self`.
-    pub last_max_offset: AtomicU16,
-    /// The actual viewport scroll offset after clamping and scroll-to-selected
-    /// adjustment, as computed by the render pipeline.
-    ///
-    /// Unlike `scroll_offset` (the user's intent), this reflects what's
-    /// actually displayed. Written by the renderer each frame, read by
-    /// intent handlers to determine visible entries.
-    pub rendered_scroll_offset: AtomicU16,
-    /// Per-entry wrapped line ranges computed by the renderer each frame.
-    ///
-    /// `entry_line_ranges[i] = (start_wrapped_line, end_wrapped_line)` in wrapped
-    /// coordinate space. Used by intent handlers to determine which entries are
-    /// visible in the viewport.
-    pub entry_line_ranges: RwLock<Vec<(u16, u16)>>,
-    /// The viewport height (render area height) set by the renderer each frame.
-    pub viewport_height: AtomicU16,
-    /// Number of blank lines prepended by the renderer for bottom-alignment.
-    pub blank_count: AtomicU16,
-    /// The set of chat entry IDs whose tool result content is expanded.
-    ///
-    /// When a tool result entry is expanded, its full content is shown
-    /// instead of being truncated. This is ephemeral UI state - not persisted.
-    pub expanded_entries: HashSet<ChatEntryId>,
-    /// Snapshot of chat log position before entering Pins sidebar section.
-    ///
-    /// `None` when not in a Pins browsing session. Set when the cursor enters
-    /// Pins, restored when the cursor leaves to another section, discarded
-    /// when leaving the sidebar to Normal.
-    pub saved_history_position: Option<SavedHistoryPosition>,
-    /// Entry IDs whose ignored blocks are currently *shown* (expanded).
-    ///
-    /// Default: empty (all ignored blocks are collapsed).
-    /// Key: the ID of the first entry in the contiguous ignored block.
-    /// Ephemeral - not persisted across restarts.
-    pub shown_ignored_blocks: HashSet<ChatEntryId>,
-    /// The visual items list computed from flat history during render.
-    ///
-    /// Maps visual-item positions to either real entries or collapsed
-    /// ignored blocks. Set by the renderer each frame, read by intent
-    /// handlers for navigation and toggle.
-    pub visual_items: RwLock<Vec<crate::feat::ui::chat_log::visual_item::VisualItem>>,
-    /// Tracks an active "x-sweep": holding `x` to apply a fixed ignore state
-    /// across consecutive entries.
-    ///
-    /// `Some((instant, override))` means a sweep is active:
-    /// - `instant`: timestamp of the last `x` press in this sweep
-    /// - `override`: the `ContextOverride` to apply to subsequent entries
-    ///
-    /// Cleared by: >100ms gap, or any non-`ChatEntryIgnoreSelected` intent.
-    pub ignore_sweep: Option<(
-        std::time::Instant,
-        crate::feat::session::chat_entry::ContextOverride,
-    )>,
 }
 
 impl Clone for SessionUi {
@@ -521,41 +446,6 @@ impl Clone for SessionUi {
         Self {
             chat_input: self.chat_input.clone(),
             steering_buffer: self.steering_buffer.clone(),
-            scroll_offset: self.scroll_offset,
-            selected_cursor_id: self.selected_cursor_id.clone(),
-            last_max_offset: AtomicU16::new(self.last_max_offset.load(Ordering::Relaxed)),
-            rendered_scroll_offset: AtomicU16::new(
-                self.rendered_scroll_offset.load(Ordering::Relaxed),
-            ),
-            entry_line_ranges: RwLock::new(self.entry_line_ranges.read().clone()),
-            viewport_height: AtomicU16::new(self.viewport_height.load(Ordering::Relaxed)),
-            blank_count: AtomicU16::new(self.blank_count.load(Ordering::Relaxed)),
-            expanded_entries: self.expanded_entries.clone(),
-            saved_history_position: self.saved_history_position.clone(),
-            shown_ignored_blocks: self.shown_ignored_blocks.clone(),
-            visual_items: RwLock::new(self.visual_items.read().clone()),
-            ignore_sweep: self.ignore_sweep,
-        }
-    }
-}
-
-impl Default for SessionUi {
-    fn default() -> Self {
-        Self {
-            chat_input: ChatInputBoxState::new(),
-            steering_buffer: SteeringBuffer::default(),
-            scroll_offset: None,
-            selected_cursor_id: None,
-            last_max_offset: AtomicU16::new(0),
-            rendered_scroll_offset: AtomicU16::new(0),
-            entry_line_ranges: RwLock::new(Vec::new()),
-            viewport_height: AtomicU16::new(0),
-            blank_count: AtomicU16::new(0),
-            expanded_entries: HashSet::new(),
-            saved_history_position: None,
-            shown_ignored_blocks: HashSet::new(),
-            visual_items: RwLock::new(Vec::new()),
-            ignore_sweep: None,
         }
     }
 }
@@ -570,7 +460,7 @@ impl Default for SessionUi {
 /// Fields are grouped into [`SessionCore`] (session-actor / context-actor)
 /// and [`SessionUi`] (IntentHandler) sub-structs to make cross-boundary
 /// writes visually obvious during code review.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ChatSessionState {
     /// Core domain state managed by session-actor and context-actor.
     #[serde(flatten)]
@@ -578,6 +468,35 @@ pub struct ChatSessionState {
     /// UI state managed by IntentHandler.
     #[serde(skip)]
     pub ui: SessionUi,
+    /// Late-attached handle to the slice registry, carrying the
+    /// chat-log-view cell (this session's display state). Attached once at
+    /// wiring; a clone of `Slices` shares its cells. Before attach (or
+    /// without the slice's `activate()`), the facade falls back to
+    /// `view_fallback` — the removability property. (Composition attaches
+    /// once on the session map; direct pokes defeat the facade.)
+    #[serde(skip)]
+    pub(in crate::feat::session) view_slices: std::sync::OnceLock<jinn_slices::Slices>,
+    /// In-struct stand-in for this session's view state while
+    /// `view_slices` is unattached. Reads see it, writes mutate it, so an
+    /// unattached configuration behaves exactly like the pre-slice layout.
+    /// Ignored entirely once the handle is attached.
+    #[serde(skip)]
+    pub(in crate::feat::session) view_fallback: parking_lot::RwLock<jinn_slices::ChatLogViewUi>,
+}
+
+impl Clone for ChatSessionState {
+    fn clone(&self) -> Self {
+        Self {
+            core: self.core.clone(),
+            ui: self.ui.clone(),
+            // The clone does not inherit the registry handle: attachment
+            // happens once per session at wiring. A cloned session's facade
+            // runs on the fallback until (re)attached, which keeps
+            // test-constructed sessions in the pre-slice configuration.
+            view_slices: std::sync::OnceLock::new(),
+            view_fallback: parking_lot::RwLock::new(self.view_fallback.read().clone()),
+        }
+    }
 }
 
 impl ChatSessionState {
@@ -587,6 +506,8 @@ impl ChatSessionState {
         Self {
             core: SessionCore::default(),
             ui: SessionUi::default(),
+            view_slices: std::sync::OnceLock::new(),
+            view_fallback: parking_lot::RwLock::new(jinn_slices::ChatLogViewUi::default()),
         }
     }
 
@@ -596,6 +517,84 @@ impl ChatSessionState {
     /// stay on the session itself.
     pub fn edit_history(&mut self) -> HistoryEditor<'_> {
         HistoryEditor::new(self)
+    }
+
+    /// Attaches the slice registry handle carrying this session's
+    /// chat-log-view entry. Called once at wiring; later calls are ignored.
+    pub fn attach_view_slices(&self, slices: jinn_slices::Slices) {
+        let _ = self.view_slices.set(slices);
+    }
+
+    /// The session's chat-log-view cell, if the handle is attached and the
+    /// slice's `activate()` minted the cell.
+    fn view_cell(&self) -> Option<jinn_slices::cell::TypedCell<jinn_slices::ChatLogViews>> {
+        let slices = self.view_slices.get()?;
+        slices.reader::<jinn_slices::ChatLogViews>(&jinn_slices::chat_log_views_slot())
+    }
+
+    /// Runs `f` against this session's view state (scroll, selection,
+    /// expand/ignore sets, pins position, render caches), keyed by the
+    /// session id. Writers get-or-insert their session's entry; a no-op
+    /// when the cell is absent (handle unattached or slice not activated).
+    pub fn update_view<F>(&self, f: F)
+    where
+        F: FnOnce(&mut jinn_slices::ChatLogViewUi),
+    {
+        match self.view_cell() {
+            Some(cell) => {
+                let id = self.session_id().clone();
+                cell.update(|views| f(views.entry(id).or_default()));
+            }
+            None => {
+                let mut view = self.view_fallback.write();
+                f(&mut view);
+            }
+        }
+    }
+
+    /// Reads this session's view state through `f`, falling back to
+    /// `default` when the cell is absent (handle unattached or slice not
+    /// activated). Readers never grow the map: a session with no entry
+    /// reads as its default view.
+    pub fn with_view<R, F, D>(&self, f: F, default: D) -> R
+    where
+        F: FnOnce(&jinn_slices::ChatLogViewUi) -> R,
+        D: FnOnce() -> R,
+    {
+        match self.view_cell() {
+            Some(cell) => {
+                let views = cell.read();
+                let id = self.session_id();
+                match views.get(id) {
+                    Some(view) => f(view),
+                    None => default(),
+                }
+            }
+            None => {
+                let view = self.view_fallback.read();
+                f(&view)
+            }
+        }
+    }
+
+    /// Take-style mutation for view fields whose semantics consume the old
+    /// value (the ignore-sweep). Returns what `f` removed.
+    fn update_view_taking<R, F>(&self, f: F) -> Option<R>
+    where
+        R: Send + 'static,
+        F: FnOnce(&mut jinn_slices::ChatLogViewUi) -> Option<R>,
+    {
+        let taken = parking_lot::Mutex::new(None);
+        self.update_view(|v| *taken.lock() = f(v));
+        taken.into_inner()
+    }
+
+    /// A snapshot copy of the shown-ignored-blocks set. Builders that read
+    /// the set alongside history (`build_visual_items`, sweep propagation)
+    /// work on the copy so the view lock is never held across computation.
+    #[must_use]
+    pub fn shown_ignored_blocks_snapshot(&self) -> std::collections::HashSet<ChatEntryId> {
+        self.with_view(|v| v.shown_ignored_blocks.clone(), Default::default)
     }
 
     /// Raw tail push used by the history editor. Applies user-entry token
@@ -608,17 +607,21 @@ impl ChatSessionState {
             &self.core.ephemeral.discovered_prompt_templates,
             &ctx,
         );
-        let was_at_last = self
-            .ui
-            .selected_cursor_id
-            .as_ref()
-            .is_none_or(|id| self.core.history.last().is_some_and(|e| &e.id == id));
+        let cursor_at_last = self.with_view(
+            |v| {
+                v.selected_cursor_id
+                    .as_ref()
+                    .is_none_or(|id| self.core.history.last().is_some_and(|e| &e.id == id))
+            },
+            || true,
+        );
         let index = self.core.history.len();
         self.core.history.push(entry.clone());
-        if was_at_last {
+        if cursor_at_last {
             self.reset_scroll();
             if let Some(entry) = self.core.history.last() {
-                self.ui.selected_cursor_id = Some(entry.id.clone());
+                let id = entry.id.clone();
+                self.update_view(|v| v.selected_cursor_id = Some(id));
             }
         }
         index
@@ -671,6 +674,8 @@ impl ChatSessionState {
                 ..SessionCore::default()
             },
             ui: SessionUi::default(),
+            view_slices: std::sync::OnceLock::new(),
+            view_fallback: parking_lot::RwLock::new(jinn_slices::ChatLogViewUi::default()),
         }
     }
 
@@ -693,6 +698,8 @@ impl ChatSessionState {
                 ..SessionCore::default()
             },
             ui: SessionUi::default(),
+            view_slices: std::sync::OnceLock::new(),
+            view_fallback: parking_lot::RwLock::new(jinn_slices::ChatLogViewUi::default()),
         }
     }
 
@@ -869,7 +876,11 @@ impl ChatSessionState {
             return;
         };
         let block_representative = block_entry.id.clone();
-        if !self.ui.shown_ignored_blocks.contains(&block_representative) {
+        let was_shown = self.with_view(
+            |v| v.shown_ignored_blocks.contains(&block_representative),
+            || false,
+        );
+        if !was_shown {
             return; // Block was not shown — nothing to propagate.
         }
 
@@ -883,9 +894,10 @@ impl ChatSessionState {
         }
 
         // The forward sub-block's representative is its first entry.
-        self.ui
-            .shown_ignored_blocks
-            .insert(forward_entry.id.clone());
+        let forward_representative = forward_entry.id.clone();
+        self.update_view(|v| {
+            v.shown_ignored_blocks.insert(forward_representative);
+        });
     }
 
     /// Rebuild the visual items list from the current history and
@@ -895,9 +907,10 @@ impl ChatSessionState {
         use crate::feat::ui::chat_log::visual_item::{
             DEFAULT_MIN_COLLAPSE_COUNT, PROXIMITY_COUNT, build_visual_items,
         };
+        let shown = self.shown_ignored_blocks_snapshot();
         let items = build_visual_items(
             &self.core.history,
-            &self.ui.shown_ignored_blocks,
+            &shown,
             PROXIMITY_COUNT,
             DEFAULT_MIN_COLLAPSE_COUNT,
         );
@@ -908,18 +921,39 @@ impl ChatSessionState {
     /// expired (>100ms since last press). Consumes (clears) the sweep state
     /// regardless of expiry - the caller must re-store it if continuing.
     pub fn take_ignore_sweep(&mut self) -> Option<ContextOverride> {
-        let (instant, override_state) = self.ui.ignore_sweep.take()?;
+        let sweep = self.update_view_taking(|v| v.ignore_sweep.take());
+        let (instant, override_state) = sweep?;
         (instant.elapsed() < std::time::Duration::from_millis(100)).then_some(override_state)
     }
 
     /// Starts or continues a sweep by storing the target state and current time.
     pub fn set_ignore_sweep(&mut self, target: ContextOverride) {
-        self.ui.ignore_sweep = Some((std::time::Instant::now(), target));
+        self.update_view(|v| v.ignore_sweep = Some((std::time::Instant::now(), target)));
     }
 
     /// Clears the sweep state, resetting to normal toggle behavior.
     pub fn clear_ignore_sweep(&mut self) {
-        self.ui.ignore_sweep = None;
+        self.update_view(|v| v.ignore_sweep = None);
+    }
+
+    /// Removes and returns the raw sweep state (timestamp + target),
+    /// bypassing the expiry check.
+    ///
+    /// Test seam for sweep expiry: [`Self::take_ignore_sweep`] discards
+    /// sweeps older than 100ms, so expiry cannot be observed without a way
+    /// to plant and retrieve a stale timestamp.
+    #[doc(hidden)]
+    pub fn take_ignore_sweep_raw(&mut self) -> Option<(std::time::Instant, ContextOverride)> {
+        self.update_view_taking(|v| v.ignore_sweep.take())
+    }
+
+    /// Plants the sweep state with an explicit timestamp.
+    ///
+    /// Test seam companion to [`Self::take_ignore_sweep_raw`]; production
+    /// sweeps always stamp `Instant::now` (see [`Self::set_ignore_sweep`]).
+    #[doc(hidden)]
+    pub fn set_ignore_sweep_at(&mut self, instant: std::time::Instant, target: ContextOverride) {
+        self.update_view(|v| v.ignore_sweep = Some((instant, target)));
     }
 
     /// Whether this session has no history entries.
@@ -2007,24 +2041,33 @@ impl ChatSessionState {
     /// Returns `None` when auto-scrolled to the bottom, or `Some(n)` when
     /// the user has manually scrolled to a specific offset.
     pub fn scroll_offset(&self) -> Option<u16> {
-        self.ui.scroll_offset
+        self.with_view(|v| v.scroll_offset, || None)
     }
 
     /// Whether the conversation is scrolled to the bottom (auto-scroll position).
     pub fn is_at_bottom(&self) -> bool {
-        self.ui.scroll_offset.is_none()
+        self.with_view(|v| v.scroll_offset.is_none(), || true)
     }
 
     /// Scroll up (toward older messages) by the given number of lines.
     ///
     /// If currently at the bottom (auto-scroll), resolves to `last_max_offset` first
     /// so the scroll is relative to the actual bottom position.
+    /// Seeds an explicit scroll offset (test seam for "already scrolled"
+    /// arrangements; production scrolls always move relative to the
+    /// current offset).
+    #[doc(hidden)]
+    pub fn set_scroll_offset(&mut self, offset: Option<u16>) {
+        self.update_view(|v| v.scroll_offset = offset);
+    }
+
     pub fn scroll_up(&mut self, amount: u16) {
-        let current = self
-            .ui
-            .scroll_offset
-            .unwrap_or(self.ui.last_max_offset.load(Ordering::Relaxed));
-        self.ui.scroll_offset = Some(current.saturating_sub(amount));
+        self.update_view(|v| {
+            let current = v
+                .scroll_offset
+                .unwrap_or(v.last_max_offset.load(Ordering::Relaxed));
+            v.scroll_offset = Some(current.saturating_sub(amount));
+        });
     }
 
     /// Scroll down (toward newer messages) by the given number of lines.
@@ -2032,31 +2075,32 @@ impl ChatSessionState {
     /// If the resulting offset reaches or exceeds `last_max_offset`, resets to
     /// auto-scroll (bottom).
     pub fn scroll_down(&mut self, amount: u16) {
-        let current = self
-            .ui
-            .scroll_offset
-            .unwrap_or(self.ui.last_max_offset.load(Ordering::Relaxed));
-        let next = current.saturating_add(amount);
-        if next >= self.ui.last_max_offset.load(Ordering::Relaxed) {
-            self.ui.scroll_offset = None;
-        } else {
-            self.ui.scroll_offset = Some(next);
-        }
+        self.update_view(|v| {
+            let current = v
+                .scroll_offset
+                .unwrap_or(v.last_max_offset.load(Ordering::Relaxed));
+            let next = current.saturating_add(amount);
+            if next >= v.last_max_offset.load(Ordering::Relaxed) {
+                v.scroll_offset = None;
+            } else {
+                v.scroll_offset = Some(next);
+            }
+        });
     }
 
     /// Reset scroll to show the bottom of the conversation.
     pub fn reset_scroll(&mut self) {
-        self.ui.scroll_offset = None;
+        self.update_view(|v| v.scroll_offset = None);
     }
 
     /// Scroll to the very top of the conversation.
     pub fn scroll_to_top(&mut self) {
-        self.ui.scroll_offset = Some(0);
+        self.update_view(|v| v.scroll_offset = Some(0));
     }
 
     /// Scroll to the very bottom of the conversation (auto-scroll).
     pub fn scroll_to_bottom(&mut self) {
-        self.ui.scroll_offset = None;
+        self.update_view(|v| v.scroll_offset = None);
     }
 
     /// Scroll the chat log so that the currently selected entry is visible.
@@ -2073,55 +2117,60 @@ impl ChatSessionState {
             return;
         };
 
-        let ranges = self.ui.entry_line_ranges.read().clone();
+        // Read phase: gather the render caches, then decide.
+        let decision = self.with_view(
+            |v| {
+                let ranges = v.entry_line_ranges.read();
+                let &(start, end) = ranges.get(selected_idx)?;
+                let viewport_height = v.viewport_height.load(Ordering::Relaxed);
+                if viewport_height == 0 {
+                    return None;
+                }
+                let blank_count = v.blank_count.load(Ordering::Relaxed);
+                let current_offset = v.rendered_scroll_offset.load(Ordering::Relaxed);
 
-        let Some(&(start, end)) = ranges.get(selected_idx) else {
+                let abs_start = start.saturating_add(blank_count);
+                let abs_end = end.saturating_add(blank_count);
+                let entry_height = abs_end.saturating_sub(abs_start);
+
+                if entry_height <= viewport_height {
+                    // Entry fits in viewport - adjust only if it's outside.
+                    if abs_start < current_offset {
+                        Some(abs_start)
+                    } else if abs_end > current_offset.saturating_add(viewport_height) {
+                        Some(abs_end.saturating_sub(viewport_height))
+                    } else {
+                        // Already visible - no change needed.
+                        None
+                    }
+                } else {
+                    // Entry is taller than viewport - align top.
+                    if abs_start >= current_offset.saturating_add(viewport_height) {
+                        Some(abs_start)
+                    } else if abs_end <= current_offset {
+                        Some(abs_end.saturating_sub(viewport_height))
+                    } else {
+                        // Already overlapping - no change needed.
+                        None
+                    }
+                }
+            },
+            || None,
+        );
+
+        let Some(new_offset) = decision else {
             return;
         };
 
-        let viewport_height = self.ui.viewport_height.load(Ordering::Relaxed);
-        let blank_count = self.ui.blank_count.load(Ordering::Relaxed);
-        let max_offset = self.ui.last_max_offset.load(Ordering::Relaxed);
-
-        if viewport_height == 0 {
-            return;
-        }
-
-        let abs_start = start.saturating_add(blank_count);
-        let abs_end = end.saturating_add(blank_count);
-        let entry_height = abs_end.saturating_sub(abs_start);
-
-        let current_offset = self.ui.rendered_scroll_offset.load(Ordering::Relaxed);
-
-        let new_offset = if entry_height <= viewport_height {
-            // Entry fits in viewport - adjust only if it's outside.
-            if abs_start < current_offset {
-                abs_start
-            } else if abs_end > current_offset.saturating_add(viewport_height) {
-                abs_end.saturating_sub(viewport_height)
+        // Write phase: clamp and apply as the new scroll intent.
+        self.update_view(|v| {
+            let clamped = new_offset.min(v.last_max_offset.load(Ordering::Relaxed));
+            if clamped >= v.last_max_offset.load(Ordering::Relaxed) {
+                v.scroll_offset = None;
             } else {
-                // Already visible - no change needed.
-                return;
+                v.scroll_offset = Some(clamped);
             }
-        } else {
-            // Entry is taller than viewport - align top.
-            if abs_start >= current_offset.saturating_add(viewport_height) {
-                abs_start
-            } else if abs_end <= current_offset {
-                abs_end.saturating_sub(viewport_height)
-            } else {
-                // Already overlapping - no change needed.
-                return;
-            }
-        };
-
-        let clamped = new_offset.min(max_offset);
-
-        if clamped >= max_offset {
-            self.ui.scroll_offset = None;
-        } else {
-            self.ui.scroll_offset = Some(clamped);
-        }
+        });
     }
 
     /// Update the cached maximum scroll offset from the renderer.
@@ -2129,7 +2178,7 @@ impl ChatSessionState {
     /// Called by the chat log element during each render so that
     /// scroll handlers can resolve the "at bottom" state into a concrete offset.
     pub fn set_last_max_offset(&self, max_offset: u16) {
-        self.ui.last_max_offset.store(max_offset, Ordering::Relaxed);
+        self.update_view(|v| v.last_max_offset.store(max_offset, Ordering::Relaxed));
     }
 
     /// Returns the screen-space Y coordinate of the top of the currently-selected
@@ -2148,33 +2197,34 @@ impl ChatSessionState {
     /// populated the cached fields for the current frame.
     pub fn selected_entry_screen_y(&self, chat_log_area_y: u16) -> Option<u16> {
         let vi_idx = self.selected_entry_index()?;
-        let ranges = self.ui.entry_line_ranges.read();
-        let &(start, _end) = ranges.get(vi_idx)?;
-        drop(ranges);
+        self.with_view(
+            |v| {
+                let ranges = v.entry_line_ranges.read();
+                let &(start, _end) = ranges.get(vi_idx)?;
 
-        let blank_count = self.ui.blank_count.load(Ordering::Relaxed);
-        let scroll_offset = self.ui.rendered_scroll_offset.load(Ordering::Relaxed);
+                let blank_count = v.blank_count.load(Ordering::Relaxed);
+                let scroll_offset = v.rendered_scroll_offset.load(Ordering::Relaxed);
 
-        // wrapped-line coord of entry top, with bottom-alignment blank padding
-        let abs_start = start.saturating_add(blank_count);
+                // wrapped-line coord of entry top, with bottom-alignment blank padding
+                let abs_start = start.saturating_add(blank_count);
 
-        // viewport top in the same coord space
-        let viewport_top = scroll_offset;
+                // viewport top in the same coord space
+                let viewport_top = scroll_offset;
 
-        // visible-Y offset within viewport (0 = top of chat-log area)
-        let viewport_offset = abs_start.saturating_sub(viewport_top);
+                // visible-Y offset within viewport (0 = top of chat-log area)
+                let viewport_offset = abs_start.saturating_sub(viewport_top);
 
-        // absolute screen Y; clamped to chat-log area top
-        let screen_y = chat_log_area_y.saturating_add(viewport_offset);
-        Some(screen_y)
+                // absolute screen Y; clamped to chat-log area top
+                Some(chat_log_area_y.saturating_add(viewport_offset))
+            },
+            || None,
+        )
     }
 
     /// Store the rendered scroll offset (actual viewport position after clamping
     /// and scroll-to-selected adjustment). Called by the render pipeline each frame.
     pub fn set_rendered_scroll_offset(&self, offset: u16) {
-        self.ui
-            .rendered_scroll_offset
-            .store(offset, Ordering::Relaxed);
+        self.update_view(|v| v.rendered_scroll_offset.store(offset, Ordering::Relaxed));
     }
 
     /// Store per-entry wrapped line ranges computed by the renderer.
@@ -2182,25 +2232,22 @@ impl ChatSessionState {
     /// `entry_line_ranges[i] = (start_wrapped_line, end_wrapped_line)` in the
     /// wrapped coordinate space. Called each frame by the chat log renderer.
     pub fn set_entry_line_ranges(&self, ranges: Vec<(u16, u16)>) {
-        {
-            let mut guard = self.ui.entry_line_ranges.write();
-            *guard = ranges;
-        }
+        self.update_view(|v| *v.entry_line_ranges.write() = ranges);
     }
 
     /// Store the viewport height (render area height) from the renderer.
     pub fn set_viewport_height(&self, height: u16) {
-        self.ui.viewport_height.store(height, Ordering::Relaxed);
+        self.update_view(|v| v.viewport_height.store(height, Ordering::Relaxed));
     }
 
     /// Read the cached viewport height.
     pub fn viewport_height_value(&self) -> u16 {
-        self.ui.viewport_height.load(Ordering::Relaxed)
+        self.with_view(|v| v.viewport_height.load(Ordering::Relaxed), || 0)
     }
 
     /// Store the blank line count prepended for bottom-alignment.
     pub fn set_blank_count(&self, count: u16) {
-        self.ui.blank_count.store(count, Ordering::Relaxed);
+        self.update_view(|v| v.blank_count.store(count, Ordering::Relaxed));
     }
 
     /// Returns the range of entry indices visible in the current viewport.
@@ -2210,36 +2257,41 @@ impl ChatSessionState {
     /// visible. Returns an empty range if no entries are visible or viewport
     /// data is unavailable.
     pub fn visible_entry_range(&self) -> Range<usize> {
-        let ranges = self.ui.entry_line_ranges.read().clone();
-        if ranges.is_empty() {
-            return 0..0;
-        }
-
-        let viewport_height = self.ui.viewport_height.load(Ordering::Relaxed);
-        let blank_count = self.ui.blank_count.load(Ordering::Relaxed);
-        let scroll_offset = self.ui.rendered_scroll_offset.load(Ordering::Relaxed);
-
-        let viewport_top = scroll_offset;
-        let viewport_bottom = scroll_offset.saturating_add(viewport_height);
-
-        let mut first_visible = None;
-        let mut last_visible = None;
-
-        for (i, &(start, end)) in ranges.iter().enumerate() {
-            let abs_start = start.saturating_add(blank_count);
-            let abs_end = end.saturating_add(blank_count);
-            if abs_end > viewport_top && abs_start < viewport_bottom {
-                if first_visible.is_none() {
-                    first_visible = Some(i);
+        self.with_view(
+            |v| {
+                let ranges = v.entry_line_ranges.read().clone();
+                if ranges.is_empty() {
+                    return 0..0;
                 }
-                last_visible = Some(i);
-            }
-        }
 
-        match (first_visible, last_visible) {
-            (Some(first), Some(last)) => first..last + 1,
-            _ => 0..0,
-        }
+                let viewport_height = v.viewport_height.load(Ordering::Relaxed);
+                let blank_count = v.blank_count.load(Ordering::Relaxed);
+                let scroll_offset = v.rendered_scroll_offset.load(Ordering::Relaxed);
+
+                let viewport_top = scroll_offset;
+                let viewport_bottom = scroll_offset.saturating_add(viewport_height);
+
+                let mut first_visible = None;
+                let mut last_visible = None;
+
+                for (i, &(start, end)) in ranges.iter().enumerate() {
+                    let abs_start = start.saturating_add(blank_count);
+                    let abs_end = end.saturating_add(blank_count);
+                    if abs_end > viewport_top && abs_start < viewport_bottom {
+                        if first_visible.is_none() {
+                            first_visible = Some(i);
+                        }
+                        last_visible = Some(i);
+                    }
+                }
+
+                match (first_visible, last_visible) {
+                    (Some(first), Some(last)) => first..last + 1,
+                    _ => 0..0,
+                }
+            },
+            || 0..0,
+        )
     }
 
     /// Move the cursor to the first entry visible in the viewport.
@@ -2251,7 +2303,7 @@ impl ChatSessionState {
         if range.is_empty() {
             return;
         }
-        let items = self.visual_items().clone();
+        let items = self.visual_items_snapshot();
         if items.is_empty() {
             // Fallback: use raw history index when visual items not yet computed.
             self.set_selected_entry_index(range.start);
@@ -2298,7 +2350,7 @@ impl ChatSessionState {
         if range.is_empty() {
             return;
         }
-        let items = self.visual_items().clone();
+        let items = self.visual_items_snapshot();
         if items.is_empty() {
             // Fallback: use raw history index when visual items not yet computed.
             self.set_selected_entry_index(range.end.saturating_sub(1));
@@ -2338,17 +2390,10 @@ impl ChatSessionState {
     ///
     /// Replaces the current history with the given entries. Used by session
     /// persistence to rehydrate a session from disk.
-    #[expect(
-        clippy::else_if_without_else,
-        reason = "no-op on fallthrough is intentional"
-    )]
     pub fn restore_history(&mut self, entries: Vec<ChatEntry>) {
         self.core.history.replace_all(entries);
-        if self.core.history.is_empty() {
-            self.ui.selected_cursor_id = None;
-        } else if let Some(entry) = self.core.history.last() {
-            self.ui.selected_cursor_id = Some(entry.id.clone());
-        }
+        let new_cursor = self.core.history.last().map(|e| e.id.clone());
+        self.update_view(|v| v.selected_cursor_id = new_cursor);
         self.reset_scroll();
     }
 
@@ -2411,7 +2456,11 @@ impl ChatSessionState {
             return;
         };
         let block_representative = block_entry.id.clone();
-        if !self.ui.shown_ignored_blocks.contains(&block_representative) {
+        let was_shown = self.with_view(
+            |v| v.shown_ignored_blocks.contains(&block_representative),
+            || false,
+        );
+        if !was_shown {
             return; // Block was collapsed - nothing to propagate.
         }
 
@@ -2429,9 +2478,10 @@ impl ChatSessionState {
         }
 
         // The forward sub-block's representative is its first entry.
-        self.ui
-            .shown_ignored_blocks
-            .insert(forward_entry.id.clone());
+        let forward_representative = forward_entry.id.clone();
+        self.update_view(|v| {
+            v.shown_ignored_blocks.insert(forward_representative);
+        });
     }
 
     /// Unpin an entry by ID, clearing its pin position.
@@ -2456,7 +2506,7 @@ impl ChatSessionState {
     /// Clamps to the last visual-item index.
     /// No-op if visual items list is empty.
     pub fn select_next_entry(&mut self) {
-        let items = self.visual_items().clone();
+        let items = self.visual_items_snapshot();
         if items.is_empty() {
             // Before first render, fall back to direct history walking.
             self.select_next_entry_fallback();
@@ -2506,7 +2556,7 @@ impl ChatSessionState {
     /// Clamps to 0.
     /// No-op if visual items list is empty.
     pub fn select_prev_entry(&mut self) {
-        let items = self.visual_items().clone();
+        let items = self.visual_items_snapshot();
         if items.is_empty() {
             // Before first render, fall back to direct history walking.
             self.select_prev_entry_fallback();
@@ -2548,7 +2598,7 @@ impl ChatSessionState {
 
     /// Clear the entry selection.
     pub fn clear_selection(&mut self) {
-        self.ui.selected_cursor_id = None;
+        self.update_view(|v| v.selected_cursor_id = None);
     }
 
     /// Set the selected entry index directly.
@@ -2557,7 +2607,7 @@ impl ChatSessionState {
     /// Does not validate bounds - caller must ensure index is valid.
     pub fn set_selected_entry_index(&mut self, index: usize) {
         let id = {
-            let items = self.visual_items();
+            let items = self.visual_items_snapshot();
             if items.is_empty() {
                 self.core.history.get(index).map(|e| e.id.clone())
             } else {
@@ -2570,7 +2620,7 @@ impl ChatSessionState {
             }
         };
         if let Some(id) = id {
-            self.ui.selected_cursor_id = Some(id);
+            self.update_view(|v| v.selected_cursor_id = Some(id));
         }
     }
 
@@ -2641,12 +2691,14 @@ impl ChatSessionState {
     /// No-op if a position is already saved (prevents overwriting during
     /// a single Pins visit).
     pub fn save_history_position(&mut self) {
-        if self.ui.saved_history_position.is_some() {
-            return;
-        }
-        self.ui.saved_history_position = Some(SavedHistoryPosition {
-            scroll_offset: self.ui.scroll_offset,
-            selected_cursor_id: self.ui.selected_cursor_id.clone(),
+        self.update_view(|v| {
+            if v.saved_history_position.is_some() {
+                return;
+            }
+            v.saved_history_position = Some(SavedHistoryPosition {
+                scroll_offset: v.scroll_offset,
+                selected_cursor_id: v.selected_cursor_id.clone(),
+            });
         });
     }
 
@@ -2654,10 +2706,12 @@ impl ChatSessionState {
     ///
     /// Consumes the saved position (take semantics).
     pub fn restore_history_position(&mut self) {
-        if let Some(saved) = self.ui.saved_history_position.take() {
-            self.ui.scroll_offset = saved.scroll_offset;
-            self.ui.selected_cursor_id = saved.selected_cursor_id;
-        }
+        self.update_view(|v| {
+            if let Some(saved) = v.saved_history_position.take() {
+                v.scroll_offset = saved.scroll_offset;
+                v.selected_cursor_id = saved.selected_cursor_id;
+            }
+        });
     }
 
     /// Discards the saved position without restoring.
@@ -2665,23 +2719,31 @@ impl ChatSessionState {
     /// Used when leaving the sidebar to Normal scope - the pin's position
     /// should persist in the chat log.
     pub fn discard_saved_history_position(&mut self) {
-        self.ui.saved_history_position = None;
+        self.update_view(|v| v.saved_history_position = None);
     }
 
     /// Returns whether there is a saved history position.
     pub fn has_saved_history_position(&self) -> bool {
-        self.ui.saved_history_position.is_some()
+        self.with_view(|v| v.saved_history_position.is_some(), || false)
+    }
+
+    /// The saved pre-pin position, if any (test seam for restore
+    /// assertions; production observes it through
+    /// [`Self::restore_history_position`]).
+    #[doc(hidden)]
+    pub fn saved_history_position(&self) -> Option<SavedHistoryPosition> {
+        self.with_view(|v| v.saved_history_position.clone(), || None)
     }
 
     /// The index of the currently selected entry, if any.
     pub fn selected_entry_index(&self) -> Option<usize> {
-        let cursor_id = self.ui.selected_cursor_id.as_ref()?;
-        let items = self.visual_items();
+        let cursor_id = self.selected_cursor_id_owned()?;
+        let items = self.visual_items_snapshot();
         if items.is_empty() {
-            return self.core.history.iter().position(|e| &e.id == cursor_id);
+            return self.core.history.iter().position(|e| e.id == cursor_id);
         }
         crate::feat::ui::chat_log::visual_item::resolve_entry_id_to_vi_index(
-            cursor_id,
+            &cursor_id,
             &items,
             &self.core.history,
         )
@@ -2691,8 +2753,15 @@ impl ChatSessionState {
     ///
     /// Unlike `selected_entry_id()` which returns `None` for collapsed blocks,
     /// this always returns the stored ID even when a collapsed block is selected.
-    pub fn selected_cursor_id(&self) -> Option<&ChatEntryId> {
-        self.ui.selected_cursor_id.as_ref()
+    pub fn selected_cursor_id(&self) -> Option<ChatEntryId> {
+        self.selected_cursor_id_owned()
+    }
+
+    /// The stored cursor ID, cloned. Internal spelling of
+    /// [`Self::selected_cursor_id`]; keeps call sites allocation-free when
+    /// the copy can be avoided.
+    fn selected_cursor_id_owned(&self) -> Option<ChatEntryId> {
+        self.with_view(|v| v.selected_cursor_id.clone(), || None)
     }
 
     /// Set the selected cursor to a specific entry by ID.
@@ -2701,7 +2770,7 @@ impl ChatSessionState {
     /// visual-item index resolution. Use when the entry ID is already
     /// known (e.g., sidebar pin sync).
     pub fn set_selected_cursor_id(&mut self, id: ChatEntryId) {
-        self.ui.selected_cursor_id = Some(id);
+        self.update_view(|v| v.selected_cursor_id = Some(id));
     }
 
     /// The currently selected entry, if any.
@@ -2712,7 +2781,7 @@ impl ChatSessionState {
     /// (before the first render).
     pub fn selected_entry(&self) -> Option<&ChatEntry> {
         let vi_idx = self.selected_entry_index()?;
-        let items = self.visual_items();
+        let items = self.visual_items_snapshot();
         if items.is_empty() {
             // Before first render, visual items haven't been computed yet.
             // Fall back to direct history indexing.
@@ -2733,16 +2802,28 @@ impl ChatSessionState {
     ///
     /// If the entry is currently expanded, it collapses. Otherwise, it expands.
     pub fn toggle_expand_entry(&mut self, id: ChatEntryId) {
-        if self.ui.expanded_entries.contains(&id) {
-            self.ui.expanded_entries.remove(&id);
-        } else {
-            self.ui.expanded_entries.insert(id);
-        }
+        self.update_view(|v| {
+            if v.expanded_entries.contains(&id) {
+                v.expanded_entries.remove(&id);
+            } else {
+                v.expanded_entries.insert(id);
+            }
+        });
     }
 
     /// Whether a tool result entry is currently expanded to show full content.
     pub fn is_entry_expanded(&self, id: &ChatEntryId) -> bool {
-        self.ui.expanded_entries.contains(id)
+        self.with_view(|v| v.expanded_entries.contains(id), || false)
+    }
+
+    /// Shows the ignored block whose representative is `block_representative`
+    /// (test seam: bypasses block-boundary resolution, which production
+    /// always goes through `toggle_ignored_block_visibility` for).
+    #[doc(hidden)]
+    pub fn show_ignored_block(&mut self, block_representative: ChatEntryId) {
+        self.update_view(|v| {
+            v.shown_ignored_blocks.insert(block_representative);
+        });
     }
 
     /// Toggle visibility of the ignored block containing the given entry.
@@ -2784,35 +2865,34 @@ impl ChatSessionState {
             return;
         };
         let block_representative = block_rep.id.clone();
-        if self.ui.shown_ignored_blocks.contains(&block_representative) {
-            self.ui.shown_ignored_blocks.remove(&block_representative);
-        } else {
-            self.ui.shown_ignored_blocks.insert(block_representative);
-        }
+        self.update_view(|v| {
+            if v.shown_ignored_blocks.contains(&block_representative) {
+                v.shown_ignored_blocks.remove(&block_representative);
+            } else {
+                v.shown_ignored_blocks.insert(block_representative);
+            }
+        });
     }
 
     /// Store the visual items list computed during render.
-    pub fn set_visual_items(&self, items: Vec<crate::feat::ui::chat_log::visual_item::VisualItem>) {
-        {
-            let mut guard = self.ui.visual_items.write();
-            *guard = items;
-        }
+    pub fn set_visual_items(&self, items: Vec<VisualItem>) {
+        self.update_view(|v| *v.visual_items.write() = items);
     }
 
-    /// Read-only access to the visual items list.
-    pub fn visual_items(
-        &self,
-    ) -> parking_lot::RwLockReadGuard<'_, Vec<crate::feat::ui::chat_log::visual_item::VisualItem>>
-    {
-        self.ui.visual_items.read()
+    /// A snapshot copy of the visual items list computed by the last render.
+    ///
+    /// Returns an empty vec before the first render. Copying keeps the view
+    /// lock out of callers' hands — navigation resolves indices against the
+    /// snapshot while the renderer may publish a newer list underneath.
+    #[must_use]
+    pub fn visual_items_snapshot(&self) -> Vec<VisualItem> {
+        self.with_view(|v| v.visual_items.read().clone(), Vec::new)
     }
 
     /// The visual item at the currently selected position, if any.
-    pub fn selected_visual_item(
-        &self,
-    ) -> Option<crate::feat::ui::chat_log::visual_item::VisualItem> {
+    pub fn selected_visual_item(&self) -> Option<VisualItem> {
         let idx = self.selected_entry_index()?;
-        self.ui.visual_items.read().get(idx).cloned()
+        self.visual_items_snapshot().get(idx).cloned()
     }
 
     /// Whether the cursor is currently on a collapsed ignored block.
@@ -2827,7 +2907,7 @@ impl ChatSessionState {
     /// collapsed block (not a real entry).
     pub fn selected_history_index(&self) -> Option<usize> {
         let vi_idx = self.selected_entry_index()?;
-        let items = self.ui.visual_items.read();
+        let items = self.visual_items_snapshot();
 
         if items.is_empty() {
             // Before first render, visual items haven't been computed yet.
