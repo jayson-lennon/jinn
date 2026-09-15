@@ -82,9 +82,11 @@ impl App {
         runner: crate::runner::Runner,
         store: &jinn_domain::SessionStoreService,
     ) -> Result<(), Report<AppError>> {
-        // Extract the root supervisor ref before the runner is consumed, so we
-        // can coordinate actor shutdown after the event loop exits.
+        // Extract the root supervisor ref and the trouper system handle
+        // before the runner is consumed, so we can coordinate shutdowns
+        // after the event loop exits.
         let root = runner.root_supervisor();
+        let trouper_system = runner.trouper_system();
 
         // Run the runner, but don't short-circuit shutdown on its error.
         // The WAL checkpoint is non-destructive and must run whenever the actor
@@ -110,6 +112,25 @@ impl App {
                 .is_err()
                 {
                     tracing::warn!("actor shutdown timed out after 20s; proceeding");
+                }
+            });
+        }
+
+        // The trouper fabric drains second: kameo producers are down, so
+        // the sweep's barrier sees a quiet bus and every on_stop hook
+        // runs before the store checkpoint. Capped at 10s — a wedged
+        // trouper actor can't prevent process exit (the sweep hard-stops
+        // stragglers at the deadline).
+        if let Some(trouper_system) = trouper_system {
+            self.runtime.block_on(async {
+                if tokio::time::timeout(
+                    std::time::Duration::from_secs(20),
+                    trouper_system.shutdown_graceful(std::time::Duration::from_secs(10)),
+                )
+                .await
+                .is_err()
+                {
+                    tracing::warn!("trouper shutdown timed out after 20s; proceeding");
                 }
             });
         }

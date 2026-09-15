@@ -64,6 +64,13 @@ pub const SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(3)
 /// The genesis-arg key carrying an override settle budget (ms).
 pub const SETTLE_BUDGET_ARG: &str = "settle_budget_ms";
 
+/// How long an idle discovery worker lives before the runtime
+/// passivates it: the settle budget plus margin, so a run always
+/// finishes (or times out and settles) before its actor can die. The
+/// next trigger to the partition set transparently re-activates the
+/// entity with fresh state.
+pub const IDLE_LIFETIME: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The resources a discovery run collects, in the order the delayed
 /// reason names them (the coordinator's `missing_names` order).
 const RESOURCES: [(&Resource, &str); 3] = [
@@ -209,6 +216,7 @@ impl SessionDiscoveryWorker {
         trouper::builder::spawn_service_builder::<Self>(system)
             .at(path)
             .mailbox(1024, trouper::inbox::OverloadPolicy::Block)
+            .passivate_after(IDLE_LIFETIME)
             .start_with(move || {
                 Box::pin(async move {
                     let SessionDiscoveryWorkerDepsBuilder {

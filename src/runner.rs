@@ -32,6 +32,18 @@ impl Runner {
         }
     }
 
+    /// Returns the trouper system handle, for the graceful shutdown sweep
+    /// at exit.
+    ///
+    /// Returns `None` in modes that don't have a trouper fabric.
+    pub fn trouper_system(&self) -> Option<trouper::system::ActorSystem> {
+        match self {
+            Runner::Tui(app) => Some(app.services.trouper_system.clone()),
+            #[cfg(debug_assertions)]
+            Runner::Headless(app) => Some(app.trouper_system()),
+        }
+    }
+
     /// Runs the selected mode to completion.
     ///
     /// For TUI mode, runs the terminal event loop.

@@ -47,6 +47,13 @@ impl HeadlessApp {
         self.services.root_supervisor.clone()
     }
 
+    /// Returns the trouper system handle, for the graceful shutdown
+    /// sweep at exit.
+    #[must_use]
+    pub fn trouper_system(&self) -> trouper::system::ActorSystem {
+        self.services.trouper_system.clone()
+    }
+
     /// Sends a chat message through the core pipeline.
     ///
     /// # Errors

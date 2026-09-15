@@ -11,6 +11,7 @@
     reason = "test code"
 )]
 
+use std::future::Future;
 use std::time::Duration;
 
 use jinn_domain::common::app_paths::AppPaths;
@@ -419,6 +420,81 @@ async fn wait_for_summary(wired: &Wired) {
 async fn wait_for(check: impl Fn() -> bool) {
     for _ in 0..300 {
         if check() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("condition never held within the retry budget");
+}
+
+/// Whether a worker entity is live for the session key (the export's
+/// actor list is the observable "is this entity spawned" surface).
+async fn worker_live(fabric: &jinn_testutil::TestFabric, session_id: &SessionId) -> bool {
+    let entity_path = trouper::actor::ActorPath::new(format!(
+        "{}/{}",
+        jinn_session_init::DISCOVERY_PATH,
+        session_id
+    ));
+    fabric
+        .system()
+        .export()
+        .await
+        .actors
+        .iter()
+        .any(|actor| actor.path == entity_path)
+}
+
+/// Passivation clears the entity from the export's actor list, and the
+/// next trigger re-activates it: the scan completes and the summary
+/// posts again (the notifier's observable side effect).
+#[rstest::rstest]
+#[timeout(Duration::from_secs(30))]
+#[tokio::test]
+async fn idle_worker_passivates_and_reactivates_on_next_trigger() {
+    // Given a wired partition set with one skill on disk and a worker
+    // that has already run one discovery.
+    let wired = Wired::wire().await;
+    write_skill(&wired.project, "passivate-skill");
+    wired.run_discovery().await;
+    wait_for_summary(&wired).await;
+    assert!(
+        worker_live(&wired.fabric, &wired.session_id).await,
+        "worker entity live after its run"
+    );
+
+    // When the idle window (5s) elapses with no messages.
+    wait_for_async(|| async { !worker_live(&wired.fabric, &wired.session_id).await }).await;
+
+    // And a new trigger addresses the same session key.
+    let sent = wired
+        .fabric
+        .system()
+        .send(wired.fabric.system().envelope(
+            <RunDiscovery as trouper::schema::Schema>::schema_id(),
+            trouper::actor::ActorPath::new(jinn_session_init::DISCOVERY_PATH),
+            serde_json::json!({
+                "session_id": wired.session_id.to_string(),
+                "cwd": wired.project.to_string_lossy(),
+            }),
+        ))
+        .await;
+    assert!(sent.is_ok(), "post-passivation send must resolve: {sent:?}");
+
+    // Then the entity re-activated and ran the scan again (a second
+    // summary entry lands; the first settled before passivation).
+    wait_for_async(|| async { worker_live(&wired.fabric, &wired.session_id).await }).await;
+    wait_for(|| wired.published_schema("SkillsLoaded")).await;
+}
+
+/// Polls an async `check` until it passes or the retry budget runs
+/// out. The budget must exceed the 5s idle lifetime passivation waits
+/// for, so 20s of retries here.
+async fn wait_for_async<F>(check: impl Fn() -> F)
+where
+    F: Future<Output = bool>,
+{
+    for _ in 0..2000 {
+        if check().await {
             return;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
