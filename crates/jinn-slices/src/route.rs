@@ -233,7 +233,7 @@ pub enum EditIntent {
 ///
 /// Carries typed message closures to be dispatched to the actor system
 /// via the kernel's message bus, plus an optional scope signal. The
-/// scope signal is applied by the handler (an exempt `scope_stack`
+/// scope signal is applied by the handler (an exempt scope-stack
 /// writer) *before* the messages publish, so a slice that opens itself
 /// pushes its scope before any bus message a subscriber could observe.
 pub struct RouteResult {
@@ -259,7 +259,7 @@ impl std::fmt::Debug for RouteResult {
 ///
 /// Slices declare their transitions as data; the composition-side
 /// handler applies them. Ownership stays single-writer: only the
-/// handler mutates `scope_stack`, and it does so only on these signals.
+/// handler mutates the scope stack, and it does so only on these signals.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScopeSignal {
     /// Push `scope` onto the stack (entering the slice's overlay/tab).

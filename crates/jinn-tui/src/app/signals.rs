@@ -1,7 +1,7 @@
 //! Snapshot of TUI signal flags, extracted from AppState before releasing the write lock.
 
-/// Snapshot of [`jinn_domain::tui_signals::TuiSignals`] fields, copied
-/// out of AppState before releasing the write lock.
+/// Snapshot of [`jinn_domain::TuiSignals`] fields, copied
+/// out of the scope-focus cell before releasing the write lock.
 #[derive(Debug)]
 pub(super) struct TuiSignalsSnapshot {
     /// Whether to toggle the which-key overlay.

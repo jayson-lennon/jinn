@@ -43,14 +43,14 @@ use crate::IntentResult;
 /// For each [`Intent`] variant: call the validator, then act.
 /// On validation failure, the handler does nothing (no-op).
 ///
-/// Some intents set "TUI signals" on `state.frontend.tui_signals` - flags that the
+/// Some intents raise TUI signals through the frontend facade — flags that the
 /// outer platform layer reads after `handle()` returns and acts upon
 /// (e.g., opening an external editor, toggling a popup).
 pub struct IntentHandler;
 
 /// Applies a route result's scope signal to the scope stack.
 ///
-/// The handler is the exempt single-writer of `scope_stack`; slices
+/// The handler is the exempt single-writer of the scope stack; slices
 /// request transitions as data ([`ScopeSignal`]) and this is where they
 /// land. Runs before the result's messages publish (see
 /// [`IntentResult::scope_signal`]).

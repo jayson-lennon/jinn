@@ -630,7 +630,7 @@ fn enter_insert_mode_sets_mode_to_input() {
     // When handling EnterInsertMode.
     let _ = crate::feat::chat_input::intent::handle_enter_insert_mode(&mut state);
 
-    // Then scope_stack has Input on top.
+    // Then the scope stack has Input on top.
     assert_eq!(state.frontend.scope().mode(), crate::protocol::Mode::Input);
 }
 
@@ -657,7 +657,7 @@ fn enter_normal_mode_returns_to_normal_scope() {
     // When handling EnterNormalMode.
     let _ = crate::feat::chat_input::intent::handle_enter_normal_mode(&mut state);
 
-    // Then scope_stack is back to Normal.
+    // Then the scope is back to Normal.
     assert_eq!(state.frontend.scope(), FocusScope::Normal);
 }
 
@@ -708,7 +708,7 @@ fn enter_normal_mode_clears_picker_kind_when_leaving_picker() {
     // When handling EnterNormalMode.
     let _ = crate::feat::chat_input::intent::handle_enter_normal_mode(&mut state);
 
-    // Then scope_stack is back to Normal (no picker).
+    // Then the scope is back to Normal (no picker).
     assert!(!state.frontend.is_picker());
     assert_eq!(state.frontend.scope(), FocusScope::Normal);
 }
@@ -743,7 +743,7 @@ fn enter_normal_mode_from_input_with_sidebar_returns_to_normal() {
     // When handling EnterNormalMode.
     let _ = crate::feat::chat_input::intent::handle_enter_normal_mode(&mut state);
 
-    // Then scope_stack is back to Normal (not SidebarPersona).
+    // Then the scope is back to Normal (not SidebarPersona).
     assert_eq!(state.frontend.scope(), FocusScope::Normal);
     assert!(!state.frontend.is_sidebar());
 }

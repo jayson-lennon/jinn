@@ -6,7 +6,7 @@
 //!   the slice's dynamic scope to actions: submit, scroll, close.
 //! - The **open toggle** is a row on the [`BindSite::GlobalToggle`]
 //!   site: it emits a [`ScopeSignal::Push`] so the handler (the exempt
-//!   `scope_stack` writer) enters the slice's scope.
+//!   scope-stack writer) enters the slice's scope.
 //! - The **input hook** (registered by [`register_quake_input_hook`])
 //!   intercepts editing intents while the quake scope is active and
 //!   writes the slice cell synchronously — the sanctioned carve-out for
