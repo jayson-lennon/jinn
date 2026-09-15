@@ -33,7 +33,8 @@ pub fn render(app: &mut TuiApp, frame: &mut Frame<'_>) {
     apply_pre_render_mutation(app, area);
 
     let state = app.core.state.read();
-    let ctx = RenderCtx::new(&state, &app.services.slices, &app.services.overlay_views);
+    let ctx = RenderCtx::new(&state, &app.services.slices, &app.services.overlay_views)
+        .with_pickers(&app.services.picker_registry);
 
     // Layout kind comes from the base scope's registration: a dynamic
     // tab scope renders full-width (no chat chrome); everything else is
@@ -83,8 +84,11 @@ fn apply_pre_render_mutation(app: &mut TuiApp, area: Rect) {
     // Measure the active picker's results viewport every frame so navigation
     // intents scroll against the real on-screen height instead of a stale
     // hardcoded constant.
-    let picker_viewport =
-        jinn_domain::feat::picker::geometry::measure_active_picker_results_height(&wstate, area);
+    let picker_viewport = jinn_domain::feat::picker::geometry::measure_active_picker_results_height(
+        &wstate,
+        area,
+        &app.services.picker_registry,
+    );
     wstate.frontend.set_picker_results_viewport(picker_viewport);
     let full_width = is_full_width_tab(&app.services.slices, wstate.frontend.scope_stack.base());
     let pre_layout = AppFrameLayout::new(
@@ -154,7 +158,7 @@ fn refresh_mcp_inspector_snapshot(state: &mut jinn_domain::AppState) {
         return;
     }
     let server_name = match state.frontend.mcp_server_picker().selected_item() {
-        Some(e) => e.name.clone(),
+        Some(item) => item.entry().name.clone(),
         None => return,
     };
     let session_id = state.active_session().session_id().clone();
@@ -177,10 +181,11 @@ fn refresh_mcp_inspector_snapshot(state: &mut jinn_domain::AppState) {
     state
         .frontend
         .mcp_server_picker_mut()
-        .with_selected_mut(|e| {
-            e.status = status;
-            e.stderr_tail = stderr_tail;
-            e.tools = tools;
+        .with_selected_mut(|item| {
+            let entry = item.entry_mut();
+            entry.status = status;
+            entry.stderr_tail = stderr_tail;
+            entry.tools = tools;
         });
 }
 

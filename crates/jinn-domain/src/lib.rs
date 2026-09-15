@@ -111,7 +111,7 @@ pub use feat::persona::{Persona, PersonaEntry};
 // Re-export services submodules
 
 // Re-export protocol types at crate root
-pub use protocol::PickerEntry;
+pub use protocol::ProviderPickerEntry;
 pub use protocol::entries_to_messages;
 pub use protocol::{
     ChatEntry, ChatEntryId, ChatEntryKind, Intent, IntentResult, Key, KeyEvent, Mode, Modifiers,

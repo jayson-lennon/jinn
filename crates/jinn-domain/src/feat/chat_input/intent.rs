@@ -25,7 +25,6 @@ use crate::feat::context::prompt_template::PromptTemplateStore;
 use crate::feat::file_lister::ListDirectory;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::protocol::mark_session_interacted::MarkSessionInteracted;
-use crate::feat::ui::picker_states::PickerExt;
 use crate::protocol::{ChatEntry, IntentResult, SessionId};
 use unicode_segmentation::UnicodeSegmentation as _;
 
@@ -664,7 +663,22 @@ pub fn handle_enter_insert_mode(state: &mut AppState) -> IntentResult {
 ///
 /// Simply switches out of the current mode. Does NOT cancel streams or drain
 /// queues - the cancel confirmation prompt handles that via `NormalEscape`.
+/// Registry-less variant for internal callers that can only reach
+/// unmigrated pickers (the session-lifecycle chain); spec-driven
+/// close hooks need the app's registry via
+/// [`handle_enter_normal_mode_with_pickers`].
 pub fn handle_enter_normal_mode(state: &mut AppState) -> IntentResult {
+    handle_enter_normal_mode_with_pickers(state, &jinn_picker::PickerRegistry::new())
+}
+
+/// Handles `EnterNormalMode` with the picker registry: spec-driven
+/// pickers run their `on_close` hook (snapshot revert) before the
+/// legacy per-kind restores. The intent handler passes the app's
+/// registry so migrated pickers revert correctly.
+pub fn handle_enter_normal_mode_with_pickers(
+    state: &mut AppState,
+    pickers: &jinn_picker::PickerRegistry,
+) -> IntentResult {
     // If autocomplete is active, dismiss it and stay in the current scope.
     // Two-level ESC: first press closes popup, second press exits mode.
     if state.active_chat_input().autocomplete().is_some() {
@@ -672,34 +686,9 @@ pub fn handle_enter_normal_mode(state: &mut AppState) -> IntentResult {
         return IntentResult::empty();
     }
 
-    // If leaving the theme picker without confirming, restore the original theme.
-    if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::Theme)
-        && let Some(original) = state.frontend.theme_preview_original_mut().take()
-    {
-        state.frontend.theme = original;
-        state.invalidate_theme_caches();
-    }
-
-    // If leaving the skill picker without confirming, restore the original disabled_skills.
-    if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::Skill)
-        && let Some(snapshot) = state.frontend.skill_picker_snapshot_mut().take()
-    {
-        state.active_session_mut().set_disabled_skills(snapshot);
-    }
-
-    // If leaving the tool picker without confirming, restore the original disabled_tools.
-    if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::Tool)
-        && let Some(snapshot) = state.frontend.tool_picker_snapshot_mut().take()
-    {
-        state.active_session_mut().set_disabled_tools(snapshot);
-    }
-
-    // If leaving the MCP server picker without confirming, restore the original
-    // enabled MCP server set.
-    if state.frontend.scope_stack.picker_kind() == Some(&crate::protocol::PickerKind::McpServer)
-        && let Some(snapshot) = state.frontend.mcp_server_picker_snapshot_mut().take()
-    {
-        state.active_session_mut().set_enabled_mcp_servers(snapshot);
+    // Spec-driven pickers own their close behavior (snapshot revert).
+    if let Some(result) = crate::feat::picker::action::try_close_active(state, pickers) {
+        return result;
     }
 
     // TaskList picker is read-only and always opened from SidebarTaskList.

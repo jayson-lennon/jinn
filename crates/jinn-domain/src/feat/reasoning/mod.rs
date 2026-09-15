@@ -17,7 +17,6 @@
 pub use jinn_provider::ReasoningEffort;
 
 pub mod picker_entry;
-pub mod picker_render;
 
 pub use picker_entry::ReasoningEffortEntry;
 

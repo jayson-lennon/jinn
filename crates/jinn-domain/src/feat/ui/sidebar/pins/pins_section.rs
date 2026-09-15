@@ -174,7 +174,10 @@ pub fn pins_section_content_height(state: &AppState) -> u16 {
 /// Handles `SidebarPersonaEdit` - opens the persona picker when persona section is focused.
 ///
 /// No-op if the pins section is focused.
-pub fn handle_sidebar_persona_edit(state: &mut AppState) -> IntentResult {
+pub fn handle_sidebar_persona_edit(
+    state: &mut AppState,
+    pickers: &jinn_picker::PickerRegistry,
+) -> IntentResult {
     use crate::feat::ui::sidebar::section_trait::SidebarSectionId;
     if !matches!(
         state.frontend.scope_stack.sidebar_section(),
@@ -182,7 +185,7 @@ pub fn handle_sidebar_persona_edit(state: &mut AppState) -> IntentResult {
     ) {
         return IntentResult::empty();
     }
-    crate::feat::picker::intent::handle_open_picker(state, PickerKind::Persona)
+    crate::feat::picker::intent::handle_open_picker(state, PickerKind::Persona, pickers)
 }
 
 /// Handles `PinsUnpin`.

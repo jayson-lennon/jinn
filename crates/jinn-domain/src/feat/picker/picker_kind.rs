@@ -20,8 +20,6 @@ pub enum PickerKind {
     Theme,
     /// Session lifecycle picker - select a lifecycle recipe for new session creation.
     SessionLifecycle,
-    /// Compaction model picker - select a model for context compaction summarization.
-    CompactionModel,
     /// Reasoning effort picker - select reasoning effort for reasoning-capable models.
     ReasoningEffort,
     /// Tool picker - toggle which tools are enabled for the session.
@@ -47,13 +45,12 @@ impl PickerKind {
     ///
     /// Lets exhaustive drift tests (e.g. scope-binding coverage) iterate
     /// all kinds without a strum dependency.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 13] = [
         Self::Provider,
         Self::Session,
         Self::Persona,
         Self::Theme,
         Self::SessionLifecycle,
-        Self::CompactionModel,
         Self::ReasoningEffort,
         Self::Tool,
         Self::Skill,
@@ -76,8 +73,6 @@ impl std::fmt::Display for PickerKind {
 
             Self::SessionLifecycle => write!(f, "session-lifecycle"),
 
-            Self::CompactionModel => write!(f, "compaction model"),
-
             Self::ReasoningEffort => write!(f, "reasoning effort"),
 
             Self::Tool => write!(f, "tools"),
@@ -88,40 +83,6 @@ impl std::fmt::Display for PickerKind {
             Self::Plugin => write!(f, "plugins"),
 
             Self::Endpoint => write!(f, "endpoints"),
-        }
-    }
-}
-
-impl PickerKind {
-    /// Footer rows this picker kind draws at the bottom of its popup. This is
-    /// the authoritative count consumed by both the render sites (which build
-    /// the footer lines) and the geometry measurement (which must reserve the
-    /// same number of rows). Keeping the two in sync here prevents the picker
-    /// viewport from drifting from what is actually drawn.
-    ///
-    /// - `Provider`: two footer lines (refresh status + alloy mode).
-    /// - `CompactionModel`: no footer.
-    /// - All others: exactly one footer line.
-    #[must_use]
-    pub const fn footer_rows(self) -> u16 {
-        match self {
-            Self::Provider => 2,
-            Self::CompactionModel => 0,
-            // Each single-footer kind is listed explicitly so that adding a
-            // new variant forces a deliberate decision here rather than
-            // silently defaulting to a wrong count.
-            Self::Session
-            | Self::Persona
-            | Self::Theme
-            | Self::SessionLifecycle
-            | Self::ReasoningEffort
-            | Self::Tool
-            | Self::Skill
-            | Self::TaskList
-            | Self::Project
-            | Self::McpServer
-            | Self::Plugin
-            | Self::Endpoint => 1,
         }
     }
 }

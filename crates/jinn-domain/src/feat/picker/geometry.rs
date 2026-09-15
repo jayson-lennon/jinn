@@ -11,8 +11,9 @@
 use ratatui::layout::Rect;
 use ratatui::widgets::{Block, Borders};
 
+use jinn_picker::WidgetKind;
+
 use crate::common::app_state::AppState;
-use crate::feat::picker::picker_kind::PickerKind;
 use crate::feat::ui::picker_states::PickerExt;
 
 /// Fallback results height used before the first render of a picker writes a
@@ -32,7 +33,11 @@ const CHROME_ROWS_SKILL_LIST: u16 = 2;
 /// Returns [`PICKER_VIEWPORT_FALLBACK`] when no picker is active. The result
 /// is at least 1, even on tiny terminals, so the navigation math never
 /// divides or windows against zero.
-pub fn measure_active_picker_results_height(state: &AppState, frame_area: Rect) -> u16 {
+pub fn measure_active_picker_results_height(
+    state: &AppState,
+    frame_area: Rect,
+    registry: &jinn_picker::PickerRegistry,
+) -> u16 {
     let Some(kind) = state.frontend.scope_stack.picker_kind().copied() else {
         return PICKER_VIEWPORT_FALLBACK;
     };
@@ -40,9 +45,19 @@ pub fn measure_active_picker_results_height(state: &AppState, frame_area: Rect) 
     let popup_area = jinn_selection_widget::compute_popup_rect(frame_area);
     let inner = Block::default().borders(Borders::ALL).inner(popup_area);
 
-    let height = match kind {
-        PickerKind::Skill => skill_results_height(inner, popup_area),
-        _ => standard_results_height(inner, kind.footer_rows()),
+    // Spec-driven geometry: a spec's widget kind selects the layout math and
+    // its `bottom_rows()` reserves the footer. Every kind is spec-driven; the
+    // fallback (empty registry, test seams) reserves the legacy single row.
+    let height = match crate::feat::picker::registry::spec_id_for_kind(&kind)
+        .and_then(|id| registry.get(id))
+    {
+        Some(spec) => match spec.widget_kind() {
+            WidgetKind::Preview => skill_results_height(inner, popup_area, spec.bottom_rows()),
+            WidgetKind::List | WidgetKind::Tree => {
+                standard_results_height(inner, spec.bottom_rows())
+            }
+        },
+        None => standard_results_height(inner, 1),
     };
 
     height.max(1)
@@ -58,12 +73,12 @@ fn standard_results_height(inner: Rect, footer_rows: u16) -> u16 {
         .saturating_sub(footer_rows)
 }
 
-/// Skill picker (`PreviewSelectionWidget`) results height, branching on the
-/// split layout the widget selects from `popup_area.width`.
-fn skill_results_height(inner: Rect, popup_area: Rect) -> u16 {
-    // PreviewSelectionWidget reserves one footer row, then splits the rest
+/// Preview-widget (`PreviewSelectionWidget`) results height, branching on
+/// the split layout the widget selects from `popup_area.width`.
+fn skill_results_height(inner: Rect, popup_area: Rect, bottom_rows: u16) -> u16 {
+    // PreviewSelectionWidget reserves its footer rows, then splits the rest
     // into a content area.
-    let content_height = inner.height.saturating_sub(PickerKind::Skill.footer_rows());
+    let content_height = inner.height.saturating_sub(bottom_rows);
 
     if popup_area.width >= jinn_selection_widget::VERTICAL_SPLIT_MIN_WIDTH {
         // Side-by-side split: list pane spans the full content height minus

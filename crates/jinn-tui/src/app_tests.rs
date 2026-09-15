@@ -26,7 +26,6 @@ async fn test_app() -> TuiApp {
 #[case::input(jinn_domain::FocusScope::Input, Scope::Input)]
 #[case::picker_provider(jinn_domain::FocusScope::Picker { kind: jinn_domain::PickerKind::Provider }, Scope::PickerProvider)]
 #[case::sidebar_resize(jinn_domain::FocusScope::SidebarResize, Scope::SidebarResize)]
-#[case::picker_compaction_model(jinn_domain::FocusScope::Picker { kind: jinn_domain::PickerKind::CompactionModel }, Scope::PickerCompactionModel)]
 #[case::picker_task_list(jinn_domain::FocusScope::Picker { kind: jinn_domain::PickerKind::TaskList }, Scope::PickerTaskList)]
 fn scope_for_focus_maps_correctly(#[case] focus: jinn_domain::FocusScope, #[case] expected: Scope) {
     // Given a focus scope.

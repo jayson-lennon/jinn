@@ -1056,7 +1056,10 @@ mod tests {
         let guard = state.read();
         let items = guard.frontend.persona_picker().items();
         assert_eq!(items.len(), 2, "expected 2 persona entries");
-        let active = items.iter().find(|e| e.is_active).expect("an active entry");
-        assert_eq!(active.name, "learning-tutor");
+        let active = items
+            .iter()
+            .find(|e| e.entry().is_active)
+            .expect("an active entry");
+        assert_eq!(active.entry().name, "learning-tutor");
     }
 }

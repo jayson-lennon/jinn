@@ -228,6 +228,7 @@ impl TuiApp {
                 &mut state,
                 &self.services.slices,
                 &self.services.key_routes,
+                &self.services.picker_registry,
             );
 
             // Cancel selection when mode changes away from Picker.
@@ -306,7 +307,6 @@ pub fn scope_for_focus(focus: &jinn_domain::FocusScope) -> Scope {
             PickerKind::Persona => Scope::PickerPersona,
             PickerKind::Theme => Scope::PickerTheme,
             PickerKind::SessionLifecycle => Scope::PickerLifecycle,
-            PickerKind::CompactionModel => Scope::PickerCompactionModel,
             PickerKind::ReasoningEffort => Scope::PickerReasoningEffort,
             PickerKind::Endpoint => Scope::PickerEndpoint,
             PickerKind::Tool => Scope::PickerTool,

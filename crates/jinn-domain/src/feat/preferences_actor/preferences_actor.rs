@@ -103,7 +103,7 @@ impl PreferencesActor {
                         kind: crate::feat::picker::PickerKind::Project
                     }
                 ) {
-                    crate::feat::picker::intent::load_project_picker_entries(frontend);
+                    crate::feat::picker::project_spec::load_project_entries(frontend);
                 }
             });
         }

@@ -23,14 +23,13 @@ use crate::common::state::State;
 use crate::common::tcaps::provider::{FrontendProviderPickerWrite, ModelCacheWrite, ProviderCap};
 use crate::common::tcaps::session::SessionCap;
 use crate::feat::provider::protocol::command::{
-    LoadCompactionModelPickerEntries, LoadEndpointPickerEntries, LoadProviderPickerEntries,
-    LoadReasoningEffortPickerEntries, ProviderSwitch, RefreshEndpointPickerEntries,
+    LoadEndpointPickerEntries, LoadProviderPickerEntries, ProviderSwitch,
+    RefreshEndpointPickerEntries,
 };
 use crate::feat::provider::protocol::event::{ModelCacheLoaded, ModelsRefreshed, ProviderSwitched};
 
 use super::loader::{
-    build_endpoint_entries, fetch_endpoints, load_compaction_model_picker_items,
-    load_provider_picker_items, load_reasoning_effort_picker_items, resolve_openrouter_target,
+    build_endpoint_entries, fetch_endpoints, load_provider_picker_items, resolve_openrouter_target,
     set_endpoint_picker_items, unavailable_endpoint_entries,
 };
 use crate::feat::endpoint::picker_entry::EndpointEntry;
@@ -81,10 +80,6 @@ impl Actor for ProviderActor {
         bus.subscribe::<ProviderSwitch, _>(&actor_ref).await;
         bus.subscribe::<LoadProviderPickerEntries, _>(&actor_ref)
             .await;
-        bus.subscribe::<LoadCompactionModelPickerEntries, _>(&actor_ref)
-            .await;
-        bus.subscribe::<LoadReasoningEffortPickerEntries, _>(&actor_ref)
-            .await;
         bus.subscribe::<LoadEndpointPickerEntries, _>(&actor_ref)
             .await;
         bus.subscribe::<RefreshEndpointPickerEntries, _>(&actor_ref)
@@ -125,34 +120,6 @@ impl Message<LoadProviderPickerEntries> for ProviderActor {
     ) {
         self.state.with_provider(&self.cap, |view| {
             load_provider_picker_items(&self.deps.services, view);
-        });
-    }
-}
-
-impl Message<LoadCompactionModelPickerEntries> for ProviderActor {
-    type Reply = ();
-
-    async fn handle(
-        &mut self,
-        _msg: LoadCompactionModelPickerEntries,
-        _ctx: &mut MsgContext<Self, Self::Reply>,
-    ) {
-        self.state.with_provider(&self.cap, |view| {
-            load_compaction_model_picker_items(&self.deps.services, view);
-        });
-    }
-}
-
-impl Message<LoadReasoningEffortPickerEntries> for ProviderActor {
-    type Reply = ();
-
-    async fn handle(
-        &mut self,
-        _msg: LoadReasoningEffortPickerEntries,
-        _ctx: &mut MsgContext<Self, Self::Reply>,
-    ) {
-        self.state.with_provider(&self.cap, |view| {
-            load_reasoning_effort_picker_items(view);
         });
     }
 }
@@ -511,7 +478,6 @@ mod tests {
 
     use super::{ModelCacheLoaded, ModelsRefreshed, ProviderActor, ProviderActorDeps};
     use crate::common::actor_deps::ActorDeps;
-    use crate::feat::provider::protocol::command::LoadCompactionModelPickerEntries;
     use crate::feat::provider::protocol::command::LoadProviderPickerEntries;
     use crate::feat::provider::protocol::command::ProviderSwitch;
     use crate::feat::provider::protocol::event::ProviderSwitched;
@@ -1469,32 +1435,6 @@ mod tests {
         assert!(
             !items.is_empty(),
             "picker should have entries after loading"
-        );
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn handle_dispatches_load_compaction_model_picker_entries_command() {
-        // Given a provider actor with a registry.
-        let (harness, state) = create_harness().await;
-        let deps = harness.actor_deps().await;
-        let registry = crate::feat::provider_infra::ProviderRegistry::from_config(sample_config())
-            .expect("registry");
-        deps.services.provider_registry.replace(registry);
-        spawn_actor(&harness, &state, deps).await;
-
-        // When publishing LoadCompactionModelPickerEntries.
-        harness.publish(LoadCompactionModelPickerEntries).await;
-
-        // Give the actor time to process.
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        // Then the compaction model picker has entries (at least the sentinel).
-        let s = state.read();
-        let items = s.frontend.compaction_model_picker().items();
-        assert!(
-            !items.is_empty(),
-            "compaction picker should have entries after loading"
         );
     }
 

@@ -11,7 +11,7 @@ use ratatui::text::{Line, Span};
 
 /// A provider entry ready for display in the picker.
 #[derive(Debug, Clone)]
-pub struct PickerEntry {
+pub struct ProviderPickerEntry {
     /// Full provider ID in `{name}/{model}` format (e.g., `"ollama/llama3"`).
     /// For aliases, this is the resolved target's full ID.
     /// For remote entries, this is `{provider_name}/{model}`.
@@ -43,7 +43,7 @@ pub struct PickerEntry {
     pub theme: Theme,
 }
 
-impl PickerItem for PickerEntry {
+impl PickerItem for ProviderPickerEntry {
     fn display_label(&self) -> &str {
         &self.search_text
     }
@@ -68,7 +68,7 @@ impl PickerItem for PickerEntry {
 /// and provider-name portions so both can be independently highlighted in the
 /// rendered row.
 fn render_provider_row(
-    entry: &PickerEntry,
+    entry: &ProviderPickerEntry,
     is_selected: bool,
     match_indices: &[Range<usize>],
 ) -> Line<'static> {
@@ -174,4 +174,30 @@ fn split_match_indices(
     }
 
     (model_indices, provider_indices)
+}
+
+impl jinn_selection_widget::TreeItem for ProviderPickerEntry {
+    fn id(&self) -> &str {
+        &self.provider_id
+    }
+
+    fn parent_id(&self) -> Option<&str> {
+        None
+    }
+
+    fn display_label(&self) -> &str {
+        &self.search_text
+    }
+
+    fn render_row(&self, is_selected: bool) -> Line<'static> {
+        render_provider_row(self, is_selected, &[])
+    }
+
+    fn render_row_with_highlight(
+        &self,
+        is_selected: bool,
+        match_indices: &[Range<usize>],
+    ) -> Line<'static> {
+        render_provider_row(self, is_selected, match_indices)
+    }
 }

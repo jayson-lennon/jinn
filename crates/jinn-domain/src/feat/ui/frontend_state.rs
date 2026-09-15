@@ -26,14 +26,18 @@ pub use crate::feat::ui::sidebar::task_list_section::TaskListSectionState;
 /// All caches that store pre-rendered styled data (which embeds theme colors)
 /// live here so they can be invalidated in one call when the theme changes.
 ///
-/// Each cache is wrapped in a `RwLock` so render code can borrow mutably
-/// while holding shared references to the rest of `AppState`.
+/// Each cache is either a `RwLock` (render code borrows mutably while
+/// holding shared references to the rest of `AppState`) or an `Arc` of an
+/// interior-mutable cache that is also lent to spec-driven pickers through
+/// the [`jinn_picker::PickerHost`](jinn_picker::PickerHost) seam.
 #[derive(Debug, Default)]
 pub struct FrontendCaches {
     /// Cached wrapped line counts and rendered lines per chat entry.
     pub entry_line_cache: RwLock<crate::feat::ui::chat_log::line_count_cache::EntryLineCache>,
-    /// Cached rendered lines for skill-preview popups.
-    pub skill_preview_cache: RwLock<crate::feat::skills::skill_preview_cache::SkillPreviewCache>,
+    /// Cached rendered lines for skill-preview popups. An `Arc` handle so
+    /// the skill picker's host lens can lend it to the spec's render path.
+    pub skill_preview_cache:
+        std::sync::Arc<crate::feat::skills::skill_preview_cache::SkillPreviewCache>,
     /// Cached rendered lines for session preview popups.
     pub session_preview_cache:
         RwLock<crate::feat::ui::sidebar::sessions::preview::SessionPreviewCache>,
@@ -44,7 +48,7 @@ impl FrontendCaches {
     pub fn invalidate_all(&self) {
         self.entry_line_cache.write().clear();
         self.session_preview_cache.write().clear();
-        self.skill_preview_cache.write().clear();
+        self.skill_preview_cache.clear();
     }
 }
 
@@ -275,19 +279,19 @@ mod tests {
     fn invalidate_all_clears_skill_preview_cache() {
         // Given a populated skill preview cache.
         let caches = FrontendCaches::default();
-        caches.skill_preview_cache.write().insert(
+        caches.skill_preview_cache.insert(
             crate::feat::skills::skill_entry::body_hash_key("## body"),
             80,
             vec![Line::raw("old-theme")],
         );
-        assert_eq!(caches.skill_preview_cache.read().len(), 1);
+        assert_eq!(caches.skill_preview_cache.len(), 1);
 
         // When the theme changes and all caches are invalidated.
         caches.invalidate_all();
 
         // Then the skill preview cache is empty (the AC under test).
         assert!(
-            caches.skill_preview_cache.read().is_empty(),
+            caches.skill_preview_cache.is_empty(),
             "theme change must clear skill preview cache via invalidate_all"
         );
     }
