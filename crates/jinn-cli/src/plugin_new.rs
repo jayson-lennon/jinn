@@ -206,8 +206,7 @@ const INSTRUCTIONS: &str = r#"Next steps:
 {sdk_note}
 Declare grants in [package.metadata.jinn] — they are embedded into the
 artifact and applied at install (--grant overrides them per install).
-Edit src/main.rs to push real data over the wire. See the jinn-plugin
-SKILL.md (installed to your skills dir) for the full authoring loop.
+Edit src/main.rs to push real data over the wire.
 "#;
 
 /// The dependency note printed after scaffolding, per SDK source.

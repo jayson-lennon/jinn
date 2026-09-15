@@ -284,13 +284,6 @@ const BUNDLED: &[Bundled] = &[
     },
     Bundled {
         kind: Kind::Skill,
-        relative: "jinn-plugin/SKILL.md",
-        contents: BundleContents::Text(include_str!(
-            "../../../../../res/skills/jinn-plugin/SKILL.md"
-        )),
-    },
-    Bundled {
-        kind: Kind::Skill,
         relative: "jinn-usage/SKILL.md",
         contents: BundleContents::Text(include_str!(
             "../../../../../res/skills/jinn-usage/SKILL.md"
