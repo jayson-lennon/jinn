@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use jinn_selection_widget::PickerItem;
 use jinn_selection_widget::PreviewContent;
+use jinn_selection_widget::TreeItem;
 use jinn_selection_widget::highlight_text;
 use ratatui::style::Style;
 use ratatui::text::Line;
@@ -86,13 +87,7 @@ impl<T> RenderHooks<T> {
         let Some(row) = self.row.as_ref() else {
             return String::new();
         };
-        let line = row.run(
-            entry,
-            &RowCtx {
-                is_selected: false,
-                match_ranges: &[],
-            },
-        );
+        let line = row.run(entry, &RowCtx::flat(false, &[]));
         line.spans
             .iter()
             .map(|span| span.content.to_string())
@@ -155,13 +150,7 @@ where
         let Some(row) = self.hooks.row.as_ref() else {
             return Line::raw(self.search_text.clone());
         };
-        row.run(
-            &self.entry,
-            &RowCtx {
-                is_selected,
-                match_ranges: &[],
-            },
-        )
+        row.run(&self.entry, &RowCtx::flat(is_selected, &[]))
     }
 
     fn render_row_with_highlight(
@@ -178,11 +167,65 @@ where
                     .collect();
             return Line::from(spans);
         };
+        row.run(&self.entry, &RowCtx::flat(is_selected, match_indices))
+    }
+}
+
+/// Tree delegation: structure comes from the domain entry, filter text from
+/// the spec's search hook, row rendering from the spec's row hook. The tree
+/// connector's placement is the row hook's decision — this impl forwards the
+/// pre-computed prefix rather than prepending it (the widget default would
+/// double-prefix rows that embed mid-row connectors).
+impl<T> TreeItem for PickerEntry<T>
+where
+    T: jinn_selection_widget::TreeItem + std::fmt::Debug + Send + Sync + 'static,
+{
+    fn id(&self) -> &str {
+        self.entry.id()
+    }
+
+    fn parent_id(&self) -> Option<&str> {
+        self.entry.parent_id()
+    }
+
+    fn display_label(&self) -> &str {
+        &self.search_text
+    }
+
+    fn render_row(&self, is_selected: bool) -> Line<'static> {
+        PickerItem::render_row(self, is_selected)
+    }
+
+    fn render_row_with_highlight(
+        &self,
+        is_selected: bool,
+        match_indices: &[Range<usize>],
+    ) -> Line<'static> {
+        PickerItem::render_row_with_highlight(self, is_selected, match_indices)
+    }
+
+    fn render_row_with_tree(
+        &self,
+        is_selected: bool,
+        match_ranges: &[Range<usize>],
+        tree_prefix: &str,
+        tree_style: Style,
+    ) -> Line<'static> {
+        let Some(row) = self.hooks.row.as_ref() else {
+            let mut spans = Vec::with_capacity(2);
+            if !tree_prefix.is_empty() {
+                spans.push(Span::styled(tree_prefix.to_owned(), tree_style));
+            }
+            spans.push(Span::raw(self.search_text.clone()));
+            return Line::from(spans);
+        };
         row.run(
             &self.entry,
             &RowCtx {
                 is_selected,
-                match_ranges: match_indices,
+                match_ranges,
+                tree_prefix,
+                tree_style,
             },
         )
     }

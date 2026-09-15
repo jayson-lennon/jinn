@@ -122,6 +122,26 @@ pub struct RowCtx<'a> {
     /// Sorted, non-overlapping byte ranges of the fuzzy-filter matches
     /// within the row's display label (empty when no filter is active).
     pub match_ranges: &'a [std::ops::Range<usize>],
+    /// The pre-computed tree connector string for this row's position in a
+    /// tree picker (empty for flat pickers and tree roots). Placement is
+    /// the spec row hook's decision; the crate never prepends it.
+    pub tree_prefix: &'a str,
+    /// The style the widget uses for tree connector glyphs (default style
+    /// for flat pickers).
+    pub tree_style: ratatui::style::Style,
+}
+
+impl<'a> RowCtx<'a> {
+    /// A flat-picker row context: no tree connector, default tree style.
+    #[must_use]
+    pub fn flat(is_selected: bool, match_ranges: &'a [std::ops::Range<usize>]) -> Self {
+        Self {
+            is_selected,
+            match_ranges,
+            tree_prefix: "",
+            tree_style: ratatui::style::Style::default(),
+        }
+    }
 }
 
 /// Handed to the load hook when the picker's entries are (re)built.

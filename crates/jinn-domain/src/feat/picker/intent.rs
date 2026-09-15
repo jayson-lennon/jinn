@@ -1542,49 +1542,44 @@ mod tests {
     }
 
     fn setup_state_with_task_list() -> (AppState, crate::feat::todo_list::TaskId) {
-        use crate::feat::todo_list::TaskPosition;
+        use crate::feat::todo_list::{PhaseInput, TaskStatus};
 
         let mut state = AppState::default();
         let mut origin = ChatSessionState::new();
 
-        // Phase 1 with 2 tasks (one Pending, one Completed).
-        let phase1 = origin.task_list_mut().add_phase("Research");
-        let _ = origin
-            .task_list_mut()
-            .add_task(&phase1, "Read codebase", TaskPosition::End);
-        let task2 = origin
-            .task_list_mut()
-            .add_task(&phase1, "Write notes", TaskPosition::End)
-            .expect("add_task");
-        origin
-            .task_list_mut()
-            .complete_task(&task2)
-            .expect("complete");
+        origin.task_list_mut().set_from_inputs(&[
+            // Phase 1 with 2 tasks (one Pending, one Completed).
+            PhaseInput {
+                description: "Research".to_owned(),
+                tasks: vec![
+                    ("Read codebase".to_owned(), TaskStatus::Pending),
+                    ("Write notes".to_owned(), TaskStatus::Completed),
+                ],
+            },
+            // Phase 2 with a Pending task, a Cancelled task, and a Postponed
+            // source whose ID is surfaced to tests (a Pending copy with the
+            // same description sits beside it).
+            PhaseInput {
+                description: "Build".to_owned(),
+                tasks: vec![
+                    ("Implement feature".to_owned(), TaskStatus::Pending),
+                    ("Investigate alt".to_owned(), TaskStatus::Cancelled),
+                    ("Refactor later".to_owned(), TaskStatus::Postponed),
+                    ("Refactor later".to_owned(), TaskStatus::Pending),
+                ],
+            },
+        ]);
 
-        // Phase 2 with 3 tasks (Pending, Cancelled, plus a Postponed source).
-        // postpone_task marks the source as Postponed AND inserts a new Pending
-        // copy with the same description, so we surface the source ID to tests.
-        let phase2 = origin.task_list_mut().add_phase("Build");
-        let _ = origin
-            .task_list_mut()
-            .add_task(&phase2, "Implement feature", TaskPosition::End);
-        let task_cancel = origin
-            .task_list_mut()
-            .add_task(&phase2, "Investigate alt", TaskPosition::End)
-            .expect("add_task");
-        origin
-            .task_list_mut()
-            .cancel_task(&task_cancel)
-            .expect("cancel");
-        let to_postpone = origin
-            .task_list_mut()
-            .add_task(&phase2, "Refactor later", TaskPosition::End)
-            .expect("add_task");
-        let postponed_id = to_postpone.clone();
-        origin
-            .task_list_mut()
-            .postpone_task(&to_postpone, TaskPosition::After(task_cancel))
-            .expect("postpone");
+        let postponed_id = {
+            let list = origin.task_list();
+            let build = &list.phases()[1];
+            build
+                .tasks
+                .iter()
+                .find(|t| t.status == TaskStatus::Postponed)
+                .map(|t| t.id.clone())
+                .expect("postponed source present")
+        };
 
         let origin_id = origin.session_id().clone();
         state.session.insert(origin);

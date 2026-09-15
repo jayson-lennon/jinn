@@ -515,10 +515,7 @@ mod tests {
             theme: crate::feat::theme::default_theme(),
         };
         let ranges = Vec::new();
-        let ctx = RowCtx {
-            is_selected: false,
-            match_ranges: &ranges,
-        };
+        let ctx = RowCtx::flat(false, &ranges);
 
         // When rendering the row.
         let line = reasoning_row(&entry, &ctx);
@@ -540,10 +537,7 @@ mod tests {
             theme: crate::feat::theme::default_theme(),
         };
         let ranges = Vec::new();
-        let ctx = RowCtx {
-            is_selected: false,
-            match_ranges: &ranges,
-        };
+        let ctx = RowCtx::flat(false, &ranges);
 
         // When rendering the row.
         let line = reasoning_row(&entry, &ctx);
@@ -566,10 +560,7 @@ mod tests {
             theme: crate::feat::theme::default_theme(),
         };
         let ranges = vec![0..2];
-        let ctx = RowCtx {
-            is_selected: false,
-            match_ranges: &ranges,
-        };
+        let ctx = RowCtx::flat(false, &ranges);
 
         // When rendering the row.
         let line = reasoning_row(&entry, &ctx);

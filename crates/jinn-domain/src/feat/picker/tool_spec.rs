@@ -582,13 +582,7 @@ mod tests {
         };
 
         // When rendering its row.
-        let line = tool_row(
-            &entry,
-            &RowCtx {
-                is_selected: false,
-                match_ranges: &[],
-            },
-        );
+        let line = tool_row(&entry, &RowCtx::flat(false, &[]));
 
         // Then the check marker, the name, and the em-dash description all
         // appear.
@@ -613,13 +607,7 @@ mod tests {
         };
 
         // When rendering its row.
-        let line = tool_row(
-            &entry,
-            &RowCtx {
-                is_selected: false,
-                match_ranges: &[],
-            },
-        );
+        let line = tool_row(&entry, &RowCtx::flat(false, &[]));
 
         // Then the cross marker replaces the check.
         let text: String = line.spans.iter().map(|s| s.content.to_string()).collect();
@@ -644,13 +632,7 @@ mod tests {
         let match_ranges = [2..4usize, 7..9];
 
         // When rendering its row with the match ranges.
-        let line = tool_row(
-            &entry,
-            &RowCtx {
-                is_selected: false,
-                match_ranges: &match_ranges,
-            },
-        );
+        let line = tool_row(&entry, &RowCtx::flat(false, &match_ranges));
 
         // Then both portions render (split did not panic and content is
         // preserved).

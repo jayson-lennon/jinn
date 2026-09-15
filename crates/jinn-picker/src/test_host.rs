@@ -41,12 +41,36 @@ impl FakeHost {
         self.states.insert(id, Box::new(state));
     }
 
+    /// Registers (or replaces) the tree selection storage for `id`.
+    pub(crate) fn set_tree_selection<T>(
+        &mut self,
+        id: PickerId,
+        state: jinn_selection_widget::TreePickerState<T>,
+    ) where
+        T: jinn_selection_widget::TreeItem,
+    {
+        self.states.insert(id, Box::new(state));
+    }
+
     /// Borrow of the registered selection storage for `id`.
     pub(crate) fn selection<T>(&self, id: PickerId) -> Option<&SelectionState<T>>
     where
         T: PickerItem,
     {
         self.states.get(&id)?.downcast_ref::<SelectionState<T>>()
+    }
+
+    /// Mutable borrow of the registered tree storage for `id`.
+    pub(crate) fn selection_tree_mut<T>(
+        &mut self,
+        id: PickerId,
+    ) -> Option<&mut jinn_selection_widget::TreePickerState<T>>
+    where
+        T: jinn_selection_widget::TreeItem,
+    {
+        self.states
+            .get_mut(&id)?
+            .downcast_mut::<jinn_selection_widget::TreePickerState<T>>()
     }
 }
 

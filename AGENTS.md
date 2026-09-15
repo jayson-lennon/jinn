@@ -4,6 +4,18 @@ This document defines the _coding conventions_, _patterns_, and _architecture_ f
 
 - IGNORE ALL CODE IN `vendor/` UNLESS IT'S SPECIFICALLY RELATED TO THE TASK.
 - NEVER RUN `cargo test -p <package>`. ALWAYS USE `just test` to test the code!
+- NEVER run `cargo test` directly — not even `--workspace`. The suite is slow; run it ONCE per check via `just test`, which tees full output to `target/test-output.log` and prints a summary.
+- NEVER pipe `cargo test` through `grep`/`awk`/`head` filters, and never invoke it twice in one command (e.g. once for a tally, once for failure names). The summary and `just test-failures` already provide this — re-deriving it re-runs the whole suite.
+- NEVER use `--no-run` to "pre-compile tests" before a test run. `just test` compiles anyway; if you only want a compile check, use `just check`.
+
+### Test Discipline
+
+The full workspace suite takes minutes. Treat suite executions as expensive:
+
+1. Run `just test` ONCE. It runs the suite with `--no-fail-fast`, captures everything to `target/test-output.log`, and prints a passed/failed summary plus failing test names.
+2. Get failure details from the capture with `just test-failures` — instant, no cargo. Or grep the log manually as needed.
+3. Iterate cheaply while fixing: `just test-one <test_name_filter>` runs only matching tests across the workspace.
+4. Before committing, confirm with one final `just test`.
 
 ## 1. Overview
 

@@ -526,20 +526,8 @@ mod tests {
         };
 
         // When rendering unselected rows.
-        let enabled_row = skill_row(
-            &enabled,
-            &RowCtx {
-                is_selected: false,
-                match_ranges: &[],
-            },
-        );
-        let disabled_row = skill_row(
-            &disabled,
-            &RowCtx {
-                is_selected: false,
-                match_ranges: &[],
-            },
-        );
+        let enabled_row = skill_row(&enabled, &RowCtx::flat(false, &[]));
+        let disabled_row = skill_row(&disabled, &RowCtx::flat(false, &[]));
 
         // Then the marker reflects the enabled state.
         assert!(enabled_row.to_string().starts_with('\u{2713}'));
@@ -547,13 +535,7 @@ mod tests {
         assert!(enabled_row.to_string().contains('a'));
 
         // And a selected row carries the selection background.
-        let selected = skill_row(
-            &enabled,
-            &RowCtx {
-                is_selected: true,
-                match_ranges: &[],
-            },
-        );
+        let selected = skill_row(&enabled, &RowCtx::flat(true, &[]));
         assert_eq!(
             selected.spans[1].style.bg,
             Some(crate::feat::theme::default_theme().picker_selected_bg),
@@ -575,13 +557,7 @@ mod tests {
 
         // When rendering with a match range covering "b c" (bytes 2..5,
         // crossing the name/description boundary).
-        let row = skill_row(
-            &entry,
-            &RowCtx {
-                is_selected: false,
-                match_ranges: &[2..5],
-            },
-        );
+        let row = skill_row(&entry, &RowCtx::flat(false, &[2..5]));
 
         // Then the row still names the skill (highlighting clamped, not
         // crashing, on the boundary-crossing range).
@@ -605,13 +581,7 @@ mod tests {
         };
 
         // When rendering its row.
-        let row = skill_row(
-            &entry,
-            &RowCtx {
-                is_selected: false,
-                match_ranges: &[],
-            },
-        );
+        let row = skill_row(&entry, &RowCtx::flat(false, &[]));
 
         // Then the badge is appended.
         let text: String = row.spans.iter().map(|s| s.content.to_string()).collect();

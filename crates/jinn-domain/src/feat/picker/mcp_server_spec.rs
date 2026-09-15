@@ -802,13 +802,7 @@ mod tests {
         );
 
         // When rendering its row.
-        let line = mcp_server_row(
-            &entry,
-            &RowCtx {
-                is_selected: false,
-                match_ranges: &[],
-            },
-        );
+        let line = mcp_server_row(&entry, &RowCtx::flat(false, &[]));
 
         // Then the check marker, the name, and the em-dash description appear.
         let text: String = line.spans.iter().map(|s| s.content.to_string()).collect();
@@ -833,13 +827,7 @@ mod tests {
         );
 
         // When rendering its row.
-        let line = mcp_server_row(
-            &entry,
-            &RowCtx {
-                is_selected: false,
-                match_ranges: &[],
-            },
-        );
+        let line = mcp_server_row(&entry, &RowCtx::flat(false, &[]));
 
         // Then the cross marker replaces the check.
         let text: String = line.spans.iter().map(|s| s.content.to_string()).collect();
@@ -864,13 +852,7 @@ mod tests {
         let match_ranges = [1..3usize, 8..10];
 
         // When rendering its row with the match ranges.
-        let line = mcp_server_row(
-            &entry,
-            &RowCtx {
-                is_selected: false,
-                match_ranges: &match_ranges,
-            },
-        );
+        let line = mcp_server_row(&entry, &RowCtx::flat(false, &match_ranges));
 
         // Then both portions render (the split did not panic and content
         // is preserved).

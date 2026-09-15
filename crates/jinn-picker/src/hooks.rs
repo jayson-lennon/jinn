@@ -397,6 +397,32 @@ mod tests {
         name: String,
     }
 
+    impl jinn_selection_widget::TreeItem for Entry {
+        fn id(&self) -> &str {
+            &self.name
+        }
+
+        fn parent_id(&self) -> Option<&str> {
+            None
+        }
+
+        fn display_label(&self) -> &str {
+            &self.name
+        }
+
+        fn render_row(&self, _is_selected: bool) -> ratatui::text::Line<'static> {
+            ratatui::text::Line::raw(self.name.clone())
+        }
+
+        fn render_row_with_highlight(
+            &self,
+            _is_selected: bool,
+            _match_indices: &[std::ops::Range<usize>],
+        ) -> ratatui::text::Line<'static> {
+            ratatui::text::Line::raw(self.name.clone())
+        }
+    }
+
     #[rstest::rstest]
     #[test]
     fn load_hook_delegates_to_the_stored_closure() {
@@ -429,13 +455,7 @@ mod tests {
         let entry = Entry {
             name: String::from("x"),
         };
-        let line = hook.run(
-            &entry,
-            &RowCtx {
-                is_selected: true,
-                match_ranges: std::slice::from_ref(&(0..1)),
-            },
-        );
+        let line = hook.run(&entry, &RowCtx::flat(true, std::slice::from_ref(&(0..1))));
 
         // Then the context flowed through.
         assert_eq!(line.to_string(), "x1");

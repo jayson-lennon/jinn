@@ -27,7 +27,7 @@ use crate::feat::session::chat_entry::{ChatEntry, ChatEntryKind};
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
 use crate::feat::session_lifecycle::protocol::event::SessionCreated;
-use crate::feat::todo_list::TaskPosition;
+use crate::feat::todo_list::{PhaseInput, TaskStatus};
 use crate::feat::tools_actor::task::execute;
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolResult};
 use crate::protocol::SessionId;
@@ -346,11 +346,16 @@ async fn task_child_inherits_parent_task_list() {
     {
         let mut w = state.write_test_no_cap();
         let parent = w.session.get_mut(&parent_id).expect("parent seeded");
-        let list = parent.task_list_mut();
-        let p1 = list.add_phase("Research");
-        list.add_task(&p1, "Read docs", TaskPosition::End).unwrap();
-        let p2 = list.add_phase("Build");
-        list.add_task(&p2, "Write code", TaskPosition::End).unwrap();
+        parent.task_list_mut().set_from_inputs(&[
+            PhaseInput {
+                description: "Research".to_owned(),
+                tasks: vec![("Read docs".to_owned(), TaskStatus::Pending)],
+            },
+            PhaseInput {
+                description: "Build".to_owned(),
+                tasks: vec![("Write code".to_owned(), TaskStatus::Pending)],
+            },
+        ]);
     }
     let ctx = task_ctx(&harness, &state, parent_id.clone()).await;
     let created_rec = harness.spawn_recorder::<SessionCreated>().await;
@@ -382,9 +387,10 @@ async fn task_child_task_list_is_independent_after_spawn() {
     {
         let mut w = state.write_test_no_cap();
         let parent = w.session.get_mut(&parent_id).expect("parent seeded");
-        let list = parent.task_list_mut();
-        let p1 = list.add_phase("Research");
-        list.add_task(&p1, "Read docs", TaskPosition::End).unwrap();
+        parent.task_list_mut().set_from_inputs(&[PhaseInput {
+            description: "Research".to_owned(),
+            tasks: vec![("Read docs".to_owned(), TaskStatus::Pending)],
+        }]);
     }
     let ctx = task_ctx(&harness, &state, parent_id.clone()).await;
     let created_rec = harness.spawn_recorder::<SessionCreated>().await;

@@ -177,7 +177,7 @@ where
 
 impl<T> ErasedPickerSpec for TypedSpec<T>
 where
-    T: std::fmt::Debug + Send + Sync + 'static,
+    T: jinn_selection_widget::TreeItem + std::fmt::Debug + Send + Sync + 'static,
 {
     fn id(&self) -> PickerId {
         self.id
@@ -276,10 +276,15 @@ where
         let mut load_ctx = LoadCtx::new(host);
         let entries = load.run(&mut load_ctx);
         let items = make_items(entries, &self.hooks);
-        if let Some(selection) = load_ctx.host().selection_state(self.id).and_then(|any| {
+        let host = load_ctx.host();
+        if let Some(selection) = host.selection_state(self.id).and_then(|any| {
             any.downcast_mut::<jinn_selection_widget::SelectionState<PickerEntry<T>>>()
         }) {
             selection.set_items(items);
+        } else if let Some(tree) = host.selection_state(self.id).and_then(|any| {
+            any.downcast_mut::<jinn_selection_widget::TreePickerState<PickerEntry<T>>>()
+        }) {
+            tree.set_items(items);
         }
     }
 
@@ -338,9 +343,13 @@ impl PickerRegistry {
     }
 
     /// Erases and registers a built spec.
+    ///
+    /// `T: TreeItem` at the boundary so tree specs (whose storage lends
+    /// `TreePickerState<PickerEntry<T>>`) erase uniformly with flat specs;
+    /// flat entries simply have `id`/`parent_id` that are never consulted.
     pub fn register<T>(&mut self, spec: crate::builder::PickerSpec<T>)
     where
-        T: std::fmt::Debug + Send + Sync + 'static,
+        T: jinn_selection_widget::TreeItem + std::fmt::Debug + Send + Sync + 'static,
     {
         // Move the builder's fields into the erased wrapper. Access is via
         // the crate-private accessors below (builder fields are private).
@@ -447,6 +456,32 @@ mod tests {
     #[derive(Debug, Clone)]
     struct Entry {
         name: String,
+    }
+
+    impl jinn_selection_widget::TreeItem for Entry {
+        fn id(&self) -> &str {
+            &self.name
+        }
+
+        fn parent_id(&self) -> Option<&str> {
+            None
+        }
+
+        fn display_label(&self) -> &str {
+            &self.name
+        }
+
+        fn render_row(&self, _is_selected: bool) -> ratatui::text::Line<'static> {
+            ratatui::text::Line::raw(self.name.clone())
+        }
+
+        fn render_row_with_highlight(
+            &self,
+            _is_selected: bool,
+            _match_indices: &[std::ops::Range<usize>],
+        ) -> ratatui::text::Line<'static> {
+            ratatui::text::Line::raw(self.name.clone())
+        }
     }
 
     #[rstest::rstest]

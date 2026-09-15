@@ -15,6 +15,34 @@ pub struct SessionLifecycleEntry {
     pub theme: Theme,
 }
 
+impl jinn_selection_widget::TreeItem for SessionLifecycleEntry {
+    fn id(&self) -> &str {
+        &self.name
+    }
+
+    fn parent_id(&self) -> Option<&str> {
+        None
+    }
+
+    fn display_label(&self) -> &str {
+        &self.name
+    }
+
+    fn render_row(&self, _is_selected: bool) -> ratatui::text::Line<'static> {
+        // Rows render through the spec's row hook via PickerEntry; this
+        // impl only supplies tree structure (id/parent_id) and filter text.
+        ratatui::text::Line::raw(self.display_label().to_owned())
+    }
+
+    fn render_row_with_highlight(
+        &self,
+        _is_selected: bool,
+        _match_indices: &[std::ops::Range<usize>],
+    ) -> ratatui::text::Line<'static> {
+        ratatui::text::Line::raw(self.display_label().to_owned())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -39,10 +67,7 @@ mod tests {
     }
 
     fn row_ctx(ranges: &[std::ops::Range<usize>], is_selected: bool) -> RowCtx<'_> {
-        RowCtx {
-            is_selected,
-            match_ranges: ranges,
-        }
+        RowCtx::flat(is_selected, ranges)
     }
 
     fn no_matches() -> Vec<std::ops::Range<usize>> {
