@@ -152,6 +152,25 @@ mod tests {
     }
 
     #[rstest::rstest]
+    fn confirm_is_a_noop_and_keeps_the_picker_open() {
+        // Given a plugin picker open with one entry.
+        let mut state = state_with(&[("theme-loader", PluginPhase::Running)]);
+        let registry = crate::feat::picker::registry::build_picker_registry();
+        handle_open_picker(&mut state, PickerKind::Plugin, &registry);
+
+        // When confirming through the real confirm path.
+        let (result, _redispatch) =
+            crate::feat::picker::intent::handle_picker_confirm(&mut state, &registry);
+
+        // Then nothing is emitted and the picker stays open (read-only).
+        assert!(result.message_names.is_empty());
+        assert_eq!(
+            state.frontend.scope_stack.picker_kind(),
+            Some(&PickerKind::Plugin)
+        );
+    }
+
+    #[rstest::rstest]
     fn open_with_empty_cache_opens_empty() {
         // Given no plugins in the contribution cache.
         let mut state = AppState::default();

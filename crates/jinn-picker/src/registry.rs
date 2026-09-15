@@ -277,14 +277,23 @@ where
         let entries = load.run(&mut load_ctx);
         let items = make_items(entries, &self.hooks);
         let host = load_ctx.host();
-        if let Some(selection) = host.selection_state(self.id).and_then(|any| {
-            any.downcast_mut::<jinn_selection_widget::SelectionState<PickerEntry<T>>>()
-        }) {
-            selection.set_items(items);
-        } else if let Some(tree) = host.selection_state(self.id).and_then(|any| {
-            any.downcast_mut::<jinn_selection_widget::TreePickerState<PickerEntry<T>>>()
-        }) {
-            tree.set_items(items);
+        // Widget-kind decides the storage flavor: Tree specs lend
+        // TreePickerState, everything else SelectionState.
+        match self.widget_kind() {
+            crate::widget::WidgetKind::Tree => {
+                if let Some(tree) = host.selection_state(self.id).and_then(|any| {
+                    any.downcast_mut::<jinn_selection_widget::TreePickerState<PickerEntry<T>>>()
+                }) {
+                    tree.set_items(items);
+                }
+            }
+            crate::widget::WidgetKind::List | crate::widget::WidgetKind::Preview => {
+                if let Some(selection) = host.selection_state(self.id).and_then(|any| {
+                    any.downcast_mut::<jinn_selection_widget::SelectionState<PickerEntry<T>>>()
+                }) {
+                    selection.set_items(items);
+                }
+            }
         }
     }
 
