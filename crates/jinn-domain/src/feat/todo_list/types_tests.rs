@@ -13,7 +13,7 @@
 //! BDD-style tests following AGENTS.md conventions.
 //! Each test covers a single behavior.
 
-use crate::feat::todo_list::{PhaseId, PhaseInput, TaskId, TaskList, TaskStatus};
+use crate::feat::todo_list::{PhaseId, PhaseInput, TaskList, TaskStatus};
 
 // ---------------------------------------------------------------------------
 // set_from_inputs

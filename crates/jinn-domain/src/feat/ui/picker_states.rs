@@ -97,7 +97,8 @@ pub struct PickerStates {
 
     /// Plugin picker state - read-only list of loaded plugins.
     /// OWNER: IntentHandler (populated on plugin picker open).
-    pub plugin_picker: jinn_selection_widget::SelectionState<PluginPickerEntry>,
+    pub plugin_picker:
+        jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PluginPickerEntry>>,
 
     /// Snapshot of enabled MCP servers before picker opens - restored on ESC.
     /// OWNER: IntentHandler (set on MCP picker open, consumed on confirm/cancel).
@@ -228,11 +229,13 @@ pub trait PickerExt {
     ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<McpServerEntry>>;
 
     /// Read-only access to the plugin picker state.
-    fn plugin_picker(&self) -> &jinn_selection_widget::SelectionState<PluginPickerEntry>;
+    fn plugin_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PluginPickerEntry>>;
     /// Mutable access to the plugin picker state.
     fn plugin_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::SelectionState<PluginPickerEntry>;
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PluginPickerEntry>>;
 
     /// Read-only access to the OpenRouter endpoint picker state.
     fn endpoint_picker(&self) -> &jinn_selection_widget::SelectionState<EndpointEntry>;
@@ -401,13 +404,16 @@ impl PickerExt for super::frontend_state::FrontendState {
         &mut self.pickers.mcp_server_picker
     }
 
-    fn plugin_picker(&self) -> &jinn_selection_widget::SelectionState<PluginPickerEntry> {
+    fn plugin_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PluginPickerEntry>> {
         &self.pickers.plugin_picker
     }
 
     fn plugin_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::SelectionState<PluginPickerEntry> {
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PluginPickerEntry>>
+    {
         &mut self.pickers.plugin_picker
     }
 

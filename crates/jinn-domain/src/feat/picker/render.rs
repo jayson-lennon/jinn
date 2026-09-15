@@ -9,20 +9,6 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::Line;
 
-/// Renders the plugin picker overlay — a read-only list of loaded plugins.
-///
-/// One row per plugin (name + lifecycle phase). Plugins are managed outside
-/// jinn, so the footer only hints navigation: no toggle, no confirm action.
-pub fn render_plugin_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    let state = ctx.state;
-    let footer = Line::from(" Read-only \u{00b7} filter to narrow \u{00b7} ESC close ");
-    let widget = SelectionWidget::new(state.frontend.plugin_picker())
-        .title(Line::from(" Plugins "))
-        .title_style(Style::default().fg(state.frontend.theme.popup_title))
-        .footer(footer);
-    widget.render(frame, area);
-}
-
 /// Renders the read-only task list browser overlay.
 ///
 /// Uses [`TreePickerWidget`] to show phases as roots and tasks as their children,

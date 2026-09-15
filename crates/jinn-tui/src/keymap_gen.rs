@@ -80,6 +80,7 @@ fn picker_spec_scope(id: jinn_picker::PickerId) -> Option<Scope> {
         "mcp-server" => Some(Scope::PickerMcpServer),
         "session-lifecycle" => Some(Scope::PickerLifecycle),
         "reasoning-effort" => Some(Scope::PickerReasoningEffort),
+        "plugin" => Some(Scope::PickerPlugin),
         _ => None,
     }
 }

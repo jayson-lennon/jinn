@@ -10,6 +10,7 @@ pub mod intent;
 pub mod mcp_server_spec;
 pub mod persona_spec;
 pub mod picker_kind;
+pub mod plugin_spec;
 pub mod reasoning_effort_spec;
 pub mod registry;
 pub mod render;

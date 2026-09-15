@@ -108,7 +108,8 @@ fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
         | PickerKind::Tool
         | PickerKind::McpServer
         | PickerKind::SessionLifecycle
-        | PickerKind::ReasoningEffort => {
+        | PickerKind::ReasoningEffort
+        | PickerKind::Plugin => {
             // Spec-driven when the registry holds their spec; nothing to
             // prepare in the legacy path.
         }
@@ -122,10 +123,6 @@ fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
             state.frontend.pending_creation = None;
             state.frontend.project_picker_mut().reset();
             load_project_picker_entries(&mut state.frontend);
-        }
-        PickerKind::Plugin => {
-            state.frontend.plugin_picker_mut().reset();
-            load_plugin_picker_entries(state);
         }
         PickerKind::Endpoint => {
             state.frontend.endpoint_picker_mut().reset();
@@ -156,25 +153,6 @@ pub fn handle_refresh_endpoints(state: &mut AppState) -> IntentResult {
     IntentResult::new_message(
         crate::feat::provider::protocol::command::RefreshEndpointPickerEntries,
     )
-}
-
-/// Loads plugins into the plugin picker from the plugin contribution cache.
-///
-/// One read-only entry per known plugin (name + latest phase), in name
-/// order (BTreeMap iteration). Opening the picker never touches the plugin
-/// coordinator — it reads whatever phases were last mirrored into the cache.
-fn load_plugin_picker_entries(state: &mut AppState) {
-    use crate::feat::plugin::PluginPickerEntry;
-
-    let entries: Vec<PluginPickerEntry> = state
-        .plugins
-        .phases()
-        .map(|(name, phase)| {
-            PluginPickerEntry::new(name.to_owned(), phase, state.frontend.theme.clone())
-        })
-        .collect();
-
-    state.frontend.plugin_picker_mut().set_items(entries);
 }
 
 /// Resets the preview scroll offset when the active picker's spec opts in
@@ -2169,98 +2147,5 @@ mod tests {
 
         // Then selection decrements by 5.
         assert_eq!(state.provider.provider_picker.selection(), 5);
-    }
-
-    use crate::feat::plugin_coordinator_actor::protocol::PluginPhase;
-
-    fn plugin_state_with(phases: &[(&str, PluginPhase)]) -> AppState {
-        let mut state = AppState::default();
-        for (name, phase) in phases {
-            state.plugins.set_phase((*name).to_owned(), *phase);
-        }
-        state
-    }
-
-    #[rstest::rstest]
-    fn open_plugin_picker_loads_one_entry_per_cached_phase() {
-        // Given two plugins mirrored into the contribution cache.
-        let mut state = plugin_state_with(&[
-            ("theme-loader", PluginPhase::Running),
-            ("url-citations", PluginPhase::Dead),
-        ]);
-
-        // When opening the plugin picker.
-        handle_open_picker(&mut state, PickerKind::Plugin, &empty_pickers());
-
-        // Then the picker holds one entry per cached plugin.
-        assert_eq!(state.frontend.plugin_picker().items().len(), 2);
-    }
-
-    #[rstest::rstest]
-    fn open_plugin_picker_with_empty_cache_opens_empty() {
-        // Given no plugins in the contribution cache.
-        let mut state = AppState::default();
-
-        // When opening the plugin picker.
-        handle_open_picker(&mut state, PickerKind::Plugin, &empty_pickers());
-
-        // Then the picker holds zero entries.
-        assert!(state.frontend.plugin_picker().items().is_empty());
-    }
-
-    #[rstest::rstest]
-    fn open_plugin_picker_lists_entries_in_name_order() {
-        // Given plugins cached in non-alphabetical insertion order.
-        let mut state = plugin_state_with(&[
-            ("zeta", PluginPhase::Running),
-            ("alpha", PluginPhase::Running),
-        ]);
-
-        // When opening the plugin picker.
-        handle_open_picker(&mut state, PickerKind::Plugin, &empty_pickers());
-
-        // Then entries follow name order (BTreeMap iteration).
-        let names: Vec<&str> = state
-            .frontend
-            .plugin_picker()
-            .items()
-            .iter()
-            .map(|e| e.name.as_str())
-            .collect();
-        assert_eq!(names, vec!["alpha", "zeta"]);
-    }
-
-    #[rstest::rstest]
-    fn open_plugin_picker_carries_entry_phase() {
-        // Given one plugin cached with the Unresponsive phase.
-        let mut state = plugin_state_with(&[("flood", PluginPhase::Unresponsive)]);
-
-        // When opening the plugin picker.
-        handle_open_picker(&mut state, PickerKind::Plugin, &empty_pickers());
-
-        // Then the entry carries that phase.
-        assert_eq!(
-            state.frontend.plugin_picker().items()[0].phase,
-            PluginPhase::Unresponsive
-        );
-    }
-
-    #[rstest::rstest]
-    fn confirm_plugin_picker_is_noop() {
-        // Given a plugin picker open with one entry.
-        let mut state = plugin_state_with(&[("theme-loader", PluginPhase::Running)]);
-        handle_open_picker(&mut state, PickerKind::Plugin, &empty_pickers());
-
-        // When confirming the selection.
-        let (result, redispatch) = handle_picker_confirm(&mut state, &empty_pickers());
-
-        // Then nothing is emitted and nothing is re-dispatched.
-        assert!(result.message_names.is_empty());
-        assert!(redispatch.is_none());
-        // And the picker is still open (read-only; Enter does not close).
-        assert_eq!(
-            state.frontend.scope_stack.picker_kind(),
-            Some(&PickerKind::Plugin)
-        );
     }
 }
