@@ -93,7 +93,7 @@ Entries are added or amended **only with human approval**.
 - (identity) Jinn's multimodal scope is bounded to image input (vision) and text output; it has no image-generation pipeline and no art/editing tooling.
 - (identity) The TUI is the default entrypoint; the Discord and headless frontends are alternative invocation modes.
 - (identity) The application ships three frontends: a TUI (default), a Discord gateway, and a debug-only headless mode.
-- (keybinds) Bare letters in pickers route to the filter input rather than triggering actions: `a` in the project picker types into the filter, and `d` removes the highlighted entry (not a filter character).
+- (keybinds) Bare letters in pickers route to the filter input.
 - (keybinds) In the skill scope, `PgUp` pages the picker list, not the preview, so list paging and preview scrolling are separate bindings.
 - (keybinds) In the skill scope, `Ctrl+L` loads the highlighted skill into context as a pinned ToolResult paired with a synthetic ToolCall (the same on-disk shape the `skill` tool produces); the picker stays open so several skills can be loaded in one visit.
 - (keybinds) `Ctrl+L` in the skill scope auto-enables a disabled skill before loading it.
