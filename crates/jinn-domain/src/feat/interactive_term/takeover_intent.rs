@@ -42,6 +42,9 @@ const HANDLED_HINT: &str =
     "terminal control released — press I to send the current screen to the agent";
 
 /// Handles [`Intent::TerminalTakeControl`].
+///
+/// No status hint here: taking control is its own visible mode (the
+/// scope switch is the announcement); the hint fires on handback.
 pub fn handle_take_control(state: &mut AppState) -> crate::protocol::intent::IntentResult {
     if let Some(flag) = control() {
         flag.set(ControlHolder::User);
@@ -86,7 +89,10 @@ pub fn handle_send_key(
 /// Pure state transition: releases control to the agent (shared flag +
 /// mirror), pops to TerminalView, and sets a status hint advertising `I`.
 /// Sends nothing to the model — pushing the screen is an explicit `I`.
-pub fn handle_handback(state: &mut AppState) -> crate::protocol::intent::IntentResult {
+pub fn handle_handback(
+    state: &mut AppState,
+    slices: &crate::common::slices::Slices,
+) -> crate::protocol::intent::IntentResult {
     if state.frontend.scope_stack.current() != &FocusScope::TerminalControl {
         return crate::protocol::intent::IntentResult::empty();
     }
@@ -98,7 +104,7 @@ pub fn handle_handback(state: &mut AppState) -> crate::protocol::intent::IntentR
         .terminal
         .set_control(TermControlHolder::Agent);
     state.frontend.scope_stack.pop();
-    state.frontend.status_hint = Some(HANDLED_HINT.to_owned());
+    crate::feat::ui::status_hint::set_hint(state, slices, Some(HANDLED_HINT.to_owned()));
     crate::protocol::intent::IntentResult::empty()
 }
 
@@ -129,18 +135,28 @@ fn active_screen(state: &AppState) -> Option<String> {
 ///
 /// Copies the visible screen to the clipboard (via the TUI yank signal) and
 /// reports the copied size in a status hint. No mirror → no-op with a hint.
-pub fn handle_yank(state: &mut AppState) -> crate::protocol::intent::IntentResult {
+pub fn handle_yank(
+    state: &mut AppState,
+    slices: &crate::common::slices::Slices,
+) -> crate::protocol::intent::IntentResult {
     if state.frontend.scope_stack.current() != &FocusScope::TerminalView {
         return crate::protocol::intent::IntentResult::empty();
     }
     let Some(screen) = active_screen(state) else {
-        state.frontend.status_hint =
-            Some("no live terminal to yank — ask the agent to run `interactive_term`".to_owned());
+        crate::feat::ui::status_hint::set_hint(
+            state,
+            slices,
+            Some("no live terminal to yank — ask the agent to run `interactive_term`".to_owned()),
+        );
         return crate::protocol::intent::IntentResult::empty();
     };
     let lines = screen.lines().count();
     state.frontend.tui_signals.yank_text = Some(screen);
-    state.frontend.status_hint = Some(format!("yanked {lines} terminal lines to the clipboard"));
+    crate::feat::ui::status_hint::set_hint(
+        state,
+        slices,
+        Some(format!("yanked {lines} terminal lines to the clipboard")),
+    );
     crate::protocol::intent::IntentResult::empty()
 }
 
@@ -150,20 +166,30 @@ pub fn handle_yank(state: &mut AppState) -> crate::protocol::intent::IntentResul
 /// busy → `SubmitSteeringMessage` (drained at the next dispatch-resume);
 /// idle → `EnqueueUserMessage` (dispatched immediately). No mirror → no-op
 /// with a hint.
-pub fn handle_push_screen(state: &mut AppState) -> crate::protocol::intent::IntentResult {
+pub fn handle_push_screen(
+    state: &mut AppState,
+    slices: &crate::common::slices::Slices,
+) -> crate::protocol::intent::IntentResult {
     if state.frontend.scope_stack.current() != &FocusScope::TerminalView {
         return crate::protocol::intent::IntentResult::empty();
     }
     let Some(screen) = active_screen(state) else {
-        state.frontend.status_hint =
-            Some("no live terminal to share — ask the agent to run `interactive_term`".to_owned());
+        crate::feat::ui::status_hint::set_hint(
+            state,
+            slices,
+            Some("no live terminal to share — ask the agent to run `interactive_term`".to_owned()),
+        );
         return crate::protocol::intent::IntentResult::empty();
     };
     let lines = screen.lines().count();
     state.frontend.tui_signals.yank_text = Some(screen.clone());
-    state.frontend.status_hint = Some(format!(
-        "yanked {lines} terminal lines and sent the screen to the agent"
-    ));
+    crate::feat::ui::status_hint::set_hint(
+        state,
+        slices,
+        Some(format!(
+            "yanked {lines} terminal lines and sent the screen to the agent"
+        )),
+    );
 
     let text = push_screen_text(&screen);
     let session_id = state.session.active_session_id().clone();

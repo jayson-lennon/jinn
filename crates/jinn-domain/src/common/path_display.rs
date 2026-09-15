@@ -16,7 +16,7 @@ use std::path::Path;
 /// This is a pure display transform — the [`crate::feat::cwd_input::resolve`]
 /// logic expands `~` back when resolving user input, so shortened paths round-trip.
 #[must_use]
-pub(crate) fn shorten_path(path: &Path) -> String {
+pub fn shorten_path(path: &Path) -> String {
     if let Some(home) = dirs::home_dir()
         && let Ok(relative) = path.strip_prefix(&home)
     {

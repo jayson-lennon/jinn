@@ -156,7 +156,7 @@ impl IntentHandler {
         state.frontend.tui_signals.clear();
         // Status hints are transient: any fresh intent dismisses the previous
         // one (the handler arms that raise one run after this line).
-        state.frontend.status_hint = None;
+        crate::feat::ui::status_hint::set_hint(state, slices, None);
 
         // Capture active session ID before processing for diff-after check.
         let prev_active = state.session.active_session_id().clone();
@@ -828,6 +828,7 @@ impl IntentHandler {
             Intent::ToggleTerminalOverlay { session_id } => {
                 crate::feat::interactive_term::overlay_intent::handle_toggle_overlay(
                     state,
+                    slices,
                     session_id.as_ref(),
                 )
             }
@@ -838,6 +839,7 @@ impl IntentHandler {
                     );
                 crate::feat::interactive_term::overlay_intent::handle_toggle_overlay(
                     state,
+                    slices,
                     selected.as_ref(),
                 )
             }
@@ -845,13 +847,13 @@ impl IntentHandler {
                 crate::feat::interactive_term::takeover_intent::handle_take_control(state)
             }
             Intent::TerminalHandback => {
-                crate::feat::interactive_term::takeover_intent::handle_handback(state)
+                crate::feat::interactive_term::takeover_intent::handle_handback(state, slices)
             }
             Intent::TerminalYank => {
-                crate::feat::interactive_term::takeover_intent::handle_yank(state)
+                crate::feat::interactive_term::takeover_intent::handle_yank(state, slices)
             }
             Intent::TerminalPushScreen => {
-                crate::feat::interactive_term::takeover_intent::handle_push_screen(state)
+                crate::feat::interactive_term::takeover_intent::handle_push_screen(state, slices)
             }
             Intent::TerminalSendKey { bytes, label } => {
                 crate::feat::interactive_term::takeover_intent::handle_send_key(
@@ -1052,6 +1054,25 @@ mod tests {
     /// exercise slices or route rows.
     fn empty_slices() -> crate::common::slices::Slices {
         crate::common::slices::Slices::new()
+    }
+
+    /// `Slices` with the status-bar cell registered (as the slice's
+    /// `activate` does), for hint write/read assertions.
+    fn status_bar_slices() -> crate::common::slices::Slices {
+        let slices = crate::common::slices::Slices::new();
+        #[expect(
+            clippy::expect_used,
+            reason = "test seam: a fresh Slices never has the status-bar cell registered"
+        )]
+        {
+            slices
+                .register(
+                    jinn_slices::status_bar_slot(),
+                    jinn_slices::StatusBarState::default(),
+                )
+                .expect("fresh Slices never has the status-bar cell registered");
+        }
+        slices
     }
 
     fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {
@@ -1854,29 +1875,46 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn toggle_without_live_term_sets_a_status_hint() {
-        // Given default state with no live terminals.
+    fn set_hint_is_a_noop_without_the_status_bar_cell() {
+        // Given state with no activated status-bar slice (bare `Slices`).
         let mut state = AppState::default();
+        let slices = empty_slices();
+
+        // When an intent arm raises a hint through the write seam.
+        crate::feat::ui::status_hint::set_hint(
+            &mut state,
+            &slices,
+            Some("should be dropped".to_owned()),
+        );
+
+        // Then the write is a silent no-op (removability: no slice, no
+        // hint anywhere, no panic).
+        assert!(crate::feat::ui::status_hint::hint(&slices).is_none());
+    }
+
+    #[rstest::rstest]
+    fn toggle_without_live_term_sets_a_status_hint() {
+        // Given default state with no live terminals and an activated
+        // status-bar cell (the hint's storage).
+        let mut state = AppState::default();
+        let slices = status_bar_slices();
 
         // When toggling the terminal overlay.
         IntentHandler::handle(
             &Intent::ToggleTerminalOverlay { session_id: None },
             &mut state,
-            &empty_slices(),
+            &slices,
             &empty_routes(),
         );
 
         // Then no overlay opened (still the default scope).
         assert_eq!(state.frontend.scope_stack.current(), &FocusScope::Input);
         // And a status hint explains the inert press.
+        let hint = crate::feat::ui::status_hint::hint(&slices);
         assert!(
-            state
-                .frontend
-                .status_hint
-                .as_deref()
+            hint.as_deref()
                 .is_some_and(|h| h.contains("no live terminal")),
-            "expected a no-live-terminal hint, got: {:?}",
-            state.frontend.status_hint
+            "expected a no-live-terminal hint, got: {hint:?}"
         );
     }
 
@@ -1884,18 +1922,14 @@ mod tests {
     fn next_intent_dismisses_a_raised_status_hint() {
         // Given a state carrying a hint from a failed overlay toggle.
         let mut state = AppState::default();
-        state.frontend.status_hint = Some("stale hint".to_owned());
+        let slices = status_bar_slices();
+        crate::feat::ui::status_hint::set_hint(&mut state, &slices, Some("stale hint".to_owned()));
 
         // When handling any other intent.
-        IntentHandler::handle(
-            &Intent::SwitchTab,
-            &mut state,
-            &empty_slices(),
-            &empty_routes(),
-        );
+        IntentHandler::handle(&Intent::SwitchTab, &mut state, &slices, &empty_routes());
 
         // Then the hint is cleared.
-        assert!(state.frontend.status_hint.is_none());
+        assert!(crate::feat::ui::status_hint::hint(&slices).is_none());
     }
 
     #[rstest::rstest]
@@ -2049,6 +2083,7 @@ mod tests {
     fn handback_releases_flag_pops_scope_and_sends_nothing() {
         // Given an AppState where the user holds control with a screen mirror.
         let mut state = AppState::default();
+        let handback_slices = status_bar_slices();
         state
             .frontend
             .scope_stack
@@ -2064,7 +2099,7 @@ mod tests {
         IntentHandler::handle(
             &Intent::TerminalTakeControl,
             &mut state,
-            &empty_slices(),
+            &handback_slices,
             &empty_routes(),
         );
 
@@ -2072,7 +2107,7 @@ mod tests {
         let result = IntentHandler::handle(
             &Intent::TerminalHandback,
             &mut state,
-            &empty_slices(),
+            &handback_slices,
             &empty_routes(),
         );
 
@@ -2093,14 +2128,10 @@ mod tests {
             result.message_names
         );
         // And the status hint advertises the push key.
+        let hint = crate::feat::ui::status_hint::hint(&handback_slices);
         assert!(
-            state
-                .frontend
-                .status_hint
-                .as_deref()
-                .is_some_and(|h| h.contains('I')),
-            "handback hint must advertise I; got {:?}",
-            state.frontend.status_hint
+            hint.as_deref().is_some_and(|h| h.contains('I')),
+            "handback hint must advertise I; got {hint:?}"
         );
     }
 
@@ -2226,6 +2257,7 @@ mod tests {
             .frontend
             .scope_stack
             .swap_base(FocusScope::TerminalView);
+        let yank_slices = status_bar_slices();
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
             "term-1",
@@ -2239,7 +2271,7 @@ mod tests {
         IntentHandler::handle(
             &Intent::TerminalYank,
             &mut state,
-            &empty_slices(),
+            &yank_slices,
             &empty_routes(),
         );
 
@@ -2249,14 +2281,10 @@ mod tests {
             Some("line one\nline two\nline three")
         );
         // And the status hint reports the copied line count.
+        let hint = crate::feat::ui::status_hint::hint(&yank_slices);
         assert!(
-            state
-                .frontend
-                .status_hint
-                .as_deref()
-                .is_some_and(|h| h.contains('3')),
-            "yank hint must report the line count; got {:?}",
-            state.frontend.status_hint
+            hint.as_deref().is_some_and(|h| h.contains('3')),
+            "yank hint must report the line count; got {hint:?}"
         );
     }
 
@@ -2264,6 +2292,7 @@ mod tests {
     fn yank_without_live_terminal_sets_a_hint_and_stages_nothing() {
         // Given an AppState in the TerminalView overlay with no mirror.
         let mut state = AppState::default();
+        let yank_slices = status_bar_slices();
         state
             .frontend
             .scope_stack
@@ -2273,21 +2302,18 @@ mod tests {
         IntentHandler::handle(
             &Intent::TerminalYank,
             &mut state,
-            &empty_slices(),
+            &yank_slices,
             &empty_routes(),
         );
 
         // Then nothing was staged for the clipboard.
         assert!(state.frontend.tui_signals.yank_text.is_none());
         // And a status hint explains the inert press.
+        let hint = crate::feat::ui::status_hint::hint(&yank_slices);
         assert!(
-            state
-                .frontend
-                .status_hint
-                .as_deref()
+            hint.as_deref()
                 .is_some_and(|h| h.contains("no live terminal")),
-            "expected a no-live-terminal hint, got: {:?}",
-            state.frontend.status_hint
+            "expected a no-live-terminal hint, got: {hint:?}"
         );
     }
 

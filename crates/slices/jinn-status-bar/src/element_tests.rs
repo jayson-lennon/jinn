@@ -8,12 +8,12 @@
 
 use jinn_testutil::{buffer_row, setup_term};
 
-use crate::common::app_state::AppState;
-use crate::common::render_ctx::RenderCtx;
-use crate::common::ui_element::UiElement;
-use crate::feat::session::model_selection::{AlloyStrategy, ModelSelection};
-use crate::feat::session::token_stats::TokenRecord;
-use crate::feat::ui::status_bar::element::StatusBarElement;
+use crate::element::StatusBarElement;
+use jinn_domain::AppState;
+use jinn_domain::common::render_ctx::RenderCtx;
+use jinn_domain::common::ui_element::UiElement;
+use jinn_domain::feat::session::model_selection::{AlloyStrategy, ModelSelection};
+use jinn_domain::feat::session::token_stats::TokenRecord;
 
 #[rstest::rstest]
 fn name_returns_status_bar() {
@@ -29,7 +29,7 @@ fn render_shows_no_model_selected_when_unset() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -43,13 +43,27 @@ fn render_shows_no_model_selected_when_unset() {
 #[rstest::rstest]
 fn render_shows_status_hint_instead_of_model_when_set() {
     let mut element = StatusBarElement;
-    let mut state = AppState::default();
-    state.frontend.status_hint = Some("that session has no live terminal".to_owned());
+    let state = AppState::default();
+    let slices = jinn_slices::Slices::new();
+    {
+        #[expect(
+            clippy::expect_used,
+            reason = "test seam: a fresh Slices never has the status-bar cell registered"
+        )]
+        let cell = slices
+            .register(
+                crate::state::status_bar_slot(),
+                crate::state::StatusBarState {
+                    hint: Some("that session has no live terminal".to_owned()),
+                },
+            )
+            .expect("fresh Slices never has the status-bar cell registered");
+        cell.update(|s| s.hint = Some("that session has no live terminal".to_owned()));
+    }
     let (mut terminal, area) = setup_term(60, 2);
     terminal
         .draw(|frame| {
-            let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -63,6 +77,27 @@ fn render_shows_status_hint_instead_of_model_when_set() {
 }
 
 #[rstest::rstest]
+fn render_defaults_to_model_when_cell_absent() {
+    // Given a state whose status-bar cell was never registered (slice not
+    // activated) and no model selected.
+    let mut element = StatusBarElement;
+    let state = AppState::default();
+    let (mut terminal, area) = setup_term(60, 2);
+    terminal
+        .draw(|frame| {
+            let slices = jinn_slices::Slices::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
+            let ctx = RenderCtx::new(&state, &slices, &overlay_views);
+            element.render(frame, area, &ctx);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let row = buffer_row(&buffer, 1, 60);
+    // Then the model display shows (the no-hint default).
+    assert!(row.contains("no model selected"), "row: {row}");
+}
+
+#[rstest::rstest]
 fn render_shows_provider_and_model() {
     let mut element = StatusBarElement;
     let mut state = AppState::default();
@@ -73,7 +108,7 @@ fn render_shows_provider_and_model() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -108,7 +143,7 @@ fn render_single_model_ignores_stale_ledger_model_used() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -138,7 +173,7 @@ fn render_right_aligns_text() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -162,7 +197,7 @@ fn render_shows_provider_with_slash_in_model() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -182,7 +217,7 @@ fn render_shows_token_counts_with_zero_values() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -198,7 +233,7 @@ fn render_shows_token_counts_with_zero_values() {
 #[rstest::rstest]
 fn render_shows_token_counts_with_values() {
     // Given a session with token records.
-    use crate::feat::session::token_stats::TokenRecord;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
     let mut element = StatusBarElement;
     let mut state = AppState::default();
     state
@@ -217,7 +252,7 @@ fn render_shows_token_counts_with_values() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -234,7 +269,7 @@ fn render_shows_token_counts_with_values() {
 #[rstest::rstest]
 fn render_shows_cache_percent_when_cached_tokens_present() {
     // Given a session with a measured turn reporting cache hits.
-    use crate::feat::session::token_stats::TokenRecord;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
     let mut element = StatusBarElement;
     let mut state = AppState::default();
     state
@@ -253,7 +288,7 @@ fn render_shows_cache_percent_when_cached_tokens_present() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -315,7 +350,7 @@ fn render_info_line_cache_segment_is_error_below_90_percent(
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -350,7 +385,7 @@ fn render_info_line_cache_segment_is_success_at_or_above_95_percent(
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -385,7 +420,7 @@ fn render_info_line_cache_segment_is_warning_between_90_and_94_percent(
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -405,7 +440,7 @@ fn render_info_line_cache_segment_is_warning_between_90_and_94_percent(
 #[rstest::rstest]
 fn render_hides_cache_glyph_when_no_cached_tokens() {
     // Given a session with no cache hits (cached_tokens = None).
-    use crate::feat::session::token_stats::TokenRecord;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
     let mut element = StatusBarElement;
     let mut state = AppState::default();
     state
@@ -424,7 +459,7 @@ fn render_hides_cache_glyph_when_no_cached_tokens() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -440,7 +475,7 @@ fn render_cache_percent_uses_measured_turns_only() {
     // Given a session with one measured turn (prompt=1000, cached=400) and one
     // cancelled turn (estimate=50, no usage). 400/1000 = 40%, not affected by
     // the cancelled turn's estimate.
-    use crate::feat::session::token_stats::TokenRecord;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
     let mut element = StatusBarElement;
     let mut state = AppState::default();
     state
@@ -468,7 +503,7 @@ fn render_cache_percent_uses_measured_turns_only() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -482,7 +517,7 @@ fn render_cache_percent_uses_measured_turns_only() {
 #[rstest::rstest]
 fn render_shows_zero_percent_max_when_context_size_but_no_limit() {
     // Given a session with a cached context size but no model cache.
-    use crate::feat::session::token_stats::TokenRecord;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
     let mut element = StatusBarElement;
     let mut state = AppState::default();
     state
@@ -502,7 +537,7 @@ fn render_shows_zero_percent_max_when_context_size_but_no_limit() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -522,7 +557,7 @@ fn render_shows_zero_percent_max_when_no_context_size() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -547,7 +582,7 @@ fn render_shows_zero_turns_when_no_history() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -568,21 +603,21 @@ fn render_shows_turn_count_with_history() {
         .set_model(ModelSelection::Single("ollama/llama3".to_owned()));
     state
         .active_session_mut()
-        .push_entry(crate::protocol::ChatEntry::user("hello"));
+        .push_entry(jinn_domain::protocol::ChatEntry::user("hello"));
     state
         .active_session_mut()
-        .push_entry(crate::protocol::ChatEntry::assistant("hi there"));
+        .push_entry(jinn_domain::protocol::ChatEntry::assistant("hi there"));
     state
         .active_session_mut()
-        .push_entry(crate::protocol::ChatEntry::user("how are you?"));
+        .push_entry(jinn_domain::protocol::ChatEntry::user("how are you?"));
     state
         .active_session_mut()
-        .push_entry(crate::protocol::ChatEntry::assistant("doing well"));
+        .push_entry(jinn_domain::protocol::ChatEntry::assistant("doing well"));
     let (mut terminal, area) = setup_term(80, 2);
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -603,25 +638,25 @@ fn render_turn_count_skips_tool_loop_intermediates() {
         .set_model(ModelSelection::Single("ollama/llama3".to_owned()));
     state
         .active_session_mut()
-        .push_entry(crate::protocol::ChatEntry::user("fix the bug"));
+        .push_entry(jinn_domain::protocol::ChatEntry::user("fix the bug"));
     state
         .active_session_mut()
-        .push_entry(crate::protocol::ChatEntry::assistant("let me check"));
+        .push_entry(jinn_domain::protocol::ChatEntry::assistant("let me check"));
     state
         .active_session_mut()
-        .push_entry(crate::protocol::ChatEntry::tool_call(
+        .push_entry(jinn_domain::protocol::ChatEntry::tool_call(
             "id-1",
             "bash",
             r#"{"command":"ls"}"#,
         ));
     state
         .active_session_mut()
-        .push_entry(crate::protocol::ChatEntry::assistant("fixed it"));
+        .push_entry(jinn_domain::protocol::ChatEntry::assistant("fixed it"));
     let (mut terminal, area) = setup_term(80, 2);
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -641,7 +676,7 @@ fn render_shows_cwd_on_first_line() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -667,7 +702,7 @@ fn render_shows_absolute_path_for_non_home_cwd() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -695,7 +730,7 @@ fn render_shows_tilde_for_home_cwd() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -725,7 +760,7 @@ fn render_shows_tilde_substitution_for_path_under_home() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -742,7 +777,7 @@ fn render_shows_tilde_substitution_for_path_under_home() {
 #[rstest::rstest]
 fn render_shows_context_limit_with_usage_and_percentage() {
     // Given a session with a cached context size and a model cache with context_length.
-    use crate::feat::session::token_stats::TokenRecord;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
     let mut element = StatusBarElement;
     let mut state = AppState::default();
     state.active_session_mut().set_model(ModelSelection::Single(
@@ -763,13 +798,13 @@ fn render_shows_context_limit_with_usage_and_percentage() {
     let mut cache_entries = std::collections::HashMap::new();
     cache_entries.insert(
         "openrouter".to_owned(),
-        vec![crate::feat::provider_infra::ModelInfo {
+        vec![jinn_domain::feat::provider_infra::ModelInfo {
             id: "anthropic/claude-sonnet-4".to_owned(),
             context_length: Some(200_000),
-            input_modalities: crate::feat::provider_infra::InputModalities::text(),
+            input_modalities: jinn_domain::feat::provider_infra::InputModalities::text(),
         }],
     );
-    state.provider.model_cache = Some(crate::feat::provider_infra::ModelCache {
+    state.provider.model_cache = Some(jinn_domain::feat::provider_infra::ModelCache {
         entries: cache_entries,
         last_updated_at: None,
     });
@@ -778,7 +813,7 @@ fn render_shows_context_limit_with_usage_and_percentage() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -792,7 +827,7 @@ fn render_shows_context_limit_with_usage_and_percentage() {
 #[rstest::rstest]
 fn render_falls_back_when_no_context_limit_in_cache() {
     // Given a session with a cached context size but no context_length in the model cache.
-    use crate::feat::session::token_stats::TokenRecord;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
     let mut element = StatusBarElement;
     let mut state = AppState::default();
     state
@@ -813,13 +848,13 @@ fn render_falls_back_when_no_context_limit_in_cache() {
     let mut cache_entries = std::collections::HashMap::new();
     cache_entries.insert(
         "ollama".to_owned(),
-        vec![crate::feat::provider_infra::ModelInfo {
+        vec![jinn_domain::feat::provider_infra::ModelInfo {
             id: "llama3".to_owned(),
             context_length: None,
-            input_modalities: crate::feat::provider_infra::InputModalities::text(),
+            input_modalities: jinn_domain::feat::provider_infra::InputModalities::text(),
         }],
     );
-    state.provider.model_cache = Some(crate::feat::provider_infra::ModelCache {
+    state.provider.model_cache = Some(jinn_domain::feat::provider_infra::ModelCache {
         entries: cache_entries,
         last_updated_at: None,
     });
@@ -828,7 +863,7 @@ fn render_falls_back_when_no_context_limit_in_cache() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -845,7 +880,7 @@ fn render_falls_back_when_no_context_limit_in_cache() {
 #[rstest::rstest]
 fn render_falls_back_when_no_model_cache() {
     // Given a session with a cached context size but no model cache at all.
-    use crate::feat::session::token_stats::TokenRecord;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
     let mut element = StatusBarElement;
     let mut state = AppState::default();
     state
@@ -868,7 +903,7 @@ fn render_falls_back_when_no_model_cache() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -895,13 +930,13 @@ fn render_shows_zero_percent_with_max_when_no_messages_sent() {
     let mut cache_entries = std::collections::HashMap::new();
     cache_entries.insert(
         "openrouter".to_owned(),
-        vec![crate::feat::provider_infra::ModelInfo {
+        vec![jinn_domain::feat::provider_infra::ModelInfo {
             id: "anthropic/claude-sonnet-4".to_owned(),
             context_length: Some(200_000),
-            input_modalities: crate::feat::provider_infra::InputModalities::text(),
+            input_modalities: jinn_domain::feat::provider_infra::InputModalities::text(),
         }],
     );
-    state.provider.model_cache = Some(crate::feat::provider_infra::ModelCache {
+    state.provider.model_cache = Some(jinn_domain::feat::provider_infra::ModelCache {
         entries: cache_entries,
         last_updated_at: None,
     });
@@ -910,7 +945,7 @@ fn render_shows_zero_percent_with_max_when_no_messages_sent() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -935,13 +970,13 @@ fn render_shows_used_over_unknown_when_no_context_length() {
     let mut cache_entries = std::collections::HashMap::new();
     cache_entries.insert(
         "ollama".to_owned(),
-        vec![crate::feat::provider_infra::ModelInfo {
+        vec![jinn_domain::feat::provider_infra::ModelInfo {
             id: "llama3".to_owned(),
             context_length: None,
-            input_modalities: crate::feat::provider_infra::InputModalities::text(),
+            input_modalities: jinn_domain::feat::provider_infra::InputModalities::text(),
         }],
     );
-    state.provider.model_cache = Some(crate::feat::provider_infra::ModelCache {
+    state.provider.model_cache = Some(jinn_domain::feat::provider_infra::ModelCache {
         entries: cache_entries,
         last_updated_at: None,
     });
@@ -950,7 +985,7 @@ fn render_shows_used_over_unknown_when_no_context_length() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -970,7 +1005,7 @@ fn render_always_shows_cost_even_when_zero() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -987,7 +1022,7 @@ fn render_always_shows_cost_even_when_zero() {
 #[rstest::rstest]
 fn render_shows_cost_with_non_zero_value() {
     // Given a session with a token record that has cost data.
-    use crate::feat::session::token_stats::TokenRecord;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
     let mut element = StatusBarElement;
     let mut state = AppState::default();
     state
@@ -1006,7 +1041,7 @@ fn render_shows_cost_with_non_zero_value() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1022,8 +1057,7 @@ fn render_shows_cost_with_non_zero_value() {
 
 #[rstest::rstest]
 fn render_tree_cache_segment_is_success_when_at_or_above_95_percent() {
-    use crate::feat::session::token_stats::TokenRecord;
-    use ratatui::style::Color;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
 
     // Given a parent and child session whose aggregated ledgers report 96% cache hits.
     let mut element = StatusBarElement;
@@ -1040,7 +1074,7 @@ fn render_tree_cache_segment_is_success_when_at_or_above_95_percent() {
         prompt_tokens: Some(1000),
         cached_tokens: Some(960),
     });
-    let child_id = crate::protocol::SessionId::new();
+    let child_id = jinn_domain::protocol::SessionId::new();
     let active_id = state.session.active_session_id().clone();
     {
         let child = state.session_mut_or_create(&child_id);
@@ -1061,7 +1095,7 @@ fn render_tree_cache_segment_is_success_when_at_or_above_95_percent() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1082,7 +1116,7 @@ fn render_tree_cache_segment_is_success_when_at_or_above_95_percent() {
         .expect("cache glyph should be rendered on the tree line");
     assert_eq!(
         cache_cell.style().fg,
-        Some(Color::Reset).filter(|_| false).or(Some(expected_fg)),
+        Some(expected_fg),
         "cache segment should carry theme success color"
     );
 }
@@ -1104,7 +1138,7 @@ fn render_tree_cache_segment_keeps_muted_neighbors() {
         prompt_tokens: Some(1000),
         cached_tokens: Some(960),
     });
-    let child_id = crate::protocol::SessionId::new();
+    let child_id = jinn_domain::protocol::SessionId::new();
     let active_id = state.session.active_session_id().clone();
     {
         let child = state.session_mut_or_create(&child_id);
@@ -1125,7 +1159,7 @@ fn render_tree_cache_segment_keeps_muted_neighbors() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1151,7 +1185,7 @@ fn render_tree_cache_segment_keeps_muted_neighbors() {
 #[rstest::rstest]
 fn render_shows_cost_before_turns_indicator() {
     // Given a state with history entries producing turns and a token record with cost.
-    use crate::feat::session::token_stats::TokenRecord;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
     let mut element = StatusBarElement;
     let mut state = AppState::default();
     state
@@ -1159,10 +1193,10 @@ fn render_shows_cost_before_turns_indicator() {
         .set_model(ModelSelection::Single("ollama/llama3".to_owned()));
     state
         .active_session_mut()
-        .push_entry(crate::protocol::ChatEntry::user("hello"));
+        .push_entry(jinn_domain::protocol::ChatEntry::user("hello"));
     state
         .active_session_mut()
-        .push_entry(crate::protocol::ChatEntry::assistant("hi there"));
+        .push_entry(jinn_domain::protocol::ChatEntry::assistant("hi there"));
     state.active_session_mut().push_token_record(TokenRecord {
         model_used: None,
         timestamp: jiff::Timestamp::now(),
@@ -1176,7 +1210,7 @@ fn render_shows_cost_before_turns_indicator() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1206,7 +1240,7 @@ fn render_hides_tree_aggregate_for_single_session() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1223,7 +1257,7 @@ fn render_hides_tree_aggregate_for_single_session() {
 #[rstest::rstest]
 fn render_shows_tree_aggregate_when_parent_has_child() {
     // Given a parent session with a child session.
-    use crate::feat::session::token_stats::TokenRecord;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
 
     let mut element = StatusBarElement;
     let mut state = AppState::default();
@@ -1243,7 +1277,7 @@ fn render_shows_tree_aggregate_when_parent_has_child() {
     });
 
     // Create a child session.
-    let child_id = crate::protocol::SessionId::new();
+    let child_id = jinn_domain::protocol::SessionId::new();
     let active_id = state.session.active_session_id().clone();
     {
         let child = state.session_mut_or_create(&child_id);
@@ -1263,7 +1297,7 @@ fn render_shows_tree_aggregate_when_parent_has_child() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1289,17 +1323,17 @@ fn render_shows_tree_aggregate_from_child_viewpoint() {
     let mut state = AppState::default();
 
     // Create parent session first.
-    let parent_id = crate::protocol::SessionId::new();
+    let parent_id = jinn_domain::protocol::SessionId::new();
     {
         let parent = state.session_mut_or_create(&parent_id);
-        parent.push_entry(crate::protocol::ChatEntry::user("parent msg"));
+        parent.push_entry(jinn_domain::protocol::ChatEntry::user("parent msg"));
     }
 
     // Create child session.
-    let child_id = crate::protocol::SessionId::new();
+    let child_id = jinn_domain::protocol::SessionId::new();
     {
         let child = state.session_mut_or_create(&child_id);
-        child.push_entry(crate::protocol::ChatEntry::user("child msg"));
+        child.push_entry(jinn_domain::protocol::ChatEntry::user("child msg"));
         child.set_parent_session(parent_id.clone());
     }
 
@@ -1313,7 +1347,7 @@ fn render_shows_tree_aggregate_from_child_viewpoint() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1341,7 +1375,7 @@ fn render_single_model_shows_provider_and_model_without_alloy_prefix() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1388,7 +1422,7 @@ fn render_alloy_with_token_records_shows_prefix_and_last_dispatched_model() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1421,7 +1455,7 @@ fn render_alloy_with_no_token_records_falls_back_to_first_model() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1451,7 +1485,7 @@ fn render_alloy_with_one_model_shows_alloy_1() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1474,14 +1508,15 @@ fn render_appends_resolved_reasoning_effort_after_model() {
     state
         .active_session_mut()
         .set_model(ModelSelection::Single("ollama/llama3".to_owned()));
-    state.active_session_mut().profile_mut().reasoning_effort = Some(crate::ReasoningEffort::High);
+    state.active_session_mut().profile_mut().reasoning_effort =
+        Some(jinn_domain::ReasoningEffort::High);
 
     // When rendering.
     let (mut terminal, area) = setup_term(50, 2);
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1505,15 +1540,16 @@ fn render_session_override_beats_global_reasoning_effort() {
         .active_session_mut()
         .set_model(ModelSelection::Single("ollama/llama3".to_owned()));
     // A stale global value must not affect rendering — only the session's own effort matters.
-    state.frontend.app_state.reasoning_effort = Some(crate::ReasoningEffort::High);
-    state.active_session_mut().profile_mut().reasoning_effort = Some(crate::ReasoningEffort::Low);
+    state.frontend.app_state.reasoning_effort = Some(jinn_domain::ReasoningEffort::High);
+    state.active_session_mut().profile_mut().reasoning_effort =
+        Some(jinn_domain::ReasoningEffort::Low);
 
     // When rendering.
     let (mut terminal, area) = setup_term(50, 2);
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1546,7 +1582,7 @@ fn render_omits_reasoning_effort_bracket_when_unresolved() {
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(&state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1563,32 +1599,32 @@ fn render_omits_reasoning_effort_bracket_when_unresolved() {
 
 /// Build a model cache with one model under `ollama` carrying the given modalities.
 fn cache_with_modalities(
-    modalities: crate::feat::provider_infra::InputModalities,
-) -> crate::feat::provider_infra::ModelCache {
+    modalities: jinn_domain::feat::provider_infra::InputModalities,
+) -> jinn_domain::feat::provider_infra::ModelCache {
     use std::collections::HashMap;
     let mut entries = HashMap::new();
     entries.insert(
         "ollama".to_owned(),
-        vec![crate::feat::provider_infra::ModelInfo {
+        vec![jinn_domain::feat::provider_infra::ModelInfo {
             id: "llama3".to_owned(),
             context_length: None,
             input_modalities: modalities,
         }],
     );
-    crate::feat::provider_infra::ModelCache {
+    jinn_domain::feat::provider_infra::ModelCache {
         entries,
         last_updated_at: None,
     }
 }
 
 fn render_model_row(state: &AppState) -> String {
-    use crate::common::ui_element::UiElement;
+    use jinn_domain::common::ui_element::UiElement;
     let mut element = StatusBarElement;
     let (mut terminal, area) = setup_term(80, 2);
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
-            let overlay_views = crate::common::overlay_views::OverlayViews::new();
+            let overlay_views = jinn_domain::common::overlay_views::OverlayViews::new();
             let ctx = RenderCtx::new(state, &slices, &overlay_views);
             element.render(frame, area, &ctx);
         })
@@ -1603,8 +1639,8 @@ fn status_bar_shows_modality_indicator_for_image_model() {
     state
         .active_session_mut()
         .set_model(ModelSelection::Single("ollama/llama3".to_owned()));
-    let mut m = crate::feat::provider_infra::InputModalities::text();
-    m.insert(crate::feat::provider_infra::Modality::Image);
+    let mut m = jinn_domain::feat::provider_infra::InputModalities::text();
+    m.insert(jinn_domain::feat::provider_infra::Modality::Image);
     state.provider.model_cache = Some(cache_with_modalities(m));
 
     // When rendering.
@@ -1625,7 +1661,7 @@ fn status_bar_shows_text_only_indicator_for_text_model() {
         .active_session_mut()
         .set_model(ModelSelection::Single("ollama/llama3".to_owned()));
     state.provider.model_cache = Some(cache_with_modalities(
-        crate::feat::provider_infra::InputModalities::text(),
+        jinn_domain::feat::provider_infra::InputModalities::text(),
     ));
 
     // When rendering.
@@ -1667,8 +1703,8 @@ fn status_bar_shows_indicator_without_reasoning_effort_bracket() {
     state
         .active_session_mut()
         .set_model(ModelSelection::Single("ollama/llama3".to_owned()));
-    let mut m = crate::feat::provider_infra::InputModalities::text();
-    m.insert(crate::feat::provider_infra::Modality::Image);
+    let mut m = jinn_domain::feat::provider_infra::InputModalities::text();
+    m.insert(jinn_domain::feat::provider_infra::Modality::Image);
     state.provider.model_cache = Some(cache_with_modalities(m));
 
     // When rendering.
@@ -1692,9 +1728,10 @@ fn status_bar_shows_effort_bracket_then_modality_indicator() {
     state
         .active_session_mut()
         .set_model(ModelSelection::Single("ollama/llama3".to_owned()));
-    state.active_session_mut().profile_mut().reasoning_effort = Some(crate::ReasoningEffort::High);
-    let mut m = crate::feat::provider_infra::InputModalities::text();
-    m.insert(crate::feat::provider_infra::Modality::Image);
+    state.active_session_mut().profile_mut().reasoning_effort =
+        Some(jinn_domain::ReasoningEffort::High);
+    let mut m = jinn_domain::feat::provider_infra::InputModalities::text();
+    m.insert(jinn_domain::feat::provider_infra::Modality::Image);
     state.provider.model_cache = Some(cache_with_modalities(m));
 
     // When rendering.
@@ -1728,7 +1765,7 @@ fn status_bar_omits_indicator_when_no_model_selected() {
 
 #[rstest::rstest]
 fn status_bar_alloy_indicator_reflects_last_dispatched_member() {
-    use crate::feat::session::token_stats::TokenRecord;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
     // Given an alloy where the last-dispatched member is image-capable.
     let mut state = AppState::default();
     state.active_session_mut().set_model(ModelSelection::Alloy {
@@ -1748,25 +1785,25 @@ fn status_bar_alloy_indicator_reflects_last_dispatched_member() {
     // Cache records gpt-4o as image-capable.
     {
         use std::collections::HashMap;
-        let mut m = crate::feat::provider_infra::InputModalities::text();
-        m.insert(crate::feat::provider_infra::Modality::Image);
+        let mut m = jinn_domain::feat::provider_infra::InputModalities::text();
+        m.insert(jinn_domain::feat::provider_infra::Modality::Image);
         let mut entries = HashMap::new();
         entries.insert(
             "ollama".to_owned(),
             vec![
-                crate::feat::provider_infra::ModelInfo {
+                jinn_domain::feat::provider_infra::ModelInfo {
                     id: "llama3".to_owned(),
                     context_length: None,
-                    input_modalities: crate::feat::provider_infra::InputModalities::text(),
+                    input_modalities: jinn_domain::feat::provider_infra::InputModalities::text(),
                 },
-                crate::feat::provider_infra::ModelInfo {
+                jinn_domain::feat::provider_infra::ModelInfo {
                     id: "gpt-4o".to_owned(),
                     context_length: None,
                     input_modalities: m,
                 },
             ],
         );
-        state.provider.model_cache = Some(crate::feat::provider_infra::ModelCache {
+        state.provider.model_cache = Some(jinn_domain::feat::provider_infra::ModelCache {
             entries,
             last_updated_at: None,
         });

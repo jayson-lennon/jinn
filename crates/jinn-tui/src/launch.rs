@@ -96,6 +96,11 @@ pub fn launch(
 
     let mut ui_registry = AppUiRegistry::new();
     jinn_domain::register_all_ui_elements(&mut ui_registry);
+    // The status-bar slice's element (the slice's cell is minted in the
+    // actor-system bootstrap). Registered here because the kernel cannot
+    // reference slice crates, and jinn-tui's registry assembly is the
+    // composition point for display chrome.
+    jinn_status_bar::register(&mut ui_registry);
 
     // Generated keymap bindings from the slice route rows attached
     // during actor-system bootstrap (single keymap bootstrap site).

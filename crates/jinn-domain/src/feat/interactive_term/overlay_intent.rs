@@ -34,6 +34,7 @@ pub fn selected_sessions_sidebar_target(state: &AppState) -> Option<crate::proto
 /// Handles [`Intent::ToggleTerminalOverlay`].
 pub fn handle_toggle_overlay(
     state: &mut AppState,
+    slices: &crate::common::slices::Slices,
     session_id: Option<&crate::protocol::SessionId>,
 ) -> IntentResult {
     // Already open (view or control): any toggle closes it.
@@ -52,9 +53,13 @@ pub fn handle_toggle_overlay(
     // A session without a live terminal has nothing to show; the overlay is
     // never a spawn trigger. A status hint explains the inert press.
     if !state.frontend.terminal.live_terms.contains(&target) {
-        state.frontend.status_hint = Some(
-            "that session has no live terminal — ask the agent to run `interactive_term`"
-                .to_owned(),
+        crate::feat::ui::status_hint::set_hint(
+            state,
+            slices,
+            Some(
+                "that session has no live terminal — ask the agent to run `interactive_term`"
+                    .to_owned(),
+            ),
         );
         return IntentResult::empty();
     }

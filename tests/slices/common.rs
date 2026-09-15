@@ -36,6 +36,7 @@ use jinn_tui::{AppStatus, MsgHandler};
 pub async fn launch_for_test(core: AppCore, mut services: jinn_domain::Services) -> TuiApp {
     let mut ui_registry = jinn_domain::AppUiRegistry::new();
     jinn_domain::register_all_ui_elements(&mut ui_registry);
+    jinn_status_bar::register(&mut ui_registry);
 
     // Slice activation on the ambient runtime (test path is async).
     // `Services` itself is mutated: the viewport is the render-side view
@@ -65,6 +66,7 @@ pub async fn launch_for_test(core: AppCore, mut services: jinn_domain::Services)
             panic!("dashboard slice activation failed: {error}");
         }
         activate_quake_bar(&mut services);
+        activate_status_bar(&mut services);
         activate_session_init(&mut services, &core).await;
         // Bindings generate after all activations so every slice's rows exist.
         jinn_tui::keymap_gen::bind_route_rows(&services.key_routes, &mut keymap);
@@ -115,6 +117,25 @@ fn activate_quake_bar(services: &mut jinn_domain::Services) {
     let staged = host.finalize(&|_key| None);
     if let Err(error) = staged {
         panic!("quake-bar slice finalize failed: {error}");
+    }
+}
+
+#[expect(
+    clippy::panic,
+    reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
+)]
+fn activate_status_bar(services: &mut jinn_domain::Services) {
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_status_bar::activate(&mut host);
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("status-bar slice finalize failed: {error}");
     }
 }
 

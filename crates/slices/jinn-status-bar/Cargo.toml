@@ -1,0 +1,20 @@
+[package]
+name = "jinn-status-bar"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+jinn-domain = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-theme = { workspace = true }
+ratatui = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tokio = { workspace = true }
+jinn-testutil = { workspace = true }
+dirs = { workspace = true }
+jiff = { workspace = true }
+
+[lints]
+workspace = true

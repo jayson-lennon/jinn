@@ -7,10 +7,10 @@
 //! Always recomputes from the active session's chat history so the count
 //! is correct after session switches, reloads, etc.
 
-use crate::feat::session::chat_entry::{ChatEntry, ChatEntryKind};
+use jinn_domain::protocol::{ChatEntry, ChatEntryKind};
 
 #[cfg(test)]
-use crate::feat::session::tool_result_status::ToolResultStatus;
+use jinn_domain::protocol::ToolResultStatus;
 
 /// Computes the number of conversation turns in the given chat history.
 ///
@@ -59,7 +59,7 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::protocol::ChatEntry;
+    use jinn_domain::protocol::ChatEntry;
 
     #[rstest::rstest]
     fn empty_history_returns_zero() {

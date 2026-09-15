@@ -237,7 +237,7 @@ impl SessionMap {
     }
 
     /// All sessions.
-    pub(crate) fn sessions(&self) -> &HashMap<SessionId, ChatSessionState> {
+    pub fn sessions(&self) -> &HashMap<SessionId, ChatSessionState> {
         &self.sessions
     }
 

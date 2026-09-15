@@ -39,6 +39,7 @@ pub mod route;
 pub mod service_status;
 pub mod slice_scope;
 pub mod slices;
+pub mod status_bar_state;
 pub mod view;
 
 pub use cell::TypedCell;
@@ -53,6 +54,8 @@ pub use overlay::OverlayViewFn;
 pub use overlay::OverlayViews;
 pub use render_facts::AppFact;
 pub use render_facts::RenderFacts;
+pub use status_bar_state::StatusBarState;
+pub use status_bar_state::status_bar_slot;
 
 /// The slice host specialized to jinn's render facts — the spelling
 /// slices use in their `activate` signatures instead of naming the

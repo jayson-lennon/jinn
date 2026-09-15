@@ -4,19 +4,27 @@
 //! on line 2: strategy, pinned count, token stats, turn count, and model.
 //! The model shows `({provider})/{model}` when set, or "no model selected" otherwise.
 
-use crate::common::path_display::shorten_path;
-use crate::common::render_ctx::RenderCtx;
-use crate::common::ui_element::UiElement;
-use crate::feat::provider_infra::InputModalities;
-use crate::feat::session::{TokenStats, aggregate_tree_stats};
-use crate::feat::theme::Theme;
-use crate::feat::ui::status_bar::turn_counter;
-use crate::resolve_effort;
+use jinn_domain::common::app_state::AppState;
+use jinn_domain::common::path_display::shorten_path;
+use jinn_domain::common::render_ctx::RenderCtx;
+use jinn_domain::common::ui_element::UiElement;
+use jinn_domain::feat::provider_infra::InputModalities;
+use jinn_domain::feat::provider_infra::ModelCache;
+use jinn_domain::feat::provider_infra::ModelInfo;
+use jinn_domain::feat::session::aggregate_tree_stats;
+use jinn_domain::feat::session::model_selection::ModelSelection;
+use jinn_domain::feat::session::token_stats::TokenStats;
+use jinn_domain::resolve_effort;
+use jinn_theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+
+use crate::turn_counter;
+use jinn_slices::StatusBarState;
+use jinn_slices::status_bar_slot;
 
 /// A display element that shows the active strategy and provider/model in the status bar.
 #[derive(Debug)]
@@ -54,9 +62,9 @@ fn format_budget(count: usize) -> String {
 /// string the status bar surfaces as the model name). Returns `None` when the
 /// cache is absent or the model is not recorded in it.
 fn resolve_model_info<'a>(
-    model_cache: Option<&'a crate::feat::provider_infra::ModelCache>,
+    model_cache: Option<&'a ModelCache>,
     active_model: &str,
-) -> Option<&'a crate::feat::provider_infra::ModelInfo> {
+) -> Option<&'a ModelInfo> {
     let cache = model_cache?;
     let provider_name = active_model.split('/').next()?;
     let models = cache.entries.get(provider_name)?;
@@ -68,10 +76,7 @@ fn resolve_model_info<'a>(
 ///
 /// Returns `Some(context_length)` if the cache is populated and the active model
 /// is found with a non-None context_length. Returns `None` otherwise.
-fn resolve_context_limit(
-    model_cache: Option<&crate::feat::provider_infra::ModelCache>,
-    active_model: &str,
-) -> Option<u32> {
+fn resolve_context_limit(model_cache: Option<&ModelCache>, active_model: &str) -> Option<u32> {
     let info = resolve_model_info(model_cache, active_model)?;
     info.context_length
 }
@@ -81,9 +86,9 @@ fn resolve_context_limit(
 /// Returns the cached modalities when the model is recorded, otherwise `None`
 /// (so the caller can apply the conservative text-only default).
 fn resolve_modalities(
-    model_cache: Option<&crate::feat::provider_infra::ModelCache>,
+    model_cache: Option<&ModelCache>,
     active_model: &str,
-) -> Option<crate::feat::provider_infra::InputModalities> {
+) -> Option<InputModalities> {
     resolve_model_info(model_cache, active_model).map(|m| m.input_modalities)
 }
 
@@ -102,17 +107,12 @@ impl UiElement for StatusBarElement {
 
         render_cwd_line(frame, cwd_area, state, style);
         render_tree_aggregate(frame, cwd_area, state, style);
-        render_token_info_line(frame, info_area, state, style);
+        render_token_info_line(frame, info_area, state, ctx, style);
     }
 }
 
 /// Renders the CWD line (left-aligned) for the active session.
-fn render_cwd_line(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    state: &crate::common::app_state::AppState,
-    style: Style,
-) {
+fn render_cwd_line(frame: &mut Frame<'_>, area: Rect, state: &AppState, style: Style) {
     let cwd = state.active_session().cwd();
     let cwd_display = shorten_path(cwd);
     let cwd_widget = Paragraph::new(Line::from(Span::styled(cwd_display, style)))
@@ -122,12 +122,7 @@ fn render_cwd_line(
 }
 
 /// Renders the tree aggregate (right-aligned on the CWD line) when the tree has >1 session.
-fn render_tree_aggregate(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    state: &crate::common::app_state::AppState,
-    style: Style,
-) {
+fn render_tree_aggregate(frame: &mut Frame<'_>, area: Rect, state: &AppState, style: Style) {
     let tree = aggregate_tree_stats(
         state.session.sessions(),
         state.session.frozen_nodes(),
@@ -173,7 +168,8 @@ fn render_tree_aggregate(
 fn render_token_info_line(
     frame: &mut Frame<'_>,
     area: Rect,
-    state: &crate::common::app_state::AppState,
+    state: &AppState,
+    ctx: &RenderCtx,
     style: Style,
 ) {
     let active_model = state.active_session().profile().model.clone();
@@ -209,11 +205,15 @@ fn render_token_info_line(
 
     // A transient hint (e.g. an inert overlay toggle) replaces the model
     // display until the next intent; it is warning-colored so it reads as a
-    // notice rather than ambient info.
-    let right_side = if let Some(hint) = &state.frontend.status_hint {
+    // notice rather than ambient info. The hint lives in the slice's cell —
+    // absent cell (slice not activated) means no hint, model shows.
+    let hint = ctx
+        .slices
+        .reader::<StatusBarState>(&status_bar_slot())
+        .and_then(|cell| cell.read().hint.clone());
+    let right_side = if let Some(hint) = hint {
         let hint_style = Style::default().fg(state.frontend.theme.warning);
-        Paragraph::new(Line::from(vec![Span::styled(hint.clone(), hint_style)]))
-            .alignment(Alignment::Right)
+        Paragraph::new(Line::from(vec![Span::styled(hint, hint_style)])).alignment(Alignment::Right)
     } else {
         let right_spans = vec![Span::styled(model, style)];
         Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right)
@@ -223,8 +223,8 @@ fn render_token_info_line(
 
 /// Builds the left-side token info string: sent/received counts + context budget.
 fn build_token_info_string(
-    state: &crate::common::app_state::AppState,
-    active_model: &crate::feat::session::model_selection::ModelSelection,
+    state: &AppState,
+    active_model: &ModelSelection,
     token_stats: &TokenStats,
 ) -> String {
     let up_arrow = '\u{2191}';
@@ -292,10 +292,7 @@ fn cache_hit_style(theme: &Theme, pct: u32) -> Style {
 }
 
 /// Builds the right-side model display string: resolved name + reasoning effort.
-fn build_model_string(
-    state: &crate::common::app_state::AppState,
-    active_model: &crate::feat::session::model_selection::ModelSelection,
-) -> String {
+fn build_model_string(state: &AppState, active_model: &ModelSelection) -> String {
     let (model, resolved_for_lookup) = {
         // For an Alloy, the bar surfaces the last-rotated member (which one
         // actually answered) from the token ledger, falling back to the first
@@ -353,60 +350,5 @@ fn build_model_string(
     match modalities {
         Some(m) => format!("{model} <{}>", m.display()),
         None => model,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(
-        clippy::expect_used,
-        clippy::panic,
-        clippy::unreachable,
-        reason = "test code"
-    )]
-    use super::*;
-    use jinn_theme::default_theme;
-
-    #[rstest::rstest]
-    #[case(100)]
-    #[case(97)]
-    #[case(95)]
-    fn cache_hit_style_bands_at_or_above_95_as_success(#[case] pct: u32) {
-        // Given the default theme.
-        let theme = default_theme();
-
-        // When classifying a percentage in the healthy band.
-        let style = cache_hit_style(&theme, pct);
-
-        // Then it uses the success color.
-        assert_eq!(style.fg, Some(theme.success));
-    }
-
-    #[rstest::rstest]
-    #[case(94)]
-    #[case(90)]
-    fn cache_hit_style_bands_90_to_94_as_warning(#[case] pct: u32) {
-        // Given the default theme.
-        let theme = default_theme();
-
-        // When classifying a percentage in the degraded band.
-        let style = cache_hit_style(&theme, pct);
-
-        // Then it uses the warning color.
-        assert_eq!(style.fg, Some(theme.warning));
-    }
-
-    #[rstest::rstest]
-    #[case(89)]
-    #[case(0)]
-    fn cache_hit_style_bands_below_90_as_error(#[case] pct: u32) {
-        // Given the default theme.
-        let theme = default_theme();
-
-        // When classifying a percentage in the poor band.
-        let style = cache_hit_style(&theme, pct);
-
-        // Then it uses the error_text color.
-        assert_eq!(style.fg, Some(theme.error_text));
     }
 }

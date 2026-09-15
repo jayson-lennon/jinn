@@ -36,6 +36,7 @@ pub mod session_actor;
 pub mod steering_buffer;
 pub mod token_stats;
 pub mod tree_aggregate;
+pub mod turn_counter;
 
 #[cfg(test)]
 mod token_stats_tests;
@@ -56,6 +57,7 @@ pub use session_store::{
 };
 pub use session_summary::SessionSummary;
 pub use token_stats::{AggregatedTokenStats, TokenRecord, TokenStats, aggregate_session_stats};
+pub use turn_counter::compute_turn_count;
 
 /// Returns a guidance message for when no API keys are found.
 ///

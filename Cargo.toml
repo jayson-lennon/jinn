@@ -78,6 +78,7 @@ jinn-dashboard = { workspace = true }
 jinn-discord = { workspace = true }
 jinn-discord-msg = { workspace = true }
 jinn-quake-bar = { workspace = true }
+jinn-status-bar = { workspace = true }
 jinn-session-msg = { workspace = true }
 jinn-session-init = { workspace = true }
 jinn-slices = { workspace = true }
@@ -126,6 +127,7 @@ jinn-dashboard = { workspace = true }
 jinn-quake-bar = { workspace = true }
 jinn-discord = { workspace = true }
 jinn-session-init = { workspace = true }
+jinn-status-bar = { workspace = true }
 jinn-testutil = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
@@ -141,6 +143,7 @@ jinn-core-types = { path = "crates/jinn-core-types" }
 jinn-dashboard = { path = "crates/slices/jinn-dashboard" }
 jinn-quake-bar = { path = "crates/slices/jinn-quake-bar" }
 jinn-session-init = { path = "crates/slices/jinn-session-init" }
+jinn-status-bar = { path = "crates/slices/jinn-status-bar" }
 jinn-slices = { path = "crates/jinn-slices" }
 jinn-session-msg = { path = "crates/jinn-session-msg" }
 jinn-session-schema = { path = "crates/jinn-session-schema" }
@@ -201,9 +204,9 @@ futures = "0.3"
 kameo = { version = "0.20", features = ["tracing"] }
 kameo_actors = "0.5"
 
-# The trouper actor runtime (path dep on the sibling trouper workspace;
-# an unpublished crate — see .plans/actor-canvas/plan.md)
-trouper = { path = "../../trouper/trouper-sdk/crates/trouper" }
+# The trouper actor runtime (published to crates.io; the SDK workspace
+# remains the development home — see .plans/actor-canvas/plan.md)
+trouper = "0.1"
 
 # PTY + terminal emulation (interactive_term tool)
 portable-pty = "0.9"

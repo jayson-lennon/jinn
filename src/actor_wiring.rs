@@ -247,6 +247,7 @@ impl ActorSystemBuilder {
         // Quake bar slice: activation mints the cell, spawns the actor
         // (submit-log writer), attaches rows, and registers the input
         // hook + overlay geometry. Composition owns exactly this call.
+        jinn_status_bar_activate(&mut services);
         jinn_quake_bar_activate(&mut services);
 
         // ── Session-init slice ────────────────────────────────────────
@@ -1475,6 +1476,24 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
     clippy::panic,
     reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
 )]
+/// Activates the status-bar slice: its state cell only (the element
+/// itself is display chrome registered into the UI registry by the
+/// TUI composition). No routes, no actors.
+fn jinn_status_bar_activate(services: &mut Services) {
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_status_bar::activate(&mut host);
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("status-bar slice finalize failed: {error}");
+    }
+}
+
 fn jinn_quake_bar_activate(services: &mut Services) {
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,

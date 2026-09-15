@@ -10,8 +10,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::feat::session::chat_session::ChatSessionState;
+use crate::feat::session::compute_turn_count;
 use crate::feat::session::token_stats::TokenStats;
-use crate::feat::ui::status_bar::turn_counter;
 use crate::protocol::SessionId;
 
 /// Aggregate statistics for an entire session tree.
@@ -78,7 +78,7 @@ pub fn snapshot_frozen_node(session: &ChatSessionState) -> FrozenTreeNode {
         total_sent: token_stats.total_sent,
         total_received: token_stats.total_received,
         total_cost: TokenStats::total_cost(session.token_ledger()),
-        total_turns: turn_counter::compute_turn_count(session.history(), session.fork_ordinal()),
+        total_turns: compute_turn_count(session.history(), session.fork_ordinal()),
         effective_sent: token_stats.effective_sent,
         measured_sent: token_stats.measured_sent,
         cached_total: token_stats.cached_total,
@@ -200,8 +200,7 @@ pub fn aggregate_tree_stats<S: ::std::hash::BuildHasher>(
         stats.total_sent += token_stats.total_sent;
         stats.total_received += token_stats.total_received;
         stats.total_cost += TokenStats::total_cost(session.token_ledger());
-        stats.total_turns +=
-            turn_counter::compute_turn_count(session.history(), session.fork_ordinal());
+        stats.total_turns += compute_turn_count(session.history(), session.fork_ordinal());
         stats.effective_sent += token_stats.effective_sent;
         stats.measured_sent += token_stats.measured_sent;
         stats.cached_total += token_stats.cached_total;
