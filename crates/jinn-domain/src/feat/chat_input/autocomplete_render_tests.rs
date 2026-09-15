@@ -27,16 +27,12 @@ fn state_with_autocomplete(
     matches: Vec<AutocompleteMatch>,
 ) -> AppState {
     let mut state = AppState::default();
-    state
-        .active_chat_input_mut()
-        .replace_all(buffer_text.to_owned());
+    state.update_active_input(|i| i.replace_all(buffer_text.to_owned()));
     // Position cursor after the buffer text.
     // Note: cursor must be at the end for autocomplete to be consistent.
-    state.active_chat_input_mut().activate_autocomplete(
-        token_start,
-        AutocompleteTrigger::Hash,
-        matches,
-    );
+    state.update_active_input(|i| {
+        i.activate_autocomplete(token_start, AutocompleteTrigger::Hash, matches);
+    });
     state
 }
 
@@ -122,7 +118,7 @@ fn render_autocomplete_popup_highlights_selected() {
     let mut state = state_with_autocomplete("#", 0, matches);
     // Default selected_index is last (index 1 = "beta").
     // Move selection up to select index 0 ("alpha").
-    state.active_chat_input_mut().autocomplete_move_up();
+    state.update_active_input(crate::feat::chat_input::ChatInputBoxState::autocomplete_move_up);
 
     let (mut terminal, _area) = setup_term(80, 24);
     let input_area = Rect::new(0, 20, 80, 4);
@@ -313,10 +309,8 @@ fn render_slash_command_popup_shows_commands() {
         description: "Create a new session".to_owned(),
     }];
     let mut state = AppState::default();
-    state.active_chat_input_mut().replace_all("/".to_owned());
-    state
-        .active_chat_input_mut()
-        .activate_autocomplete(0, AutocompleteTrigger::Slash, matches);
+    state.update_active_input(|i| i.replace_all("/".to_owned()));
+    state.update_active_input(|i| i.activate_autocomplete(0, AutocompleteTrigger::Slash, matches));
 
     let (mut terminal, _area) = setup_term(80, 24);
     let input_area = Rect::new(0, 20, 80, 4);
@@ -345,10 +339,8 @@ fn render_slash_command_popup_shows_commands() {
 fn render_slash_command_popup_shows_no_commands_message() {
     // Given an AppState with slash autocomplete active but 0 matches.
     let mut state = AppState::default();
-    state.active_chat_input_mut().replace_all("/xyz".to_owned());
-    state
-        .active_chat_input_mut()
-        .activate_autocomplete(0, AutocompleteTrigger::Slash, vec![]);
+    state.update_active_input(|i| i.replace_all("/xyz".to_owned()));
+    state.update_active_input(|i| i.activate_autocomplete(0, AutocompleteTrigger::Slash, vec![]));
 
     let (mut terminal, _area) = setup_term(80, 24);
     let input_area = Rect::new(0, 20, 80, 4);

@@ -3678,7 +3678,7 @@ fn cancel_stream_and_drain_puts_user_display_text_in_input() {
     session.cancel_stream_and_drain();
 
     // Then the input buffer contains the drained display texts joined by the cancel separator.
-    let text = session.chat_input().text().to_owned();
+    let text = session.with_input(|i| i.text().to_owned(), String::new);
     assert_eq!(text, "hello world\n\n---\n\nsecond message");
 }
 
@@ -3696,7 +3696,7 @@ fn cancel_stream_and_drain_discards_non_user_items() {
     session.cancel_stream_and_drain();
 
     // Then only user display text appears in the input buffer.
-    let text = session.chat_input().text().to_owned();
+    let text = session.with_input(|i| i.text().to_owned(), String::new);
     assert_eq!(text, "keep this");
 }
 
@@ -3711,7 +3711,7 @@ fn cancel_stream_and_drain_with_empty_queue_leaves_input_empty() {
     session.cancel_stream_and_drain();
 
     // Then the input buffer remains empty.
-    assert!(session.chat_input().text().is_empty());
+    assert!(session.with_input(|i| i.text().is_empty(), || true));
 }
 
 #[rstest::rstest]
@@ -3725,7 +3725,7 @@ fn cancel_stream_and_drain_skips_tool_continuation() {
     session.cancel_stream_and_drain();
 
     // Then input buffer is empty (ToolContinuation was silently discarded).
-    assert!(session.chat_input().text().is_empty());
+    assert!(session.with_input(|i| i.text().is_empty(), || true));
 }
 
 #[rstest::rstest]
@@ -3748,7 +3748,7 @@ fn cancel_stream_and_drain_uses_display_not_expanded() {
     session.cancel_stream_and_drain();
 
     // Then the input buffer contains the display text, not expanded.
-    let text = session.chat_input().text().to_owned();
+    let text = session.with_input(|i| i.text().to_owned(), String::new);
     assert_eq!(text, "short");
 }
 
@@ -3768,7 +3768,7 @@ fn cancel_stream_and_drain_puts_steering_in_input() {
     session.cancel_stream_and_drain();
 
     // Then the input buffer contains both fragments joined by the cancel separator.
-    let text = session.chat_input().text().to_owned();
+    let text = session.with_input(|i| i.text().to_owned(), String::new);
     assert_eq!(text, "frag1\n\n---\n\nfrag2");
 }
 
@@ -3785,7 +3785,7 @@ fn cancel_stream_and_drain_single_steering_fragment_no_separator() {
     session.cancel_stream_and_drain();
 
     // Then the input buffer contains the fragment with no separator.
-    let text = session.chat_input().text().to_owned();
+    let text = session.with_input(|i| i.text().to_owned(), String::new);
     assert_eq!(text, "frag1");
 }
 
@@ -3826,7 +3826,7 @@ fn cancel_stream_and_drain_flattens_steering_and_queue() {
     session.cancel_stream_and_drain();
 
     // Then the input buffer contains all units flattened, steering first, joined by the cancel separator.
-    let text = session.chat_input().text().to_owned();
+    let text = session.with_input(|i| i.text().to_owned(), String::new);
     assert_eq!(text, "s1\n\n---\n\ns2\n\n---\n\nm1\n\n---\n\nm2");
 }
 
@@ -3835,9 +3835,7 @@ fn cancel_stream_and_drain_both_empty_leaves_input_unchanged() {
     // Given a streaming session with a pre-filled input box and empty buffers.
     let mut session = ChatSessionState::new();
     session.begin_streaming();
-    session
-        .chat_input_mut()
-        .replace_all("pre-existing".to_owned());
+    session.update_input(|i| i.replace_all("pre-existing".to_owned()));
     assert_eq!(session.queue_len(), 0);
     assert!(session.steering_buffer().is_empty());
 
@@ -3845,7 +3843,7 @@ fn cancel_stream_and_drain_both_empty_leaves_input_unchanged() {
     session.cancel_stream_and_drain();
 
     // Then the input buffer is left unchanged.
-    let text = session.chat_input().text().to_owned();
+    let text = session.with_input(|i| i.text().to_owned(), String::new);
     assert_eq!(text, "pre-existing");
 }
 
@@ -3862,7 +3860,7 @@ fn cancel_stream_and_drain_single_queue_message_no_separator() {
     session.cancel_stream_and_drain();
 
     // Then the input buffer contains the single message with no separator.
-    let text = session.chat_input().text().to_owned();
+    let text = session.with_input(|i| i.text().to_owned(), String::new);
     assert_eq!(text, "keep this");
 }
 
@@ -3880,7 +3878,7 @@ fn cancel_stream_and_drain_steering_with_only_tool_continuation() {
     session.cancel_stream_and_drain();
 
     // Then the input buffer contains only the steering fragment (continuation discarded).
-    let text = session.chat_input().text().to_owned();
+    let text = session.with_input(|i| i.text().to_owned(), String::new);
     assert_eq!(text, "frag1");
 }
 
@@ -5865,7 +5863,7 @@ fn attached_view_writes_land_in_the_cell() {
         )
         .expect("fresh registry");
     let mut session = ChatSessionState::new();
-    session.attach_view_slices(slices.clone());
+    session.attach_slices(slices.clone());
 
     // When writing a scroll offset through the facade.
     session.set_scroll_offset(Some(7));
@@ -5879,5 +5877,98 @@ fn attached_view_writes_land_in_the_cell() {
         stored.and_then(|v| v.scroll_offset),
         Some(7),
         "attached writes must resolve the cell, not the fallback"
+    );
+}
+
+#[rstest::rstest]
+fn input_writes_roundtrip_without_the_cell() {
+    // Given an unattached session (no slice registry handle).
+    let session = ChatSessionState::new();
+
+    // When performing input mutations through the facade.
+    session.update_input(|i| {
+        i.insert_text("draft text");
+        i.move_cursor_to_start();
+    });
+
+    // Then writes land on the in-struct fallback and reads round-trip.
+    assert_eq!(
+        session.with_input(|i| i.text().to_owned(), String::new),
+        "draft text"
+    );
+    assert_eq!(
+        session.with_input(jinn_slices::ChatInputBoxState::cursor_pos, Default::default),
+        0
+    );
+}
+
+#[rstest::rstest]
+fn input_reads_default_without_the_cell() {
+    // Given an unattached session with no writes.
+    let session = ChatSessionState::new();
+
+    // When reading input fields through the facade.
+    // Then the draft reads as its default.
+    assert_eq!(session.with_input(|i| i.text().to_owned(), String::new), "");
+    assert!(session.with_input(jinn_slices::ChatInputBoxState::is_empty, || true));
+}
+
+#[rstest::rstest]
+fn attached_input_writes_land_in_the_cell() {
+    // Given a session attached to a registry holding the chat-input cell.
+    let slices = jinn_slices::Slices::new();
+    slices
+        .register(
+            jinn_slices::chat_inputs_slot(),
+            jinn_slices::ChatInputs::new(),
+        )
+        .expect("fresh registry");
+    let mut session = ChatSessionState::new();
+    session.attach_slices(slices.clone());
+
+    // When writing a draft through the facade.
+    session.update_input(|i| i.insert_text("attached draft"));
+
+    // Then the write lands in the cell, keyed by this session's id.
+    let cell = slices
+        .reader::<jinn_slices::ChatInputs>(&jinn_slices::chat_inputs_slot())
+        .expect("cell");
+    let stored = cell.read().get(session.session_id()).cloned();
+    assert_eq!(
+        stored.map(|i| i.text().to_owned()),
+        Some("attached draft".to_owned()),
+        "attached writes must resolve the cell, not the fallback"
+    );
+    // And a read through the facade resolves the same entry.
+    assert_eq!(
+        session.with_input(|i| i.text().to_owned(), String::new),
+        "attached draft"
+    );
+}
+
+#[rstest::rstest]
+fn attached_input_reads_do_not_grow_the_cell() {
+    // Given an attached registry with no entry for this session.
+    let slices = jinn_slices::Slices::new();
+    slices
+        .register(
+            jinn_slices::chat_inputs_slot(),
+            jinn_slices::ChatInputs::new(),
+        )
+        .expect("fresh registry");
+    let mut session = ChatSessionState::new();
+    session.attach_slices(slices.clone());
+
+    // When reading through the facade.
+    let text = session.with_input(|i| i.text().to_owned(), String::new);
+
+    // Then the read yields the default without growing the map.
+    assert_eq!(text, "");
+    let cell = slices
+        .reader::<jinn_slices::ChatInputs>(&jinn_slices::chat_inputs_slot())
+        .expect("cell");
+    assert!(
+        !cell.read().contains_key(session.session_id()),
+        "reads must not insert map entries"
     );
 }

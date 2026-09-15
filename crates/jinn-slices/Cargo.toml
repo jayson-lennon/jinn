@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 unicode-segmentation = { workspace = true }
+unicode-width = { workspace = true }
 parking_lot = { workspace = true }
 derive_more = { workspace = true }
 jinn-theme = { workspace = true }

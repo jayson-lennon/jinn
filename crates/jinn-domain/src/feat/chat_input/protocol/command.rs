@@ -47,7 +47,6 @@ pub struct EnqueueResumeTurn {
 }
 
 impl BusMessage for EnqueueResumeTurn {}
-impl BusMessage for SetChatInputText {}
 
 /// Append a fragment to a session's steering buffer.
 ///
@@ -68,29 +67,3 @@ pub struct SubmitSteeringMessage {
 }
 
 impl crate::common::bus::BusMessage for SubmitSteeringMessage {}
-
-/// Set the chat input buffer text directly.
-///
-/// Used when draining queued messages back into the input box (e.g. on cancel).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SetChatInputText {
-    /// The session whose input buffer to set.
-    pub session_id: SessionId,
-    /// The new text for the input buffer.
-    pub text: String,
-}
-
-/// Enable or disable the chat input box for a session.
-///
-/// When disabled, editing intents (typing, deletion, cursor movement, paste,
-/// submit) are no-ops and the renderer dims the text. Navigation and other
-/// Normal-scope intents are unaffected.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SetChatInputEnabled {
-    /// The session whose input box to enable/disable.
-    pub session_id: SessionId,
-    /// `true` to re-enable editing, `false` to disable.
-    pub enabled: bool,
-}
-
-impl BusMessage for SetChatInputEnabled {}

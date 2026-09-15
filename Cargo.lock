@@ -2557,6 +2557,7 @@ dependencies = [
  "dotenvy",
  "error-stack",
  "jiff",
+ "jinn-chat-input",
  "jinn-chat-log-view",
  "jinn-cli",
  "jinn-dashboard",
@@ -2596,6 +2597,16 @@ dependencies = [
  "tracing-subscriber",
  "trouper",
  "wherror",
+]
+
+[[package]]
+name = "jinn-chat-input"
+version = "0.118.0"
+dependencies = [
+ "jinn-domain",
+ "jinn-slices",
+ "rstest",
+ "tokio",
 ]
 
 [[package]]
@@ -3009,6 +3020,7 @@ dependencies = [
  "toml 0.8.23",
  "trouper",
  "unicode-segmentation",
+ "unicode-width 0.2.2",
  "uuid",
  "wherror",
 ]

@@ -580,7 +580,7 @@ mod tests {
     #[case::exact_width("hello", 5)]
     fn wrapped_lines_memo_matches_fresh_wrap_text(#[case] text: &str, #[case] width: usize) {
         // Given a ChatInputBoxState loaded with `text` at the given width.
-        use crate::feat::chat_input::state::ChatInputBoxState;
+        use crate::chat_input_state::ChatInputBoxState;
         let mut state = ChatInputBoxState::new();
         state.set_wrap_width(width);
         state.insert_text(text);

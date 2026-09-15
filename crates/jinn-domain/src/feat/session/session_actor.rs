@@ -30,8 +30,7 @@ use crate::common::actor_deps::{ActorDeps, BusPublish};
 use crate::common::services::bus_service::BusService;
 use crate::common::state::State;
 use crate::feat::chat_input::protocol::command::{
-    EnqueueResumeTurn, EnqueueUserMessage, PushChatEntry, SetChatInputEnabled, SetChatInputText,
-    SubmitSteeringMessage,
+    EnqueueResumeTurn, EnqueueUserMessage, PushChatEntry, SubmitSteeringMessage,
 };
 use crate::feat::context::protocol::command::{
     LoadPersonaPickerEntries, PinChatEntry, UnpinChatEntry,
@@ -136,8 +135,6 @@ impl Actor for SessionPersistenceActor {
         bus.subscribe::<EnqueueUserMessage, _>(&actor_ref).await;
         bus.subscribe::<SubmitSteeringMessage, _>(&actor_ref).await;
         bus.subscribe::<EnqueueResumeTurn, _>(&actor_ref).await;
-        bus.subscribe::<SetChatInputText, _>(&actor_ref).await;
-        bus.subscribe::<SetChatInputEnabled, _>(&actor_ref).await;
         bus.subscribe::<PushChatEntry, _>(&actor_ref).await;
         bus.subscribe::<SendMessage, _>(&actor_ref).await;
 
@@ -254,20 +251,6 @@ impl Message<EnqueueResumeTurn> for SessionPersistenceActor {
     type Reply = ();
     async fn handle(&mut self, msg: EnqueueResumeTurn, _ctx: &mut Context<Self, Self::Reply>) {
         self.handle_enqueue_resume_turn(&msg).await;
-    }
-}
-
-impl Message<SetChatInputText> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: SetChatInputText, _ctx: &mut Context<Self, Self::Reply>) {
-        self.handle_set_chat_input_text(&msg);
-    }
-}
-
-impl Message<SetChatInputEnabled> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: SetChatInputEnabled, _ctx: &mut Context<Self, Self::Reply>) {
-        self.handle_set_chat_input_enabled(&msg);
     }
 }
 

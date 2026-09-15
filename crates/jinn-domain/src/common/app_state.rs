@@ -108,7 +108,7 @@ impl AppState {
             // Same re-seed intent as scope-focus above.
         }
         state.frontend.attach_slices(slices.clone());
-        state.session.attach_view_slices(slices);
+        state.session.attach_slices(slices);
         state
     }
 
@@ -194,26 +194,25 @@ impl AppState {
         self.session.get_or_create(id)
     }
 
-    /// Read-only access to the active session's input box.
-    ///
-    /// Delegates to [`ChatSessionState::chat_input`] on the active session.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the active session does not exist in the sessions map.
-    pub fn active_chat_input(&self) -> &ChatInputBoxState {
-        self.active_session().chat_input()
+    /// Runs `f` against the active session's input draft, writing through
+    /// the chat-input facade (cell when attached, in-struct fallback when
+    /// not). The single write path for input edits.
+    pub fn update_active_input<F>(&mut self, f: F)
+    where
+        F: FnOnce(&mut ChatInputBoxState),
+    {
+        self.active_session().update_input(f);
     }
 
-    /// Mutable access to the active session's input box.
-    ///
-    /// Delegates to [`ChatSessionState::chat_input_mut`] on the active session.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the active session does not exist in the sessions map.
-    pub fn active_chat_input_mut(&mut self) -> &mut ChatInputBoxState {
-        self.active_session_mut().chat_input_mut()
+    /// Reads the active session's input draft through `f`, with `default`
+    /// supplying the result when the session has no entry in the cell.
+    /// The single read path for input state.
+    pub fn with_active_input<R, F, D>(&self, f: F, default: D) -> R
+    where
+        F: FnOnce(&ChatInputBoxState) -> R,
+        D: FnOnce() -> R,
+    {
+        self.active_session().with_input(f, default)
     }
 
     /// Returns pinned entry IDs sorted by position for the active session.

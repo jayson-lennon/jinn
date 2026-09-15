@@ -31,7 +31,9 @@ pub enum InterruptError {
 ///
 /// Returns an error if the buffer is empty and the session is idle.
 pub fn validate_interrupt(state: &AppState) -> Result<(), InterruptError> {
-    if state.active_chat_input().is_empty()
+    if state
+        .active_session()
+        .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
         && matches!(state.active_session().phase(), PhaseKind::Idle)
     {
         return Err(InterruptError::NothingToInterrupt);
@@ -54,7 +56,7 @@ mod tests {
     fn interrupt_succeeds_with_non_empty_buffer() {
         // Given a state with text in the input buffer and idle session.
         let mut state = AppState::default();
-        state.active_chat_input_mut().insert_grapheme_at_cursor('h');
+        state.update_active_input(|i| i.insert_grapheme_at_cursor('h'));
 
         // When validating interrupt.
         let result = validate_interrupt(&state);

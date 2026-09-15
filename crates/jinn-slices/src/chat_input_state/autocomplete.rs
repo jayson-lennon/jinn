@@ -42,7 +42,7 @@ pub struct AutocompleteState {
     pub selected_index: usize,
     /// Current fuzzy matches, ordered least-relevant first, most-relevant last.
     /// Capped at 20 entries.
-    pub matches: Vec<crate::feat::chat_input::AutocompleteMatch>,
+    pub matches: Vec<crate::chat_input_state::AutocompleteMatch>,
 }
 
 impl AutocompleteState {
@@ -66,13 +66,13 @@ impl AutocompleteState {
 
     /// Returns the current fuzzy matches.
     #[must_use]
-    pub fn matches(&self) -> &[crate::feat::chat_input::AutocompleteMatch] {
+    pub fn matches(&self) -> &[crate::chat_input_state::AutocompleteMatch] {
         &self.matches
     }
 
     /// Returns the currently selected match, if any.
     #[must_use]
-    pub fn selected_match(&self) -> Option<&crate::feat::chat_input::AutocompleteMatch> {
+    pub fn selected_match(&self) -> Option<&crate::chat_input_state::AutocompleteMatch> {
         self.matches.get(self.selected_index)
     }
 
@@ -112,7 +112,7 @@ impl AutocompleteState {
     }
 
     /// Replaces the match list and clamps the selected index.
-    pub fn set_matches(&mut self, matches: Vec<crate::feat::chat_input::AutocompleteMatch>) {
+    pub fn set_matches(&mut self, matches: Vec<crate::chat_input_state::AutocompleteMatch>) {
         self.selected_index = self.selected_index.min(matches.len().saturating_sub(1));
         self.matches = matches;
     }
@@ -129,7 +129,7 @@ mod tests {
     )]
 
     use super::*;
-    use crate::feat::chat_input::AutocompleteMatch;
+    use crate::chat_input_state::AutocompleteMatch;
 
     fn make_match(name: &str) -> AutocompleteMatch {
         AutocompleteMatch {

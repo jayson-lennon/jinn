@@ -8,8 +8,8 @@ use unicode_width::UnicodeWidthStr as _;
 
 use super::autocomplete::AutocompleteState;
 use super::autocomplete::AutocompleteTrigger;
-use super::wrap::WrappedLine;
-use crate::feat::chat_input::AutocompleteMatch;
+use crate::chat_input_state::AutocompleteMatch;
+use crate::chat_input_state::WrappedLine;
 
 /// Submission mode for the chat input box.
 ///
@@ -65,7 +65,7 @@ pub struct ChatInputBoxState {
     /// [`mutate_buffer`](Self::mutate_buffer) so reads (cursor moves, lookups)
     /// are O(1) instead of re-segmenting the whole buffer.
     grapheme_bounds: Vec<usize>,
-    /// Cached result of [`wrap_text`](super::wrap::wrap_text). Refreshed eagerly on
+    /// Cached result of [`wrap_text`](crate::chat_input_state::wrap_text). Refreshed eagerly on
     /// every buffer mutation (via [`mutate_buffer`](Self::mutate_buffer)) and on
     /// [`set_wrap_width`](Self::set_wrap_width), so reads are O(1).
     cached_wrap: Option<CachedWrap>,
@@ -83,12 +83,6 @@ pub struct ChatInputBoxState {
     wrap_width: usize,
     /// Scroll offset: the first visual line index that is visible.
     scroll_offset: usize,
-    /// When `true`, the input box rejects all editing intents (typing,
-    /// deletion, cursor movement, paste, submit). Set by the generic
-    /// `SetChatInputEnabled` command — any actor or the host may disable
-    /// input for a session (e.g. while a background request runs).
-    /// Normal-scope intents (navigation, model picker, etc.) are unaffected.
-    disabled: bool,
 }
 
 /// Cached word-wrap result. Refreshed eagerly by [`ChatInputBoxState`]
@@ -153,7 +147,6 @@ impl ChatInputBoxState {
             autocomplete: None,
             wrap_width: usize::MAX,
             scroll_offset: 0,
-            disabled: false,
         }
     }
 
@@ -182,7 +175,7 @@ impl ChatInputBoxState {
     /// that breaks `Send + Sync`. The per-edit cost is identical to today (one `wrap_text`
     /// per edit); the win is that the 3x render reads and cursor moves become O(1).
     fn refresh_wrap_cache(&mut self) {
-        let lines = super::wrap::wrap_text(&self.input_buffer, self.wrap_width);
+        let lines = crate::chat_input_state::wrap_text(&self.input_buffer, self.wrap_width);
         self.cached_wrap = Some(CachedWrap { lines });
     }
 
@@ -220,18 +213,6 @@ impl ChatInputBoxState {
     pub fn grapheme_count(&self) -> usize {
         // grapheme_bounds has a trailing sentinel == buffer length, so count = len - 1.
         self.grapheme_bounds.len().saturating_sub(1)
-    }
-
-    /// Returns whether editing is currently disabled for this input box.
-    #[must_use]
-    pub fn disabled(&self) -> bool {
-        self.disabled
-    }
-
-    /// Enable or disable editing. When disabled, the IntentHandler rejects all
-    /// editing intents as no-ops; the renderer dims the text.
-    pub fn set_enabled(&mut self, enabled: bool) {
-        self.disabled = !enabled;
     }
 
     /// Replaces a range of graphemes (start..end) with new text.
@@ -524,7 +505,7 @@ impl ChatInputBoxState {
     /// Clamps `col` to the length of the target wrapped line.
     fn grapheme_index_for_wrapped_row_col(
         &self,
-        lines: &[super::wrap::WrappedLine],
+        lines: &[crate::chat_input_state::WrappedLine],
         target_row: usize,
         target_col: usize,
     ) -> usize {
@@ -589,7 +570,7 @@ impl ChatInputBoxState {
         clippy::expect_used,
         reason = "cache should have stuff in it but this will probably crash and I'll get mad"
     )]
-    pub fn wrapped_lines(&self) -> &[super::wrap::WrappedLine] {
+    pub fn wrapped_lines(&self) -> &[crate::chat_input_state::WrappedLine] {
         self.cached_wrap
             .as_ref()
             .expect("cache is always Some")
@@ -624,7 +605,10 @@ impl ChatInputBoxState {
     }
 
     /// Returns cursor (visual_row, col_within_wrapped_line) using pre-computed lines.
-    fn cursor_row_col_wrapped(&self, lines: &[super::wrap::WrappedLine]) -> (usize, usize) {
+    fn cursor_row_col_wrapped(
+        &self,
+        lines: &[crate::chat_input_state::WrappedLine],
+    ) -> (usize, usize) {
         for (row, line) in lines.iter().enumerate() {
             if self.cursor_pos >= line.grapheme_start && self.cursor_pos < line.grapheme_end {
                 let col = self.cursor_pos - line.grapheme_start;
@@ -927,7 +911,7 @@ mod tests {
     )]
 
     use super::*;
-    use crate::feat::chat_input::AutocompleteMatch;
+    use crate::AutocompleteMatch;
 
     #[rstest::rstest]
     fn move_cursor_left_at_zero_is_noop() {

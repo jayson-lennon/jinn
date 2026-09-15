@@ -9,16 +9,17 @@
 //! by two spaces. When the content exceeds the visible area, it scrolls to keep the
 //! cursor visible.
 
+use crate::common::app_state::AppState;
 use crate::common::render_ctx::RenderCtx;
 use crate::common::ui_element::UiElement;
-use crate::feat::chat_input::state::chat_input_box::ChatInputBoxState;
-use crate::feat::chat_input::state::wrap::WrappedLine;
+use crate::feat::chat_input::state::WrappedLine;
 use crate::protocol::Mode;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
+use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr;
 
 /// Display element for the user's message composition area.
@@ -35,11 +36,7 @@ impl UiElement for ChatInputBoxElement {
         let input_mode = state.frontend.scope().mode() == Mode::Input;
         let theme = &state.frontend.theme;
 
-        let disabled = state.active_chat_input().disabled();
-
-        let prompt_style = if disabled {
-            Style::default().fg(theme.muted_text)
-        } else if input_mode {
+        let prompt_style = if input_mode {
             Style::default()
                 .fg(theme.focus_accent)
                 .add_modifier(Modifier::BOLD)
@@ -47,23 +44,19 @@ impl UiElement for ChatInputBoxElement {
             Style::default().add_modifier(Modifier::BOLD)
         };
 
-        let text_style = if disabled {
-            Style::default().fg(theme.muted_text)
-        } else {
-            Style::default()
-        };
+        let text_style = Style::default();
 
-        let border_style = if disabled {
-            Style::default().fg(theme.muted_text)
-        } else if input_mode {
+        let border_style = if input_mode {
             Style::default().fg(theme.focus_accent)
         } else {
             Style::default().fg(theme.border_unfocused)
         };
 
         let badge_line = {
-            use crate::feat::chat_input::state::chat_input_box::InputMode;
-            let mode = state.active_chat_input().input_mode();
+            use crate::feat::chat_input::state::InputMode;
+            let mode = state
+                .active_session()
+                .with_input(jinn_slices::ChatInputBoxState::input_mode, Default::default);
             let buffer_count = match mode {
                 InputMode::Queue => state.active_session().queue_len(),
                 InputMode::Steer => state.active_session().steering_buffer().len(),
@@ -96,16 +89,19 @@ impl UiElement for ChatInputBoxElement {
         let inner = block.inner(area);
         let max_visible_lines = inner.height as usize;
 
-        // Fetch the memoized wrapped lines ONCE. Every consumer below reuses this slice;
-        // `wrapped_lines()` is `&self` and returns the cached slice (refreshed eagerly on
-        // every buffer mutation via the mutation seam, and on `set_wrap_width`).
-        let input = state.active_chat_input();
-        let wrapped = input.wrapped_lines();
+        // Snapshot the render inputs ONCE through the facade (see
+        // `snapshot_render_inputs`) so the cell/fallback lock is never held
+        // across the drawing below.
+        let (wrapped, scroll_offset, cursor_row_col, display_text, grapheme_bounds) =
+            snapshot_render_inputs(state);
+        let wrapped = wrapped.as_slice();
+        let scroll_offset_for_indicators = scroll_offset;
 
         let lines = build_wrapped_lines(
-            input,
+            &display_text,
+            &grapheme_bounds,
             wrapped,
-            input.scroll_offset(),
+            scroll_offset,
             max_visible_lines,
             prompt_style,
             text_style,
@@ -118,12 +114,11 @@ impl UiElement for ChatInputBoxElement {
 
         // Render scroll position indicators if content overflows.
         let total_lines = wrapped.len();
-        let scroll_offset = input.scroll_offset();
         render_scroll_indicators(
             frame,
             inner,
             total_lines,
-            scroll_offset,
+            scroll_offset_for_indicators,
             max_visible_lines,
             theme.age_fresh,
             theme.scroll_indicator_bg,
@@ -131,11 +126,11 @@ impl UiElement for ChatInputBoxElement {
 
         // Position cursor when in input mode.
         if input_mode {
-            let (row, col) = input.cursor_row_col();
-            let scroll_offset = input.scroll_offset();
+            let (row, col) = cursor_row_col;
             let visual_row = row.saturating_sub(scroll_offset);
             let prefix_width: usize = 2; // "> " = 2 columns
-            let display_col = compute_display_col(input, wrapped, row, col);
+            let display_col =
+                compute_display_col(&display_text, &grapheme_bounds, wrapped, row, col);
             let cursor_x = inner.x + (prefix_width + display_col) as u16;
             let cursor_y = inner.y + visual_row as u16;
             frame.set_cursor_position((cursor_x, cursor_y));
@@ -143,18 +138,44 @@ impl UiElement for ChatInputBoxElement {
     }
 }
 
+/// Snapshot of everything one render pass draws, taken in a single facade
+/// read so the cell/fallback lock is never held across drawing. The wrap
+/// cache is refreshed eagerly on every buffer mutation, so the snapshot is
+/// exactly what a live borrow would have shown.
+type RenderSnapshot = (Vec<WrappedLine>, usize, (usize, usize), String, Vec<usize>);
+
+fn snapshot_render_inputs(state: &AppState) -> RenderSnapshot {
+    state.active_session().with_input(
+        |i| {
+            let text = i.text().to_owned();
+            let mut bounds: Vec<usize> =
+                text.grapheme_indices(true).map(|(byte, _)| byte).collect();
+            bounds.push(text.len());
+            (
+                i.wrapped_lines().to_vec(),
+                i.scroll_offset(),
+                i.cursor_row_col(),
+                text,
+                bounds,
+            )
+        },
+        Default::default,
+    )
+}
+
 /// Build visual lines from wrapped line data, applying scroll offset and visibility limit.
 ///
 /// The first visual line gets a `> ` prompt prefix, all others get `  ` indentation.
 fn build_wrapped_lines<'a>(
-    input: &'a ChatInputBoxState,
+    display_text: &'a str,
+    grapheme_bounds: &'a [usize],
     wrapped: &[WrappedLine],
     scroll_offset: usize,
     max_visible_lines: usize,
     prompt_style: Style,
     text_style: Style,
 ) -> Vec<Line<'a>> {
-    if input.text().is_empty() {
+    if display_text.is_empty() {
         return vec![Line::from(vec![Span::styled("> ", prompt_style)])];
     }
 
@@ -169,7 +190,12 @@ fn build_wrapped_lines<'a>(
         }
 
         let prefix = if row == 0 { "> " } else { "  " };
-        let content = input.grapheme_slice(line.grapheme_start, line.grapheme_end);
+        let content = grapheme_slice(
+            display_text,
+            grapheme_bounds,
+            line.grapheme_start,
+            line.grapheme_end,
+        );
         lines.push(Line::from(vec![
             Span::styled(prefix, prompt_style),
             Span::styled(content, text_style),
@@ -261,7 +287,8 @@ fn render_mode_badge(frame: &mut Frame<'_>, area: Rect, badge_line: Line<'_>) {
 /// up to `col` graphemes in. For ASCII text, this is equivalent to `col`.
 /// For wide characters (CJK, emoji), each grapheme may contribute 2+ columns.
 fn compute_display_col(
-    input: &ChatInputBoxState,
+    display_text: &str,
+    grapheme_bounds: &[usize],
     lines: &[WrappedLine],
     row: usize,
     col: usize,
@@ -273,5 +300,33 @@ fn compute_display_col(
     if line.grapheme_start >= end {
         return 0;
     }
-    UnicodeWidthStr::width(input.grapheme_slice(line.grapheme_start, end))
+    UnicodeWidthStr::width(grapheme_slice(
+        display_text,
+        grapheme_bounds,
+        line.grapheme_start,
+        end,
+    ))
+}
+
+/// Returns the byte slice covering graphemes `start..end` of `display_text`,
+/// using the snapshot's grapheme bounds (no re-segmentation).
+fn grapheme_slice<'a>(text: &'a str, bounds: &[usize], start: usize, end: usize) -> &'a str {
+    let count = bounds.len().saturating_sub(1);
+    let s = start.min(count);
+    let e = end.min(count);
+    if s >= e {
+        return "";
+    }
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "s and e clamped to count <= last bound"
+    )]
+    let from = bounds[s];
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "s and e clamped to count <= last bound"
+    )]
+    let to = bounds[e];
+    #[expect(clippy::string_slice, reason = "from/to are grapheme byte offsets")]
+    &text[from..to]
 }

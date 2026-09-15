@@ -36,7 +36,7 @@ fn render_draws_input_buffer() {
     let mut element = ChatInputBoxElement;
     let state = {
         let mut s = AppState::default_with_scope_focus();
-        s.active_chat_input_mut().insert_text("hello");
+        s.update_active_input(|i| i.insert_text("hello"));
         s
     };
 
@@ -65,7 +65,7 @@ fn render_input_mode_yellow_prompt() {
     let state = {
         let mut s = AppState::default_with_scope_focus();
         s.frontend.scope_push(FocusScope::Input);
-        s.active_chat_input_mut().insert_text("hi");
+        s.update_active_input(|i| i.insert_text("hi"));
         s
     };
 
@@ -120,7 +120,7 @@ fn render_input_mode_cursor_at_end_of_text() {
     let state = {
         let mut s = AppState::default_with_scope_focus();
         s.frontend.scope_push(FocusScope::Input);
-        s.active_chat_input_mut().insert_text("abc");
+        s.update_active_input(|i| i.insert_text("abc"));
         s
     };
 
@@ -149,9 +149,9 @@ fn render_cursor_at_mid_buffer() {
     let state = {
         let mut s = AppState::default_with_scope_focus();
         s.frontend.scope_push(FocusScope::Input);
-        s.active_chat_input_mut().insert_text("abc");
-        s.active_chat_input_mut().move_cursor_to_start();
-        s.active_chat_input_mut().move_cursor_right(); // cursor at 1 (between 'a' and 'b')
+        s.update_active_input(|i| i.insert_text("abc"));
+        s.update_active_input(crate::feat::chat_input::ChatInputBoxState::move_cursor_to_start);
+        s.update_active_input(crate::feat::chat_input::ChatInputBoxState::move_cursor_right); // cursor at 1 (between 'a' and 'b')
         s
     };
 
@@ -180,8 +180,8 @@ fn render_cursor_at_home() {
     let state = {
         let mut s = AppState::default_with_scope_focus();
         s.frontend.scope_push(FocusScope::Input);
-        s.active_chat_input_mut().insert_text("hi");
-        s.active_chat_input_mut().move_cursor_to_start();
+        s.update_active_input(|i| i.insert_text("hi"));
+        s.update_active_input(crate::feat::chat_input::ChatInputBoxState::move_cursor_to_start);
         s
     };
 
@@ -209,7 +209,7 @@ fn multiline_first_line_has_prefix() {
     let mut element = ChatInputBoxElement;
     let state = {
         let mut s = AppState::default_with_scope_focus();
-        s.active_chat_input_mut().insert_text("hello\nworld");
+        s.update_active_input(|i| i.insert_text("hello\nworld"));
         s
     };
 
@@ -239,7 +239,7 @@ fn multiline_second_line_has_indent() {
     let mut element = ChatInputBoxElement;
     let state = {
         let mut s = AppState::default_with_scope_focus();
-        s.active_chat_input_mut().insert_text("hello\nworld");
+        s.update_active_input(|i| i.insert_text("hello\nworld"));
         s
     };
 
@@ -270,7 +270,7 @@ fn render_multiline_cursor_on_second_line() {
     let state = {
         let mut s = AppState::default_with_scope_focus();
         s.frontend.scope_push(FocusScope::Input);
-        s.active_chat_input_mut().insert_text("ab\ncd");
+        s.update_active_input(|i| i.insert_text("ab\ncd"));
         s
     };
 
@@ -300,12 +300,12 @@ fn render_multiline_cursor_between_newlines() {
     let state = {
         let mut s = AppState::default_with_scope_focus();
         s.frontend.scope_push(FocusScope::Input);
-        s.active_chat_input_mut().insert_text("a\n\nb");
+        s.update_active_input(|i| i.insert_text("a\n\nb"));
         // Cursor is at end (pos 4). Move back 1 to be on the empty middle line.
-        s.active_chat_input_mut().move_cursor_left(); // now at pos 3, which is after the second \n, before 'b'
+        s.update_active_input(crate::feat::chat_input::ChatInputBoxState::move_cursor_left); // now at pos 3, which is after the second \n, before 'b'
         // Actually: "a\n\nb" → graphemes: a(0) \n(1) \n(2) b(3). cursor at 3 = before 'b'.
         // Move left once more to be at pos 2 = after first \n, on empty line.
-        s.active_chat_input_mut().move_cursor_left();
+        s.update_active_input(crate::feat::chat_input::ChatInputBoxState::move_cursor_left);
         s
     };
 
@@ -334,9 +334,9 @@ fn render_wraps_long_text() {
     let mut element = ChatInputBoxElement;
     let state = {
         let mut s = AppState::default_with_scope_focus();
-        s.active_chat_input_mut().insert_text("hello world");
+        s.update_active_input(|i| i.insert_text("hello world"));
         // Set wrap width to simulate narrow terminal: 10 - 2 prefix = 8
-        s.active_chat_input_mut().set_wrap_width(8);
+        s.update_active_input(|i| i.set_wrap_width(8));
         s
     };
 
@@ -369,8 +369,8 @@ fn render_cursor_on_wrapped_continuation() {
     let state = {
         let mut s = AppState::default_with_scope_focus();
         s.frontend.scope_push(FocusScope::Input);
-        s.active_chat_input_mut().insert_text("hello world");
-        s.active_chat_input_mut().set_wrap_width(8);
+        s.update_active_input(|i| i.insert_text("hello world"));
+        s.update_active_input(|i| i.set_wrap_width(8));
         s
     };
 
@@ -406,10 +406,9 @@ fn indicator_shows_up_arrow_when_lines_hidden_above() {
     let state = {
         let mut s = AppState::default_with_scope_focus();
         // 5 logical lines, narrow width so each wraps to 1 visual line.
-        s.active_chat_input_mut()
-            .insert_text("line1\nline2\nline3\nline4\nline5");
-        s.active_chat_input_mut().set_wrap_width(38);
-        s.active_chat_input_mut().set_scroll_offset(2);
+        s.update_active_input(|i| i.insert_text("line1\nline2\nline3\nline4\nline5"));
+        s.update_active_input(|i| i.set_wrap_width(38));
+        s.update_active_input(|i| i.set_scroll_offset(2));
         s
     };
 
@@ -445,9 +444,8 @@ fn indicator_shows_down_arrow_when_lines_hidden_below() {
     let mut element = ChatInputBoxElement;
     let state = {
         let mut s = AppState::default_with_scope_focus();
-        s.active_chat_input_mut()
-            .insert_text("line1\nline2\nline3\nline4\nline5");
-        s.active_chat_input_mut().set_wrap_width(38);
+        s.update_active_input(|i| i.insert_text("line1\nline2\nline3\nline4\nline5"));
+        s.update_active_input(|i| i.set_wrap_width(38));
         // scroll_offset = 0, so lines_above = 0, lines_below = 5 - 0 - 3 = 2.
         s
     };
@@ -485,10 +483,9 @@ fn indicator_shows_both_arrows_when_viewport_in_middle() {
     let mut element = ChatInputBoxElement;
     let state = {
         let mut s = AppState::default_with_scope_focus();
-        s.active_chat_input_mut()
-            .insert_text("line1\nline2\nline3\nline4\nline5\nline6\nline7");
-        s.active_chat_input_mut().set_wrap_width(38);
-        s.active_chat_input_mut().set_scroll_offset(2);
+        s.update_active_input(|i| i.insert_text("line1\nline2\nline3\nline4\nline5\nline6\nline7"));
+        s.update_active_input(|i| i.set_wrap_width(38));
+        s.update_active_input(|i| i.set_scroll_offset(2));
         // lines_above = 2, lines_below = 7 - 2 - 3 = 2.
         s
     };
@@ -525,8 +522,8 @@ fn no_indicators_when_content_fits() {
     let mut element = ChatInputBoxElement;
     let state = {
         let mut s = AppState::default_with_scope_focus();
-        s.active_chat_input_mut().insert_text("hello");
-        s.active_chat_input_mut().set_wrap_width(38);
+        s.update_active_input(|i| i.insert_text("hello"));
+        s.update_active_input(|i| i.set_wrap_width(38));
         s
     };
 
@@ -557,7 +554,7 @@ fn render_cursor_after_cjk() {
     let state = {
         let mut s = AppState::default_with_scope_focus();
         s.frontend.scope_push(FocusScope::Input);
-        s.active_chat_input_mut().insert_text("中文");
+        s.update_active_input(|i| i.insert_text("中文"));
         s
     };
 
@@ -586,7 +583,7 @@ fn render_cursor_after_emoji() {
     let state = {
         let mut s = AppState::default_with_scope_focus();
         s.frontend.scope_push(FocusScope::Input);
-        s.active_chat_input_mut().insert_text("🎉🎉");
+        s.update_active_input(|i| i.insert_text("🎉🎉"));
         s
     };
 
@@ -615,9 +612,9 @@ fn render_cursor_mixed_ascii_cjk() {
     let state = {
         let mut s = AppState::default_with_scope_focus();
         s.frontend.scope_push(FocusScope::Input);
-        s.active_chat_input_mut().insert_text("a中b");
+        s.update_active_input(|i| i.insert_text("a中b"));
         // Cursor at end (pos 3). Move left once to pos 2 (after "中").
-        s.active_chat_input_mut().move_cursor_left();
+        s.update_active_input(crate::feat::chat_input::ChatInputBoxState::move_cursor_left);
         s
     };
 
@@ -647,7 +644,7 @@ fn render_queue_badge_in_queue_mode() {
     let mut element = ChatInputBoxElement;
     let state = {
         let mut s = AppState::default_with_scope_focus();
-        s.active_chat_input_mut().toggle_input_mode(); // Steer → Queue
+        s.update_active_input(crate::feat::chat_input::ChatInputBoxState::toggle_input_mode); // Steer → Queue
         s
     };
 
@@ -799,7 +796,7 @@ fn render_queue_badge_shows_queue_count_when_nonzero() {
     let mut element = ChatInputBoxElement;
     let state = {
         let mut s = AppState::default_with_scope_focus();
-        s.active_chat_input_mut().toggle_input_mode(); // Steer -> Queue
+        s.update_active_input(crate::feat::chat_input::ChatInputBoxState::toggle_input_mode); // Steer -> Queue
         s.active_session_mut()
             .enqueue(QueueItem::UserMessage(Box::new(ChatEntry::user("first"))));
         s.active_session_mut()
@@ -933,7 +930,7 @@ fn queue_badge_is_muted_in_normal_mode() {
     let mut element = ChatInputBoxElement;
     let state = {
         let mut s = AppState::default_with_scope_focus();
-        s.active_chat_input_mut().toggle_input_mode(); // Steer → Queue
+        s.update_active_input(crate::feat::chat_input::ChatInputBoxState::toggle_input_mode); // Steer → Queue
         s.frontend.scope_pop(); // pop Input → back to Normal
         s
     };
@@ -1012,7 +1009,7 @@ fn queue_badge_count_is_muted_in_normal_mode() {
     let mut element = ChatInputBoxElement;
     let state = {
         let mut s = AppState::default_with_scope_focus();
-        s.active_chat_input_mut().toggle_input_mode(); // Steer → Queue
+        s.update_active_input(crate::feat::chat_input::ChatInputBoxState::toggle_input_mode); // Steer → Queue
         s.active_session_mut()
             .enqueue(QueueItem::UserMessage(Box::new(ChatEntry::user("first"))));
         s.active_session_mut()

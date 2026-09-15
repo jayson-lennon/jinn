@@ -1,6 +1,7 @@
 //! Global intent handlers - quit, toggle which-key, and interrupt.
 
 use crate::common::app_state::AppState;
+use crate::feat::chat_input::ChatInputBoxState;
 use crate::feat::provider::protocol::command::CancelStream;
 use crate::protocol::SessionId;
 use crate::protocol::{Intent, IntentResult};
@@ -53,7 +54,7 @@ pub fn handle_interrupt(state: &mut AppState, target: Option<&SessionId>) -> Int
     }
 
     // None path: just clear the input buffer.
-    state.active_chat_input_mut().reset();
+    state.update_active_input(ChatInputBoxState::reset);
     IntentResult::empty()
 }
 
@@ -72,7 +73,7 @@ pub fn handle_ctrl_clear(state: &mut AppState) -> (IntentResult, Option<Intent>)
 
     match state.frontend.scope() {
         FocusScope::Input => {
-            state.active_chat_input_mut().reset();
+            state.update_active_input(ChatInputBoxState::reset);
             (IntentResult::empty(), None)
         }
         FocusScope::Picker { .. } => {
@@ -256,13 +257,17 @@ mod tests {
     fn interrupt_clears_buffer_when_non_empty() {
         // Given a state with text in the buffer.
         let mut state = AppState::default_with_scope_focus();
-        state.active_chat_input_mut().insert_grapheme_at_cursor('h');
+        state.update_active_input(|i| i.insert_grapheme_at_cursor('h'));
 
         // When handling Interrupt.
         let result = handle_interrupt(&mut state);
 
         // Then the buffer is cleared.
-        assert!(state.active_chat_input().is_empty());
+        assert!(
+            state
+                .active_session()
+                .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
+        );
         assert!(result.message_names.is_empty());
     }
 
@@ -275,7 +280,11 @@ mod tests {
         let result = handle_interrupt(&mut state);
 
         // Then no commands and buffer is still empty.
-        assert!(state.active_chat_input().is_empty());
+        assert!(
+            state
+                .active_session()
+                .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
+        );
         assert!(result.message_names.is_empty());
     }
 
@@ -342,14 +351,18 @@ mod tests {
         // Given a state in Input scope with text in the buffer.
         let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_push(FocusScope::Input);
-        state.active_chat_input_mut().insert_grapheme_at_cursor('h');
-        state.active_chat_input_mut().insert_grapheme_at_cursor('i');
+        state.update_active_input(|i| i.insert_grapheme_at_cursor('h'));
+        state.update_active_input(|i| i.insert_grapheme_at_cursor('i'));
 
         // When handling CtrlClear.
         let (result, maybe_intent) = handle_ctrl_clear(&mut state);
 
         // Then the buffer is cleared and no redispatch is requested.
-        assert!(state.active_chat_input().is_empty());
+        assert!(
+            state
+                .active_session()
+                .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
+        );
         assert!(result.message_names.is_empty());
         assert!(maybe_intent.is_none());
     }
@@ -364,7 +377,11 @@ mod tests {
         let (result, maybe_intent) = handle_ctrl_clear(&mut state);
 
         // Then no commands, no redispatch, scope unchanged.
-        assert!(state.active_chat_input().is_empty());
+        assert!(
+            state
+                .active_session()
+                .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
+        );
         assert!(result.message_names.is_empty());
         assert!(maybe_intent.is_none());
         assert_eq!(state.frontend.scope(), FocusScope::Input);

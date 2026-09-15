@@ -24,8 +24,6 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use crate::feat::chat_input::ChatInputBoxState;
-
 use crate::feat::session::chat_history::ChatHistory;
 use crate::feat::session::history_editor::HistoryEditor;
 use crate::feat::session::model_selection::ModelSelection;
@@ -430,8 +428,6 @@ pub use jinn_slices::SavedHistoryPosition;
 /// facade.
 #[derive(Debug, Default)]
 pub struct SessionUi {
-    /// The user's in-progress message for this session.
-    pub chat_input: ChatInputBoxState,
     /// In-memory steering buffer for this session.
     ///
     /// Accumulates user-submitted text fragments that will be drained
@@ -444,7 +440,6 @@ pub struct SessionUi {
 impl Clone for SessionUi {
     fn clone(&self) -> Self {
         Self {
-            chat_input: self.chat_input.clone(),
             steering_buffer: self.steering_buffer.clone(),
         }
     }
@@ -468,20 +463,26 @@ pub struct ChatSessionState {
     /// UI state managed by IntentHandler.
     #[serde(skip)]
     pub ui: SessionUi,
-    /// Late-attached handle to the slice registry, carrying the
-    /// chat-log-view cell (this session's display state). Attached once at
-    /// wiring; a clone of `Slices` shares its cells. Before attach (or
-    /// without the slice's `activate()`), the facade falls back to
-    /// `view_fallback` — the removability property. (Composition attaches
-    /// once on the session map; direct pokes defeat the facade.)
+    /// Late-attached handle to the slice registry, carrying the slice
+    /// cells (this session's display state, input draft, and any later
+    /// per-session slices). Attached once at wiring; a clone of `Slices`
+    /// shares its cells. Before attach (or without a slice's
+    /// `activate()`), the facades fall back to the in-struct fallbacks —
+    /// the removability property. (Composition attaches once on the
+    /// session map; direct pokes defeat the facade.)
     #[serde(skip)]
-    pub(in crate::feat::session) view_slices: std::sync::OnceLock<jinn_slices::Slices>,
+    pub(in crate::feat::session) slices: std::sync::OnceLock<jinn_slices::Slices>,
     /// In-struct stand-in for this session's view state while
-    /// `view_slices` is unattached. Reads see it, writes mutate it, so an
+    /// `slices` is unattached. Reads see it, writes mutate it, so an
     /// unattached configuration behaves exactly like the pre-slice layout.
     /// Ignored entirely once the handle is attached.
     #[serde(skip)]
     pub(in crate::feat::session) view_fallback: parking_lot::RwLock<jinn_slices::ChatLogViewUi>,
+    /// In-struct stand-in for this session's input draft while `slices`
+    /// is unattached. Same contract as [`Self::view_fallback`].
+    #[serde(skip)]
+    pub(in crate::feat::session) input_fallback:
+        parking_lot::RwLock<jinn_slices::ChatInputBoxState>,
 }
 
 impl Clone for ChatSessionState {
@@ -493,8 +494,9 @@ impl Clone for ChatSessionState {
             // happens once per session at wiring. A cloned session's facade
             // runs on the fallback until (re)attached, which keeps
             // test-constructed sessions in the pre-slice configuration.
-            view_slices: std::sync::OnceLock::new(),
+            slices: std::sync::OnceLock::new(),
             view_fallback: parking_lot::RwLock::new(self.view_fallback.read().clone()),
+            input_fallback: parking_lot::RwLock::new(self.input_fallback.read().clone()),
         }
     }
 }
@@ -506,8 +508,9 @@ impl ChatSessionState {
         Self {
             core: SessionCore::default(),
             ui: SessionUi::default(),
-            view_slices: std::sync::OnceLock::new(),
+            slices: std::sync::OnceLock::new(),
             view_fallback: parking_lot::RwLock::new(jinn_slices::ChatLogViewUi::default()),
+            input_fallback: parking_lot::RwLock::new(jinn_slices::ChatInputBoxState::new()),
         }
     }
 
@@ -521,15 +524,68 @@ impl ChatSessionState {
 
     /// Attaches the slice registry handle carrying this session's
     /// chat-log-view entry. Called once at wiring; later calls are ignored.
-    pub fn attach_view_slices(&self, slices: jinn_slices::Slices) {
-        let _ = self.view_slices.set(slices);
+    pub fn attach_slices(&self, slices: jinn_slices::Slices) {
+        let _ = self.slices.set(slices);
     }
 
     /// The session's chat-log-view cell, if the handle is attached and the
     /// slice's `activate()` minted the cell.
     fn view_cell(&self) -> Option<jinn_slices::cell::TypedCell<jinn_slices::ChatLogViews>> {
-        let slices = self.view_slices.get()?;
+        let slices = self.slices.get()?;
         slices.reader::<jinn_slices::ChatLogViews>(&jinn_slices::chat_log_views_slot())
+    }
+
+    /// The session's chat-input cell, if the handle is attached and the
+    /// slice's `activate()` minted the cell.
+    fn input_cell(&self) -> Option<jinn_slices::cell::TypedCell<jinn_slices::ChatInputs>> {
+        let slices = self.slices.get()?;
+        slices.reader::<jinn_slices::ChatInputs>(&jinn_slices::chat_inputs_slot())
+    }
+
+    /// Runs `f` against this session's input draft (buffer, cursor, wrap
+    /// cache, submission mode, autocomplete), keyed by the session id.
+    /// Writers get-or-insert their session's entry; falls back to the
+    /// in-struct draft when the cell is absent (handle unattached or slice
+    /// not activated).
+    pub fn update_input<F>(&self, f: F)
+    where
+        F: FnOnce(&mut jinn_slices::ChatInputBoxState),
+    {
+        match self.input_cell() {
+            Some(cell) => {
+                let id = self.session_id().clone();
+                cell.update(|inputs| f(inputs.entry(id).or_default()));
+            }
+            None => {
+                let mut input = self.input_fallback.write();
+                f(&mut input);
+            }
+        }
+    }
+
+    /// Reads this session's input draft through `f`, falling back to
+    /// `default` when the cell is absent (handle unattached or slice not
+    /// activated). Readers never grow the map: a session with no entry
+    /// reads as its default draft.
+    pub fn with_input<R, F, D>(&self, f: F, default: D) -> R
+    where
+        F: FnOnce(&jinn_slices::ChatInputBoxState) -> R,
+        D: FnOnce() -> R,
+    {
+        match self.input_cell() {
+            Some(cell) => {
+                let inputs = cell.read();
+                let id = self.session_id();
+                match inputs.get(id) {
+                    Some(input) => f(input),
+                    None => default(),
+                }
+            }
+            None => {
+                let input = self.input_fallback.read();
+                f(&input)
+            }
+        }
     }
 
     /// Runs `f` against this session's view state (scroll, selection,
@@ -674,8 +730,9 @@ impl ChatSessionState {
                 ..SessionCore::default()
             },
             ui: SessionUi::default(),
-            view_slices: std::sync::OnceLock::new(),
+            slices: std::sync::OnceLock::new(),
             view_fallback: parking_lot::RwLock::new(jinn_slices::ChatLogViewUi::default()),
+            input_fallback: parking_lot::RwLock::new(jinn_slices::ChatInputBoxState::new()),
         }
     }
 
@@ -698,15 +755,12 @@ impl ChatSessionState {
                 ..SessionCore::default()
             },
             ui: SessionUi::default(),
-            view_slices: std::sync::OnceLock::new(),
+            slices: std::sync::OnceLock::new(),
             view_fallback: parking_lot::RwLock::new(jinn_slices::ChatLogViewUi::default()),
+            input_fallback: parking_lot::RwLock::new(jinn_slices::ChatInputBoxState::new()),
         }
     }
 
-    /// Read-only access to this session's input box state.
-    pub fn chat_input(&self) -> &ChatInputBoxState {
-        &self.ui.chat_input
-    }
     /// Immutable access to this session's steering buffer.
     pub fn steering_buffer(&self) -> &SteeringBuffer {
         &self.ui.steering_buffer
@@ -714,11 +768,6 @@ impl ChatSessionState {
     /// Mutable access to this session's steering buffer.
     pub fn steering_buffer_mut(&mut self) -> &mut SteeringBuffer {
         &mut self.ui.steering_buffer
-    }
-
-    /// Mutable access to this session's input box state.
-    pub fn chat_input_mut(&mut self) -> &mut ChatInputBoxState {
-        &mut self.ui.chat_input
     }
 
     /// The session's persona name.
@@ -1339,7 +1388,7 @@ impl ChatSessionState {
         self.cancel_streaming(jiff::Timestamp::now());
         let drained_text = self.drain_cancel_chunks().join("\n\n---\n\n");
         if !drained_text.is_empty() {
-            self.chat_input_mut().replace_all(drained_text);
+            self.update_input(|input| input.replace_all(drained_text));
         }
     }
 

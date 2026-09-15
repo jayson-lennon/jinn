@@ -42,7 +42,9 @@ pub fn render(app: &mut TuiApp, frame: &mut Frame<'_>) {
     // scopes.
     let layout = AppFrameLayout::new(
         area,
-        state.active_chat_input().visual_line_count() as u16,
+        state
+            .active_session()
+            .with_input(jinn_slices::ChatInputBoxState::visual_line_count, || 0) as u16,
         area.height / 2,
         state.frontend.sidebar_width,
         is_full_width_tab(&app.services.slices, &state.frontend.scope_base()),
@@ -97,7 +99,9 @@ fn apply_pre_render_mutation(app: &mut TuiApp, area: Rect) {
     let full_width = is_full_width_tab(&app.services.slices, &wstate.frontend.scope_base());
     let pre_layout = AppFrameLayout::new(
         area,
-        wstate.active_chat_input().visual_line_count() as u16,
+        wstate
+            .active_session()
+            .with_input(jinn_slices::ChatInputBoxState::visual_line_count, || 0) as u16,
         area.height / 2,
         wstate.frontend.sidebar_width,
         full_width,
@@ -129,12 +133,14 @@ fn apply_pre_render_mutation(app: &mut TuiApp, area: Rect) {
         AppFrameLayout::Tab(_) => {}
         AppFrameLayout::Chat(chat) => {
             let text_width = chat.main.width.saturating_sub(2) as usize;
-            wstate.active_chat_input_mut().set_wrap_width(text_width);
+            wstate
+                .active_session()
+                .update_input(|i| i.set_wrap_width(text_width));
             if wstate.frontend.scope().mode() == Mode::Input {
                 let inner_height = chat.input.height.saturating_sub(1) as usize;
                 wstate
-                    .active_chat_input_mut()
-                    .scroll_to_cursor(inner_height);
+                    .active_session()
+                    .update_input(|i| i.scroll_to_cursor(inner_height));
             }
             jinn_domain::feat::ui::sidebar::task_list_section::preview::write_preview_geometry(
                 &mut wstate,

@@ -251,7 +251,12 @@ impl TuiApp {
             self.which_key.toggle();
         }
         if signals.edit_requested {
-            let initial_content = self.core.state.read().active_chat_input().text().to_owned();
+            let initial_content = self
+                .core
+                .state
+                .read()
+                .active_session()
+                .with_input(|i| i.text().to_owned(), String::new);
             self.suspend.request(SuspendAction::Edit {
                 initial_content,
                 on_result: Box::new(|result| result),

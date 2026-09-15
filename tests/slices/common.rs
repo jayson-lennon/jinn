@@ -68,6 +68,7 @@ pub async fn launch_for_test(core: AppCore, mut services: jinn_domain::Services)
         activate_quake_bar(&mut services);
         activate_status_bar(&mut services);
         activate_scope_focus(&mut services);
+        activate_chat_input(&mut services);
         core.state
             .write_test_no_cap()
             .frontend
@@ -140,6 +141,21 @@ fn activate_scope_focus(services: &mut jinn_domain::Services) {
     let staged = host.finalize(&|_key| None);
     if let Err(error) = staged {
         panic!("scope-focus slice finalize failed: {error}");
+    }
+}
+
+fn activate_chat_input(services: &mut jinn_domain::Services) {
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_chat_input::activate(&mut host);
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("chat-input slice finalize failed: {error}");
     }
 }
 

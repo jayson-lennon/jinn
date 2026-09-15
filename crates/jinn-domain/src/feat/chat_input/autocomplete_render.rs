@@ -28,23 +28,30 @@ const NO_COMMANDS_FOUND: &str = "<no commands found>";
 /// The popup is horizontally anchored at the trigger token's screen column and sits
 /// directly above the input box.
 pub fn render_autocomplete_popup(frame: &mut Frame<'_>, input_area: Rect, state: &AppState) {
-    let input = state.active_chat_input();
-    let Some(ac) = input.autocomplete().as_ref() else {
+    // Snapshot what the popup draws so the input facade lock is never held
+    // across rendering. Autocomplete matches are already owned values.
+    let Some((matches, selected_index, trigger, token_visual)) = state.active_session().with_input(
+        |i| {
+            let ac = i.autocomplete().clone()?;
+            Some((
+                ac.matches().to_vec(),
+                ac.selected_index(),
+                ac.trigger(),
+                i.autocomplete_token_visual_row_col(),
+            ))
+        },
+        || None,
+    ) else {
         return;
     };
 
     // `@` popup: matches come from `frontend.file_picker`, not `ac.matches()`.
-    if matches!(
-        ac.trigger(),
-        AutocompleteTrigger::At | AutocompleteTrigger::AtAt
-    ) {
-        render_at_popup(frame, input_area, state, ac.selected_index());
+    if matches!(trigger, AutocompleteTrigger::At | AutocompleteTrigger::AtAt) {
+        render_at_popup(frame, input_area, state, selected_index);
         return;
     }
 
-    let matches = ac.matches();
-    let selected_index = ac.selected_index();
-    let Some((token_row, token_col)) = input.autocomplete_token_visual_row_col() else {
+    let Some((token_row, token_col)) = token_visual else {
         return;
     };
 
@@ -58,7 +65,7 @@ pub fn render_autocomplete_popup(frame: &mut Frame<'_>, input_area: Rect, state:
         .max(AUTOCOMPLETE_MIN_WIDTH)
         .min(term_width);
 
-    let no_matches_text = match ac.trigger() {
+    let no_matches_text = match trigger {
         AutocompleteTrigger::Hash => NO_PROMPTS_FOUND,
         AutocompleteTrigger::Slash => NO_COMMANDS_FOUND,
         // `@` popup reads `frontend.file_picker`; rendered separately below.
@@ -96,7 +103,10 @@ pub fn render_autocomplete_popup(frame: &mut Frame<'_>, input_area: Rect, state:
     // Position: horizontally anchored at the trigger's wrapped column, vertically
     // floating one row above the trigger's on-screen visual line (the cursor's
     // line) instead of the top of the whole input box.
-    let scroll_offset = input.scroll_offset();
+    let scroll_offset = state.active_session().with_input(
+        jinn_slices::ChatInputBoxState::scroll_offset,
+        Default::default,
+    );
     let trigger_screen_y = input_area
         .y
         .saturating_add(token_row.saturating_sub(scroll_offset) as u16);
@@ -170,11 +180,18 @@ fn render_at_popup(
     state: &AppState,
     selected_index: usize,
 ) {
-    let input = state.active_chat_input();
-    let Some(ac) = input.autocomplete() else {
-        return;
-    };
-    let Some((token_row, token_col)) = input.autocomplete_token_visual_row_col() else {
+    let Some((token_row, token_col, filter)) = state.active_session().with_input(
+        |i| {
+            i.autocomplete().as_ref()?;
+            let (token_row, token_col) = i.autocomplete_token_visual_row_col()?;
+            Some((
+                token_row,
+                token_col,
+                i.autocomplete_filter().unwrap_or_default(),
+            ))
+        },
+        || None,
+    ) else {
         return;
     };
     let picker = &state.frontend.file_picker;
@@ -182,7 +199,6 @@ fn render_at_popup(
     // Build the display rows. The `@` popup narrows by the last path segment
     // of the current filter (what the user is typing), so render and confirm
     // share `visible_entries` as the single source of truth.
-    let filter = input.autocomplete_filter().unwrap_or_default();
     let visible = picker.visible_entries(&filter);
     let rows: Vec<String> = if picker.loading {
         vec![AT_LOADING.to_owned()]
@@ -229,7 +245,10 @@ fn render_at_popup(
 
     // Vertically float the popup one row above the trigger's on-screen visual
     // line (the cursor's line), matching the `#`/`/` popup.
-    let scroll_offset = input.scroll_offset();
+    let scroll_offset = state.active_session().with_input(
+        jinn_slices::ChatInputBoxState::scroll_offset,
+        Default::default,
+    );
     let trigger_screen_y = input_area
         .y
         .saturating_add(token_row.saturating_sub(scroll_offset) as u16);
@@ -259,8 +278,6 @@ fn render_at_popup(
     // Pad remaining inner rows so the popup keeps a fixed height regardless of
     // where the scroll window sits (mirrors the `#`/`/` popup).
     lines.resize(inner.height as usize, Line::from(""));
-    // Silence the unused-ac warning; `ac` only confirms the popup is active.
-    let _ = ac;
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
@@ -526,16 +543,18 @@ mod tests {
         // Given a # popup whose trigger sits on a wrapped continuation line,
         // far from the terminal's right edge.
         let mut state = AppState::default();
-        state.active_chat_input_mut().set_wrap_width(5);
-        state.active_chat_input_mut().insert_text("aaaa bbbb#");
-        state.active_chat_input_mut().activate_autocomplete(
-            9,
-            crate::feat::chat_input::AutocompleteTrigger::Hash,
-            vec![crate::feat::chat_input::AutocompleteMatch {
-                name: "tmpl".into(),
-                description: String::new(),
-            }],
-        );
+        state.update_active_input(|i| i.set_wrap_width(5));
+        state.update_active_input(|i| i.insert_text("aaaa bbbb#"));
+        state.update_active_input(|i| {
+            i.activate_autocomplete(
+                9,
+                crate::feat::chat_input::AutocompleteTrigger::Hash,
+                vec![crate::feat::chat_input::AutocompleteMatch {
+                    name: "tmpl".into(),
+                    description: String::new(),
+                }],
+            );
+        });
 
         // When rendering.
         let rect = popup_rect(&state);
@@ -557,16 +576,18 @@ mod tests {
     fn hash_popup_sits_above_trigger_visual_line_not_input_top() {
         // Given a # popup whose trigger sits on the second wrapped visual line.
         let mut state = AppState::default();
-        state.active_chat_input_mut().set_wrap_width(5);
-        state.active_chat_input_mut().insert_text("aaaa bbbb#");
-        state.active_chat_input_mut().activate_autocomplete(
-            9,
-            crate::feat::chat_input::AutocompleteTrigger::Hash,
-            vec![crate::feat::chat_input::AutocompleteMatch {
-                name: "tmpl".into(),
-                description: String::new(),
-            }],
-        );
+        state.update_active_input(|i| i.set_wrap_width(5));
+        state.update_active_input(|i| i.insert_text("aaaa bbbb#"));
+        state.update_active_input(|i| {
+            i.activate_autocomplete(
+                9,
+                crate::feat::chat_input::AutocompleteTrigger::Hash,
+                vec![crate::feat::chat_input::AutocompleteMatch {
+                    name: "tmpl".into(),
+                    description: String::new(),
+                }],
+            );
+        });
 
         // When rendering (input_area.y=20, trigger on visual row 1 → on-screen y=21).
         let rect = popup_rect(&state);
@@ -586,17 +607,19 @@ mod tests {
         // Given a # popup whose trigger sits on the THIRD wrapped visual line,
         // so the input-box-top anchor (y=20) and the cursor-line anchor diverge.
         let mut state = AppState::default();
-        state.active_chat_input_mut().set_wrap_width(5);
+        state.update_active_input(|i| i.set_wrap_width(5));
         // "aaaa aaaa a#" at width 5 → row0 "aaaa ", row1 "aaaa ", row2 "a#".
-        state.active_chat_input_mut().insert_text("aaaa aaaa a#");
-        state.active_chat_input_mut().activate_autocomplete(
-            11,
-            crate::feat::chat_input::AutocompleteTrigger::Hash,
-            vec![crate::feat::chat_input::AutocompleteMatch {
-                name: "tmpl".into(),
-                description: String::new(),
-            }],
-        );
+        state.update_active_input(|i| i.insert_text("aaaa aaaa a#"));
+        state.update_active_input(|i| {
+            i.activate_autocomplete(
+                11,
+                crate::feat::chat_input::AutocompleteTrigger::Hash,
+                vec![crate::feat::chat_input::AutocompleteMatch {
+                    name: "tmpl".into(),
+                    description: String::new(),
+                }],
+            );
+        });
 
         // When rendering.
         let rect = popup_rect(&state);
@@ -617,15 +640,13 @@ mod tests {
         // seeded with file-picker entries.
         use crate::feat::file_lister::{FileEntry, FilePickerState};
         let mut state = AppState::default();
-        state.active_chat_input_mut().set_wrap_width(5);
+        state.update_active_input(|i| i.set_wrap_width(5));
         // "aaaa bbbb@" → row0 "aaaa ", row1 "bbb@"? Use a clean wrap:
         // "aaaa aaaa @" at width 5 → row0 "aaaa ", row1 "aaaa ", row2 "@".
-        state.active_chat_input_mut().insert_text("aaaa aaaa @");
-        state.active_chat_input_mut().activate_autocomplete(
-            11,
-            crate::feat::chat_input::AutocompleteTrigger::At,
-            vec![],
-        );
+        state.update_active_input(|i| i.insert_text("aaaa aaaa @"));
+        state.update_active_input(|i| {
+            i.activate_autocomplete(11, crate::feat::chat_input::AutocompleteTrigger::At, vec![]);
+        });
         state.frontend.file_picker = FilePickerState::with_entries(vec![FileEntry {
             name: "src".into(),
             is_dir: true,
@@ -649,15 +670,13 @@ mod tests {
         // far from the terminal's right edge.
         use crate::feat::file_lister::{FileEntry, FilePickerState};
         let mut state = AppState::default();
-        state.active_chat_input_mut().set_wrap_width(5);
+        state.update_active_input(|i| i.set_wrap_width(5));
         // "aaaa bbbb@" at width 5 → row0 "aaaa ", row1 "bbbb@" with @ at
         // display col 4 on the wrapped continuation line.
-        state.active_chat_input_mut().insert_text("aaaa bbbb@");
-        state.active_chat_input_mut().activate_autocomplete(
-            9,
-            crate::feat::chat_input::AutocompleteTrigger::At,
-            vec![],
-        );
+        state.update_active_input(|i| i.insert_text("aaaa bbbb@"));
+        state.update_active_input(|i| {
+            i.activate_autocomplete(9, crate::feat::chat_input::AutocompleteTrigger::At, vec![]);
+        });
         state.frontend.file_picker = FilePickerState::with_entries(vec![FileEntry {
             name: "src".into(),
             is_dir: true,
@@ -693,9 +712,7 @@ mod tests {
             .collect();
         state.frontend.file_picker = FilePickerState::with_entries(entries);
         for _ in 0..20 {
-            state
-                .active_chat_input_mut()
-                .autocomplete_move_down_bounded(30);
+            state.update_active_input(|i| i.autocomplete_move_down_bounded(30));
         }
 
         // When rendering.
@@ -722,9 +739,7 @@ mod tests {
             .collect();
         state.frontend.file_picker = FilePickerState::with_entries(entries);
         for _ in 0..20 {
-            state
-                .active_chat_input_mut()
-                .autocomplete_move_down_bounded(30);
+            state.update_active_input(|i| i.autocomplete_move_down_bounded(30));
         }
 
         // When rendering.
@@ -777,9 +792,7 @@ mod tests {
             .collect();
         state.frontend.file_picker = FilePickerState::with_entries(entries);
         for _ in 0..30 {
-            state
-                .active_chat_input_mut()
-                .autocomplete_move_down_bounded(30);
+            state.update_active_input(|i| i.autocomplete_move_down_bounded(30));
         }
 
         // When rendering.

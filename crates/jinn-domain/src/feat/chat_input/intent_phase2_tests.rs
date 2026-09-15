@@ -35,7 +35,9 @@ fn hash_trigger_valid_after_space() {
     let _ = crate::feat::chat_input::intent::handle_insert_char('#', &mut state);
 
     // Then autocomplete activates (the || check passes with space).
-    let ac = state.active_chat_input().autocomplete();
+    let ac = state
+        .active_session()
+        .with_input(|i| i.autocomplete().clone(), Default::default);
     assert!(ac.is_some(), "'#' after space should trigger autocomplete");
 }
 
@@ -61,7 +63,9 @@ fn hash_trigger_valid_after_newline() {
     let _ = crate::feat::chat_input::intent::handle_insert_char('#', &mut state);
 
     // Then autocomplete activates (the || check passes with newline).
-    let ac = state.active_chat_input().autocomplete();
+    let ac = state
+        .active_session()
+        .with_input(|i| i.autocomplete().clone(), Default::default);
     assert!(
         ac.is_some(),
         "'#' after newline should trigger autocomplete"
@@ -92,7 +96,9 @@ fn hash_trigger_invalid_after_letter() {
     let _ = crate::feat::chat_input::intent::handle_insert_char('#', &mut state);
 
     // Then autocomplete does NOT activate.
-    let ac = state.active_chat_input().autocomplete();
+    let ac = state
+        .active_session()
+        .with_input(|i| i.autocomplete().clone(), Default::default);
     assert!(
         ac.is_none(),
         "'#' after letter should NOT trigger autocomplete"
@@ -112,7 +118,9 @@ fn slash_trigger_only_at_position_zero() {
     let _ = crate::feat::chat_input::intent::handle_insert_char('/', &mut state);
 
     // Then autocomplete does NOT activate.
-    let ac = state.active_chat_input().autocomplete();
+    let ac = state
+        .active_session()
+        .with_input(|i| i.autocomplete().clone(), Default::default);
     assert!(
         ac.is_none(),
         "'/' not at position 0 should NOT trigger autocomplete"
@@ -147,10 +155,18 @@ fn delete_grapheme_deactivates_when_cursor_at_token_start_plus_one() {
     let _ = crate::feat::chat_input::intent::handle_insert_char('t', &mut state);
 
     // Autocomplete should be active with filter "t".
-    assert!(state.active_chat_input().autocomplete().is_some());
+    assert!(
+        state
+            .active_session()
+            .with_input(|i| i.autocomplete().clone(), Default::default)
+            .is_some()
+    );
     let filter_before = state
-        .active_chat_input()
-        .autocomplete_filter()
+        .active_session()
+        .with_input(
+            jinn_slices::ChatInputBoxState::autocomplete_filter,
+            Default::default,
+        )
         .unwrap_or_default();
     assert_eq!(filter_before, "t", "filter should be 't' before deletion");
 
@@ -159,12 +175,18 @@ fn delete_grapheme_deactivates_when_cursor_at_token_start_plus_one() {
 
     // Then autocomplete reactivates with empty filter (the 't' was deleted).
     assert!(
-        state.active_chat_input().autocomplete().is_some(),
+        state
+            .active_session()
+            .with_input(|i| i.autocomplete().clone(), Default::default)
+            .is_some(),
         "autocomplete should reactivate after deleting back to #"
     );
     let filter_after = state
-        .active_chat_input()
-        .autocomplete_filter()
+        .active_session()
+        .with_input(
+            jinn_slices::ChatInputBoxState::autocomplete_filter,
+            Default::default,
+        )
         .unwrap_or_default();
     assert_eq!(
         filter_after, "",
@@ -193,14 +215,16 @@ fn delete_forward_deactivates_when_cursor_at_token_start() {
     let _ = crate::feat::chat_input::intent::handle_insert_char('t', &mut state);
 
     // Move cursor to position 0 (before the '#').
-    state.active_chat_input_mut().move_cursor_to_start();
+    state.update_active_input(crate::feat::chat_input::ChatInputBoxState::move_cursor_to_start);
     // Token start is 0, cursor is now 0.
 
     // When deleting forward from cursor position 0 (== token_start).
     let _ = crate::feat::chat_input::intent::handle_delete_grapheme_forward(&mut state);
 
     // Then autocomplete is deactivated (cursor == token_start triggers deactivation).
-    let ac = state.active_chat_input().autocomplete();
+    let ac = state
+        .active_session()
+        .with_input(|i| i.autocomplete().clone(), Default::default);
     assert!(
         ac.is_none(),
         "delete forward at token_start should deactivate"
@@ -242,7 +266,10 @@ fn cursor_move_left_deactivates_when_cursor_before_token() {
     let _ = crate::feat::chat_input::intent::handle_move_cursor_right(&mut state);
     let _ = crate::feat::chat_input::intent::handle_move_cursor_right(&mut state);
     assert!(
-        state.active_chat_input().autocomplete().is_some(),
+        state
+            .active_session()
+            .with_input(|i| i.autocomplete().clone(), Default::default)
+            .is_some(),
         "cursor at position 4 should reactivate (within #test)"
     );
 
@@ -255,7 +282,9 @@ fn cursor_move_left_deactivates_when_cursor_before_token() {
     // Then autocomplete is deactivated (cursor at position 0, token_start at 2).
     // cursor 0 <= token_start 2 → true → deactivate.
     // try_reactivate: cursor at 0, no '#' at 0 (it's 'a'), so no reactivation.
-    let ac = state.active_chat_input().autocomplete();
+    let ac = state
+        .active_session()
+        .with_input(|i| i.autocomplete().clone(), Default::default);
     assert!(
         ac.is_none(),
         "cursor before token should deactivate permanently"
@@ -288,14 +317,21 @@ fn reactivating_hash_autocomplete_within_token() {
 
     // Move cursor to start (deactivates).
     let _ = crate::feat::chat_input::intent::handle_move_cursor_to_start(&mut state);
-    assert!(state.active_chat_input().autocomplete().is_none());
+    assert!(
+        state
+            .active_session()
+            .with_input(|i| i.autocomplete().clone(), Default::default)
+            .is_none()
+    );
 
     // Move cursor right to position 2 (within "#te|st").
     let _ = crate::feat::chat_input::intent::handle_move_cursor_right(&mut state);
     let _ = crate::feat::chat_input::intent::handle_move_cursor_right(&mut state);
 
     // Then autocomplete should reactivate via try_reactivate_autocomplete / find_hash_token_at_cursor.
-    let ac = state.active_chat_input().autocomplete();
+    let ac = state
+        .active_session()
+        .with_input(|i| i.autocomplete().clone(), Default::default);
     assert!(
         ac.is_some(),
         "cursor within #token should reactivate autocomplete"
@@ -317,18 +353,30 @@ fn reactivating_slash_autocomplete_within_command() {
     let _ = crate::feat::chat_input::intent::handle_insert_char('l', &mut state);
     let _ = crate::feat::chat_input::intent::handle_insert_char('p', &mut state);
 
-    assert!(state.active_chat_input().autocomplete().is_some());
+    assert!(
+        state
+            .active_session()
+            .with_input(|i| i.autocomplete().clone(), Default::default)
+            .is_some()
+    );
 
     // Move to start (deactivates).
     let _ = crate::feat::chat_input::intent::handle_move_cursor_to_start(&mut state);
-    assert!(state.active_chat_input().autocomplete().is_none());
+    assert!(
+        state
+            .active_session()
+            .with_input(|i| i.autocomplete().clone(), Default::default)
+            .is_none()
+    );
 
     // Move right to position 2 (within "/he|lp").
     let _ = crate::feat::chat_input::intent::handle_move_cursor_right(&mut state);
     let _ = crate::feat::chat_input::intent::handle_move_cursor_right(&mut state);
 
     // Then autocomplete should reactivate.
-    let ac = state.active_chat_input().autocomplete();
+    let ac = state
+        .active_session()
+        .with_input(|i| i.autocomplete().clone(), Default::default);
     assert!(
         ac.is_some(),
         "cursor within /command should reactivate autocomplete"
@@ -368,14 +416,22 @@ fn enter_normal_mode_dismisses_active_autocomplete_without_scope_change() {
     );
 
     let _ = crate::feat::chat_input::intent::handle_insert_char('#', &mut state);
-    assert!(state.active_chat_input().autocomplete().is_some());
+    assert!(
+        state
+            .active_session()
+            .with_input(|i| i.autocomplete().clone(), Default::default)
+            .is_some()
+    );
 
     // When handling EnterNormalMode.
     let result = crate::feat::chat_input::intent::handle_enter_normal_mode(&mut state);
 
     // Then autocomplete is dismissed but scope stays Input (not Normal).
     assert!(
-        state.active_chat_input().autocomplete().is_none(),
+        state
+            .active_session()
+            .with_input(|i| i.autocomplete().clone(), Default::default)
+            .is_none(),
         "enter_normal_mode should dismiss autocomplete"
     );
     assert_eq!(

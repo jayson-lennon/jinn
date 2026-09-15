@@ -30,6 +30,7 @@
 )]
 
 pub mod cell;
+pub mod chat_input_state;
 pub mod chat_log_view_state;
 pub mod cwd_root;
 pub mod fabric;
@@ -51,6 +52,15 @@ pub mod tui_signals;
 pub mod view;
 
 pub use cell::TypedCell;
+pub use chat_input_state::AutocompleteMatch;
+pub use chat_input_state::AutocompleteState;
+pub use chat_input_state::AutocompleteTrigger;
+pub use chat_input_state::ChatInputBoxState;
+pub use chat_input_state::ChatInputs;
+pub use chat_input_state::InputMode;
+pub use chat_input_state::WrappedLine;
+pub use chat_input_state::chat_inputs_slot;
+pub use chat_input_state::wrap_text;
 pub use chat_log_view_state::ChatLogViewUi;
 pub use chat_log_view_state::ChatLogViews;
 pub use chat_log_view_state::SavedHistoryPosition;

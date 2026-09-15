@@ -21,7 +21,10 @@ pub enum SubmitMessageError {
 ///
 /// Returns an error if autocomplete is active or the input buffer is empty.
 pub fn validate_submit_message(state: &AppState) -> Result<(), SubmitMessageError> {
-    if state.active_chat_input().is_empty() {
+    if state
+        .active_session()
+        .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
+    {
         return Err(SubmitMessageError::EmptyBuffer);
     }
     Ok(())
@@ -43,7 +46,10 @@ pub enum AutocompleteConfirmError {
 ///
 /// Returns an error if no autocomplete session is active.
 pub fn validate_autocomplete_confirm(state: &AppState) -> Result<(), AutocompleteConfirmError> {
-    if state.active_chat_input().autocomplete().is_none() {
+    if state
+        .active_session()
+        .with_input(|i| i.autocomplete().is_none(), || true)
+    {
         return Err(AutocompleteConfirmError::NotActive);
     }
     Ok(())
@@ -69,7 +75,7 @@ mod tests {
     fn submit_message_succeeds_with_non_empty_buffer() {
         // Given a state with text in the input buffer.
         let mut state = AppState::default();
-        state.active_chat_input_mut().insert_grapheme_at_cursor('h');
+        state.update_active_input(|i| i.insert_grapheme_at_cursor('h'));
 
         // When validating submit message.
         let result = validate_submit_message(&state);
@@ -94,11 +100,13 @@ mod tests {
     fn autocomplete_confirm_succeeds_when_active() {
         // Given a state with autocomplete active.
         let mut state = AppState::default();
-        state.active_chat_input_mut().activate_autocomplete(
-            0,
-            crate::feat::chat_input::AutocompleteTrigger::Hash,
-            vec![],
-        );
+        state.update_active_input(|i| {
+            i.activate_autocomplete(
+                0,
+                crate::feat::chat_input::AutocompleteTrigger::Hash,
+                vec![],
+            );
+        });
 
         // When validating autocomplete confirm.
         let result = validate_autocomplete_confirm(&state);

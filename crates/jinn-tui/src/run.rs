@@ -289,8 +289,8 @@ fn handle_suspend_action(
                 app.core
                     .state
                     .write(&app.intent_handler_cap)
-                    .active_chat_input_mut()
-                    .replace_all(content);
+                    .active_session()
+                    .update_input(|i| i.replace_all(content));
             }
         }
         SuspendResult::ChangeCwd(path) => {

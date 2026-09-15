@@ -263,7 +263,7 @@ impl SessionPersistenceActor {
                 ) {
                     let drained = session.drain_queue();
                     if let Some(text) = drained_queue_to_text(&drained) {
-                        session.chat_input_mut().replace_all(text);
+                        session.update_input(|input| input.replace_all(text));
                     }
                 }
 
@@ -511,7 +511,10 @@ mod tests {
         let state = actor.state.read();
         let session = state.session.get(&session_id).expect("session exists");
         assert_eq!(session.queue_len(), 0);
-        assert_eq!(session.chat_input().text(), "queued message");
+        assert_eq!(
+            session.with_input(|i| i.text().to_owned(), String::new),
+            "queued message"
+        );
     }
 
     #[rstest::rstest]
@@ -549,7 +552,10 @@ mod tests {
         let state = actor.state.read();
         let session = state.session.get(&session_id).expect("session exists");
         assert_eq!(session.queue_len(), 0);
-        assert_eq!(session.chat_input().text(), "first message\nsecond message");
+        assert_eq!(
+            session.with_input(|i| i.text().to_owned(), String::new),
+            "first message\nsecond message"
+        );
     }
 
     #[rstest::rstest]
@@ -584,7 +590,10 @@ mod tests {
         let state = actor.state.read();
         let session = state.session.get(&session_id).expect("session exists");
         assert_eq!(session.queue_len(), 0);
-        assert_eq!(session.chat_input().text(), "queued message");
+        assert_eq!(
+            session.with_input(|i| i.text().to_owned(), String::new),
+            "queued message"
+        );
     }
 
     #[rstest::rstest]

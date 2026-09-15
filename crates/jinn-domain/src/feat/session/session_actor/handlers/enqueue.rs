@@ -6,8 +6,7 @@
 
 use crate::common::actor_deps::BusPublish;
 use crate::feat::chat_input::protocol::command::{
-    EnqueueResumeTurn, EnqueueUserMessage, PushChatEntry, SetChatInputEnabled, SetChatInputText,
-    SubmitSteeringMessage,
+    EnqueueResumeTurn, EnqueueUserMessage, PushChatEntry, SubmitSteeringMessage,
 };
 use crate::feat::chat_input::protocol::event::ChatEntrySubmitted;
 use crate::feat::context::assemble::assemble_prompt;
@@ -548,28 +547,6 @@ impl SessionPersistenceActor {
         self.save_active_session(session_id).await;
     }
 
-    /// SetChatInputText: update the session's input buffer.
-    pub(in crate::feat::session::session_actor) fn handle_set_chat_input_text(
-        &self,
-        payload: &SetChatInputText,
-    ) {
-        self.state.with_session(&self.cap, |view| {
-            let session = view.session.map().get_or_create(&payload.session_id);
-            session.chat_input_mut().replace_all(payload.text.clone());
-        });
-    }
-
-    /// SetChatInputEnabled: enable or disable editing for the session's input box.
-    pub(in crate::feat::session::session_actor) fn handle_set_chat_input_enabled(
-        &self,
-        payload: &SetChatInputEnabled,
-    ) {
-        self.state.with_session(&self.cap, |view| {
-            let session = view.session.map().get_or_create(&payload.session_id);
-            session.chat_input_mut().set_enabled(payload.enabled);
-        });
-    }
-
     /// SubmitSteeringMessage: append a fragment to the session's steering buffer.
     ///
     /// The buffer is drained into a `User` entry at the next prompt-assembly
@@ -651,7 +628,7 @@ mod tests {
 
     use crate::common::services::BusAudit;
     use crate::feat::chat_input::protocol::command::{
-        EnqueueResumeTurn, EnqueueUserMessage, PushChatEntry, SetChatInputText,
+        EnqueueResumeTurn, EnqueueUserMessage, PushChatEntry,
     };
     use crate::feat::provider::protocol::command::{SendMessage, SendToLlmProvider};
     use crate::feat::session::phase_machine::PhaseKind;
@@ -786,29 +763,6 @@ mod tests {
             audit.contains_name("SendToLlmProvider"),
             "expected SendToLlmProvider command"
         );
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn handle_set_chat_input_text_updates_buffer() {
-        // Given a session.
-        let (actor, state, _audit) = create_actor().await;
-        let session_id = {
-            let mut guard = state.write_test_no_cap();
-            let _ = guard.active_session_mut();
-            guard.session.active_session_id().clone()
-        };
-
-        // When setting the input text.
-        actor.handle_set_chat_input_text(&SetChatInputText {
-            session_id: session_id.clone(),
-            text: "new input text".to_owned(),
-        });
-
-        // Then the input buffer is updated.
-        let guard = state.read();
-        let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.chat_input().text(), "new input text");
     }
 
     #[rstest::rstest]

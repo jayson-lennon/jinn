@@ -28,17 +28,10 @@ pub mod state;
 pub mod validator;
 
 // Re-export state types for convenience.
-pub use state::autocomplete::AutocompleteTrigger;
-pub use state::{ChatInputBoxState, InputMode};
-
-/// A single match for the prompt template autocomplete popup.
-#[derive(Debug, Clone)]
-pub struct AutocompleteMatch {
-    /// The template name (e.g. `"code-review"`).
-    pub name: String,
-    /// Short human-readable description for the popup.
-    pub description: String,
-}
+pub use jinn_slices::AutocompleteMatch;
+pub use jinn_slices::AutocompleteTrigger;
+pub use jinn_slices::ChatInputBoxState;
+pub use jinn_slices::InputMode;
 
 // Re-export element for registration.
 pub use element::ChatInputBoxElement;

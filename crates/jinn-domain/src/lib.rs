@@ -123,9 +123,7 @@ pub use common::actor::protocol::command::ProceedWithShutdown;
 pub use common::actor::protocol::event::{
     ActorShutdownCompleted, ActorStarted, ActorStarting, AllActorsSpawned,
 };
-pub use feat::chat_input::protocol::command::{
-    EnqueueUserMessage, PushChatEntry, SetChatInputEnabled, SetChatInputText,
-};
+pub use feat::chat_input::protocol::command::{EnqueueUserMessage, PushChatEntry};
 pub use feat::chat_input::protocol::event::ChatEntrySubmitted;
 pub use feat::context::assemble::AssembledPrompt;
 pub use feat::context::protocol::command::{PinChatEntry, UnpinChatEntry};

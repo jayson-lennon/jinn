@@ -32,24 +32,24 @@ use super::validator;
 
 /// Handles `InsertChar` - inserts a character and manages autocomplete.
 pub fn handle_insert_char(ch: char, state: &mut AppState) -> IntentResult {
-    let is_autocomplete_active = state.active_chat_input().autocomplete().is_some();
+    let is_autocomplete_active = state.with_active_input(|i| i.autocomplete().is_some(), || false);
 
     if is_autocomplete_active {
         return handle_insert_while_autocomplete_active(ch, state);
     }
 
-    state.active_chat_input_mut().insert_grapheme_at_cursor(ch);
+    state.update_active_input(|i| i.insert_grapheme_at_cursor(ch));
 
     // `@` triggers the file popup (if at a valid boundary).
     if ch == '@' {
-        let input = state.active_chat_input();
-        if is_valid_at_trigger_position(input) {
-            let token_start = input.cursor_pos() - 1;
-            state.active_chat_input_mut().activate_autocomplete(
-                token_start,
-                AutocompleteTrigger::At,
-                Vec::new(),
-            );
+        let (valid, token_start) = state.with_active_input(
+            |i| (is_valid_at_trigger_position(i), i.cursor_pos() - 1),
+            || (false, 0),
+        );
+        if valid {
+            state.update_active_input(|i| {
+                i.activate_autocomplete(token_start, AutocompleteTrigger::At, Vec::new());
+            });
             return IntentResult::new_message(emit_list_directory(state, ""));
         }
     }
@@ -57,28 +57,28 @@ pub fn handle_insert_char(ch: char, state: &mut AppState) -> IntentResult {
     // `#` and `/` keep their existing static-list activation.
     match ch {
         '#' => {
-            let input = state.active_chat_input();
-            if is_valid_hash_trigger_position(input) {
-                let token_start = input.cursor_pos() - 1;
+            let (valid, token_start) = state.with_active_input(
+                |i| (is_valid_hash_trigger_position(i), i.cursor_pos() - 1),
+                || (false, 0),
+            );
+            if valid {
                 let matches =
                     compute_matches(state.active_session().discovered_prompt_templates(), "");
-                state.active_chat_input_mut().activate_autocomplete(
-                    token_start,
-                    AutocompleteTrigger::Hash,
-                    matches,
-                );
+                state.update_active_input(|i| {
+                    i.activate_autocomplete(token_start, AutocompleteTrigger::Hash, matches);
+                });
             }
         }
         '/' => {
-            let input = state.active_chat_input();
-            if is_valid_slash_trigger_position(input) {
-                let token_start = input.cursor_pos() - 1;
+            let (valid, token_start) = state.with_active_input(
+                |i| (is_valid_slash_trigger_position(i), i.cursor_pos() - 1),
+                || (false, 0),
+            );
+            if valid {
                 let matches = compute_slash_matches("");
-                state.active_chat_input_mut().activate_autocomplete(
-                    token_start,
-                    AutocompleteTrigger::Slash,
-                    matches,
-                );
+                state.update_active_input(|i| {
+                    i.activate_autocomplete(token_start, AutocompleteTrigger::Slash, matches);
+                });
             }
         }
         _ => {}
@@ -94,13 +94,12 @@ pub fn handle_insert_char(ch: char, state: &mut AppState) -> IntentResult {
 /// a space deactivates, and any other character just extends the path filter
 /// (client-side entry filtering narrows the visible rows).
 fn handle_insert_while_autocomplete_active(ch: char, state: &mut AppState) -> IntentResult {
-    state.active_chat_input_mut().insert_grapheme_at_cursor(ch);
+    state.update_active_input(|i| i.insert_grapheme_at_cursor(ch));
 
-    let trigger = state
-        .active_chat_input()
-        .autocomplete()
-        .as_ref()
-        .map(AutocompleteState::trigger);
+    let trigger = state.with_active_input(
+        |i| i.autocomplete().as_ref().map(AutocompleteState::trigger),
+        || None,
+    );
 
     // `@` file popup.
     if trigger == Some(AutocompleteTrigger::At) {
@@ -108,17 +107,16 @@ fn handle_insert_while_autocomplete_active(ch: char, state: &mut AppState) -> In
         // which is the reserved trigger for the future multi-file picker.
         // Deactivate the `@` popup so `@@` stays literal with no handler.
         if ch == '@' {
-            state.active_chat_input_mut().deactivate_autocomplete();
+            state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
             return IntentResult::empty();
         }
         if ch == ' ' {
-            state.active_chat_input_mut().deactivate_autocomplete();
+            state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
             return IntentResult::empty();
         }
         if ch == '/' {
             let filter = state
-                .active_chat_input()
-                .autocomplete_filter()
+                .with_active_input(ChatInputBoxState::autocomplete_filter, || None)
                 .unwrap_or_default();
             return IntentResult::new_message(emit_list_directory(state, &filter));
         }
@@ -128,16 +126,18 @@ fn handle_insert_while_autocomplete_active(ch: char, state: &mut AppState) -> In
     // `#`/`/` static-list triggers.
     match (ch, trigger) {
         (' ', _) => {
-            state.active_chat_input_mut().deactivate_autocomplete();
+            state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
         }
         ('#', Some(AutocompleteTrigger::Hash)) => {
-            let Some(token_start) = state.active_chat_input().autocomplete_token_start() else {
+            let Some(token_start) =
+                state.with_active_input(ChatInputBoxState::autocomplete_token_start, || None)
+            else {
                 return IntentResult::empty();
             };
-            let cursor_before_insert = state.active_chat_input().cursor_pos() - 1;
+            let cursor_before_insert =
+                state.with_active_input(ChatInputBoxState::cursor_pos, Default::default) - 1;
             let filter: String = state
-                .active_chat_input()
-                .text()
+                .with_active_input(|i| i.text().to_owned(), String::new)
                 .graphemes(true)
                 .enumerate()
                 .skip_while(|(i, _)| *i < token_start + 1)
@@ -150,24 +150,21 @@ fn handle_insert_while_autocomplete_active(ch: char, state: &mut AppState) -> In
                 .find_by_name(&filter)
             {
                 let body = template.body.clone();
-                state.active_chat_input_mut().expand_autocomplete(&body);
+                state.update_active_input(|i| i.expand_autocomplete(&body));
             } else {
-                state.active_chat_input_mut().deactivate_autocomplete();
+                state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
             }
         }
         _ => {
             let filter = state
-                .active_chat_input()
-                .autocomplete_filter()
+                .with_active_input(ChatInputBoxState::autocomplete_filter, || None)
                 .unwrap_or_default();
             let matches = compute_updated_matches(
                 state.active_session().discovered_prompt_templates(),
                 trigger,
                 &filter,
             );
-            state
-                .active_chat_input_mut()
-                .update_autocomplete_matches(matches);
+            state.update_active_input(|i| i.update_autocomplete_matches(matches));
         }
     }
     IntentResult::empty()
@@ -179,62 +176,52 @@ fn handle_insert_while_autocomplete_active(ch: char, state: &mut AppState) -> In
 /// full string in one O(n) operation. Autocomplete is always deactivated on
 /// paste since the pasted content may span multiple lines or tokens.
 pub fn handle_paste_text(text: &str, state: &mut AppState) -> IntentResult {
-    state.active_chat_input_mut().deactivate_autocomplete();
-    state.active_chat_input_mut().insert_text(text);
+    state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
+    state.update_active_input(|i| i.insert_text(text));
     IntentResult::empty()
 }
 
 /// Handles `DeleteGrapheme` - backspace with autocomplete awareness.
 pub fn handle_delete_grapheme(state: &mut AppState) -> IntentResult {
-    let should_deactivate =
-        if let Some(token_start) = state.active_chat_input().autocomplete_token_start() {
-            state.active_chat_input().cursor_pos() <= token_start + 1
-        } else {
-            false
-        };
+    let should_deactivate = if let Some(token_start) =
+        state.with_active_input(ChatInputBoxState::autocomplete_token_start, || None)
+    {
+        state.with_active_input(ChatInputBoxState::cursor_pos, Default::default) <= token_start + 1
+    } else {
+        false
+    };
 
     if should_deactivate {
-        state.active_chat_input_mut().deactivate_autocomplete();
-        state
-            .active_chat_input_mut()
-            .delete_grapheme_before_cursor();
-    } else if state.active_chat_input().autocomplete().is_some() {
-        state
-            .active_chat_input_mut()
-            .delete_grapheme_before_cursor();
+        state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
+        state.update_active_input(ChatInputBoxState::delete_grapheme_before_cursor);
+    } else if state.with_active_input(|i| i.autocomplete().is_some(), || false) {
+        state.update_active_input(ChatInputBoxState::delete_grapheme_before_cursor);
 
-        let trigger = state
-            .active_chat_input()
-            .autocomplete()
-            .as_ref()
-            .map(AutocompleteState::trigger);
+        let trigger = state.with_active_input(
+            |i| i.autocomplete().as_ref().map(AutocompleteState::trigger),
+            || None,
+        );
 
         // `@` popup: deleting may shorten the path enough to change the listed
         // directory (e.g. deleting a `/`). Re-list.
         if trigger == Some(AutocompleteTrigger::At) {
             let filter = state
-                .active_chat_input()
-                .autocomplete_filter()
+                .with_active_input(ChatInputBoxState::autocomplete_filter, || None)
                 .unwrap_or_default();
             return IntentResult::new_message(emit_list_directory(state, &filter));
         }
 
         let filter = state
-            .active_chat_input()
-            .autocomplete_filter()
+            .with_active_input(ChatInputBoxState::autocomplete_filter, || None)
             .unwrap_or_default();
         let matches = compute_updated_matches(
             state.active_session().discovered_prompt_templates(),
             trigger,
             &filter,
         );
-        state
-            .active_chat_input_mut()
-            .update_autocomplete_matches(matches);
+        state.update_active_input(|i| i.update_autocomplete_matches(matches));
     } else {
-        state
-            .active_chat_input_mut()
-            .delete_grapheme_before_cursor();
+        state.update_active_input(ChatInputBoxState::delete_grapheme_before_cursor);
     }
 
     try_reactivate_autocomplete(state);
@@ -246,40 +233,36 @@ pub fn handle_delete_grapheme(state: &mut AppState) -> IntentResult {
 
 /// Handles `DeleteGraphemeForward` - forward delete with autocomplete awareness.
 pub fn handle_delete_grapheme_forward(state: &mut AppState) -> IntentResult {
-    let token_start = state.active_chat_input().autocomplete_token_start();
-    let cursor = state.active_chat_input().cursor_pos();
+    let token_start = state.with_active_input(ChatInputBoxState::autocomplete_token_start, || None);
+    let cursor = state.with_active_input(ChatInputBoxState::cursor_pos, Default::default);
 
     if let Some(token_start) = token_start {
         if cursor == token_start {
-            state.active_chat_input_mut().deactivate_autocomplete();
-            state.active_chat_input_mut().delete_grapheme_after_cursor();
+            state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
+            state.update_active_input(ChatInputBoxState::delete_grapheme_after_cursor);
         } else {
-            state.active_chat_input_mut().delete_grapheme_after_cursor();
+            state.update_active_input(ChatInputBoxState::delete_grapheme_after_cursor);
             let should_deactivate = should_deactivate_on_cursor_move(state);
             if should_deactivate {
-                state.active_chat_input_mut().deactivate_autocomplete();
+                state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
             } else {
                 let filter = state
-                    .active_chat_input()
-                    .autocomplete_filter()
+                    .with_active_input(ChatInputBoxState::autocomplete_filter, || None)
                     .unwrap_or_default();
-                let trigger = state
-                    .active_chat_input()
-                    .autocomplete()
-                    .as_ref()
-                    .map(AutocompleteState::trigger);
+                let trigger = state.with_active_input(
+                    |i| i.autocomplete().as_ref().map(AutocompleteState::trigger),
+                    || None,
+                );
                 let matches = compute_updated_matches(
                     state.active_session().discovered_prompt_templates(),
                     trigger,
                     &filter,
                 );
-                state
-                    .active_chat_input_mut()
-                    .update_autocomplete_matches(matches);
+                state.update_active_input(|i| i.update_autocomplete_matches(matches));
             }
         }
     } else {
-        state.active_chat_input_mut().delete_grapheme_after_cursor();
+        state.update_active_input(ChatInputBoxState::delete_grapheme_after_cursor);
     }
 
     try_reactivate_autocomplete(state);
@@ -288,14 +271,14 @@ pub fn handle_delete_grapheme_forward(state: &mut AppState) -> IntentResult {
 
 /// Handles `ToggleInputMode` - flips Queue ↔ Steer.
 pub fn handle_toggle_input_mode(state: &mut AppState) -> IntentResult {
-    state.active_chat_input_mut().toggle_input_mode();
+    state.update_active_input(ChatInputBoxState::toggle_input_mode);
     IntentResult::empty()
 }
 
 /// Handles `SubmitMessage` - confirms autocomplete if active, executes slash commands,
 /// or submits the message as chat input.
 pub fn handle_submit_message(state: &mut AppState) -> IntentResult {
-    if state.active_chat_input().autocomplete().is_some() {
+    if state.with_active_input(|i| i.autocomplete().is_some(), || false) {
         return handle_submit_message_with_autocomplete(state);
     }
 
@@ -304,14 +287,14 @@ pub fn handle_submit_message(state: &mut AppState) -> IntentResult {
     }
 
     let session_id = state.session.active_session_id().clone();
-    let input_text = state.active_chat_input().text().to_owned();
+    let input_text = state.with_active_input(|i| i.text().to_owned(), String::new);
 
     // Check for slash command execution.
     if let Some(command_name) = input_text.strip_prefix('/') {
         // Extract the first word after / (command name, ignoring arguments).
         let cmd = command_name.split_whitespace().next().unwrap_or("");
         if let Some(cmd) = SlashCommand::lookup(cmd) {
-            state.active_chat_input_mut().reset();
+            state.update_active_input(ChatInputBoxState::reset);
             return with_mark_interacted(
                 session_id,
                 execute_slash_command(cmd, &input_text, state),
@@ -320,7 +303,7 @@ pub fn handle_submit_message(state: &mut AppState) -> IntentResult {
         // Unknown /command - fall through to normal message.
     }
 
-    state.active_chat_input_mut().reset();
+    state.update_active_input(ChatInputBoxState::reset);
 
     let result = route_to_enqueue_or_steer(state, &session_id, input_text);
     with_mark_interacted(session_id, result)
@@ -333,18 +316,19 @@ pub fn handle_submit_message(state: &mut AppState) -> IntentResult {
 /// For `Slash` trigger: completes the command name, then re-checks for slash
 /// command execution.
 fn handle_submit_message_with_autocomplete(state: &mut AppState) -> IntentResult {
-    let trigger = state
-        .active_chat_input()
-        .autocomplete()
-        .as_ref()
-        .map(AutocompleteState::trigger);
+    let trigger = state.with_active_input(
+        |i| i.autocomplete().as_ref().map(AutocompleteState::trigger),
+        || None,
+    );
 
     // Complete the selection.
-    if let Some(selected) = state.active_chat_input().autocomplete_selected() {
-        let name = selected.name.clone();
-        state.active_chat_input_mut().complete_autocomplete(&name);
+    if let Some(name) = state.with_active_input(
+        |i| i.autocomplete_selected().map(|m| m.name.clone()),
+        || None,
+    ) {
+        state.update_active_input(|i| i.complete_autocomplete(&name));
     }
-    state.active_chat_input_mut().deactivate_autocomplete();
+    state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
 
     // Now submit based on what we completed.
     if validator::validate_submit_message(state).is_err() {
@@ -352,7 +336,7 @@ fn handle_submit_message_with_autocomplete(state: &mut AppState) -> IntentResult
     }
 
     let session_id = state.session.active_session_id().clone();
-    let display = state.active_chat_input().text().to_owned();
+    let display = state.with_active_input(|i| i.text().to_owned(), String::new);
 
     match trigger {
         Some(AutocompleteTrigger::Slash) => {
@@ -360,7 +344,7 @@ fn handle_submit_message_with_autocomplete(state: &mut AppState) -> IntentResult
             if let Some(command_name) = display.strip_prefix('/') {
                 let cmd = command_name.split_whitespace().next().unwrap_or("");
                 if let Some(cmd) = SlashCommand::lookup(cmd) {
-                    state.active_chat_input_mut().reset();
+                    state.update_active_input(ChatInputBoxState::reset);
                     return with_mark_interacted(
                         session_id,
                         execute_slash_command(cmd, &display, state),
@@ -372,7 +356,7 @@ fn handle_submit_message_with_autocomplete(state: &mut AppState) -> IntentResult
         _ => {}
     }
 
-    state.active_chat_input_mut().reset();
+    state.update_active_input(ChatInputBoxState::reset);
 
     let result = route_to_enqueue_or_steer(state, &session_id, display);
     with_mark_interacted(session_id, result)
@@ -393,7 +377,7 @@ fn route_to_enqueue_or_steer(
     session_id: &SessionId,
     display: String,
 ) -> IntentResult {
-    let mode = state.active_chat_input().input_mode();
+    let mode = state.with_active_input(ChatInputBoxState::input_mode, Default::default);
     let phase = state.active_session().phase();
     match (mode, phase) {
         (InputMode::Steer, PhaseKind::Idle) | (InputMode::Queue, _) => {
@@ -463,36 +447,37 @@ pub fn handle_autocomplete_confirm(state: &mut AppState) -> IntentResult {
     }
 
     // `@` popup confirm has dir-vs-file branching.
-    let is_at = state
-        .active_chat_input()
-        .autocomplete()
-        .as_ref()
-        .is_some_and(|ac| matches!(ac.trigger(), AutocompleteTrigger::At));
+    let is_at = state.with_active_input(
+        |i| {
+            i.autocomplete()
+                .as_ref()
+                .is_some_and(|ac| matches!(ac.trigger(), AutocompleteTrigger::At))
+        },
+        || false,
+    );
     if is_at {
         return confirm_at_popup(state);
     }
 
     // `#`/`/` confirm.
-    if let Some(selected) = state.active_chat_input().autocomplete_selected() {
-        let name = selected.name.clone();
-        state.active_chat_input_mut().complete_autocomplete(&name);
+    if let Some(name) = state.with_active_input(
+        |i| i.autocomplete_selected().map(|m| m.name.clone()),
+        || None,
+    ) {
+        state.update_active_input(|i| i.complete_autocomplete(&name));
         let filter = state
-            .active_chat_input()
-            .autocomplete_filter()
+            .with_active_input(ChatInputBoxState::autocomplete_filter, || None)
             .unwrap_or_default();
-        let trigger = state
-            .active_chat_input()
-            .autocomplete()
-            .as_ref()
-            .map(AutocompleteState::trigger);
+        let trigger = state.with_active_input(
+            |i| i.autocomplete().as_ref().map(AutocompleteState::trigger),
+            || None,
+        );
         let matches = compute_updated_matches(
             state.active_session().discovered_prompt_templates(),
             trigger,
             &filter,
         );
-        state
-            .active_chat_input_mut()
-            .update_autocomplete_matches(matches);
+        state.update_active_input(|i| i.update_autocomplete_matches(matches));
     }
     IntentResult::empty()
 }
@@ -507,10 +492,12 @@ fn confirm_at_popup(state: &mut AppState) -> IntentResult {
     // the mutable `complete_at_entry` call.
     let (name, is_dir) = {
         let filter = state
-            .active_chat_input()
-            .autocomplete_filter()
+            .with_active_input(ChatInputBoxState::autocomplete_filter, || None)
             .unwrap_or_default();
-        let selected_index = state.active_chat_input().autocomplete_selected_index();
+        let selected_index = state.with_active_input(
+            ChatInputBoxState::autocomplete_selected_index,
+            Default::default,
+        );
         // Select from the SAME filtered set the popup renders, so a stale or
         // out-of-range index never inserts an entry the user cannot see.
         let Some(entry) = state
@@ -524,15 +511,14 @@ fn confirm_at_popup(state: &mut AppState) -> IntentResult {
         };
         (entry.name.clone(), entry.is_dir)
     };
-    state
-        .active_chat_input_mut()
-        .complete_at_entry(&name, is_dir);
+    state.update_active_input(|i| {
+        i.complete_at_entry(&name, is_dir);
+    });
     if is_dir {
         // Popup stays active; the trailing `/` updates the filter, so emit
         // a fresh ListDirectory for the deeper path.
         let filter = state
-            .active_chat_input()
-            .autocomplete_filter()
+            .with_active_input(ChatInputBoxState::autocomplete_filter, || None)
             .unwrap_or_default();
         return IntentResult::new_message(emit_list_directory(state, &filter));
     }
@@ -541,10 +527,10 @@ fn confirm_at_popup(state: &mut AppState) -> IntentResult {
 
 /// Handles `MoveCursorLeft` - moves cursor left, deactivates autocomplete if needed.
 pub fn handle_move_cursor_left(state: &mut AppState) -> IntentResult {
-    state.active_chat_input_mut().move_cursor_left();
+    state.update_active_input(ChatInputBoxState::move_cursor_left);
     let should_deactivate = should_deactivate_on_cursor_move(state);
     if should_deactivate {
-        state.active_chat_input_mut().deactivate_autocomplete();
+        state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
     }
     try_reactivate_autocomplete(state);
     if let Some(cmd) = try_reactivate_at_autocomplete(state) {
@@ -555,10 +541,10 @@ pub fn handle_move_cursor_left(state: &mut AppState) -> IntentResult {
 
 /// Handles `MoveCursorRight` - moves cursor right, deactivates autocomplete if needed.
 pub fn handle_move_cursor_right(state: &mut AppState) -> IntentResult {
-    state.active_chat_input_mut().move_cursor_right();
+    state.update_active_input(ChatInputBoxState::move_cursor_right);
     let should_deactivate = should_deactivate_on_cursor_move(state);
     if should_deactivate {
-        state.active_chat_input_mut().deactivate_autocomplete();
+        state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
     }
     try_reactivate_autocomplete(state);
     if let Some(cmd) = try_reactivate_at_autocomplete(state) {
@@ -569,62 +555,58 @@ pub fn handle_move_cursor_right(state: &mut AppState) -> IntentResult {
 
 /// Handles `MoveCursorToStart` - moves cursor to start, deactivates autocomplete.
 pub fn handle_move_cursor_to_start(state: &mut AppState) -> IntentResult {
-    state.active_chat_input_mut().deactivate_autocomplete();
-    state.active_chat_input_mut().move_cursor_to_start();
+    state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
+    state.update_active_input(ChatInputBoxState::move_cursor_to_start);
     IntentResult::empty()
 }
 
 /// Handles `MoveCursorToEnd` - moves cursor to end, deactivates autocomplete.
 pub fn handle_move_cursor_to_end(state: &mut AppState) -> IntentResult {
-    state.active_chat_input_mut().deactivate_autocomplete();
-    state.active_chat_input_mut().move_cursor_to_end();
+    state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
+    state.update_active_input(ChatInputBoxState::move_cursor_to_end);
     IntentResult::empty()
 }
 
 /// Handles `MoveCursorWordLeft` - moves cursor one word left, deactivates autocomplete.
 pub fn handle_move_cursor_word_left(state: &mut AppState) -> IntentResult {
-    state.active_chat_input_mut().deactivate_autocomplete();
-    state.active_chat_input_mut().move_cursor_word_left();
+    state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
+    state.update_active_input(ChatInputBoxState::move_cursor_word_left);
     IntentResult::empty()
 }
 
 /// Handles `MoveCursorWordRight` - moves cursor one word right, deactivates autocomplete.
 pub fn handle_move_cursor_word_right(state: &mut AppState) -> IntentResult {
-    state.active_chat_input_mut().deactivate_autocomplete();
-    state.active_chat_input_mut().move_cursor_word_right();
+    state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
+    state.update_active_input(ChatInputBoxState::move_cursor_word_right);
     IntentResult::empty()
 }
 
 /// Handles `MoveCursorUp` - moves up in autocomplete or moves cursor up.
 pub fn handle_move_cursor_up(state: &mut AppState) -> IntentResult {
-    if state.active_chat_input().autocomplete().is_some() {
+    if state.with_active_input(|i| i.autocomplete().is_some(), || false) {
         if is_at_popup(state) {
             let count = at_visible_count(state);
-            state
-                .active_chat_input_mut()
-                .autocomplete_move_up_bounded(count);
+            state.update_active_input(|i| i.autocomplete_move_up_bounded(count));
         } else {
-            state.active_chat_input_mut().autocomplete_move_up();
+            state.update_active_input(ChatInputBoxState::autocomplete_move_up);
         }
     } else {
-        state.active_chat_input_mut().move_cursor_up();
+        state.update_active_input(ChatInputBoxState::move_cursor_up);
     }
     IntentResult::empty()
 }
 
 /// Handles `MoveCursorDown` - moves down in autocomplete or moves cursor down.
 pub fn handle_move_cursor_down(state: &mut AppState) -> IntentResult {
-    if state.active_chat_input().autocomplete().is_some() {
+    if state.with_active_input(|i| i.autocomplete().is_some(), || false) {
         if is_at_popup(state) {
             let count = at_visible_count(state);
-            state
-                .active_chat_input_mut()
-                .autocomplete_move_down_bounded(count);
+            state.update_active_input(|i| i.autocomplete_move_down_bounded(count));
         } else {
-            state.active_chat_input_mut().autocomplete_move_down();
+            state.update_active_input(ChatInputBoxState::autocomplete_move_down);
         }
     } else {
-        state.active_chat_input_mut().move_cursor_down();
+        state.update_active_input(ChatInputBoxState::move_cursor_down);
     }
     IntentResult::empty()
 }
@@ -681,8 +663,8 @@ pub fn handle_enter_normal_mode_with_pickers(
 ) -> IntentResult {
     // If autocomplete is active, dismiss it and stay in the current scope.
     // Two-level ESC: first press closes popup, second press exits mode.
-    if state.active_chat_input().autocomplete().is_some() {
-        state.active_chat_input_mut().deactivate_autocomplete();
+    if state.with_active_input(|i| i.autocomplete().is_some(), || false) {
+        state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
         return IntentResult::empty();
     }
 
@@ -757,15 +739,16 @@ fn is_valid_at_trigger_position(input: &ChatInputBoxState) -> bool {
 ///
 /// Deactivates when the cursor is before `token_start` or past `token_end`.
 fn should_deactivate_on_cursor_move(state: &AppState) -> bool {
-    let Some(ac) = state.active_chat_input().autocomplete() else {
+    let Some((token_start, cursor)) = state.with_active_input(
+        |i| Some((i.autocomplete_token_start()?, i.cursor_pos())),
+        || None,
+    ) else {
         return false;
     };
-    let cursor = state.active_chat_input().cursor_pos();
-    let token_start = ac.token_start();
     if cursor <= token_start {
         return true;
     }
-    let token_end = compute_token_end(state.active_chat_input(), token_start);
+    let token_end = state.with_active_input(|i| compute_token_end(i, token_start), || 0);
     cursor > token_end
 }
 
@@ -986,34 +969,32 @@ fn find_at_token_at_cursor(input: &ChatInputBoxState) -> Option<(usize, String)>
 ///
 /// Checks for both `#token` and `/command` regions.
 fn try_reactivate_autocomplete(state: &mut AppState) {
-    if state.active_chat_input().autocomplete().is_some() {
+    if state.with_active_input(|i| i.autocomplete().is_some(), || false) {
         return;
     }
 
     // Try slash command token first (position 0).
-    if let Some((token_start, filter)) = find_slash_token_at_cursor(state.active_chat_input()) {
+    let slash_hit = state.with_active_input(find_slash_token_at_cursor, || None);
+    if let Some((token_start, filter)) = slash_hit {
         let matches = compute_slash_matches(&filter);
-        state.active_chat_input_mut().activate_autocomplete(
-            token_start,
-            AutocompleteTrigger::Slash,
-            matches,
-        );
+        state.update_active_input(|i| {
+            i.activate_autocomplete(token_start, AutocompleteTrigger::Slash, matches);
+        });
         return;
     }
 
     // Try hash token.
-    let Some((token_start, filter)) = find_hash_token_at_cursor(state.active_chat_input()) else {
+    let Some((token_start, filter)) = state.with_active_input(find_hash_token_at_cursor, || None)
+    else {
         return;
     };
     let matches = compute_matches(
         state.active_session().discovered_prompt_templates(),
         &filter,
     );
-    state.active_chat_input_mut().activate_autocomplete(
-        token_start,
-        AutocompleteTrigger::Hash,
-        matches,
-    );
+    state.update_active_input(|i| {
+        i.activate_autocomplete(token_start, AutocompleteTrigger::Hash, matches);
+    });
 }
 
 /// Attempts to re-activate the `@` file popup if the cursor sits in an `@path`
@@ -1022,15 +1003,13 @@ fn try_reactivate_autocomplete(state: &mut AppState) {
 /// On success, emits a [`ListDirectory`] command so the actor lists the dir for
 /// the current filter (the popup reads `frontend.file_picker`).
 fn try_reactivate_at_autocomplete(state: &mut AppState) -> Option<ListDirectory> {
-    if state.active_chat_input().autocomplete().is_some() {
+    if state.with_active_input(|i| i.autocomplete().is_some(), || false) {
         return None;
     }
-    let (token_start, filter) = find_at_token_at_cursor(state.active_chat_input())?;
-    state.active_chat_input_mut().activate_autocomplete(
-        token_start,
-        AutocompleteTrigger::At,
-        Vec::new(),
-    );
+    let (token_start, filter) = state.with_active_input(find_at_token_at_cursor, || None)?;
+    state.update_active_input(|i| {
+        i.activate_autocomplete(token_start, AutocompleteTrigger::At, Vec::new());
+    });
     Some(emit_list_directory(state, &filter))
 }
 
@@ -1069,19 +1048,21 @@ fn home_dir() -> std::path::PathBuf {
 
 /// Returns true if the active autocomplete is the `@path` file popup.
 fn is_at_popup(state: &AppState) -> bool {
-    state
-        .active_chat_input()
-        .autocomplete()
-        .as_ref()
-        .is_some_and(|ac| matches!(ac.trigger(), AutocompleteTrigger::At))
+    state.with_active_input(
+        |i| {
+            i.autocomplete()
+                .as_ref()
+                .is_some_and(|ac| matches!(ac.trigger(), AutocompleteTrigger::At))
+        },
+        || false,
+    )
 }
 
 /// Returns the number of entries the `@` popup currently shows (after the
 /// prefix filter), so arrow-key navigation is bounded by the visible set.
 fn at_visible_count(state: &AppState) -> usize {
     let filter = state
-        .active_chat_input()
-        .autocomplete_filter()
+        .with_active_input(ChatInputBoxState::autocomplete_filter, || None)
         .unwrap_or_default();
     state.frontend.file_picker.visible_entries(&filter).len()
 }
