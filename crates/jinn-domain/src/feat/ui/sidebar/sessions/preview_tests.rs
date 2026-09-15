@@ -11,7 +11,7 @@
 use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::model_selection::ModelSelection;
 use crate::feat::theme::default_theme;
-use crate::feat::todo_list::TaskPosition;
+use crate::feat::todo_list::{PhaseInput, TaskStatus};
 use crate::feat::ui::sidebar::sessions::preview::{
     SessionPreviewCache, render_session_preview, session_preview_popup_rect,
 };
@@ -316,20 +316,14 @@ fn cwd_shows_with_no_model_selected() {
 /// are marked [`TaskStatus::Completed`].
 fn session_with_tasks(completed: usize, total: usize) -> ChatSessionState {
     let mut session = ChatSessionState::new();
-    let pid = session.task_list_mut().add_phase("Build");
-    for _ in 0..completed {
-        let tid = session
-            .task_list_mut()
-            .add_task(&pid, "done", TaskPosition::End)
-            .unwrap();
-        session.task_list_mut().complete_task(&tid).unwrap();
-    }
-    for _ in completed..total {
-        session
-            .task_list_mut()
-            .add_task(&pid, "todo", TaskPosition::End)
-            .unwrap();
-    }
+    let tasks = (0..completed)
+        .map(|_| ("done".to_owned(), TaskStatus::Completed))
+        .chain((completed..total).map(|_| ("todo".to_owned(), TaskStatus::Pending)))
+        .collect();
+    session.task_list_mut().set_from_inputs(&[PhaseInput {
+        description: "Build".to_owned(),
+        tasks,
+    }]);
     session
 }
 

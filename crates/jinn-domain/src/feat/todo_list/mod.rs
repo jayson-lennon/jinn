@@ -68,13 +68,6 @@ impl PhaseId {
         }
     }
 
-    /// Creates a PhaseId from a known string.
-    ///
-    /// Used by tools to reconstruct a PhaseId from an LLM-provided string.
-    pub(crate) fn from_string(s: String) -> Self {
-        Self(s)
-    }
-
     /// Creates a PhaseId from a known string (for testing).
     #[cfg(test)]
     pub(crate) fn new_for_test(s: &str) -> Self {
@@ -114,13 +107,6 @@ impl TaskId {
                 return Self(candidate);
             }
         }
-    }
-
-    /// Creates a TaskId from a known string.
-    ///
-    /// Used by tools to reconstruct a TaskId from an LLM-provided string.
-    pub(crate) fn from_string(s: String) -> Self {
-        Self(s)
     }
 
     /// Creates a TaskId from a known string (for testing).
@@ -187,61 +173,6 @@ pub struct PhaseInput {
     /// Ordered tasks as `(description, status)` pairs; status is declared
     /// inline rather than remembered from a previous write.
     pub tasks: Vec<(String, TaskStatus)>,
-}
-
-// ---------------------------------------------------------------------------
-// Positioning
-// ---------------------------------------------------------------------------
-
-/// Where to insert a new task within a phase.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TaskPosition {
-    /// Append to the end of the phase.
-    End,
-    /// Insert immediately after the specified task.
-    After(TaskId),
-    /// Insert immediately before the specified task.
-    Before(TaskId),
-}
-
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
-/// Errors that can occur when mutating a task list.
-#[derive(Debug, Clone, PartialEq, Eq, wherror::Error)]
-pub enum TaskListError {
-    /// The specified phase does not exist.
-    #[error("phase not found: {0}")]
-    PhaseNotFound(PhaseId),
-    /// The specified task does not exist.
-    #[error("task not found: {0}")]
-    TaskNotFound(TaskId),
-    /// Both `after` and `before` were specified (mutually exclusive).
-    #[error("cannot specify both after_task and before_task")]
-    BothAfterAndBefore,
-    /// The referenced task belongs to a different phase.
-    #[error("task {task_id} is not in phase {phase_id}")]
-    TaskNotInPhase { task_id: TaskId, phase_id: PhaseId },
-    /// Cannot postpone a task relative to itself.
-    #[error("cannot postpone task relative to itself: {0}")]
-    SelfReference(TaskId),
-    /// The task is already postponed.
-    #[error("task is already postponed: {0}")]
-    AlreadyPostponed(TaskId),
-    /// The task is already cancelled.
-    #[error("task is already cancelled: {0}")]
-    AlreadyCancelled(TaskId),
-    /// Cannot complete a cancelled task.
-    #[error("cannot complete a cancelled task: {0}")]
-    TaskCancelled(TaskId),
-    /// The phases list provided was empty.
-    #[error("phases list must not be empty")]
-    EmptyPhasesList,
-    /// An invariant the type system cannot prove held at runtime was violated.
-    /// Carries a static description of which invariant.
-    #[error("internal invariant violated: {what}")]
-    InternalInvariant { what: &'static str },
 }
 
 // ---------------------------------------------------------------------------
@@ -317,11 +248,6 @@ impl Phase {
         self.tasks.is_empty()
     }
 
-    /// Finds the index of a task by ID within this phase.
-    pub(crate) fn find_task_index(&self, task_id: &TaskId) -> Option<usize> {
-        self.tasks.iter().position(|t| &t.id == task_id)
-    }
-
     /// Returns true if this phase contains any task in the [`TaskStatus::Pending`] state.
     ///
     /// Postponed, Cancelled, and Completed tasks are not "work to do".
@@ -370,351 +296,6 @@ impl TaskList {
             tasks: Vec::new(),
         });
         id
-    }
-
-    /// Adds a new task to the specified phase at the given position.
-    ///
-    /// # Errors
-    ///
-    /// Returns the new task's ID, or an error if the phase or position reference is invalid.
-    pub fn add_task(
-        &mut self,
-        phase_id: &PhaseId,
-        description: &str,
-        position: TaskPosition,
-    ) -> Result<TaskId, TaskListError> {
-        let new_task = self.new_pending_task(description.to_owned());
-        let task_id = new_task.id.clone();
-
-        let phase = self
-            .phases
-            .iter_mut()
-            .find(|p| &p.id == phase_id)
-            .ok_or_else(|| TaskListError::PhaseNotFound(phase_id.clone()))?;
-
-        match position {
-            TaskPosition::End => {
-                phase.tasks.push(new_task);
-            }
-            TaskPosition::After(after_id) => {
-                let idx = phase.find_task_index(&after_id).ok_or_else(|| {
-                    TaskListError::TaskNotInPhase {
-                        task_id: after_id.clone(),
-                        phase_id: phase_id.clone(),
-                    }
-                })?;
-                phase.tasks.insert(idx + 1, new_task);
-            }
-            TaskPosition::Before(before_id) => {
-                let idx = phase.find_task_index(&before_id).ok_or_else(|| {
-                    TaskListError::TaskNotInPhase {
-                        task_id: before_id.clone(),
-                        phase_id: phase_id.clone(),
-                    }
-                })?;
-                phase.tasks.insert(idx, new_task);
-            }
-        }
-
-        Ok(task_id)
-    }
-
-    /// Marks a task as completed.
-    ///
-    /// Searches all phases for the task.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if not found.
-    pub fn complete_task(&mut self, task_id: &TaskId) -> Result<(), TaskListError> {
-        for phase in &mut self.phases {
-            if let Some(task) = phase.tasks.iter_mut().find(|t| &t.id == task_id) {
-                if task.status == TaskStatus::Cancelled {
-                    return Err(TaskListError::TaskCancelled(task_id.clone()));
-                }
-                task.status = TaskStatus::Completed;
-                return Ok(());
-            }
-        }
-        Err(TaskListError::TaskNotFound(task_id.clone()))
-    }
-
-    /// Cancels a task — marks it as cancelled (not happening).
-    ///
-    /// Cancelled tasks remain in place with `Cancelled` status.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if not found, or if already cancelled.
-    pub fn cancel_task(&mut self, task_id: &TaskId) -> Result<(), TaskListError> {
-        for phase in &mut self.phases {
-            if let Some(task) = phase.tasks.iter_mut().find(|t| &t.id == task_id) {
-                if task.status == TaskStatus::Cancelled {
-                    return Err(TaskListError::AlreadyCancelled(task_id.clone()));
-                }
-                task.status = TaskStatus::Cancelled;
-                return Ok(());
-            }
-        }
-        Err(TaskListError::TaskNotFound(task_id.clone()))
-    }
-
-    /// Postpones a task by marking it as postponed and creating a pending copy.
-    ///
-    /// The source task is marked with `Postponed` status (▼) and remains in place.
-    /// A new `Pending` copy with the same description is created at the specified
-    /// position relative to a reference task. The reference task determines the
-    /// target phase.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The source task does not exist (`TaskNotFound`)
-    /// - The source task is already postponed (`AlreadyPostponed`)
-    /// - The reference task does not exist (`TaskNotFound`)
-    /// - The source and reference are the same task (`SelfReference`)
-    ///
-    /// # Panics
-    ///
-    /// Panics if internal invariants are violated (source/reference found but then missing).
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "ownership semantics required by trait"
-    )]
-    pub fn postpone_task(
-        &mut self,
-        source_task_id: &TaskId,
-        position: TaskPosition,
-    ) -> Result<TaskId, TaskListError> {
-        // The reference task determines the target phase; `End` carries no
-        // reference and is rejected (the tool layer always supplies After/Before).
-        let ref_task_id: &TaskId = match &position {
-            TaskPosition::After(id) | TaskPosition::Before(id) => id,
-            TaskPosition::End => return Err(TaskListError::BothAfterAndBefore),
-        };
-
-        // The reference cannot be the source itself.
-        if source_task_id == ref_task_id {
-            return Err(TaskListError::SelfReference(source_task_id.clone()));
-        }
-
-        // Locate the source task and validate it is postponable.
-        let (src_phase_idx, src_desc, src_status) = self
-            .find_source_task(source_task_id)
-            .ok_or_else(|| TaskListError::TaskNotFound(source_task_id.clone()))?;
-        Self::validate_postponable(src_status, source_task_id)?;
-
-        // Resolve the target phase from the reference task.
-        let target_phase_idx = self
-            .find_phase_containing(ref_task_id)
-            .ok_or_else(|| TaskListError::TaskNotFound(ref_task_id.clone()))?;
-
-        // Mark the source as postponed, then build its pending copy.
-        self.mark_source_postponed(src_phase_idx, source_task_id, "postpone_task")?;
-        let new_task = self.new_pending_task(src_desc);
-        let new_task_id = new_task.id.clone();
-
-        // Insert the copy at the requested position within the target phase.
-        let phase =
-            self.phases
-                .get_mut(target_phase_idx)
-                .ok_or(TaskListError::InternalInvariant {
-                    what: "postpone_task: target phase not found",
-                })?;
-        match &position {
-            TaskPosition::After(after_id) => {
-                let idx =
-                    phase
-                        .find_task_index(after_id)
-                        .ok_or(TaskListError::InternalInvariant {
-                            what: "postpone_task: ref task not found after lookup above",
-                        })?;
-                phase.tasks.insert(idx + 1, new_task);
-            }
-            TaskPosition::Before(before_id) => {
-                let idx =
-                    phase
-                        .find_task_index(before_id)
-                        .ok_or(TaskListError::InternalInvariant {
-                            what: "postpone_task: ref task not found after lookup above",
-                        })?;
-                phase.tasks.insert(idx, new_task);
-            }
-            TaskPosition::End => {
-                phase.tasks.push(new_task);
-            }
-        }
-
-        Ok(new_task_id)
-    }
-
-    /// Postpones a task to the end of a specific phase (or a new phase).
-    ///
-    /// The source task is marked with `Postponed` status and remains in place.
-    /// A new `Pending` copy with the same description is appended to the end
-    /// of the target phase.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The source task does not exist (`TaskNotFound`)
-    /// - The source task is already postponed (`AlreadyPostponed`)
-    /// - `target_phase_id` is provided but the phase does not exist (`PhaseNotFound`)
-    ///
-    /// # Panics
-    ///
-    /// Panics if internal invariants are violated (source found but then missing).
-    pub fn postpone_to_phase(
-        &mut self,
-        source_task_id: &TaskId,
-        target_phase_id: &PhaseId,
-    ) -> Result<TaskId, TaskListError> {
-        // Locate the source task and validate it is postponable.
-        let (src_phase_idx, src_desc, src_status) = self
-            .find_source_task(source_task_id)
-            .ok_or_else(|| TaskListError::TaskNotFound(source_task_id.clone()))?;
-        Self::validate_postponable(src_status, source_task_id)?;
-
-        // Resolve the target phase.
-        let target_phase_idx = self
-            .phases
-            .iter()
-            .position(|p| &p.id == target_phase_id)
-            .ok_or_else(|| TaskListError::PhaseNotFound(target_phase_id.clone()))?;
-
-        // Mark the source as postponed, then build its pending copy.
-        self.mark_source_postponed(src_phase_idx, source_task_id, "postpone_to_phase")?;
-        let new_task = self.new_pending_task(src_desc);
-        let new_task_id = new_task.id.clone();
-
-        // Append the copy to the end of the target phase.
-        let phase =
-            self.phases
-                .get_mut(target_phase_idx)
-                .ok_or(TaskListError::InternalInvariant {
-                    what: "postpone_to_phase: target phase not found",
-                })?;
-        phase.tasks.push(new_task);
-
-        Ok(new_task_id)
-    }
-
-    // -----------------------------------------------------------------------
-    // Postpone internals — shared by `postpone_task` and `postpone_to_phase`.
-    // -----------------------------------------------------------------------
-
-    /// Locates a task by ID, returning its phase index, description, and status.
-    ///
-    /// Searches every phase; returns `None` if no task matches. Used to gather
-    /// the source task's data before marking it postponed.
-    fn find_source_task(&self, source_task_id: &TaskId) -> Option<(usize, String, TaskStatus)> {
-        self.phases.iter().enumerate().find_map(|(pi, phase)| {
-            phase.tasks.iter().find_map(|task| {
-                (&task.id == source_task_id).then(|| (pi, task.description.clone(), task.status))
-            })
-        })
-    }
-
-    /// Validates that a task in the given status may be postponed.
-    ///
-    /// Returns an error for tasks that are already postponed or cancelled.
-    fn validate_postponable(
-        status: TaskStatus,
-        source_task_id: &TaskId,
-    ) -> Result<(), TaskListError> {
-        match status {
-            TaskStatus::Postponed => Err(TaskListError::AlreadyPostponed(source_task_id.clone())),
-            TaskStatus::Cancelled => Err(TaskListError::TaskCancelled(source_task_id.clone())),
-            TaskStatus::Pending | TaskStatus::Completed => Ok(()),
-        }
-    }
-
-    /// Marks the source task as `Postponed` in place.
-    ///
-    /// The task is looked up a second time (by phase index + ID) to perform the
-    /// mutation. The miss branch is unreachable in practice — the source was
-    /// found moments earlier — but is reported as `TaskNotFound` (with a trace
-    /// log) rather than panicking, mirroring the original defensive behavior.
-    fn mark_source_postponed(
-        &mut self,
-        src_phase_idx: usize,
-        source_task_id: &TaskId,
-        fn_name: &'static str,
-    ) -> Result<(), TaskListError> {
-        let source_task = self
-            .phases
-            .get_mut(src_phase_idx)
-            .and_then(|phase| phase.tasks.iter_mut().find(|t| &t.id == source_task_id));
-        match source_task {
-            Some(t) => {
-                t.status = TaskStatus::Postponed;
-                Ok(())
-            }
-            None => {
-                tracing::error!(
-                    source_task_id = %source_task_id,
-                    src_phase_index = src_phase_idx,
-                    "{fn_name}: source task missing on second lookup; returning TaskNotFound"
-                );
-                Err(TaskListError::TaskNotFound(source_task_id.clone()))
-            }
-        }
-    }
-
-    /// Returns the index of the phase containing the given task, if any.
-    fn find_phase_containing(&self, task_id: &TaskId) -> Option<usize> {
-        self.phases
-            .iter()
-            .position(|phase| phase.tasks.iter().any(|t| &t.id == task_id))
-    }
-
-    /// Mints a unique task ID based on all existing task IDs.
-    fn next_task_id(&self) -> TaskId {
-        let existing: Vec<_> = self
-            .phases
-            .iter()
-            .flat_map(|p| &p.tasks)
-            .map(|t| t.id.clone())
-            .collect();
-        TaskId::new(&existing)
-    }
-
-    /// Builds a fresh `Pending` task with a unique ID and the given description.
-    fn new_pending_task(&self, description: String) -> Task {
-        Task {
-            id: self.next_task_id(),
-            description,
-            status: TaskStatus::Pending,
-        }
-    }
-
-    /// Replaces the entire task list from a description-based structure.
-    ///
-    /// Clears all existing phases and creates new ones from the provided data.
-    /// Each tuple is `(phase_description, task_descriptions)`. All new tasks
-    /// are created with `Pending` status.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `phases` is empty.
-    pub fn set_from_descriptions(
-        &mut self,
-        phases: Vec<(String, Vec<String>)>,
-    ) -> Result<(), TaskListError> {
-        if phases.is_empty() {
-            return Err(TaskListError::EmptyPhasesList);
-        }
-
-        self.phases.clear();
-
-        for (phase_desc, task_descs) in phases {
-            let pid = self.add_phase(&phase_desc);
-            for task_desc in task_descs {
-                self.add_task(&pid, &task_desc, TaskPosition::End)?;
-            }
-        }
-
-        Ok(())
     }
 
     /// Clears the entire task list — removes all phases and tasks.
@@ -806,19 +387,6 @@ impl TaskList {
         }
     }
 
-    /// Returns the phase with the given ID, if it exists.
-    pub fn get_phase(&self, phase_id: &PhaseId) -> Option<&Phase> {
-        self.phases.iter().find(|p| &p.id == phase_id)
-    }
-
-    /// Returns the task with the given ID, searching all phases.
-    pub fn get_task(&self, task_id: &TaskId) -> Option<&Task> {
-        self.phases
-            .iter()
-            .flat_map(|p| &p.tasks)
-            .find(|t| &t.id == task_id)
-    }
-
     /// Returns the ordered phases in this task list.
     pub fn phases(&self) -> &[Phase] {
         &self.phases
@@ -858,17 +426,6 @@ impl TaskList {
         self.phases.iter().find(|p| p.has_pending_work())
     }
 
-    /// Returns the ID of the phase containing the given task, if any.
-    #[must_use]
-    pub fn phase_id_for_task(&self, task_id: &TaskId) -> Option<PhaseId> {
-        for phase in &self.phases {
-            if phase.tasks.iter().any(|t| &t.id == task_id) {
-                return Some(phase.id.clone());
-            }
-        }
-        None
-    }
-
     /// Returns true if the task list has no phases.
     pub fn is_empty(&self) -> bool {
         self.phases.is_empty()
@@ -884,12 +441,7 @@ impl TaskList {
 
         let mut lines = Vec::new();
         for (i, phase) in self.phases.iter().enumerate() {
-            lines.push(format!(
-                "## Phase {}: {} [{}]",
-                i + 1,
-                phase.description,
-                phase.id
-            ));
+            lines.push(format!("## Phase {}: {}", i + 1, phase.description));
             Self::push_task_lines(&phase.tasks, &mut lines);
         }
 
@@ -922,11 +474,10 @@ impl TaskList {
                 _ => String::new(),
             };
             lines.push(format!(
-                "## Phase {}: {}{} [{}]",
+                "## Phase {}: {}{}",
                 i + 1,
                 prefix,
-                phase.description,
-                phase.id
+                phase.description
             ));
             Self::push_task_lines(&phase.tasks, &mut lines);
             lines.push(String::new());
@@ -961,7 +512,7 @@ impl TaskList {
                 TaskStatus::Completed => ("\u{2713}", task.description.clone()),
                 TaskStatus::Cancelled => ("\u{2717}", format!("CANCELLED: {}", task.description)),
             };
-            out.push(format!("- [{}] {} [{}]", check, desc, task.id));
+            out.push(format!("- [{}] {}", check, desc));
         }
     }
 
@@ -969,15 +520,13 @@ impl TaskList {
     ///
     /// Three branches:
     /// 1. Active phase has pending work →
-    ///    `→ NEXT: {task_id} — {desc} ({n} pending in phase {phase_id})`
+    ///    `→ NEXT: {desc} ({n} pending in phase: {phase_description})`
     /// 2. No active phase, but at least one task exists →
     ///    `→ All phases complete — stop.`
     /// 3. No phases / no tasks ever → empty string (caller omits the line).
     ///
-    /// This helper covers the common case used by every `todo_*` tool except
-    /// `complete_task`, which needs its own helper to emit the "phase complete —
-    /// proceed to verify" variant when the just-completed task emptied the
-    /// active phase but other phases still have pending work.
+    /// Identifies tasks and phases by description only — the tool surface is
+    /// id-free, so the model can act on the cue without looking anything up.
     ///
     /// # Panics
     ///
@@ -1004,8 +553,8 @@ impl TaskList {
                 .filter(|t| t.status == TaskStatus::Pending)
                 .count();
             return format!(
-                "→ NEXT: {} — {} ({} pending in phase {})",
-                next_task.id, next_task.description, remaining, active.id
+                "→ NEXT: {} ({} pending in phase: {})",
+                next_task.description, remaining, active.description
             );
         }
 
@@ -1023,7 +572,8 @@ impl TaskList {
     /// Same shape as [`render_next_block`] when there is still work in the same phase,
     /// but switches to a 'phase complete — proceed to verify' message when the completed
     /// task was the last pending one in its phase, regardless of whether later phases
-    /// still have work (those are blocked until verification passes).
+    /// still have work (those are blocked until verification passes). Phases are
+    /// named by description.
     ///
     /// # Arguments
     ///
@@ -1050,8 +600,8 @@ impl TaskList {
             };
             let remaining = pending.len();
             return format!(
-                "→ NEXT: {} — {} ({} pending in phase {})",
-                next_task.id, next_task.description, remaining, completed_phase.id
+                "→ NEXT: {} ({} pending in phase: {})",
+                next_task.description, remaining, completed_phase.description
             );
         }
 
@@ -1068,50 +618,14 @@ impl TaskList {
 
         if later_blocked {
             format!(
-                "→ Phase {} complete — proceed to verify. Later phases are blocked until then.",
-                completed_phase.id
+                "→ Phase \"{}\" complete — proceed to verify. Later phases are blocked until then.",
+                completed_phase.description
             )
         } else {
             format!(
-                "→ Phase {} complete — proceed to verify.",
-                completed_phase.id
+                "→ Phase \"{}\" complete — proceed to verify.",
+                completed_phase.description
             )
         }
-    }
-    /// Renders a single phase as formatted markdown text.
-    ///
-    /// When `with_blocker` is true and the requested phase is not the active phase
-    /// (i.e., it's blocked by earlier pending work), the header is prefixed with
-    /// `(Blocked by previous phase) `.
-    pub fn render_phase_text(&self, phase_id: &PhaseId) -> Option<String> {
-        let prefix = match self.active_phase() {
-            Some(active) if active.id != *phase_id => "(Blocked by previous phase) ",
-            _ => "",
-        };
-        self.render_phase_text_with_prefix(phase_id, prefix)
-    }
-
-    /// Renders a single phase with an explicit header prefix.
-    fn render_phase_text_with_prefix(&self, phase_id: &PhaseId, prefix: &str) -> Option<String> {
-        let (i, phase) = self
-            .phases
-            .iter()
-            .enumerate()
-            .find(|(_, p)| &p.id == phase_id)?;
-
-        let mut lines = vec![format!(
-            "## Phase {}:{}{} [{}]",
-            i + 1,
-            if prefix.is_empty() {
-                " ".to_owned()
-            } else {
-                format!(" {prefix} ")
-            },
-            phase.description,
-            phase.id
-        )];
-
-        Self::push_task_lines(&phase.tasks, &mut lines);
-        Some(lines.join("\n"))
     }
 }
