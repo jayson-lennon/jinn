@@ -326,3 +326,7 @@ Entries are added or amended **only with human approval**.
 - (slices) Discovery worker entities activate on demand under the public path `jinn.discovery/<session_id>` as permanent children of the slice's supervisor (5 restarts per 10 s budget, then escalate) — the first production use of trouper partition sets and supervision.
 - (arch) App exit sweeps the trouper fabric via shutdown_graceful between the kameo supervisor cascade and the session-store checkpoint.
 - (slices) The session-init discovery worker passivates after five idle seconds and re-activates on its partition set's next trigger.
+- (preferences) A `[[projects]]` entry in `jinn.toml` may carry a command policy of user-authored regex patterns with corrective messages, applied to tool commands whose cwd falls inside the project path.
+- (tools) The bash tool evaluates commands against the resolved project command policy before spawn; a match returns a failed tool result carrying the rule's message and the command never runs.
+- (tools) Project command policy is resolved by cwd prefix match at tool-call time with the longest configured project path winning.
+- (tools) Command policy guards only the bash tool; interactive terminals and MCP-provided tools are unguarded.

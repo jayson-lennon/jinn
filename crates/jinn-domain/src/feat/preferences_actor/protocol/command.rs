@@ -35,7 +35,10 @@ impl PreferenceUpdate {
             }
             Self::AddProject(path) => {
                 if !prefs.projects.iter().any(|c| &c.path == path) {
-                    prefs.projects.push(ProjectConfig { path: path.clone() });
+                    prefs.projects.push(ProjectConfig {
+                        path: path.clone(),
+                        command_policy: Vec::new(),
+                    });
                 }
             }
             Self::RemoveProject(path) => {
@@ -130,6 +133,7 @@ mod tests {
         let mut prefs = UserPreferences {
             projects: vec![ProjectConfig {
                 path: PathBuf::from("/home/me/code/alpha"),
+                command_policy: Vec::new(),
             }],
             ..UserPreferences::default()
         };
@@ -148,9 +152,11 @@ mod tests {
             projects: vec![
                 ProjectConfig {
                     path: PathBuf::from("/home/me/code/alpha"),
+                    command_policy: Vec::new(),
                 },
                 ProjectConfig {
                     path: PathBuf::from("/home/me/code/beta"),
+                    command_policy: Vec::new(),
                 },
             ],
             ..UserPreferences::default()
@@ -170,6 +176,7 @@ mod tests {
         let mut prefs = UserPreferences {
             projects: vec![ProjectConfig {
                 path: PathBuf::from("/home/me/code/alpha"),
+                command_policy: Vec::new(),
             }],
             ..UserPreferences::default()
         };

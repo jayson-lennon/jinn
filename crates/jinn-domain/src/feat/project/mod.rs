@@ -15,6 +15,20 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+/// One blocked-command rule enforced by the bash tool inside a project.
+///
+/// A rule pairs a user-authored regex with the corrective message returned
+/// when the regex matches a command. Rules are advisory-strength by design:
+/// they exist to stop well-trained habits (like `cargo test -p` in a
+/// whole-workspace repo), not to resist a determined actor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandPolicyRule {
+    /// Regex matched against the full command string.
+    pub pattern: String,
+    /// Message returned in the failed tool result when [`Self::pattern`] matches.
+    pub message: String,
+}
+
 /// A curated project directory shown in the project picker.
 ///
 /// Defined in `jinn.toml` under `[[project]]`. The `path` field is the array
@@ -24,4 +38,8 @@ use serde::{Deserialize, Serialize};
 pub struct ProjectConfig {
     /// The absolute (or `~`-prefixed) directory path.
     pub path: PathBuf,
+    /// Blocked-command rules the bash tool enforces for commands whose cwd
+    /// falls inside this project. Empty means no policy.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub command_policy: Vec<CommandPolicyRule>,
 }

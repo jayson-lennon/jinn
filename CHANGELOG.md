@@ -1,8 +1,24 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Do not make edits)**
 
-## (development version)
+## (development)
 
+## 2026-09-13 v0.118.0
+
+- Fix build dependency error (`trouper` was not published to crates.io).
 - Planning prompt updated to better accommodate absence of a RECORD.md file.
+- Add project-level `bash` command blocking via regex.
+
+### `bash` command blocking
+
+Project-specific command blocks (`bash` only) can now be configured via `jinn.toml`:
+
+```toml
+[[projects]]
+path = "/mnt/zed/repos/jinn"
+command_policy = [{ pattern = 'cargo\s+(test|t)\b.*\s-p\b', message = "Do not run tests on individual packages. Use `just test` or `cargo test --workspace` as indicated in AGENTS.md." }]
+```
+
+Any `bash` command that matches the pattern will immediately fail and the `message` will be returned to the agent. Note that this feature makes _no effort_ to detect circumvention techniques. It's just a regex.
 
 ## 2026-09-13 v0.117.0
 

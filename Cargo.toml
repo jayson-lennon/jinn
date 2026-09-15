@@ -29,7 +29,7 @@ members = ["crates/jinn-*", "crates/slices/*", "plugins/*", "vendor/*"]
 
 
 [workspace.package]
-version = "0.117.0"
+version = "0.118.0"
 edition = "2024"
 publish = false
 
@@ -206,7 +206,7 @@ kameo_actors = "0.5"
 
 # The trouper actor runtime (published to crates.io; the SDK workspace
 # remains the development home — see .plans/actor-canvas/plan.md)
-trouper = "0.1"
+trouper = "0.1.0"
 
 # PTY + terminal emulation (interactive_term tool)
 portable-pty = "0.9"

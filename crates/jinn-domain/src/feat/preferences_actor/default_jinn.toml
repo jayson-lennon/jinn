@@ -98,9 +98,16 @@ teardown_command = """bash -c 'git add -A && (git diff --cached --quiet || git c
 #
 # Add one block per directory. Duplicates are ignored.
 #
+# A project may also carry a `command_policy`: a list of blocked-command
+# rules enforced by the bash tool for any session whose working directory
+# falls inside the project. Each rule pairs a regex `pattern` (matched
+# against the full command string; first match wins) with the corrective
+# `message` returned to the agent when it matches. The command never runs.
+#
 # (uncomment below to activate)
 # [[projects]]
 # path = "~/code/jinn"
+# command_policy = [{ pattern = 'cargo\s+(test|t)\b.*\s-p\b', message = "cargo test -p triggers a clean rebuild in this repo — run `just test` for the whole workspace instead." }]
 
 
 # ---------------------------------------------------------------------------
