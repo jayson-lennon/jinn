@@ -145,6 +145,77 @@ settle_quiet_ms = 400
 settle_max_wait_ms = 3000
 ```
 
+**Web search tuning** (works with any provider — direct DuckDuckGo scraping):
+```toml
+[web_search]
+backend = "http"        # "http" | "headless-chrome" | "headed-chrome"
+max_results = 10        # per search call
+region = "wt-wt"        # DuckDuckGo region ("wt-wt" = global, "us-en" = US)
+safe_search = true
+```
+
+**OpenRouter web search** (only when the provider is OpenRouter; exposed as
+its own tool):
+```toml
+[openrouter_web_search]
+engine = "exa"          # "exa" | "firecrawl" | "parallel" | "native" | "auto"
+# max_results = 5       # per search (1-25)
+# max_total_results = 20        # cap across searches in one request
+# search_context_size = "medium"  # "low" | "medium" | "high"; unset = adaptive
+# allowed_domains = ["docs.example.com"]
+# excluded_domains = ["pinterest.com"]
+```
+
+**Browser overrides** (shared by web_fetch/web_search browser backends):
+```toml
+[browser]
+binary = "auto"
+user_agent = "Mozilla/5.0 ..."   # also applies to the "http" backend
+challenge_wait_secs = 120        # headed mode: window to solve a challenge
+settle_secs = 5                  # wait for slow SPAs before judging the page
+keep_tabs_open = false           # keep render tabs open after a fetch
+```
+
+**Minimap** (the chat-log token-density map):
+```toml
+[minimap]
+max_tokens = 2000     # entries at/above this size always render lightest
+```
+
+**CWD picker command** (backs `<M-c>`/`<M-d>`; any fuzzy finder works):
+```toml
+[cwd_selector]
+command = "find -L {path} -type d 2>/dev/null | fzf --no-multi"
+# `{path}` is replaced with the start dir; must print one absolute path.
+```
+
+**Chat-log rendering caps:**
+```toml
+# Top of jinn.toml.
+tool_entry_max_lines = 12     # lines of a tool call/result before truncation
+min_collapse_count = 5        # smallest collapsed run of excluded entries
+```
+
+**Discord bot** (slice-owned section; see also `sessions-and-subagents.md`):
+```toml
+[discord]
+enabled = false                    # with a token, runs a bot beside the TUI
+# bot_token = "..."                # or DISCORD_BOT_TOKEN env var
+# guild_id = "..."                 # optional server restriction
+# forum_channel = "..."            # optional forum channel for threads
+authorized_users = []              # deny-by-default; empty authorizes nobody
+```
+
+**Auto-prune per-strategy knobs** (every strategy takes `enabled` and
+`min_age`; the ones with extra tuning):
+```toml
+[auto_prune.double_edit]       max_file_edits = 2   # writes kept per file
+[auto_prune.consecutive_reads] keep_last = 5        # reads kept per file
+[auto_prune.regex.rules]       keep_last = 2        # matching calls kept
+[auto_prune.trivial_assistant] max_tokens = 80      # "trivial" size threshold
+[auto_prune.anchor_shield]     radius = 20          # entries shielded around user messages
+```
+
 **Request retries:**
 ```toml
 [request_retry]
@@ -152,6 +223,14 @@ max_retries = 5
 base_delay_secs = 2
 max_delay_secs = 60
 ```
+
+## Coverage note
+
+Every key in the shipped default `jinn.toml` is represented above or in a
+linked reference (`mcp-servers.md`, `terminal-overlay.md`,
+`context-management.md`, `sessions-and-subagents.md`). When an ask touches a
+key not shown here, tell the user the full commented reference ships in the
+auto-created `~/.config/jinn/jinn.toml` itself.
 
 ## Upgrades
 
