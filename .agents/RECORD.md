@@ -343,3 +343,5 @@ Entries are added or amended **only with human approval**.
 - (todo) `todo_set_phase` replaces the first phase whose description matches the payload description, or appends a new phase when none matches.
 - (todo) `postponed` is not a declarable status and no tool mints it; the status survives only for legacy persisted sessions.
 - (todo) The next-task indicator remains derived from list state and renders after every write and in `todo_get_list`.
+- (slices) The chat-log-view slice is a crate owning the per-session chat log view state in one cell keyed by session id; the IntentHandler and the renderer write through ChatSession's semantic methods.
+- (slices) SessionUi persists only chat input and the steering buffer; the chat log view fields live in the chat-log-view slice's cell.
