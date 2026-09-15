@@ -30,6 +30,10 @@ pub const TASK_LIST_ID: &str = "task-list";
 pub const SESSION_ID: &str = "session";
 /// The id of the reasoning-effort picker's spec.
 pub const REASONING_EFFORT_ID: &str = "reasoning-effort";
+/// The id of the provider picker's spec.
+pub const PROVIDER_ID: &str = "provider";
+/// The id of the endpoint picker's spec.
+pub const ENDPOINT_ID: &str = "endpoint";
 
 /// Maps a legacy `PickerKind` onto its spec id, `None` while the kind has
 /// not migrated yet.
@@ -49,6 +53,8 @@ pub fn spec_id_for_kind(kind: &crate::feat::picker::PickerKind) -> Option<&'stat
         crate::feat::picker::PickerKind::Plugin => Some(PLUGIN_ID),
         crate::feat::picker::PickerKind::TaskList => Some(TASK_LIST_ID),
         crate::feat::picker::PickerKind::Session => Some(SESSION_ID),
+        crate::feat::picker::PickerKind::Provider => Some(PROVIDER_ID),
+        crate::feat::picker::PickerKind::Endpoint => Some(ENDPOINT_ID),
         _ => None,
     }
 }
@@ -68,6 +74,8 @@ pub fn build_picker_registry() -> PickerRegistry {
     registry.register(super::plugin_spec::plugin_spec());
     registry.register(super::task_list_spec::task_list_spec());
     registry.register(super::session_spec::session_spec());
+    registry.register(super::provider_spec::provider_spec());
+    registry.register(super::endpoint_spec::endpoint_spec());
     registry
 }
 
@@ -97,6 +105,8 @@ mod tests {
             PickerKind::Plugin,
             PickerKind::TaskList,
             PickerKind::Session,
+            PickerKind::Provider,
+            PickerKind::Endpoint,
         ];
 
         // When mapping each migrated kind and listing registered ids.
@@ -116,11 +126,7 @@ mod tests {
     #[test]
     fn unmigrated_kinds_have_no_spec_id() {
         // Given every kind that has not migrated in the pilot.
-        let unmigrated = [
-            PickerKind::Provider,
-            PickerKind::Project,
-            PickerKind::Endpoint,
-        ];
+        let unmigrated = [PickerKind::Project];
 
         // When mapping each kind.
         // Then none resolves to a spec id (legacy handlers stay in charge).

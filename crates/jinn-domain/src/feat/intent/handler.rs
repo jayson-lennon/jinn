@@ -515,14 +515,11 @@ impl IntentHandler {
             Intent::ProjectRemoveHighlighted => {
                 feat::picker::intent::handle_project_remove_highlighted(state)
             }
-            Intent::ModelToggleSelected => feat::picker::intent::handle_model_toggle(state),
-            Intent::ToggleAlloyMode => feat::picker::intent::handle_toggle_alloy_mode(state),
             Intent::SessionNew => feat::session::intent::handle_session_new(state),
             Intent::RefreshModels => feat::session::intent::handle_refresh_models(state),
             Intent::RescanPromptTemplates => {
                 feat::session::intent::handle_rescan_prompt_templates(state)
             }
-            Intent::RefreshEndpoints => feat::picker::intent::handle_refresh_endpoints(state),
 
             Intent::SidebarFocus => feat::ui::sidebar::intent::handle_sidebar_focus(state),
             Intent::SidebarFocusSessions => {

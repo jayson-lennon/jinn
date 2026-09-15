@@ -110,6 +110,19 @@ where
     hooks: Arc<RenderHooks<T>>,
 }
 
+impl<T> Clone for PickerEntry<T>
+where
+    T: std::fmt::Debug + Send + Sync + Clone + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            entry: self.entry.clone(),
+            search_text: self.search_text.clone(),
+            hooks: Arc::clone(&self.hooks),
+        }
+    }
+}
+
 impl<T> PickerEntry<T>
 where
     T: std::fmt::Debug + Send + Sync + 'static,
@@ -431,5 +444,96 @@ mod tests {
         assert_eq!(items[0].render_row(false).to_string(), "");
         assert!(items[0].preview_lines(80).is_empty());
         assert_eq!(items[0].cache_key(), None);
+    }
+}
+
+#[cfg(test)]
+mod clone_tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        reason = "test module, panics are acceptable"
+    )]
+
+    use super::*;
+    use crate::ctx::RowCtx;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+
+    #[derive(Debug, Clone)]
+    struct Thing {
+        name: String,
+    }
+
+    impl jinn_selection_widget::TreeItem for Thing {
+        fn id(&self) -> &str {
+            &self.name
+        }
+
+        fn parent_id(&self) -> Option<&str> {
+            None
+        }
+
+        fn display_label(&self) -> &str {
+            &self.name
+        }
+
+        fn render_row(&self, _is_selected: bool) -> ratatui::text::Line<'static> {
+            ratatui::text::Line::raw(self.name.clone())
+        }
+
+        fn render_row_with_highlight(
+            &self,
+            _is_selected: bool,
+            _match_indices: &[std::ops::Range<usize>],
+        ) -> ratatui::text::Line<'static> {
+            ratatui::text::Line::raw(self.name.clone())
+        }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn clone_shares_hooks_and_matches_original_render() {
+        // Given an entry built through hooks that count invocations.
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_for_row = Arc::clone(&calls);
+        let mut registry = crate::registry::PickerRegistry::new();
+        registry.register(
+            crate::builder::PickerSpec::new(crate::id::PickerId::new("clone-test"))
+                .row(move |entry: &Thing, _ctx: &RowCtx<'_>| {
+                    calls_for_row.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Line::raw(entry.name.clone())
+                })
+                .search(|entry: &Thing| entry.name.clone()),
+        );
+        let items = registry
+            .make_items(
+                "clone-test",
+                vec![Thing {
+                    name: "alpha".to_owned(),
+                }],
+            )
+            .expect("spec registered");
+        let original = &items[0];
+
+        // When cloning the wrapped entry and rendering both.
+        let copy = original.clone();
+        let a = PickerItem::render_row(original, false);
+        let b = PickerItem::render_row(&copy, false);
+
+        // Then the clone renders identically and shares the same hooks
+        // (the invocation count covers both renders through one Arc).
+        assert_eq!(
+            a.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<Vec<_>>(),
+            b.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(copy.search_text, original.search_text);
     }
 }

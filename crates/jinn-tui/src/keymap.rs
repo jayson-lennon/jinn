@@ -367,10 +367,9 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
     // Shared bindings (navigation, confirm, escape, char input) are in add_picker_base.
     keymap
         .scope(Scope::PickerProvider, |b| {
+            // The provider spec's TAB/CTRL+A/CTRL+R rows land here via
+            // bind_picker_spec_rows.
             add_picker_base(b);
-            b.bind("<Tab>", Intent::ModelToggleSelected, KeyCategory::General);
-            b.bind("<c-a>", Intent::ToggleAlloyMode, KeyCategory::Model);
-            b.bind("<c-r>", Intent::RefreshModels, KeyCategory::Model);
         })
         .scope(Scope::PickerSession, |b| {
             add_picker_base(b);
@@ -389,8 +388,9 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
             add_picker_base(b);
         })
         .scope(Scope::PickerEndpoint, |b| {
+            // The endpoint spec's CTRL+R row lands here via
+            // bind_picker_spec_rows.
             add_picker_base(b);
-            b.bind("<c-r>", Intent::RefreshEndpoints, KeyCategory::General);
         })
         .scope(Scope::PickerTool, |b| {
             // The tool spec's TAB toggle row lands here via
@@ -1255,28 +1255,6 @@ mod tests {
         assert!(
             matches!(enter_action, Intent::PickerConfirm),
             "enter must resolve to PickerConfirm, got {enter_action:?}"
-        );
-    }
-
-    #[rstest::rstest]
-    fn endpoint_picker_scope_ctrl_r_resolves_to_refresh_endpoints() {
-        // Given the default keymap.
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, Modifiers};
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::PickerEndpoint);
-
-        // When pressing Ctrl+R.
-        let c_r = jinn_domain::KeyEvent {
-            key: Key::Char('r'),
-            modifiers: Modifiers::ctrl(),
-        };
-        let intent = wk.handle_key(c_r);
-
-        // Then it resolves to RefreshEndpoints (forces a fresh endpoint fetch).
-        assert!(
-            matches!(intent, Some(jinn_domain::Intent::RefreshEndpoints)),
-            "<c-r> in PickerEndpoint should fire RefreshEndpoints; got {intent:?}",
         );
     }
 

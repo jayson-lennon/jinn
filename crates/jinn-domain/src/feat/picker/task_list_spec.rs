@@ -50,7 +50,7 @@ pub fn task_list_row(entry: &TaskListTreeEntry, ctx: &RowCtx<'_>) -> Line<'stati
         entry.row_status(),
         ctx.is_selected,
         ctx.match_ranges,
-        &entry.theme(),
+        entry.theme(),
     );
     if !ctx.tree_prefix.is_empty() {
         let mut spans = vec![Span::styled(ctx.tree_prefix.to_owned(), ctx.tree_style)];

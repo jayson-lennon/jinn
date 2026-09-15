@@ -35,14 +35,17 @@ pub fn load_provider_picker_items(services: &Services, view: &mut ProviderView<'
         promote_selected_to_top(&mut entries);
     }
 
-    view.provider.set_provider_picker_items(entries);
+    let wrapped = crate::feat::picker::registry::build_picker_registry()
+        .make_items(crate::feat::picker::registry::PROVIDER_ID, entries)
+        .unwrap_or_default();
+    view.provider.set_provider_picker_items(wrapped);
 }
 
 /// Sets `selected = true` on entries matching the current model selection.
 ///
 /// For `Single`, checks the one matching entry. For `Alloy`, checks all member entries.
 pub(crate) fn pre_check_active_models(
-    entries: &mut [crate::protocol::PickerEntry],
+    entries: &mut [crate::protocol::ProviderPickerEntry],
     selection: &ModelSelection,
 ) {
     let model_ids: Vec<&str> = match selection {
@@ -281,16 +284,16 @@ mod tests {
         let items = state.provider.provider_picker.items();
         let llama = items
             .iter()
-            .find(|e| e.provider_id == "ollama/llama3")
+            .find(|e| e.entry().provider_id == "ollama/llama3")
             .expect("llama3");
-        assert!(llama.selected, "llama3 should be selected");
+        assert!(llama.entry().selected, "llama3 should be selected");
 
         // And the other entry is not selected.
         let mistral = items
             .iter()
-            .find(|e| e.provider_id == "ollama/mistral")
+            .find(|e| e.entry().provider_id == "ollama/mistral")
             .expect("mistral");
-        assert!(!mistral.selected, "mistral should not be selected");
+        assert!(!mistral.entry().selected, "mistral should not be selected");
     }
 
     #[rstest::rstest]
@@ -337,22 +340,22 @@ mod tests {
         let items = state.provider.provider_picker.items();
         let llama = items
             .iter()
-            .find(|e| e.provider_id == "ollama/llama3")
+            .find(|e| e.entry().provider_id == "ollama/llama3")
             .expect("llama3");
-        assert!(llama.selected, "llama3 should be selected");
+        assert!(llama.entry().selected, "llama3 should be selected");
 
         let mistral = items
             .iter()
-            .find(|e| e.provider_id == "ollama/mistral")
+            .find(|e| e.entry().provider_id == "ollama/mistral")
             .expect("mistral");
-        assert!(mistral.selected, "mistral should be selected");
+        assert!(mistral.entry().selected, "mistral should be selected");
 
         // And the non-member is not selected.
         let gemma = items
             .iter()
-            .find(|e| e.provider_id == "ollama/gemma")
+            .find(|e| e.entry().provider_id == "ollama/gemma")
             .expect("gemma");
-        assert!(!gemma.selected, "gemma should not be selected");
+        assert!(!gemma.entry().selected, "gemma should not be selected");
     }
 
     #[rstest::rstest]
@@ -399,15 +402,15 @@ mod tests {
         let items = state.provider.provider_picker.items();
         let llama_idx = items
             .iter()
-            .position(|e| e.provider_id == "ollama/llama3")
+            .position(|e| e.entry().provider_id == "ollama/llama3")
             .expect("llama3");
         let mistral_idx = items
             .iter()
-            .position(|e| e.provider_id == "ollama/mistral")
+            .position(|e| e.entry().provider_id == "ollama/mistral")
             .expect("mistral");
         let gemma_idx = items
             .iter()
-            .position(|e| e.provider_id == "ollama/gemma")
+            .position(|e| e.entry().provider_id == "ollama/gemma")
             .expect("gemma");
         assert!(llama_idx < gemma_idx, "llama3 should sort above gemma");
         assert!(mistral_idx < gemma_idx, "mistral should sort above gemma");

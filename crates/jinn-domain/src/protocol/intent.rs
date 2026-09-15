@@ -145,20 +145,12 @@ pub enum Intent {
     ProjectNewAtHighlightedWithLifecycle,
     /// Project picker: remove the highlighted dir from the curated project list (`d`).
     ProjectRemoveHighlighted,
-    /// Toggle the selected model's selected state for multi-select alloy building.
-    ModelToggleSelected,
-    /// Toggle the provider picker between single-model and alloy-selection modes.
-    ///
-    /// No-op unless the provider picker is active.
-    ToggleAlloyMode,
     /// Create a new session.
     SessionNew,
     /// Refresh the model list from all providers.
     RefreshModels,
     /// Rescan the prompt templates directory.
     RescanPromptTemplates,
-    /// Force-refresh the OpenRouter endpoint picker (bypass the in-memory cache).
-    RefreshEndpoints,
     /// Enter the sidebar scope.
     SidebarFocus,
     /// Jump directly to the Sessions sidebar section from any scope.
@@ -462,12 +454,9 @@ impl std::fmt::Display for Intent {
             Intent::PickerMoveCursorRight => write!(f, "picker cursor right"),
             Intent::ProjectNewAtHighlightedWithLifecycle => write!(f, "project new + lifecycle"),
             Intent::ProjectRemoveHighlighted => write!(f, "remove project"),
-            Intent::ModelToggleSelected => write!(f, "toggle model"),
-            Intent::ToggleAlloyMode => write!(f, "toggle alloy mode"),
             Intent::SessionNew => write!(f, "new session"),
             Intent::RefreshModels => write!(f, "refresh models"),
             Intent::RescanPromptTemplates => write!(f, "rescan prompt templates"),
-            Intent::RefreshEndpoints => write!(f, "refresh endpoints"),
             Intent::SidebarFocus => write!(f, "focus sidebar"),
             Intent::SidebarFocusSessions => write!(f, "focus session list"),
             Intent::SidebarLeave => write!(f, "return to normal mode"),

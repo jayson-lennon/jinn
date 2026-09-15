@@ -108,7 +108,8 @@ pub struct PickerStates {
 
     /// OpenRouter endpoint picker state - one row per routing upstream.
     /// OWNER: IntentHandler (populated on endpoint picker open).
-    pub endpoint_picker: jinn_selection_widget::SelectionState<EndpointEntry>,
+    pub endpoint_picker:
+        jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<EndpointEntry>>,
 
     /// True while an endpoint fetch is in flight (open or `<c-r>` refresh).
     /// Set synchronously by the open/refresh intent; cleared by `ProviderActor`
@@ -244,9 +245,13 @@ pub trait PickerExt {
     ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<PluginPickerEntry>>;
 
     /// Read-only access to the OpenRouter endpoint picker state.
-    fn endpoint_picker(&self) -> &jinn_selection_widget::SelectionState<EndpointEntry>;
+    fn endpoint_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<EndpointEntry>>;
     /// Mutable access to the OpenRouter endpoint picker state.
-    fn endpoint_picker_mut(&mut self) -> &mut jinn_selection_widget::SelectionState<EndpointEntry>;
+    fn endpoint_picker_mut(
+        &mut self,
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<EndpointEntry>>;
 
     fn picker_results_viewport(&self) -> u16;
 
@@ -429,11 +434,15 @@ impl PickerExt for super::frontend_state::FrontendState {
         &mut self.pickers.plugin_picker
     }
 
-    fn endpoint_picker(&self) -> &jinn_selection_widget::SelectionState<EndpointEntry> {
+    fn endpoint_picker(
+        &self,
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<EndpointEntry>> {
         &self.pickers.endpoint_picker
     }
 
-    fn endpoint_picker_mut(&mut self) -> &mut jinn_selection_widget::SelectionState<EndpointEntry> {
+    fn endpoint_picker_mut(
+        &mut self,
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<EndpointEntry>> {
         &mut self.pickers.endpoint_picker
     }
 

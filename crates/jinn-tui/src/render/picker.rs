@@ -21,40 +21,15 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
         // through to the legacy renderer below.
     }
     match ctx.state.frontend.scope_stack.picker_kind().copied() {
-        Some(PickerKind::Provider) => render_provider_picker(frame, area, ctx),
-        Some(PickerKind::Endpoint) => {
-            jinn_domain::feat::endpoint::picker_render::render_endpoint_picker(frame, area, ctx);
-        }
-        // Persona, Skill, Theme, Tool, McpServer, SessionLifecycle,
-        // ReasoningEffort, Plugin, TaskList, and Session render entirely
-        // through their specs above; with an empty registry (test seams)
-        // there is nothing to draw. `None` (no picker scope) is also a
-        // no-op here.
-        Some(
-            PickerKind::Persona
-            | PickerKind::Skill
-            | PickerKind::Theme
-            | PickerKind::Tool
-            | PickerKind::McpServer
-            | PickerKind::SessionLifecycle
-            | PickerKind::ReasoningEffort
-            | PickerKind::Plugin
-            | PickerKind::TaskList
-            | PickerKind::Session,
-        )
-        | None => {}
         Some(PickerKind::Project) => {
             jinn_domain::feat::picker::render::render_project_picker(frame, area, ctx);
         }
+        // Every other picker kind now renders through its spec above; with
+        // an empty registry (test seams) there is nothing to draw. `None`
+        // (no picker scope) is also a no-op here.
+        _ => {}
     }
 }
-
-/// Renders the provider picker overlay (delegates to slice).
-fn render_provider_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    jinn_domain::feat::provider::render::render_provider_picker(frame, area, ctx);
-}
-
-/// Renders the session lifecycle picker overlay (delegates to domain render).
 
 /// Renders the arg input popup (delegates to domain render).
 pub(super) fn render_arg_input(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {

@@ -4,6 +4,7 @@
 //! cursor movement), their validators, and rendering.
 
 pub mod action;
+pub mod endpoint_spec;
 pub mod geometry;
 pub mod host_impl;
 pub mod intent;
@@ -11,6 +12,7 @@ pub mod mcp_server_spec;
 pub mod persona_spec;
 pub mod picker_kind;
 pub mod plugin_spec;
+pub mod provider_spec;
 pub mod reasoning_effort_spec;
 pub mod registry;
 pub mod render;

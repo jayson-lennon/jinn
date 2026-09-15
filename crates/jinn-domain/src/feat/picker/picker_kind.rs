@@ -114,7 +114,7 @@ impl PickerKind {
             | Self::Project
             | Self::McpServer
             | Self::Plugin
-            | Self::Endpoint => 1,
+            | Self::Endpoint => 1, // Project is the only live fallback consumer.
         }
     }
 }

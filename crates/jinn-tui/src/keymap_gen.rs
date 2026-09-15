@@ -83,6 +83,8 @@ fn picker_spec_scope(id: jinn_picker::PickerId) -> Option<Scope> {
         "plugin" => Some(Scope::PickerPlugin),
         "task-list" => Some(Scope::PickerTaskList),
         "session" => Some(Scope::PickerSession),
+        "provider" => Some(Scope::PickerProvider),
+        "endpoint" => Some(Scope::PickerEndpoint),
         _ => None,
     }
 }
@@ -932,6 +934,91 @@ mod picker_spec_row_tests {
                     if picker == "skill" && action == "<c-u>"
             ),
             "<c-u> must land as the spec's navigation action; got {intent:?}",
+        );
+    }
+}
+
+#[cfg(test)]
+mod real_registry_spec_rows {
+    #![allow(
+        clippy::expect_used,
+        clippy::panic,
+        reason = "test code, panics are acceptable"
+    )]
+
+    use super::bind_picker_spec_rows;
+    use crate::app::WhichKeyInstance;
+    use crate::keymap::init;
+    use crate::scope::Scope;
+    use jinn_domain::{Key, KeyEvent, Modifiers};
+
+    #[rstest::rstest]
+    #[test]
+    fn endpoint_spec_refresh_row_resolves_in_its_scope() {
+        // Given the real domain registry (whose endpoint spec declares a <c-r>
+        // refresh row) bound into a fresh keymap.
+        let registry = jinn_domain::feat::picker::registry::build_picker_registry();
+        let mut keymap = init();
+        bind_picker_spec_rows(&registry, &mut keymap);
+        let mut wk = WhichKeyInstance::new(keymap, Scope::PickerEndpoint);
+
+        // When pressing Ctrl+R.
+        let c_r = KeyEvent {
+            key: Key::Char('r'),
+            modifiers: Modifiers::ctrl(),
+        };
+        let intent = wk.handle_key(c_r);
+
+        // Then it resolves to the endpoint spec's refresh picker action.
+        assert!(
+            matches!(
+                &intent,
+                Some(jinn_domain::Intent::PickerAction { picker, action })
+                    if picker == "endpoint" && action == "<c-r>"
+            ),
+            "<c-r> must land as the endpoint spec's refresh action; got {intent:?}",
+        );
+    }
+
+    #[rstest::rstest]
+    #[rstest::rstest]
+    #[test]
+    fn provider_spec_rows_resolve_in_their_scope() {
+        // Given the real domain registry (whose provider spec declares
+        // <tab>/<c-a>/<c-r> rows) bound into a fresh keymap.
+        let registry = jinn_domain::feat::picker::registry::build_picker_registry();
+        let mut keymap = init();
+        bind_picker_spec_rows(&registry, &mut keymap);
+        let mut wk = WhichKeyInstance::new(keymap, Scope::PickerProvider);
+
+        // When pressing each of the spec's keys.
+        let tab = KeyEvent {
+            key: Key::Tab,
+            modifiers: Modifiers::none(),
+        };
+        let c_a = KeyEvent {
+            key: Key::Char('a'),
+            modifiers: Modifiers::ctrl(),
+        };
+        let tab_intent = wk.handle_key(tab);
+        let a_intent = wk.handle_key(c_a);
+
+        // Then both resolve to the provider spec's picker actions.
+        assert!(
+            matches!(
+                &tab_intent,
+                Some(jinn_domain::Intent::PickerAction { picker, action })
+                    if picker == "provider" && action == "<tab>"
+            ),
+            "<Tab> must land as the provider spec's toggle; got {tab_intent:?}",
+        );
+        assert!(
+            matches!(
+                &a_intent,
+                Some(jinn_domain::Intent::PickerAction { picker, action })
+                    if picker == "provider" && action == "<c-a>"
+            ),
+            "<c-a> must land as the provider spec's alloy toggle; got {a_intent:?}",
         );
     }
 }
