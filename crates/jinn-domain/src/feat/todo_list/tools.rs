@@ -27,6 +27,7 @@ pub mod get_task_list;
 pub mod postpone_task;
 pub mod postpone_to_phase;
 pub mod set_list;
+pub mod set_phase;
 pub mod task_payload;
 
 use crate::feat::tools_actor::BoxedToolFuture;
@@ -83,6 +84,11 @@ pub fn tool_entries() -> Vec<BuiltinToolEntry> {
             set_list::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
             false,
         ),
+        (
+            set_phase::definition(),
+            set_phase::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
+            false,
+        ),
     ]
 }
 
@@ -98,5 +104,6 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
         get_task_list::definition(),
         get_phase::definition(),
         set_list::definition(),
+        set_phase::definition(),
     ]
 }
