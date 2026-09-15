@@ -23,11 +23,14 @@ pub fn definition() -> ToolDefinition {
     ToolDefinition {
         name: "todo_set_list".to_owned(),
         description: "Replace the entire task list with a new one. \
-            Accepts an ordered list of phases, each containing an ordered list of task \
-            descriptions. All existing phases and tasks are discarded. All new tasks are \
-            created with Pending status. Pass an empty phases array to clear the task \
-            list entirely. Use this when you have a complete plan ready \
-            to materialize."
+            Accepts an ordered list of phases, each containing an ordered list of tasks. \
+            The list you send IS the list - anything omitted is deleted, and task \
+            statuses are declared inline, not remembered. Each task is either a bare \
+            string (created as pending) or an object with 'description' and an \
+            optional 'status' (pending, completed, or cancelled). Pass an empty \
+            phases array to clear the task list entirely. Use this when you have a \
+            complete plan ready to materialize; use todo_set_phase for day-to-day \
+            updates."
             .to_owned(),
         prompt_snippet: Some("Create a new task list".to_owned()),
         prompt_guidelines: vec![
@@ -35,7 +38,16 @@ pub fn definition() -> ToolDefinition {
              Existing phases and tasks are replaced entirely."
                 .to_owned(),
             "Each phase must have a description. Tasks within a phase are optional.".to_owned(),
-            "To preserve existing phases, read the current list first and include them.".to_owned(),
+            "Read the current list first (todo_get_list) and include everything \
+             you want to keep - anything omitted is deleted."
+                .to_owned(),
+            "A bare string task is created as pending. To record progress, pass \
+             the task as an object: {\"description\": \"...\", \"status\": \
+             \"completed\"} (statuses: pending, completed, cancelled)."
+                .to_owned(),
+            "'postponed' is not a valid status - move the task to a later phase \
+             or cancel it instead."
+                .to_owned(),
             "Pass an empty phases array ({\"phases\": []}) to clear the task list entirely."
                 .to_owned(),
         ],
@@ -44,7 +56,7 @@ pub fn definition() -> ToolDefinition {
             "properties": {
                 "phases": {
                     "type": "array",
-                    "description": "Ordered list of phases. Each phase has a description and an optional list of task descriptions. An empty array clears the task list.",
+                    "description": "Ordered list of phases. Each phase has a description and an optional list of tasks. An empty array clears the task list.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -54,8 +66,25 @@ pub fn definition() -> ToolDefinition {
                             },
                             "tasks": {
                                 "type": "array",
-                                "description": "Ordered list of task descriptions for this phase.",
-                                "items": { "type": "string" }
+                                "description": "Ordered list of tasks for this phase. Each task is a string (created as pending) or an object {description, status} with status one of: pending, completed, cancelled.",
+                                "items": {
+                                    "oneOf": [
+                                        { "type": "string" },
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "description": { "type": "string" },
+                                                "status": {
+                                                    "type": "string",
+                                                    "enum": ["pending", "completed", "cancelled"],
+                                                    "description": "Declared status of this task. Omit for pending."
+                                                }
+                                            },
+                                            "required": ["description"],
+                                            "additionalProperties": false
+                                        }
+                                    ]
+                                }
                             }
                         },
                         "required": ["description"],
@@ -95,33 +124,17 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             return tool_error(call, "'phases' must be an array");
         };
 
-        // Parse into (description, task_descriptions) tuples. An empty array is
-        // valid — it means "clear the task list entirely" — so no per-phase
-        // parsing happens and `phase_data` stays empty.
-        let mut phase_data: Vec<(String, Vec<String>)> = Vec::new();
-        for (i, phase_val) in phases_arr.iter().enumerate() {
-            let desc = match phase_val.get("description").and_then(|v| v.as_str()) {
-                Some(s) => s.to_owned(),
-                None => {
-                    return tool_error(
-                        call,
-                        &format!("phase at index {i} is missing 'description'"),
-                    );
-                }
-            };
-
-            let tasks: Vec<String> = phase_val
-                .get("tasks")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            phase_data.push((desc, tasks));
-        }
+        // Parse into declarative phase inputs (bare strings → Pending; objects
+        // carry an explicit status). Parsing is pure: any payload error aborts
+        // here, before task list state is touched. An empty array is valid —
+        // it means "clear the task list entirely".
+        let phase_inputs = {
+            let parsed = super::task_payload::parse_phases_array(phases_arr);
+            match parsed {
+                Ok(inputs) => inputs,
+                Err(msg) => return tool_error(call, &msg),
+            }
+        };
 
         let Some(session_cap) = &ctx.session_cap else {
             return tool_error(call, "no session capability");
@@ -129,18 +142,14 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
         let result = state.with_session(session_cap, |view| {
             let session = view.session.map().get_unchecked_mut(&session_id);
             let list = session.task_list_mut();
-            if phase_data.is_empty() {
+            if phase_inputs.is_empty() {
                 list.clear();
                 return Ok("Task list cleared.".to_owned());
             }
-            match list.set_from_descriptions(phase_data) {
-                Ok(()) => {
-                    let next_block = list.render_next_block();
-                    let rendered = list.render_text_with_blockers();
-                    Ok(format!("{next_block}\nTask list replaced.\n\n{rendered}"))
-                }
-                Err(e) => Err(format!("Error: {e}")),
-            }
+            list.set_from_inputs(&phase_inputs);
+            let next_block = list.render_next_block();
+            let rendered = list.render_text_with_blockers();
+            Ok(format!("{next_block}\nTask list replaced.\n\n{rendered}"))
         });
 
         match result {
@@ -201,7 +210,7 @@ mod tests {
     )]
     use crate::common::app_state::AppState;
     use crate::common::state::State;
-    use crate::feat::todo_list::TaskPosition;
+    use crate::feat::todo_list::{PhaseInput, TaskStatus};
     use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext};
     use crate::protocol::SessionId;
 
@@ -239,11 +248,10 @@ mod tests {
         {
             let mut w = state.write_test_no_cap();
             let session = w.session_mut(&session_id);
-            let pid = session.task_list_mut().add_phase("Old Phase");
-            session
-                .task_list_mut()
-                .add_task(&pid, "Old task", TaskPosition::End)
-                .unwrap();
+            session.task_list_mut().set_from_inputs(&[PhaseInput {
+                description: "Old Phase".to_owned(),
+                tasks: vec![("Old task".to_owned(), TaskStatus::Pending)],
+            }]);
         };
         (state, session_id)
     }
@@ -448,5 +456,132 @@ mod tests {
             "expected NEXT block at top, got: {:?}",
             result.content
         );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn set_list_bare_strings_default_to_pending() {
+        // Given a payload authoring tasks as bare strings.
+        let (state, session_id) = setup_with_existing_list();
+        let call = ToolCall {
+            id: "call-1".to_owned(),
+            name: "todo_set_list".to_owned(),
+            arguments: serde_json::json!({
+                "phases": [{ "description": "Build", "tasks": ["Write code"] }]
+            })
+            .to_string(),
+        };
+
+        // When executing the tool.
+        let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
+        let result = futures::executor::block_on(execute(call, ctx));
+        assert!(result.success, "expected success: {:?}", result.content);
+
+        // Then the persisted task is Pending.
+        let snapshot = state.read();
+        let session = snapshot.session.get(&session_id).expect("session present");
+        let task = &session.task_list().phases()[0].tasks()[0];
+        assert_eq!(task.description, "Write code");
+        assert_eq!(task.status, TaskStatus::Pending);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn set_list_declared_statuses_stick() {
+        // Given a payload declaring completed and cancelled statuses.
+        let (state, session_id) = setup_with_existing_list();
+        let call = ToolCall {
+            id: "call-1".to_owned(),
+            name: "todo_set_list".to_owned(),
+            arguments: serde_json::json!({
+                "phases": [{ "description": "Build", "tasks": [
+                    { "description": "Done work", "status": "completed" },
+                    { "description": "Dropped work", "status": "cancelled" },
+                    { "description": "Todo work" }
+                ]}]
+            })
+            .to_string(),
+        };
+
+        // When executing the tool.
+        let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
+        let result = futures::executor::block_on(execute(call, ctx));
+        assert!(result.success, "expected success: {:?}", result.content);
+
+        // Then each persisted task carries its declared status.
+        let snapshot = state.read();
+        let session = snapshot.session.get(&session_id).expect("session present");
+        let tasks = &session.task_list().phases()[0].tasks;
+        assert_eq!(tasks[0].status, TaskStatus::Completed);
+        assert_eq!(tasks[1].status, TaskStatus::Cancelled);
+        // And the omitted status defaulted to Pending.
+        assert_eq!(tasks[2].status, TaskStatus::Pending);
+    }
+
+    #[rstest::rstest]
+    #[case("postponed")]
+    #[case("deferred")]
+    #[test]
+    fn set_list_rejects_postponed_status(#[case] status: &str) {
+        // Given a payload declaring the non-declarable status.
+        let (state, session_id) = setup_with_existing_list();
+        let call = ToolCall {
+            id: "call-1".to_owned(),
+            name: "todo_set_list".to_owned(),
+            arguments: serde_json::json!({
+                "phases": [{ "description": "Build", "tasks": [
+                    { "description": "Later work", "status": status }
+                ]}]
+            })
+            .to_string(),
+        };
+
+        // When executing the tool.
+        let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
+        let result = futures::executor::block_on(execute(call, ctx));
+
+        // Then the call fails with guidance.
+        assert!(!result.success);
+        assert!(
+            result.content.contains("not a declarable status"),
+            "expected guidance, got: {:?}",
+            result.content
+        );
+        // And the existing list is untouched (no partial write).
+        let snapshot = state.read();
+        let session = snapshot.session.get(&session_id).expect("session present");
+        assert_eq!(session.task_list().phases()[0].description(), "Old Phase");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn set_list_replace_builds_before_swapping() {
+        // Given a session whose list has a known first phase.
+        let (state, session_id) = setup_with_existing_list();
+
+        // When replacing the list.
+        let call = ToolCall {
+            id: "call-1".to_owned(),
+            name: "todo_set_list".to_owned(),
+            arguments: serde_json::json!({
+                "phases": [
+                    { "description": "A", "tasks": ["a1", "a2"] },
+                    { "description": "B", "tasks": ["b1"] }
+                ]
+            })
+            .to_string(),
+        };
+        let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
+        let result = futures::executor::block_on(execute(call, ctx));
+        assert!(result.success, "expected success: {:?}", result.content);
+
+        // Then the full replacement is present with no residue from the old list.
+        let snapshot = state.read();
+        let session = snapshot.session.get(&session_id).expect("session present");
+        let list = session.task_list();
+        assert_eq!(list.phases().len(), 2);
+        assert_eq!(list.phases()[0].tasks().len(), 2);
+        assert_eq!(list.phases()[1].tasks().len(), 1);
+        assert!(!result.content.contains("Old Phase"));
     }
 }
