@@ -584,7 +584,7 @@ impl std::fmt::Display for Intent {
 ///
 /// Carries typed message closures to be dispatched to the actor system
 /// via the kameo message bus, plus an optional scope transition. The
-/// scope signal is applied by the handler (an exempt `scope_stack`
+/// scope signal is applied by the handler (an exempt scope-stack
 /// writer) *before* the messages publish, so a slice that opens itself
 /// pushes its scope before any bus message a subscriber could observe.
 pub use jinn_slices::RouteResult as IntentResult;
@@ -593,5 +593,5 @@ pub use jinn_slices::RouteResult as IntentResult;
 ///
 /// Slices declare their transitions as data; the composition-side
 /// handler applies them. Ownership stays single-writer: only the
-/// handler mutates `scope_stack`, and it does so only on these signals.
+/// handler mutates the scope stack, and it does so only on these signals.
 pub use jinn_slices::ScopeSignal;

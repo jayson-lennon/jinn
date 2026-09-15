@@ -9,7 +9,7 @@ use super::validator;
 
 /// Handles the Quit intent.
 ///
-/// Validates and sets `should_quit` on the frontend state.
+/// Validates and latches the quit request on the frontend state.
 pub fn handle_quit(state: &mut AppState) -> IntentResult {
     validator::validate_quit(state);
     state.frontend.set_quit(true);
@@ -159,7 +159,7 @@ mod tests {
         // When handling Quit.
         let result = handle_quit(&mut state);
 
-        // Then should_quit is true.
+        // Then the quit latch is set.
         assert!(state.frontend.quit());
         assert!(result.message_names.is_empty());
     }

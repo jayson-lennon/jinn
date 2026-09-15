@@ -84,7 +84,7 @@ pub fn from_route_result(result: RouteResult) -> IntentResult {
 
 /// Applies a route action's scope transition to the scope stack.
 ///
-/// The handler is the exempt `scope_stack` writer; this is the only
+/// The handler is the exempt scope-stack writer; this is the only
 /// place a slice-requested transition lands.
 pub fn apply_scope_signal(result: &mut IntentResult, state: &mut AppState) {
     let Some(signal) = result.scope_signal.take() else {
