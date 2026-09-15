@@ -19,7 +19,6 @@ use crate::feat::theme::Theme;
 use crate::feat::theme::ThemeEntry;
 use crate::feat::todo_list::picker_entry::TaskListTreeEntry;
 use crate::feat::tools_actor::tool_entry::ToolEntry;
-use crate::protocol::PickerEntry;
 
 /// All picker state - grouped so the picker subsystem can evolve independently.
 ///
@@ -66,15 +65,13 @@ pub struct PickerStates {
 
     /// Session lifecycle picker state (items, filter text, selection index).
     /// OWNER: IntentHandler (lifecycle picker navigation).
-    pub session_lifecycle_picker: jinn_selection_widget::SelectionState<SessionLifecycleEntry>,
-
-    /// Compaction model picker state (items, filter text, selection index).
-    /// OWNER: IntentHandler (compaction model picker navigation).
-    pub compaction_model_picker: jinn_selection_widget::SelectionState<PickerEntry>,
+    pub session_lifecycle_picker:
+        jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SessionLifecycleEntry>>,
 
     /// Reasoning effort picker state (items, filter text, selection index).
     /// OWNER: IntentHandler (reasoning effort picker navigation).
-    pub reasoning_effort_picker: jinn_selection_widget::SelectionState<ReasoningEffortEntry>,
+    pub reasoning_effort_picker:
+        jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ReasoningEffortEntry>>,
 
     /// Task list picker state - read-only zoom view of the active session's task list.
     /// OWNER: IntentHandler (populated on task list picker open).
@@ -191,27 +188,20 @@ pub trait PickerExt {
     /// Read-only access to the session lifecycle picker state.
     fn session_lifecycle_picker(
         &self,
-    ) -> &jinn_selection_widget::SelectionState<SessionLifecycleEntry>;
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SessionLifecycleEntry>>;
     /// Mutable access to the session lifecycle picker state.
     fn session_lifecycle_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::SelectionState<SessionLifecycleEntry>;
-
-    /// Read-only access to the compaction model picker state.
-    fn compaction_model_picker(&self) -> &jinn_selection_widget::SelectionState<PickerEntry>;
-    /// Mutable access to the compaction model picker state.
-    fn compaction_model_picker_mut(
-        &mut self,
-    ) -> &mut jinn_selection_widget::SelectionState<PickerEntry>;
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SessionLifecycleEntry>>;
 
     /// Read-only access to the reasoning effort picker state.
     fn reasoning_effort_picker(
         &self,
-    ) -> &jinn_selection_widget::SelectionState<ReasoningEffortEntry>;
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ReasoningEffortEntry>>;
     /// Mutable access to the reasoning effort picker state.
     fn reasoning_effort_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::SelectionState<ReasoningEffortEntry>;
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ReasoningEffortEntry>>;
 
     /// Read-only access to the task list picker state.
     fn task_list_picker(&self) -> &jinn_selection_widget::TreePickerState<TaskListTreeEntry>;
@@ -351,34 +341,28 @@ impl PickerExt for super::frontend_state::FrontendState {
 
     fn session_lifecycle_picker(
         &self,
-    ) -> &jinn_selection_widget::SelectionState<SessionLifecycleEntry> {
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SessionLifecycleEntry>>
+    {
         &self.pickers.session_lifecycle_picker
     }
 
     fn session_lifecycle_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::SelectionState<SessionLifecycleEntry> {
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<SessionLifecycleEntry>>
+    {
         &mut self.pickers.session_lifecycle_picker
     }
-    fn compaction_model_picker(&self) -> &jinn_selection_widget::SelectionState<PickerEntry> {
-        &self.pickers.compaction_model_picker
-    }
-
-    fn compaction_model_picker_mut(
-        &mut self,
-    ) -> &mut jinn_selection_widget::SelectionState<PickerEntry> {
-        &mut self.pickers.compaction_model_picker
-    }
-
     fn reasoning_effort_picker(
         &self,
-    ) -> &jinn_selection_widget::SelectionState<ReasoningEffortEntry> {
+    ) -> &jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ReasoningEffortEntry>>
+    {
         &self.pickers.reasoning_effort_picker
     }
 
     fn reasoning_effort_picker_mut(
         &mut self,
-    ) -> &mut jinn_selection_widget::SelectionState<ReasoningEffortEntry> {
+    ) -> &mut jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ReasoningEffortEntry>>
+    {
         &mut self.pickers.reasoning_effort_picker
     }
 

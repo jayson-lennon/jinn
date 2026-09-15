@@ -179,7 +179,6 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
             .describe_group_with_category("gm", "model", KeyCategory::Model)
             .describe_group_with_category("gc", "context", KeyCategory::Context)
             .bind("<leader>sl", Intent::OpenPicker { kind: PickerKind::SessionLifecycle }, KeyCategory::General)
-            .bind("<leader>sc", Intent::OpenPicker { kind: PickerKind::CompactionModel }, KeyCategory::Model)
             .describe_group_with_category("<leader>c", "change", KeyCategory::General)
             .bind("<leader>cd", Intent::OpenCwdInput, KeyCategory::General)
             .bind("gg", Intent::ScrollToTop, KeyCategory::Navigation)
@@ -383,10 +382,6 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
             add_picker_base(b);
         })
         .scope(Scope::PickerLifecycle, |b| {
-            add_picker_base(b);
-        })
-
-        .scope(Scope::PickerCompactionModel, |b| {
             add_picker_base(b);
         })
 
@@ -614,7 +609,6 @@ mod tests {
             PickerKind::Persona,
             PickerKind::Theme,
             PickerKind::SessionLifecycle,
-            PickerKind::CompactionModel,
             PickerKind::ReasoningEffort,
             PickerKind::Tool,
             PickerKind::Skill,
@@ -749,7 +743,6 @@ mod tests {
     #[case(Scope::PickerPersona)]
     #[case(Scope::PickerTheme)]
     #[case(Scope::PickerLifecycle)]
-    #[case(Scope::PickerCompactionModel)]
     #[case(Scope::PickerReasoningEffort)]
     #[case(Scope::PickerEndpoint)]
     #[case(Scope::PickerTool)]
@@ -1987,6 +1980,52 @@ mod leak_check {
                     if picker == "tool" && action == "<tab>"
             ),
             "Tab in PickerTool must fire the spec toggle action; got {intent:?}",
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn lifecycle_scope_binds_base_intents() {
+        // Given the default keymap.
+        use jinn_domain::Intent;
+        use jinn_domain::{Key, KeyEvent, Modifiers};
+        use ratatui_which_key::NodeResult;
+        let keymap = init();
+        let esc = KeyEvent {
+            key: Key::Esc,
+            modifiers: Modifiers::none(),
+        };
+        let enter = KeyEvent {
+            key: Key::Enter,
+            modifiers: Modifiers::none(),
+        };
+
+        // When navigating the base keys within the lifecycle picker scope.
+        let esc_res = keymap
+            .navigate(&[esc], &Scope::PickerLifecycle)
+            .expect("esc bound");
+        let enter_res = keymap
+            .navigate(&[enter], &Scope::PickerLifecycle)
+            .expect("enter bound");
+
+        // Then each resolves to a real picker base intent (the confirm
+        // dispatch routes through the session-lifecycle spec's hook).
+        let NodeResult::Leaf { action: esc_action } = esc_res else {
+            panic!("esc must be a leaf");
+        };
+        assert!(
+            matches!(esc_action, Intent::EnterNormalMode),
+            "esc must resolve to EnterNormalMode, got {esc_action:?}"
+        );
+        let NodeResult::Leaf {
+            action: enter_action,
+        } = enter_res
+        else {
+            panic!("enter must be a leaf");
+        };
+        assert!(
+            matches!(enter_action, Intent::PickerConfirm),
+            "enter must resolve to PickerConfirm, got {enter_action:?}"
         );
     }
 

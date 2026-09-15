@@ -23,30 +23,21 @@ pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) 
     match ctx.state.frontend.scope_stack.picker_kind().copied() {
         Some(PickerKind::Provider) => render_provider_picker(frame, area, ctx),
         Some(PickerKind::Session) => render_session_picker(frame, area, ctx),
-        Some(PickerKind::SessionLifecycle) => {
-            render_session_lifecycle_picker(frame, area, ctx);
-        }
-        Some(PickerKind::CompactionModel) => {
-            jinn_domain::feat::provider::render::render_compaction_model_picker(frame, area, ctx);
-        }
-        Some(PickerKind::ReasoningEffort) => {
-            jinn_domain::feat::reasoning::picker_render::render_reasoning_effort_picker(
-                frame, area, ctx,
-            );
-        }
         Some(PickerKind::Endpoint) => {
             jinn_domain::feat::endpoint::picker_render::render_endpoint_picker(frame, area, ctx);
         }
-        // Persona, Skill, Theme, Tool, and McpServer render entirely
-        // through their specs above; with an empty registry (test seams)
-        // there is nothing to draw. `None` (no picker scope) is also a
-        // no-op here.
+        // Persona, Skill, Theme, Tool, McpServer, SessionLifecycle, and
+        // ReasoningEffort render entirely through their specs above; with an
+        // empty registry (test seams) there is nothing to draw. `None` (no
+        // picker scope) is also a no-op here.
         Some(
             PickerKind::Persona
             | PickerKind::Skill
             | PickerKind::Theme
             | PickerKind::Tool
-            | PickerKind::McpServer,
+            | PickerKind::McpServer
+            | PickerKind::SessionLifecycle
+            | PickerKind::ReasoningEffort,
         )
         | None => {}
         Some(PickerKind::TaskList) => {
@@ -72,9 +63,6 @@ fn render_session_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
 }
 
 /// Renders the session lifecycle picker overlay (delegates to domain render).
-fn render_session_lifecycle_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    jinn_domain::feat::session_lifecycle::render::render_session_lifecycle_picker(frame, area, ctx);
-}
 
 /// Renders the arg input popup (delegates to domain render).
 pub(super) fn render_arg_input(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
@@ -140,7 +128,6 @@ mod tests {
     #[case::persona(PickerKind::Persona)]
     #[case::theme(PickerKind::Theme)]
     #[case::session_lifecycle(PickerKind::SessionLifecycle)]
-    #[case::compaction_model(PickerKind::CompactionModel)]
     #[case::reasoning_effort(PickerKind::ReasoningEffort)]
     #[case::endpoint(PickerKind::Endpoint)]
     #[case::tool(PickerKind::Tool)]

@@ -72,22 +72,11 @@ pub fn handle_open_picker(
         | PickerKind::Theme
         | PickerKind::Tool
         | PickerKind::McpServer
+        | PickerKind::SessionLifecycle
+        | PickerKind::ReasoningEffort
         | PickerKind::TaskList
         | PickerKind::Project
         | PickerKind::Plugin => IntentResult::empty(),
-        PickerKind::SessionLifecycle => {
-            // Populate from user preferences + implicit blank lifecycle.
-            load_lifecycle_picker_entries(state);
-            IntentResult::empty()
-        }
-        PickerKind::CompactionModel => IntentResult::new_message(
-            crate::feat::provider::protocol::command::LoadCompactionModelPickerEntries,
-        ),
-
-        PickerKind::ReasoningEffort => IntentResult::new_message(
-            crate::feat::provider::protocol::command::LoadReasoningEffortPickerEntries,
-        ),
-
         PickerKind::Endpoint => IntentResult::new_message(
             crate::feat::provider::protocol::command::LoadEndpointPickerEntries,
         ),
@@ -117,18 +106,11 @@ fn reset_picker_for_open(state: &mut AppState, kind: PickerKind) {
         | PickerKind::Skill
         | PickerKind::Theme
         | PickerKind::Tool
-        | PickerKind::McpServer => {
+        | PickerKind::McpServer
+        | PickerKind::SessionLifecycle
+        | PickerKind::ReasoningEffort => {
             // Spec-driven when the registry holds their spec; nothing to
             // prepare in the legacy path.
-        }
-        PickerKind::SessionLifecycle => {
-            state.frontend.session_lifecycle_picker_mut().reset();
-        }
-        PickerKind::CompactionModel => {
-            state.frontend.compaction_model_picker_mut().reset();
-        }
-        PickerKind::ReasoningEffort => {
-            state.frontend.reasoning_effort_picker_mut().reset();
         }
         PickerKind::TaskList => {
             state.frontend.task_list_picker_mut().reset();
@@ -283,19 +265,18 @@ pub fn handle_picker_confirm(
         // registry is empty (test seams) — nothing to do.
         Some(PickerKind::Provider) => (confirm_provider(state), None),
         Some(PickerKind::Session) => (confirm_session(state), None),
-        Some(PickerKind::SessionLifecycle) => (confirm_session_lifecycle(state), None),
         Some(PickerKind::Project) => (confirm_project(state), None),
-        Some(PickerKind::ReasoningEffort) => (confirm_reasoning_effort(state), None),
         Some(PickerKind::Endpoint) => (confirm_endpoint(state), None),
 
-        // Persona, Skill, Theme, Tool, and McpServer are fully
-        // spec-driven; the registry guard above runs their confirm hook.
-        // Reaching the match means the registry is empty (test seams) —
+        // Persona, Skill, Theme, Tool, McpServer, and SessionLifecycle are
+        // fully spec-driven; the registry guard above runs their confirm
+        // hook. Reaching the match means the registry is empty (test seams) —
         // nothing to do.
         Some(
-            PickerKind::CompactionModel
-            | PickerKind::McpServer
+            PickerKind::McpServer
             | PickerKind::Persona
+            | PickerKind::ReasoningEffort
+            | PickerKind::SessionLifecycle
             | PickerKind::TaskList
             | PickerKind::Plugin
             | PickerKind::Skill
@@ -443,30 +424,6 @@ fn resolve_provider_selection(provider: &ProviderState, highlighted: String) -> 
     }
 }
 
-/// Confirms the selected reasoning effort and applies it.
-///
-/// Dual-write mirroring [`confirm_persona`]: sets the active session's
-/// `reasoning_effort` override in-memory, persists it immediately via
-/// [`MarkSessionInteracted`], and updates the last-used seed via
-/// [`UpdateAppState`] so new sessions inherit the choice.
-fn confirm_reasoning_effort(state: &mut AppState) -> IntentResult {
-    let Some(entry) = state.frontend.reasoning_effort_picker().selected_item() else {
-        return IntentResult::empty();
-    };
-    let effort = entry.effort;
-    let session_id = state.session.active_session_id().clone();
-
-    state.active_session_mut().profile_mut().reasoning_effort = Some(effort);
-
-    state.frontend.scope_stack.pop();
-
-    IntentResult::empty()
-        .with_message(MarkSessionInteracted { session_id })
-        .with_message(UpdateAppState {
-            updates: vec![AppStateUpdate::SetReasoningEffort(Some(effort))],
-        })
-}
-
 /// Confirms the selected OpenRouter endpoint and pins it on the session profile.
 ///
 /// Writes `profile.endpoint = Some(...)` for a real upstream, or `None` when the
@@ -506,107 +463,6 @@ fn confirm_session(state: &mut AppState) -> IntentResult {
     IntentResult::new_message(SessionLoadRequested { session_id })
 }
 
-/// Populates the lifecycle picker entries from user preferences.
-///
-/// Always includes the implicit blank lifecycle (no commands, uses default CWD)
-/// as the first entry, followed by all lifecycles defined in `jinn.toml`.
-fn load_lifecycle_picker_entries(state: &mut AppState) {
-    use crate::feat::session_lifecycle::command_template::CommandTemplate;
-    use crate::feat::session_lifecycle::picker_entry::SessionLifecycleEntry;
-
-    let mut entries = Vec::new();
-
-    let theme = state.frontend.theme.clone();
-
-    // Always include the implicit blank lifecycle.
-    entries.push(SessionLifecycleEntry {
-        name: "blank".to_owned(),
-        description: Some("New empty session".to_owned()),
-        has_args: false,
-        theme: theme.clone(),
-    });
-
-    // Add lifecycles from preferences.
-    for lifecycle in &state.frontend.preferences.session_lifecycles {
-        let has_args = lifecycle
-            .setup
-            .as_ref()
-            .and_then(|cmd| match cmd {
-                crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(s) => {
-                    Some(s.as_str())
-                }
-                crate::feat::session_lifecycle::builtin::LifecycleCommand::Builtin(_) => None,
-            })
-            .is_some_and(|cmd| CommandTemplate::parse(cmd).has_params());
-        entries.push(SessionLifecycleEntry {
-            name: lifecycle.name.clone(),
-            description: lifecycle.description.clone(),
-            has_args,
-            theme: theme.clone(),
-        });
-    }
-
-    state
-        .frontend
-        .session_lifecycle_picker_mut()
-        .set_items(entries);
-}
-
-/// Confirms the selected session lifecycle.
-///
-/// If the lifecycle has args, the arg input popup would open (Phase 6).
-/// For now, directly triggers setup with empty args (lifecycles without args)
-/// or with empty args as a placeholder.
-fn confirm_session_lifecycle(state: &mut AppState) -> IntentResult {
-    let Some(entry) = state.frontend.session_lifecycle_picker().selected_item() else {
-        return IntentResult::empty();
-    };
-
-    let lifecycle_name = entry.name.clone();
-    let has_args = entry.has_args;
-    state.frontend.scope_stack.pop();
-
-    if has_args {
-        // Save context and open the arg input popup.
-        let template_display = state
-            .frontend
-            .preferences
-            .session_lifecycles
-            .iter()
-            .find(|l| l.name == lifecycle_name)
-            .and_then(|l| l.setup.as_ref())
-            .and_then(|cmd| match cmd {
-                crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(s) => {
-                    Some(s.as_str())
-                }
-                crate::feat::session_lifecycle::builtin::LifecycleCommand::Builtin(_) => None,
-            })
-            .map(|cmd| {
-                crate::feat::session_lifecycle::command_template::CommandTemplate::parse(cmd)
-                    .display()
-            })
-            .unwrap_or_default();
-
-        state.frontend.arg_input = crate::common::app_state::ArgInputState {
-            lifecycle_name,
-            template_display,
-            text: crate::common::line_input::LineInput::new(),
-        };
-        state
-            .frontend
-            .scope_stack
-            .push(crate::common::app_state::FocusScope::ArgInput);
-        return IntentResult::empty();
-    }
-
-    // No args - proceed directly.
-    crate::feat::session_lifecycle::intent::handle_session_lifecycle_setup(
-        state,
-        &lifecycle_name,
-        &[],
-        None,
-    )
-}
 /// Populates the skill picker entries from discovered skills.
 ///
 /// Populates the task list picker entries from the active session's task list.
@@ -1474,43 +1330,6 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn confirm_reasoning_effort_sets_session_override() {
-        // If the session override were never set, the profile would stay None.
-        use crate::feat::reasoning::{ReasoningEffort, ReasoningEffortEntry};
-
-        let mut state = AppState::default();
-        let origin = ChatSessionState::new();
-        state.session.insert(origin);
-        state
-            .session
-            .set_active(state.session.active_session_id().clone());
-
-        // Populate the picker with a single entry; select it.
-        let entry = ReasoningEffortEntry {
-            effort: ReasoningEffort::High,
-            name: "high".to_owned(),
-            description: "High effort".to_owned(),
-            is_active: false,
-            theme: crate::feat::theme::default_theme(),
-        };
-        state
-            .frontend
-            .reasoning_effort_picker_mut()
-            .set_items(vec![entry]);
-        state.frontend.reasoning_effort_picker_mut().move_down(1);
-
-        // When confirming.
-        let _ = confirm_reasoning_effort(&mut state);
-
-        // Then the active session's override is set to High.
-        assert_eq!(
-            state.active_session().profile().reasoning_effort,
-            Some(ReasoningEffort::High),
-            "confirm should set the session reasoning_effort override"
-        );
-    }
-
-    #[rstest::rstest]
     fn confirm_endpoint_pins_selected_endpoint_on_profile() {
         // Given a populated endpoint picker with a real upstream selected.
         use crate::feat::endpoint::picker_entry::EndpointEntry;
@@ -1669,191 +1488,6 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn confirm_reasoning_effort_in_session_a_does_not_leak_into_session_b() {
-        // Regression: changing effort in one session used to leak into every other
-        // override-free session because the live global was consulted at request time.
-        // Now each session owns its own value; the global seeds new sessions only.
-        use crate::feat::reasoning::{ReasoningEffort, ReasoningEffortEntry, resolve_effort};
-
-        let mut state = AppState::default();
-
-        // Session B: seeded with High (its own, frozen value).
-        let mut b = ChatSessionState::new();
-        b.profile_mut().reasoning_effort = Some(ReasoningEffort::High);
-        let b_id = b.session_id().clone();
-        state.session.insert(b);
-
-        // Session A (active): seeded with High, then changed to Xhigh via the picker.
-        let mut a = ChatSessionState::new();
-        a.profile_mut().reasoning_effort = Some(ReasoningEffort::High);
-        state.session.insert(a);
-        state
-            .session
-            .set_active(state.session.active_session_id().clone());
-
-        let entry = ReasoningEffortEntry {
-            effort: ReasoningEffort::Xhigh,
-            name: "xhigh".to_owned(),
-            description: "Extra high effort".to_owned(),
-            is_active: false,
-            theme: crate::feat::theme::default_theme(),
-        };
-        state
-            .frontend
-            .reasoning_effort_picker_mut()
-            .set_items(vec![entry]);
-        state.frontend.reasoning_effort_picker_mut().move_down(1);
-
-        // When confirming the effort change in session A.
-        let result = confirm_reasoning_effort(&mut state);
-
-        // Then session A's own effort is Xhigh.
-        assert_eq!(
-            state.active_session().profile().reasoning_effort,
-            Some(ReasoningEffort::Xhigh),
-            "session A should have the confirmed effort"
-        );
-        // And the global default was advanced to Xhigh (so future sessions inherit it).
-        assert!(
-            result
-                .message_names
-                .iter()
-                .any(|n| n.ends_with("UpdateAppState")),
-            "confirm should still seed the global for future sessions"
-        );
-        // But session B's resolved effort is unchanged — the global no longer leaks.
-        assert_eq!(
-            resolve_effort(state.session.get(&b_id).unwrap().profile().reasoning_effort),
-            Some(ReasoningEffort::High),
-            "session B's own effort must be unaffected by session A's change"
-        );
-    }
-
-    #[rstest::rstest]
-    fn confirm_reasoning_effort_pops_picker_scope() {
-        // If the scope were never popped, the picker would remain open.
-        use crate::common::app_state::FocusScope;
-        use crate::feat::reasoning::{ReasoningEffort, ReasoningEffortEntry};
-
-        let mut state = AppState::default();
-        let origin = ChatSessionState::new();
-        state.session.insert(origin);
-        state
-            .session
-            .set_active(state.session.active_session_id().clone());
-        let entry = ReasoningEffortEntry {
-            effort: ReasoningEffort::Medium,
-            name: "medium".to_owned(),
-            description: "Medium effort".to_owned(),
-            is_active: false,
-            theme: crate::feat::theme::default_theme(),
-        };
-        state
-            .frontend
-            .reasoning_effort_picker_mut()
-            .set_items(vec![entry]);
-        state.frontend.reasoning_effort_picker_mut().move_down(1);
-        state.frontend.scope_stack.push(FocusScope::Picker {
-            kind: PickerKind::ReasoningEffort,
-        });
-
-        // When confirming.
-        let _ = confirm_reasoning_effort(&mut state);
-
-        // Then the picker scope has been popped (no ReasoningEffort scope remains).
-        let still_open = state
-            .frontend
-            .scope_stack
-            .picker_kind()
-            .is_some_and(|k| *k == PickerKind::ReasoningEffort);
-        assert!(!still_open, "picker scope should be popped after confirm");
-    }
-
-    #[rstest::rstest]
-    fn confirm_reasoning_effort_emits_mark_session_interacted() {
-        // If the persist message were never emitted, the profile change would
-        // only be saved on a later (unrelated) event.
-        use crate::feat::reasoning::{ReasoningEffort, ReasoningEffortEntry};
-
-        let mut state = AppState::default();
-        let origin = ChatSessionState::new();
-        state.session.insert(origin);
-        state
-            .session
-            .set_active(state.session.active_session_id().clone());
-        let entry = ReasoningEffortEntry {
-            effort: ReasoningEffort::Low,
-            name: "low".to_owned(),
-            description: "Low effort".to_owned(),
-            is_active: false,
-            theme: crate::feat::theme::default_theme(),
-        };
-        state
-            .frontend
-            .reasoning_effort_picker_mut()
-            .set_items(vec![entry]);
-        state.frontend.reasoning_effort_picker_mut().move_down(1);
-
-        // When confirming.
-        let result = confirm_reasoning_effort(&mut state);
-
-        // Then a MarkSessionInteracted message is emitted.
-        assert!(
-            result
-                .message_names
-                .iter()
-                .any(|n| n.ends_with("MarkSessionInteracted")),
-            "confirm should emit MarkSessionInteracted to persist the change"
-        );
-    }
-
-    #[rstest::rstest]
-    fn confirm_reasoning_effort_emits_update_app_state() {
-        // If the global default write were never emitted, new sessions would
-        // not inherit the chosen effort.
-        use crate::feat::reasoning::{ReasoningEffort, ReasoningEffortEntry};
-
-        let mut state = AppState::default();
-        let origin = ChatSessionState::new();
-        state.session.insert(origin);
-        state
-            .session
-            .set_active(state.session.active_session_id().clone());
-        let entry = ReasoningEffortEntry {
-            effort: ReasoningEffort::Max,
-            name: "max".to_owned(),
-            description: "Maximum effort".to_owned(),
-            is_active: false,
-            theme: crate::feat::theme::default_theme(),
-        };
-        state
-            .frontend
-            .reasoning_effort_picker_mut()
-            .set_items(vec![entry]);
-        state.frontend.reasoning_effort_picker_mut().move_down(1);
-
-        // When confirming.
-        let result = confirm_reasoning_effort(&mut state);
-
-        // Then an UpdateAppState message is emitted (global seed write).
-        assert!(
-            result
-                .message_names
-                .iter()
-                .any(|n| n.ends_with("UpdateAppState")),
-            "confirm should emit UpdateAppState to persist the global seed"
-        );
-        // And NOT UpdatePreferences (old path, now removed).
-        assert!(
-            !result
-                .message_names
-                .iter()
-                .any(|n| n.ends_with("UpdatePreferences")),
-            "confirm should no longer emit UpdatePreferences"
-        );
-    }
-
-    #[rstest::rstest]
     fn confirm_persona_emits_mark_session_interacted() {
         // added to confirm_persona.
         // If the persist message were never emitted, a pick-then-quit would lose
@@ -1905,87 +1539,6 @@ mod tests {
                 .any(|n| n.ends_with("MarkSessionInteracted")),
             "confirm_persona should emit MarkSessionInteracted to persist"
         );
-    }
-
-    #[rstest::rstest]
-    fn confirm_session_lifecycle_finds_correct_lifecycle_for_args() {
-        // If the match were inverted, find() would locate the WRONG lifecycle,
-        // producing the wrong template_display in the arg_input state.
-        let mut state = AppState::default();
-        let origin = ChatSessionState::new();
-        state.session.insert(origin);
-        state
-            .session
-            .set_active(state.session.active_session_id().clone());
-
-        // Add two lifecycles with args ($1) to preferences.
-        state.frontend.preferences.session_lifecycles = vec![
-            crate::feat::preferences_actor::user_preferences::SessionLifecycle {
-                name: "project-a".to_owned(),
-                description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "cd /a/$1".to_owned(),
-                    ),
-                ),
-                teardown: None,
-            },
-            crate::feat::preferences_actor::user_preferences::SessionLifecycle {
-                name: "project-b".to_owned(),
-                description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "cd /b/$1".to_owned(),
-                    ),
-                ),
-                teardown: None,
-            },
-        ];
-
-        // Load entries and select "project-b".
-        load_lifecycle_picker_entries(&mut state);
-        state.frontend.session_lifecycle_picker_mut().move_down(1); // blank
-        state.frontend.session_lifecycle_picker_mut().move_down(1); // project-a
-        state.frontend.session_lifecycle_picker_mut().move_down(1); // project-b
-
-        let _result = confirm_session_lifecycle(&mut state);
-
-        // Then the arg_input state references "project-b" and its template.
-        assert_eq!(state.frontend.arg_input.lifecycle_name, "project-b");
-        assert!(
-            state.frontend.arg_input.template_display.contains("/b/"),
-            "template_display should contain /b/ from project-b's setup command, got: {}",
-            state.frontend.arg_input.template_display,
-        );
-    }
-
-    #[rstest::rstest]
-    fn load_lifecycle_picker_entries_populates_picker() {
-        // If the function were a no-op, the picker would remain empty.
-        let mut state = AppState::default();
-
-        // Add lifecycle entries to preferences.
-        state.frontend.preferences.session_lifecycles = vec![
-            crate::feat::preferences_actor::user_preferences::SessionLifecycle {
-                name: "project-a".to_owned(),
-                description: Some("Project A setup".to_owned()),
-                setup: None,
-                teardown: None,
-            },
-        ];
-
-        // When loading lifecycle picker entries.
-        load_lifecycle_picker_entries(&mut state);
-
-        // Then the picker has entries (blank + project-a = 2).
-        let items = state.frontend.session_lifecycle_picker().items();
-        assert_eq!(
-            items.len(),
-            2,
-            "should have blank + 1 lifecycle = 2 entries"
-        );
-        assert_eq!(items[0].name, "blank");
-        assert_eq!(items[1].name, "project-a");
     }
 
     fn setup_state_with_task_list() -> (AppState, crate::feat::todo_list::TaskId) {

@@ -20,6 +20,10 @@ pub const THEME_ID: &str = "theme";
 pub const TOOL_ID: &str = "tool";
 /// The id of the MCP server picker's spec.
 pub const MCP_SERVER_ID: &str = "mcp-server";
+/// The id of the session-lifecycle picker's spec.
+pub const SESSION_LIFECYCLE_ID: &str = "session-lifecycle";
+/// The id of the reasoning-effort picker's spec.
+pub const REASONING_EFFORT_ID: &str = "reasoning-effort";
 
 /// Maps a legacy `PickerKind` onto its spec id, `None` while the kind has
 /// not migrated yet.
@@ -34,6 +38,8 @@ pub fn spec_id_for_kind(kind: &crate::feat::picker::PickerKind) -> Option<&'stat
         crate::feat::picker::PickerKind::Theme => Some(THEME_ID),
         crate::feat::picker::PickerKind::Tool => Some(TOOL_ID),
         crate::feat::picker::PickerKind::McpServer => Some(MCP_SERVER_ID),
+        crate::feat::picker::PickerKind::SessionLifecycle => Some(SESSION_LIFECYCLE_ID),
+        crate::feat::picker::PickerKind::ReasoningEffort => Some(REASONING_EFFORT_ID),
         _ => None,
     }
 }
@@ -48,6 +54,8 @@ pub fn build_picker_registry() -> PickerRegistry {
     registry.register(super::theme_spec::theme_spec());
     registry.register(super::tool_spec::tool_spec());
     registry.register(super::mcp_server_spec::mcp_server_spec());
+    registry.register(super::session_lifecycle_spec::session_lifecycle_spec());
+    registry.register(super::reasoning_effort_spec::reasoning_effort_spec());
     registry
 }
 
@@ -72,6 +80,8 @@ mod tests {
             PickerKind::Theme,
             PickerKind::Tool,
             PickerKind::McpServer,
+            PickerKind::SessionLifecycle,
+            PickerKind::ReasoningEffort,
         ];
 
         // When mapping each migrated kind and listing registered ids.
@@ -94,9 +104,6 @@ mod tests {
         let unmigrated = [
             PickerKind::Provider,
             PickerKind::Session,
-            PickerKind::SessionLifecycle,
-            PickerKind::CompactionModel,
-            PickerKind::ReasoningEffort,
             PickerKind::TaskList,
             PickerKind::Project,
             PickerKind::Plugin,

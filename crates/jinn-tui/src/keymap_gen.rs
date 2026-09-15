@@ -78,6 +78,8 @@ fn picker_spec_scope(id: jinn_picker::PickerId) -> Option<Scope> {
         "skill" => Some(Scope::PickerSkill),
         "tool" => Some(Scope::PickerTool),
         "mcp-server" => Some(Scope::PickerMcpServer),
+        "session-lifecycle" => Some(Scope::PickerLifecycle),
+        "reasoning-effort" => Some(Scope::PickerReasoningEffort),
         _ => None,
     }
 }
@@ -140,7 +142,6 @@ fn scopes_for_row<'a>(
                 Scope::PickerPersona,
                 Scope::PickerTheme,
                 Scope::PickerLifecycle,
-                Scope::PickerCompactionModel,
                 Scope::PickerReasoningEffort,
                 Scope::PickerEndpoint,
                 Scope::PickerTool,

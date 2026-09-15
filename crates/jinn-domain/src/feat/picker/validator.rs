@@ -67,11 +67,6 @@ pub fn validate_picker_confirm(state: &AppState) -> Result<(), PickerConfirmErro
             .session_lifecycle_picker()
             .selected_item()
             .is_some(),
-        PickerKind::CompactionModel => state
-            .frontend
-            .compaction_model_picker()
-            .selected_item()
-            .is_some(),
         PickerKind::ReasoningEffort => state
             .frontend
             .reasoning_effort_picker()
@@ -183,10 +178,16 @@ mod tests {
             is_active: false,
             theme: crate::feat::theme::default_theme(),
         };
+        let wrapped = crate::feat::picker::registry::build_picker_registry()
+            .make_items(
+                crate::feat::picker::registry::REASONING_EFFORT_ID,
+                vec![entry],
+            )
+            .unwrap_or_default();
         state
             .frontend
             .reasoning_effort_picker_mut()
-            .set_items(vec![entry]);
+            .set_items(wrapped);
         state.frontend.reasoning_effort_picker_mut().move_down(1);
         state.frontend.scope_stack.push(FocusScope::Picker {
             kind: PickerKind::ReasoningEffort,

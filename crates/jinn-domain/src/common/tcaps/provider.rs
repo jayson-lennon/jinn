@@ -13,7 +13,6 @@ use crate::common::state::State;
 use crate::feat::endpoint::picker_entry::EndpointEntry;
 use crate::feat::provider::ProviderState;
 use crate::feat::provider_infra::ModelCache;
-use crate::feat::reasoning::ReasoningEffortEntry;
 use crate::feat::ui::frontend_state::FrontendState;
 use crate::feat::ui::picker_states::PickerExt;
 
@@ -42,8 +41,7 @@ impl ProviderCap {
 pub struct ProviderOps<'a>(&'a mut ProviderState);
 
 /// Narrow write-handle to the provider-owned pickers on `FrontendState`
-/// (compaction model picker, reasoning effort picker). The provider actor loads
-/// these, so it owns them.
+/// (reasoning effort picker). The provider actor loads these, so it owns them.
 pub struct FrontendProviderOps<'a>(&'a mut FrontendState);
 
 // ── Composite facade ─────────────────────────────────────────────────────────
@@ -90,8 +88,6 @@ pub trait ModelCacheWrite {
 
 /// Write access to the provider-owned frontend pickers.
 pub trait FrontendProviderPickerWrite {
-    fn set_compaction_model_picker_items(&mut self, items: Vec<PickerEntry>);
-    fn set_reasoning_effort_picker_items(&mut self, items: Vec<ReasoningEffortEntry>);
     fn set_endpoint_picker_items(&mut self, items: Vec<EndpointEntry>);
     fn set_endpoint_loading(&mut self, loading: bool);
     fn set_endpoint_fetched_at(&mut self, at: Option<jiff::Timestamp>);
@@ -116,12 +112,6 @@ impl ModelCacheWrite for ProviderOps<'_> {
 }
 
 impl FrontendProviderPickerWrite for FrontendProviderOps<'_> {
-    fn set_compaction_model_picker_items(&mut self, items: Vec<PickerEntry>) {
-        self.0.compaction_model_picker_mut().set_items(items);
-    }
-    fn set_reasoning_effort_picker_items(&mut self, items: Vec<ReasoningEffortEntry>) {
-        self.0.reasoning_effort_picker_mut().set_items(items);
-    }
     fn set_endpoint_picker_items(&mut self, items: Vec<EndpointEntry>) {
         self.0.endpoint_picker_mut().set_items(items);
     }
