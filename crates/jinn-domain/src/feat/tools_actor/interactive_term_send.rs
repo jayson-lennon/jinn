@@ -1,4 +1,5 @@
-//! `interactive_term_send` built-in tool — sends input to a live session.
+//! `interactive_term_send` built-in tool — sends input to this session's own
+//! terminal.
 //!
 //! All of `text`, `keys`, and `enter` are optional: a call with none of them
 //! is a **pure screen sync** (the actor re-drains briefly and returns the
@@ -8,14 +9,16 @@
 //! read); the notice instructs the model to stop and wait.
 //!
 //! Each call blocks until the screen settles, then returns the updated
-//! rendered screen.
+//! rendered screen. The tool always targets the **calling chat session's**
+//! terminal (resolved from the tool context) — there is no cross-session
+//! addressing.
 
 use std::time::Duration;
 
 use futures::FutureExt;
 
 use crate::feat::interactive_term::protocol::command::{
-    SendTermInput, SendTermOutcome, TermScreen, TermSessionId,
+    SendTermInput, SendTermOutcome, TermScreen,
 };
 use crate::feat::interactive_term::pty_session::ExitInfo;
 use crate::feat::interactive_term::settle::default_max_wait;
@@ -39,21 +42,21 @@ const ASK_MARGIN: Duration = Duration::from_secs(5);
 pub fn definition() -> ToolDefinition {
     ToolDefinition {
         name: "interactive_term_send".to_owned(),
-        description: "Send input to a running `interactive_term` session: type text, press named \
-            keys, or both — then receive the updated rendered screen. \
+        description: "Send input to this session's running `interactive_term` terminal: type text, \
+            press named keys, or both — then receive the updated rendered screen. \
             \
             Named keys: \"enter\", \"esc\", \"tab\", \"backspace\", \"delete\", \"up\", \"down\", \
             \"left\", \"right\", \"home\", \"end\", \"pageup\", \"pagedown\", \"ctrl+<letter>\" \
             (e.g. \"ctrl+c\"), \"alt+<key>\", or any single character. \
             \
-            Call with NO arguments (just session_id) to re-sync the current screen without \
-            sending anything. \
+            Call with NO arguments to re-sync the current screen without sending anything. \
             \
             BLOCKING: returns after the screen output settles. If the user has taken control of \
             the terminal, your input is NOT delivered — the result tells you to stop and wait."
             .to_owned(),
         prompt_snippet: Some(
-            "Send text/keys to an interactive_term session and get the updated screen".to_owned(),
+            "Send text/keys to this session's interactive_term terminal and get the updated screen"
+                .to_owned(),
         ),
         prompt_guidelines: vec![
             "After typing text, include \"enter\": true or the keys entry \"enter\" — text alone does not submit.".to_owned(),
@@ -62,10 +65,6 @@ pub fn definition() -> ToolDefinition {
         parameters: serde_json::json!({
             "type": "object",
             "properties": {
-                "session_id": {
-                    "type": "string",
-                    "description": "The session to send input to (from interactive_term)"
-                },
                 "text": {
                     "type": "string",
                     "description": "Text to type verbatim (optional)"
@@ -84,7 +83,7 @@ pub fn definition() -> ToolDefinition {
                     "description": "Maximum seconds to wait for the screen to settle. Default 3."
                 }
             },
-            "required": ["session_id"]
+            "required": []
         }),
         server_tool_type: None,
     }
@@ -95,6 +94,17 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
     let tool_call_id = call.id;
     let tool_name = call.name;
 
+    // Target: the calling chat session's own terminal. There is no
+    // model-facing session argument — cross-session addressing cannot happen.
+    let Some(chat_session_id) = ctx.session_id.clone() else {
+        return super::interactive_term::failure_future(
+            &tool_call_id,
+            &tool_name,
+            "interactive_term_send requires a chat session context (none is active). \
+             Spawn a terminal with interactive_term from within a conversation session first.",
+        );
+    };
+
     let Some(coordinator) = ctx.interactive_term else {
         return super::interactive_term::failure_future(
             &tool_call_id,
@@ -102,15 +112,6 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             "interactive-term coordinator is unavailable (this should only happen in tests)",
         );
     };
-
-    let Some(session_raw) = parse::string_field(&call.arguments, "session_id") else {
-        return super::interactive_term::failure_future(
-            &tool_call_id,
-            &tool_name,
-            "missing required `session_id` argument (the id returned by interactive_term)",
-        );
-    };
-    let session_id = TermSessionId(session_raw);
 
     let text = parse::string_field(&call.arguments, "text");
     let keys = parse::keys_field(&call.arguments, "keys");
@@ -130,7 +131,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
         // pacer publishes heartbeats while the ask blocks on the settle wait.
         let ask_fut = coordinator
             .ask(SendTermInput {
-                session_id: session_id.clone(),
+                chat_session_id: chat_session_id.clone(),
                 text: text.clone(),
                 keys: keys.clone(),
                 enter,
@@ -167,7 +168,6 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             SendTermOutcome::Sent(screen) => success_result(
                 &tool_call_id,
                 &tool_name,
-                &session_id,
                 &screen.screen,
                 screen.exited.as_ref(),
                 None,
@@ -180,26 +180,16 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             SendTermOutcome::UnknownSession => failure_result(
                 &tool_call_id,
                 &tool_name,
-                &format!(
-                    "unknown session `{session_id}`. Sessions die with the app; \
-                     spawn a new one with interactive_term."
-                ),
+                "no live terminal for this session — spawn one with interactive_term.",
             ),
-            SendTermOutcome::Exited(screen) => {
-                format_exited(&tool_call_id, &tool_name, &session_id, &screen)
-            }
+            SendTermOutcome::Exited(screen) => format_exited(&tool_call_id, &tool_name, &screen),
         }
     }
     .boxed()
 }
 
 /// Formats the already-exited outcome: exit summary ahead of the screen.
-fn format_exited(
-    tool_call_id: &str,
-    tool_name: &str,
-    session_id: &TermSessionId,
-    screen: &TermScreen,
-) -> ToolResult {
+fn format_exited(tool_call_id: &str, tool_name: &str, screen: &TermScreen) -> ToolResult {
     let code = screen
         .exited
         .as_ref()
@@ -207,7 +197,6 @@ fn format_exited(
     let mut result = success_result(
         tool_call_id,
         tool_name,
-        session_id,
         &screen.screen,
         screen.exited.as_ref(),
         None,

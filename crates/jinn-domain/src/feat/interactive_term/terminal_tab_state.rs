@@ -15,8 +15,6 @@ use crate::protocol::SessionId;
 /// One chat session's mirrored terminal screen.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TerminalMirror {
-    /// The coordinator's session id (the model-facing `term-N` handle).
-    pub term_session_id: String,
     /// Last rendered screen (plain text, newline-separated rows).
     pub screen: String,
     /// Styled cell grid matching `screen` (for the colored overlay).
@@ -27,16 +25,6 @@ pub struct TerminalMirror {
     pub cursor_hidden: bool,
 }
 
-/// Who currently holds control of a terminal session.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum TermControlHolder {
-    /// The agent may send input via the `interactive_term_send` tool.
-    #[default]
-    Agent,
-    /// The user took over with `i`; agent input is refused until handback.
-    User,
-}
-
 /// Frontend mirror of all `interactive_term` sessions, keyed by chat session.
 #[derive(Debug, Clone, Default)]
 pub struct TerminalTabState {
@@ -45,8 +33,6 @@ pub struct TerminalTabState {
     /// Chat sessions with a **live** terminal (spawned, not exited/killed).
     /// Drives the sidebar's live-terminal symbol.
     pub live_terms: HashSet<SessionId>,
-    /// Who holds control of each session (mirror of the coordinator flag).
-    pub control: TermControlHolder,
     /// Inner rect of the overlay, last reported as `(rows, cols)`; dedupes
     /// resize publications and seeds the spawn size before the first frame.
     pub last_layout_size: (u16, u16),
@@ -61,7 +47,6 @@ impl TerminalTabState {
     pub fn apply_screen(
         &mut self,
         chat_session_id: &SessionId,
-        term_session_id: &str,
         screen: String,
         cells: ScreenCells,
         cursor: (u16, u16),
@@ -70,7 +55,6 @@ impl TerminalTabState {
         self.mirrors.insert(
             chat_session_id.clone(),
             TerminalMirror {
-                term_session_id: term_session_id.to_owned(),
                 screen,
                 cells,
                 cursor,
@@ -88,11 +72,6 @@ impl TerminalTabState {
     #[must_use]
     pub fn mirror(&self, chat_session_id: &SessionId) -> Option<&TerminalMirror> {
         self.mirrors.get(chat_session_id)
-    }
-
-    /// Sets who holds control.
-    pub fn set_control(&mut self, holder: TermControlHolder) {
-        self.control = holder;
     }
 
     /// Marks (or clears) a chat session's live-terminal flag.
@@ -142,7 +121,6 @@ mod tests {
         // When applying a screen update.
         state.apply_screen(
             &chat,
-            "term-1",
             "hello\nworld".to_owned(),
             ScreenCells::default(),
             (1, 3),
@@ -151,7 +129,6 @@ mod tests {
 
         // Then the mirror carries the session, screen, cursor, and visibility.
         let mirror = state.mirror(&chat).expect("mirror");
-        assert_eq!(mirror.term_session_id, "term-1");
         assert_eq!(mirror.screen, "hello\nworld");
         assert_eq!(mirror.cursor, (1, 3));
         assert!(mirror.cursor_hidden);
@@ -165,20 +142,12 @@ mod tests {
         let b = SessionId::new();
         state.apply_screen(
             &a,
-            "term-1",
             "alpha".to_owned(),
             ScreenCells::default(),
             (0, 0),
             false,
         );
-        state.apply_screen(
-            &b,
-            "term-2",
-            "beta".to_owned(),
-            ScreenCells::default(),
-            (0, 0),
-            false,
-        );
+        state.apply_screen(&b, "beta".to_owned(), ScreenCells::default(), (0, 0), false);
 
         // When reading each mirror back.
         // Then each session sees only its own screen.
@@ -191,18 +160,6 @@ mod tests {
         // Then only the other remains.
         assert!(state.mirror(&a).is_none());
         assert!(state.mirror(&b).is_some());
-    }
-
-    #[rstest::rstest]
-    fn set_control_flips_holder() {
-        // Given a default (agent-controlled) terminal state.
-        let mut state = TerminalTabState::default();
-
-        // When the user takes control.
-        state.set_control(TermControlHolder::User);
-
-        // Then control reads User.
-        assert_eq!(state.control, TermControlHolder::User);
     }
 
     #[rstest::rstest]

@@ -64,25 +64,21 @@ pub struct AppStateOps<'a>(&'a mut AppStateFile);
 
 // ── Extension traits (the opt-in method menu) ───────────────────────────────
 
-/// Mirror terminal screen/control updates into the frontend.
+/// Mirror terminal screen updates into the frontend.
 pub trait TerminalMirrorWrite {
     /// Replaces one chat session's mirrored screen and cursor.
     fn apply_screen(
         &mut self,
         chat_session_id: &crate::protocol::SessionId,
-        term_session_id: &str,
         screen: String,
         cells: crate::feat::interactive_term::emulator::ScreenCells,
         cursor: (u16, u16),
         cursor_hidden: bool,
     );
-    /// Sets who holds control.
-    fn set_control(
-        &mut self,
-        holder: crate::feat::interactive_term::terminal_tab_state::TermControlHolder,
-    );
     /// Marks (or clears) a chat session's live-terminal flag.
     fn set_live(&mut self, chat_session_id: &crate::protocol::SessionId, live: bool);
+    /// Removes a chat session's mirror (session closed/teardown).
+    fn remove_mirror(&mut self, chat_session_id: &crate::protocol::SessionId);
 }
 
 // ── Inherent accessors on the Ops newtypes ──────────────────────────────────
@@ -126,27 +122,13 @@ impl TerminalMirrorWrite for TerminalOps<'_> {
     fn apply_screen(
         &mut self,
         chat_session_id: &crate::protocol::SessionId,
-        term_session_id: &str,
         screen: String,
         cells: crate::feat::interactive_term::emulator::ScreenCells,
         cursor: (u16, u16),
         cursor_hidden: bool,
     ) {
-        self.0.apply_screen(
-            chat_session_id,
-            term_session_id,
-            screen,
-            cells,
-            cursor,
-            cursor_hidden,
-        );
-    }
-
-    fn set_control(
-        &mut self,
-        holder: crate::feat::interactive_term::terminal_tab_state::TermControlHolder,
-    ) {
-        self.0.set_control(holder);
+        self.0
+            .apply_screen(chat_session_id, screen, cells, cursor, cursor_hidden);
     }
 
     fn set_live(&mut self, chat_session_id: &crate::protocol::SessionId, live: bool) {
@@ -155,6 +137,10 @@ impl TerminalMirrorWrite for TerminalOps<'_> {
         } else {
             self.0.live_terms.remove(chat_session_id);
         }
+    }
+
+    fn remove_mirror(&mut self, chat_session_id: &crate::protocol::SessionId) {
+        self.0.remove_mirror(chat_session_id);
     }
 }
 

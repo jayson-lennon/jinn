@@ -22,6 +22,8 @@
 
 use super::interactive_term::execute;
 use crate::common::app_paths::AppPaths;
+use crate::feat::tools_actor::interactive_term_kill;
+use crate::feat::tools_actor::interactive_term_send;
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext};
 use crate::protocol::SessionId;
 use std::path::PathBuf;
@@ -112,11 +114,7 @@ async fn spawn_without_a_command_is_rejected() {
 #[rstest::rstest]
 fn started_result_surfaces_the_kill_notice() {
     // Given a started outcome describing a replaced terminal.
-    let term_id = crate::feat::interactive_term::protocol::command::TermSessionId("term-1".into());
     let killed = crate::feat::interactive_term::protocol::command::KilledPrevious {
-        session_id: crate::feat::interactive_term::protocol::command::TermSessionId(
-            "term-0".into(),
-        ),
         exited: crate::feat::interactive_term::pty_session::ExitInfo {
             code: 0,
             signal: None,
@@ -127,7 +125,6 @@ fn started_result_surfaces_the_kill_notice() {
     let result = super::interactive_term::success_result(
         "call-1",
         "interactive_term",
-        &term_id,
         "screen text",
         None,
         Some(&killed),
@@ -135,11 +132,6 @@ fn started_result_surfaces_the_kill_notice() {
 
     // Then the result is success and carries the notice.
     assert!(result.success);
-    assert!(
-        result.content.contains("term-0"),
-        "notice must name the killed session, got: {}",
-        result.content
-    );
     assert!(
         result.content.contains("killed"),
         "notice must say the old terminal was killed, got: {}",
@@ -150,13 +142,11 @@ fn started_result_surfaces_the_kill_notice() {
 #[rstest::rstest]
 fn started_result_without_a_kill_has_no_notice() {
     // Given a started outcome for a fresh session (no previous terminal).
-    let term_id = crate::feat::interactive_term::protocol::command::TermSessionId("term-2".into());
 
     // When formatting the success result without a kill notice.
     let result = super::interactive_term::success_result(
         "call-1",
         "interactive_term",
-        &term_id,
         "screen text",
         None,
         None,
@@ -168,5 +158,119 @@ fn started_result_without_a_kill_has_no_notice() {
         !result.content.contains("killed"),
         "no notice expected on a fresh spawn, got: {}",
         result.content
+    );
+}
+
+#[rstest::rstest]
+fn started_result_has_no_model_facing_session_id() {
+    // Given a started outcome.
+
+    // When formatting the success result.
+    let result = super::interactive_term::success_result(
+        "call-1",
+        "interactive_term",
+        "screen text",
+        None,
+        None,
+    );
+
+    // Then the body carries no session_id line — there is no model-facing
+    // terminal id to pass back.
+    assert!(
+        !result.content.contains("session_id"),
+        "results must not advertise a session id, got: {}",
+        result.content
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn send_requires_a_chat_session_context() {
+    // Given a tool context with no chat session.
+    let ctx = ctx_with(None, "/tmp");
+    let call = ToolCall {
+        id: "call-3".to_owned(),
+        name: "interactive_term_send".to_owned(),
+        arguments: serde_json::json!({}).to_string(),
+    };
+
+    // When executing the send tool.
+    let result = interactive_term_send::execute(call, ctx).await;
+
+    // Then the result is a failure explaining the session requirement.
+    assert!(!result.success, "send without a session context must fail");
+    assert!(
+        result.content.contains("requires a chat session"),
+        "rejection should explain the chat-session requirement, got: {}",
+        result.content
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn kill_requires_a_chat_session_context() {
+    // Given a tool context with no chat session.
+    let ctx = ctx_with(None, "/tmp");
+    let call = ToolCall {
+        id: "call-4".to_owned(),
+        name: "interactive_term_kill".to_owned(),
+        arguments: serde_json::json!({}).to_string(),
+    };
+
+    // When executing the kill tool.
+    let result = interactive_term_kill::execute(call, ctx).await;
+
+    // Then the result is a failure explaining the session requirement.
+    assert!(!result.success, "kill without a session context must fail");
+    assert!(
+        result.content.contains("requires a chat session"),
+        "rejection should explain the chat-session requirement, got: {}",
+        result.content
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn send_without_a_coordinator_reports_unavailable() {
+    // Given a context with a chat session but no coordinator.
+    let ctx = ctx_with(Some(SessionId::new()), "/tmp");
+    let call = ToolCall {
+        id: "call-5".to_owned(),
+        name: "interactive_term_send".to_owned(),
+        arguments: serde_json::json!({ "text": "hi" }).to_string(),
+    };
+
+    // When executing the send tool.
+    let result = interactive_term_send::execute(call, ctx).await;
+
+    // Then the coordinator failure surfaces (the session context passed).
+    assert!(!result.success);
+    assert!(result.content.contains("coordinator"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn kill_without_own_terminal_fails_cleanly_at_the_coordinator_layer() {
+    // Given a send definition.
+    let def = interactive_term_send::definition();
+
+    // Then the schema requires no session_id — there is no model-facing
+    // terminal id to get wrong (kill's schema is likewise empty).
+    let def_json = serde_json::to_value(&def.parameters).expect("schema json");
+    assert!(
+        def_json
+            .get("required")
+            .and_then(|r| r.as_array())
+            .is_none_or(std::vec::Vec::is_empty),
+        "send schema must not require any argument, got: {def_json}"
+    );
+    let kill_def = interactive_term_kill::definition();
+    let kill_json = serde_json::to_value(&kill_def.parameters).expect("schema json");
+    assert!(
+        kill_json
+            .get("required")
+            .and_then(|r| r.as_array())
+            .is_none_or(std::vec::Vec::is_empty),
+        "kill schema must not require any argument, got: {kill_json}"
     );
 }

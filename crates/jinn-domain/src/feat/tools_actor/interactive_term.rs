@@ -13,9 +13,7 @@ use std::time::Duration;
 
 use futures::FutureExt;
 
-use crate::feat::interactive_term::protocol::command::{
-    SpawnTerm, SpawnTermOutcome, TermSessionId,
-};
+use crate::feat::interactive_term::protocol::command::{SpawnTerm, SpawnTermOutcome};
 use crate::feat::interactive_term::settle::default_max_wait;
 use crate::feat::interactive_term::terminal_tab_state::DEFAULT_PTY_SIZE;
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition, ToolResult};
@@ -221,13 +219,11 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
 
         match replied {
             SpawnTermOutcome::Started {
-                session_id,
                 screen,
                 killed_previous,
             } => success_result(
                 &tool_call_id,
                 &tool_name,
-                &session_id,
                 &screen.screen,
                 screen.exited.as_ref(),
                 killed_previous.as_ref(),
@@ -248,11 +244,10 @@ pub(crate) fn failure_future(
     futures::future::ready(failure_result(tool_call_id, tool_name, msg)).boxed()
 }
 
-/// Builds a success [`ToolResult`] with the screen, session footer, and usage hints.
+/// Builds a success [`ToolResult`] with the screen, exit info, and usage hints.
 pub(crate) fn success_result(
     tool_call_id: &str,
     tool_name: &str,
-    session_id: &TermSessionId,
     screen: &str,
     exited: Option<&crate::feat::interactive_term::pty_session::ExitInfo>,
     killed_previous: Option<&crate::feat::interactive_term::protocol::command::KilledPrevious>,
@@ -263,17 +258,13 @@ pub(crate) fn success_result(
     let kill_line = killed_previous
         .map(|killed| {
             format!(
-                "\n\nNOTE: This session already had a live terminal ({}), which was \
+                "\n\nNOTE: This session already had a live terminal, which was \
                  killed to start this one ({}).",
-                killed.session_id,
                 killed.exited.summary()
             )
         })
         .unwrap_or_default();
-    let body = format!(
-        "session_id: {session_id}\n\n{screen}{exit_line}{kill_line}\n\n{}",
-        usage_footer(session_id)
-    );
+    let body = format!("{screen}{exit_line}{kill_line}\n\n{}", usage_footer());
     let truncated = truncate_tail(&body, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
     let full_content = truncated.truncated.then_some(body);
     ToolResult {
@@ -288,11 +279,8 @@ pub(crate) fn success_result(
 }
 
 /// The usage footer appended to every interactive-term result.
-pub(crate) fn usage_footer(session_id: &TermSessionId) -> String {
-    format!(
-        "USAGE: send input with interactive_term_send (session_id: \"{session_id}\"); \
-         kill with interactive_term_kill."
-    )
+pub(crate) fn usage_footer() -> String {
+    "USAGE: send input with interactive_term_send; kill with interactive_term_kill.".to_owned()
 }
 
 /// Builds a failure [`ToolResult`].
