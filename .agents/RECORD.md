@@ -345,3 +345,5 @@ Entries are added or amended **only with human approval**.
 - (pickers) The provider picker toggles alloy members with TAB in place, flips single/alloy mode with CTRL+A pre-checking the session's current models, refreshes models with CTRL+R, and confirm resolves Single or Alloy from the checked set plus highlight by emitting ProviderSwitch.
 - (pickers) The endpoint picker previews the selected upstream's uptime, pricing, and quantization, force-refreshes with CTRL+R, and confirm pins the session's endpoint by writing the profile and emitting MarkSessionInteracted; the auto-route sentinel clears the pin.
 - (pickers) jinn_picker PickerEntry is Clone and delegates TreeItem structure to domain entries.
+- (skills) jinn ships a bundled `jinn-usage` agent skill whose body routes to per-topic reference files (keybindings, workflows, configuration) installed beside its SKILL.md.
+- (skills) Bundled skill content is compile-time embedded, so installed skill docs match the running jinn binary; refreshing them requires `jinn install --force`.
