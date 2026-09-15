@@ -53,8 +53,6 @@ use jinn_theme::Theme;
 use std::collections::BTreeMap;
 
 use crate::feat::plugin_coordinator_actor::protocol::PluginPhase;
-use jinn_selection_widget::PickerItem;
-use ratatui::text::{Line, Span};
 
 /// The plugin contribution cache — data pushed by plugins, held for
 /// synchronous consumers (pickers, renderer).
@@ -153,37 +151,35 @@ impl PluginPickerEntry {
     }
 }
 
-impl PickerItem for PluginPickerEntry {
+impl jinn_selection_widget::TreeItem for PluginPickerEntry {
+    fn id(&self) -> &str {
+        &self.name
+    }
+
+    fn parent_id(&self) -> Option<&str> {
+        None
+    }
+
     fn display_label(&self) -> &str {
         &self.name
     }
 
-    fn render_row(&self, is_selected: bool) -> Line<'static> {
-        let name_style = if is_selected {
-            ratatui::style::Style::default()
-                .fg(self.theme.primary_text)
-                .bg(self.theme.picker_selected_bg)
-        } else {
-            ratatui::style::Style::default()
-        };
+    fn render_row(&self, is_selected: bool) -> ratatui::text::Line<'static> {
+        crate::feat::picker::plugin_spec::plugin_row(
+            self,
+            &jinn_picker::RowCtx::flat(is_selected, &[]),
+        )
+    }
 
-        let phase_color = match self.phase {
-            PluginPhase::Starting | PluginPhase::Running => self.theme.focus_accent,
-            PluginPhase::Dead | PluginPhase::Unresponsive => self.theme.error_text,
-            // A clean, run-to-completion exit: neutral, not an alarm color.
-            PluginPhase::Done => self.theme.muted_text,
-        };
-        let phase_style = if is_selected {
-            ratatui::style::Style::default().bg(self.theme.picker_selected_bg)
-        } else {
-            ratatui::style::Style::default()
-        };
-
-        Line::from(vec![
-            Span::styled(self.name.clone(), name_style),
-            Span::raw(" \u{b7} ".to_owned()),
-            Span::styled(format!("{:?}", self.phase), phase_style.fg(phase_color)),
-        ])
+    fn render_row_with_highlight(
+        &self,
+        is_selected: bool,
+        match_indices: &[std::ops::Range<usize>],
+    ) -> ratatui::text::Line<'static> {
+        crate::feat::picker::plugin_spec::plugin_row(
+            self,
+            &jinn_picker::RowCtx::flat(is_selected, match_indices),
+        )
     }
 }
 
@@ -207,7 +203,10 @@ mod tests {
     use super::*;
 
     fn row_text(entry: &PluginPickerEntry) -> String {
-        let line = entry.render_row(false);
+        let line = crate::feat::picker::plugin_spec::plugin_row(
+            entry,
+            &jinn_picker::RowCtx::flat(false, &[]),
+        );
         line.spans.iter().map(|s| s.content.to_string()).collect()
     }
 

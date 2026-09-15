@@ -1,26 +1,26 @@
 //! Provider entries - loading, sorting, and formatting.
 //!
 //! Contains loader functions, sorting, and formatting utilities for the
-//! provider picker overlay. The [`PickerEntry`] struct and [`PickerItem`]
+//! provider picker overlay. The [`ProviderPickerEntry`] struct and [`PickerItem`]
 //! implementation live in `crate::protocol`.
 
 use crate::feat::picker::style::promote_active_to_top;
 use crate::feat::theme::Theme;
-use crate::protocol::PickerEntry;
+use crate::protocol::ProviderPickerEntry;
 /// Reorders entries so that available entries appear first (sorted by model name),
 /// followed by unavailable entries (sorted by model name). When `filter` is empty,
 /// the entry matching `active_provider` is promoted to the very top and marked active.
 ///
 /// `active_provider` is in `{name}/{model}` format (e.g., `"ollama/llama3"`).
 pub fn sorted_entries(
-    entries: &[PickerEntry],
+    entries: &[ProviderPickerEntry],
     filter: &str,
     active_provider: &str,
-) -> Vec<PickerEntry> {
+) -> Vec<ProviderPickerEntry> {
     // Split into available and unavailable blocks.
-    let mut available: Vec<PickerEntry> =
+    let mut available: Vec<ProviderPickerEntry> =
         entries.iter().filter(|e| e.is_available).cloned().collect();
-    let mut unavailable: Vec<PickerEntry> = entries
+    let mut unavailable: Vec<ProviderPickerEntry> = entries
         .iter()
         .filter(|e| !e.is_available)
         .cloned()
@@ -49,9 +49,9 @@ pub fn sorted_entries(
 }
 
 /// Promotes entries with `selected == true` to the top of the list.
-pub(crate) fn promote_selected_to_top(entries: &mut Vec<PickerEntry>) {
+pub(crate) fn promote_selected_to_top(entries: &mut Vec<ProviderPickerEntry>) {
     // Stable partition: selected entries move to top, preserving alphabetical order within each group.
-    let selected: Vec<PickerEntry> = entries.extract_if(.., |e| e.selected).collect();
+    let selected: Vec<ProviderPickerEntry> = entries.extract_if(.., |e| e.selected).collect();
     let mut result = selected;
     result.append(entries);
     *entries = result;
@@ -202,7 +202,7 @@ pub fn truncate_line(
     Line::from(spans)
 }
 
-/// Builds a [`PickerEntry`] from a resolved provider.
+/// Builds a [`ProviderPickerEntry`] from a resolved provider.
 ///
 /// Checks availability against the registry and API keys.
 /// The entry is marked `is_remote: false` and `is_alias: false`.
@@ -211,8 +211,8 @@ fn static_provider_entry(
     registry: &crate::feat::provider_infra::ProviderRegistry,
     api_keys: &crate::feat::provider_infra::ApiKeys,
     theme: &Theme,
-) -> PickerEntry {
-    PickerEntry {
+) -> ProviderPickerEntry {
+    ProviderPickerEntry {
         provider_id: provider.id.to_string(),
         name: provider.name.clone(),
         provider_name: provider.name.clone(),
@@ -229,7 +229,7 @@ fn static_provider_entry(
     }
 }
 
-/// Builds a [`PickerEntry`] from an alias definition.
+/// Builds a [`ProviderPickerEntry`] from an alias definition.
 ///
 /// Resolves the alias through the registry. If the alias resolves, the entry
 /// inherits the target provider's metadata. Availability depends on whether
@@ -240,11 +240,11 @@ fn alias_entry(
     registry: &crate::feat::provider_infra::ProviderRegistry,
     api_keys: &crate::feat::provider_infra::ApiKeys,
     theme: &Theme,
-) -> PickerEntry {
+) -> ProviderPickerEntry {
     let resolved = registry.resolve_alias(&alias.name);
     let is_available = resolved.is_some_and(|r| registry.is_available(&r.id.clone(), api_keys));
 
-    PickerEntry {
+    ProviderPickerEntry {
         provider_id: resolved.map(|r| r.id.to_string()).unwrap_or_default(),
         name: alias.name.clone(),
         provider_name: resolved.map(|r| r.name.clone()).unwrap_or_default(),
@@ -271,7 +271,7 @@ fn alias_entry(
     }
 }
 
-/// Builds a [`PickerEntry`] from a remote (cache-discovered) model.
+/// Builds a [`ProviderPickerEntry`] from a remote (cache-discovered) model.
 ///
 /// Remote entries are discovered at runtime (e.g., from Ollama's `/api/tags`).
 /// They are marked `is_remote: true` and are unavailable if the provider
@@ -282,9 +282,9 @@ fn remote_entry(
     backend: &str,
     is_available: bool,
     theme: &Theme,
-) -> PickerEntry {
+) -> ProviderPickerEntry {
     let provider_id = format!("{provider_name}/{model}");
-    PickerEntry {
+    ProviderPickerEntry {
         provider_id,
         name: provider_name.to_owned(),
         provider_name: provider_name.to_owned(),
@@ -306,7 +306,7 @@ fn remote_entry(
 /// Static entries win on collision - if a static entry already claims
 /// `{provider_name}/{model}`, the remote version is skipped.
 fn merge_remote_entries(
-    entries: &mut Vec<PickerEntry>,
+    entries: &mut Vec<ProviderPickerEntry>,
     static_ids: &std::collections::HashSet<String>,
     registry: &crate::feat::provider_infra::ProviderRegistry,
     api_keys: &crate::feat::provider_infra::ApiKeys,
@@ -364,7 +364,7 @@ pub fn load_provider_entries(
     api_keys: &crate::feat::provider_infra::ApiKeys,
     model_cache: Option<&crate::feat::provider_infra::ModelCache>,
     theme: &Theme,
-) -> Vec<PickerEntry> {
+) -> Vec<ProviderPickerEntry> {
     let mut entries = Vec::new();
     let mut static_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 

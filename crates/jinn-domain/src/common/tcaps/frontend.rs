@@ -109,9 +109,16 @@ impl SkillPickerOps<'_> {
 }
 
 impl PersonaPickerOps<'_> {
-    /// Replace the persona picker items.
+    /// Replace the persona picker items, wrapped through the persona
+    /// spec's render/search hooks (the storage holds `ProviderPickerEntry`s).
     pub fn set_items(&mut self, items: Vec<PersonaEntry>) {
-        self.0.persona_picker_mut().set_items(items);
+        let wrapped = {
+            let registry = crate::feat::picker::registry::build_picker_registry();
+            registry
+                .make_items(crate::feat::picker::registry::PERSONA_ID, items)
+                .unwrap_or_default()
+        };
+        self.0.persona_picker_mut().set_items(wrapped);
     }
 }
 

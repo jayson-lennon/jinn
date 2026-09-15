@@ -117,6 +117,17 @@ pub enum Intent {
     PickerBackspace,
     /// Confirm the current picker selection.
     PickerConfirm,
+    /// Run a spec-driven picker's declared bind action.
+    ///
+    /// One data-carried intent replaces per-picker variants as pickers
+    /// migrate: `picker` is the spec's registry id, `action` the bind
+    /// row's notation. Resolved through the picker's own bind table.
+    PickerAction {
+        /// The picker spec's registry id (e.g. `"skill"`).
+        picker: String,
+        /// The bind row's action (e.g. `"<tab>"`).
+        action: String,
+    },
     /// Move the picker selection up.
     PickerMoveUp,
     /// Move the picker selection down.
@@ -129,43 +140,12 @@ pub enum Intent {
     PickerMoveCursorLeft,
     /// Move the picker filter cursor right.
     PickerMoveCursorRight,
-    /// Toggle the selected tool's enabled/disabled state in the tool picker.
-    ToolToggleSelected,
-    /// Toggle the selected skill's enabled/disabled state in the skill picker.
-    SkillToggleSelected,
-    /// Toggle the selected MCP server's enabled/disabled state in the MCP picker.
-    McpToggleSelected,
-    /// Restart the selected MCP server's connection (MCP inspector `<c-r>`).
-    McpRestartSelected,
-    /// Toggle the MCP inspector preview pane between logs and tools (MCP inspector `<c-t>`).
-    McpTogglePreview,
-    /// Load the highlighted skill into context as a pinned ToolResult (skill picker `<c-l>`).
-    SkillLoadSelected,
-    /// Project picker: create a new session at the highlighted dir, then open
-    /// the session lifecycle picker (project picker `<c-enter>` action).
-    ProjectNewAtHighlightedWithLifecycle,
-    /// Project picker: remove the highlighted dir from the curated project list (`d`).
-    ProjectRemoveHighlighted,
-    /// Toggle the selected model's selected state for multi-select alloy building.
-    ModelToggleSelected,
-    /// Toggle the provider picker between single-model and alloy-selection modes.
-    ///
-    /// No-op unless the provider picker is active.
-    ToggleAlloyMode,
-    /// Scroll the preview pane up one page.
-    PreviewScrollUp,
-    /// Scroll the preview pane down one page.
-    PreviewScrollDown,
     /// Create a new session.
     SessionNew,
     /// Refresh the model list from all providers.
     RefreshModels,
     /// Rescan the prompt templates directory.
     RescanPromptTemplates,
-    /// Rescan the agent skills directory and reload the skill picker.
-    RefreshSkills,
-    /// Force-refresh the OpenRouter endpoint picker (bypass the in-memory cache).
-    RefreshEndpoints,
     /// Enter the sidebar scope.
     SidebarFocus,
     /// Jump directly to the Sessions sidebar section from any scope.
@@ -346,8 +326,6 @@ pub enum Intent {
     /// Cancel the cwd input popup.
     CwdInputLeave,
 
-    /// Open the project-add input popup (type a directory path).
-    OpenProjectAddInput,
     /// Confirm the project-add input - resolve, validate, and register.
     ProjectAddInputConfirm,
     /// Cancel the project-add input popup.
@@ -458,29 +436,18 @@ impl std::fmt::Display for Intent {
             Intent::PickerInsertChar { ch } => write!(f, "picker insert '{ch}'"),
             Intent::PickerBackspace => write!(f, "picker backspace"),
             Intent::PickerConfirm => write!(f, "picker confirm"),
+            Intent::PickerAction { picker, action } => {
+                write!(f, "picker action {action} ({picker})")
+            }
             Intent::PickerMoveUp => write!(f, "picker move up"),
             Intent::PickerMoveDown => write!(f, "picker move down"),
             Intent::PickerPageUp => write!(f, "picker page up"),
             Intent::PickerPageDown => write!(f, "picker page down"),
             Intent::PickerMoveCursorLeft => write!(f, "picker cursor left"),
             Intent::PickerMoveCursorRight => write!(f, "picker cursor right"),
-            Intent::ToolToggleSelected => write!(f, "toggle tool"),
-            Intent::SkillToggleSelected => write!(f, "toggle skill"),
-            Intent::McpToggleSelected => write!(f, "toggle mcp server"),
-            Intent::McpRestartSelected => write!(f, "restart mcp server"),
-            Intent::McpTogglePreview => write!(f, "toggle mcp preview"),
-            Intent::SkillLoadSelected => write!(f, "load skill"),
-            Intent::ProjectNewAtHighlightedWithLifecycle => write!(f, "project new + lifecycle"),
-            Intent::ProjectRemoveHighlighted => write!(f, "remove project"),
-            Intent::ModelToggleSelected => write!(f, "toggle model"),
-            Intent::ToggleAlloyMode => write!(f, "toggle alloy mode"),
-            Intent::PreviewScrollUp => write!(f, "preview scroll up"),
-            Intent::PreviewScrollDown => write!(f, "preview scroll down"),
             Intent::SessionNew => write!(f, "new session"),
             Intent::RefreshModels => write!(f, "refresh models"),
             Intent::RescanPromptTemplates => write!(f, "rescan prompt templates"),
-            Intent::RefreshSkills => write!(f, "refresh skills"),
-            Intent::RefreshEndpoints => write!(f, "refresh endpoints"),
             Intent::SidebarFocus => write!(f, "focus sidebar"),
             Intent::SidebarFocusSessions => write!(f, "focus session list"),
             Intent::SidebarLeave => write!(f, "return to normal mode"),
@@ -559,7 +526,6 @@ impl std::fmt::Display for Intent {
             Intent::OpenCwdInput => write!(f, "change cwd"),
             Intent::CwdInputConfirm => write!(f, "cwd input confirm"),
             Intent::CwdInputLeave => write!(f, "cwd input leave"),
-            Intent::OpenProjectAddInput => write!(f, "add project dir"),
             Intent::ProjectAddInputConfirm => write!(f, "project-add input confirm"),
             Intent::ProjectAddInputLeave => write!(f, "project-add input leave"),
 

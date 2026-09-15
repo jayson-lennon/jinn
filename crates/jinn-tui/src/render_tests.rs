@@ -14,8 +14,19 @@ use ratatui::layout::Rect;
 use ratatui::style::Color;
 
 /// Creates a minimal `TuiApp` for render testing.
+///
+/// Mirrors production composition (`actor_wiring`) by populating the
+/// picker spec registry — spec-driven pickers render (and refresh) only
+/// through specs the registry holds.
 async fn render_test_app() -> crate::TuiApp {
-    crate::TuiApp::test_builder().build().await
+    let services = jinn_domain::Services {
+        picker_registry: jinn_domain::feat::picker::registry::build_picker_registry(),
+        ..jinn_domain::Services::new_fake().await
+    };
+    crate::TuiApp::test_builder()
+        .services(services)
+        .build()
+        .await
 }
 
 #[rstest::rstest]
@@ -317,7 +328,14 @@ async fn mcp_inspector_renders_server_list_and_logs_pane() {
             true,
             default_theme(),
         );
-        w.frontend.mcp_server_picker_mut().set_items(vec![entry]);
+        // Wrap the entry through the spec (storage holds PickerEntry<T>).
+        let wrapped = jinn_domain::feat::picker::registry::build_picker_registry()
+            .make_items(
+                jinn_domain::feat::picker::registry::MCP_SERVER_ID,
+                vec![entry],
+            )
+            .expect("mcp-server spec registered");
+        w.frontend.mcp_server_picker_mut().set_items(wrapped);
         w.frontend
             .scope_stack
             .push(jinn_domain::FocusScope::Picker {
@@ -388,7 +406,14 @@ async fn mcp_inspector_tools_pane_renders_tool_names() {
             default_theme(),
         );
         entry.preview_mode = McpPreviewMode::Tools;
-        w.frontend.mcp_server_picker_mut().set_items(vec![entry]);
+        // Wrap the entry through the spec (storage holds PickerEntry<T>).
+        let wrapped = jinn_domain::feat::picker::registry::build_picker_registry()
+            .make_items(
+                jinn_domain::feat::picker::registry::MCP_SERVER_ID,
+                vec![entry],
+            )
+            .expect("mcp-server spec registered");
+        w.frontend.mcp_server_picker_mut().set_items(wrapped);
         w.frontend
             .scope_stack
             .push(jinn_domain::FocusScope::Picker {
@@ -482,4 +507,199 @@ async fn which_key_help_renders_in_base_scopes() {
         rendered.contains("Shortcuts"),
         "which-key help must render in base scopes"
     );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_picker_renders_telescope_layout_with_filter() {
+    // Given a provider picker open with entries loaded and filter "ol".
+    let mut app = render_test_app_with_provider().await;
+    {
+        let mut w = app.core.state.write_test_no_cap();
+        w.frontend
+            .scope_stack
+            .push(jinn_domain::FocusScope::Picker {
+                kind: jinn_domain::PickerKind::Provider,
+            });
+        // Load entries through the spec (raw entry matching the configured
+        // ollama model).
+        let wrapped = jinn_domain::feat::picker::registry::build_picker_registry()
+            .make_items(
+                jinn_domain::feat::picker::registry::PROVIDER_ID,
+                vec![
+                    jinn_domain::feat::provider::picker_entry::ProviderPickerEntry {
+                        provider_id: "ollama/llama3".to_owned(),
+                        name: "ollama".to_owned(),
+                        provider_name: "ollama".to_owned(),
+                        backend: "ollama".to_owned(),
+                        model: "llama3".to_owned(),
+                        search_text: "llama3 ollama".to_owned(),
+                        is_alias: false,
+                        alias_target: None,
+                        is_available: true,
+                        is_remote: false,
+                        is_active: false,
+                        selected: false,
+                        theme: jinn_domain::feat::theme::default_theme(),
+                    },
+                ],
+            )
+            .expect("provider spec registered");
+        w.provider.provider_picker.set_items(wrapped);
+        w.provider.provider_picker.insert_char('o');
+        w.provider.provider_picker.insert_char('l');
+    }
+
+    let (mut terminal, _area) = setup_term(80, 24);
+
+    // When rendering.
+    terminal
+        .draw(|frame| {
+            app.render(frame);
+        })
+        .unwrap();
+
+    // Then the popup shows the filter prompt "> ol" on the first inner row.
+    let buffer = terminal.backend().buffer().clone();
+    let popup = jinn_selection_widget::compute_popup_rect(ratatui::layout::Rect::new(0, 0, 80, 24));
+    let filter_cell = buffer
+        .cell((popup.x + 1, popup.y + 1))
+        .expect("filter cell");
+    assert_eq!(filter_cell.symbol(), ">");
+    // And the results area shows the llama3 entry (filtered by "ol").
+    let rendered = rendered_string(&buffer);
+    assert!(
+        rendered.contains("llama3"),
+        "filtered entries render: {rendered}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_picker_uses_dark_gray_border() {
+    // Given a provider picker open with entries loaded.
+    let mut app = render_test_app_with_provider().await;
+    {
+        let mut w = app.core.state.write_test_no_cap();
+        w.frontend
+            .scope_stack
+            .push(jinn_domain::FocusScope::Picker {
+                kind: jinn_domain::PickerKind::Provider,
+            });
+    }
+
+    let (mut terminal, _area) = setup_term(80, 24);
+
+    // When rendering.
+    terminal
+        .draw(|frame| {
+            app.render(frame);
+        })
+        .unwrap();
+
+    // Then the popup border color is DarkGray.
+    let buffer = terminal.backend().buffer().clone();
+    let popup = jinn_selection_widget::compute_popup_rect(ratatui::layout::Rect::new(0, 0, 80, 24));
+    let border_cell = buffer.cell((popup.x, popup.y)).expect("border cell");
+    assert_eq!(border_cell.fg, ratatui::style::Color::DarkGray);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn model_picker_no_active_marker_for_active_model() {
+    // Given the active session is on ollama/llama3 with entries loaded.
+    let mut app = render_test_app_with_provider().await;
+    {
+        let mut w = app.core.state.write_test_no_cap();
+        w.frontend
+            .scope_stack
+            .push(jinn_domain::FocusScope::Picker {
+                kind: jinn_domain::PickerKind::Provider,
+            });
+        // Wrap entries through the spec; the check column stays empty in
+        // single mode (nothing selected).
+        let wrapped = jinn_domain::feat::picker::registry::build_picker_registry()
+            .make_items(
+                jinn_domain::feat::picker::registry::PROVIDER_ID,
+                vec![
+                    jinn_domain::feat::provider::picker_entry::ProviderPickerEntry {
+                        provider_id: "ollama/llama3".to_owned(),
+                        name: "ollama".to_owned(),
+                        provider_name: "ollama".to_owned(),
+                        backend: "ollama".to_owned(),
+                        model: "llama3".to_owned(),
+                        search_text: "llama3 ollama".to_owned(),
+                        is_alias: false,
+                        alias_target: None,
+                        is_available: true,
+                        is_remote: false,
+                        is_active: true,
+                        selected: false,
+                        theme: jinn_domain::feat::theme::default_theme(),
+                    },
+                ],
+            )
+            .expect("provider spec registered");
+        w.provider.provider_picker.set_items(wrapped);
+    }
+
+    let (mut terminal, _area) = setup_term(80, 24);
+
+    // When rendering.
+    terminal
+        .draw(|frame| {
+            app.render(frame);
+        })
+        .unwrap();
+
+    // Then the first result row carries no ">" marker (no active marker; the
+    // check column is only populated in alloy mode).
+    let buffer = terminal.backend().buffer().clone();
+    let popup = jinn_selection_widget::compute_popup_rect(ratatui::layout::Rect::new(0, 0, 80, 24));
+    let marker_cell = buffer
+        .cell((popup.x + 3, popup.y + 3))
+        .expect("marker cell");
+    assert_ne!(marker_cell.symbol(), ">");
+}
+
+/// A TuiApp whose services carry a provider config (one ollama model) so the
+/// provider loader can build entries, plus the real picker registry.
+async fn render_test_app_with_provider() -> crate::TuiApp {
+    use jinn_domain::common::services::test_services::TestServices;
+    use jinn_domain::feat::provider_infra::{ProviderEntry, ProvidersConfig};
+    use std::collections::BTreeMap;
+    let config = ProvidersConfig {
+        providers: BTreeMap::from([(
+            "ollama".to_owned(),
+            ProviderEntry {
+                model_info: Vec::new(),
+                backend: "ollama".to_owned(),
+                models: vec!["llama3".to_owned()],
+                base_url: Some("http://localhost:11434".to_owned()),
+                api_key_env: None,
+                requires_key: false,
+                extra_body: None,
+                context_length: None,
+            },
+        )]),
+        aliases: vec![],
+        default_provider: None,
+    };
+    let services = jinn_domain::Services {
+        picker_registry: jinn_domain::feat::picker::registry::build_picker_registry(),
+        ..TestServices::builder().with_providers(config).build()
+    };
+    crate::TuiApp::test_builder()
+        .services(services)
+        .build()
+        .await
+}
+
+/// Concatenates a buffer's cells into one string for substring assertions.
+fn rendered_string(buffer: &ratatui::buffer::Buffer) -> String {
+    buffer
+        .content
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect()
 }

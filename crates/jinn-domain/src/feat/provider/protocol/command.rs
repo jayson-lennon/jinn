@@ -140,21 +140,6 @@ pub struct LoadProviderPickerEntries;
 
 impl BusMessage for LoadProviderPickerEntries {}
 
-/// The provider actor receives this, loads compaction model entries (provider
-/// entries + a "session default" sentinel) and writes them into `AppState`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoadCompactionModelPickerEntries;
-
-impl BusMessage for LoadCompactionModelPickerEntries {}
-
-/// The provider actor receives this, loads reasoning effort entries (one per
-/// `ReasoningEffort` variant, marking the resolved one active) and writes them
-/// into `AppState`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoadReasoningEffortPickerEntries;
-
-impl BusMessage for LoadReasoningEffortPickerEntries {}
-
 /// The provider actor receives this, resolves the active session's model
 /// backend, and either fetches the model's OpenRouter routing endpoints via
 /// `list_endpoints` or — for a non-OpenRouter backend — populates a single

@@ -18,6 +18,8 @@ pub struct ProjectEntry {
     pub path: std::path::PathBuf,
     /// The tilde-compressed display string (precomputed from `path`).
     pub display: String,
+    /// Path as a string, cached for the `TreeItem` identity contract.
+    pub id_string: String,
     /// Theme for rendering.
     pub theme: Theme,
 }
@@ -28,6 +30,7 @@ impl ProjectEntry {
     pub fn new(path: std::path::PathBuf, theme: Theme) -> Self {
         let display = shorten_path(&path);
         Self {
+            id_string: path.to_string_lossy().into_owned(),
             path,
             display,
             theme,
@@ -54,7 +57,7 @@ impl PickerItem for ProjectEntry {
 }
 
 /// Renders a project picker row with selection styling.
-fn render_project_row(
+pub(crate) fn render_project_row(
     display: &str,
     is_selected: bool,
     match_indices: &[std::ops::Range<usize>],
@@ -169,5 +172,32 @@ mod tests {
 
         // Then the result is empty.
         assert!(entries.is_empty());
+    }
+}
+
+impl jinn_selection_widget::TreeItem for ProjectEntry {
+    fn id(&self) -> &str {
+        // Paths are unique in `projects`; lossy is fine — this is identity only.
+        &self.id_string
+    }
+
+    fn parent_id(&self) -> Option<&str> {
+        None
+    }
+
+    fn display_label(&self) -> &str {
+        &self.display
+    }
+
+    fn render_row(&self, is_selected: bool) -> Line<'static> {
+        PickerItem::render_row(self, is_selected)
+    }
+
+    fn render_row_with_highlight(
+        &self,
+        is_selected: bool,
+        match_indices: &[std::ops::Range<usize>],
+    ) -> Line<'static> {
+        PickerItem::render_row_with_highlight(self, is_selected, match_indices)
     }
 }

@@ -14,11 +14,7 @@ pub mod picker_entry;
 pub mod protocol;
 pub mod provider_actor;
 
-pub mod render;
-
 #[cfg(test)]
-mod render_tests;
-
 #[cfg(test)]
 mod entries_tests;
 
@@ -29,7 +25,7 @@ pub use indicator::StreamingIndicatorElement;
 
 use crate::common::AppUiRegistry;
 
-use crate::PickerEntry;
+use crate::ProviderPickerEntry;
 
 /// Provider selection state - owned by the provider-actor.
 ///
@@ -50,10 +46,12 @@ pub struct ProviderState {
     /// Provider picker state (items, filter text, selection index).
     /// OWNER: provider-actor (loads entries via LoadProviderPickerEntries),
     ///        IntentHandler (navigates picker, reads selected item).
-    pub provider_picker: jinn_selection_widget::SelectionState<PickerEntry>,
+    pub provider_picker:
+        jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<ProviderPickerEntry>>,
 
     /// Whether the provider picker is in alloy-selection mode.
-    /// OWNER: IntentHandler (set on open, flipped by ToggleAlloyMode, read on confirm).
+    /// OWNER: provider spec (set on open, flipped by the alloy bind, read on
+    /// confirm).
     ///
     /// When `false`, ENTER selects the highlighted model as a single model. When
     /// `true`, TAB toggles models into the alloy set and ENTER force-includes the

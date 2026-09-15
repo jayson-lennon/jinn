@@ -26,6 +26,7 @@ jinn-plugin = { workspace = true }
 jinn-plugin-api = { workspace = true }
 form_urlencoded = { workspace = true }
 jinn-selection-widget = { workspace = true }
+jinn-picker = { workspace = true }
 
 jinn-theme = { workspace = true }
 ratatui-markdown = { workspace = true }

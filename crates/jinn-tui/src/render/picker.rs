@@ -1,76 +1,21 @@
 //! Picker overlay rendering - dispatches to domain-specific picker renderers.
 
-use jinn_domain::PickerKind;
 use jinn_domain::RenderCtx;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 
 /// Renders the active picker overlay, dispatching on [`PickerKind`].
 pub(super) fn render_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    match ctx.state.frontend.scope_stack.picker_kind().copied() {
-        Some(PickerKind::Provider) => render_provider_picker(frame, area, ctx),
-        Some(PickerKind::Session) => render_session_picker(frame, area, ctx),
-        Some(PickerKind::Persona) => render_persona_picker(frame, area, ctx),
-        Some(PickerKind::Theme) => render_theme_picker(frame, area, ctx),
-        Some(PickerKind::SessionLifecycle) => {
-            render_session_lifecycle_picker(frame, area, ctx);
-        }
-        Some(PickerKind::CompactionModel) => {
-            jinn_domain::feat::provider::render::render_compaction_model_picker(frame, area, ctx);
-        }
-        Some(PickerKind::ReasoningEffort) => {
-            jinn_domain::feat::reasoning::picker_render::render_reasoning_effort_picker(
-                frame, area, ctx,
-            );
-        }
-        Some(PickerKind::Endpoint) => {
-            jinn_domain::feat::endpoint::picker_render::render_endpoint_picker(frame, area, ctx);
-        }
-        Some(PickerKind::Tool) => {
-            jinn_domain::feat::picker::render::render_tool_picker(frame, area, ctx);
-        }
-        Some(PickerKind::Skill) => {
-            jinn_domain::feat::picker::render::render_skill_picker(frame, area, ctx);
-        }
-        Some(PickerKind::TaskList) => {
-            jinn_domain::feat::picker::render::render_task_list_picker(frame, area, ctx);
-        }
-        Some(PickerKind::Project) => {
-            jinn_domain::feat::picker::render::render_project_picker(frame, area, ctx);
-        }
-        Some(PickerKind::McpServer) => {
-            jinn_domain::feat::mcp::render::render_mcp_server_picker(frame, area, ctx);
-        }
-        Some(PickerKind::Plugin) => {
-            jinn_domain::feat::picker::render::render_plugin_picker(frame, area, ctx);
-        }
-        None => {}
+    // Every picker kind is spec-driven: render through the registry. With
+    // an empty registry (test seams) there is nothing to draw. `None`
+    // (no picker scope) is also a no-op here.
+    if let Some(kind) = ctx.state.frontend.scope_stack.picker_kind().copied()
+        && let Some(id) = jinn_domain::feat::picker::registry::spec_id_for_kind(&kind)
+        && let Some(spec) = ctx.pickers.get(id)
+    {
+        let host = jinn_domain::feat::picker::host_impl::AppStateRenderHost::new(ctx.state);
+        spec.render(frame, area, &host);
     }
-}
-
-/// Renders the provider picker overlay (delegates to slice).
-fn render_provider_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    jinn_domain::feat::provider::render::render_provider_picker(frame, area, ctx);
-}
-
-/// Renders the session picker overlay (delegates to slice).
-fn render_session_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    jinn_domain::feat::session::render::render_session_picker(frame, area, ctx);
-}
-
-/// Renders the persona picker overlay (delegates to domain render).
-fn render_persona_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    jinn_domain::feat::picker::render::render_persona_picker(frame, area, ctx);
-}
-
-/// Renders the theme picker overlay (delegates to domain render).
-fn render_theme_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    jinn_domain::feat::picker::render::render_theme_picker(frame, area, ctx);
-}
-
-/// Renders the session lifecycle picker overlay (delegates to domain render).
-fn render_session_lifecycle_picker(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
-    jinn_domain::feat::session_lifecycle::render::render_session_lifecycle_picker(frame, area, ctx);
 }
 
 /// Renders the arg input popup (delegates to domain render).
@@ -88,6 +33,7 @@ mod tests {
     use jinn_domain::AppState;
     use jinn_domain::FocusScope;
     use jinn_domain::PickerKind;
+    use jinn_domain::feat::ui::picker_states::PickerExt as _;
     use jinn_selection_widget::compute_popup_rect;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -122,21 +68,20 @@ mod tests {
         assert_eq!(small_popup.height, 22);
     }
 
-    /// Each picker kind must draw exactly the number of footer rows it
-    /// advertises via [`PickerKind::footer_rows`]. This is the drift-prevention
-    /// backstop for the picker viewport measurement: if a render site ever
-    /// adds or drops a footer without updating `footer_rows()`, the geometry
-    /// helper would reserve the wrong number of rows and the cursor could drift
-    /// off-screen. With an empty item list, the results area is blank, so the
-    /// consecutive non-blank rows at the bottom of the popup's inner area equal
-    /// the footer count actually drawn.
+    /// Each picker kind must draw exactly the number of footer rows its spec
+    /// declares via `bottom_rows()`. This is the drift-prevention backstop for
+    /// the picker viewport measurement: if a render site ever adds or drops a
+    /// footer without updating the spec, the geometry helper would reserve the
+    /// wrong number of rows and the cursor could drift off-screen. With an
+    /// empty item list, the results area is blank, so the consecutive
+    /// non-blank rows at the bottom of the popup's inner area equal the footer
+    /// count actually drawn.
     #[rstest::rstest]
     #[case::provider(PickerKind::Provider)]
     #[case::session(PickerKind::Session)]
     #[case::persona(PickerKind::Persona)]
     #[case::theme(PickerKind::Theme)]
     #[case::session_lifecycle(PickerKind::SessionLifecycle)]
-    #[case::compaction_model(PickerKind::CompactionModel)]
     #[case::reasoning_effort(PickerKind::ReasoningEffort)]
     #[case::endpoint(PickerKind::Endpoint)]
     #[case::tool(PickerKind::Tool)]
@@ -146,9 +91,11 @@ mod tests {
     #[case::mcp_server(PickerKind::McpServer)]
     #[case::plugin(PickerKind::Plugin)]
     fn picker_draws_footer_rows_matching_kind_declaration(#[case] kind: PickerKind) {
-        // Given a picker scope of this kind with the default (empty) state.
+        // Given a picker scope of this kind with the default (empty) state,
+        // and the domain's picker registry.
         let mut state = AppState::default();
         state.frontend.scope_stack.push(FocusScope::Picker { kind });
+        let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
 
         // When rendering the picker overlay.
         let area = Rect::new(0, 0, 100, 30);
@@ -158,7 +105,8 @@ mod tests {
             .draw(|frame| {
                 let slices = jinn_slices::Slices::new();
                 let views = jinn_domain::common::overlay_views::OverlayViews::new();
-                let ctx = jinn_domain::RenderCtx::new(&state, &slices, &views);
+                let ctx =
+                    jinn_domain::RenderCtx::new(&state, &slices, &views).with_pickers(&pickers);
                 super::render_picker(frame, area, &ctx);
             })
             .expect("draw");
@@ -186,11 +134,258 @@ mod tests {
             drawn_footer_rows += 1;
         }
 
+        // The declared footer count is spec-owned (every kind has a spec).
+        let declared = jinn_domain::feat::picker::registry::spec_id_for_kind(&kind)
+            .and_then(|id| pickers.get(id))
+            .map_or(1, |spec| spec.bottom_rows());
+
         assert_eq!(
-            drawn_footer_rows,
-            kind.footer_rows(),
-            "picker {kind} draws {drawn_footer_rows} footer rows but declares {}",
-            kind.footer_rows(),
+            drawn_footer_rows, declared,
+            "picker {kind} draws {drawn_footer_rows} footer rows but declares {declared}",
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn persona_picker_draws_status_and_keybind_rows_via_spec() {
+        // Given a persona picker open, rendered through its spec.
+        let mut state = AppState::default();
+        state.frontend.scope_stack.push(FocusScope::Picker {
+            kind: PickerKind::Persona,
+        });
+        let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
+
+        // When rendering.
+        let area = Rect::new(0, 0, 100, 30);
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("terminal");
+        terminal
+            .draw(|frame| {
+                let slices = jinn_slices::Slices::new();
+                let views = jinn_domain::common::overlay_views::OverlayViews::new();
+                let ctx =
+                    jinn_domain::RenderCtx::new(&state, &slices, &views).with_pickers(&pickers);
+                super::render_picker(frame, area, &ctx);
+            })
+            .expect("draw");
+
+        // Then the popup draws the spec's two bottom rows: the "Active:"
+        // status line above the standard keybind line.
+        let popup = compute_popup_rect(area);
+        let inner_bottom = popup.y + popup.height.saturating_sub(2);
+        let buffer = terminal.backend().buffer();
+        let keybind_row: String = ((popup.x + 1)..(popup.x + popup.width - 1))
+            .map(|x| buffer[(x, inner_bottom)].symbol())
+            .collect();
+        let status_row: String = ((popup.x + 1)..(popup.x + popup.width - 1))
+            .map(|x| buffer[(x, inner_bottom - 1)].symbol())
+            .collect();
+        assert!(
+            keybind_row.contains("Enter confirm"),
+            "bottom row must be the keybind line; got {keybind_row:?}"
+        );
+        assert!(
+            status_row.contains("Active:"),
+            "row above must be the status line; got {status_row:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn theme_picker_draws_status_and_keybind_rows_via_spec() {
+        // Given a theme picker open, rendered through its spec.
+        let mut state = AppState::default();
+        state.frontend.scope_stack.push(FocusScope::Picker {
+            kind: PickerKind::Theme,
+        });
+        let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
+
+        // When rendering.
+        let area = Rect::new(0, 0, 100, 30);
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("terminal");
+        terminal
+            .draw(|frame| {
+                let slices = jinn_slices::Slices::new();
+                let views = jinn_domain::common::overlay_views::OverlayViews::new();
+                let ctx =
+                    jinn_domain::RenderCtx::new(&state, &slices, &views).with_pickers(&pickers);
+                super::render_picker(frame, area, &ctx);
+            })
+            .expect("draw");
+
+        // Then the popup draws the spec's two bottom rows: the "Current:"
+        // status line above the standard keybind line.
+        let popup = compute_popup_rect(area);
+        let inner_bottom = popup.y + popup.height.saturating_sub(2);
+        let buffer = terminal.backend().buffer();
+        let keybind_row: String = ((popup.x + 1)..(popup.x + popup.width - 1))
+            .map(|x| buffer[(x, inner_bottom)].symbol())
+            .collect();
+        let status_row: String = ((popup.x + 1)..(popup.x + popup.width - 1))
+            .map(|x| buffer[(x, inner_bottom - 1)].symbol())
+            .collect();
+        assert!(
+            keybind_row.contains("Enter confirm"),
+            "bottom row must be the keybind line; got {keybind_row:?}"
+        );
+        assert!(
+            status_row.contains("Current: default"),
+            "row above must be the status line; got {status_row:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn mcp_picker_draws_status_and_keybind_rows_via_spec() {
+        // Given an MCP server picker open, rendered through its spec.
+        let mut state = AppState::default();
+        state.frontend.scope_stack.push(FocusScope::Picker {
+            kind: PickerKind::McpServer,
+        });
+        let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
+
+        // When rendering.
+        let area = Rect::new(0, 0, 100, 30);
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("terminal");
+        terminal
+            .draw(|frame| {
+                let slices = jinn_slices::Slices::new();
+                let views = jinn_domain::common::overlay_views::OverlayViews::new();
+                let ctx =
+                    jinn_domain::RenderCtx::new(&state, &slices, &views).with_pickers(&pickers);
+                super::render_picker(frame, area, &ctx);
+            })
+            .expect("draw");
+
+        // Then the popup draws the spec's two bottom rows: the "0/0 enabled"
+        // status line above the standard keybind line.
+        let popup = compute_popup_rect(area);
+        let inner_bottom = popup.y + popup.height.saturating_sub(2);
+        let buffer = terminal.backend().buffer();
+        let keybind_row: String = ((popup.x + 1)..(popup.x + popup.width - 1))
+            .map(|x| buffer[(x, inner_bottom)].symbol())
+            .collect();
+        let status_row: String = ((popup.x + 1)..(popup.x + popup.width - 1))
+            .map(|x| buffer[(x, inner_bottom - 1)].symbol())
+            .collect();
+        assert!(
+            keybind_row.contains("Enter confirm"),
+            "bottom row must be the keybind line; got {keybind_row:?}"
+        );
+        assert!(
+            status_row.contains("0/0 enabled"),
+            "row above must be the status line; got {status_row:?}"
+        );
+        // And the keybind line advertises the spec's custom binds (the
+        // generator echoes each row's raw notation + label).
+        assert!(
+            keybind_row.contains("<tab> toggle")
+                && keybind_row.contains("<c-r> restart")
+                && keybind_row.contains("<c-t> logs/tools"),
+            "keybind line must list the spec's binds; got {keybind_row:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn theme_picker_draws_swatch_rows_via_the_spec_row_hook() {
+        // Given an open theme picker whose storage holds wrapped entries
+        // (the same shape the spec's open hook produces).
+        let mut state = AppState::default();
+        state.frontend.scope_stack.push(FocusScope::Picker {
+            kind: PickerKind::Theme,
+        });
+        let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
+        let wrapped = pickers
+            .make_items(
+                jinn_domain::feat::picker::registry::THEME_ID,
+                vec![jinn_domain::feat::theme::ThemeEntry {
+                    name: "gruvbox".to_owned(),
+                    theme: state.frontend.theme.clone(),
+                }],
+            )
+            .expect("theme spec registered");
+        state.frontend.theme_picker_mut().set_items(wrapped);
+
+        // When rendering the picker.
+        let area = Rect::new(0, 0, 100, 30);
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("terminal");
+        terminal
+            .draw(|frame| {
+                let slices = jinn_slices::Slices::new();
+                let views = jinn_domain::common::overlay_views::OverlayViews::new();
+                let ctx =
+                    jinn_domain::RenderCtx::new(&state, &slices, &views).with_pickers(&pickers);
+                super::render_picker(frame, area, &ctx);
+            })
+            .expect("draw");
+
+        // Then the entry's swatch and name appear — rows are not blank and
+        // the name is drawn.
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect();
+        assert!(
+            rendered.contains('\u{2588}') && rendered.contains("gruvbox"),
+            "theme picker must draw its swatch + name rows; got {rendered:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn persona_picker_draws_entry_rows_via_the_spec_row_hook() {
+        // Given an open persona picker whose storage holds wrapped entries
+        // (the same shape the session actor's loader produces).
+        let mut state = AppState::default();
+        state.frontend.scope_stack.push(FocusScope::Picker {
+            kind: PickerKind::Persona,
+        });
+        let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
+        let wrapped = pickers
+            .make_items(
+                jinn_domain::feat::picker::registry::PERSONA_ID,
+                vec![jinn_domain::feat::persona::PersonaEntry {
+                    name: "coder".to_owned(),
+                    description: "code helper".to_owned(),
+                    is_active: false,
+                    theme: state.frontend.theme.clone(),
+                }],
+            )
+            .expect("persona spec registered");
+        state.frontend.persona_picker_mut().set_items(wrapped);
+
+        // When rendering the picker.
+        let area = Rect::new(0, 0, 100, 30);
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("terminal");
+        terminal
+            .draw(|frame| {
+                let slices = jinn_slices::Slices::new();
+                let views = jinn_domain::common::overlay_views::OverlayViews::new();
+                let ctx =
+                    jinn_domain::RenderCtx::new(&state, &slices, &views).with_pickers(&pickers);
+                super::render_picker(frame, area, &ctx);
+            })
+            .expect("draw");
+
+        // Then the entry's name appears in the popup — rows are not blank.
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect();
+        assert!(
+            rendered.contains("coder"),
+            "persona picker must draw its entry rows; got {rendered:?}"
         );
     }
 }

@@ -80,6 +80,7 @@ jinn-discord-msg = { workspace = true }
 jinn-quake-bar = { workspace = true }
 jinn-session-msg = { workspace = true }
 jinn-slices = { workspace = true }
+jinn-picker = { workspace = true }
 
 jinn-web-fetch = { workspace = true }
 jinn-web-search = { workspace = true }
@@ -161,6 +162,7 @@ jinn-provider = { path = "crates/jinn-provider" }
 jinn-tui = { path = "crates/jinn-tui" }
 jinn-cli = { path = "crates/jinn-cli" }
 jinn-selection-widget = { path = "crates/jinn-selection-widget" }
+jinn-picker = { path = "crates/jinn-picker" }
 jinn-testutil = { path = "crates/jinn-testutil" }
 
 jinn-theme = { path = "crates/jinn-theme" }

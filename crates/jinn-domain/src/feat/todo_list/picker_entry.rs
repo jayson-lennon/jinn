@@ -85,6 +85,11 @@ impl TaskListTreeEntry {
     pub const fn row_status(&self) -> RowStatus {
         self.row_status
     }
+
+    /// The theme for styled rendering.
+    pub const fn theme(&self) -> &Theme {
+        &self.theme
+    }
 }
 
 impl TreeItem for TaskListTreeEntry {
@@ -130,7 +135,7 @@ impl TreeItem for TaskListTreeEntry {
 /// Match indices are byte offsets into `description` (the `display_label`).
 /// Layout: `"{indicator} {description}"`. Phases use a triangular glyph and
 /// bold styling to visually distinguish them from tasks.
-fn render_task_list_row(
+pub(crate) fn render_task_list_row(
     description: &str,
     row_status: RowStatus,
     is_selected: bool,
