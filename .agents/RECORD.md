@@ -323,3 +323,7 @@ Entries are added or amended **only with human approval**.
 - (pickers) The theme picker previews the highlighted theme live on cursor movement (invalidating theme caches per move), reverts to the snapshotted theme on ESC, and persists the choice only on confirm.
 - (pickers) The tool picker toggles the highlighted tool with TAB (advancing to the next row), filters to tools available for the session's provider, seeds disabled state from the session profile (config seeds and subagent spawn stamps), and writes the disabled set back to the session only on confirm.
 - (pickers) The MCP server picker toggles servers with TAB, restarts the selected server with CTRL+R (staying open), flips its logs/tools preview pane with CTRL+T, searches name and description, and commits the enabled set on confirm by emitting McpEnablementChanged; ESC reverts to the snapshotted set.
+- (preferences) A `[[projects]]` entry in `jinn.toml` may carry a command policy of user-authored regex patterns with corrective messages, applied to tool commands whose cwd falls inside the project path.
+- (tools) The bash tool evaluates commands against the resolved project command policy before spawn; a match returns a failed tool result carrying the rule's message and the command never runs.
+- (tools) Project command policy is resolved by cwd prefix match at tool-call time with the longest configured project path winning.
+- (tools) Command policy guards only the bash tool; interactive terminals and MCP-provided tools are unguarded.

@@ -192,6 +192,8 @@ mod tests {
     fn make_context(state: Option<State>, session_id: Option<SessionId>) -> ToolContext {
         ToolContext {
             cwd: std::path::PathBuf::from("."),
+            command_policy:
+                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
             timeout: None,
             state,
             session_id,

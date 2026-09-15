@@ -703,6 +703,7 @@ pub(crate) mod tests {
             }],
             projects: vec![ProjectConfig {
                 path: "/tmp/fixture-project".into(),
+                command_policy: Vec::new(),
             }],
             mcp_server: [(
                 "fixture-server".to_owned(),
@@ -1554,6 +1555,37 @@ path = "~/code/legacy"
     }
 
     #[rstest::rstest]
+    fn save_preserves_comments_when_command_policy_written() {
+        // Given a jinn.toml whose [[projects]] entry carries a hand-commented
+        // command policy (inline array of inline tables).
+        let original = concat!(
+            "# my banner\n",
+            "[[projects]]\n",
+            "path = \"~/code/jinn\"\n",
+            "# blocks slow builds\n",
+            "command_policy = [{pattern = \"cargo test -p\", message = \"use just test\"}]\n",
+        );
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join(PREFS_FILE_NAME);
+        std::fs::write(&path, original).expect("write");
+
+        // When loading, changing nothing, and saving back.
+        let prefs = load_preferences_from(&path).expect("load");
+        save_preferences_to(&prefs, &path).expect("save");
+
+        // Then the policy survives the patch intact.
+        let written = std::fs::read_to_string(&path).expect("read");
+        assert!(written.contains("command_policy"), "key lost: {written}");
+        assert!(written.contains("cargo test -p"), "pattern lost: {written}");
+        assert!(written.contains("use just test"), "message lost: {written}");
+        // And the comment above the policy is preserved.
+        assert!(
+            written.contains("# blocks slow builds"),
+            "policy comment lost: {written}"
+        );
+    }
+
+    #[rstest::rstest]
     fn load_heals_duplicate_project_keys() {
         // Given a jinn.toml that defines `projects` twice — once as an
         // inline array, once as [[projects]] blocks (the poisoned shape a
@@ -1642,5 +1674,51 @@ path = "~/code/current"
         assert_eq!(prefs.projects.len(), 2);
         assert_eq!(prefs.projects[0].path.to_string_lossy(), "~/code/a");
         assert_eq!(prefs.projects[1].path.to_string_lossy(), "~/code/b");
+    }
+
+    #[rstest::rstest]
+    fn save_project_without_policy_writes_no_command_policy_key() {
+        // Given a jinn.toml with a policy-less project and no other changes.
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join(PREFS_FILE_NAME);
+        std::fs::write(&path, "[[projects]]\npath = \"~/code/a\"\n").expect("write");
+
+        // When loading and saving back.
+        let prefs = load_preferences_from(&path).expect("load");
+        assert!(prefs.projects[0].command_policy.is_empty());
+        save_preferences_to(&prefs, &path).expect("save");
+
+        // Then the written file carries no `command_policy` key (the
+        // empty policy is skipped in serialization, so a save never
+        // introduces the key to existing config).
+        let written = std::fs::read_to_string(&path).expect("read");
+        assert!(
+            !written.contains("command_policy"),
+            "empty policy must not materialize on save: {written}"
+        );
+        // And the project entry survives intact.
+        assert!(written.contains("[[projects]]"), "{written}");
+        assert!(written.contains("~/code/a"), "{written}");
+    }
+
+    #[rstest::rstest]
+    fn load_reads_command_policy_from_project_entry() {
+        // Given a jinn.toml whose [[projects]] entry declares a command policy.
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join(PREFS_FILE_NAME);
+        std::fs::write(
+            &path,
+            "[[projects]]\npath = \"~/code/jinn\"\ncommand_policy = [{pattern = \"cargo test -p\", message = \"use just test\"}]\n",
+        )
+        .expect("write");
+
+        // When loading.
+        let prefs = load_preferences_from(&path).expect("load");
+
+        // Then the policy deserializes with pattern and message intact.
+        assert_eq!(prefs.projects.len(), 1);
+        assert_eq!(prefs.projects[0].command_policy.len(), 1);
+        assert_eq!(prefs.projects[0].command_policy[0].pattern, "cargo test -p");
+        assert_eq!(prefs.projects[0].command_policy[0].message, "use just test");
     }
 }

@@ -25,6 +25,9 @@ pub use jinn_provider::{ToolCall, ToolDefinition, ToolResult};
 pub struct ToolContext {
     /// Working directory for resolving relative paths.
     pub cwd: PathBuf,
+    /// Compiled blocked-command rules for the project containing [`Self::cwd`],
+    /// if any. Only `bash` consults it; an empty policy matches nothing.
+    pub command_policy: crate::feat::tools_actor::command_policy::CompiledCommandPolicy,
     /// Optional execution timeout.
     pub timeout: Option<Duration>,
     /// Shared application state (only available for tools that need it).
@@ -106,6 +109,8 @@ mod tests {
         // Given a ToolContext with known values.
         let ctx = ToolContext {
             cwd: PathBuf::from("/tmp/test"),
+            command_policy:
+                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
             timeout: Some(std::time::Duration::from_secs(30)),
             state: None,
             session_id: Some(crate::protocol::SessionId::new()),

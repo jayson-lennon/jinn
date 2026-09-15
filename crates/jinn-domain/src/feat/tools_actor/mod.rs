@@ -62,6 +62,7 @@ impl Default for OpenrouterWebSearchConfig {
     }
 }
 pub mod bash;
+pub mod command_policy;
 pub mod edit;
 pub mod get_time;
 pub mod grep;
@@ -574,8 +575,18 @@ impl ToolOrchestratorActor {
         let max_output_lines = prefs.max_tool_output_lines;
         let max_output_bytes = prefs.max_tool_output_bytes;
         let timeout = std::time::Duration::from_secs(prefs.tool_default_timeout_secs);
+        let command_policy = {
+            use crate::feat::tools_actor::command_policy::{self, CompiledCommandPolicy};
+            let rules = command_policy::resolve_project_rules(
+                &prefs.projects,
+                &cwd,
+                self.services.paths.home_dir(),
+            );
+            CompiledCommandPolicy::compile(&rules)
+        };
         ToolContext {
             cwd,
+            command_policy,
             timeout: Some(timeout),
             state: Some(self.state.clone()),
             session_id: Some(session_id.clone()),
@@ -1058,6 +1069,8 @@ mod timeout_tests {
     fn empty_ctx() -> ToolContext {
         ToolContext {
             cwd: PathBuf::from("/tmp"),
+            command_policy:
+                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -1311,6 +1324,8 @@ mod panic_safety_tests {
             tool_call.clone(),
             super::ToolContext {
                 cwd: std::path::PathBuf::from("/tmp"),
+                command_policy:
+                    crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
                 timeout: None,
                 state: None,
                 session_id: None,

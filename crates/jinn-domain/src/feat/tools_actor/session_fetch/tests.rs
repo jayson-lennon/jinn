@@ -171,6 +171,7 @@ fn ctx_with(store: StubStore) -> (ToolContext, std::sync::Arc<StubStore>) {
     let arc = std::sync::Arc::new(store);
     let ctx = ToolContext {
         cwd: std::path::PathBuf::from("/tmp"),
+        command_policy: crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
         timeout: None,
         state: None,
         session_id: Some(SessionId::from(
@@ -374,6 +375,7 @@ async fn no_session_and_no_current_is_an_error() {
     let arc = std::sync::Arc::new(StubStore::default());
     let ctx = ToolContext {
         cwd: std::path::PathBuf::from("/tmp"),
+        command_policy: crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
         timeout: None,
         state: None,
         session_id: None,
@@ -425,6 +427,8 @@ async fn outer_truncated_result_carries_full_content() {
         let arc = std::sync::Arc::new(StubStore::with_window(window(entries)));
         let ctx = ToolContext {
             cwd: std::path::PathBuf::from("/tmp"),
+            command_policy:
+                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: Some(SessionId::from(

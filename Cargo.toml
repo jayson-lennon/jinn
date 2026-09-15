@@ -29,7 +29,7 @@ members = ["crates/jinn-*", "crates/slices/*", "plugins/*", "vendor/*"]
 
 
 [workspace.package]
-version = "0.117.0"
+version = "0.118.0"
 edition = "2024"
 publish = false
 
@@ -199,9 +199,7 @@ futures = "0.3"
 kameo = { version = "0.20", features = ["tracing"] }
 kameo_actors = "0.5"
 
-# The trouper actor runtime (path dep on the sibling trouper workspace;
-# an unpublished crate — see .plans/actor-canvas/plan.md)
-trouper = { path = "../../trouper/trouper-sdk/crates/trouper" }
+trouper = "0.1.0"
 
 # PTY + terminal emulation (interactive_term tool)
 portable-pty = "0.9"

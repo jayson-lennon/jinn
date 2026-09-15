@@ -1947,6 +1947,7 @@ mod tests {
             .iter()
             .map(|p| crate::feat::project::ProjectConfig {
                 path: std::path::PathBuf::from(p),
+                command_policy: Vec::new(),
             })
             .collect();
         state.frontend.preferences.projects = projects;

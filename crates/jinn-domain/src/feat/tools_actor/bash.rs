@@ -486,6 +486,17 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             return error_tool_result(call.id, call.name, "command is empty".to_owned());
         }
 
+        // Project command policy gate: a matching rule denies the command
+        // before any child spawns (same feedback shape as the empty-command
+        // check — nothing started, so no `ToolExecutionStarted` is emitted).
+        if let Some((pattern, message)) = ctx.command_policy.matched_message(&command) {
+            return error_tool_result(
+                call.id,
+                call.name,
+                format!("Blocked by project command policy (pattern: `{pattern}`): {message}"),
+            );
+        }
+
         let cwd = ctx.cwd.clone();
 
         // Emit ToolExecutionStarted if we have a bus and session_id.
@@ -569,11 +580,14 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
+    use crate::feat::tools_actor::command_policy::CompiledCommandPolicy;
     use std::path::PathBuf;
 
     fn test_ctx() -> ToolContext {
         ToolContext {
             cwd: PathBuf::from("/tmp"),
+            command_policy:
+                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -589,6 +603,101 @@ mod tests {
             task_spawns: None,
             session_store: None,
         }
+    }
+
+    fn ctx_with_policy(cwd: &std::path::Path, policy: CompiledCommandPolicy) -> ToolContext {
+        ToolContext {
+            cwd: cwd.to_path_buf(),
+            command_policy: policy,
+            ..test_ctx()
+        }
+    }
+
+    fn policy_call(command: &str) -> ToolCall {
+        ToolCall {
+            id: "call_policy".to_owned(),
+            name: "bash".to_owned(),
+            arguments: serde_json::json!({ "command": command }).to_string(),
+        }
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn blocked_command_returns_failed_result_with_message_and_spawns_nothing() {
+        // Given a context whose policy blocks `cargo test -p` and a sentinel
+        // path the command would create if it ran.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let sentinel = dir.path().join("sentinel");
+        let ctx = ctx_with_policy(
+            dir.path(),
+            CompiledCommandPolicy::compile(&[crate::feat::project::CommandPolicyRule {
+                pattern: r"cargo\s+(test|t)\b.*\s-p\b".to_owned(),
+                message: "use just test".to_owned(),
+            }]),
+        );
+
+        // When executing a blocked command that would touch the sentinel if
+        // it ran (`;` so the sentinel is touched even if cargo fails fast).
+        let result = execute(
+            policy_call(&format!(
+                "cargo test -p no-such-pkg; touch {}",
+                sentinel.display()
+            )),
+            ctx,
+        )
+        .await;
+
+        // Then the result is a failure carrying the pattern and the rule's
+        // corrective message.
+        assert!(!result.success);
+        assert!(
+            result.content.contains("Blocked by project command policy"),
+            "missing block notice: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("cargo\\s+(test|t)"),
+            "missing pattern"
+        );
+        assert!(result.content.contains("use just test"), "missing message");
+        // And the process never spawned — the sentinel was not created.
+        assert!(!sentinel.exists(), "command executed despite policy block");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn non_matching_command_executes_normally_under_policy() {
+        // Given a context whose policy blocks only `cargo test -p`.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let ctx = ctx_with_policy(
+            dir.path(),
+            CompiledCommandPolicy::compile(&[crate::feat::project::CommandPolicyRule {
+                pattern: r"cargo\s+(test|t)\b.*\s-p\b".to_owned(),
+                message: "use just test".to_owned(),
+            }]),
+        );
+
+        // When executing a command the policy does not match.
+        let result = execute(policy_call("echo ran-fine"), ctx).await;
+
+        // Then the command runs and reports success.
+        assert!(result.success, "command should execute: {}", result.content);
+        assert!(result.content.contains("ran-fine"));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn empty_policy_preserves_default_behavior() {
+        // Given a context with an empty (unconfigured) policy.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let ctx = ctx_with_policy(dir.path(), CompiledCommandPolicy::default());
+
+        // When executing an ordinary command.
+        let result = execute(policy_call("echo default-path"), ctx).await;
+
+        // Then behavior is unchanged from the pre-policy default.
+        assert!(result.success);
+        assert!(result.content.contains("default-path"));
     }
 
     #[rstest::rstest]
@@ -684,6 +793,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("create temp dir");
         let ctx = ToolContext {
             cwd: dir.path().to_owned(),
+            command_policy:
+                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,
