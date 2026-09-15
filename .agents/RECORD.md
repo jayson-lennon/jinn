@@ -322,6 +322,9 @@ Entries are added or amended **only with human approval**.
 - (tools) The bash tool evaluates commands against the resolved project command policy before spawn; a match returns a failed tool result carrying the rule's message and the command never runs.
 - (tools) Project command policy is resolved by cwd prefix match at tool-call time with the longest configured project path winning.
 - (tools) Command policy guards only the bash tool; interactive terminals and MCP-provided tools are unguarded.
+- (workflow) `just test` runs the workspace suite once with --no-fail-fast, tees the full cargo output to `target/test-output.log`, and prints a passed/failed summary including failing test names.
+- (workflow) `just test-failures` extracts failing test names from `target/test-output.log` without re-running the suite.
+- (workflow) `just test-one <filter>` runs workspace tests matching a name filter as the sanctioned iterate-on-failure path.
 - (todo) The todo tool surface is three tools: `todo_set_list`, `todo_set_phase`, `todo_get_list`.
 - (todo) Todo writes are declarative: statuses (`pending`, `completed`, `cancelled`) are declared in the payload; no tool payload or todo render references ids.
 - (todo) `todo_set_phase` replaces the first phase whose description matches the payload description, or appends a new phase when none matches.

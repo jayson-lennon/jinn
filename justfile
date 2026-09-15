@@ -15,7 +15,46 @@ commit MSG:
     fossil addremove --dotfiles && fossil commit -m "{{MSG}}"
 
 test:
-    cargo test --workspace
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target
+    # One suite run; full output captured so failure details never require a
+    # re-run. tee must not mask cargo's exit code (pipefail handles it).
+    set -o pipefail
+    if ! cargo test --workspace --no-fail-fast 2>&1 | tee target/test-output.log; then
+        TEST_STATUS="failed"
+    else
+        TEST_STATUS="passed"
+    fi
+    echo ""
+    echo "==> Test summary ($(date -u +%Y-%m-%dT%H:%M:%SZ)) — full log: target/test-output.log"
+    awk '/^test result:/ {ok+=$4; fail+=$6} END {printf "    passed: %d  failed: %d\n", ok, fail}' target/test-output.log
+    if [ "$TEST_STATUS" = "failed" ]; then
+        echo "    Failing tests (details: just test-failures):"
+        awk '/^failures:$/{f=1; next} f && /^    /{gsub(/^    /,""); print "      - " $0; found=1; next} f && NF && !/^    /{f=0} END{if(!found) print "      (no named failures in log; check test-output.log)"}' target/test-output.log | sort -u
+        exit 1
+    fi
+
+# Show failing tests from the last `just test` run WITHOUT re-running anything.
+test-failures:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    LOG=target/test-output.log
+    if [ ! -f "$LOG" ]; then
+        echo 'No test log found at target/test-output.log — run `just test` first.' >&2
+        exit 1
+    fi
+    if grep -qE '^test result: FAILED|^error: could not compile' "$LOG"; then
+        grep -E '^failures:$' -A 100 "$LOG" | grep -E '^    [a-z_]+' | sed 's/^    //' | sort -u
+    else
+        echo "Last run passed — no failures in $LOG."
+    fi
+
+# Run only tests whose name matches FILTER, across the whole workspace.
+# Sanctioned iterate-on-failure loop: fix code, re-run `just test-one <name>`,
+# then confirm with a final `just test` before committing.
+test-one FILTER:
+    cargo test --workspace --no-fail-fast {{FILTER}}
 
 check:
     cargo check --workspace
