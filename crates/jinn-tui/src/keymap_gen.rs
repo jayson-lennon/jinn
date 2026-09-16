@@ -793,8 +793,7 @@ mod tests {
         // Given an OwnScope row whose dynamic scope aliases a static focus
         // scope (the sidebar's section scopes, until the focus collapse).
         let routes = KeyRoutes::new();
-        let aliased = SliceScopeId::navigation("sidebar", "pins")
-            .with_static_alias("SidebarPins");
+        let aliased = SliceScopeId::navigation("sidebar", "pins").with_static_alias("SidebarPins");
         routes.attach(RouteRow {
             route_id: RouteId::new("sidebar:move-down"),
             scope: aliased,
@@ -820,8 +819,7 @@ mod tests {
             &keymap,
             &[key.clone()],
             &Scope::Dynamic(
-                SliceScopeId::navigation("sidebar", "pins")
-                    .with_static_alias("SidebarPins"),
+                SliceScopeId::navigation("sidebar", "pins").with_static_alias("SidebarPins"),
             ),
         );
         assert!(in_dynamic.is_some(), "row key binds in the dynamic scope");
