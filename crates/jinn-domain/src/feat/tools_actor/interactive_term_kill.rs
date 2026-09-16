@@ -1,15 +1,17 @@
-//! `interactive_term_kill` built-in tool — terminates a session's process
-//! group and collects the final state.
+//! `interactive_term_kill` built-in tool — terminates this session's own
+//! terminal's process group and collects the final state.
 //!
-//! Idempotent: killing an already-exited session still succeeds, returning
-//! the cached exit info, final screen, and transcript tail. Killing an
-//! unknown session is an error result naming the id.
+//! Idempotent: killing an already-exited terminal still succeeds, returning
+//! the cached exit info, final screen, and transcript tail. Killing when the
+//! session has no terminal is an error result. The tool always targets the
+//! **calling chat session's** terminal (resolved from the tool context) —
+//! there is no cross-session addressing.
 
 use std::time::Duration;
 
 use futures::FutureExt;
 
-use crate::feat::interactive_term::protocol::command::{KillTerm, KillTermOutcome, TermSessionId};
+use crate::feat::interactive_term::protocol::command::{KillTerm, KillTermOutcome};
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition, ToolResult};
 
 use super::BoxedToolFuture;
@@ -22,30 +24,26 @@ const ASK_TIMEOUT: Duration = Duration::from_secs(10);
 pub fn definition() -> ToolDefinition {
     ToolDefinition {
         name: "interactive_term_kill".to_owned(),
-        description: "Kill a running `interactive_term` session (its whole process group) and \
-            receive the final screen, a transcript tail, and the exit code. Use this to clean up \
-            when you are done with an interactive program (close vim, exit ssh, stop htop). \
-            Safe to call on an already-exited session — it returns the recorded final state."
+        description: "Kill this session's running `interactive_term` terminal (its whole process \
+            group) and receive the final screen, a transcript tail, and the exit code. Use this \
+            to clean up when you are done with an interactive program (close vim, exit ssh, stop \
+            htop). Safe to call on an already-exited terminal — it returns the recorded final \
+            state."
             .to_owned(),
         prompt_snippet: Some(
-            "Kill an interactive_term session (whole process group) and get the final state"
+            "Kill this session's interactive_term terminal (whole process group) and get the final state"
                 .to_owned(),
         ),
         prompt_guidelines: vec![
-            "Kill interactive_term sessions when done with them so no processes are left running."
+            "Kill interactive_term terminals when done with them so no processes are left running."
                 .to_owned(),
-            "Killing an already-exited session is safe — it returns the recorded final state."
+            "Killing an already-exited terminal is safe — it returns the recorded final state."
                 .to_owned(),
         ],
         parameters: serde_json::json!({
             "type": "object",
-            "properties": {
-                "session_id": {
-                    "type": "string",
-                    "description": "The session to kill (from interactive_term)"
-                }
-            },
-            "required": ["session_id"]
+            "properties": {},
+            "required": []
         }),
         server_tool_type: None,
     }
@@ -56,6 +54,17 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
     let tool_call_id = call.id;
     let tool_name = call.name;
 
+    // Target: the calling chat session's own terminal. There is no
+    // model-facing session argument — cross-session addressing cannot happen.
+    let Some(chat_session_id) = ctx.session_id.clone() else {
+        return super::interactive_term::failure_future(
+            &tool_call_id,
+            &tool_name,
+            "interactive_term_kill requires a chat session context (none is active). \
+             Spawn a terminal with interactive_term from within a conversation session first.",
+        );
+    };
+
     let Some(coordinator) = ctx.interactive_term else {
         return super::interactive_term::failure_future(
             &tool_call_id,
@@ -64,22 +73,11 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
         );
     };
 
-    let Some(session_raw) =
-        super::interactive_term::parse::string_field(&call.arguments, "session_id")
-    else {
-        return super::interactive_term::failure_future(
-            &tool_call_id,
-            &tool_name,
-            "missing required `session_id` argument (the id returned by interactive_term)",
-        );
-    };
-    let session_id = TermSessionId(session_raw);
-
     async move {
         let outcome = tokio::time::timeout(
             ASK_TIMEOUT,
             coordinator.ask(KillTerm {
-                session_id: session_id.clone(),
+                chat_session_id: chat_session_id.clone(),
             }),
         )
         .await;
@@ -110,7 +108,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             } => {
                 let body = {
                     let mut body = format!(
-                        "Session `{session_id}` terminated ({summary}).\n\n\
+                        "Session terminated ({summary}).\n\n\
                          == FINAL SCREEN ==\n{screen}\n",
                         summary = exited.summary(),
                     );
@@ -137,10 +135,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             KillTermOutcome::UnknownSession => failure_result(
                 &tool_call_id,
                 &tool_name,
-                &format!(
-                    "unknown session `{session_id}`. It may have been killed already, \
-                     or it died with the app; spawn a new one with interactive_term."
-                ),
+                "no live terminal for this session — spawn one with interactive_term.",
             ),
         }
     }

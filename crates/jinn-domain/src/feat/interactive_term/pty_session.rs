@@ -530,7 +530,6 @@ mod tests {
 
     use super::*;
     use crate::common::services::bus_service::BusService;
-    use crate::feat::interactive_term::protocol::command::TermSessionId;
 
     /// Test timeout for child-process waits; keeps a wedged pty from hanging
     /// the suite past tokio's default 10s test timeout.
@@ -556,7 +555,6 @@ mod tests {
             state,
             cap: crate::common::tcaps::mint::mint_frontend_cap(),
             chat: crate::protocol::SessionId::new(),
-            term_id: TermSessionId("test-term".to_owned()),
         }
     }
 

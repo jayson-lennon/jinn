@@ -2,19 +2,17 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::command::TermSessionId;
-
-/// The active session's screen mirror changed.
+/// A chat session's terminal screen changed.
 ///
-/// Published on every parsed output batch while a settle wait is running
-/// (throttled to screen changes) so the takeover view and any open tool-call
-/// entry stay current. Doubles as the stall watchdog's keepalive: the
-/// session actor appends these to the pending tool result, bumping history
-/// activity so a long interactive call is never falsely retried.
+/// Published by the realtime screen task on every visible change (and by the
+/// coordinator on resize), keyed by the owning chat session — the same
+/// identity as the frontend mirror. This is the bus-side mirror of screen
+/// changes; the tool-call keepalive is separate (`ToolExecutionOutput`,
+/// published by the tool layer's `with_keepalive` pacer).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TermScreenUpdated {
-    /// The session whose screen changed.
-    pub session_id: TermSessionId,
+    /// The chat session whose screen changed.
+    pub chat_session_id: crate::protocol::SessionId,
     /// The rendered screen (plain text).
     pub screen: String,
     /// The styled cell grid matching `screen`.
@@ -25,14 +23,4 @@ pub struct TermScreenUpdated {
     pub cursor_hidden: bool,
 }
 
-/// The user took (or released) control of the active session.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TermControlChanged {
-    /// The session control flipped for.
-    pub session_id: TermSessionId,
-    /// `true` when the user holds control; `false` when handed back.
-    pub user_controls: bool,
-}
-
 impl crate::common::bus::BusMessage for TermScreenUpdated {}
-impl crate::common::bus::BusMessage for TermControlChanged {}

@@ -241,7 +241,6 @@ mod tests {
             .swap_base(FocusScope::TerminalView);
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
-            "term-1",
             screen.to_owned(),
             ScreenCells::default(),
             cursor,
@@ -350,7 +349,6 @@ mod tests {
             let mut term = state.frontend.terminal.clone();
             term.apply_screen(
                 state.session.active_session_id(),
-                "term-1",
                 "Rx".to_owned(),
                 styled,
                 (0, 2),
@@ -398,7 +396,6 @@ mod tests {
         cells.resize(200, TermCell::Blank);
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
-            "term-1",
             "S".to_owned(),
             ScreenCells {
                 rows: 24,
@@ -511,7 +508,6 @@ mod tests {
             let mut term = state.frontend.terminal.clone();
             term.apply_screen(
                 state.session.active_session_id(),
-                "term-1",
                 "漢".to_owned(),
                 styled,
                 (0, 2),
@@ -550,7 +546,6 @@ mod tests {
             let mut term = state.frontend.terminal.clone();
             term.apply_screen(
                 state.session.active_session_id(),
-                "term-1",
                 "screen".to_owned(),
                 ScreenCells::default(),
                 (0, 0),
@@ -641,7 +636,6 @@ mod tests {
             .swap_base(FocusScope::TerminalView);
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
-            "term-1",
             "screen".to_owned(),
             ScreenCells::default(),
             (0, 0),
@@ -726,7 +720,6 @@ mod tests {
             let mut term = state.frontend.terminal.clone();
             term.apply_screen(
                 state.session.active_session_id(),
-                "term-1",
                 String::new(),
                 ScreenCells::default(),
                 (0, 0),
@@ -770,7 +763,6 @@ mod tests {
             let mut term = state.frontend.terminal.clone();
             term.apply_screen(
                 state.session.active_session_id(),
-                "term-1",
                 "hello".to_owned(),
                 ScreenCells::default(),
                 (1, 3),

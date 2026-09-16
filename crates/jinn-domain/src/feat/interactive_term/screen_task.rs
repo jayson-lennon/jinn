@@ -24,7 +24,6 @@ use parking_lot::{Mutex, MutexGuard};
 use crate::common::services::bus_service::BusService;
 use crate::common::tcaps::frontend::FrontendCap;
 use crate::feat::interactive_term::emulator::Emulator;
-use crate::feat::interactive_term::protocol::command::TermSessionId;
 use crate::feat::interactive_term::protocol::event::TermScreenUpdated;
 use crate::feat::interactive_term::pty_session::OutputRx;
 use crate::feat::interactive_term::query_responder::respond_to_queries;
@@ -155,10 +154,8 @@ pub struct ScreenWiring {
     pub state: crate::common::state::State,
     /// Capability to write `frontend.terminal`.
     pub cap: FrontendCap,
-    /// The owning chat session (mirror + live-flag key).
+    /// The owning chat session (event, mirror + live-flag key).
     pub chat: crate::protocol::SessionId,
-    /// The model-facing term id (`term-N`).
-    pub term_id: TermSessionId,
 }
 
 impl ScreenWiring {
@@ -179,7 +176,7 @@ impl ScreenWiring {
     ) {
         self.bus
             .publish(TermScreenUpdated {
-                session_id: self.term_id.clone(),
+                chat_session_id: self.chat.clone(),
                 screen: screen.clone(),
                 cells: cells.clone(),
                 cursor,
@@ -188,14 +185,7 @@ impl ScreenWiring {
             .await;
         self.state.with_terminal(&self.cap, |ops| {
             use crate::common::tcaps::frontend::TerminalMirrorWrite;
-            ops.apply_screen(
-                &self.chat,
-                &self.term_id.0,
-                screen,
-                cells,
-                cursor,
-                cursor_hidden,
-            );
+            ops.apply_screen(&self.chat, screen, cells, cursor, cursor_hidden);
         });
     }
 }

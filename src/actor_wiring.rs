@@ -470,15 +470,15 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
 
         // Interactive-term coordinator: owns PTY sessions across tool calls
         // (the `interactive_term*` tools ask it directly). Spawned with the
-        // same lifecycle shape as the MCP coordinator; the shared control
-        // flag goes to the terminal tab (takeover UI) wiring.
-        let term_control =
-            jinn_domain::feat::interactive_term::interactive_term_actor::TermControl::default();
-        let (term_coordinator, _control) =
+        // same lifecycle shape as the MCP coordinator; the per-session
+        // control registry goes to the terminal tab (takeover UI) wiring.
+        let term_controls =
+            jinn_domain::feat::interactive_term::interactive_term_actor::TermControls::default();
+        let (term_coordinator, _controls) =
             jinn_domain::feat::interactive_term::interactive_term_actor::spawn_interactive_term_actor(
                 jinn_domain::feat::interactive_term::interactive_term_actor::InteractiveTermActorDeps {
                     bus: services.bus.clone(),
-                    control: term_control.clone(),
+                    controls: term_controls.clone(),
                     state: state.clone(),
                     cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
                     settle_quiet: std::time::Duration::from_millis(
@@ -492,10 +492,11 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
             )
             .await;
         let _ = services.interactive_term.set(term_coordinator);
-        // Install the shared flag for the IntentHandler's takeover intents
-        // (synchronous flips that in-flight tool calls observe mid-drain).
+        // Install the shared registry for the IntentHandler's takeover
+        // intents (synchronous flips that in-flight tool calls observe
+        // mid-drain).
         let _ =
-            jinn_domain::feat::interactive_term::takeover_intent::TERM_CONTROL.set(term_control);
+            jinn_domain::feat::interactive_term::takeover_intent::TERM_CONTROLS.set(term_controls);
 
         // Plugin lifecycle actor: reads `[[plugin]]` entries from jinn.toml and spawns one in-process
         // WASM guest per entry. Guests are hosted directly by jinn via the
