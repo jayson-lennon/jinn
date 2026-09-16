@@ -229,6 +229,18 @@ mod tests {
         fn push_session_error(&mut self, message: &str) {
             self.errors.push(message.to_owned());
         }
+
+        fn active_session_cwd(&self) -> std::path::PathBuf {
+            std::path::PathBuf::new()
+        }
+
+        fn publish_session_cwd(
+            &self,
+            _session_id: jinn_core_types::SessionId,
+            _cwd: std::path::PathBuf,
+        ) -> jinn_slices::PublishClosure {
+            Box::new(|_bus| {})
+        }
     }
 
     /// A minimal [`jinn_slices::SliceActionState`] stand-in for the row tests.

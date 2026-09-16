@@ -248,13 +248,28 @@ async fn gutter_area_is_not_selectable() {
 #[rstest::rstest]
 #[tokio::test]
 async fn cwd_input_popup_renders_and_is_selectable() {
-    // Given a TuiApp rendered with CwdInput scope.
+    // Given a TuiApp rendered with the cwd popup's dynamic scope, the cwd
+    // slice activated so its overlay + cell are registered.
     let mut app = render_test_app().await;
+    {
+        let services = &mut app.services;
+        let mut host = jinn_slices::SliceHost::new(
+            &services.slices,
+            &mut services.viewport,
+            &services.overlay_views,
+            &services.key_routes,
+            &services.trouper_system,
+        );
+        jinn_cwd::activate(&mut host);
+        if let Err(error) = host.finalize(&|_key| None) {
+            panic!("cwd slice finalize failed: {error}");
+        }
+    }
     app.core
         .state
         .write_test_no_cap()
         .frontend
-        .scope_push(FocusScope::CwdInput);
+        .scope_push(FocusScope::Dynamic(jinn_cwd::cwd_scope()));
     let (mut terminal, _area) = setup_term(80, 24);
 
     // When rendering.
@@ -265,7 +280,7 @@ async fn cwd_input_popup_renders_and_is_selectable() {
         .unwrap();
 
     // Then the cwd popup rect is registered as selectable.
-    let popup_rect = jinn_domain::feat::cwd_input::render::cwd_input_popup_rect(frame_area(80, 24));
+    let popup_rect = jinn_cwd::cwd_input_popup_rect(frame_area(80, 24));
     let probe = app
         .selectable_rects
         .find_for_position(popup_rect.x + 1, popup_rect.y + 1);

@@ -4,11 +4,11 @@ use crate::common::app_state::AppState;
 use crate::common::focus::FocusScope;
 use crate::common::line_input::LineInput;
 use crate::common::path_display::shorten_path;
-use crate::feat::cwd_input::resolve::{CwdResolution, resolve_cwd_input};
 use crate::feat::preferences_actor::protocol::command::{PreferenceUpdate, UpdatePreferences};
 use crate::feat::project::ProjectConfig;
 use crate::feat::project_add_input::state::ProjectAddInputState;
 use crate::protocol::IntentResult;
+use jinn_slices::{CwdResolution, resolve_cwd_input};
 
 /// Opens the project-add input popup.
 ///

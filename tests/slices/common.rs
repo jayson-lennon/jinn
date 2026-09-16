@@ -69,6 +69,7 @@ pub async fn launch_for_test(core: AppCore, mut services: jinn_domain::Services)
         activate_status_bar(&mut services);
         activate_scope_focus(&mut services);
         activate_chat_input(&mut services);
+        activate_cwd(&mut services);
         core.state
             .write_test_no_cap()
             .frontend
@@ -338,5 +339,20 @@ pub fn plain(ch: char) -> jinn_domain::KeyEvent {
     jinn_domain::KeyEvent {
         key: jinn_domain::Key::Char(ch),
         modifiers: jinn_domain::Modifiers::none(),
+    }
+}
+
+/// Activates the cwd slice on the harness services.
+pub fn activate_cwd(services: &mut jinn_domain::Services) {
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_cwd::activate(&mut host);
+    if let Err(error) = host.finalize(&|_key| None) {
+        panic!("cwd slice finalize failed: {error}");
     }
 }

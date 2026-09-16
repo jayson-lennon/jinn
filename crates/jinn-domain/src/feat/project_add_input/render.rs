@@ -3,8 +3,7 @@
 //! A centered overlay that lets the user type an absolute or relative path to
 //! register as a new project directory. A live-validation footer shows the
 //! resolved path (green check) or the reason it is invalid (red x) on every
-//! keystroke. Mirrors the layout of
-//! [`crate::feat::cwd_input::render`].
+//! keystroke. Mirrors the layout of the cwd slice's popup renderer.
 
 use crate::common::render_ctx::RenderCtx;
 use ratatui::Frame;
@@ -14,7 +13,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::feat::cwd_input::resolve::{CwdResolution, resolve_cwd_input};
+use jinn_slices::{CwdResolution, resolve_cwd_input};
 
 /// Horizontal padding fraction for the popup (20% each side).
 const POPUP_H_PAD_FRAC: f32 = 0.20;

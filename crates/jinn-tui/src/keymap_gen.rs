@@ -134,7 +134,6 @@ fn scopes_for_row<'a>(
                 Scope::ArgInput,
                 Scope::TokenBudgetInput,
                 Scope::RenameSessionInput,
-                Scope::CwdInput,
                 Scope::ProjectAddInput,
                 Scope::PrunerAccumulationInput,
                 Scope::SidebarResize,

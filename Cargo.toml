@@ -74,6 +74,7 @@ jinn-chat-input = { workspace = true }
 jinn-chat-log-view = { workspace = true }
 jinn-scope-focus = { workspace = true }
 jinn-sidebar = { workspace = true }
+jinn-cwd = { workspace = true }
 jinn-plugin = { workspace = true }
 jinn-plugin-api = { workspace = true }
 jinn-tui = { workspace = true }
@@ -155,6 +156,7 @@ jinn-chat-input = { path = "crates/slices/jinn-chat-input" }
 jinn-chat-log-view = { path = "crates/slices/jinn-chat-log-view" }
 jinn-scope-focus = { path = "crates/slices/jinn-scope-focus" }
 jinn-sidebar = { path = "crates/slices/jinn-sidebar" }
+jinn-cwd = { path = "crates/slices/jinn-cwd" }
 jinn-status-bar = { path = "crates/slices/jinn-status-bar" }
 jinn-slices = { path = "crates/jinn-slices" }
 jinn-session-msg = { path = "crates/jinn-session-msg" }

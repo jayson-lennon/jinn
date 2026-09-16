@@ -31,8 +31,6 @@ pub enum FocusScope {
     ArgInput,
     /// Rename session input popup - editing a session title.
     RenameSessionInput,
-    /// Cwd input popup - typing a directory path to change session cwd.
-    CwdInput,
     /// Project-add input popup - typing a directory path to register a new project.
     ProjectAddInput,
     /// Pruner accumulation threshold popup - numeric input for the KV-cache gate.
@@ -73,7 +71,6 @@ impl FocusScope {
             Self::Input
             | Self::ArgInput
             | Self::RenameSessionInput
-            | Self::CwdInput
             | Self::ProjectAddInput
             | Self::PrunerAccumulationInput
             // Dynamic scopes are input-capturing surfaces: a slice scope
@@ -101,7 +98,6 @@ impl std::fmt::Display for FocusScope {
             Self::Picker { kind } => write!(f, "Picker({kind})"),
             Self::ArgInput => write!(f, "ArgInput"),
             Self::RenameSessionInput => write!(f, "RenameSessionInput"),
-            Self::CwdInput => write!(f, "CwdInput"),
             Self::ProjectAddInput => write!(f, "ProjectAddInput"),
             Self::PrunerAccumulationInput => write!(f, "PrunerAccumulationInput"),
             Self::Dynamic(id) => write!(f, "Dynamic({id})"),

@@ -1,11 +1,30 @@
-//! Path resolution for the cwd input popup.
+//! CWD input popup vocabulary — the popup's edit state and the pure path
+//! resolver shared between the kernel's project-add popup and the cwd slice.
 //!
-//! Resolves a raw user-typed path into a canonical absolute directory path:
-//! `~` expansion, relative-to-current-cwd resolution, and canonicalize. Returns
-//! a [`CwdResolution`] so callers (live render validation, confirm handler) can
-//! distinguish the three outcomes (ok / not-a-directory / empty input).
+//! The kernel owns the popup-independent flows (the external `<M-c>`/`<M-d>`
+//! selector suspend in composition); the cwd slice owns the in-app popup.
+//! Both speak these types.
 
+use crate::SlotKey;
+use crate::line_input::LineInput;
 use std::path::{Path, PathBuf};
+
+/// The `cwd/state` slot: the in-app cwd popup's single edit state.
+#[must_use]
+pub fn cwds_slot() -> SlotKey {
+    SlotKey::builtin("cwd", "state")
+}
+
+/// State for the cwd input popup - editing a directory path.
+///
+/// The editable text and cursor live in [`LineInput`] (shared with the arg and
+/// rename session inputs) under the [`CwdInputState::text`] field; access via
+/// `.text.input` / `.text.cursor_pos`.
+#[derive(Debug, Clone, Default)]
+pub struct CwdInputState {
+    /// The editable text + cursor.
+    pub text: LineInput,
+}
 
 /// The outcome of resolving a cwd input string.
 ///
@@ -240,4 +259,26 @@ mod tests {
     fn canonicalize(p: &Path) -> PathBuf {
         std::fs::canonicalize(p).expect("test fixture dir must canonicalize")
     }
+}
+
+/// Shorten a path for display: replace the home directory prefix with `~`.
+///
+/// Paths under `$HOME` collapse to `~/…` (or just `~` when the path *is* the home
+/// directory); any other path is returned unchanged as a display string. Falls
+/// back to the raw path when `dirs::home_dir()` cannot be determined.
+///
+/// This is a pure display transform — [`resolve_cwd_input`] expands `~` back
+/// when resolving user input, so shortened paths round-trip.
+#[must_use]
+pub fn shorten_path(path: &Path) -> String {
+    if let Some(home) = dirs::home_dir()
+        && let Ok(relative) = path.strip_prefix(&home)
+    {
+        let display = relative.display().to_string();
+        if display.is_empty() {
+            return "~".to_owned();
+        }
+        return format!("~/{display}");
+    }
+    path.display().to_string()
 }

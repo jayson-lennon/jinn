@@ -99,6 +99,10 @@ impl<'a> RenderCtx<'a> {
                 ),
             },
             AppFact {
+                key: "session.cwd",
+                value: session.cwd().display().to_string(),
+            },
+            AppFact {
                 key: "session.lifecycle",
                 value: match session.lifecycle_name() {
                     None => "Lifecycle: <none>".to_owned(),

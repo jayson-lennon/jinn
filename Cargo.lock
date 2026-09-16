@@ -2560,6 +2560,7 @@ dependencies = [
  "jinn-chat-input",
  "jinn-chat-log-view",
  "jinn-cli",
+ "jinn-cwd",
  "jinn-dashboard",
  "jinn-discord",
  "jinn-discord-msg",
@@ -2661,6 +2662,23 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "jinn-cwd"
+version = "0.118.0"
+dependencies = [
+ "dirs",
+ "error-stack",
+ "jinn-core-types",
+ "jinn-slices",
+ "jinn-theme",
+ "ratatui",
+ "rstest",
+ "tempfile",
+ "tokio",
+ "unicode-segmentation",
+ "wherror",
 ]
 
 [[package]]
@@ -3029,6 +3047,7 @@ name = "jinn-slices"
 version = "0.118.0"
 dependencies = [
  "derive_more",
+ "dirs",
  "error-stack",
  "jiff",
  "jinn-core-types",
@@ -3039,6 +3058,7 @@ dependencies = [
  "ratatui",
  "rstest",
  "serde",
+ "tempfile",
  "tokio",
  "toml 0.8.23",
  "trouper",
@@ -3104,6 +3124,7 @@ dependencies = [
  "dirs",
  "error-stack",
  "futures",
+ "jinn-cwd",
  "jinn-domain",
  "jinn-picker",
  "jinn-selection-widget",

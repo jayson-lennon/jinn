@@ -62,7 +62,6 @@ pub enum Scope {
     /// Rename session input mode - editing a session title.
     RenameSessionInput,
     /// CWD input mode - typing a directory path.
-    CwdInput,
 
     /// A dynamically-registered slice's scope.
     ///
@@ -114,7 +113,6 @@ impl std::fmt::Display for Scope {
             Self::TokenBudgetInput => write!(f, "TokenBudgetInput"),
             Self::SidebarResize => write!(f, "SidebarResize"),
             Self::RenameSessionInput => write!(f, "RenameSessionInput"),
-            Self::CwdInput => write!(f, "CwdInput"),
             Self::ProjectAddInput => write!(f, "ProjectAddInput"),
             Self::PrunerAccumulationInput => write!(f, "PrunerAccumulationInput"),
         }
@@ -156,7 +154,6 @@ impl std::str::FromStr for Scope {
             "ArgInput" => Ok(Self::ArgInput),
             "TokenBudgetInput" => Ok(Self::TokenBudgetInput),
             "RenameSessionInput" => Ok(Self::RenameSessionInput),
-            "CwdInput" => Ok(Self::CwdInput),
             "ProjectAddInput" => Ok(Self::ProjectAddInput),
             "PrunerAccumulationInput" => Ok(Self::PrunerAccumulationInput),
             "SidebarResize" => Ok(Self::SidebarResize),

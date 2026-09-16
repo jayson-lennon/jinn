@@ -1,0 +1,22 @@
+[package]
+name = "jinn-cwd"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+jinn-slices = { workspace = true }
+jinn-theme = { workspace = true }
+jinn-core-types = { workspace = true }
+ratatui = { workspace = true }
+unicode-segmentation = { workspace = true }
+wherror = { workspace = true }
+error-stack = { workspace = true }
+rstest = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tempfile = { workspace = true }
+dirs = { workspace = true }
+
+[lints]
+workspace = true

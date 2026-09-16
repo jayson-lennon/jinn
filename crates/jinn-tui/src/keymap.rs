@@ -148,7 +148,6 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
             .describe_group_with_category("gc", "context", KeyCategory::Context)
             .bind("<leader>sl", Intent::OpenPicker { kind: PickerKind::SessionLifecycle }, KeyCategory::General)
             .describe_group_with_category("<leader>c", "change", KeyCategory::General)
-            .bind("<leader>cd", Intent::OpenCwdInput, KeyCategory::General)
             .bind("gg", Intent::ScrollToTop, KeyCategory::Navigation)
             .bind("G", Intent::ScrollToBottom, KeyCategory::Navigation)
             .bind("gmr", Intent::RefreshModels, KeyCategory::Model)
@@ -395,26 +394,6 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
         });
     });
 
-    // CwdInput scope - typing a directory path (mirrors ArgInput).
-    keymap.scope(Scope::CwdInput, |b| {
-        add_terminal_toggles(b);
-        b.bind("<esc>", Intent::CwdInputLeave, KeyCategory::General)
-            .bind("<enter>", Intent::CwdInputConfirm, KeyCategory::Input)
-            .bind("<left>", Intent::MoveCursorLeft, KeyCategory::Input)
-            .bind("<right>", Intent::MoveCursorRight, KeyCategory::Input)
-            .bind("<backspace>", Intent::DeleteGrapheme, KeyCategory::Input)
-            .bind("<delete>", Intent::DeleteGraphemeForward, KeyCategory::Input)
-            .bind("<c-j>", Intent::InsertChar { ch: '\n' }, KeyCategory::Input)
-            .bind("<c-c>", Intent::CtrlClear, KeyCategory::General)
-            .catch_all(|key: KeyEvent| {
-                if let Key::Char(c) = key.key {
-                    Some(Intent::InsertChar { ch: c })
-                } else {
-                    None
-                }
-            });
-    });
-
     // ProjectAddInput scope - clone of CwdInput, specialized for registering
     // a new project directory from inside the project picker (<c-n>).
     keymap.scope(Scope::ProjectAddInput, |b| {
@@ -607,7 +586,6 @@ mod tests {
     #[case(Scope::PickerPlugin)]
     #[case(Scope::ArgInput)]
     #[case(Scope::PrunerAccumulationInput)]
-    #[case(Scope::CwdInput)]
     #[case(Scope::ProjectAddInput)]
     #[case(Scope::TerminalView)]
     fn alt_t_resolves_in_every_non_terminal_scope(#[case] scope: Scope) {

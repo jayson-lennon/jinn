@@ -40,6 +40,20 @@ impl SliceActionState for AppState {
             .push_entry(crate::feat::session::chat_entry::ChatEntry::error(message));
     }
 
+    fn active_session_cwd(&self) -> std::path::PathBuf {
+        self.active_session().cwd().to_owned()
+    }
+
+    fn publish_session_cwd(
+        &self,
+        session_id: jinn_core_types::SessionId,
+        cwd: std::path::PathBuf,
+    ) -> jinn_slices::PublishClosure {
+        crate::common::bridge::Bridge::publish_closure(
+            crate::feat::session_lifecycle::protocol::command::SetSessionCwd { session_id, cwd },
+        )
+    }
+
     fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
         Some(self)
     }

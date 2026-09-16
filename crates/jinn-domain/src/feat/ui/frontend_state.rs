@@ -4,7 +4,6 @@ use parking_lot::RwLock;
 
 use crate::common::focus::FocusScope;
 use crate::common::tui_signals::TuiSignals;
-use crate::feat::cwd_input::state::CwdInputState;
 use crate::feat::preferences_actor::UserPreferences;
 use crate::feat::preferences_actor::app_state_file::AppStateFile;
 use crate::feat::project_add_input::state::ProjectAddInputState;
@@ -143,10 +142,6 @@ pub struct FrontendState {
     /// OWNER: IntentHandler (threshold input editing, confirmation).
     pub pruner_accumulation_input: PrunerAccumulationInputState,
 
-    /// Cwd input popup state - active when `FocusScope::CwdInput` is on the scope stack.
-    /// OWNER: IntentHandler (cwd input editing, confirmation).
-    pub cwd_input: CwdInputState,
-
     /// Project-add input popup state - active when `FocusScope::ProjectAddInput` is on
     /// the scope stack.
     /// OWNER: IntentHandler (project-add input editing, confirmation).
@@ -201,7 +196,6 @@ impl Default for FrontendState {
             system_themes_dir: std::path::PathBuf::new(),
             arg_input: ArgInputState::default(),
             pruner_accumulation_input: PrunerAccumulationInputState::default(),
-            cwd_input: CwdInputState::default(),
             project_add_input: ProjectAddInputState::default(),
             pending_creation: None,
             terminal: crate::feat::interactive_term::terminal_tab_state::TerminalTabState::default(

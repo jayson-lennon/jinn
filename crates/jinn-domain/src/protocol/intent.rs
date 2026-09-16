@@ -221,13 +221,6 @@ pub enum Intent {
     /// Delete the grapheme after the cursor in pruner accumulation input.
     PrunerAccumulationDeleteForward,
 
-    /// Open the cwd input popup (type a directory path).
-    OpenCwdInput,
-    /// Confirm the cwd input - resolve, validate, and apply.
-    CwdInputConfirm,
-    /// Cancel the cwd input popup.
-    CwdInputLeave,
-
     /// Confirm the project-add input - resolve, validate, and register.
     ProjectAddInputConfirm,
     /// Cancel the project-add input popup.
@@ -389,9 +382,6 @@ impl std::fmt::Display for Intent {
             Intent::PrunerAccumulationDeleteForward => {
                 write!(f, "pruner accumulation forward delete")
             }
-            Intent::OpenCwdInput => write!(f, "change cwd"),
-            Intent::CwdInputConfirm => write!(f, "cwd input confirm"),
-            Intent::CwdInputLeave => write!(f, "cwd input leave"),
             Intent::ProjectAddInputConfirm => write!(f, "project-add input confirm"),
             Intent::ProjectAddInputLeave => write!(f, "project-add input leave"),
 

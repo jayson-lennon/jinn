@@ -117,6 +117,8 @@ pub struct Slices {
     /// Overlay scope → the slot backing the overlay's content, so the
     /// render pass can resolve the scope's view through the viewport.
     overlay_slots: Arc<RwLock<HashMap<SliceScopeId, SlotKey>>>,
+    /// Overlay scopes whose rect registers as a selectable region.
+    overlay_selectable: Arc<RwLock<HashMap<SliceScopeId, bool>>>,
     /// Slice feature flags, set at activation from the slice's own
     /// config section. Read-model for gating decisions (e.g. a route
     /// action asking "is this slice enabled?").
@@ -293,6 +295,23 @@ impl Slices {
     #[must_use]
     pub fn overlay(&self, scope: &SliceScopeId) -> Option<OverlayFn> {
         self.overlays.read().get(scope).map(|e| e.0.clone())
+    }
+
+    /// Returns whether `scope`'s overlay rect registers as a selectable
+    /// region. Popups that render focusable content opt in at activation
+    /// (`register_overlay_selectable`); drawers default to `false`.
+    #[must_use]
+    pub fn overlay_selectable(&self, scope: &SliceScopeId) -> bool {
+        self.overlay_selectable
+            .read()
+            .get(scope)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// Marks `scope`'s overlay rect as selectable.
+    pub fn register_overlay_selectable(&self, scope: &SliceScopeId) {
+        self.overlay_selectable.write().insert(scope.clone(), true);
     }
 }
 

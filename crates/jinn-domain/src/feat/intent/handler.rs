@@ -304,55 +304,6 @@ impl IntentHandler {
                 crate::protocol::IntentResult::empty()
             }
 
-            Intent::InsertChar { ch }
-                if matches!(
-                    state.frontend.scope(),
-                    crate::common::app_state::FocusScope::CwdInput
-                ) =>
-            {
-                feat::cwd_input::intent::handle_insert_char(state, *ch)
-            }
-            Intent::DeleteGrapheme
-                if matches!(
-                    state.frontend.scope(),
-                    crate::common::app_state::FocusScope::CwdInput
-                ) =>
-            {
-                feat::cwd_input::intent::handle_delete(state)
-            }
-            Intent::DeleteGraphemeForward
-                if matches!(
-                    state.frontend.scope(),
-                    crate::common::app_state::FocusScope::CwdInput
-                ) =>
-            {
-                feat::cwd_input::intent::handle_delete_forward(state)
-            }
-            Intent::MoveCursorLeft
-                if matches!(
-                    state.frontend.scope(),
-                    crate::common::app_state::FocusScope::CwdInput
-                ) =>
-            {
-                feat::cwd_input::intent::handle_cursor_left(state)
-            }
-            Intent::MoveCursorRight
-                if matches!(
-                    state.frontend.scope(),
-                    crate::common::app_state::FocusScope::CwdInput
-                ) =>
-            {
-                feat::cwd_input::intent::handle_cursor_right(state)
-            }
-            Intent::EnterNormalMode
-                if matches!(
-                    state.frontend.scope(),
-                    crate::common::app_state::FocusScope::CwdInput
-                ) =>
-            {
-                // ESC cancels cwd input - pop scope, clear state.
-                feat::cwd_input::intent::handle_cwd_input_leave(state)
-            }
 
             Intent::InsertChar { ch }
                 if matches!(
@@ -438,9 +389,6 @@ impl IntentHandler {
                 }
                 crate::common::app_state::FocusScope::ArgInput => {
                     feat::session_lifecycle::intent::handle_arg_input_paste(state, text)
-                }
-                crate::common::app_state::FocusScope::CwdInput => {
-                    feat::cwd_input::intent::handle_paste(state, text)
                 }
                 crate::common::app_state::FocusScope::ProjectAddInput => {
                     feat::project_add_input::intent::handle_paste(state, text)
@@ -652,9 +600,6 @@ impl IntentHandler {
                 feat::pruner_accumulation_input::intent::handle_delete_forward(state)
             }
 
-            Intent::OpenCwdInput => feat::cwd_input::intent::handle_cwd_input_enter(state),
-            Intent::CwdInputConfirm => feat::cwd_input::intent::handle_cwd_input_confirm(state),
-            Intent::CwdInputLeave => feat::cwd_input::intent::handle_cwd_input_leave(state),
 
             Intent::ProjectAddInputConfirm => {
                 feat::project_add_input::intent::handle_project_add_input_confirm(state)

@@ -332,7 +332,6 @@ pub fn scope_for_focus(focus: &jinn_domain::FocusScope) -> Scope {
         FocusScope::SidebarMcpServers => Scope::SidebarMcpServers,
         FocusScope::ArgInput => Scope::ArgInput,
         FocusScope::RenameSessionInput => Scope::RenameSessionInput,
-        FocusScope::CwdInput => Scope::CwdInput,
         FocusScope::ProjectAddInput => Scope::ProjectAddInput,
         FocusScope::PrunerAccumulationInput => Scope::PrunerAccumulationInput,
         // Dynamic slice scopes pass their identity through unchanged.

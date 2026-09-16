@@ -21,9 +21,11 @@ toml = { workspace = true }
 wherror = { workspace = true }
 error-stack = { workspace = true }
 uuid = { workspace = true }
+dirs = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

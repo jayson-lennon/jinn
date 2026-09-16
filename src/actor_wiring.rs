@@ -256,6 +256,7 @@ impl ActorSystemBuilder {
         jinn_scope_focus_activate(&mut services);
         jinn_chat_log_view_activate(&mut services, &state);
         jinn_chat_input_activate(&mut services);
+        jinn_cwd_activate(&mut services);
 
         // Quake bar slice: activation mints the cell, spawns the actor
         // (submit-log writer), attaches rows, and registers the input
@@ -1531,6 +1532,21 @@ fn jinn_chat_log_view_activate(services: &mut Services, state: &jinn_domain::Sta
 /// Activates the chat-input slice: its state cell only. No routes, no
 /// actors, no view. The session map already carries the attached registry
 /// handle, so every session's input facade resolves the cell.
+fn jinn_cwd_activate(services: &mut Services) {
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_cwd::activate(&mut host);
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("cwd slice finalize failed: {error}");
+    }
+}
+
 fn jinn_chat_input_activate(services: &mut Services) {
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,

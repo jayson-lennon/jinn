@@ -305,12 +305,6 @@ fn render_active_overlay(
             );
             Some(jinn_domain::feat::pruner_accumulation_input::render::pruner_accumulation_popup_rect(area))
         }
-        FocusScope::CwdInput => {
-            jinn_domain::feat::cwd_input::render::render_cwd_input(frame, area, ctx);
-            Some(jinn_domain::feat::cwd_input::render::cwd_input_popup_rect(
-                area,
-            ))
-        }
         FocusScope::ProjectAddInput => {
             jinn_domain::feat::project_add_input::render::render_project_add_input(
                 frame, area, ctx,
@@ -326,13 +320,14 @@ fn render_active_overlay(
         FocusScope::Dynamic(id) => {
             // Slice overlays: consult the geometry fn + renderer the
             // scope's slice registered at activation. A dynamic scope
-            // without either renders nothing.
+            // without either renders nothing. The rect is selectable only
+            // when the slice opted in at activation.
             let overlay = ctx.slices.overlay(id)?;
             let overlay_area = overlay(&area)?;
             let view = ctx.overlay_view(id)?;
             let facts = ctx.facts();
             view(frame, overlay_area, &facts);
-            None
+            ctx.slices.overlay_selectable(id).then_some(overlay_area)
         }
         _ => None,
     }
