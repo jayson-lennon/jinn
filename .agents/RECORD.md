@@ -366,3 +366,5 @@ Entries are added or amended **only with human approval**.
 - (tools) Terminal control (user takeover) is tracked per chat session; a takeover or handback in one session never affects another session's in-flight interactive_term calls.
 - (tools) Closing a session kills its live interactive_term terminal; the coordinator subscribes to SessionClosed.
 - (tools) The interactive_term tool guidance warns models not to append shell redirections, pipes, or grep (the tool returns the rendered screen, so piped output is silently lost) and advertises the no-argument interactive_term_send call as an anytime screen snapshot; the usage footer on every result repeats both.
+- (slices) The theme slice is a kernel-free crate loading theme files from the configured directories at activation into one cell; the theme picker and the app-state actor read the cell.
+- (plugins) The theme-loader plugin no longer exists; themes load directly from disk at boot, and the plugin wire contract no longer carries theme entries.
