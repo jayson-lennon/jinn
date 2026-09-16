@@ -14,7 +14,7 @@ pub use crate::common::session_map::SessionLoadGuard;
 pub use crate::feat::context::assembly_state::ContextAssemblyState;
 pub use crate::feat::provider::ProviderState;
 pub use crate::feat::pruner_accumulation_input::state::PrunerAccumulationInputState;
-pub use crate::feat::rename_session_input::state::RenameSessionInputState;
+pub use jinn_slices::sidebar_sections::RenameSessionInputState;
 
 pub use crate::feat::session_lifecycle::arg_input_state::ArgInputState;
 pub use crate::feat::ui::frontend_state::{FrontendCaches, FrontendState};

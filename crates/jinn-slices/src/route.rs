@@ -166,6 +166,14 @@ pub trait SliceActionState {
     fn active_session_id(&self) -> jinn_core_types::SessionId;
     /// Pushes an error line into the active session's chat history.
     fn push_session_error(&mut self, message: &str);
+
+    /// Downcast hook: slices that must drive concrete kernel behavior
+    /// (e.g. the sidebar's session activation, which both mutates state
+    /// and returns commands) request the kernel's application state by
+    /// type. Returns `None` when this implementor is not that state.
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        None
+    }
 }
 
 /// A user-initiated action belonging to a dynamically-registered slice.
@@ -210,7 +218,7 @@ impl std::fmt::Display for DynamicIntent {
 /// handler translates from its own enum before consulting the hook.
 /// This keeps `jinn-slices` free of the kernel's intent enum while
 /// preserving the hooks' synchronous write carve-out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditIntent {
     /// Insert a character at the cursor.
     InsertChar(char),
@@ -226,6 +234,8 @@ pub enum EditIntent {
     CursorHome,
     /// Move the cursor to the end of the input.
     CursorEnd,
+    /// Insert pasted text at the cursor.
+    Paste(String),
 }
 
 /// The outcome a route action produces: messages to publish, plus an
@@ -622,6 +632,10 @@ mod tests {
             Some("test".to_owned())
         }
 
+        fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+            Some(self)
+        }
+
         fn active_session_id(&self) -> jinn_core_types::SessionId {
             jinn_core_types::SessionId::new()
         }
@@ -629,6 +643,44 @@ mod tests {
         fn push_session_error(&mut self, message: &str) {
             self.errors.push(message.to_owned());
         }
+    }
+
+    #[derive(Debug, Default)]
+    struct OtherState;
+
+    impl SliceActionState for OtherState {
+        fn active_session_title(&self) -> Option<String> {
+            None
+        }
+
+        fn active_session_id(&self) -> jinn_core_types::SessionId {
+            jinn_core_types::SessionId::new()
+        }
+
+        fn push_session_error(&mut self, _message: &str) {}
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn as_any_mut_downcasts_only_when_implemented() {
+        // Given a TestState behind the trait.
+        let mut test = TestState::default();
+        let test: &mut dyn SliceActionState = &mut test;
+
+        // When downcasting to the concrete type.
+        let down = test
+            .as_any_mut()
+            .and_then(|any| any.downcast_mut::<TestState>());
+
+        // Then the concrete state resolves.
+        assert!(down.is_some());
+
+        // Given a state without the hook.
+        let mut other = OtherState;
+        let other: &mut dyn SliceActionState = &mut other;
+
+        // Then the downcast is None.
+        assert!(other.as_any_mut().is_none());
     }
 
     #[rstest::rstest]

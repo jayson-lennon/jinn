@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 jinn-domain = { workspace = true }
+jinn-sidebar = { workspace = true }
 jinn-status-bar = { workspace = true }
 jinn-picker = { workspace = true }
 jinn-slices = { workspace = true }

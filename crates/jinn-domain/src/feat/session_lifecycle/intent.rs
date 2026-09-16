@@ -13,13 +13,13 @@ use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::chat_session::LifecycleScriptState;
 use crate::feat::session::profile::{DEFAULT_PERSONA_NAME, SessionProfile};
 use crate::feat::session::session_actor::setup_running_msg;
+use crate::feat::session::sessions_list::close::validate_session_close;
+use crate::feat::session::sessions_list::state::sorted_open_sessions;
 use crate::feat::session_lifecycle::command_template::{CommandTemplate, parse_quoted_args};
 use crate::feat::session_lifecycle::protocol::command::{
     PersistSession, RunSessionSetup, RunSessionTeardown,
 };
 use crate::feat::session_lifecycle::protocol::event::SessionCreated;
-use crate::feat::ui::sidebar::sessions::close::validate_session_close;
-use crate::feat::ui::sidebar::sessions::state::sorted_open_sessions;
 use crate::protocol::{IntentResult, SessionId};
 
 /// Errors that can occur when validating arg input.

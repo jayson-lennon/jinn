@@ -44,6 +44,7 @@ pub mod render_facts;
 pub mod route;
 pub mod scope_focus_state;
 pub mod service_status;
+pub mod sessions_list_state;
 pub mod sidebar_section_id;
 pub mod sidebar_sections;
 pub mod slice_scope;
@@ -84,6 +85,9 @@ pub use render_facts::AppFact;
 pub use render_facts::RenderFacts;
 pub use scope_focus_state::ScopeFocusState;
 pub use scope_focus_state::scope_focus_slot;
+pub use sessions_list_state::{
+    ArchiveTreePrompt, SessionEntry, SessionPreviewCache, TreePromptAction,
+};
 pub use sidebar_section_id::SidebarSectionId;
 pub use sidebar_sections::McpServersSectionState;
 pub use sidebar_sections::PersonaSectionState;

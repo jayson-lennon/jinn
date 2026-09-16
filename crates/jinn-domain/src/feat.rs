@@ -38,7 +38,6 @@ pub mod rename_session_input;
 pub mod session;
 pub mod session_lifecycle;
 pub mod session_search;
-pub mod sidebar_resize;
 pub mod skills;
 pub mod theme;
 pub mod todo_list;

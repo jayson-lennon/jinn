@@ -14,10 +14,8 @@ pub mod which_key;
 
 pub use app_layout::{AppFrameLayout, AppLayout, MIN_HEIGHT, MIN_WIDTH, TabLayout};
 
-use jinn_domain::{
-    AppUiRegistry, FocusScope, Mode, RenderCtx, feat::ui::picker_states::PickerExt,
-    feat::ui::sidebar::Sidebar,
-};
+use jinn_domain::{AppUiRegistry, FocusScope, Mode, RenderCtx, feat::ui::picker_states::PickerExt};
+use jinn_sidebar::sections::Sidebar;
 use ratatui::{Frame, layout::Rect};
 
 use crate::TuiApp;
@@ -142,7 +140,7 @@ fn apply_pre_render_mutation(app: &mut TuiApp, area: Rect) {
                     .active_session()
                     .update_input(|i| i.scroll_to_cursor(inner_height));
             }
-            jinn_domain::feat::ui::sidebar::task_list_section::preview::write_preview_geometry(
+            jinn_sidebar::sections::task_list_section::preview::write_preview_geometry(
                 &mut wstate,
                 area,
                 chat.sidebar,
@@ -249,25 +247,25 @@ fn render_base_layers(
                 rects,
             );
             chat_tab::render_chat_tab(ui_registry, frame, chat, ctx, rects);
-            jinn_domain::feat::ui::sidebar::sessions::render_archive_tree_prompt_for_state(
+            jinn_sidebar::sections::sessions::render_archive_tree_prompt_for_state(
                 frame,
                 chat.sidebar,
                 frame_area,
                 ctx,
             );
-            jinn_domain::feat::ui::sidebar::sessions::render_close_session_prompt_for_state(
+            jinn_sidebar::sections::sessions::render_close_session_prompt_for_state(
                 frame,
                 chat.sidebar,
                 frame_area,
                 ctx,
             );
-            jinn_domain::feat::ui::sidebar::sessions::render_session_preview_for_state(
+            jinn_sidebar::sections::sessions::render_session_preview_for_state(
                 frame,
                 chat.sidebar,
                 frame_area,
                 ctx,
             );
-            jinn_domain::feat::ui::sidebar::task_list_section::preview::render_task_list_preview_for_state(
+            jinn_sidebar::sections::task_list_section::preview::render_task_list_preview_for_state(
                 frame,
                 chat.sidebar,
                 frame_area,
@@ -296,10 +294,10 @@ fn render_active_overlay(
             Some(jinn_domain::feat::session_lifecycle::render::arg_input_popup_rect(area, ctx))
         }
         FocusScope::RenameSessionInput => {
-            jinn_domain::feat::rename_session_input::render::render_rename_session_input(
+            jinn_sidebar::sections::rename_input::render::render_rename_session_input(
                 frame, area, ctx,
             );
-            Some(jinn_domain::feat::rename_session_input::render::rename_session_popup_rect(area))
+            Some(jinn_sidebar::sections::rename_input::render::rename_session_popup_rect(area))
         }
         FocusScope::PrunerAccumulationInput => {
             jinn_domain::feat::pruner_accumulation_input::render::render_pruner_accumulation_input(

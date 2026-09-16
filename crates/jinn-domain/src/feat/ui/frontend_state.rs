@@ -9,7 +9,6 @@ use crate::feat::preferences_actor::UserPreferences;
 use crate::feat::preferences_actor::app_state_file::AppStateFile;
 use crate::feat::project_add_input::state::ProjectAddInputState;
 use crate::feat::pruner_accumulation_input::state::PrunerAccumulationInputState;
-use crate::feat::rename_session_input::state::RenameSessionInputState;
 use jinn_slices::SidebarSectionId;
 
 use crate::feat::session_lifecycle::arg_input_state::ArgInputState;
@@ -40,8 +39,7 @@ pub struct FrontendCaches {
     pub skill_preview_cache:
         std::sync::Arc<crate::feat::skills::skill_preview_cache::SkillPreviewCache>,
     /// Cached rendered lines for session preview popups.
-    pub session_preview_cache:
-        RwLock<crate::feat::ui::sidebar::sessions::preview::SessionPreviewCache>,
+    pub session_preview_cache: RwLock<jinn_slices::SessionPreviewCache>,
 }
 
 impl FrontendCaches {
@@ -117,8 +115,7 @@ pub struct FrontendState {
     /// subtree is streaming). OWNER: IntentHandler (set on first
     /// SidebarSessionArchiveTree, consumed on second SidebarSessionArchiveTree,
     /// dismissed on any other key).
-    pub archive_tree_prompt:
-        Option<crate::feat::ui::sidebar::sessions::archive_tree::ArchiveTreePrompt>,
+    pub archive_tree_prompt: Option<jinn_slices::ArchiveTreePrompt>,
 
     /// All picker state - grouped for independent evolution.
     /// Use [`PickerExt`](super::picker_states::PickerExt) to access picker fields.
@@ -140,7 +137,6 @@ pub struct FrontendState {
 
     /// Rename session input popup state - active when `FocusScope::RenameSessionInput` is on the scope stack.
     /// OWNER: IntentHandler (rename input editing, confirmation).
-    pub rename_session_input: RenameSessionInputState,
 
     /// Pruner accumulation threshold input popup state - active when
     /// `FocusScope::PrunerAccumulationInput` is on the scope stack.
@@ -204,7 +200,6 @@ impl Default for FrontendState {
             themes_dir: std::path::PathBuf::new(),
             system_themes_dir: std::path::PathBuf::new(),
             arg_input: ArgInputState::default(),
-            rename_session_input: RenameSessionInputState::default(),
             pruner_accumulation_input: PrunerAccumulationInputState::default(),
             cwd_input: CwdInputState::default(),
             project_add_input: ProjectAddInputState::default(),

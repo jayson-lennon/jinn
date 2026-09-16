@@ -36,38 +36,6 @@ pub enum KeyCategory {
     ChatHistory,
 }
 
-/// Builds and returns the full keymap with all scope bindings.
-/// Adds shared sidebar keybindings common to all sidebar section scopes.
-///
-/// Includes: quit, help, navigation (j/k/J/K), escape, tab switching,
-/// pane navigation, sidebar resize, and input mode entry.
-fn add_sidebar_base(b: &mut ratatui_which_key::ScopeBuilder<KeyEvent, Scope, Intent, KeyCategory>) {
-    b
-        // General - app control
-        .bind("q", Intent::Quit, KeyCategory::General)
-        .bind("<c-c>", Intent::Quit, KeyCategory::General)
-        .bind("?", Intent::ToggleWhichkey, KeyCategory::General)
-        // Navigation - within section and between sections
-        .bind("j", Intent::SidebarMoveDown, KeyCategory::Navigation)
-        .bind("k", Intent::SidebarMoveUp, KeyCategory::Navigation)
-        .bind("J", Intent::SidebarSectionNext, KeyCategory::Navigation)
-        .bind("K", Intent::SidebarSectionPrev, KeyCategory::Navigation)
-        .bind("<esc>", Intent::SidebarLeave, KeyCategory::General)
-        // Pane navigation - focus back to chat
-        .bind("<c-h>", Intent::SidebarLeave, KeyCategory::Navigation)
-        // Sidebar resize
-        .bind("<c-w>", Intent::SidebarResizeEnter, KeyCategory::Navigation)
-        // Input - enter input mode
-        .bind("i", Intent::EnterInsertMode, KeyCategory::Input)
-        // Direct jump to Sessions section
-        .bind(
-            "<M-s>",
-            Intent::SidebarFocusSessions,
-            KeyCategory::Navigation,
-        );
-    add_terminal_toggles(b);
-}
-
 /// Adds shared picker keybindings common to all picker scopes.
 ///
 /// Includes: escape, confirm, navigation (up/down), cursor (left/right),
@@ -188,10 +156,6 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
             .bind("gcp", Intent::OpenPrunerAccumulationInput, KeyCategory::Context)
             // Isolate selected entry: force-include its tool loop, force-exclude the rest
             .bind("gci", Intent::ChatEntryIsolateSelected, KeyCategory::Context)
-            .bind("<c-l>", Intent::SidebarFocus, KeyCategory::Navigation)
-            .bind("<M-s>", Intent::SidebarFocusSessions, KeyCategory::Navigation)
-            // Sidebar resize
-            .bind("<c-w>", Intent::SidebarResizeEnter, KeyCategory::Navigation)
             // Minimap navigation
             // Pin selected entry
             .bind("p", Intent::ChatEntryPinSelected, KeyCategory::ChatHistory)
@@ -240,91 +204,19 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
             add_terminal_toggles(b);
         })
         // Sidebar - Persona section
-        .scope(Scope::SidebarPersona, |b| {
-            add_sidebar_base(b);
-            b
-            // Persona-specific actions
-            .bind("c", Intent::SidebarPersonaEdit, KeyCategory::Sidebar);
-        })
+        
         // Sidebar - Pins section
-        .scope(Scope::SidebarPins, |b| {
-            add_sidebar_base(b);
-            b
-            // Pin management actions
-            .bind("u", Intent::PinsUnpin, KeyCategory::Sidebar)
-            .bind("t", Intent::PinsPinTop, KeyCategory::Sidebar)
-            .bind("b", Intent::PinsPinBottom, KeyCategory::Sidebar)
-            .bind("r", Intent::PinsPinRelative, KeyCategory::Sidebar)
-            .bind("m", Intent::PinsPinCycle, KeyCategory::Sidebar)
-            // Leave sidebar to Normal at the pin's position (same as <c-h>/<esc>).
-            .bind("<enter>", Intent::SidebarLeave, KeyCategory::General);
-        })
+        
         // Sidebar - Sessions section
-        .scope(Scope::SidebarSessions, |b| {
-            add_sidebar_base(b);
-            b
-            // Session management actions
-            .bind("x", Intent::SidebarSessionClose, KeyCategory::Sidebar)
-            .bind("X", Intent::SidebarSessionTeardownTree, KeyCategory::Sidebar)
-            .bind("t", Intent::SidebarSessionTeardown, KeyCategory::Sidebar)
-            .describe_group_with_category("p", "sessions", KeyCategory::Sidebar)
-            .bind("<enter>", Intent::SidebarSessionConfirm, KeyCategory::Sidebar)
-            .bind("n", Intent::SessionNew, KeyCategory::Sidebar)
-            .bind("N", Intent::SessionNewWithLifecycle, KeyCategory::Sidebar)
-            .bind("r", Intent::SidebarRenameSession, KeyCategory::Sidebar)
-            .bind("a", Intent::SidebarSessionArchive, KeyCategory::Sidebar)
-            .bind("A", Intent::SidebarSessionArchiveTree, KeyCategory::Sidebar)
-            .bind("c", Intent::SidebarSessionContinue, KeyCategory::Sidebar)
-            .bind("s", Intent::SidebarSessionRerunSetup, KeyCategory::Sidebar)
-
-            // T toggles the terminal overlay for the selected session.
-            .bind("T", Intent::ToggleTerminalOverlayForSelected, KeyCategory::Sidebar)
-            // i activates session and enters insert mode
-            .bind("i", Intent::SidebarConfirmInsert, KeyCategory::Sidebar)
-            // Unmapped character keys produce NoOp to dismiss confirmation prompts
-            .catch_all(|key: KeyEvent| {
-                if let Key::Char(_) = key.key {
-                    Some(Intent::NoOp)
-                } else {
-                    None
-                }
-            });
-        })
+        
         // Sidebar - Task list section
-        .scope(Scope::SidebarTaskList, |b| {
-            add_sidebar_base(b);
-            // Open full-screen task list browser
-            b.bind(
-                "s",
-                Intent::OpenPicker { kind: jinn_domain::feat::picker::PickerKind::TaskList },
-                KeyCategory::Sidebar,
-            )
-            // Scroll the task list preview popup (left of the sidebar).
-            .bind(
-                "<pgup>",
-                Intent::TaskListPreviewScrollUp,
-                KeyCategory::Navigation,
-            )
-            .bind(
-                "<pgdn>",
-                Intent::TaskListPreviewScrollDown,
-                KeyCategory::Navigation,
-            );
-            b.bind(
-                "s",
-                Intent::OpenPicker { kind: jinn_domain::feat::picker::PickerKind::TaskList },
-                KeyCategory::Sidebar,
-            );
-        })
+        
         // Sidebar - MCP servers section (read-only in Part 1: nav only).
-        .scope(Scope::SidebarMcpServers, |b| {
-            add_sidebar_base(b);
-        })
+        
         // Input scope: typing into the input buffer
         .scope(Scope::Input, |b| {
             b.bind("<enter>", Intent::SubmitMessage, KeyCategory::Input)
                 .bind("<M-q>", Intent::ToggleInputMode, KeyCategory::Input)
-                .bind("<M-s>", Intent::SidebarFocusSessions, KeyCategory::Navigation)
             .bind("<s-enter>", Intent::InsertChar { ch: '\n' }, KeyCategory::Input)
             .bind("<c-enter>", Intent::InsertChar { ch: '\n' }, KeyCategory::Input)
             .bind("<esc>", Intent::EnterNormalMode, KeyCategory::General)
@@ -350,7 +242,6 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
             .bind("<tab>", Intent::AutocompleteConfirm, KeyCategory::Input)
             .bind("<c-u>", Intent::ScrollUp, KeyCategory::Navigation)
             .bind("<c-d>", Intent::ScrollDown, KeyCategory::Navigation)
-            .bind("<c-l>", Intent::SidebarFocus, KeyCategory::Navigation)
 
             .bind("<c-j>", Intent::InsertChar { ch: '\n' }, KeyCategory::Input)
             .catch_all(|key: KeyEvent| {
@@ -478,37 +369,6 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
         .catch_all(|key: KeyEvent| {
             if let Key::Char(c) = key.key {
                 Some(Intent::InsertChar { ch: c })
-            } else {
-                None
-            }
-        });
-    });
-
-    // SidebarResize scope - adjusting sidebar width.
-    keymap.scope(Scope::SidebarResize, |b| {
-        add_terminal_toggles(b);
-        b
-        .bind("h", Intent::SidebarResizeExpand, KeyCategory::Sidebar)
-        .bind("l", Intent::SidebarResizeContract, KeyCategory::Sidebar)
-        .bind("<esc>", Intent::SidebarResizeLeave, KeyCategory::Sidebar)
-        .bind("<c-c>", Intent::Quit, KeyCategory::General);
-    });
-
-    // RenameSessionInput scope - editing a session title.
-    keymap.scope(Scope::RenameSessionInput, |b| {
-        add_terminal_toggles(b);
-        b
-        .bind("<esc>", Intent::RenameSessionLeave, KeyCategory::General)
-        .bind("<enter>", Intent::RenameSessionConfirm, KeyCategory::Input)
-        .bind("<left>", Intent::RenameCursorLeft, KeyCategory::Input)
-        .bind("<right>", Intent::RenameCursorRight, KeyCategory::Input)
-        .bind("<backspace>", Intent::RenameDeleteGrapheme, KeyCategory::Input)
-        .bind("<delete>", Intent::RenameDeleteForward, KeyCategory::Input)
-        .bind("<c-j>", Intent::RenameInsertChar { ch: '\n' }, KeyCategory::Input)
-        .bind("<c-c>", Intent::CtrlClear, KeyCategory::General)
-        .catch_all(|key: KeyEvent| {
-            if let Key::Char(c) = key.key {
-                Some(Intent::RenameInsertChar { ch: c })
             } else {
                 None
             }
@@ -655,7 +515,7 @@ mod tests {
             },
         };
 
-        for scope in [Scope::Normal, Scope::Input, Scope::SidebarSessions] {
+        for scope in [Scope::Normal, Scope::Input] {
             // Given the default keymap starting in `scope`.
             let keymap = init();
             let mut wk = WhichKeyInstance::new(keymap, scope.clone());
@@ -732,11 +592,6 @@ mod tests {
     #[rstest::rstest]
     #[case(Scope::Normal)]
     #[case(Scope::Input)]
-    #[case(Scope::SidebarPersona)]
-    #[case(Scope::SidebarPins)]
-    #[case(Scope::SidebarSessions)]
-    #[case(Scope::SidebarTaskList)]
-    #[case(Scope::SidebarMcpServers)]
     #[case(Scope::PickerProvider)]
     #[case(Scope::PickerSession)]
     #[case(Scope::PickerPersona)]
@@ -751,8 +606,6 @@ mod tests {
     #[case(Scope::PickerMcpServer)]
     #[case(Scope::PickerPlugin)]
     #[case(Scope::ArgInput)]
-    #[case(Scope::SidebarResize)]
-    #[case(Scope::RenameSessionInput)]
     #[case(Scope::PrunerAccumulationInput)]
     #[case(Scope::CwdInput)]
     #[case(Scope::ProjectAddInput)]
@@ -891,26 +744,6 @@ mod tests {
     /// The sidebar `T` key resolves to the selected-session overlay toggle.
     #[rstest::rstest]
     #[test]
-    fn sidebar_upper_t_resolves_to_selected_session_overlay_toggle() {
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, Modifiers};
-
-        // Given the default keymap in the SidebarSessions scope.
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::SidebarSessions);
-
-        // When pressing 'T'.
-        let intent = wk.handle_key(jinn_domain::KeyEvent {
-            key: Key::Char('T'),
-            modifiers: Modifiers::none(),
-        });
-
-        // Then the selected-session overlay toggle fires (not NoOp).
-        assert!(matches!(
-            intent,
-            Some(Intent::ToggleTerminalOverlayForSelected)
-        ));
-    }
 
     /// `T` inside the overlay resolves to the toggle (same intent as the
     /// sidebar key), so the overlay closes from inside it.
@@ -994,64 +827,6 @@ mod tests {
         assert!(
             matches!(intent, Intent::ToggleTerminalOverlay { session_id: None }),
             "<M-t> must resolve to the overlay toggle, not InsertChar; got {intent:?}",
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn task_list_scope_pgup_fires_preview_scroll_up() {
-        // Given a keymap queried in SidebarTaskList scope.
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::SidebarTaskList);
-
-        // When pressing PageUp.
-        let pgup = KeyEvent {
-            key: Key::PageUp,
-            modifiers: Modifiers {
-                ctrl: false,
-                alt: false,
-                shift: false,
-            },
-        };
-        let intent = wk.handle_key(pgup);
-
-        // Then it resolves to TaskListPreviewScrollUp.
-        let intent = intent.expect("PageUp in SidebarTaskList scope must fire an intent");
-        assert!(
-            matches!(intent, Intent::TaskListPreviewScrollUp),
-            "PageUp must resolve to TaskListPreviewScrollUp; got {intent:?}",
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn task_list_scope_pgdn_fires_preview_scroll_down() {
-        // Given a keymap queried in SidebarTaskList scope.
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::SidebarTaskList);
-
-        // When pressing PageDown.
-        let pgdn = KeyEvent {
-            key: Key::PageDown,
-            modifiers: Modifiers {
-                ctrl: false,
-                alt: false,
-                shift: false,
-            },
-        };
-        let intent = wk.handle_key(pgdn);
-
-        // Then it resolves to TaskListPreviewScrollDown.
-        let intent = intent.expect("PageDown in SidebarTaskList scope must fire an intent");
-        assert!(
-            matches!(intent, Intent::TaskListPreviewScrollDown),
-            "PageDown must resolve to TaskListPreviewScrollDown; got {intent:?}",
         );
     }
 

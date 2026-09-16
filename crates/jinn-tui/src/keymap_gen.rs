@@ -29,10 +29,10 @@ use jinn_domain::Intent;
 /// intents (shared-chrome keys like `q` → quit).
 fn static_intent(route_id: &str) -> Option<Intent> {
     match route_id {
-        "dashboard:quit" => Some(Intent::Quit),
+        "dashboard:quit" | "sidebar:quit" => Some(Intent::Quit),
         "dashboard:switch-tab" => Some(Intent::SwitchTab),
-        "dashboard:which-key" => Some(Intent::ToggleWhichkey),
-        "quake-bar:ctrl-clear" => Some(Intent::CtrlClear),
+        "dashboard:which-key" | "sidebar:which-key" => Some(Intent::ToggleWhichkey),
+        "quake-bar:ctrl-clear" | "sidebar:ctrl-clear" => Some(Intent::CtrlClear),
         _ => None,
     }
 }

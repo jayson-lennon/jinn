@@ -1387,9 +1387,9 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
             &services.bus,
             "sidebar-state",
             "SidebarStateActor",
-            jinn_domain::feat::ui::sidebar::sidebar_state_actor::SidebarStateActor::supervise(
+            jinn_sidebar::sections::sidebar_state_actor::SidebarStateActor::supervise(
                 &root,
-                jinn_domain::feat::ui::sidebar::sidebar_state_actor::SidebarStateActorDeps {
+                jinn_sidebar::sections::sidebar_state_actor::SidebarStateActorDeps {
                     deps: actor_deps.clone(),
                     state: state.clone(),
                     frontend_cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),

@@ -31,7 +31,7 @@
 
 use crate::AppState;
 
-use crate::protocol::{PickerKind, PinPosition, ScopeSignal};
+use crate::protocol::{PickerKind, ScopeSignal};
 
 use crate::Intent;
 use crate::feat;
@@ -439,9 +439,6 @@ impl IntentHandler {
                 crate::common::app_state::FocusScope::ArgInput => {
                     feat::session_lifecycle::intent::handle_arg_input_paste(state, text)
                 }
-                crate::common::app_state::FocusScope::RenameSessionInput => {
-                    feat::rename_session_input::intent::handle_paste(state, text)
-                }
                 crate::common::app_state::FocusScope::CwdInput => {
                     feat::cwd_input::intent::handle_paste(state, text)
                 }
@@ -511,99 +508,34 @@ impl IntentHandler {
                 feat::session::intent::handle_rescan_prompt_templates(state)
             }
 
-            Intent::SidebarFocus => feat::ui::sidebar::intent::handle_sidebar_focus(state),
-            Intent::SidebarFocusSessions => {
-                feat::ui::sidebar::intent::handle_sidebar_focus_sessions(state)
-            }
-            Intent::SidebarLeave => feat::ui::sidebar::intent::handle_sidebar_leave(state),
-            Intent::SidebarMoveDown => {
-                feat::ui::sidebar::navigate_sidebar(
-                    &feat::ui::sidebar::SidebarIntent::MoveDown,
-                    state,
-                );
-                IntentResult::empty()
-            }
-            Intent::SidebarMoveUp => {
-                feat::ui::sidebar::navigate_sidebar(
-                    &feat::ui::sidebar::SidebarIntent::MoveUp,
-                    state,
-                );
-                IntentResult::empty()
-            }
-            Intent::SidebarSectionNext => {
-                feat::ui::sidebar::jump_to_section(
-                    &feat::ui::sidebar::SidebarIntent::MoveDown,
-                    state,
-                );
-                IntentResult::empty()
-            }
-            Intent::SidebarSectionPrev => {
-                feat::ui::sidebar::jump_to_section(
-                    &feat::ui::sidebar::SidebarIntent::MoveUp,
-                    state,
-                );
-                IntentResult::empty()
-            }
-            Intent::PinsUnpin => feat::ui::sidebar::pins::pins_section::handle_pins_unpin(state),
-            Intent::PinsPinTop => {
-                feat::ui::sidebar::pins::pins_section::handle_pins_pin(state, PinPosition::Top)
-            }
-            Intent::PinsPinBottom => {
-                feat::ui::sidebar::pins::pins_section::handle_pins_pin(state, PinPosition::Bottom)
-            }
-            Intent::PinsPinRelative => {
-                feat::ui::sidebar::pins::pins_section::handle_pins_pin(state, PinPosition::Relative)
-            }
-            Intent::PinsPinCycle => {
-                feat::ui::sidebar::pins::pins_section::handle_pins_pin_cycle(state)
-            }
-            Intent::SidebarPersonaEdit => {
-                feat::ui::sidebar::pins::pins_section::handle_sidebar_persona_edit(state, pickers)
-            }
             Intent::SessionNewWithLifecycle => feat::picker::intent::handle_open_picker(
                 state,
                 PickerKind::SessionLifecycle,
                 pickers,
             ),
+            Intent::LoadSubagentSession => {
+                crate::feat::session::sessions_list::load_subagent::handle_load_subagent_session(
+                    state,
+                )
+            }
+
             Intent::SidebarSessionClose => {
                 // First press - show confirmation prompt.
                 // The interceptor (try_handle_close_session_prompt) handles the second press.
                 state.frontend.close_session_prompt = true;
                 IntentResult::empty()
             }
-            Intent::SidebarSessionTeardown => {
-                feat::ui::sidebar::sessions::handle_session_teardown(state)
-            }
-            Intent::SidebarSessionRerunSetup => {
-                feat::session_lifecycle::intent::handle_session_rerun_setup(state)
-            }
-            Intent::SidebarSessionArchive => {
-                feat::ui::sidebar::sessions::handle_session_archive(state)
-            }
             Intent::SidebarSessionArchiveTree => {
-                feat::ui::sidebar::sessions::handle_session_tree_action_arm(
+                crate::feat::session::sessions_list::archive_tree::handle_session_tree_action_arm(
                     state,
-                    feat::ui::sidebar::sessions::archive_tree::TreePromptAction::Archive,
+                    crate::feat::session::sessions_list::archive_tree::TreePromptAction::Archive,
                 )
             }
             Intent::SidebarSessionTeardownTree => {
-                feat::ui::sidebar::sessions::handle_session_tree_action_arm(
+                crate::feat::session::sessions_list::archive_tree::handle_session_tree_action_arm(
                     state,
-                    feat::ui::sidebar::sessions::archive_tree::TreePromptAction::TeardownAndArchive,
+                    crate::feat::session::sessions_list::archive_tree::TreePromptAction::TeardownAndArchive,
                 )
-            }
-            Intent::SidebarSessionContinue => {
-                feat::ui::sidebar::sessions::handle_session_continue(state)
-            }
-
-            Intent::SidebarSessionConfirm => {
-                feat::ui::sidebar::sessions::handle_session_activate(state)
-            }
-            Intent::LoadSubagentSession => {
-                feat::ui::sidebar::sessions::handle_load_subagent_session(state)
-            }
-            Intent::SidebarConfirmInsert => {
-                feat::ui::sidebar::sessions::handle_session_activate_insert(state)
             }
 
             Intent::ChatEntrySelectNext => {
@@ -694,47 +626,6 @@ impl IntentHandler {
                 feat::session_lifecycle::intent::handle_arg_input_confirm(state)
             }
 
-            Intent::SidebarResizeEnter => feat::sidebar_resize::intent::handle_resize_enter(state),
-            Intent::SidebarResizeExpand => {
-                feat::sidebar_resize::intent::handle_resize_expand(state)
-            }
-            Intent::SidebarResizeContract => {
-                feat::sidebar_resize::intent::handle_resize_contract(state)
-            }
-            Intent::SidebarResizeLeave => feat::sidebar_resize::intent::handle_resize_leave(state),
-
-            Intent::SidebarRenameSession => {
-                // Rename the selected session (if any).
-                let has_selection = state
-                    .frontend
-                    .with_sections(|s| s.sessions.selected_index.is_some(), || false);
-                if has_selection {
-                    feat::rename_session_input::intent::handle_rename_session_enter(state)
-                } else {
-                    IntentResult::empty()
-                }
-            }
-            Intent::RenameSessionConfirm => {
-                feat::rename_session_input::intent::handle_rename_session_confirm(state)
-            }
-            Intent::RenameSessionLeave => {
-                feat::rename_session_input::intent::handle_rename_session_leave(state)
-            }
-            Intent::RenameInsertChar { ch } => {
-                feat::rename_session_input::intent::handle_insert_char(state, *ch)
-            }
-            Intent::RenameCursorLeft => {
-                feat::rename_session_input::intent::handle_cursor_left(state)
-            }
-            Intent::RenameCursorRight => {
-                feat::rename_session_input::intent::handle_cursor_right(state)
-            }
-            Intent::RenameDeleteGrapheme => {
-                feat::rename_session_input::intent::handle_delete(state)
-            }
-            Intent::RenameDeleteForward => {
-                feat::rename_session_input::intent::handle_delete_forward(state)
-            }
 
             Intent::OpenPrunerAccumulationInput => {
                 feat::pruner_accumulation_input::intent::handle_enter(state)
@@ -779,13 +670,6 @@ impl IntentHandler {
                 tracing::debug!("dynamic intent arrived with no route row attached");
                 IntentResult::empty()
             }
-            Intent::TaskListPreviewScrollUp => {
-                feat::ui::sidebar::task_list_section::handle_preview_scroll_up(state)
-            }
-            Intent::TaskListPreviewScrollDown => {
-                feat::ui::sidebar::task_list_section::handle_preview_scroll_down(state)
-            }
-
             Intent::ChangeCwd { root } => {
                 crate::feat::navigation::intent::handle_change_cwd(state, *root)
             }
@@ -925,7 +809,7 @@ fn try_handle_close_session_prompt(intent: &Intent, state: &mut AppState) -> Opt
 
     // Second x press - perform the close.
     // Re-validates in case session became busy between taps.
-    Some(feat::ui::sidebar::sessions::handle_session_close_with_lifecycle(state))
+    Some(crate::feat::session::sessions_list::close::handle_session_close_with_lifecycle(state))
 }
 
 /// Tree-action confirmation prompt intercept (`A` archive / `X` teardown).
@@ -942,7 +826,7 @@ fn try_handle_close_session_prompt(intent: &Intent, state: &mut AppState) -> Opt
 ///
 /// Returns `None` if the prompt is not showing or was dismissed.
 fn try_handle_archive_tree_prompt(intent: &Intent, state: &mut AppState) -> Option<IntentResult> {
-    use crate::feat::ui::sidebar::sessions::archive_tree::{
+    use crate::feat::session::sessions_list::archive_tree::{
         ArchiveTreeError, ArchiveTreePrompt, TreePromptAction, archive_tree_members,
         handle_session_tree_action_confirm,
     };
@@ -1045,7 +929,7 @@ mod tests {
     fn empty_routes() -> crate::common::slices::key_routes::KeyRoutes {
         crate::common::slices::key_routes::KeyRoutes::new()
     }
-    use crate::common::app_state::{AppState, FocusScope, RenameSessionInputState};
+    use crate::common::app_state::{AppState, FocusScope};
     use crate::feat::intent::IntentHandler;
     use crate::feat::interactive_term::emulator::ScreenCells;
     use crate::protocol::{ChatEntry, Intent};
@@ -1132,143 +1016,10 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn rename_insert_char_inserts_into_rename_input() {
-        // Given state in RenameSessionInput scope with partial input.
-        let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::RenameSessionInput);
-        state.frontend.rename_session_input = RenameSessionInputState {
-            text: crate::common::line_input::LineInput {
-                input: "Hel".to_owned(),
-                cursor_pos: 3,
-            },
-        };
-
-        // When handling RenameInsertChar { ch: 'o' }.
-        let result = IntentHandler::handle(
-            &Intent::RenameInsertChar { ch: 'o' },
-            &mut state,
-            &empty_slices(),
-            &empty_routes(),
-            &empty_pickers(),
-        );
-
-        // Then rename input is "Helo" (not chat input).
-        assert_eq!(state.frontend.rename_session_input.text.input, "Helo");
-        assert_eq!(state.frontend.rename_session_input.text.cursor_pos, 4);
-        assert!(
-            state
-                .active_session()
-                .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
-        );
-        assert!(result.message_names.is_empty());
-    }
-
     #[rstest::rstest]
-    fn rename_cursor_left_moves_cursor_in_rename_input() {
-        // Given state in RenameSessionInput scope with cursor at end.
-        let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::RenameSessionInput);
-        state.frontend.rename_session_input = RenameSessionInputState {
-            text: crate::common::line_input::LineInput {
-                input: "Hello".to_owned(),
-                cursor_pos: 5,
-            },
-        };
-
-        // When handling RenameCursorLeft.
-        let result = IntentHandler::handle(
-            &Intent::RenameCursorLeft,
-            &mut state,
-            &empty_slices(),
-            &empty_routes(),
-            &empty_pickers(),
-        );
-
-        // Then cursor moved left.
-        assert_eq!(state.frontend.rename_session_input.text.cursor_pos, 4);
-        assert!(result.message_names.is_empty());
-    }
-
     #[rstest::rstest]
-    fn rename_cursor_right_moves_cursor_in_rename_input() {
-        // Given state in RenameSessionInput scope with cursor at start.
-        let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::RenameSessionInput);
-        state.frontend.rename_session_input = RenameSessionInputState {
-            text: crate::common::line_input::LineInput {
-                input: "Hi".to_owned(),
-                cursor_pos: 0,
-            },
-        };
-
-        // When handling RenameCursorRight.
-        let result = IntentHandler::handle(
-            &Intent::RenameCursorRight,
-            &mut state,
-            &empty_slices(),
-            &empty_routes(),
-            &empty_pickers(),
-        );
-
-        // Then cursor moved right.
-        assert_eq!(state.frontend.rename_session_input.text.cursor_pos, 1);
-        assert!(result.message_names.is_empty());
-    }
-
     #[rstest::rstest]
-    fn rename_delete_grapheme_deletes_in_rename_input() {
-        // Given state in RenameSessionInput scope with cursor at end.
-        let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::RenameSessionInput);
-        state.frontend.rename_session_input = RenameSessionInputState {
-            text: crate::common::line_input::LineInput {
-                input: "Hello".to_owned(),
-                cursor_pos: 5,
-            },
-        };
-
-        // When handling RenameDeleteGrapheme.
-        let result = IntentHandler::handle(
-            &Intent::RenameDeleteGrapheme,
-            &mut state,
-            &empty_slices(),
-            &empty_routes(),
-            &empty_pickers(),
-        );
-
-        // Then last char deleted.
-        assert_eq!(state.frontend.rename_session_input.text.input, "Hell");
-        assert_eq!(state.frontend.rename_session_input.text.cursor_pos, 4);
-        assert!(result.message_names.is_empty());
-    }
-
     #[rstest::rstest]
-    fn rename_delete_forward_deletes_in_rename_input() {
-        // Given state in RenameSessionInput scope with cursor at position 1.
-        let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::RenameSessionInput);
-        state.frontend.rename_session_input = RenameSessionInputState {
-            text: crate::common::line_input::LineInput {
-                input: "Hello".to_owned(),
-                cursor_pos: 1,
-            },
-        };
-
-        // When handling RenameDeleteForward.
-        let result = IntentHandler::handle(
-            &Intent::RenameDeleteForward,
-            &mut state,
-            &empty_slices(),
-            &empty_routes(),
-            &empty_pickers(),
-        );
-
-        // Then char after cursor deleted.
-        assert_eq!(state.frontend.rename_session_input.text.input, "Hllo");
-        assert_eq!(state.frontend.rename_session_input.text.cursor_pos, 1);
-        assert!(result.message_names.is_empty());
-    }
-
     #[rstest::rstest]
     #[test]
     fn insert_char_routes_to_arg_input_when_scope_is_arg_input() {
@@ -1499,34 +1250,6 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn paste_text_in_rename_session_scope_routes_to_rename() {
-        // Given RenameSessionInput scope is active.
-        let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::RenameSessionInput);
-        state.frontend.rename_session_input = RenameSessionInputState {
-            text: crate::common::line_input::LineInput {
-                input: "old".to_owned(),
-                cursor_pos: 3,
-            },
-        };
-
-        // When handling PasteText.
-        let _result = IntentHandler::handle(
-            &Intent::PasteText {
-                text: " new".into(),
-            },
-            &mut state,
-            &empty_slices(),
-            &empty_routes(),
-            &empty_pickers(),
-        );
-
-        // Then rename input received the paste.
-        assert_eq!(state.frontend.rename_session_input.text.input, "old new");
-    }
-
-    #[rstest::rstest]
-    #[test]
     fn cancel_stream_prompt_esc_confirms() {
         // Given cancel_stream_prompt is showing.
         let mut state = AppState::default_with_scope_focus();
@@ -1592,26 +1315,6 @@ mod tests {
         // Then no cancel command is emitted (falls through to normal escape handling).
         // The prompt remains false.
         assert!(!state.frontend.cancel_stream_prompt);
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn close_session_prompt_sidebar_close_confirms() {
-        // Given close_session_prompt is showing.
-        let mut state = AppState::default_with_scope_focus();
-        state.frontend.close_session_prompt = true;
-
-        // When handling SidebarSessionClose.
-        let _result = IntentHandler::handle(
-            &Intent::SidebarSessionClose,
-            &mut state,
-            &empty_slices(),
-            &empty_routes(),
-            &empty_pickers(),
-        );
-
-        // Then the prompt is dismissed.
-        assert!(!state.frontend.close_session_prompt);
     }
 
     #[rstest::rstest]

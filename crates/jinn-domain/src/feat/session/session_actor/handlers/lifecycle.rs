@@ -1458,7 +1458,7 @@ impl SessionPersistenceActor {
     /// Delegates cursor and active-session reconciliation to
     /// [`reconcile_after_session_removal`].
     ///
-    /// [`reconcile_after_session_removal`]: crate::feat::ui::sidebar::sessions::reconcile_after_session_removal
+    /// [`reconcile_after_session_removal`]: jinn_sidebar::sections::sessions::reconcile_after_session_removal
     pub(in crate::feat::session::session_actor) fn remove_and_replace(
         &self,
         session_id: &crate::protocol::SessionId,
@@ -1496,7 +1496,7 @@ impl SessionPersistenceActor {
 
         self.state
             .with_session_sidebar(&self.cap, &self.frontend_cap, |view| {
-                crate::feat::ui::sidebar::sessions::update_visual_parents_on_removal_split(
+                crate::feat::session::sessions_list::state::update_visual_parents_on_removal_split(
                     view.session.map(),
                     view.frontend,
                     session_id,
@@ -1504,7 +1504,7 @@ impl SessionPersistenceActor {
                 view.session
                     .map()
                     .remove_and_replace(session_id, fresh_session);
-                crate::feat::ui::sidebar::sessions::reconcile_split(
+                crate::feat::session::sessions_list::reconcile::reconcile_split(
                     view.session.map(),
                     view.frontend,
                 );

@@ -19,11 +19,11 @@ use crate::protocol::{ChatEntry, ChatEntryId};
 pub use jinn_slices::VisualItem;
 
 /// Number of entries from the end that are never hidden, regardless of `ignored`.
-pub(crate) const PROXIMITY_COUNT: usize = 3;
+pub const PROXIMITY_COUNT: usize = 3;
 
 /// Default minimum contiguous excluded entries required to collapse.
 /// Blocks with fewer entries are displayed individually.
-pub(crate) const DEFAULT_MIN_COLLAPSE_COUNT: usize = 3;
+pub const DEFAULT_MIN_COLLAPSE_COUNT: usize = 3;
 
 /// Build the list of visual items from flat history.
 ///

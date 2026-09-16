@@ -21,7 +21,7 @@
 //! - **Picker open/close**: cache is preserved so the user does not pay a
 //!   re-render cost when reopening the picker.
 //!
-//! [`SessionPreviewCache`]: crate::feat::ui::sidebar::sessions::preview::SessionPreviewCache
+//! [`SessionPreviewCache`]: jinn_slices::SessionPreviewCache
 
 use parking_lot::Mutex;
 use std::collections::HashMap;

@@ -39,6 +39,10 @@ impl SliceActionState for AppState {
         self.active_session_mut()
             .push_entry(crate::feat::session::chat_entry::ChatEntry::error(message));
     }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
 }
 
 /// Translates the kernel's editing intents into the slice-hook
@@ -56,6 +60,7 @@ pub fn as_edit_intent(intent: &Intent) -> Option<EditIntent> {
         Intent::MoveCursorRight => Some(EditIntent::CursorRight),
         Intent::MoveCursorToStart => Some(EditIntent::CursorHome),
         Intent::MoveCursorToEnd => Some(EditIntent::CursorEnd),
+        Intent::PasteText { text } => Some(EditIntent::Paste(text.clone())),
         _ => None,
     }
 }

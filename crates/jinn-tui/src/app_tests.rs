@@ -214,23 +214,17 @@ fn keymap_at(scope: Scope) -> WhichKeyInstance {
     WhichKeyInstance::new(keymap::init(), scope)
 }
 
-fn key<'a>(notation: &'a str) -> jinn_domain::KeyEvent {
-    jinn_domain::KeyEvent::parse_notation(notation).expect("notation should parse")
+/// A keymap with the sidebar's route rows bound (as launch.rs does).
+fn keymap_with_routes_at(scope: Scope) -> WhichKeyInstance {
+    let mut km = keymap::init();
+    let routes = jinn_slices::route::KeyRoutes::new();
+    jinn_sidebar::key_routes::attach_sidebar_rows(&routes);
+    crate::keymap_gen::bind_route_rows(&routes, &mut km);
+    WhichKeyInstance::new(km, scope)
 }
 
-#[rstest::rstest]
-fn s_in_sidebar_task_list_opens_task_list_picker() {
-    // Given the keymap rooted at SidebarTaskList.
-    let mut wk = keymap_at(Scope::SidebarTaskList);
-
-    // When pressing `s`.
-    let intent = wk.handle_key(key("s"));
-
-    // Then it resolves to OpenPicker { kind: TaskList } ("search task list").
-    assert_eq!(
-        intent.map(|i| i.to_string()).as_deref(),
-        Some("search task list")
-    );
+fn key<'a>(notation: &'a str) -> jinn_domain::KeyEvent {
+    jinn_domain::KeyEvent::parse_notation(notation).expect("notation should parse")
 }
 
 #[rstest::rstest]
@@ -289,8 +283,8 @@ fn alt_q_in_input_scope_toggles_input_mode() {
 #[rstest::rstest]
 #[test]
 fn alt_s_in_input_scope_focuses_sidebar_sessions() {
-    // Given the keymap rooted at Input scope.
-    let mut wk = keymap_at(Scope::Input);
+    // Given the keymap (with sidebar route rows) rooted at Input scope.
+    let mut wk = keymap_with_routes_at(Scope::Input);
 
     // When pressing Alt+s (notation: `m-s`).
     let intent = wk.handle_key(key("m-s"));
@@ -304,57 +298,9 @@ fn alt_s_in_input_scope_focuses_sidebar_sessions() {
 
 #[rstest::rstest]
 #[test]
-fn sessions_i_resolves_to_sidebar_confirm_insert() {
-    // Given the keymap rooted at the Sessions sidebar.
-    let mut wk = keymap_at(Scope::SidebarSessions);
-
-    // When pressing `i`.
-    let intent = wk.handle_key(key("i"));
-
-    // Then it resolves to SidebarConfirmInsert (activate + insert).
-    assert_eq!(
-        intent.map(|i| i.to_string()).as_deref(),
-        Some("activate session -> insert mode")
-    );
-}
-
-#[rstest::rstest]
-#[test]
-fn sessions_enter_still_resolves_to_sidebar_confirm() {
-    // Given the keymap rooted at the Sessions sidebar.
-    let mut wk = keymap_at(Scope::SidebarSessions);
-
-    // When pressing `<enter>`.
-    let intent = wk.handle_key(key("enter"));
-
-    // Then it still resolves to SidebarConfirm (activate + normal).
-    assert_eq!(
-        intent.map(|i| i.to_string()).as_deref(),
-        Some("activate session")
-    );
-}
-
-#[rstest::rstest]
-#[test]
-fn pins_enter_resolves_to_sidebar_leave() {
-    // Given the keymap rooted at the Pins sidebar.
-    let mut wk = keymap_at(Scope::SidebarPins);
-
-    // When pressing `<enter>`.
-    let intent = wk.handle_key(key("enter"));
-
-    // Then it resolves to SidebarLeave (leave to Normal at the pin's position).
-    assert_eq!(
-        intent.map(|i| i.to_string()).as_deref(),
-        Some("return to normal mode")
-    );
-}
-
-#[rstest::rstest]
-#[test]
 fn alt_s_in_normal_scope_focuses_sidebar_sessions() {
-    // Given the keymap rooted at Normal scope.
-    let mut wk = keymap_at(Scope::Normal);
+    // Given the keymap (with sidebar route rows) rooted at Normal scope.
+    let mut wk = keymap_with_routes_at(Scope::Normal);
 
     // When pressing Alt+s (notation: `m-s`).
     let intent = wk.handle_key(key("m-s"));

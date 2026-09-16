@@ -20,6 +20,17 @@ pub fn sidebar_sections_slot() -> SlotKey {
 
 /// The five sidebar sections' state, stored as one aggregate in the sidebar
 /// slice's cell.
+/// State for the rename session input popup - editing a session title.
+///
+/// The editable text and cursor live in [`LineInput`] (shared with other popup
+/// inputs) under the [`RenameSessionInputState::text`] field; access via
+/// `.text.input` / `.text.cursor_pos`.
+#[derive(Debug, Clone, Default)]
+pub struct RenameSessionInputState {
+    /// The editable text + cursor.
+    pub text: crate::line_input::LineInput,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SidebarSections {
     /// Which section has keyboard focus. `None` while the sidebar itself
@@ -37,6 +48,8 @@ pub struct SidebarSections {
     pub task_list: TaskListSectionState,
     /// MCP servers section cursor state.
     pub mcp_servers: McpServersSectionState,
+    /// In-progress text for the rename-session popup.
+    pub rename_input: RenameSessionInputState,
 }
 
 use jinn_core_types::ChatEntryId;

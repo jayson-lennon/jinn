@@ -9,9 +9,9 @@ use std::path::Path;
 
 use error_stack::{Report, ResultExt};
 use jinn_domain::common::system_resource::load_system_resource;
-use jinn_domain::feat::ui::sidebar::register_sections;
-use jinn_domain::feat::ui::sidebar::sidebar::Sidebar;
 use jinn_domain::{AppCore, AppUiRegistry, State};
+use jinn_sidebar::sections::register_sections;
+use jinn_sidebar::sections::sidebar::Sidebar;
 use wherror::Error;
 
 use crate::app::WhichKeyInstance;

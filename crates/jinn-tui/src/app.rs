@@ -10,8 +10,8 @@ use derive_more::Debug;
 use jinn_domain::AppCore;
 use jinn_domain::AppUiRegistry;
 use jinn_domain::IntentHandler;
-use jinn_domain::feat::ui::sidebar::Sidebar;
 use jinn_domain::{FocusScope, Intent, PickerKind};
+use jinn_sidebar::sections::Sidebar;
 use ratatui::Frame;
 use ratatui_which_key::{CrosstermKeymapExt as _, WhichKeyState};
 

@@ -12,8 +12,8 @@
 #![allow(clippy::expect_used, clippy::panic, reason = "test harness")]
 
 use jinn_domain::AppCore;
-use jinn_domain::feat::ui::sidebar::register_sections;
-use jinn_domain::feat::ui::sidebar::sidebar::Sidebar;
+use jinn_sidebar::sections::register_sections;
+use jinn_sidebar::sections::sidebar::Sidebar;
 use jinn_tui::TuiApp;
 use jinn_tui::app::WhichKeyInstance;
 use jinn_tui::config::TuiConfig;

@@ -97,13 +97,20 @@ pub fn handle_ctrl_clear(state: &mut AppState) -> (IntentResult, Option<Intent>)
             }
             (IntentResult::empty(), None)
         }
-        FocusScope::RenameSessionInput => {
-            if state.frontend.rename_session_input.text.input.is_empty() {
-                (IntentResult::empty(), Some(Intent::RenameSessionLeave))
+        FocusScope::Dynamic(scope) if scope.slice() == "sidebar" && scope.name() == "rename" => {
+            // The rename popup's text lives in the sections cell now; the
+            // leave intent became a route row, so <c-c> just clears the
+            // in-progress text and leaves the key unbound otherwise.
+            let text_empty = state
+                .frontend
+                .with_sections(|s| s.rename_input.text.input.is_empty(), || true);
+            if text_empty {
+                (IntentResult::empty(), None)
             } else {
-                let input = &mut state.frontend.rename_session_input;
-                input.text.input.clear();
-                input.text.cursor_pos = 0;
+                state.frontend.update_sections(|s| {
+                    s.rename_input.text.input.clear();
+                    s.rename_input.text.cursor_pos = 0;
+                });
                 (IntentResult::empty(), None)
             }
         }
@@ -492,53 +499,6 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn ctrl_clear_rename_nonempty_clears_input() {
-        // Given a state in RenameSessionInput scope with text in the input.
-        use crate::common::app_state::RenameSessionInputState;
-        let mut state = AppState::default_with_scope_focus();
-        state.frontend.rename_session_input = RenameSessionInputState {
-            text: crate::common::line_input::LineInput {
-                input: "New Name".to_owned(),
-                cursor_pos: 8,
-            },
-        };
-        state.frontend.scope_push(FocusScope::RenameSessionInput);
-
-        // When handling CtrlClear.
-        let (result, maybe_intent) = handle_ctrl_clear(&mut state);
-
-        // Then the input is cleared and scope is unchanged.
-        assert!(state.frontend.rename_session_input.text.input.is_empty());
-        assert_eq!(state.frontend.rename_session_input.text.cursor_pos, 0);
-        assert_eq!(state.frontend.scope(), FocusScope::RenameSessionInput);
-        assert!(result.message_names.is_empty());
-        assert!(maybe_intent.is_none());
-    }
-
-    #[rstest::rstest]
-    fn ctrl_clear_rename_empty_closes_popup() {
-        // Given a state in RenameSessionInput scope with empty input.
-        use crate::common::app_state::RenameSessionInputState;
-        let mut state = AppState::default_with_scope_focus();
-        state.frontend.rename_session_input = RenameSessionInputState::default();
-        state.frontend.scope_push(FocusScope::RenameSessionInput);
-
-        // When handling CtrlClear via IntentHandler (exercises RenameSessionLeave redispatch).
-        use crate::feat::intent::handler::IntentHandler;
-        let result = IntentHandler::handle(
-            &Intent::CtrlClear,
-            &mut state,
-            &empty_slices(),
-            &empty_routes(),
-            &empty_pickers(),
-        );
-
-        // Then scope is popped back to Normal and rename_session_input is reset.
-        assert_eq!(state.frontend.scope(), FocusScope::Input);
-        assert!(state.frontend.rename_session_input.text.input.is_empty());
-        assert!(result.message_names.is_empty());
-    }
-
     #[rstest::rstest]
     fn ctrl_clear_picker_two_presses_clears_then_closes() {
         // First <c-c> on a populated picker clears the filter;
@@ -584,31 +544,5 @@ mod tests {
         assert!(!state.frontend.is_picker());
         assert_eq!(state.frontend.scope(), FocusScope::Normal);
         assert!(result2.messages.is_empty());
-    }
-
-    #[rstest::rstest]
-    fn ctrl_clear_rename_pre_populated_clears_without_persisting() {
-        // The rename popup is the only one pre-populated with the current session
-        // title. A single <c-c> must clear the visible text without persisting
-        // the rename (i.e. scope stays on RenameSessionInput).
-        use crate::common::app_state::RenameSessionInputState;
-        let mut state = AppState::default_with_scope_focus();
-        state.frontend.rename_session_input = RenameSessionInputState {
-            text: crate::common::line_input::LineInput {
-                input: "My Session".to_owned(),
-                cursor_pos: 10,
-            },
-        };
-        state.frontend.scope_push(FocusScope::RenameSessionInput);
-
-        // When handling CtrlClear once.
-        let (result, maybe_intent) = handle_ctrl_clear(&mut state);
-
-        // Then text is cleared but scope is unchanged (NOT persisted/closed).
-        assert!(state.frontend.rename_session_input.text.input.is_empty());
-        assert_eq!(state.frontend.rename_session_input.text.cursor_pos, 0);
-        assert_eq!(state.frontend.scope(), FocusScope::RenameSessionInput);
-        assert!(result.message_names.is_empty());
-        assert!(maybe_intent.is_none());
     }
 }

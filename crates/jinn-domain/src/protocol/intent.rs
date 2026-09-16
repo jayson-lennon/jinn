@@ -132,71 +132,8 @@ pub enum Intent {
     RefreshModels,
     /// Rescan the prompt templates directory.
     RescanPromptTemplates,
-    /// Enter the sidebar scope.
-    SidebarFocus,
-    /// Jump directly to the Sessions sidebar section from any scope.
-    SidebarFocusSessions,
-    /// Leave the sidebar, returning to origin scope.
-    SidebarLeave,
-    /// Move selection down in the sidebar.
-    SidebarMoveDown,
-    /// Move selection up in the sidebar.
-    SidebarMoveUp,
-    /// Jump to the next sidebar section.
-    SidebarSectionNext,
-    /// Jump to the previous sidebar section.
-    SidebarSectionPrev,
-    /// Activate the selected session (switch to it).
-    SidebarSessionConfirm,
-    /// Open the child subagent session linked to the selected `task` tool
-    /// call (Normal `<enter>`). Resolves the selection at handling time;
-    /// loads the child from disk when it is not in memory. No-op when
-    /// nothing is selected, the selection is not a `task` call, or the
-    /// call carries no link.
-    LoadSubagentSession,
-    /// Activate the selected session and enter Insert mode.
-    SidebarConfirmInsert,
-    /// Unpin the selected pinned entry.
-    PinsUnpin,
-    /// Set the selected pinned entry's position to TOP.
-    PinsPinTop,
-    /// Set the selected pinned entry's position to BOTTOM.
-    PinsPinBottom,
-    /// Set the selected pinned entry's position to RELATIVE.
-    PinsPinRelative,
-    /// Cycle the selected pinned entry's pin position.
-    PinsPinCycle,
-    /// Close the selected open session from the sidebar.
-    SidebarSessionClose,
-    /// Re-run teardown for the selected session without closing it.
-    SidebarSessionTeardown,
-    /// Archive the selected session without running teardown.
-    SidebarSessionArchive,
-    /// Archive the selected session and all its descendant sessions.
-    ///
-    /// Behind a press-again confirmation: the first press arms a prompt
-    /// showing the subtree size (or a busy notice if any member is streaming),
-    /// the second press emits the archive command. All-or-nothing — if any
-    /// member is busy, nothing archives.
-    SidebarSessionArchiveTree,
-    /// Tear down the selected session, then archive it and all its
-    /// descendant sessions once teardown succeeds.
-    ///
-    /// Behind a press-again confirmation like the archive-tree prompt: the
-    /// first press arms a prompt showing the subtree size (or a busy notice
-    /// if any member is streaming), the second press emits the teardown-tree
-    /// command. The root's pending teardown runs first; if it fails or any
-    /// member is busy, nothing archives.
-    SidebarSessionTeardownTree,
-    /// Open the persona picker from the sidebar.
-    SidebarPersonaEdit,
     /// Open the session lifecycle picker from the sidebar sessions section.
     SessionNewWithLifecycle,
-    /// Queue a "Continue" user message to the session under the sidebar cursor.
-    SidebarSessionContinue,
-    /// Re-run the lifecycle setup command for the sidebar-selected session.
-    /// Only valid when the session's lifecycle_script_state is NothingRan.
-    SidebarSessionRerunSetup,
 
     /// Select the next chat entry.
     ChatEntrySelectNext,
@@ -219,6 +156,14 @@ pub enum Intent {
     /// Jump the cursor to the previous (older) Sources (annotation) entry.
     ChatEntryJumpPrevSources,
     /// Pin the currently selected chat entry.
+    /// Open the selected task call's subagent session.
+    LoadSubagentSession,
+    /// Close the selected sidebar session (arms a confirmation prompt).
+    SidebarSessionClose,
+    /// Archive the selected session and its visible subtree (arms prompt).
+    SidebarSessionArchiveTree,
+    /// Tear down the selected session root and archive its subtree (arms prompt).
+    SidebarSessionTeardownTree,
     ChatEntryPinSelected,
     /// Toggle expand/collapse of the selected tool entry (tool call, tool result, or annotation).
     ExpandToolEntry,
@@ -255,35 +200,6 @@ pub enum Intent {
     SessionClose,
     /// Confirm the arg input and trigger lifecycle setup.
     ArgInputConfirm,
-
-    /// Enter sidebar resize mode.
-    SidebarResizeEnter,
-    /// Expand the sidebar (move border left).
-    SidebarResizeExpand,
-    /// Contract the sidebar (move border right).
-    SidebarResizeContract,
-    /// Exit sidebar resize mode, returning to Normal scope.
-    SidebarResizeLeave,
-
-    /// Open the rename session input popup.
-    SidebarRenameSession,
-    /// Confirm the rename session input and apply.
-    RenameSessionConfirm,
-    /// Cancel the rename session input popup.
-    RenameSessionLeave,
-    /// Insert a character into the rename session input.
-    RenameInsertChar {
-        /// The character to insert.
-        ch: char,
-    },
-    /// Move cursor left in the rename session input.
-    RenameCursorLeft,
-    /// Move cursor right in the rename session input.
-    RenameCursorRight,
-    /// Delete the grapheme before the cursor in rename input.
-    RenameDeleteGrapheme,
-    /// Delete the grapheme after the cursor in rename input.
-    RenameDeleteForward,
 
     /// Open the pruner accumulation threshold input popup.
     OpenPrunerAccumulationInput,
@@ -331,11 +247,6 @@ pub enum Intent {
     /// construction. Carries its identity as data, so slices never edit
     /// this enum.
     Dynamic(jinn_slices::DynamicIntent),
-
-    /// Scroll the task list preview popup toward the top (older tasks).
-    TaskListPreviewScrollUp,
-    /// Scroll the task list preview popup toward the bottom (newer tasks).
-    TaskListPreviewScrollDown,
 
     /// Switch between Chat and the registered dynamic tabs.
     SwitchTab,
@@ -434,30 +345,7 @@ impl std::fmt::Display for Intent {
             Intent::SessionNew => write!(f, "new session"),
             Intent::RefreshModels => write!(f, "refresh models"),
             Intent::RescanPromptTemplates => write!(f, "rescan prompt templates"),
-            Intent::SidebarFocus => write!(f, "focus sidebar"),
-            Intent::SidebarFocusSessions => write!(f, "focus session list"),
-            Intent::SidebarLeave => write!(f, "return to normal mode"),
-            Intent::SidebarMoveDown => write!(f, "cursor down"),
-            Intent::SidebarMoveUp => write!(f, "cursor up"),
-            Intent::SidebarSectionNext => write!(f, "cursor to next section"),
-            Intent::SidebarSectionPrev => write!(f, "cursor to previous section"),
-            Intent::SidebarSessionConfirm => write!(f, "activate session"),
-            Intent::LoadSubagentSession => write!(f, "open subagent session"),
-            Intent::SidebarConfirmInsert => write!(f, "activate session -> insert mode"),
-            Intent::PinsUnpin => write!(f, "unpin entry"),
-            Intent::PinsPinTop => write!(f, "pin to top position"),
-            Intent::PinsPinBottom => write!(f, "pin to bottom position"),
-            Intent::PinsPinRelative => write!(f, "pin relative position"),
-            Intent::PinsPinCycle => write!(f, "cycle pin position"),
-            Intent::SidebarSessionClose => write!(f, "close session (w/teardown)"),
-            Intent::SidebarSessionTeardown => write!(f, "run teardown script"),
-            Intent::SidebarSessionArchive => write!(f, "archive session"),
-            Intent::SidebarSessionArchiveTree => write!(f, "archive session tree"),
-            Intent::SidebarSessionTeardownTree => write!(f, "teardown and archive tree"),
-            Intent::SidebarPersonaEdit => write!(f, "change persona"),
             Intent::SessionNewWithLifecycle => write!(f, "new session with lifecycle"),
-            Intent::SidebarSessionContinue => write!(f, "continue session"),
-            Intent::SidebarSessionRerunSetup => write!(f, "rerun session setup"),
 
             Intent::ChatEntrySelectNext => write!(f, "select next entry"),
             Intent::ChatEntrySelectPrev => write!(f, "select prev entry"),
@@ -469,6 +357,10 @@ impl std::fmt::Display for Intent {
             Intent::ChatEntryJumpPrevPinned => write!(f, "previous pinned entry"),
             Intent::ChatEntryJumpNextSources => write!(f, "next sources entry"),
             Intent::ChatEntryJumpPrevSources => write!(f, "previous sources entry"),
+            Intent::LoadSubagentSession => write!(f, "open subagent session"),
+            Intent::SidebarSessionClose => write!(f, "close session"),
+            Intent::SidebarSessionArchiveTree => write!(f, "archive session tree"),
+            Intent::SidebarSessionTeardownTree => write!(f, "teardown session tree"),
             Intent::ChatEntryPinSelected => write!(f, "pin entry"),
             Intent::ExpandToolEntry => write!(f, "expand tool entry"),
             Intent::ToggleAuditPopup => write!(f, "toggle audit popup"),
@@ -485,18 +377,6 @@ impl std::fmt::Display for Intent {
             }
             Intent::SessionClose => write!(f, "session close"),
             Intent::ArgInputConfirm => write!(f, "arg input confirm"),
-            Intent::SidebarResizeEnter => write!(f, "enter 'resize sidebar' mode"),
-            Intent::SidebarResizeExpand => write!(f, "expand sidebar"),
-            Intent::SidebarResizeContract => write!(f, "contract sidebar"),
-            Intent::SidebarResizeLeave => write!(f, "exist resize sidebar mode"),
-            Intent::SidebarRenameSession => write!(f, "rename session"),
-            Intent::RenameSessionConfirm => write!(f, "rename session confirm"),
-            Intent::RenameSessionLeave => write!(f, "rename session leave"),
-            Intent::RenameInsertChar { ch } => write!(f, "rename insert '{ch}'"),
-            Intent::RenameCursorLeft => write!(f, "rename cursor left"),
-            Intent::RenameCursorRight => write!(f, "rename cursor right"),
-            Intent::RenameDeleteGrapheme => write!(f, "rename delete"),
-            Intent::RenameDeleteForward => write!(f, "rename forward delete"),
             Intent::OpenPrunerAccumulationInput => write!(f, "set pruner accumulation threshold"),
             Intent::PrunerAccumulationConfirm => write!(f, "pruner accumulation confirm"),
             Intent::PrunerAccumulationLeave => write!(f, "pruner accumulation leave"),
@@ -518,8 +398,6 @@ impl std::fmt::Display for Intent {
             Intent::ChangeCwd { root } => write!(f, "change cwd from '{root}'"),
 
             Intent::Dynamic(dynamic) => write!(f, "{dynamic}"),
-            Intent::TaskListPreviewScrollUp => write!(f, "task list preview scroll up"),
-            Intent::TaskListPreviewScrollDown => write!(f, "task list preview scroll down"),
             Intent::SwitchTab => write!(f, "switch tab"),
             Intent::ToggleTerminalOverlay { session_id } => match session_id {
                 Some(id) => write!(f, "toggle terminal overlay for session {id}"),

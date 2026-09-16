@@ -8,6 +8,7 @@
 pub mod chat_history;
 pub mod session_store;
 pub mod session_summary;
+pub mod sessions_list;
 
 pub mod chat_entry;
 pub mod entry_timing;

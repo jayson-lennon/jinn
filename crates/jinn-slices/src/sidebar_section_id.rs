@@ -28,3 +28,29 @@ impl std::fmt::Display for SidebarSectionId {
         }
     }
 }
+
+impl SidebarSectionId {
+    /// The navigation scope id for this section: the dynamic scope the
+    /// sidebar pushes while the section is focused. Navigation-only —
+    /// the sections drive a cursor, they never capture text input.
+    #[must_use]
+    pub fn scope_id(self) -> crate::slice_scope::SliceScopeId {
+        crate::slice_scope::SliceScopeId::navigation(
+            "sidebar",
+            match self {
+                Self::Pins => "pins",
+                Self::Persona => "persona",
+                Self::TaskList => "task-list",
+                Self::Sessions => "sessions",
+                Self::McpServers => "mcp-servers",
+            },
+        )
+    }
+
+    /// The sidebar's resize-mode scope id (adjusting sidebar width with
+    /// h/l keys).
+    #[must_use]
+    pub fn resize_scope_id() -> crate::slice_scope::SliceScopeId {
+        crate::slice_scope::SliceScopeId::navigation("sidebar", "resize")
+    }
+}

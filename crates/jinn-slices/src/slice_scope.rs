@@ -21,16 +21,41 @@ pub struct SliceScopeId {
     slice: String,
     /// The scope's name within the slice, e.g. `open`.
     name: String,
+    /// Whether the scope captures text input (lights up input-focused UI
+    /// and serves the editing intents through its input hook). Navigation
+    /// surfaces (browser lists, tabs) set this false.
+    captures_input: bool,
 }
 
 impl SliceScopeId {
-    /// Mints a slice scope id from its two components.
+    /// Mints a slice scope id from its two components. The scope is
+    /// input-capturing by default; see [`SliceScopeId::navigation`] for
+    /// navigation-only surfaces.
     #[must_use]
     pub fn new(slice: &str, name: &str) -> Self {
         Self {
             slice: slice.to_owned(),
             name: name.to_owned(),
+            captures_input: true,
         }
+    }
+
+    /// Mints a navigation-only scope id: keys drive a cursor/selection,
+    /// no text input is captured, and the scope reports `Mode::Normal`
+    /// so input-focused UI stays dark.
+    #[must_use]
+    pub fn navigation(slice: &str, name: &str) -> Self {
+        Self {
+            slice: slice.to_owned(),
+            name: name.to_owned(),
+            captures_input: false,
+        }
+    }
+
+    /// Whether this scope captures text input.
+    #[must_use]
+    pub fn captures_input(&self) -> bool {
+        self.captures_input
     }
 
     /// The owning slice's identifier.
@@ -72,6 +97,7 @@ impl std::str::FromStr for SliceScopeId {
         Ok(Self {
             slice: slice.to_owned(),
             name: name.to_owned(),
+            captures_input: true,
         })
     }
 }

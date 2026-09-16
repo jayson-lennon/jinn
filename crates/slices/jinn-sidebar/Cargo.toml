@@ -1,0 +1,27 @@
+[package]
+name = "jinn-sidebar"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+jinn-slices = { workspace = true }
+# Slice → kernel edge (established by jinn-dashboard): the sidebar actor
+# performs state mutations through the kernel's shared `State` handle and
+# capability plumbing, and the route actions reuse kernel feature helpers.
+# The kernel never depends back on this crate.
+jinn-domain = { workspace = true }
+jinn-picker = { workspace = true }
+kameo = { workspace = true }
+error-stack = { workspace = true }
+wherror = { workspace = true }
+ratatui = { workspace = true }
+textwrap = { workspace = true }
+throbber-widgets-tui = { workspace = true }
+unicode-segmentation = { workspace = true }
+jiff = { workspace = true }
+unicode-width = { workspace = true }
+rstest = { workspace = true }
+
+[dev-dependencies]
+jinn-testutil = { workspace = true }
+tokio = { workspace = true }

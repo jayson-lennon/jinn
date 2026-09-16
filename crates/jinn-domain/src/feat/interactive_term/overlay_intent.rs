@@ -12,8 +12,8 @@
 //! onto a running program, never a spawner.
 
 use crate::common::app_state::{AppState, FocusScope};
-use crate::feat::ui::sidebar::section_trait::SidebarSectionId;
 use crate::protocol::intent::IntentResult;
+use jinn_slices::SidebarSectionId;
 
 /// Resolves the selected session when the Sessions sidebar section is
 /// focused, for callers that act on the sidebar's selection (the sidebar
@@ -29,7 +29,7 @@ pub fn selected_sessions_sidebar_target(state: &AppState) -> Option<crate::proto
     let index = state
         .frontend
         .with_sections(|s| s.sessions.selected_index, || None)?;
-    let sessions = crate::feat::ui::sidebar::sessions::sorted_open_sessions(state);
+    let sessions = crate::feat::session::sessions_list::state::sorted_open_sessions(state);
     sessions.get(index).map(|entry| entry.id.clone())
 }
 

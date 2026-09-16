@@ -231,6 +231,7 @@ pub fn register_quake_input_hook(routes: &KeyRoutes, cell: &TypedCell<QuakeBarSt
                 });
                 Some(IntentResult::empty())
             }
+            EditIntent::Paste(_) => None,
         }
     });
     routes.register_input_hook(&quake_scope(), hook);

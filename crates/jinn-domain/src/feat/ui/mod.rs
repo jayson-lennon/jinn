@@ -3,7 +3,6 @@
 pub mod chat_log;
 pub mod frontend_state;
 pub mod picker_states;
-pub mod sidebar;
 pub mod status_hint;
 pub mod vertical_minimap;
 

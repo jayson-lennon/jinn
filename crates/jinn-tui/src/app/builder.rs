@@ -10,8 +10,8 @@ use crate::keymap;
 use crate::selection::{SelectableRects, SelectionState};
 use crate::suspend::Suspend;
 use crate::{AppStatus, MsgHandler};
-use jinn_domain::feat::ui::sidebar::register_sections;
-use jinn_domain::feat::ui::sidebar::sidebar::Sidebar;
+use jinn_sidebar::sections::register_sections;
+use jinn_sidebar::sections::sidebar::Sidebar;
 
 /// Builder for constructing a [`TuiApp`] with sensible defaults for tests.
 ///
