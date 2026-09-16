@@ -8,7 +8,6 @@ repository = "https://github.com/jayson-lennon/jinn"
 
 [features]
 default = []
-headless-chrome = ["jinn-web-fetch/headless-chrome", "jinn-web-search/headless-chrome"]
 syntax-all = ["jinn-domain/syntax-all"]
 
 # cargo-binstall artifact discovery. The binary is built locally and
@@ -92,8 +91,6 @@ jinn-session-init = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-picker = { workspace = true }
 
-jinn-web-fetch = { workspace = true }
-jinn-web-search = { workspace = true }
 clap_complete = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
@@ -192,8 +189,6 @@ jinn-picker = { path = "crates/jinn-picker" }
 jinn-testutil = { path = "crates/jinn-testutil" }
 
 jinn-theme = { path = "crates/jinn-theme" }
-jinn-web-fetch = { path = "crates/jinn-web-fetch" }
-jinn-web-search = { path = "crates/jinn-web-search" }
 jinn-mcp = { path = "crates/jinn-mcp" }
 jinn-plugin-api = { path = "crates/jinn-plugin-api" }
 jinn-plugin = { path = "crates/jinn-plugin" }

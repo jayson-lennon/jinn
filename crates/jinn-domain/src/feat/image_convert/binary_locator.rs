@@ -1,6 +1,6 @@
 //! Image-conversion binary discovery.
 //!
-//! Mirrors [`crate::feat::browser_binary_scan::binary_resolver`]: a
+//! A
 //! testable filesystem seam (`ImageMagickLocator`) with a production
 //! implementation (`SystemImageMagickLocator`) that probes `PATH` for the
 //! ImageMagick binary, and injectable fakes for unit tests.

@@ -399,25 +399,25 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn status_update_sets_status_message_and_lifecycle() {
-        // Given a wired actor with a Running entry for "web-fetch".
+        // Given a wired actor with a Running entry for "sample-actor".
         let fabric = TestFabric::new();
         let cell = wire_actor(&fabric);
         fabric
             .send_to_topic(
                 &ActorStarted {
-                    name: "web-fetch".to_owned(),
+                    name: "sample-actor".to_owned(),
                     description: None,
                 },
                 &crate::bridge::fabric_topic(),
             )
             .await;
-        wait_for(|| dashboard_entry(&cell, "web-fetch").is_some()).await;
+        wait_for(|| dashboard_entry(&cell, "sample-actor").is_some()).await;
 
         // When a ServiceStatusUpdate projection arrives with a status message.
         fabric
             .send_to_topic(
                 &ServiceStatusUpdate {
-                    name: "web-fetch".to_owned(),
+                    name: "sample-actor".to_owned(),
                     description: None,
                     lifecycle: None,
                     status_message: Some("3 urls verified".to_owned()),
@@ -428,7 +428,7 @@ mod tests {
 
         // Then the Notes column carries the message.
         wait_for(|| {
-            dashboard_entry(&cell, "web-fetch")
+            dashboard_entry(&cell, "sample-actor")
                 .is_some_and(|(_, m, _)| m.as_deref() == Some("3 urls verified"))
         })
         .await;

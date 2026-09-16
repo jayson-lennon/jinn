@@ -1,8 +1,6 @@
 //! Feature modules - domain-specific logic, actors, and UI elements.
 
 pub mod auto_prune_worker;
-pub mod browser;
-pub mod browser_binary_scan;
 pub mod chat_entry_selection;
 pub mod chat_input;
 pub mod compaction_worker;
@@ -42,5 +40,3 @@ pub mod theme;
 pub mod todo_list;
 pub mod tools_actor;
 pub mod ui;
-pub mod web_fetch_actor;
-pub mod web_search_actor;

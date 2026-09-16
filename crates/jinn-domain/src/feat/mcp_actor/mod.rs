@@ -16,7 +16,7 @@
 //! - [`Actor::on_stop`]: shut the client down so the child process terminates.
 //!
 //! Each tool call is dispatched to a standalone task so the mailbox stays free
-//! for concurrent requests (mirrors `WebSearchActor`).
+//! for concurrent requests.
 
 pub mod protocol;
 

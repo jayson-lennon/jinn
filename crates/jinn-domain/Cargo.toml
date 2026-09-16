@@ -19,8 +19,6 @@ jinn-core-types = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-session-msg = { workspace = true }
 jinn-provider-config = { workspace = true }
-jinn-web-fetch = { workspace = true }
-jinn-web-search = { workspace = true }
 jinn-mcp = { workspace = true }
 jinn-plugin = { workspace = true }
 jinn-plugin-api = { workspace = true }

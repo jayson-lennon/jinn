@@ -1092,7 +1092,7 @@ mod tests {
 
         // When rendering with is_alert = true.
         let lines = to_lines(
-            "web-search",
+            "sample-tool",
             "⚠ bot challenge detected — solve it in the browser window",
             ToolResultStatus::Pending,
             None,
@@ -1121,7 +1121,7 @@ mod tests {
 
         // When rendering with is_alert = true.
         let lines = to_lines(
-            "web-search",
+            "sample-tool",
             "waiting for you",
             ToolResultStatus::Pending,
             None,

@@ -506,7 +506,11 @@ mod tests {
             let mut s = state.write_test_no_cap();
             let session = s.active_session_mut();
             session.push_entry(ChatEntry::user("fetch a thing"));
-            session.push_entry(ChatEntry::tool_call("tc-1", "web_fetch", r#"{"url":"x"}"#));
+            session.push_entry(ChatEntry::tool_call(
+                "tc-1",
+                "sample_tool",
+                r#"{"arg":"x"}"#,
+            ));
             session.begin_streaming();
         }
         let session_id = state.read().session.active_session_id().clone();
@@ -535,7 +539,7 @@ mod tests {
             session_id: session_id.clone(),
             results: vec![ToolResult {
                 tool_call_id: "tc-1".to_owned(),
-                name: "web_fetch".to_owned(),
+                name: "sample_tool".to_owned(),
                 content: "boom".to_owned(),
                 success: false,
                 full_content: None,

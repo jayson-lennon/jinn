@@ -70,7 +70,7 @@ Entries are added or amended **only with human approval**.
 - (attachments) `@path` tokens in user entries are colored by resolution outcome in the chat render: green when attached as an image, red when degraded (missing file or not an image).
 - (context) `#name` prompt-template tokens in user text expand to the template body; both token kinds are consumed in a second expansion pass.
 - (context) `@path` tokens resolve to `file://` URIs against cwd/home when the file is a readable image; otherwise the token is left as literal text.
-- (dashboard) The dashboard tab tracks actor lifecycle (starting/running/dead) and browser-binary detection (Chrome vs bundled) for the web-fetch feature.
+- (dashboard) The dashboard tab tracks actor lifecycle (starting/running/dead) per wired actor.
 - (dashboard) Dashboard state is a `Slices` cell owned by `DashboardCanvasActor`, fed by generic events: actor-lifecycle events and `ServiceStatusUpdate` status updates; features publish `ServiceStatusUpdate` for display only.
 - (slices) Render slices live in per-slice typed cells behind the `Slices` facade; registration mints exactly one write handle, held by the owning actor; the renderer and intent router hold read handles only.
 - (slices) Slice integration is a single `activate()` per slice called from composition (launch/actor-wiring); removing the call removes the slice with no other edits.
@@ -128,7 +128,8 @@ Entries are added or amended **only with human approval**.
 - (mcp) Disabling an MCP server (or session close/archive/teardown, or restart-kill) unregisters its session-scoped tools from both the dispatch registry and the context tool cache via a `ToolsUnregistered` event published by `McpActor` teardown.
 - (tools) MCP tool dispatch fails fast with a legible error when the server is disabled for the session or not Running; it never publishes `ExecuteTool` to a bus with no MCP subscriber.
 - (tools) Newly created sessions seed `disabled_tools`/`disabled_skills` from top-level arrays in `jinn.toml`; sessions own the sets thereafter (picker toggles persist per session, forks inherit).
-- (tools) Actor-provided tools route by their registration `provider` prefix via the generic `ExecuteTool` command, not a hardcoded per-name match; `web-fetch`/`web-search` remain distinct provider keys.
+- (tools) Actor-provided tools route by their registration `provider` prefix via the generic `ExecuteTool` command, not a hardcoded per-name match.
+- (tools) The jinn web-fetch and web-search tools were removed; web search runs via the provider-side openrouter:web_search server tool or MCP.
 - (paths) Config lives at `~/.config/jinn` (providers, prompts, personas, themes, `jinn.toml`).
 - (paths) Data lives at `~/.local/share/jinn` (`sessions.db`).
 - (paths) State/logs live at `~/.local/state/jinn` (`jinn.log`), falling back to the data dir on platforms without a state dir.
@@ -230,13 +231,7 @@ Entries are added or amended **only with human approval**.
 - (ui) The sidebar has five sections — Persona, Pins, TaskList, McpServers, Sessions — with cyclic navigation.
 - (ui) The sidebar restores history position when leaving Pins, and the Sessions section is anchored to the bottom of the sidebar.
 - (ui) The chat-input autocomplete popups (`#` prompts, `/` commands, `@` attachments) anchor horizontally and vertically to the trigger token's wrapped visual line, floating directly above the cursor rather than the top of the input box.
-- (web) Web search runs via DuckDuckGo; browser web fetch supports concurrent requests.
 - (web) Citation collection lives in the first-party `url-citations` plugin (shape-based detection from forwarded tool call/result events); core routes `CitationsReceived` into the Sources footer when a turn reaches a final assistant answer.
-- (web) Browser-backed web tools (fetch + search) keep their Chromium process warm via a periodic heartbeat; a missed liveness probe force-evicts the handle so the next request lazily launches a fresh browser rather than hanging on a dead WebSocket.
-- (web) Browser-backed renders detect bot challenges via a shared vendor-signature list (Cloudflare, Anubis, DuckDuckGo anomaly, DataDome, PerimeterX, Kasada, Imperva) plus a conservative behavioral fallback (near-zero text after a settle window).
-- (web) In headed mode a detected challenge keeps its tab open and waits up to [browser] challenge_wait_secs for a human solve; headless mode fails fast with an error suggesting the headed-chrome backend.
-- (web) Challenge waits surface as alert-styled streaming tool output (bright background theme colors) that reverts to normal styling on completion.
-- (web) [browser] keep_tabs_open controls whether render tabs close after a read (default: close).
 - (workflow) Commits use `just commit '<message>'`, which runs `fossil addremove --dotfiles` so dot-directories like `.agents/` are included.
 - (workflow) The workspace is checked with `just check` (compile), `just test` (tests), and `just lint` (lints); all tests must pass before committing.
 - (plugins) url-citations result-rule detection accepts `link` as a synonym for `url`, so Z.ai-shaped search results surface citations.

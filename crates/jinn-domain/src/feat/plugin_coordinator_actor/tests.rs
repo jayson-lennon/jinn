@@ -86,7 +86,6 @@ async fn spawn_coordinator_prepared_with_tick(
             root: root.clone(),
             state: state.clone(),
             cap: mint_plugins_cap(),
-            frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
             dirs,
             fake_guest: Arc::new(std::sync::Mutex::new(Some(script))),
             tick_override: tick_override_opt,
@@ -452,7 +451,7 @@ async fn unsubscribed_kind_is_not_forwarded() {
             session_id: SessionId::new(),
             tool_call: ToolCall {
                 id: "call_1".to_owned(),
-                name: "web-fetch".to_owned(),
+                name: "sample-tool".to_owned(),
                 arguments: r#"{"url":"https://example.com"}"#.to_owned(),
             },
             dispatched_at: jiff::Timestamp::now(),
@@ -696,7 +695,7 @@ async fn no_plugins_forwarded_events_are_harmless() {
             session_id: SessionId::new(),
             tool_call: ToolCall {
                 id: "c1".to_owned(),
-                name: "web-fetch".to_owned(),
+                name: "sample-tool".to_owned(),
                 arguments: r#"{"url":"https://example.com"}"#.to_owned(),
             },
             dispatched_at: jiff::Timestamp::now(),

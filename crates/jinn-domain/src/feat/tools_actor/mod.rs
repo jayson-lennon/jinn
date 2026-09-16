@@ -106,8 +106,7 @@ use crate::feat::mcp_actor::protocol::McpConnectionStatus;
 use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::protocol::SessionClosed;
 use crate::feat::tools_actor::protocol::command::{
-    CancelToolBatch, ExecuteTool, ExecuteToolBatch, ExecuteWebFetch, ExecuteWebSearch,
-    RegisterTools,
+    CancelToolBatch, ExecuteTool, ExecuteToolBatch, RegisterTools,
 };
 use crate::feat::tools_actor::protocol::event::{
     ToolBatchCompleted, ToolExecutionCompleted, ToolsRegistered, ToolsUnregistered,
@@ -203,8 +202,7 @@ pub(crate) struct PendingBatch {
 pub struct ToolOrchestratorActor {
     /// Universal actor dependencies.
     deps: ActorDeps,
-    /// Global tool name → registration info (builtins + global actor tools
-    /// like `web-fetch`/`web-search`).
+    /// Global tool name → registration info (builtins + global actor tools).
     tools: HashMap<String, ToolRegistration>,
     /// Per-session tool registrations, keyed by session then tool name.
     /// Used by per-session tool providers (e.g. MCP servers enabled for one
@@ -697,8 +695,7 @@ impl ToolOrchestratorActor {
 
     /// Routes an actor-backed tool to its provider's command.
     ///
-    /// Global providers (`web-fetch`, `web-search`) keep their dedicated
-    /// commands. MCP providers (`mcp__*`) are delivered via the generic
+    /// MCP providers (`mcp__*`) are delivered via the generic
     /// [`ExecuteTool`] command to whichever MCP client actor owns the
     /// matching session-scoped connection.
     async fn dispatch_actor(
@@ -709,22 +706,6 @@ impl ToolOrchestratorActor {
         dispatched_at: Timestamp,
     ) -> Option<tokio::task::JoinHandle<()>> {
         match provider {
-            "web-fetch" => {
-                self.publish(ExecuteWebFetch {
-                    session_id,
-                    tool_call,
-                    dispatched_at,
-                })
-                .await;
-            }
-            "web-search" => {
-                self.publish(ExecuteWebSearch {
-                    session_id,
-                    tool_call,
-                    dispatched_at,
-                })
-                .await;
-            }
             p if p.starts_with(MCP_PROVIDER_PREFIX) => {
                 // Fail fast when the owning MCP server cannot take this call:
                 // publishing ExecuteTool with no live McpActor subscriber would
@@ -1425,13 +1406,13 @@ mod routing_lookup_tests {
     #[test]
     fn global_used_when_session_map_absent() {
         // Given only a global registration.
-        let global_reg = actor_reg("web-fetch", "web-fetch");
+        let global_reg = actor_reg("sample-tool", "sample-actor");
 
         // When resolving with no session map.
-        let resolved = lookup_registration(None, Some(&global_reg), "web-fetch");
+        let resolved = lookup_registration(None, Some(&global_reg), "sample-tool");
 
         // Then the global registration is returned.
-        assert_eq!(provider_of(resolved), Some("web-fetch"));
+        assert_eq!(provider_of(resolved), Some("sample-actor"));
     }
 
     #[rstest::rstest]
@@ -1439,13 +1420,13 @@ mod routing_lookup_tests {
     fn global_used_when_session_map_lacks_tool() {
         // Given a session map without the tool and a global map with it.
         let session = HashMap::<String, ToolRegistration>::new();
-        let global_reg = actor_reg("web-search", "web-search");
+        let global_reg = actor_reg("sample-tool-2", "sample-actor-2");
 
         // When resolving.
-        let resolved = lookup_registration(Some(&session), Some(&global_reg), "web-search");
+        let resolved = lookup_registration(Some(&session), Some(&global_reg), "sample-tool-2");
 
         // Then the global registration is the fallback.
-        assert_eq!(provider_of(resolved), Some("web-search"));
+        assert_eq!(provider_of(resolved), Some("sample-actor-2"));
     }
 
     #[rstest::rstest]
@@ -1472,7 +1453,7 @@ mod server_name_tests {
     #[case("mcp__excalimate__", Some("excalimate"))]
     #[case("mcp__stub__", Some("stub"))]
     #[case("mcp____", None)]
-    #[case("web-fetch", None)]
+    #[case("plain-provider", None)]
     fn server_name_extraction(#[case] provider: &str, #[case] expected: Option<&str>) {
         // Given an MCP provider string.
         // When extracting the server name.

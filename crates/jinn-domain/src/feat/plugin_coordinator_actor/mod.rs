@@ -71,8 +71,6 @@ pub struct PluginCoordinatorActor {
     root: RootSupervisorRef,
     state: State,
     cap: crate::common::tcaps::PluginsCap,
-    /// Authority to apply a resolved theme to the frontend (late-apply).
-    frontend_cap: crate::common::tcaps::FrontendCap,
     /// Config dir / data dir context for grant resolution and wasm paths.
     dirs: PluginDirs,
     /// Live plugin actors by name.
@@ -114,10 +112,6 @@ pub struct PluginCoordinatorActorDeps {
     pub state: State,
     /// Authority to write the plugin contribution cache.
     pub cap: crate::common::tcaps::PluginsCap,
-    /// Authority to apply a resolved theme to the frontend (the late-apply
-    /// path: the persisted theme name may only resolve once the themes
-    /// plugin's first contribution lands).
-    pub frontend_cap: crate::common::tcaps::FrontendCap,
     /// Directory context for grant resolution and wasm paths.
     pub dirs: PluginDirs,
     /// Test seam: overrides [`GUEST_TICK_INTERVAL`] so tick forwarding is
@@ -203,7 +197,6 @@ impl kameo::Actor for PluginCoordinatorActor {
             root: args.root,
             state: args.state,
             cap: args.cap,
-            frontend_cap: args.frontend_cap,
             dirs: args.dirs,
             spawned: Mutex::new(HashMap::new()),
             subscriptions: Mutex::new(HashMap::new()),

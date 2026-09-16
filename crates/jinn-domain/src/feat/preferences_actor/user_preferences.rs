@@ -36,12 +36,6 @@ pub use crate::feat::project::ProjectConfig;
 pub use crate::feat::session_lifecycle::SessionLifecycle;
 pub use crate::feat::tools_actor::OpenrouterWebSearchConfig;
 pub use crate::feat::ui::MinimapConfig;
-pub use crate::feat::web_fetch_actor::{WebFetchBackend, WebFetchConfig};
-pub use crate::feat::web_search_actor::WebSearchBackend;
-pub use crate::feat::web_search_actor::WebSearchConfig;
-// BrowserConfig + BrowserBackend + BrowserBinary live in their own module;
-// re-exported here so the historical `user_preferences::*` import path works.
-pub use crate::feat::browser::{BrowserBackend, BrowserBinary, BrowserConfig};
 
 /// Canonical default `jinn.toml` embedded at compile time.
 ///
@@ -161,17 +155,6 @@ pub struct UserPreferences {
     /// Retry configuration for LLM provider requests.
     #[serde(default)]
     pub request_retry: RequestRetryConfig,
-    /// Web fetch tool configuration.
-    #[serde(default)]
-    pub web_fetch: WebFetchConfig,
-    /// Web search tool configuration.
-    #[serde(default)]
-    pub web_search: WebSearchConfig,
-    /// Shared browser launch configuration. Consumed by both `web-fetch`
-    /// and `web-search` when their `backend` selects a browser. Ignored
-    /// by the `http` backend.
-    #[serde(default)]
-    pub browser: BrowserConfig,
     /// OpenRouter web search server tool configuration.
     #[serde(default)]
     pub openrouter_web_search: OpenrouterWebSearchConfig,
@@ -231,9 +214,6 @@ impl Default for UserPreferences {
             max_tool_output_bytes: None,
             compaction: CompactionConfig::default(),
             request_retry: RequestRetryConfig::default(),
-            web_fetch: WebFetchConfig::default(),
-            web_search: WebSearchConfig::default(),
-            browser: BrowserConfig::default(),
             openrouter_web_search: OpenrouterWebSearchConfig::default(),
             cwd_selector: CwdSelectorConfig::default(),
             minimap: MinimapConfig::default(),
@@ -748,23 +728,6 @@ pub(crate) mod tests {
                 base_delay_secs: 3,
                 max_delay_secs: 90,
             },
-            web_fetch: WebFetchConfig {
-                backend: WebFetchBackend::Http,
-            },
-            web_search: WebSearchConfig {
-                backend: WebSearchBackend::HeadlessChrome,
-                max_results: 21,
-                region: "fixture-region".to_owned(),
-                safe_search: false,
-            },
-            browser: BrowserConfig {
-                binary: BrowserBinary::Chromium,
-                user_agent: Some("fixture-agent/1.0".to_owned()),
-                anubis_timeout_secs: 33,
-                challenge_wait_secs: 130,
-                settle_secs: 6,
-                keep_tabs_open: true,
-            },
             openrouter_web_search: OpenrouterWebSearchConfig {
                 engine: Some("firecrawl".to_owned()),
                 max_results: Some(23),
@@ -798,6 +761,37 @@ pub(crate) mod tests {
     }
 
     #[rstest::rstest]
+    #[test]
+    fn load_tolerates_removed_web_sections_in_existing_files() {
+        // Given a preferences file written by an older jinn that still had
+        // the removed web_fetch/web_search/browser sections.
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join(PREFS_FILE_NAME);
+        std::fs::write(
+            &path,
+            r#"[web_fetch]
+backend = "http"
+
+[web_search]
+backend = "http"
+max_results = 10
+
+[browser]
+binary = "auto"
+"#,
+        )
+        .expect("write");
+
+        // When loading.
+        let prefs = load_preferences_from(&path);
+
+        // Then the removed sections are ignored and defaults load.
+        let prefs = prefs.expect("load tolerates removed sections");
+        assert_eq!(prefs.openrouter_web_search.engine.as_deref(), Some("exa"));
+    }
+
+    #[rstest::rstest]
+    #[test]
     fn load_returns_defaults_and_creates_file_when_missing() {
         // Given a path to a nonexistent file.
         let dir = TempDir::new().expect("temp dir");
@@ -1345,26 +1339,12 @@ pub(crate) mod tests {
     }
 
     #[rstest::rstest]
-    fn default_preferences_wire_web_fetch_to_backend_default() {
-        let prefs = UserPreferences::default();
-        assert_eq!(prefs.web_fetch.backend, WebFetchConfig::default().backend);
-    }
-
-    #[rstest::rstest]
     fn default_preferences_wire_openrouter_web_search_to_section_default() {
         let prefs = UserPreferences::default();
         assert_eq!(
             prefs.openrouter_web_search,
             OpenrouterWebSearchConfig::default()
         );
-    }
-    #[rstest::rstest]
-    fn default_preferences_wire_web_search_to_section_default() {
-        // Given default preferences.
-        let prefs = UserPreferences::default();
-
-        // Then the web_search section equals its own default.
-        assert_eq!(prefs.web_search, WebSearchConfig::default());
     }
     #[rstest::rstest]
     fn default_preferences_wire_minimap_to_section_default() {
