@@ -23,16 +23,16 @@ use std::time::Duration;
 use jinn_mcp::server_testkit::{spawn_stub_client, spawn_stub_client_with_killer};
 use kameo::actor::Spawn;
 
-use crate::common::actor_deps::ActorDeps;
-use crate::common::bus::test_harness::{TestHarness, await_recorded};
-use crate::feat::mcp::McpServerConfig;
-use crate::feat::mcp_actor::protocol::{McpConnectionStatus, McpServerStatus};
-use crate::feat::mcp_actor::{McpActor, McpActorDeps};
-use crate::feat::tools_actor::protocol::command::ExecuteTool;
-use crate::feat::tools_actor::protocol::event::ToolExecutionCompleted;
-use crate::feat::tools_actor::protocol::event::ToolsUnregistered;
-use crate::feat::tools_actor::tool_types::ToolCall;
-use crate::protocol::SessionId;
+use crate::connection::{McpActor, McpActorDeps};
+use jinn_domain::common::actor_deps::ActorDeps;
+use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
+use jinn_domain::feat::mcp::McpServerConfig;
+use jinn_domain::feat::tools_actor::protocol::command::ExecuteTool;
+use jinn_domain::feat::tools_actor::protocol::event::ToolExecutionCompleted;
+use jinn_domain::feat::tools_actor::protocol::event::ToolsUnregistered;
+use jinn_domain::feat::tools_actor::tool_types::ToolCall;
+use jinn_domain::protocol::SessionId;
+use jinn_slices::{McpConnectionStatus, McpServerStatus};
 
 /// The server name injected into the actor — becomes the tool namespace segment
 /// (`mcp__stub__echo`) and the strip-namespace key the actor matches on.
@@ -440,8 +440,8 @@ async fn disable_cycle_calls_fail_fast_after_teardown() {
     let session_id = SessionId::new();
 
     let services = harness.services().await;
-    let state = crate::common::state::State::new(
-        crate::common::app_state::AppState::default_with_scope_focus(),
+    let state = jinn_domain::common::state::State::new(
+        jinn_domain::common::app_state::AppState::default_with_scope_focus(),
     );
     state.write_test_no_cap().session.get_or_create(&session_id);
     state
@@ -562,7 +562,7 @@ async fn http_child_exit_reaps_and_cancels_transport() {
 
     // When the child-exit watcher runs and the child is killed externally.
     let shutdown = Arc::new(AtomicBool::new(false));
-    super::spawn_child_watch(shutdown.clone(), sleep_child, cancel_token);
+    crate::connection::spawn_child_watch(shutdown.clone(), sleep_child, cancel_token);
     // `try_wait` requires the child to be dead; kill it via the OS.
     // SAFETY: sending SIGKILL to a child we just spawned; the pid is valid
     // for the duration of the test.
@@ -625,7 +625,7 @@ async fn http_teardown_kills_and_reaps_still_alive_child() {
     let cancel_token = stub_client.cancel_token();
 
     let shutdown = Arc::new(AtomicBool::new(false));
-    super::spawn_child_watch(shutdown.clone(), sleep_child, cancel_token);
+    crate::connection::spawn_child_watch(shutdown.clone(), sleep_child, cancel_token);
 
     // When normal teardown signals the shutdown flag (mimicking on_stop).
     shutdown.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -671,7 +671,7 @@ async fn execute_tool_exceeding_timeout_yields_failed_result() {
     ));
     actor.wait_for_startup().await;
     {
-        let prefs = crate::feat::preferences_actor::UserPreferences {
+        let prefs = jinn_domain::feat::preferences_actor::UserPreferences {
             tool_default_timeout_secs: 1,
             ..Default::default()
         };
@@ -743,7 +743,7 @@ async fn execute_tool_with_disabled_timeout_completes() {
     ));
     actor.wait_for_startup().await;
     {
-        let prefs = crate::feat::preferences_actor::UserPreferences {
+        let prefs = jinn_domain::feat::preferences_actor::UserPreferences {
             tool_default_timeout_secs: 0,
             ..Default::default()
         };

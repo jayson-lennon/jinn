@@ -365,8 +365,7 @@ pub struct SessionCore {
     /// persisted.
     /// OWNER: McpCoordinatorActor (writes on `McpServerStatus` events).
     #[serde(skip)]
-    pub mcp_server_status:
-        std::collections::BTreeMap<String, crate::feat::mcp_actor::protocol::McpConnectionStatus>,
+    pub mcp_server_status: std::collections::BTreeMap<String, jinn_slices::McpConnectionStatus>,
     /// Per-session captured stderr tail for each MCP server, updated live
     /// by the stderr-debounce republish.
     ///
@@ -1924,8 +1923,7 @@ impl ChatSessionState {
     #[must_use]
     pub fn mcp_server_status(
         &self,
-    ) -> &std::collections::BTreeMap<String, crate::feat::mcp_actor::protocol::McpConnectionStatus>
-    {
+    ) -> &std::collections::BTreeMap<String, jinn_slices::McpConnectionStatus> {
         &self.core.mcp_server_status
     }
 
@@ -1935,7 +1933,7 @@ impl ChatSessionState {
     pub fn set_mcp_server_status(
         &mut self,
         server: &str,
-        status: crate::feat::mcp_actor::protocol::McpConnectionStatus,
+        status: jinn_slices::McpConnectionStatus,
     ) {
         self.core
             .mcp_server_status

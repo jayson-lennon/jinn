@@ -21,8 +21,6 @@
 //! [`ActorRef::stop_gracefully`], which triggers the `McpActor::on_stop` hook
 //! that shuts the child process down.
 
-pub mod protocol;
-
 use std::collections::{BTreeSet, HashMap};
 
 use kameo::actor::{ActorRef, Spawn};
@@ -30,21 +28,21 @@ use kameo::prelude::{Context, Message};
 use kameo::supervision::RestartPolicy;
 use parking_lot::Mutex;
 
-use crate::Services;
-use crate::common::actor_deps::{ActorDeps, BusPublish};
-use crate::common::root_supervisor::RootSupervisorRef;
-use crate::common::services::bus_service::BusService;
-use crate::feat::mcp::McpServerConfig;
-use crate::feat::mcp_actor::protocol::{McpServerLog, McpServerStatus};
-use crate::feat::mcp_actor::{ConnectionState, McpActor, McpActorDeps};
-use crate::feat::mcp_coordinator_actor::protocol::{
-    McpEnablementChanged, RestartError, RestartMcpServer,
+use crate::connection::{ConnectionState, McpActor, McpActorDeps};
+use jinn_domain::Services;
+use jinn_domain::common::actor_deps::{ActorDeps, BusPublish};
+use jinn_domain::common::root_supervisor::RootSupervisorRef;
+use jinn_domain::common::services::bus_service::BusService;
+use jinn_domain::feat::mcp::McpServerConfig;
+use jinn_domain::feat::session::protocol::session_archived::SessionArchived;
+use jinn_domain::feat::session::protocol::session_closed::SessionClosed;
+use jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted;
+use jinn_domain::feat::session_lifecycle::protocol::event::{
+    SessionCreated, SessionTeardownFinished,
 };
-use crate::feat::session::protocol::session_archived::SessionArchived;
-use crate::feat::session::protocol::session_closed::SessionClosed;
-use crate::feat::session::protocol::session_load_completed::SessionLoadCompleted;
-use crate::feat::session_lifecycle::protocol::event::{SessionCreated, SessionTeardownFinished};
-use crate::protocol::SessionId;
+use jinn_domain::protocol::SessionId;
+use jinn_slices::{McpEnablementChanged, RestartError, RestartMcpServer};
+use jinn_slices::{McpServerLog, McpServerStatus};
 
 /// Key into the spawned-actor map: one `McpActor` per (session × server).
 type SpawnKey = (SessionId, String);
@@ -64,8 +62,8 @@ const RESTART_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 pub struct McpCoordinatorActor {
     deps: ActorDeps,
     root: RootSupervisorRef,
-    state: crate::common::state::State,
-    cap: crate::common::tcaps::SessionCap,
+    state: jinn_domain::common::state::State,
+    cap: jinn_domain::common::tcaps::SessionCap,
     /// Tracks every live `McpActor` by (session_id, server_name).
     /// Guarded by a mutex so spawn/kill helpers can borrow `self` while
     /// mutating the map without fighting the borrow checker.
@@ -81,9 +79,9 @@ pub struct McpCoordinatorActorDeps {
     pub root: RootSupervisorRef,
     /// Shared application state — the per-session MCP server status map is
     /// written here.
-    pub state: crate::common::state::State,
+    pub state: jinn_domain::common::state::State,
     /// Capability to write the session collection.
-    pub cap: crate::common::tcaps::SessionCap,
+    pub cap: jinn_domain::common::tcaps::SessionCap,
 }
 
 impl kameo::Actor for McpCoordinatorActor {
@@ -478,18 +476,18 @@ mod lifecycle_tests {
 
     use kameo::actor::Spawn;
 
-    use crate::common::actor_deps::ActorDeps;
-    use crate::common::bus::test_harness::{TestHarness, await_recorded};
-    use crate::common::root_supervisor::RootSupervisor;
-    use crate::feat::mcp::McpServerConfig;
-    use crate::feat::mcp_actor::protocol::{McpConnectionStatus, McpServerStatus};
-    use crate::feat::mcp_coordinator_actor::protocol::RestartError;
-    use crate::feat::preferences_actor::user_preferences::UserPreferences;
-    use crate::protocol::SessionId;
+    use jinn_domain::common::actor_deps::ActorDeps;
+    use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
+    use jinn_domain::common::root_supervisor::RootSupervisor;
+    use jinn_domain::feat::mcp::McpServerConfig;
+    use jinn_domain::feat::preferences_actor::user_preferences::UserPreferences;
+    use jinn_domain::protocol::SessionId;
+    use jinn_slices::RestartError;
+    use jinn_slices::{McpConnectionStatus, McpServerStatus};
 
     use super::{McpCoordinatorActor, McpCoordinatorActorDeps};
-    use crate::feat::mcp_coordinator_actor::protocol::McpEnablementChanged;
-    use crate::feat::session::protocol::session_closed::SessionClosed;
+    use jinn_domain::feat::session::protocol::session_closed::SessionClosed;
+    use jinn_slices::McpEnablementChanged;
 
     /// A configured MCP server whose command will never spawn successfully,
     /// so the spawned `McpActor` publishes Starting then Dead (never Running).
@@ -517,8 +515,8 @@ mod lifecycle_tests {
         servers: &[(&str, McpServerConfig)],
     ) -> (
         kameo::actor::ActorRef<McpCoordinatorActor>,
-        crate::Services,
-        crate::common::state::State,
+        jinn_domain::Services,
+        jinn_domain::common::state::State,
     ) {
         let services = harness.services().await;
         let mcp_server = servers
@@ -533,14 +531,16 @@ mod lifecycle_tests {
             })
             .expect("seed prefs");
         let root = RootSupervisor::spawn_root().await;
-        let state = crate::common::state::State::new(crate::common::app_state::AppState::default());
+        let state = jinn_domain::common::state::State::new(
+            jinn_domain::common::app_state::AppState::default(),
+        );
         let actor = McpCoordinatorActor::spawn(McpCoordinatorActorDeps {
             deps: ActorDeps {
                 services: services.clone(),
             },
             root,
             state: state.clone(),
-            cap: crate::common::tcaps::mint::mint_session_cap(),
+            cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
         });
         actor.wait_for_startup().await;
         (actor, services, state)
@@ -729,10 +729,10 @@ mod lifecycle_tests {
     /// state and returns its id. Bypasses capability checks via
     /// `write_test_no_cap` (coordinator tests only hold their own cap).
     fn insert_session_with_enablement(
-        state: &crate::common::state::State,
+        state: &jinn_domain::common::state::State,
         enabled: &BTreeSet<String>,
     ) -> SessionId {
-        let mut session = crate::feat::session::chat_session::ChatSessionState::new();
+        let mut session = jinn_domain::feat::session::chat_session::ChatSessionState::new();
         session.set_enabled_mcp_servers(enabled.clone());
         let session_id = session.session_id().clone();
         let mut app_state = state.write_test_no_cap();
@@ -755,7 +755,7 @@ mod lifecycle_tests {
         // When publishing SessionCreated for that session.
         harness
             .publish(
-                crate::feat::session_lifecycle::protocol::event::SessionCreated {
+                jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated {
                     session_id,
                     cwd: std::env::temp_dir(),
                 },
@@ -786,7 +786,7 @@ mod lifecycle_tests {
         // desired set (the common seeding flow emits both).
         harness
             .publish(
-                crate::feat::session_lifecycle::protocol::event::SessionCreated {
+                jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated {
                     session_id: session_id.clone(),
                     cwd: std::env::temp_dir(),
                 },
@@ -843,7 +843,7 @@ mod lifecycle_tests {
         }
         harness
             .publish(
-                crate::feat::session_lifecycle::protocol::event::SessionCreated {
+                jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated {
                     session_id: session_id.clone(),
                     cwd: std::env::temp_dir(),
                 },
@@ -882,17 +882,17 @@ mod status_tests {
 
     use kameo::actor::Spawn;
 
-    use crate::common::actor_deps::ActorDeps;
-    use crate::common::app_state::AppState;
-    use crate::common::bus::test_harness::TestHarness;
-    use crate::common::root_supervisor::RootSupervisor;
-    use crate::common::state::State;
-    use crate::feat::mcp_actor::protocol::{McpConnectionStatus, McpServerLog, McpServerStatus};
-    use crate::feat::preferences_actor::user_preferences::UserPreferences;
-    use crate::protocol::SessionId;
+    use jinn_domain::common::actor_deps::ActorDeps;
+    use jinn_domain::common::app_state::AppState;
+    use jinn_domain::common::bus::test_harness::TestHarness;
+    use jinn_domain::common::root_supervisor::RootSupervisor;
+    use jinn_domain::common::state::State;
+    use jinn_domain::feat::preferences_actor::user_preferences::UserPreferences;
+    use jinn_domain::protocol::SessionId;
+    use jinn_slices::{McpConnectionStatus, McpServerLog, McpServerStatus};
 
     use super::McpCoordinatorActor;
-    use crate::feat::mcp_coordinator_actor::McpCoordinatorActorDeps;
+    use crate::coordinator::McpCoordinatorActorDeps;
 
     /// Spawns a coordinator and seeds one session into its state so status
     /// events for that session land somewhere to write.
@@ -913,7 +913,7 @@ mod status_tests {
             },
             root,
             state: state.clone(),
-            cap: crate::common::tcaps::mint::mint_session_cap(),
+            cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
         });
         actor.wait_for_startup().await;
         (state, session_id)

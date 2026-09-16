@@ -93,11 +93,9 @@ pub struct Services {
     #[debug(skip)]
     pub root_supervisor: crate::common::root_supervisor::RootSupervisorRef,
 
-    pub mcp_coordinator: Arc<
-        std::sync::OnceLock<
-            kameo::actor::ActorRef<crate::feat::mcp_coordinator_actor::McpCoordinatorActor>,
-        >,
-    >,
+    #[debug(skip)]
+    pub mcp_coordinator:
+        Arc<std::sync::OnceLock<std::sync::Arc<dyn jinn_slices::McpCoordinatorHandle>>>,
 
     /// Interactive-term coordinator actor ref, exposed to the tool layer
     /// (the `interactive_term*` tools) after actor wiring spawns it.

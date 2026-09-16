@@ -70,6 +70,7 @@ path = "src/lib.rs"
 [dependencies]
 jinn-persona = { workspace = true }
 jinn-token-count = { workspace = true }
+jinn-mcp-slice = { workspace = true }
 jinn-theme-slice = { workspace = true }
 jinn-cli = { workspace = true }
 jinn-chat-input = { workspace = true }
@@ -190,6 +191,7 @@ jinn-testutil = { path = "crates/jinn-testutil" }
 
 jinn-theme = { path = "crates/jinn-theme" }
 jinn-mcp = { path = "crates/jinn-mcp" }
+jinn-mcp-slice = { path = "crates/slices/jinn-mcp-slice" }
 jinn-plugin-api = { path = "crates/jinn-plugin-api" }
 jinn-plugin = { path = "crates/jinn-plugin" }
 wasm-encoder = "=0.252.0"

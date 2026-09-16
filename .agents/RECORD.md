@@ -114,6 +114,7 @@ Entries are added or amended **only with human approval**.
 - (mcp) MCP server child processes have piped stderr captured to a bounded ring buffer owned by each `McpActor`; stderr never reaches jinn's terminal.
 - (mcp) Per-session MCP server status is owned by `McpCoordinatorActor`, driven by `McpServerStatus` events; it is surfaced in the sidebar, not the dashboard.
 - (mcp) `McpActor` republishes its captured stderr tail via `McpServerLog` on a debounce while Running; `McpCoordinatorActor` owns the per-session tails alongside status.
+- (mcp) MCP server restart is dispatched through a handle trait in jinn-slices rather than a typed actor reference; the coordinator actor type is private to the slice.
 - (mcp) The MCP server picker (`<leader>sM`) is a multipane inspector: a server list with a preview pane that toggles (Ctrl-prefixed) between a live stderr-tail/status view and the server's tool list.
 - (mcp) For local_http servers, jinn parses the bind address from the server's `url` host, allocates a free port via bind-and-release, and injects both into the server's args via `<ip>`/`<port>` replacement tokens; the `<port>` token is also expanded in the `url` itself.
 - (mcp) The global `mcp_bind_address` preference has been removed — the bind address is per-server in the `url`.
@@ -367,3 +368,4 @@ Entries are added or amended **only with human approval**.
 - (plugins) The persona-loader plugin no longer exists; personas parse from disk at boot, and the plugin wire contract carries no contribution types — only event subscriptions.
 - (slices) The token-count slice is a crate owning the per-session entry token cache cell and both token actors (count fill, cache eviction); the session actor and the prune workers share the cache from the cell.
 - (slices) The entry token cache was pruned-family vocabulary misfiled under auto_prune_worker; it lives in jinn-slices and the prune family consumes it from the token-count slice's cell.
+- (slices) The mcp slice is a crate owning both MCP actors (coordinator and per-connection); its wire contracts live in jinn-slices and the kernel reaches the coordinator through the McpCoordinatorHandle trait.

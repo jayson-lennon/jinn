@@ -1,0 +1,27 @@
+[package]
+name = "jinn-mcp-slice"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Kernel dep (sidebar precedent): the coordinator writes ChatSession.mcp_server_status
+# through a SessionCap and consumes session lifecycle events — the sync
+# SliceActionState capability pattern does not fit async kameo actors.
+jinn-domain = { workspace = true }
+jinn-mcp = { workspace = true }
+jinn-slices = { workspace = true }
+async-trait = { workspace = true }
+kameo = { workspace = true }
+tracing = { workspace = true }
+serde_json = { workspace = true }
+jiff = { workspace = true }
+libc = "0.2"
+jinn-core-types = { workspace = true }
+error-stack = { workspace = true }
+parking_lot = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+ctor = "0.8"
+rustls = { workspace = true }

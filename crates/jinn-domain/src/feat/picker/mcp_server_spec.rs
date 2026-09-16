@@ -33,12 +33,12 @@ use crate::PushChatEntry;
 use crate::common::app_state::AppState;
 use crate::feat::mcp::picker_entry::McpPreviewMode;
 use crate::feat::mcp::picker_entry::McpServerEntry;
-use crate::feat::mcp_coordinator_actor::protocol::McpEnablementChanged;
-use crate::feat::mcp_coordinator_actor::protocol::RestartMcpServer;
 use crate::feat::picker::style::dim_style;
 use crate::feat::picker::style::split_match_indices;
 use crate::feat::ui::picker_states::PickerExt;
 use crate::protocol::ChatEntry;
+use jinn_slices::McpEnablementChanged;
+use jinn_slices::RestartMcpServer;
 
 /// Builds the MCP server picker's spec.
 #[must_use]
@@ -182,15 +182,13 @@ fn tools_preview(entry: &McpServerEntry) -> Vec<Line<'static>> {
 fn status_badge_line(entry: &McpServerEntry) -> Line<'static> {
     let (label, color) = match entry.status {
         None => ("disabled", entry.theme.muted_text),
-        Some(crate::feat::mcp_actor::protocol::McpConnectionStatus::Starting) => {
+        Some(jinn_slices::McpConnectionStatus::Starting) => {
             ("starting", ratatui::style::Color::Yellow)
         }
-        Some(crate::feat::mcp_actor::protocol::McpConnectionStatus::Running) => {
+        Some(jinn_slices::McpConnectionStatus::Running) => {
             ("running", ratatui::style::Color::Green)
         }
-        Some(crate::feat::mcp_actor::protocol::McpConnectionStatus::Dead) => {
-            ("dead", ratatui::style::Color::Red)
-        }
+        Some(jinn_slices::McpConnectionStatus::Dead) => ("dead", ratatui::style::Color::Red),
     };
     Line::from(vec![
         Span::styled(
@@ -408,13 +406,13 @@ mod tests {
     )]
     use super::*;
     use crate::common::app_state::FocusScope;
-    use crate::feat::mcp_actor::protocol::McpConnectionStatus;
     use crate::feat::picker::PickerKind;
     use crate::feat::picker::host_impl::AppStatePickerHost;
     use crate::feat::picker::registry::MCP_SERVER_ID;
     use crate::feat::session::chat_session::ChatSessionState;
     use crate::feat::theme::default_theme;
     use jinn_picker::SpecHandle;
+    use jinn_slices::McpConnectionStatus;
 
     /// A configured MCP server: command + args become the picker description.
     fn server_config(command: &str, args: &[&str]) -> crate::feat::mcp::McpServerConfig {

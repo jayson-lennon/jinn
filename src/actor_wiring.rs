@@ -396,7 +396,6 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
 
         // Session persistence actor — must spawn before ToolOrchestratorActor so
         // ToolsRegistered subscription is ready when tools register builtins in on_start.
-        //
         // Unbounded mailbox: the session actor is the single sink for every streaming
         // event (StreamToken, StreamCompleted, ToolBatchCompleted, …) from a provider
         // burst. The default bounded(64) mailbox can momentarily fill at the [DONE]
@@ -466,9 +465,9 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
             &services.bus,
             "mcp-coordinator",
             "McpCoordinatorActor",
-            jinn_domain::feat::mcp_coordinator_actor::McpCoordinatorActor::supervise(
+            jinn_mcp_slice::coordinator::McpCoordinatorActor::supervise(
                 &root,
-                jinn_domain::feat::mcp_coordinator_actor::McpCoordinatorActorDeps {
+                jinn_mcp_slice::coordinator::McpCoordinatorActorDeps {
                     deps: actor_deps.clone(),
                     root: root.clone(),
                     state: state.clone(),
@@ -480,9 +479,14 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
             .await
         );
         _mcp_coordinator.wait_for_startup().await;
-        // Expose the coordinator ref to the tool layer (restart_mcp_server).
-        // `OnceLock::set` returns Err if already set; ignore (e.g. test re-seed).
-        let _ = services.mcp_coordinator.set(_mcp_coordinator.clone());
+        // Expose a handle to the tool layer (restart_mcp_server). Minted from
+        // the actor ref by the slice; `OnceLock::set` returns Err if already
+        // set — ignore (e.g. test re-seed).
+        let _ = services
+            .mcp_coordinator
+            .set(jinn_mcp_slice::mcp_coordinator_handle(
+                _mcp_coordinator.clone(),
+            ));
 
         // Interactive-term coordinator: owns PTY sessions across tool calls
         // (the `interactive_term*` tools ask it directly). Spawned with the
@@ -659,9 +663,7 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
         );
 
         // ── History mutation workers ───────────────────��──────────────────────
-        //
         // To add a new history mutation worker:
-        //
         //   1. Implement `HistoryWorker` for your heuristic type
         //      (see `crates/jinn-domain/src/feat/history_worker/worker_trait.rs`).
         //   2. Add a spawn call here following the pattern below.

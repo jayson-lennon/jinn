@@ -22,19 +22,19 @@
 
 use std::path::PathBuf;
 
-use crate::common::actor_deps::ActorDeps;
-use crate::common::app_paths::AppPaths;
-use crate::common::app_state::AppState;
-use crate::common::bus::test_harness::TestHarness;
-use crate::common::root_supervisor::RootSupervisor;
-use crate::common::state::State;
-use crate::feat::mcp::McpServerConfig;
-use crate::feat::mcp_coordinator_actor::protocol::{RestartError, RestartMcpServer};
-use crate::feat::mcp_coordinator_actor::{McpCoordinatorActor, McpCoordinatorActorDeps};
-use crate::feat::preferences_actor::UserPreferences;
-use crate::feat::tools_actor::restart_mcp::execute;
-use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext};
-use crate::protocol::SessionId;
+use crate::coordinator::{McpCoordinatorActor, McpCoordinatorActorDeps};
+use jinn_domain::common::actor_deps::ActorDeps;
+use jinn_domain::common::app_paths::AppPaths;
+use jinn_domain::common::app_state::AppState;
+use jinn_domain::common::bus::test_harness::TestHarness;
+use jinn_domain::common::root_supervisor::RootSupervisor;
+use jinn_domain::common::state::State;
+use jinn_domain::feat::mcp::McpServerConfig;
+use jinn_domain::feat::preferences_actor::UserPreferences;
+use jinn_domain::feat::tools_actor::restart_mcp::execute;
+use jinn_domain::feat::tools_actor::tool_types::{ToolCall, ToolContext};
+use jinn_domain::protocol::SessionId;
+use jinn_slices::{RestartError, RestartMcpServer};
 use kameo::actor::Spawn;
 
 /// A configured MCP server whose command will never spawn successfully, so the
@@ -53,8 +53,8 @@ async fn spawn_coordinator(
     servers: &[(&str, McpServerConfig)],
 ) -> (
     kameo::actor::ActorRef<McpCoordinatorActor>,
-    crate::Services,
-    crate::common::state::State,
+    jinn_domain::Services,
+    jinn_domain::common::state::State,
 ) {
     let services = harness.services().await;
     services
@@ -75,7 +75,7 @@ async fn spawn_coordinator(
         },
         root,
         state: state.clone(),
-        cap: crate::common::tcaps::mint::mint_session_cap(),
+        cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
     });
     actor.wait_for_startup().await;
     (actor, services, state)
@@ -110,7 +110,8 @@ fn ctx_with_coordinator(
 
     ToolContext {
         cwd: PathBuf::from("/tmp"),
-        command_policy: crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+        command_policy:
+            jinn_domain::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
         timeout: None,
         state: Some(state),
         session_id: Some(session_id),
@@ -120,7 +121,7 @@ fn ctx_with_coordinator(
         max_output_bytes: None,
         dispatched_at: jiff::Timestamp::now(),
         session_cap: None,
-        mcp_coordinator: Some(coordinator),
+        mcp_coordinator: Some(crate::mcp_coordinator_handle(coordinator)),
         interactive_term: None,
         task_spawns: None,
         session_store: None,
@@ -203,7 +204,8 @@ async fn execute_fails_when_coordinator_ref_is_none() {
     let session_id = SessionId::new();
     let ctx = ToolContext {
         cwd: PathBuf::from("/tmp"),
-        command_policy: crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+        command_policy:
+            jinn_domain::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
         timeout: None,
         state: Some(State::new(AppState::default())),
         session_id: Some(session_id),

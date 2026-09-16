@@ -18,18 +18,9 @@
 //! Each tool call is dispatched to a standalone task so the mailbox stays free
 //! for concurrent requests.
 
-pub mod protocol;
-
 // End-to-end dispatch roundtrip tests live in a separate module so the
 // stub-server fixtures (gated behind jinn-mcp's `server-testkit` feature)
 // stay isolated from the pure unit tests above.
-#[cfg(test)]
-mod dispatch_roundtrip_tests;
-#[cfg(test)]
-mod header_expansion_tests;
-#[cfg(test)]
-mod transport_routing_tests;
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -41,17 +32,19 @@ use kameo::actor::ActorRef;
 use kameo::prelude::{Context, Message};
 use parking_lot::Mutex;
 
-use crate::common::actor_deps::{ActorDeps, BusPublish};
-use crate::feat::mcp::{McpServerConfig, TransportKind};
-use crate::feat::mcp_actor::protocol::{McpConnectionStatus, McpServerLog, McpServerStatus};
-use crate::feat::tools_actor::protocol::command::{ExecuteTool, RegisterTools};
-use crate::feat::tools_actor::protocol::event::{ToolExecutionCompleted, ToolsUnregistered};
-use crate::feat::tools_actor::tool_types::{ToolCall, ToolDefinition, ToolResult};
-use crate::feat::tools_actor::truncation::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_tail};
-use crate::protocol::SessionId;
 use error_stack::{Report, ResultExt as _};
+use jinn_domain::common::actor_deps::{ActorDeps, BusPublish};
+use jinn_domain::feat::mcp::{McpServerConfig, TransportKind};
+use jinn_domain::feat::tools_actor::protocol::command::{ExecuteTool, RegisterTools};
+use jinn_domain::feat::tools_actor::protocol::event::{ToolExecutionCompleted, ToolsUnregistered};
+use jinn_domain::feat::tools_actor::tool_types::{ToolCall, ToolDefinition, ToolResult};
+use jinn_domain::feat::tools_actor::truncation::{
+    DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_tail,
+};
+use jinn_domain::protocol::SessionId;
+use jinn_slices::{McpConnectionStatus, McpServerLog, McpServerStatus};
 
-use crate::Services;
+use jinn_domain::Services;
 
 /// Debounce interval for live stderr republishing while the actor is Running.
 const STDERR_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
@@ -172,7 +165,7 @@ fn server_command(config: &McpServerConfig) -> ServerCommand {
 /// - [`TransportKind::RemoteHttp`]: connect to the configured `url` with no child.
 ///
 /// For both HTTP transports, configured header values are expanded from
-/// [`ApiKeysService`](crate::common::services::api_keys_service::ApiKeysService)
+/// [`ApiKeysService`](jinn_domain::common::services::api_keys_service::ApiKeysService)
 /// (`${VAR}` tokens resolved against variables seeded at startup) *before* any
 /// connect attempt; an unresolvable variable aborts the connect, which the
 /// caller surfaces as a dead server.
@@ -230,7 +223,8 @@ fn expand_server_headers(
     server: &McpServerConfig,
 ) -> Result<Vec<(String, String)>, Report<McpClientError>> {
     let resolve = |name: &str| services.api_keys.get(name);
-    crate::feat::mcp::expand_mcp_headers(&server.headers, &resolve).change_context(McpClientError)
+    jinn_domain::feat::mcp::expand_mcp_headers(&server.headers, &resolve)
+        .change_context(McpClientError)
 }
 
 /// Acquires a connected [`McpClient`] and the server's tool definitions.
@@ -603,7 +597,7 @@ fn spawn_liveness_watch(
 /// On loop exit (child dead or `shutdown` set): the `Child` drops, and
 /// `kill_on_drop` kills a still-alive process (normal teardown case) or
 /// no-ops an already-dead one (`kill -9` case).
-fn spawn_child_watch(
+pub(crate) fn spawn_child_watch(
     shutdown: Arc<AtomicBool>,
     mut child: tokio::process::Child,
     cancel_token: jinn_mcp::RunningServiceCancellationToken,
@@ -643,7 +637,7 @@ fn next_tail(current: &str, last_published: &str) -> Option<String> {
 }
 
 impl BusPublish for McpActor {
-    fn bus(&self) -> &crate::common::services::bus_service::BusService {
+    fn bus(&self) -> &jinn_domain::common::services::bus_service::BusService {
         &self.deps.services.bus
     }
 }

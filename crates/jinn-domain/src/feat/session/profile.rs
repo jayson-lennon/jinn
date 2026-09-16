@@ -120,7 +120,7 @@ impl SessionSeed {
 
     /// True when no MCP server would be auto-enabled.
     ///
-    /// Creation sites publish an [`McpEnablementChanged`](crate::feat::mcp_coordinator_actor::protocol::McpEnablementChanged)
+    /// Creation sites publish an [`McpEnablementChanged`](jinn_slices::McpEnablementChanged)
     /// event only when this returns false — with nothing desired there is
     /// nothing for the coordinator to reconcile, and skipping the broadcast
     /// avoids waking a subscriber on every session creation.

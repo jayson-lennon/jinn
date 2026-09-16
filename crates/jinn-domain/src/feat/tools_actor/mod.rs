@@ -76,8 +76,6 @@ pub mod protocol;
 pub mod read;
 pub mod registry;
 pub mod restart_mcp;
-#[cfg(test)]
-mod restart_mcp_tests;
 pub mod save_plan;
 pub mod session_fetch;
 pub mod session_search;
@@ -90,7 +88,7 @@ pub mod task_settle_listener_actor;
 mod task_tests;
 pub mod tool_entry;
 pub mod tool_types;
-pub(crate) mod truncation;
+pub mod truncation;
 pub(crate) mod visible_lines;
 pub mod write;
 
@@ -102,7 +100,6 @@ use crate::common::actor_deps::{ActorDeps, BusPublish};
 use crate::common::services::Services;
 use crate::common::services::bus_service::BusService;
 use crate::common::state::State;
-use crate::feat::mcp_actor::protocol::McpConnectionStatus;
 use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::protocol::SessionClosed;
 use crate::feat::tools_actor::protocol::command::{
@@ -115,6 +112,7 @@ use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition
 use crate::protocol::SessionId;
 use jiff::Timestamp;
 use jinn_provider::ServerToolType;
+use jinn_slices::McpConnectionStatus;
 use kameo::prelude::{Actor, ActorRef, Context, Message};
 
 /// Prefix for all MCP-provided tool `provider` values. A provider like
@@ -1479,13 +1477,13 @@ mod mcp_dispatch_gate_tests {
     use crate::common::app_state::AppState;
     use crate::common::bus::test_harness::{TestHarness, await_recorded};
     use crate::common::state::State;
-    use crate::feat::mcp_actor::protocol::McpConnectionStatus;
     use crate::feat::tools_actor::protocol::command::{
         ExecuteTool, ExecuteToolBatch, RegisterTools,
     };
     use crate::feat::tools_actor::protocol::event::{ToolExecutionCompleted, ToolsUnregistered};
     use crate::feat::tools_actor::tool_types::{ToolCall, ToolDefinition};
     use crate::protocol::SessionId;
+    use jinn_slices::McpConnectionStatus;
 
     use super::{ToolOrchestratorActor, ToolOrchestratorActorDeps};
 

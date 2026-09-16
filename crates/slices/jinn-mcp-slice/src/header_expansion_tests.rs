@@ -24,11 +24,11 @@ use std::time::Duration;
 
 use kameo::actor::Spawn;
 
-use crate::common::bus::test_harness::{TestHarness, await_recorded};
-use crate::feat::mcp::{McpServerConfig, TransportKind};
-use crate::feat::mcp_actor::protocol::{McpConnectionStatus, McpServerStatus};
-use crate::feat::mcp_actor::{McpActor, McpActorDeps};
-use crate::protocol::SessionId;
+use crate::connection::{McpActor, McpActorDeps};
+use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
+use jinn_domain::feat::mcp::{McpServerConfig, TransportKind};
+use jinn_domain::protocol::SessionId;
+use jinn_slices::{McpConnectionStatus, McpServerStatus};
 
 /// A RemoteHttp server whose header references an unknown variable publishes
 /// Dead (never Running) — the failure is surfaced through the standard
@@ -57,7 +57,7 @@ async fn remote_http_server_with_unresolved_header_variable_lands_dead() {
     // When spawning the actor (no injected client — real connect path).
     let services = harness.services().await;
     let actor = McpActor::spawn(McpActorDeps::new(
-        crate::common::actor_deps::ActorDeps {
+        jinn_domain::common::actor_deps::ActorDeps {
             services: services.clone(),
         },
         session_id,
@@ -121,7 +121,7 @@ async fn remote_http_server_with_resolvable_headers_enters_retry_loop() {
     // intentionally NOT awaited: on_start parks in the retry loop forever by
     // design. Spawning alone is enough for Starting to publish.
     let _actor = McpActor::spawn(McpActorDeps::new(
-        crate::common::actor_deps::ActorDeps {
+        jinn_domain::common::actor_deps::ActorDeps {
             services: services.clone(),
         },
         session_id,
@@ -156,7 +156,7 @@ async fn remote_http_server_with_resolvable_headers_enters_retry_loop() {
 async fn stdio_arm_ignores_configured_headers_entirely() {
     // Given services WITHOUT the variable that the config's headers reference,
     // and a stdio command that cannot exist.
-    let services = crate::Services::new_fake().await;
+    let services = jinn_domain::Services::new_fake().await;
     let mut headers = std::collections::BTreeMap::new();
     headers.insert(
         "Authorization".to_owned(),
@@ -171,7 +171,7 @@ async fn stdio_arm_ignores_configured_headers_entirely() {
     };
 
     // When connecting through the transport dispatcher.
-    let result = crate::feat::mcp_actor::connect_for_transport(&services, &server).await;
+    let result = crate::connection::connect_for_transport(&services, &server).await;
 
     // Then the attempt fails because the binary cannot spawn.
     let Err(err) = result else {
@@ -220,7 +220,7 @@ async fn stdio_server_with_bogus_header_variable_still_connects() {
     let services = harness.services().await;
     let client = jinn_mcp::server_testkit::spawn_stub_client().await;
     let actor = McpActor::spawn(McpActorDeps::with_client(
-        crate::common::actor_deps::ActorDeps { services },
+        jinn_domain::common::actor_deps::ActorDeps { services },
         session_id.clone(),
         "stdio-ignores-headers".to_owned(),
         server,

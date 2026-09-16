@@ -14,10 +14,9 @@
 use std::time::Duration;
 
 use futures::FutureExt;
-use kameo::error::SendError;
 
-use crate::feat::mcp_coordinator_actor::protocol::{RestartError, RestartMcpServer};
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition, ToolResult};
+use jinn_slices::RestartError;
 
 use super::BoxedToolFuture;
 
@@ -25,6 +24,8 @@ use super::BoxedToolFuture;
 /// already bounds at 60s; this catches a coordinator that never replies
 /// (e.g. it died) so the tool loop can't hang forever. Generously above the
 /// coordinator's bound to avoid racing it.
+// Outer bound surfaced in the timeout error text; the actual bound lives
+// in the handle impl (jinn-mcp-slice) with the same duration.
 const ASK_TIMEOUT: Duration = Duration::from_secs(75);
 
 /// Returns the tool definition for the `restart_mcp_server` built-in tool.
@@ -88,9 +89,11 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
         // kameo flattens a `Result<(), RestartError>` Reply: awaiting yields
         // `Result<(), SendError<M, RestartError>>`, where
         // `SendError::HandlerError(e)` carries our domain error variants.
-        match tokio::time::timeout(ASK_TIMEOUT, coordinator.ask(RestartMcpServer { session_id, server: server.clone() })).await {
+        // The handle bounds the ask internally (old ASK_TIMEOUT semantics
+        // moved into the seam): Timeout/Mailbox surface as domain errors.
+        match coordinator.restart(session_id.clone(), server.clone()).await {
             // Outer timeout: coordinator never replied.
-            Err(_) => {
+            Err(RestartError::Timeout) => {
                 return failure_result(
                     &tool_call_id,
                     &tool_name,
@@ -101,12 +104,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
                 );
             }
             // Delivery failure (actor stopped / mailbox full / ask timeout).
-            Ok(Err(
-                SendError::ActorNotRunning(_)
-                | SendError::ActorStopped
-                | SendError::MailboxFull(_)
-                | SendError::Timeout(_),
-            )) => {
+            Err(RestartError::Mailbox) => {
                 return failure_result(
                     &tool_call_id,
                     &tool_name,
@@ -115,16 +113,11 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
                 );
             }
             // Domain-level failure from the coordinator's restart_one.
-            Ok(Err(SendError::HandlerError(domain_err))) => {
-                return domain_failure_result(
-                    &tool_call_id,
-                    &tool_name,
-                    &server,
-                    &domain_err,
-                );
+            Err(domain_err) => {
+                return domain_failure_result(&tool_call_id, &tool_name, &server, &domain_err);
             }
             // Success: server reconnected.
-            Ok(Ok(())) => {}
+            Ok(()) => {}
         }
 
         ToolResult {

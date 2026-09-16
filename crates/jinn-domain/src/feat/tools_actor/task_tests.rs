@@ -186,10 +186,10 @@ async fn settle_child_discovery(
     )
     .await;
     for server in servers {
-        bus.publish(crate::feat::mcp_actor::protocol::McpServerStatus {
+        bus.publish(jinn_slices::McpServerStatus {
             session_id: child_id.clone(),
             server: server.clone(),
-            status: crate::feat::mcp_actor::protocol::McpConnectionStatus::Running,
+            status: jinn_slices::McpConnectionStatus::Running,
         })
         .await;
     }
@@ -853,10 +853,10 @@ async fn task_gates_first_dispatch_on_settlement() {
 
     // When the server reaches its terminal status and the child finishes.
     harness
-        .publish(crate::feat::mcp_actor::protocol::McpServerStatus {
+        .publish(jinn_slices::McpServerStatus {
             session_id: child_id.clone(),
             server: "stub".to_owned(),
-            status: crate::feat::mcp_actor::protocol::McpConnectionStatus::Running,
+            status: jinn_slices::McpConnectionStatus::Running,
         })
         .await;
     finish_child_like_session_actor(&harness.bus(), &state, &child_id, "Found it.").await;
@@ -941,10 +941,10 @@ async fn settle_waiter_dead_mcp_status_settles() {
     let no_servers = BTreeSet::new();
     settle_child_discovery(&harness.bus(), &child_id, &no_servers).await;
     harness
-        .publish(crate::feat::mcp_actor::protocol::McpServerStatus {
+        .publish(jinn_slices::McpServerStatus {
             session_id: child_id.clone(),
             server: "stub".to_owned(),
-            status: crate::feat::mcp_actor::protocol::McpConnectionStatus::Dead,
+            status: jinn_slices::McpConnectionStatus::Dead,
         })
         .await;
 
@@ -972,10 +972,10 @@ async fn settle_waiter_ignores_starting_status() {
     let no_servers = BTreeSet::new();
     settle_child_discovery(&harness.bus(), &child_id, &no_servers).await;
     harness
-        .publish(crate::feat::mcp_actor::protocol::McpServerStatus {
+        .publish(jinn_slices::McpServerStatus {
             session_id: child_id.clone(),
             server: "stub".to_owned(),
-            status: crate::feat::mcp_actor::protocol::McpConnectionStatus::Starting,
+            status: jinn_slices::McpConnectionStatus::Starting,
         })
         .await;
 

@@ -215,12 +215,10 @@ pub fn handle_session_lifecycle_setup(
         // new session's servers spawn without a picker visit. When nothing is
         // auto-enabled, the message is skipped (nothing to reconcile).
         if seed.has_auto_enabled_mcp() {
-            result = result.with_message(
-                crate::feat::mcp_coordinator_actor::protocol::McpEnablementChanged {
-                    session_id: new_id,
-                    enabled: seed.enabled_mcp,
-                },
-            );
+            result = result.with_message(jinn_slices::McpEnablementChanged {
+                session_id: new_id,
+                enabled: seed.enabled_mcp,
+            });
         }
 
         return result;
@@ -231,12 +229,10 @@ pub fn handle_session_lifecycle_setup(
     if !seed.has_auto_enabled_mcp() {
         return IntentResult::new_message(created_event);
     }
-    IntentResult::new_message(created_event).with_message(
-        crate::feat::mcp_coordinator_actor::protocol::McpEnablementChanged {
-            session_id: new_id,
-            enabled: seed.enabled_mcp,
-        },
-    )
+    IntentResult::new_message(created_event).with_message(jinn_slices::McpEnablementChanged {
+        session_id: new_id,
+        enabled: seed.enabled_mcp,
+    })
 }
 
 /// Handle `Intent::SessionClose`.

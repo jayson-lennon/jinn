@@ -2374,6 +2374,7 @@ dependencies = [
  "jinn-discord",
  "jinn-discord-msg",
  "jinn-domain",
+ "jinn-mcp-slice",
  "jinn-persona",
  "jinn-picker",
  "jinn-plugin",
@@ -2651,6 +2652,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "jinn-mcp-slice"
+version = "0.118.0"
+dependencies = [
+ "async-trait",
+ "ctor",
+ "error-stack",
+ "jiff",
+ "jinn-core-types",
+ "jinn-domain",
+ "jinn-mcp",
+ "jinn-slices",
+ "kameo",
+ "libc",
+ "parking_lot",
+ "rstest",
+ "rustls 0.23.45",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "jinn-persona"
 version = "0.118.0"
 dependencies = [
@@ -2870,6 +2893,7 @@ dependencies = [
 name = "jinn-slices"
 version = "0.118.0"
 dependencies = [
+ "async-trait",
  "dashmap 6.2.1",
  "derive_more",
  "dirs",

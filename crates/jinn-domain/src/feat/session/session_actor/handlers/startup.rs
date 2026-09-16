@@ -78,12 +78,10 @@ impl SessionPersistenceActor {
         }
 
         if let Some((session_id, enabled)) = welcome_mcp_enablement {
-            self.publish(
-                crate::feat::mcp_coordinator_actor::protocol::McpEnablementChanged {
-                    session_id,
-                    enabled,
-                },
-            )
+            self.publish(jinn_slices::McpEnablementChanged {
+                session_id,
+                enabled,
+            })
             .await;
         }
 

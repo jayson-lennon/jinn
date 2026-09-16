@@ -23,8 +23,8 @@
 
 use std::time::Duration;
 
-use crate::feat::mcp::TransportKind;
-use crate::feat::mcp_actor::connect_for_transport;
+use crate::connection::connect_for_transport;
+use jinn_domain::feat::mcp::TransportKind;
 
 /// `RemoteHttp` to an unreachable URL keeps retrying instead of failing fast.
 ///
@@ -37,7 +37,7 @@ use crate::feat::mcp_actor::connect_for_transport;
 async fn remote_http_to_unreachable_url_loops_instead_of_failing() {
     // Given a RemoteHttp config pointing at a port nothing is listening on.
     // Use a port in the dynamic range that's very likely free.
-    let config = crate::feat::mcp::McpServerConfig {
+    let config = jinn_domain::feat::mcp::McpServerConfig {
         command: None,
         args: vec![],
         transport: TransportKind::RemoteHttp,
@@ -47,7 +47,7 @@ async fn remote_http_to_unreachable_url_loops_instead_of_failing() {
     };
 
     // When attempting to connect, bounded by a short timeout.
-    let services = crate::Services::new_fake().await;
+    let services = jinn_domain::Services::new_fake().await;
     let result = tokio::time::timeout(
         Duration::from_millis(500),
         connect_for_transport(&services, &config),

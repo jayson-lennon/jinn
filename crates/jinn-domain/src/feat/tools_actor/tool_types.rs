@@ -58,8 +58,7 @@ pub struct ToolContext {
     /// whether a restart connected. Resolved from
     /// `services.mcp_coordinator` at dispatch time. `None` in tests and for
     /// every tool that doesn't need it.
-    pub mcp_coordinator:
-        Option<kameo::actor::ActorRef<crate::feat::mcp_coordinator_actor::McpCoordinatorActor>>,
+    pub mcp_coordinator: Option<std::sync::Arc<dyn jinn_slices::McpCoordinatorHandle>>,
     /// Interactive-term coordinator actor ref — `Some` only for the
     /// `interactive_term*` tools, which `ask` the coordinator to spawn/drive
     /// PTY sessions. Resolved from `services.interactive_term` at dispatch

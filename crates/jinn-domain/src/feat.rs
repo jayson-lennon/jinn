@@ -16,8 +16,6 @@ pub mod intent;
 pub mod interactive_term;
 pub mod llm_actor;
 pub mod mcp;
-pub mod mcp_actor;
-pub mod mcp_coordinator_actor;
 pub mod navigation;
 pub mod persona;
 pub mod picker;

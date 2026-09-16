@@ -116,12 +116,12 @@ pub fn handle_session_close(state: &mut AppState) -> crate::protocol::IntentResu
                 crate::feat::session::chat_session::ChatSessionState::new_with_profile(profile);
             new_session.set_enabled_mcp_servers(seed.enabled_mcp.clone());
 
-            let enablement = seed.has_auto_enabled_mcp().then(|| {
-                crate::feat::mcp_coordinator_actor::protocol::McpEnablementChanged {
-                    session_id: new_session.session_id().clone(),
-                    enabled: seed.enabled_mcp,
-                }
-            });
+            let enablement =
+                seed.has_auto_enabled_mcp()
+                    .then(|| jinn_slices::McpEnablementChanged {
+                        session_id: new_session.session_id().clone(),
+                        enabled: seed.enabled_mcp,
+                    });
             (new_session, enablement)
         };
         mcp_enablement = enablement;
