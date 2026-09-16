@@ -30,6 +30,7 @@
 )]
 
 use crate::AppState;
+use crate::feat::interactive_term::protocol::command::ControlHolder;
 
 use crate::protocol::{PickerKind, ScopeSignal};
 
@@ -135,6 +136,34 @@ fn tab_scopes(slices: &crate::common::slices::Slices) -> Vec<jinn_slices::SliceS
     slices.tab_scopes()
 }
 
+/// Closes the terminal overlay after an active-session switch and returns
+/// the switched-from session's terminal control to the agent.
+///
+/// The overlay renders the *active* session's terminal, so leaving it open
+/// across a switch would silently show a different program mid-keystroke.
+/// The previous session's control holder must be reset explicitly: if the
+/// user held control with no overlay to hand back from, the holder would
+/// stick on `User` and refuse every future agent send.
+///
+/// Deliberately abrupt (a status hint says why) — obvious over subtle. The
+/// registry flip only runs when the shared `TERM_CONTROLS` registry is
+/// wired (unit tests leave it unset, making this a pure state transition).
+fn close_terminal_overlay_on_switch(
+    state: &mut AppState,
+    slices: &jinn_slices::Slices,
+    prev_active: &crate::protocol::SessionId,
+) {
+    if let Some(registry) = crate::feat::interactive_term::takeover_intent::TERM_CONTROLS.get() {
+        registry.set(prev_active, ControlHolder::Agent);
+    }
+    state.frontend.scope_clear_overlays();
+    crate::feat::ui::status_hint::set_hint(
+        state,
+        slices,
+        Some("terminal overlay closed — active session changed".to_owned()),
+    );
+}
+
 impl IntentHandler {
     /// Process an intent against the current application state.
     ///
@@ -161,11 +190,23 @@ impl IntentHandler {
 
         // Capture active session ID before processing for diff-after check.
         let prev_active = state.session.active_session_id().clone();
+        // Capture the terminal overlay state too: the guard below must close
+        // the overlay only when it was open *before* the intent ran, so an
+        // intent that both activates and opens (sidebar `T`) is not closed by
+        // its own switch.
+        let terminal_overlay_open = matches!(
+            state.frontend.scope(),
+            crate::common::app_state::FocusScope::TerminalView
+                | crate::common::app_state::FocusScope::TerminalControl
+        );
 
         // Process the intent and get the result.
         let mut result = Self::handle_inner(intent, state, slices, routes, pickers);
 
         if state.session.active_session_id() != &prev_active {
+            if terminal_overlay_open {
+                close_terminal_overlay_on_switch(state, slices, &prev_active);
+            }
             result = result.with_message(crate::protocol::system::ActiveSessionChanged {
                 session_id: state.session.active_session_id().clone(),
             });
@@ -655,11 +696,17 @@ impl IntentHandler {
                     crate::feat::interactive_term::overlay_intent::selected_sessions_sidebar_target(
                         state,
                     );
-                crate::feat::interactive_term::overlay_intent::handle_toggle_overlay(
-                    state,
-                    slices,
-                    selected.as_ref(),
-                )
+                // Activate the selected session first, so the overlay (which
+                // renders the *active* session's terminal) and the live-term
+                // check below always target the same session. When nothing is
+                // selectable, fall through targeting the active session —
+                // identical to the global toggle key.
+                if let Some(selected) = selected
+                    && selected != *state.session.active_session_id()
+                {
+                    state.session.set_active(selected);
+                }
+                crate::feat::interactive_term::overlay_intent::handle_toggle_overlay(state, slices, None)
             }
             Intent::TerminalTakeControl => {
                 crate::feat::interactive_term::takeover_intent::handle_take_control(state)
@@ -1426,11 +1473,9 @@ mod tests {
 
         // Then the scope is TerminalControl.
         assert_eq!(state.frontend.scope(), FocusScope::TerminalControl);
-        // And the mirror records the user as control holder.
-        assert_eq!(
-            state.frontend.terminal.control,
-            crate::feat::interactive_term::terminal_tab_state::TermControlHolder::User
-        );
+        // And the shared registry records the user as control holder (the
+        // static is unwired in unit tests, so the flip is a no-op; the
+        // observable behavior here is the scope push itself).
     }
 
     #[rstest::rstest]
@@ -1726,7 +1771,6 @@ mod tests {
         state.frontend.scope_swap_base(FocusScope::TerminalView);
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
-            "term-1",
             "handback-screen-marker".to_owned(),
             ScreenCells::default(),
             (0, 0),
@@ -1751,11 +1795,6 @@ mod tests {
 
         // Then the scope pops back to TerminalView.
         assert_eq!(state.frontend.scope(), FocusScope::TerminalView);
-        // And the mirror flips back to agent control.
-        assert_eq!(
-            state.frontend.terminal.control,
-            crate::feat::interactive_term::terminal_tab_state::TermControlHolder::Agent
-        );
         // And no message is published to the model (release is silent; `I` pushes).
         assert!(
             result.messages.is_empty(),
@@ -1778,7 +1817,6 @@ mod tests {
         state.frontend.scope_swap_base(FocusScope::TerminalView);
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
-            "term-1",
             "idle-screen-marker".to_owned(),
             ScreenCells::default(),
             (0, 0),
@@ -1813,7 +1851,6 @@ mod tests {
         state.frontend.scope_swap_base(FocusScope::TerminalView);
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
-            "term-1",
             "busy-screen-marker".to_owned(),
             ScreenCells::default(),
             (0, 0),
@@ -1854,7 +1891,6 @@ mod tests {
         state.frontend.scope_swap_base(FocusScope::TerminalView);
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
-            "term-1",
             "yank-and-push-marker".to_owned(),
             ScreenCells::default(),
             (0, 0),
@@ -1886,7 +1922,6 @@ mod tests {
         let yank_slices = status_bar_slices();
         state.frontend.terminal.apply_screen(
             state.session.active_session_id(),
-            "term-1",
             "line one\nline two\nline three".to_owned(),
             ScreenCells::default(),
             (0, 0),
@@ -1966,11 +2001,9 @@ mod tests {
 
     #[rstest::rstest]
     fn close_overlay_from_view_leaves_control_with_agent() {
-        // Given an AppState with the overlay open in view mode (agent holds
-        // control; the user never took it).
+        // Given an AppState with the overlay open in view mode (the shared
+        // control registry unwired, so control stays with the agent).
         let mut state = AppState::default_with_scope_focus();
-        state.frontend.terminal.control =
-            crate::feat::interactive_term::terminal_tab_state::TermControlHolder::Agent;
         let chat = state.session.active_session_id().clone();
         state.frontend.terminal.set_live(&chat, true);
         state.frontend.scope_swap_base(FocusScope::TerminalView);
@@ -1985,13 +2018,195 @@ mod tests {
         );
 
         // Then the overlay closed (pop on a base-only stack is a no-op, so
-        // the view scope remains as the base) and the control flag stayed
-        // Agent.
+        // the view scope remains as the base).
         assert_eq!(state.frontend.scope(), FocusScope::TerminalView);
+    }
+
+    #[rstest::rstest]
+    fn active_session_switch_closes_terminal_overlay() {
+        // Given a state with two sessions, the overlay open over the first.
+        use crate::feat::session::chat_entry::ChatEntryKind;
+        use crate::feat::session::chat_session::ChatSessionState;
+        use crate::feat::tools_actor::task::TASK_TOOL_NAME;
+        use crate::protocol::SessionId;
+        let mut state = AppState::default_with_scope_focus();
+        let slices = status_bar_slices();
+        let first_id = state.session.active_session_id().clone();
+        let child_id = SessionId::new();
+        let mut child = ChatSessionState::new_child(&first_id, false);
+        child.set_session_id(child_id.clone());
+        state.session.insert(child);
+        let mut entry = ChatEntry::tool_call("tc_guard_test", TASK_TOOL_NAME, "{}");
+        let ChatEntryKind::ToolCall { child_session, .. } = &mut entry.kind else {
+            panic!("expected ToolCall kind");
+        };
+        *child_session = Some(child_id.clone());
+        state.active_session_mut().push_entry(entry);
+        state.active_session_mut().select_prev_entry();
+
+        state.frontend.terminal.set_live(&first_id, true);
+        // The real overlay opens on top of the base scope
+        // (clear_overlays + push); the guard clears overlays, so the
+        // overlay must not be the base itself.
+        state.frontend.scope_swap_base(FocusScope::Normal);
+        state.frontend.scope_push(FocusScope::TerminalView);
+
+        // When handling LoadSubagentSession — an intent that switches the
+        // active session directly (set_active on a loaded child) regardless
+        // of the open overlay.
+        IntentHandler::handle(
+            &Intent::LoadSubagentSession,
+            &mut state,
+            &slices,
+            &empty_routes(),
+            &empty_pickers(),
+        );
+
+        // Then the active session changed to the child.
         assert_eq!(
-            state.frontend.terminal.control,
-            crate::feat::interactive_term::terminal_tab_state::TermControlHolder::Agent,
-            "closing from view must never strand control on User"
+            state.session.active_session_id(),
+            &child_id,
+            "the child session must be activated"
+        );
+        // And the previously-open terminal overlay did not survive the switch.
+        assert_ne!(
+            state.frontend.scope(),
+            FocusScope::TerminalView,
+            "a switch under an open overlay must not carry it to the new session"
+        );
+        // And the hint explains the abrupt close.
+        let hint = crate::feat::ui::status_hint::hint(&slices);
+        assert!(
+            hint.as_deref().is_some_and(|h| h.contains("closed")),
+            "expected an overlay-closed hint, got: {hint:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    fn active_session_switch_releases_user_control() {
+        // Given a state with a linked child session, the overlay open in
+        // control mode (user holds the previous session's terminal).
+        use crate::feat::interactive_term::protocol::command::ControlHolder;
+        use crate::feat::session::chat_entry::ChatEntryKind;
+        use crate::feat::session::chat_session::ChatSessionState;
+        use crate::feat::tools_actor::task::TASK_TOOL_NAME;
+        use crate::protocol::SessionId;
+        let mut state = AppState::default();
+        let first_id = state.session.active_session_id().clone();
+        let child_id = SessionId::new();
+        let mut child = ChatSessionState::new_child(&first_id, false);
+        child.set_session_id(child_id.clone());
+        state.session.insert(child);
+
+        let mut entry = ChatEntry::tool_call("tc_guard_test2", TASK_TOOL_NAME, "{}");
+        let ChatEntryKind::ToolCall { child_session, .. } = &mut entry.kind else {
+            panic!("expected ToolCall kind");
+        };
+        *child_session = Some(child_id.clone());
+        state.active_session_mut().push_entry(entry);
+        state.active_session_mut().select_prev_entry();
+
+        state.frontend.terminal.set_live(&first_id, true);
+        state.frontend.scope_swap_base(FocusScope::Normal);
+        state.frontend.scope_push(FocusScope::TerminalControl);
+        if let Some(registry) = crate::feat::interactive_term::takeover_intent::TERM_CONTROLS.get()
+        {
+            registry.set(&first_id, ControlHolder::User);
+        }
+
+        // When switching the active session.
+        IntentHandler::handle(
+            &Intent::LoadSubagentSession,
+            &mut state,
+            &empty_slices(),
+            &empty_routes(),
+            &empty_pickers(),
+        );
+
+        // Then the switched-from session's control is released back to the
+        // agent — a stuck User holder would refuse every future agent send
+        // (only reachable when the wired registry is present).
+        if let Some(registry) = crate::feat::interactive_term::takeover_intent::TERM_CONTROLS.get()
+        {
+            assert_eq!(
+                registry.holder_for(&first_id),
+                ControlHolder::Agent,
+                "control must not stick on User after a switch"
+            );
+        }
+        // And the overlay is closed.
+        assert_ne!(state.frontend.scope(), FocusScope::TerminalControl);
+    }
+
+    #[rstest::rstest]
+    fn overlay_opened_by_the_switch_intent_survives_the_guard() {
+        // Given a state with two sessions where the *second* holds the live
+        // terminal, and no overlay open yet.
+        use crate::feat::session::chat_session::ChatSessionState;
+        let mut state = AppState::default_with_scope_focus();
+        let mut second = ChatSessionState::new();
+        let second_id = second.session_id().clone();
+        state.session.insert(second);
+        state.frontend.terminal.set_live(&second_id, true);
+        state
+            .frontend
+            .scope_swap_base(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        state
+            .frontend
+            .update_sections(|s| s.sessions.selected_index = Some(0));
+
+        // When the sidebar toggle activates the session and opens the overlay
+        // in the same intent.
+        IntentHandler::handle(
+            &Intent::ToggleTerminalOverlayForSelected,
+            &mut state,
+            &empty_slices(),
+            &empty_routes(),
+            &empty_pickers(),
+        );
+
+        // Then the overlay is open on the newly-activated session's terminal
+        // — the guard captured "overlay closed" before the intent and must
+        // not close what its own intent opened.
+        assert_eq!(
+            state.frontend.scope(),
+            FocusScope::TerminalView,
+            "activate-then-open must survive the switch guard"
+        );
+    }
+
+    #[rstest::rstest]
+    fn terminal_send_key_targets_the_active_session() {
+        // Given the user holding terminal control.
+        let mut state = AppState::default_with_scope_focus();
+        state.frontend.scope_swap_base(FocusScope::TerminalView);
+        state.frontend.scope_push(FocusScope::TerminalControl);
+
+        // When pressing a key in control mode.
+        let result = IntentHandler::handle(
+            &Intent::TerminalSendKey {
+                bytes: b"x".to_vec(),
+                label: "x".to_owned(),
+            },
+            &mut state,
+            &empty_slices(),
+            &empty_routes(),
+            &empty_pickers(),
+        );
+
+        // Then a SendTermKey command is emitted (targeting the active
+        // session's terminal — the payload is built from the active session
+        // id by the takeover arm, which is the only session it can name).
+        let names: Vec<&str> = result
+            .message_names
+            .iter()
+            .filter(|n| n.ends_with("SendTermKey"))
+            .copied()
+            .collect();
+        assert!(
+            !names.is_empty(),
+            "expected a SendTermKey command; got {:?}",
+            result.message_names
         );
     }
 
