@@ -69,7 +69,7 @@ impl SessionsSection {
 
 impl SidebarSection for SessionsSection {
     fn id(&self) -> SidebarSectionId {
-        SidebarSectionId::Sessions
+        jinn_slices::SidebarSectionId::Sessions
     }
 
     fn render(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
@@ -80,7 +80,7 @@ impl SidebarSection for SessionsSection {
         let section_focused = sidebar_focused
             && matches!(
                 state.frontend.sidebar_section(),
-                Some(SidebarSectionId::Sessions)
+                Some(jinn_slices::SidebarSectionId::Sessions)
             );
 
         let (selected_index, scroll_offset) = state.frontend.with_sections(
@@ -192,7 +192,7 @@ pub fn render_close_session_prompt_for_state(
     let state = ctx.state;
     if !state.frontend.close_session_prompt
         || !state.frontend.is_sidebar()
-        || state.frontend.sidebar_section() != Some(SidebarSectionId::Sessions)
+        || state.frontend.sidebar_section() != Some(jinn_slices::SidebarSectionId::Sessions)
     {
         return;
     }
@@ -229,7 +229,7 @@ pub fn render_archive_tree_prompt_for_state(
         return;
     };
     if !state.frontend.is_sidebar()
-        || state.frontend.sidebar_section() != Some(SidebarSectionId::Sessions)
+        || state.frontend.sidebar_section() != Some(jinn_slices::SidebarSectionId::Sessions)
     {
         return;
     }

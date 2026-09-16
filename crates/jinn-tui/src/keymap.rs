@@ -750,7 +750,7 @@ mod tests {
 
     /// Regression test for ratatui-which-key v0.12.1: when a key is bound as a
     /// leaf in one scope (Normal) and used as a describe_group prefix in
-    /// another scope (SidebarSessions), the leaf must survive the
+    /// another scope (the sidebar sessions scope), the leaf must survive the
     /// Leaf→Branch promotion. Before the fix, the library dropped the
     /// existing binding and the catch-all fired instead.
     #[rstest::rstest]

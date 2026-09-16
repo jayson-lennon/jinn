@@ -82,13 +82,11 @@ pub(super) fn render_audit_popup(
 
 /// Returns true if a higher-priority overlay is currently active.
 fn overlay_active(ctx: &RenderCtx) -> bool {
-    matches!(
-        ctx.state.frontend.scope(),
-        FocusScope::Picker { .. }
-            | FocusScope::ArgInput
-            | FocusScope::RenameSessionInput
-            | FocusScope::SidebarSessions
-    )
+    match ctx.state.frontend.scope() {
+        FocusScope::Picker { .. } | FocusScope::ArgInput | FocusScope::RenameSessionInput => true,
+        FocusScope::Dynamic(id) => id.slice() == "sidebar" && id.name() == "sessions",
+        _ => false,
+    }
 }
 
 #[cfg(test)]

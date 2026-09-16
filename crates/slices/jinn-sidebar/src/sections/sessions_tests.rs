@@ -7,14 +7,12 @@
     reason = "test code"
 )]
 
-use crate::sections::section_trait::{
-    EnterFrom, SectionNavResult, SidebarIntent, SidebarSection, SidebarSectionId,
-};
+use crate::sections::section_trait::{EnterFrom, SectionNavResult, SidebarIntent, SidebarSection};
 use crate::sections::sessions::{
     SessionCloseError, SessionsSection, handle_session_activate, handle_session_close, navigate,
     receive_cursor, scroll_to_cursor, sorted_open_sessions, validate_session_close,
 };
-use jinn_domain::common::app_state::{AppState, FocusScope};
+use jinn_domain::common::app_state::AppState;
 use jinn_domain::common::render_ctx::RenderCtx;
 use jinn_domain::feat::session::chat_session::ChatSessionState;
 
@@ -68,7 +66,7 @@ fn state_with_sessions(count: usize) -> AppState {
 #[rstest::rstest]
 fn section_id_is_sessions() {
     let section = SessionsSection::new();
-    assert_eq!(section.id(), SidebarSectionId::Sessions);
+    assert_eq!(section.id(), jinn_slices::SidebarSectionId::Sessions);
 }
 
 #[rstest::rstest]
@@ -712,7 +710,8 @@ fn render_footer_uses_focus_accent_when_sidebar_focused() {
     let mut section = SessionsSection::new();
     let state = {
         let s = AppState::default_with_scope_focus();
-        s.frontend.scope_push(FocusScope::SidebarSessions);
+        s.frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         s
     };
 
@@ -770,7 +769,8 @@ fn render_footer_uses_border_unfocused_when_other_sidebar_section_focused() {
     let mut section = SessionsSection::new();
     let state = {
         let s = AppState::default_with_scope_focus();
-        s.frontend.scope_push(FocusScope::SidebarPersona);
+        s.frontend
+            .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
         s
     };
 
@@ -799,7 +799,9 @@ fn render_footer_uses_border_unfocused_when_other_sidebar_section_focused() {
 fn close_session_switches_to_next() {
     // Given state with 3 sessions, sessions section focused, cursor at index 0 (active session).
     let mut state = state_with_sessions(3);
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     // Active session is at index 0 (sorted newest-first, default is oldest → last, but we
     // set active to index 0 explicitly to test active-session close).
@@ -822,7 +824,9 @@ fn close_session_switches_to_next() {
 fn close_non_active_session_keeps_active() {
     // Given state with 3 sessions, sessions section focused, cursor at index 1 (not active).
     let mut state = state_with_sessions(3);
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     // Active session is at index 0.
     state.session.set_active(sessions[0].id.clone());
@@ -846,7 +850,9 @@ fn close_non_active_session_keeps_active() {
 fn close_last_session_creates_new() {
     // Given state with 1 session, sessions section focused.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     let original_id = state.session.active_session_id().clone();
     state
         .frontend
@@ -870,7 +876,9 @@ fn close_last_session_creates_new() {
 fn close_last_session_seeds_new_session_reasoning_effort_from_global() {
     // Given a single session with a global default effort of High.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     state.frontend.app_state.reasoning_effort = Some(jinn_domain::ReasoningEffort::High);
     state
         .frontend
@@ -891,7 +899,9 @@ fn close_last_session_seeds_new_session_reasoning_effort_from_global() {
 fn close_last_session_seeds_disabled_sets_from_preferences() {
     // Given a single session and preferences disabling a tool and skill.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     state.frontend.preferences.disabled_tools = ["bash"].iter().map(|s| (*s).to_owned()).collect();
     state.frontend.preferences.disabled_skills = ["phased-task-loop"]
         .iter()
@@ -922,7 +932,9 @@ fn close_last_session_seeds_disabled_sets_from_preferences() {
 fn close_last_session_with_auto_enable_returns_enablement_message() {
     // Given a single session and one auto-enabled server in preferences.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     state.frontend.preferences.mcp_server = [(
         "excalimate".to_owned(),
         jinn_domain::feat::mcp::McpServerConfig {
@@ -957,7 +969,9 @@ fn close_last_session_with_auto_enable_returns_enablement_message() {
 fn close_last_session_without_auto_enable_emits_no_enablement() {
     // Given a single session with no auto-enabled servers.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     state
         .frontend
         .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -978,7 +992,9 @@ fn close_last_session_without_auto_enable_emits_no_enablement() {
 fn close_session_clamps_index() {
     // Given state with 3 sessions, sessions section focused, cursor at last index.
     let mut state = state_with_sessions(3);
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     state.session.set_active(sessions[2].id.clone());
     // Move cursor to index 2 (the active session, sorted to 0, so use index 0)
@@ -1001,7 +1017,9 @@ fn close_session_clamps_index() {
 fn close_session_adjusts_scroll_offset() {
     // Given 20 sessions with scroll_offset at 10, sessions section focused, cursor at 10.
     let mut state = state_with_sessions(20);
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     state.frontend.update_sections(|s| {
         s.sessions.scroll_offset = 10;
     });
@@ -1033,7 +1051,9 @@ fn close_session_adjusts_scroll_offset() {
 fn close_session_rejected_when_streaming() {
     // Given state with a streaming session, sessions section focused.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     state
         .frontend
         .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -1050,7 +1070,9 @@ fn close_session_rejected_when_streaming() {
 fn close_session_rejected_when_working_phase() {
     // Given state with a session in Working phase.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     state
         .frontend
         .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -1179,7 +1201,9 @@ fn sorted_sessions_empty_history_is_not_error() {
 fn activate_switches_to_cursor_session() {
     // Given state with 3 sessions, sessions section focused, cursor at index 1.
     let mut state = state_with_sessions(3);
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     state
         .frontend
@@ -1237,7 +1261,9 @@ fn session_new_with_lifecycle_opens_picker_from_normal_mode() {
 fn session_new_with_lifecycle_opens_picker_from_sidebar_sessions() {
     // Given sidebar focused on sessions section.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
 
     // When handling the intent via IntentHandler.
     let result = jinn_domain::feat::intent::IntentHandler::handle(
@@ -1289,7 +1315,7 @@ fn teardown_only_emits_run_session_teardown() {
         .update_sections(|s| s.sessions.selected_index = Some(0));
     state
         .frontend
-        .scope_push(jinn_domain::common::app_state::FocusScope::SidebarSessions);
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
 
     // When handling session teardown (the route row's action).
     let result = super::sessions::handle_session_teardown(&mut state);
@@ -1323,7 +1349,7 @@ fn teardown_only_is_noop_without_lifecycle_teardown() {
         .update_sections(|s| s.sessions.selected_index = Some(0));
     state
         .frontend
-        .scope_push(jinn_domain::common::app_state::FocusScope::SidebarSessions);
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
 
     // When handling session teardown (the route row's action).
     let result = super::sessions::handle_session_teardown(&mut state);
@@ -1365,7 +1391,7 @@ fn teardown_only_is_noop_when_session_busy() {
         .update_sections(|s| s.sessions.selected_index = Some(0));
     state
         .frontend
-        .scope_push(jinn_domain::common::app_state::FocusScope::SidebarSessions);
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
 
     // When handling session teardown (the route row's action).
     let result = super::sessions::handle_session_teardown(&mut state);
@@ -1838,7 +1864,9 @@ fn navigate_up_from_child_goes_to_parent() {
 fn close_child_session_clamps_cursor() {
     // Given state with a tree, cursor on child_a1.
     let mut state = state_with_tree();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     let child_a1_index = sessions
         .iter()
@@ -1867,7 +1895,9 @@ fn close_child_session_clamps_cursor() {
 fn close_root_session_promotes_children_to_roots() {
     // Given state with root_a having children.
     let mut state = state_with_tree();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     let root_a_index = sessions
         .iter()
@@ -1913,7 +1943,9 @@ fn close_root_session_promotes_children_to_roots() {
 fn activate_child_session_switches_active() {
     // Given state with a tree, cursor on child_a1.
     let mut state = state_with_tree();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     let child_a1_index = sessions
         .iter()
@@ -1973,7 +2005,9 @@ fn render_tree_shows_tree_characters() {
 fn archiving_intermediate_parent_reparents_grandchild_under_grandparent() {
     // Given state with root_a -> child_a1 -> grandchild_a1a.
     let mut state = state_with_tree();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     let child_a1_index = sessions
         .iter()
@@ -2030,7 +2064,9 @@ fn archiving_intermediate_parent_reparents_grandchild_under_grandparent() {
 fn archiving_root_does_not_create_visual_parents_for_orphaned_children() {
     // Given state with root_a having children.
     let mut state = state_with_tree();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     let root_a_index = sessions
         .iter()
@@ -2093,7 +2129,9 @@ fn multi_level_intermediate_hiding_reparents_to_nearest_loaded_ancestor() {
     state.session.set_active(root_id.clone());
 
     // When archiving A.
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     let a_index = sessions.iter().position(|s| s.id == a_id).expect("A");
     state
@@ -2476,7 +2514,9 @@ fn state_with_archive_tree() -> (AppState, [jinn_domain::protocol::SessionId; 4]
 /// Helper: puts the sessions section into the sidebar focus stack and selects
 /// the entry with the given title.
 fn focus_sessions_and_select(state: &mut AppState, title: &str) {
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(state);
     let index = sessions
         .iter()
@@ -2578,7 +2618,9 @@ fn archive_tree_members_returns_single_member_for_leaf() {
 fn archive_tree_members_rejected_when_no_selection() {
     // Given a focused sessions section with no cursor.
     let (mut state, _) = state_with_archive_tree();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     state
         .frontend
         .update_sections(|s| s.sessions.selected_index = None);

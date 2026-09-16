@@ -48,7 +48,7 @@ pub struct PersonaSection;
 
 impl SidebarSection for PersonaSection {
     fn id(&self) -> SidebarSectionId {
-        SidebarSectionId::Persona
+        jinn_slices::SidebarSectionId::Persona
     }
 
     fn render(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
@@ -57,7 +57,7 @@ impl SidebarSection for PersonaSection {
         let section_focused = sidebar_focused
             && matches!(
                 state.frontend.sidebar_section(),
-                Some(SidebarSectionId::Persona)
+                Some(jinn_slices::SidebarSectionId::Persona)
             );
         let theme = &state.frontend.theme;
 
@@ -140,7 +140,7 @@ mod tests {
     )]
     use super::{PersonaSection, navigate, receive_cursor};
     use crate::sections::section_trait::{
-        EnterFrom, SectionNavResult, SidebarIntent, SidebarSection, SidebarSectionId,
+        EnterFrom, SectionNavResult, SidebarIntent, SidebarSection,
     };
     use jinn_domain::Intent;
     use jinn_domain::common::app_state::AppState;
@@ -154,7 +154,7 @@ mod tests {
 
         // When asking for its ID.
         // Then it returns Persona.
-        assert_eq!(section.id(), SidebarSectionId::Persona);
+        assert_eq!(section.id(), jinn_slices::SidebarSectionId::Persona);
     }
 
     #[rstest::rstest]

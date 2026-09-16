@@ -158,7 +158,7 @@ pub struct McpServersSection;
 
 impl SidebarSection for McpServersSection {
     fn id(&self) -> SidebarSectionId {
-        SidebarSectionId::McpServers
+        jinn_slices::SidebarSectionId::McpServers
     }
 
     fn render(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
@@ -167,7 +167,7 @@ impl SidebarSection for McpServersSection {
         let section_focused = sidebar_focused
             && matches!(
                 state.frontend.sidebar_section(),
-                Some(SidebarSectionId::McpServers)
+                Some(jinn_slices::SidebarSectionId::McpServers)
             );
 
         let cursor = state
@@ -267,7 +267,7 @@ mod tests {
     use super::McpServersSection;
     use super::{navigate, receive_cursor};
     use crate::sections::section_trait::{
-        EnterFrom, SectionNavResult, SidebarIntent, SidebarSection, SidebarSectionId,
+        EnterFrom, SectionNavResult, SidebarIntent, SidebarSection,
     };
     use jinn_domain::common::app_state::AppState;
     use jinn_domain::common::render_ctx::RenderCtx;
@@ -324,7 +324,7 @@ mod tests {
 
         // When asking for its ID.
         // Then it returns McpServers.
-        assert_eq!(section.id(), SidebarSectionId::McpServers);
+        assert_eq!(section.id(), jinn_slices::SidebarSectionId::McpServers);
     }
 
     #[rstest::rstest]

@@ -100,7 +100,7 @@ pub fn receive_cursor(state: &mut AppState, enter_from: EnterFrom) {
 
 impl SidebarSection for PinsSection {
     fn id(&self) -> SidebarSectionId {
-        SidebarSectionId::Pins
+        jinn_slices::SidebarSectionId::Pins
     }
 
     fn render(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
@@ -132,7 +132,7 @@ impl SidebarSection for PinsSection {
             let section_focused = sidebar_focused
                 && matches!(
                     state.frontend.sidebar_section(),
-                    Some(SidebarSectionId::Pins)
+                    Some(jinn_slices::SidebarSectionId::Pins)
                 );
             build_entry_list(
                 &pinned,
@@ -188,17 +188,16 @@ pub fn pins_section_content_height(state: &AppState) -> u16 {
 // Intent handler functions (called by IntentHandler)
 // ---------------------------------------------------------------------------
 
-/// Handles `SidebarPersonaEdit` - opens the persona picker when persona section is focused.
+/// Handles the persona edit key - opens the persona picker when the persona section is focused.
 ///
 /// No-op if the pins section is focused.
 pub fn handle_sidebar_persona_edit(
     state: &mut AppState,
     pickers: &jinn_picker::PickerRegistry,
 ) -> IntentResult {
-    use crate::sections::section_trait::SidebarSectionId;
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(SidebarSectionId::Persona)
+        Some(jinn_slices::SidebarSectionId::Persona)
     ) {
         return IntentResult::empty();
     }

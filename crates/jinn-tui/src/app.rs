@@ -307,7 +307,7 @@ impl TuiApp {
 pub fn scope_for_focus(focus: &jinn_domain::FocusScope) -> Scope {
     match focus {
         FocusScope::Picker { kind } => match kind {
-            PickerKind::Provider => Scope::PickerProvider,
+            PickerKind::Provider | PickerKind::CompactionModel => Scope::PickerProvider,
             PickerKind::Session => Scope::PickerSession,
             PickerKind::Persona => Scope::PickerPersona,
             PickerKind::Theme => Scope::PickerTheme,
@@ -322,21 +322,14 @@ pub fn scope_for_focus(focus: &jinn_domain::FocusScope) -> Scope {
             PickerKind::Plugin => Scope::PickerPlugin,
             // CompactionModel has no picker state (the kind is retired); it
             // is never pushed as a scope.
-            PickerKind::CompactionModel => Scope::PickerProvider,
         },
         FocusScope::Input => Scope::Input,
-        FocusScope::SidebarPersona => Scope::SidebarPersona,
-        FocusScope::SidebarPins => Scope::SidebarPins,
-        FocusScope::SidebarSessions => Scope::SidebarSessions,
-        FocusScope::SidebarTaskList => Scope::SidebarTaskList,
-        FocusScope::SidebarMcpServers => Scope::SidebarMcpServers,
         FocusScope::ArgInput => Scope::ArgInput,
         FocusScope::RenameSessionInput => Scope::RenameSessionInput,
         FocusScope::ProjectAddInput => Scope::ProjectAddInput,
         FocusScope::PrunerAccumulationInput => Scope::PrunerAccumulationInput,
         // Dynamic slice scopes pass their identity through unchanged.
         FocusScope::Dynamic(id) => Scope::Dynamic(id.clone()),
-        FocusScope::SidebarResize => Scope::SidebarResize,
 
         FocusScope::Normal => Scope::Normal,
         FocusScope::TerminalView => Scope::TerminalView,

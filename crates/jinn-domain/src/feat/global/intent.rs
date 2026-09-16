@@ -114,7 +114,7 @@ pub fn handle_ctrl_clear(state: &mut AppState) -> (IntentResult, Option<Intent>)
                 (IntentResult::empty(), None)
             }
         }
-        // Sidebar / Normal / SidebarResize / sidebar sections: <c-c> remains bound to Quit.
+        // Sidebar / Normal / sidebar-resize / sidebar sections: <c-c> remains bound to Quit.
         _ => (IntentResult::empty(), None),
     }
 }

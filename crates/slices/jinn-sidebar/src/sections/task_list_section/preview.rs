@@ -22,7 +22,6 @@ use crate::sections::persona_section::persona_section_content_height;
 use crate::sections::pins::pins_section_content_height;
 use crate::sections::task_list_section::clamp_scroll;
 use jinn_domain::common::app_state::AppState;
-use jinn_domain::common::app_state::FocusScope;
 use jinn_domain::common::render_ctx::RenderCtx;
 use jinn_domain::feat::theme::Theme;
 use jinn_domain::feat::todo_list::{Phase, Task, TaskStatus};
@@ -114,7 +113,7 @@ fn popup_width(frame_area: Rect, sidebar_x: u16) -> u16 {
 /// The popup is hidden when the task list section is not focused, the task list
 /// is empty, no phase is selected, or the selected index is out of range.
 fn previewed_phase(state: &AppState) -> Option<&Phase> {
-    if !matches!(state.frontend.scope(), FocusScope::SidebarTaskList) {
+    if state.frontend.sidebar_section() != Some(jinn_slices::SidebarSectionId::TaskList) {
         return None;
     }
     let list = state.active_session().task_list();
@@ -279,7 +278,7 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use jinn_domain::common::app_state::{AppState, FocusScope};
+    use jinn_domain::common::app_state::AppState;
     use jinn_domain::feat::theme::default_theme;
     use jinn_domain::feat::todo_list::{PhaseInput, TaskList, TaskStatus};
     use ratatui::{Terminal, backend::TestBackend};
@@ -306,7 +305,8 @@ mod tests {
                 tasks: vec![("Write code".to_owned(), TaskStatus::Pending)],
             },
         ]);
-        app.frontend.scope_push(FocusScope::SidebarTaskList);
+        app.frontend
+            .scope_push(jinn_slices::SidebarSectionId::TaskList.focus_scope());
         app.frontend
             .update_sections(|s| s.task_list.selected_phase_index = Some(phase_index));
         app
@@ -315,7 +315,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn popup_hidden_when_section_unfocused() {
-        // Given a populated task list but no SidebarTaskList focus.
+        // Given a populated task list but no task-list section focus.
         let app = setup_two_phases_focused_on(0);
         app.frontend.scope_pop();
 
@@ -465,7 +465,8 @@ mod tests {
             description: "Empty Phase".to_owned(),
             tasks: vec![],
         }]);
-        app.frontend.scope_push(FocusScope::SidebarTaskList);
+        app.frontend
+            .scope_push(jinn_slices::SidebarSectionId::TaskList.focus_scope());
         app.frontend
             .update_sections(|s| s.task_list.selected_phase_index = Some(0));
 
@@ -524,7 +525,8 @@ mod tests {
             description: "Research".to_owned(),
             tasks: vec![(long_desc, TaskStatus::Pending)],
         }]);
-        app.frontend.scope_push(FocusScope::SidebarTaskList);
+        app.frontend
+            .scope_push(jinn_slices::SidebarSectionId::TaskList.focus_scope());
         app.frontend
             .update_sections(|s| s.task_list.selected_phase_index = Some(0));
 

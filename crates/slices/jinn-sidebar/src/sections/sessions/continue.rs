@@ -29,11 +29,9 @@ use jinn_domain::protocol::IntentResult;
 /// intent itself always emits the command and lets the actor decide
 /// whether to dispatch or ignore.
 pub fn handle_session_continue(state: &mut AppState) -> IntentResult {
-    use crate::sections::section_trait::SidebarSectionId;
-
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(SidebarSectionId::Sessions)
+        Some(jinn_slices::SidebarSectionId::Sessions)
     ) {
         return IntentResult::empty();
     }
@@ -74,7 +72,6 @@ mod tests {
     use crate::sections::section_trait::SidebarIntent;
     use crate::sections::sessions::state::sorted_open_sessions;
     use jinn_domain::common::app_state::AppState;
-    use jinn_domain::common::app_state::FocusScope;
 
     #[rstest::rstest]
     fn returns_enqueue_resume_command_for_selected_session() {
@@ -86,7 +83,9 @@ mod tests {
         second_session.set_session_id(second_id);
         state.session.insert(second_session);
         // Focus sidebar on sessions section.
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         // Navigate to select the second entry in the sorted list.
         navigate_sidebar(&SidebarIntent::MoveDown, &mut state);
 
@@ -109,7 +108,9 @@ mod tests {
     fn noop_when_no_session_selected() {
         // Given a state with sidebar focused but no selected session.
         let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         // No selection set.
         assert!(
             state
@@ -128,7 +129,9 @@ mod tests {
     fn noop_when_not_in_sessions_section() {
         // Given a state with sidebar focused on a different section.
         let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::SidebarPersona);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
 
         // When handling session continue.
         let result = handle_session_continue(&mut state);
@@ -141,7 +144,9 @@ mod tests {
     fn scope_stack_unchanged_after_continue() {
         // Given a state with sidebar focused on sessions section.
         let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         navigate_sidebar(&SidebarIntent::MoveDown, &mut state);
         let scope_before = state.frontend.scope().clone();
 

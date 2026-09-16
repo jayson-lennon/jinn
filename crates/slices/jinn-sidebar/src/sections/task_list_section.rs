@@ -142,7 +142,7 @@ pub(crate) fn clamp_scroll(section: &mut TaskListSectionState) {
 
 impl SidebarSection for TaskListSection {
     fn id(&self) -> SidebarSectionId {
-        SidebarSectionId::TaskList
+        jinn_slices::SidebarSectionId::TaskList
     }
 
     fn render(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
@@ -192,7 +192,7 @@ fn wrap_description(text: &str, available_width: usize) -> Vec<String> {
 
 /// Returns the expanded phase index if the sidebar is focused on the task list section.
 fn expanded_phase_index(state: &AppState) -> Option<usize> {
-    if state.frontend.sidebar_section() == Some(SidebarSectionId::TaskList) {
+    if state.frontend.sidebar_section() == Some(jinn_slices::SidebarSectionId::TaskList) {
         state
             .frontend
             .with_sections(|s| s.task_list.selected_phase_index, || None)
@@ -383,7 +383,6 @@ mod tests {
     use jinn_domain::common::app_state::AppState;
     use jinn_domain::common::render_ctx::RenderCtx;
     use jinn_domain::feat::todo_list::{PhaseInput, TaskStatus};
-    use jinn_slices::FocusScope;
 
     fn setup_with_tasks() -> AppState {
         let mut app = AppState::default_with_scope_focus();
@@ -406,7 +405,8 @@ mod tests {
 
     /// Helper: set up focus on a specific phase so it expands.
     fn setup_focused_on_phase(app: &mut AppState, phase_index: usize) {
-        app.frontend.scope_push(FocusScope::SidebarTaskList);
+        app.frontend
+            .scope_push(jinn_slices::SidebarSectionId::TaskList.focus_scope());
         app.frontend
             .update_sections(|s| s.task_list.selected_phase_index = Some(phase_index));
     }
@@ -582,7 +582,7 @@ mod tests {
     #[test]
     fn id_returns_task_list() {
         let section = TaskListSection;
-        assert_eq!(section.id(), SidebarSectionId::TaskList);
+        assert_eq!(section.id(), jinn_slices::SidebarSectionId::TaskList);
     }
 
     #[rstest::rstest]

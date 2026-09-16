@@ -17,7 +17,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::sections::sessions::MAX_VISIBLE_SESSIONS;
 use crate::sections::sessions::state::sorted_open_sessions;
-use jinn_domain::common::app_state::{AppState, FocusScope};
+use jinn_domain::common::app_state::AppState;
 use jinn_domain::common::render_ctx::RenderCtx;
 use jinn_domain::feat::session::chat_session::ChatSessionState;
 use jinn_domain::feat::theme::Theme;
@@ -60,7 +60,7 @@ pub fn render_session_preview_for_state(
     ctx: &RenderCtx,
 ) {
     let state = ctx.state;
-    if !matches!(state.frontend.scope(), FocusScope::SidebarSessions) {
+    if state.frontend.sidebar_section() != Some(jinn_slices::SidebarSectionId::Sessions) {
         return;
     }
     let Some(idx) = state

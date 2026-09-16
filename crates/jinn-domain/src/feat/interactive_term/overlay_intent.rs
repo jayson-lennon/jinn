@@ -13,7 +13,6 @@
 
 use crate::common::app_state::{AppState, FocusScope};
 use crate::protocol::intent::IntentResult;
-use jinn_slices::SidebarSectionId;
 
 /// Resolves the selected session when the Sessions sidebar section is
 /// focused, for callers that act on the sidebar's selection (the sidebar
@@ -22,7 +21,7 @@ use jinn_slices::SidebarSectionId;
 pub fn selected_sessions_sidebar_target(state: &AppState) -> Option<crate::protocol::SessionId> {
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(SidebarSectionId::Sessions)
+        Some(jinn_slices::SidebarSectionId::Sessions)
     ) {
         return None;
     }

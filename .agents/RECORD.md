@@ -359,3 +359,6 @@ Entries are added or amended **only with human approval**.
 - (plugins) Plugin authoring guidance lives in the `jinn plugin new` scaffold output and the jinn-plugin-api/sdk crate docs; no bundled agent skill covers it.
 - (slices) The cwd slice is a kernel-free crate owning the change-directory popup's state cell, route rows, and input hook; confirm resolves the path and publishes SetSessionCwd through capabilities on SliceActionState.
 - (slices) SetSessionCwd and SessionCwdChanged stay session-lifecycle contracts; the session actor applies the cwd and session-init re-discovers on the change.
+- (slices) The sidebar's section focus is a dynamic scope per section (sidebar/<section>); FocusScope and the TUI Scope have no static sidebar variants.
+- (slices) A sidebar section is derived from the dynamic scope id's name; ScopeStack is_sidebar and sidebar_section match scope ids with the sidebar slice prefix.
+- (slices) The static_alias bridge between dynamic slice scopes and static focus scopes does not exist; route rows bind only in dynamic scopes.

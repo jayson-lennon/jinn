@@ -211,7 +211,9 @@ mod tests {
     fn enter_pushes_rename_session_input_scope() {
         // Given a state with a selected session.
         let mut state = state_with_sessions(2);
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -236,7 +238,9 @@ mod tests {
         state
             .session_mut(&session_id)
             .set_title("My Session".to_owned());
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -263,16 +267,18 @@ mod tests {
     fn enter_noop_when_no_selection() {
         // Given a state with no session selected.
         let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
 
         // When handling SidebarRenameSession.
         let result = handle_rename_session_enter(&mut state);
 
         // Then scope is unchanged.
-        assert!(matches!(
-            state.frontend.scope(),
-            FocusScope::SidebarSessions
-        ));
+        assert_eq!(
+            state.frontend.sidebar_section(),
+            Some(jinn_slices::SidebarSectionId::Sessions)
+        );
         assert!(result.message_names.is_empty());
     }
 
@@ -281,7 +287,9 @@ mod tests {
         // Given state in RenameSessionInput scope with input "New Title".
         let mut state = AppState::default_with_scope_focus();
         let session_id = state.session.active_session_id().clone();
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .scope_push(FocusScope::Dynamic(rename_scope()));
@@ -303,10 +311,10 @@ mod tests {
         // Then the session title is updated.
         assert_eq!(state.session_mut(&session_id).title(), Some("New Title"));
         // And scope is popped back.
-        assert!(matches!(
-            state.frontend.scope(),
-            FocusScope::SidebarSessions
-        ));
+        assert_eq!(
+            state.frontend.sidebar_section(),
+            Some(jinn_slices::SidebarSectionId::Sessions)
+        );
         // And input state is cleared.
         assert!(
             state
@@ -365,7 +373,9 @@ mod tests {
                 .has_interacted(),
             "fresh session should not be interacted"
         );
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .scope_push(FocusScope::Dynamic(rename_scope()));
@@ -409,7 +419,9 @@ mod tests {
         state
             .session_mut(&session_id)
             .set_title("Original".to_owned());
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .scope_push(FocusScope::Dynamic(rename_scope()));
@@ -426,10 +438,10 @@ mod tests {
         let result = handle_rename_session_leave(&mut state);
 
         // Then scope is popped back.
-        assert!(matches!(
-            state.frontend.scope(),
-            FocusScope::SidebarSessions
-        ));
+        assert_eq!(
+            state.frontend.sidebar_section(),
+            Some(jinn_slices::SidebarSectionId::Sessions)
+        );
         // And input state is cleared.
         assert!(
             state

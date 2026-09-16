@@ -597,9 +597,11 @@ mod tests {
 
     #[rstest::rstest]
     fn esc_from_task_list_picker_restores_sidebar_task_list_scope() {
-        // Given a scope stack like: [Normal, SidebarTaskList, Picker(TaskList)].
+        // Given a scope stack like: [Normal, sidebar task-list, Picker(TaskList)].
         let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::SidebarTaskList);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::TaskList.focus_scope());
         state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::TaskList,
         });
@@ -607,10 +609,11 @@ mod tests {
         // When Esc is pressed.
         let _ = crate::feat::chat_input::intent::handle_enter_normal_mode(&mut state);
 
-        // Then we should return to SidebarTaskList, not Normal.
-        assert!(
-            matches!(state.frontend.scope(), FocusScope::SidebarTaskList),
-            "Esc from TaskList picker should restore SidebarTaskList scope, got: {:?}",
+        // Then we should return to the task-list section, not Normal.
+        assert_eq!(
+            state.frontend.sidebar_section(),
+            Some(jinn_slices::SidebarSectionId::TaskList),
+            "Esc from TaskList picker should restore the task-list section, got: {:?}",
             state.frontend.scope()
         );
     }

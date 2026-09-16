@@ -13,9 +13,8 @@ use ratatui::style::Color;
 use crate::sections::intent::handle_sidebar_focus;
 use crate::sections::pins::PinsSection;
 use crate::sections::section_trait::SidebarIntent;
-use crate::sections::section_trait::SidebarSectionId;
 use crate::sections::sidebar::{Sidebar, jump_to_section, navigate_sidebar};
-use jinn_domain::common::app_state::{AppState, FocusScope};
+use jinn_domain::common::app_state::AppState;
 use jinn_domain::common::render_ctx::RenderCtx;
 use jinn_domain::feat::session::chat_session::ChatSessionState;
 use jinn_domain::protocol::ChatEntry;
@@ -81,7 +80,9 @@ fn render_clears_area_with_sidebar_background() {
 fn move_down_from_persona_with_pins_enters_pins_at_first_entry() {
     // Given persona focused with 3 pinned entries.
     let mut state = state_with_pinned(3);
-    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
         .update_sections(|s| s.persona.cursor = Some(0));
@@ -94,8 +95,8 @@ fn move_down_from_persona_with_pins_enters_pins_at_first_entry() {
         state
             .frontend
             .sidebar_section()
-            .unwrap_or(SidebarSectionId::Persona),
-        SidebarSectionId::Pins
+            .unwrap_or(jinn_slices::SidebarSectionId::Persona),
+        jinn_slices::SidebarSectionId::Pins
     );
     let first_pin_id = state.sorted_pinned_ids()[0].clone();
     assert_eq!(
@@ -110,7 +111,9 @@ fn move_down_from_persona_with_pins_enters_pins_at_first_entry() {
 fn move_down_from_persona_skips_empty_pins_to_sessions() {
     // Given persona focused with no pinned entries (but sessions exist).
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
         .update_sections(|s| s.persona.cursor = Some(0));
@@ -123,8 +126,8 @@ fn move_down_from_persona_skips_empty_pins_to_sessions() {
         state
             .frontend
             .sidebar_section()
-            .unwrap_or(SidebarSectionId::Persona),
-        SidebarSectionId::Sessions
+            .unwrap_or(jinn_slices::SidebarSectionId::Persona),
+        jinn_slices::SidebarSectionId::Sessions
     );
 }
 
@@ -132,7 +135,9 @@ fn move_down_from_persona_skips_empty_pins_to_sessions() {
 fn move_up_from_first_pin_enters_persona() {
     // Given pins focused with 3 entries, first pin selected.
     let mut state = state_with_pinned(3);
-    state.frontend.scope_push(FocusScope::SidebarPins);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Pins.focus_scope());
     let first_id = state.sorted_pinned_ids()[0].clone();
     state
         .frontend
@@ -146,8 +151,8 @@ fn move_up_from_first_pin_enters_persona() {
         state
             .frontend
             .sidebar_section()
-            .unwrap_or(SidebarSectionId::Persona),
-        SidebarSectionId::Persona
+            .unwrap_or(jinn_slices::SidebarSectionId::Persona),
+        jinn_slices::SidebarSectionId::Persona
     );
     assert!(
         state
@@ -164,7 +169,9 @@ fn move_up_from_first_pin_enters_persona() {
 fn move_down_at_last_pin_enters_sessions() {
     // Given pins focused with 2 entries, last pin selected.
     let mut state = state_with_pinned(2);
-    state.frontend.scope_push(FocusScope::SidebarPins);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Pins.focus_scope());
     let last_id = state.sorted_pinned_ids()[1].clone();
     state
         .frontend
@@ -178,8 +185,8 @@ fn move_down_at_last_pin_enters_sessions() {
         state
             .frontend
             .sidebar_section()
-            .unwrap_or(SidebarSectionId::Persona),
-        SidebarSectionId::Sessions
+            .unwrap_or(jinn_slices::SidebarSectionId::Persona),
+        jinn_slices::SidebarSectionId::Sessions
     );
 }
 
@@ -187,7 +194,9 @@ fn move_down_at_last_pin_enters_sessions() {
 fn move_up_at_persona_sticks() {
     // Given persona focused.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
         .update_sections(|s| s.persona.cursor = Some(0));
@@ -200,8 +209,8 @@ fn move_up_at_persona_sticks() {
         state
             .frontend
             .sidebar_section()
-            .unwrap_or(SidebarSectionId::Persona),
-        SidebarSectionId::Persona
+            .unwrap_or(jinn_slices::SidebarSectionId::Persona),
+        jinn_slices::SidebarSectionId::Persona
     );
 }
 
@@ -209,7 +218,9 @@ fn move_up_at_persona_sticks() {
 fn move_up_from_sessions_skips_empty_pins_to_persona() {
     // Given sessions focused with no pinned entries.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     state
         .frontend
         .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -222,8 +233,8 @@ fn move_up_from_sessions_skips_empty_pins_to_persona() {
         state
             .frontend
             .sidebar_section()
-            .unwrap_or(SidebarSectionId::Persona),
-        SidebarSectionId::Persona
+            .unwrap_or(jinn_slices::SidebarSectionId::Persona),
+        jinn_slices::SidebarSectionId::Persona
     );
 }
 
@@ -246,7 +257,9 @@ fn sidebar_focus_places_cursor_on_persona() {
 fn jump_next_from_persona_to_pins_retains_persona_cursor() {
     // Given persona focused with cursor at 0, pins with 3 entries.
     let mut state = state_with_pinned(3);
-    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
         .update_sections(|s| s.persona.cursor = Some(0));
@@ -259,8 +272,8 @@ fn jump_next_from_persona_to_pins_retains_persona_cursor() {
         state
             .frontend
             .sidebar_section()
-            .unwrap_or(SidebarSectionId::Persona),
-        SidebarSectionId::Pins
+            .unwrap_or(jinn_slices::SidebarSectionId::Persona),
+        jinn_slices::SidebarSectionId::Pins
     );
     // And persona cursor is retained.
     assert_eq!(
@@ -273,7 +286,9 @@ fn jump_next_from_persona_to_pins_retains_persona_cursor() {
 fn jump_prev_from_pins_to_persona_retains_pins_cursor() {
     // Given pins focused with cursor on second pin, pins has 3 entries.
     let mut state = state_with_pinned(3);
-    state.frontend.scope_push(FocusScope::SidebarPins);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Pins.focus_scope());
     let second_id = state.sorted_pinned_ids()[1].clone();
     state
         .frontend
@@ -287,8 +302,8 @@ fn jump_prev_from_pins_to_persona_retains_pins_cursor() {
         state
             .frontend
             .sidebar_section()
-            .unwrap_or(SidebarSectionId::Persona),
-        SidebarSectionId::Persona
+            .unwrap_or(jinn_slices::SidebarSectionId::Persona),
+        jinn_slices::SidebarSectionId::Persona
     );
     // And pins cursor is retained.
     assert_eq!(
@@ -303,7 +318,9 @@ fn jump_prev_from_pins_to_persona_retains_pins_cursor() {
 fn jump_next_from_persona_skips_empty_pins_to_sessions() {
     // Given persona focused with no pinned entries.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
         .update_sections(|s| s.persona.cursor = Some(0));
@@ -316,8 +333,8 @@ fn jump_next_from_persona_skips_empty_pins_to_sessions() {
         state
             .frontend
             .sidebar_section()
-            .unwrap_or(SidebarSectionId::Persona),
-        SidebarSectionId::Sessions
+            .unwrap_or(jinn_slices::SidebarSectionId::Persona),
+        jinn_slices::SidebarSectionId::Sessions
     );
 }
 
@@ -325,7 +342,9 @@ fn jump_next_from_persona_skips_empty_pins_to_sessions() {
 fn jump_next_fallback_receive_cursor_on_never_visited_section() {
     // Given persona focused, pins has entries but no cursor set.
     let mut state = state_with_pinned(3);
-    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
         .update_sections(|s| s.persona.cursor = Some(0));
@@ -344,8 +363,8 @@ fn jump_next_fallback_receive_cursor_on_never_visited_section() {
         state
             .frontend
             .sidebar_section()
-            .unwrap_or(SidebarSectionId::Persona),
-        SidebarSectionId::Pins
+            .unwrap_or(jinn_slices::SidebarSectionId::Persona),
+        jinn_slices::SidebarSectionId::Pins
     );
     let first_pin_id = state.sorted_pinned_ids()[0].clone();
     assert_eq!(
@@ -360,7 +379,9 @@ fn jump_next_fallback_receive_cursor_on_never_visited_section() {
 fn jump_next_from_sessions_at_boundary_does_nothing() {
     // Given sessions focused (last section).
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarSessions);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
     state
         .frontend
         .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -373,8 +394,8 @@ fn jump_next_from_sessions_at_boundary_does_nothing() {
         state
             .frontend
             .sidebar_section()
-            .unwrap_or(SidebarSectionId::Persona),
-        SidebarSectionId::Sessions
+            .unwrap_or(jinn_slices::SidebarSectionId::Persona),
+        jinn_slices::SidebarSectionId::Sessions
     );
 }
 
@@ -382,7 +403,9 @@ fn jump_next_from_sessions_at_boundary_does_nothing() {
 fn jump_prev_from_persona_at_boundary_does_nothing() {
     // Given persona focused (first section).
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
         .update_sections(|s| s.persona.cursor = Some(0));
@@ -395,8 +418,8 @@ fn jump_prev_from_persona_at_boundary_does_nothing() {
         state
             .frontend
             .sidebar_section()
-            .unwrap_or(SidebarSectionId::Persona),
-        SidebarSectionId::Persona
+            .unwrap_or(jinn_slices::SidebarSectionId::Persona),
+        jinn_slices::SidebarSectionId::Persona
     );
 }
 
@@ -416,7 +439,9 @@ fn jump_to_sessions_retains_cursor_and_adjusts_scroll() {
         }
         s
     };
-    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
         .update_sections(|s| s.persona.cursor = Some(0));
@@ -433,7 +458,7 @@ fn jump_to_sessions_retains_cursor_and_adjusts_scroll() {
 
     // Sessions may or may not be the target depending on pins.
     // If pins is empty (default state has no pins), we land on sessions.
-    if state.frontend.sidebar_section() == Some(SidebarSectionId::Sessions) {
+    if state.frontend.sidebar_section() == Some(jinn_slices::SidebarSectionId::Sessions) {
         // Then cursor is retained.
         assert_eq!(
             state
@@ -621,7 +646,9 @@ fn sessions_footer_highlights_s_in_accent_action() {
 fn entering_pins_saves_history_position() {
     // Given persona focused with a known scroll offset and selected entry.
     let mut state = state_with_pinned(3);
-    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
         .update_sections(|s| s.persona.cursor = Some(0));
@@ -648,7 +675,9 @@ fn entering_pins_saves_history_position() {
 fn leaving_pins_to_persona_restores_history_position() {
     // Given pins focused with a saved position.
     let mut state = state_with_pinned(3);
-    state.frontend.scope_push(FocusScope::SidebarPins);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Pins.focus_scope());
     let first_id = state.sorted_pinned_ids()[0].clone();
     state
         .frontend
@@ -671,7 +700,9 @@ fn leaving_pins_to_persona_restores_history_position() {
 fn jump_from_pins_to_persona_restores_history_position() {
     // Given pins focused with a saved position.
     let mut state = state_with_pinned(3);
-    state.frontend.scope_push(FocusScope::SidebarPins);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Pins.focus_scope());
     let first_id = state.sorted_pinned_ids()[0].clone();
     state
         .frontend
@@ -692,7 +723,9 @@ fn jump_from_pins_to_persona_restores_history_position() {
 fn sidebar_leave_discards_saved_position() {
     // Given pins focused with a saved position.
     let mut state = state_with_pinned(3);
-    state.frontend.scope_push(FocusScope::SidebarPins);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Pins.focus_scope());
     let first_id = state.sorted_pinned_ids()[0].clone();
     state
         .frontend
@@ -719,7 +752,9 @@ fn sidebar_leave_discards_saved_position() {
 fn full_cycle_saves_and_restores() {
     // Given persona focused with original scroll position.
     let mut state = state_with_pinned(3);
-    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
         .update_sections(|s| s.persona.cursor = Some(0));
@@ -752,7 +787,9 @@ fn full_cycle_saves_and_restores() {
 fn jump_roundtrip_saves_and_restores() {
     // Given persona focused.
     let mut state = state_with_pinned(3);
-    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
         .update_sections(|s| s.persona.cursor = Some(0));
@@ -785,7 +822,9 @@ fn jump_to_pins_with_retained_cursor_syncs_chat_log_cursor() {
         .active_session_mut()
         .pin_entry(&pinned_id, PinPosition::Top);
 
-    state.frontend.scope_push(FocusScope::SidebarPins);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Pins.focus_scope());
     state
         .frontend
         .update_sections(|s| s.pins.select_by_id(pinned_id.clone()));

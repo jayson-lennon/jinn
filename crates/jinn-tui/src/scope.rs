@@ -18,15 +18,15 @@ pub enum Scope {
     /// Normal mode - navigation and commands.
     Normal,
     /// Sidebar - Persona section.
-    SidebarPersona,
+
     /// Sidebar - Pins section.
-    SidebarPins,
+
     /// Sidebar - Sessions section.
-    SidebarSessions,
+
     /// Sidebar - Task list section.
-    SidebarTaskList,
+
     /// Sidebar - MCP servers section.
-    SidebarMcpServers,
+
     /// Picker - Provider/model selection.
     PickerProvider,
     /// Picker - Session browser.
@@ -77,20 +77,12 @@ pub enum Scope {
     ProjectAddInput,
     /// Pruner accumulation threshold input mode - numeric input for the KV-cache gate.
     PrunerAccumulationInput,
-
-    /// Sidebar resize mode - adjusting sidebar width.
-    SidebarResize,
 }
 
 impl std::fmt::Display for Scope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Normal => write!(f, "Normal"),
-            Self::SidebarPersona => write!(f, "SidebarPersona"),
-            Self::SidebarPins => write!(f, "SidebarPins"),
-            Self::SidebarSessions => write!(f, "SidebarSessions"),
-            Self::SidebarTaskList => write!(f, "SidebarTaskList"),
-            Self::SidebarMcpServers => write!(f, "SidebarMcpServers"),
             Self::PickerProvider => write!(f, "Picker(provider)"),
             Self::PickerSession => write!(f, "Picker(session)"),
             Self::PickerPersona => write!(f, "Picker(persona)"),
@@ -111,7 +103,6 @@ impl std::fmt::Display for Scope {
             Self::TerminalControl => write!(f, "TerminalControl"),
             Self::ArgInput => write!(f, "ArgInput"),
             Self::TokenBudgetInput => write!(f, "TokenBudgetInput"),
-            Self::SidebarResize => write!(f, "SidebarResize"),
             Self::RenameSessionInput => write!(f, "RenameSessionInput"),
             Self::ProjectAddInput => write!(f, "ProjectAddInput"),
             Self::PrunerAccumulationInput => write!(f, "PrunerAccumulationInput"),
@@ -131,11 +122,6 @@ impl std::str::FromStr for Scope {
         }
         match s {
             "Normal" => Ok(Self::Normal),
-            "SidebarPersona" => Ok(Self::SidebarPersona),
-            "SidebarPins" => Ok(Self::SidebarPins),
-            "SidebarSessions" => Ok(Self::SidebarSessions),
-            "SidebarTaskList" => Ok(Self::SidebarTaskList),
-            "SidebarMcpServers" => Ok(Self::SidebarMcpServers),
             "Picker(provider)" => Ok(Self::PickerProvider),
             "Picker(session)" => Ok(Self::PickerSession),
             "Picker(persona)" => Ok(Self::PickerPersona),
@@ -156,7 +142,6 @@ impl std::str::FromStr for Scope {
             "RenameSessionInput" => Ok(Self::RenameSessionInput),
             "ProjectAddInput" => Ok(Self::ProjectAddInput),
             "PrunerAccumulationInput" => Ok(Self::PrunerAccumulationInput),
-            "SidebarResize" => Ok(Self::SidebarResize),
 
             _ => Err(()),
         }

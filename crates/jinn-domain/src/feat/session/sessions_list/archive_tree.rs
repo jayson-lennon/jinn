@@ -64,12 +64,10 @@ pub enum ArchiveTreeError {
 /// session is selected, the selected entry is not a session, or any member of
 /// the subtree is busy.
 pub fn archive_tree_members(state: &AppState) -> Result<Vec<SessionId>, ArchiveTreeError> {
-    use jinn_slices::SidebarSectionId;
-
     // Sessions section must be focused.
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(SidebarSectionId::Sessions)
+        Some(jinn_slices::SidebarSectionId::Sessions)
     ) {
         return Err(ArchiveTreeError::WrongSection);
     }

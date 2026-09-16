@@ -146,9 +146,9 @@ fn picker_kind_returns_none_when_not_picker() {
 
 #[rstest::rstest]
 fn is_sidebar_returns_true_when_sidebar_active() {
-    // Given a ScopeStack with SidebarPersona on top.
+    // Given a ScopeStack with the persona section scope on top.
     let mut stack = ScopeStack::default();
-    stack.push(FocusScope::SidebarPersona);
+    stack.push(jinn_slices::SidebarSectionId::Persona.focus_scope());
 
     // Then is_sidebar is true.
     assert!(stack.is_sidebar());
@@ -166,7 +166,12 @@ fn is_sidebar_returns_false_when_normal() {
 #[rstest::rstest]
 #[case(FocusScope::Normal, Mode::Normal)]
 #[case(FocusScope::Input, Mode::Input)]
-#[case(FocusScope::SidebarPersona, Mode::Normal)]
+#[case(jinn_slices::SidebarSectionId::Persona.focus_scope(), Mode::Normal)]
+// Capturing slice scopes (quake bar, popups) light up input UI.
+#[case(
+    FocusScope::Dynamic(jinn_slices::SliceScopeId::new("quake-bar", "bar")),
+    Mode::Input
+)]
 #[case(FocusScope::TerminalView, Mode::Normal)]
 // Capture mode routes keystrokes to the pty, so it must not count as
 // input mode (which would light up the chat input as focused).
@@ -182,7 +187,7 @@ fn focus_scope_mode_mapping(#[case] scope: FocusScope, #[case] expected: Mode) {
 #[rstest::rstest]
 #[case(FocusScope::Normal, "Normal")]
 #[case(FocusScope::Input, "Input")]
-#[case(FocusScope::SidebarPersona, "SidebarPersona")]
+#[case(jinn_slices::SidebarSectionId::Persona.focus_scope(), "Dynamic(sidebar:persona)")]
 #[case(FocusScope::Picker { kind: PickerKind::Provider }, "Picker(models)")]
 fn focus_scope_display(#[case] scope: FocusScope, #[case] expected: &str) {
     // Given a FocusScope variant.

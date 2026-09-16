@@ -1597,11 +1597,12 @@ mod tests {
     // -----------------------------------------------------------------------
 
     fn setup_rerun_state() -> AppState {
-        use crate::common::focus::FocusScope;
         use crate::feat::session_lifecycle::builtin::LifecycleCommand;
 
         let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -1628,10 +1629,11 @@ mod tests {
     #[test]
     fn rerun_setup_noop_when_no_lifecycle() {
         // Given a session with no lifecycle name in NothingRan state.
-        use crate::common::focus::FocusScope;
 
         let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -1647,10 +1649,11 @@ mod tests {
     #[test]
     fn rerun_setup_noop_when_no_setup_command() {
         // Given a session with a lifecycle that has no setup command.
-        use crate::common::focus::FocusScope;
 
         let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -1693,10 +1696,11 @@ mod tests {
     #[test]
     fn rerun_setup_noop_when_no_selection() {
         // Given a sidebar sessions view with no selected index.
-        use crate::common::focus::FocusScope;
 
         let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         // No selected_index set.
 
         // When handling rerun setup.

@@ -1076,7 +1076,6 @@ mod render_cache_tests {
         clippy::uninlined_format_args,
         reason = "test code"
     )]
-    use super::*;
     use crate::common::app_state::{AppState, FocusScope};
     use crate::common::render_ctx::RenderCtx;
     use crate::feat::skills::reload::reload_skill_picker_entries;
@@ -1086,8 +1085,6 @@ mod render_cache_tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::layout::Rect;
-    use ratatui::style::Style;
-    use ratatui::text::Line;
 
     /// Renders the skill picker through its registered spec (the same path
     /// the tui render pass takes for migrated kinds).

@@ -15,16 +15,6 @@ pub enum FocusScope {
     Normal,
     /// Typing into the input buffer.
     Input,
-    /// Sidebar - Persona section focused.
-    SidebarPersona,
-    /// Sidebar - Pins section focused.
-    SidebarPins,
-    /// Sidebar - Sessions section focused.
-    SidebarSessions,
-    /// Sidebar - Task list section focused.
-    SidebarTaskList,
-    /// Sidebar - MCP servers section focused.
-    SidebarMcpServers,
     /// Picker overlay active - kind distinguishes Provider/Session/Keymap/etc.
     Picker { kind: PickerKind },
     /// Arg input popup - collecting positional args for a lifecycle command.
@@ -47,9 +37,6 @@ pub enum FocusScope {
     /// Terminal control — every key forwards to the `interactive_term` pty
     /// except the handback key (config `[interactive_term] handback_key`).
     TerminalControl,
-
-    /// Sidebar resize mode - adjusting sidebar width with h/l keys.
-    SidebarResize,
 }
 
 impl FocusScope {
@@ -57,28 +44,21 @@ impl FocusScope {
     #[must_use]
     pub fn mode(&self) -> Mode {
         match self {
-            Self::Normal
-            | Self::SidebarPersona
-            | Self::SidebarPins
-            | Self::SidebarSessions
-            | Self::SidebarTaskList
-            | Self::SidebarMcpServers
-            | Self::SidebarResize
-            | Self::TerminalView
-            // Capture mode routes keystrokes to the pty, not the chat input,
-            // so it must not light up input-focused UI.
-            | Self::TerminalControl => Mode::Normal,
+            // Input-capturing slice scopes (quake bar, popups) light up
+            // input-focused UI; navigation-only slice scopes (the sidebar
+            // sections) fall through to Normal like the other non-input
+            // surfaces (chat, terminal, the base scope).
+            Self::Dynamic(id) if id.captures_input() => Mode::Input,
             Self::Input
             | Self::ArgInput
             | Self::RenameSessionInput
             | Self::ProjectAddInput
-            | Self::PrunerAccumulationInput
-            // Dynamic scopes are input-capturing surfaces: a slice scope
-            // captures keystrokes (its input hook serves the editing
-            // intents), so it lights up input-focused UI like the quake
-            // bar did.
-            | Self::Dynamic(_) => Mode::Input,
+            | Self::PrunerAccumulationInput => Mode::Input,
             Self::Picker { .. } => Mode::Picker,
+            // Normal, TerminalView, TerminalControl (capture mode routes
+            // keystrokes to the pty, not the chat input), and
+            // navigation-only dynamic scopes are all non-input modes.
+            _ => Mode::Normal,
         }
     }
 }
@@ -90,18 +70,12 @@ impl std::fmt::Display for FocusScope {
             Self::TerminalView => write!(f, "TerminalView"),
             Self::TerminalControl => write!(f, "TerminalControl"),
             Self::Input => write!(f, "Input"),
-            Self::SidebarPersona => write!(f, "SidebarPersona"),
-            Self::SidebarPins => write!(f, "SidebarPins"),
-            Self::SidebarSessions => write!(f, "SidebarSessions"),
-            Self::SidebarTaskList => write!(f, "SidebarTaskList"),
-            Self::SidebarMcpServers => write!(f, "SidebarMcpServers"),
             Self::Picker { kind } => write!(f, "Picker({kind})"),
             Self::ArgInput => write!(f, "ArgInput"),
             Self::RenameSessionInput => write!(f, "RenameSessionInput"),
             Self::ProjectAddInput => write!(f, "ProjectAddInput"),
             Self::PrunerAccumulationInput => write!(f, "PrunerAccumulationInput"),
             Self::Dynamic(id) => write!(f, "Dynamic({id})"),
-            Self::SidebarResize => write!(f, "SidebarResize"),
         }
     }
 }
@@ -208,25 +182,21 @@ impl ScopeStack {
     /// Returns `true` if the current scope is a sidebar section.
     #[must_use]
     pub fn is_sidebar(&self) -> bool {
-        matches!(
-            self.current(),
-            FocusScope::SidebarPersona
-                | FocusScope::SidebarPins
-                | FocusScope::SidebarSessions
-                | FocusScope::SidebarTaskList
-                | FocusScope::SidebarMcpServers
-        )
+        match self.current() {
+            // The resize scope is not a section.
+            FocusScope::Dynamic(id) => id.slice() == "sidebar" && id.name() != "resize",
+            _ => false,
+        }
     }
 
     /// Returns the focused sidebar section, if a sidebar scope is active.
+    /// The resize scope is not a section.
     #[must_use]
     pub fn sidebar_section(&self) -> Option<SidebarSectionId> {
         match self.current() {
-            FocusScope::SidebarPersona => Some(SidebarSectionId::Persona),
-            FocusScope::SidebarPins => Some(SidebarSectionId::Pins),
-            FocusScope::SidebarSessions => Some(SidebarSectionId::Sessions),
-            FocusScope::SidebarTaskList => Some(SidebarSectionId::TaskList),
-            FocusScope::SidebarMcpServers => Some(SidebarSectionId::McpServers),
+            FocusScope::Dynamic(id) if id.slice() == "sidebar" => {
+                SidebarSectionId::from_scope_name(id.name())
+            }
             _ => None,
         }
     }
@@ -236,15 +206,8 @@ impl ScopeStack {
     /// No-op if the current scope is not a sidebar section.
     pub fn set_sidebar_section(&mut self, section: SidebarSectionId) {
         if self.is_sidebar() {
-            let scope = match section {
-                SidebarSectionId::Persona => FocusScope::SidebarPersona,
-                SidebarSectionId::Pins => FocusScope::SidebarPins,
-                SidebarSectionId::TaskList => FocusScope::SidebarTaskList,
-                SidebarSectionId::Sessions => FocusScope::SidebarSessions,
-                SidebarSectionId::McpServers => FocusScope::SidebarMcpServers,
-            };
             self.stack.pop();
-            self.stack.push(scope);
+            self.stack.push(FocusScope::Dynamic(section.scope_id()));
         }
     }
 

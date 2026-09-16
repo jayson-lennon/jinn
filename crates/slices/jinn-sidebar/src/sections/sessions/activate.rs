@@ -15,12 +15,11 @@ use jinn_domain::protocol::IntentResult;
 ///   are ephemeral and persist across activation changes, and were
 ///   hydrated when the session was created/loaded.
 pub fn handle_session_activate(state: &mut AppState) -> IntentResult {
-    use crate::sections::section_trait::SidebarSectionId;
     use jinn_domain::common::app_state::FocusScope;
 
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(SidebarSectionId::Sessions)
+        Some(jinn_slices::SidebarSectionId::Sessions)
     ) {
         return IntentResult::empty();
     }
@@ -50,12 +49,11 @@ pub fn handle_session_activate(state: &mut AppState) -> IntentResult {
 /// - For session entries: activates the session, swaps to Normal as the
 ///   base, then pushes Input.
 pub fn handle_session_activate_insert(state: &mut AppState) -> IntentResult {
-    use crate::sections::section_trait::SidebarSectionId;
     use jinn_domain::common::app_state::FocusScope;
 
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(SidebarSectionId::Sessions)
+        Some(jinn_slices::SidebarSectionId::Sessions)
     ) {
         return IntentResult::empty();
     }
@@ -107,7 +105,9 @@ mod tests {
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(target_idx));
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         (state, second)
     }
 
@@ -131,7 +131,9 @@ mod tests {
     fn activate_session_with_no_cursor_emits_nothing() {
         // Given sessions sidebar but no selected index.
         let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         // selected_index stays None.
 
         // When activating.
@@ -195,7 +197,9 @@ mod tests {
     fn activate_insert_with_no_selected_index_is_noop() {
         // Given sessions sidebar but no selected index.
         let mut state = AppState::default_with_scope_focus();
-        state.frontend.scope_push(FocusScope::SidebarSessions);
+        state
+            .frontend
+            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
         let initial_scope = state.frontend.scope().clone();
 
         // When activating into insert mode.

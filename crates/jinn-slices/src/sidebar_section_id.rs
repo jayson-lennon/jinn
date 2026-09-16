@@ -30,6 +30,28 @@ impl std::fmt::Display for SidebarSectionId {
 }
 
 impl SidebarSectionId {
+    /// The focus scope for this section: the dynamic scope the sidebar
+    /// pushes while the section is focused.
+    #[must_use]
+    pub fn focus_scope(self) -> crate::focus::FocusScope {
+        crate::focus::FocusScope::Dynamic(self.scope_id())
+    }
+
+    /// The section for a sidebar dynamic scope's name — the inverse of
+    /// the name mapping in [`Self::scope_id`]. Returns `None` for the
+    /// resize scope or any unknown name.
+    #[must_use]
+    pub fn from_scope_name(name: &str) -> Option<Self> {
+        match name {
+            "pins" => Some(Self::Pins),
+            "persona" => Some(Self::Persona),
+            "task-list" => Some(Self::TaskList),
+            "sessions" => Some(Self::Sessions),
+            "mcp-servers" => Some(Self::McpServers),
+            _ => None,
+        }
+    }
+
     /// The navigation scope id for this section: the dynamic scope the
     /// sidebar pushes while the section is focused. Navigation-only —
     /// the sections drive a cursor, they never capture text input.
@@ -45,16 +67,6 @@ impl SidebarSectionId {
                 Self::McpServers => "mcp-servers",
             },
         )
-        // The scope stack still holds the static variants; the alias
-        // makes row keys bind in both scopes until the focus-model
-        // collapse lands.
-        .with_static_alias(match self {
-            Self::Pins => "SidebarPins",
-            Self::Persona => "SidebarPersona",
-            Self::TaskList => "SidebarTaskList",
-            Self::Sessions => "SidebarSessions",
-            Self::McpServers => "SidebarMcpServers",
-        })
     }
 
     /// The sidebar's resize-mode scope id (adjusting sidebar width with
@@ -62,6 +74,5 @@ impl SidebarSectionId {
     #[must_use]
     pub fn resize_scope_id() -> crate::slice_scope::SliceScopeId {
         crate::slice_scope::SliceScopeId::navigation("sidebar", "resize")
-            .with_static_alias("SidebarResize")
     }
 }

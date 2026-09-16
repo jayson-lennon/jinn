@@ -10,8 +10,8 @@ use jinn_testutil::setup_term;
 use ratatui::style::Color;
 
 use crate::sections::pins::pins_section::*;
-use crate::sections::section_trait::{SidebarSection, SidebarSectionId};
-use jinn_domain::common::app_state::{AppState, FocusScope};
+use crate::sections::section_trait::SidebarSection;
+use jinn_domain::common::app_state::AppState;
 use jinn_domain::common::render_ctx::RenderCtx;
 use jinn_domain::protocol::{ChangeSource, ChatEntry, PinPosition};
 
@@ -40,10 +40,12 @@ fn state_with_pinned(count: usize) -> AppState {
 fn sidebar_persona_edit_opens_picker_when_persona_focused() {
     // Given a state with persona section focused and sidebar scope.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarPersona);
     state
         .frontend
-        .scope_set_sidebar_section(SidebarSectionId::Persona);
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+    state
+        .frontend
+        .scope_set_sidebar_section(jinn_slices::SidebarSectionId::Persona);
 
     // When handling sidebar persona edit.
     let result = handle_sidebar_persona_edit(
@@ -69,10 +71,12 @@ fn sidebar_persona_edit_opens_picker_when_persona_focused() {
 fn sidebar_persona_edit_noop_when_pins_focused() {
     // Given a state with pins section focused and sidebar scope.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarPersona);
     state
         .frontend
-        .scope_set_sidebar_section(SidebarSectionId::Pins);
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+    state
+        .frontend
+        .scope_set_sidebar_section(jinn_slices::SidebarSectionId::Pins);
 
     // When handling sidebar persona edit.
     let result = handle_sidebar_persona_edit(
@@ -230,7 +234,7 @@ fn section_id_is_pins() {
 
     // When asking for its ID.
     // Then it returns Pins.
-    assert_eq!(section.id(), SidebarSectionId::Pins);
+    assert_eq!(section.id(), jinn_slices::SidebarSectionId::Pins);
 }
 
 #[rstest::rstest]
@@ -341,7 +345,9 @@ fn render_selected_entry_has_yellow_marker_when_sidebar_focused() {
     let mut section = PinsSection;
     let state = state_with_pinned(2);
     // Sidebar must be focused for the indicator to be yellow.
-    state.frontend.scope_push(FocusScope::SidebarPins);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Pins.focus_scope());
 
     let (mut terminal, area) = setup_term(60, 20);
     terminal
@@ -435,17 +441,19 @@ fn render_sorts_entries_by_position() {
 }
 
 // Note: SessionNew section-scoping is now handled by the keymap (n is only
-// bound in SidebarSessions scope), so the IntentHandler no longer checks
+// bound in the sidebar sessions scope), so the IntentHandler no longer checks
 // which section is focused. These tests validated the old handler-level check.
 
 #[rstest::rstest]
 fn session_new_works_when_sidebar_sessions_focused() {
     // Given a state in Sidebar scope with Sessions section focused.
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarPersona);
     state
         .frontend
-        .scope_set_sidebar_section(SidebarSectionId::Sessions);
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+    state
+        .frontend
+        .scope_set_sidebar_section(jinn_slices::SidebarSectionId::Sessions);
     let _old_id = state.session.active_session_id().clone();
 
     // When handling SessionNew via IntentHandler.

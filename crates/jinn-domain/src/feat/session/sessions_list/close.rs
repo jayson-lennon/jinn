@@ -23,12 +23,10 @@ pub enum SessionCloseError {
 ///
 /// Returns [`SessionCloseError`] if the sessions section is not focused, no session is selected, or the session is busy.
 pub fn validate_session_close(state: &AppState) -> Result<(), SessionCloseError> {
-    use jinn_slices::SidebarSectionId;
-
     // Sessions section must be focused.
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(SidebarSectionId::Sessions)
+        Some(jinn_slices::SidebarSectionId::Sessions)
     ) {
         return Err(SessionCloseError::WrongSection);
     }

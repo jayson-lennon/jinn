@@ -826,13 +826,15 @@ fn enter_normal_mode_from_input_with_sidebar_returns_to_normal() {
     use crate::common::app_state::FocusScope;
 
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
     state.frontend.scope_push(FocusScope::Input);
 
     // When handling EnterNormalMode.
     let _ = crate::feat::chat_input::intent::handle_enter_normal_mode(&mut state);
 
-    // Then the scope is back to Normal (not SidebarPersona).
+    // Then the scope is back to Normal (not the sidebar persona section).
     assert_eq!(state.frontend.scope(), FocusScope::Normal);
     assert!(!state.frontend.is_sidebar());
 }
@@ -843,7 +845,9 @@ fn enter_normal_mode_from_sidebar_input_emits_no_commands() {
     use crate::common::app_state::FocusScope;
 
     let mut state = AppState::default_with_scope_focus();
-    state.frontend.scope_push(FocusScope::SidebarPersona);
+    state
+        .frontend
+        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
     state.frontend.scope_push(FocusScope::Input);
 
     // When handling EnterNormalMode.

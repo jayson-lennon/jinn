@@ -126,7 +126,7 @@ pub fn navigate_sidebar(direction: &SidebarIntent, state: &mut AppState) {
     let focused = state
         .frontend
         .sidebar_section()
-        .unwrap_or(SidebarSectionId::Persona);
+        .unwrap_or(jinn_slices::SidebarSectionId::Persona);
     let result = dispatch_navigate(focused, direction, state);
 
     if result == SectionNavResult::Exhausted {
@@ -141,7 +141,7 @@ pub fn navigate_sidebar(direction: &SidebarIntent, state: &mut AppState) {
         while let Some(target) = candidate {
             if section_has_content(target, state) {
                 // Restore history position when leaving Pins.
-                if focused == SidebarSectionId::Pins {
+                if focused == jinn_slices::SidebarSectionId::Pins {
                     state.active_session_mut().restore_history_position();
                 }
                 clear_cursor(focused, state);
@@ -169,40 +169,40 @@ fn dispatch_navigate(
     state: &mut AppState,
 ) -> SectionNavResult {
     match section {
-        SidebarSectionId::Persona => persona_section::navigate(intent, state),
-        SidebarSectionId::Pins => pins::navigate(intent, state),
-        SidebarSectionId::TaskList => task_list_section::navigate(intent, state),
-        SidebarSectionId::McpServers => mcp_servers_section::navigate(intent, state),
-        SidebarSectionId::Sessions => sessions::navigate(intent, state),
+        jinn_slices::SidebarSectionId::Persona => persona_section::navigate(intent, state),
+        jinn_slices::SidebarSectionId::Pins => pins::navigate(intent, state),
+        jinn_slices::SidebarSectionId::TaskList => task_list_section::navigate(intent, state),
+        jinn_slices::SidebarSectionId::McpServers => mcp_servers_section::navigate(intent, state),
+        jinn_slices::SidebarSectionId::Sessions => sessions::navigate(intent, state),
     }
 }
 
 fn next_section(id: SidebarSectionId) -> Option<SidebarSectionId> {
     match id {
-        SidebarSectionId::Persona => Some(SidebarSectionId::Pins),
-        SidebarSectionId::Pins => Some(SidebarSectionId::TaskList),
-        SidebarSectionId::TaskList => Some(SidebarSectionId::McpServers),
-        SidebarSectionId::McpServers => Some(SidebarSectionId::Sessions),
-        SidebarSectionId::Sessions => None,
+        jinn_slices::SidebarSectionId::Persona => Some(jinn_slices::SidebarSectionId::Pins),
+        jinn_slices::SidebarSectionId::Pins => Some(jinn_slices::SidebarSectionId::TaskList),
+        jinn_slices::SidebarSectionId::TaskList => Some(jinn_slices::SidebarSectionId::McpServers),
+        jinn_slices::SidebarSectionId::McpServers => Some(jinn_slices::SidebarSectionId::Sessions),
+        jinn_slices::SidebarSectionId::Sessions => None,
     }
 }
 
 fn prev_section(id: SidebarSectionId) -> Option<SidebarSectionId> {
     match id {
-        SidebarSectionId::Persona => None,
-        SidebarSectionId::Pins => Some(SidebarSectionId::Persona),
-        SidebarSectionId::TaskList => Some(SidebarSectionId::Pins),
-        SidebarSectionId::McpServers => Some(SidebarSectionId::TaskList),
-        SidebarSectionId::Sessions => Some(SidebarSectionId::McpServers),
+        jinn_slices::SidebarSectionId::Persona => None,
+        jinn_slices::SidebarSectionId::Pins => Some(jinn_slices::SidebarSectionId::Persona),
+        jinn_slices::SidebarSectionId::TaskList => Some(jinn_slices::SidebarSectionId::Pins),
+        jinn_slices::SidebarSectionId::McpServers => Some(jinn_slices::SidebarSectionId::TaskList),
+        jinn_slices::SidebarSectionId::Sessions => Some(jinn_slices::SidebarSectionId::McpServers),
     }
 }
 
 fn section_has_content(id: SidebarSectionId, state: &AppState) -> bool {
     match id {
-        SidebarSectionId::Persona => true,
-        SidebarSectionId::Pins => !state.sorted_pinned_ids().is_empty(),
-        SidebarSectionId::TaskList => !state.active_session().task_list().is_empty(),
-        SidebarSectionId::McpServers => {
+        jinn_slices::SidebarSectionId::Persona => true,
+        jinn_slices::SidebarSectionId::Pins => !state.sorted_pinned_ids().is_empty(),
+        jinn_slices::SidebarSectionId::TaskList => !state.active_session().task_list().is_empty(),
+        jinn_slices::SidebarSectionId::McpServers => {
             let enabled = state.active_session().enabled_mcp_servers();
             state
                 .frontend
@@ -211,17 +211,17 @@ fn section_has_content(id: SidebarSectionId, state: &AppState) -> bool {
                 .iter()
                 .any(|(name, _)| enabled.contains(name.as_str()))
         }
-        SidebarSectionId::Sessions => !state.session.is_empty(),
+        jinn_slices::SidebarSectionId::Sessions => !state.session.is_empty(),
     }
 }
 
 pub(crate) fn clear_cursor(id: SidebarSectionId, state: &mut AppState) {
     state.frontend.update_sections(|s| match id {
-        SidebarSectionId::Persona => s.persona.cursor = None,
-        SidebarSectionId::Pins => s.pins.clear_selection(),
-        SidebarSectionId::TaskList => s.task_list.selected_phase_index = None,
-        SidebarSectionId::McpServers => s.mcp_servers.selected_index = None,
-        SidebarSectionId::Sessions => {
+        jinn_slices::SidebarSectionId::Persona => s.persona.cursor = None,
+        jinn_slices::SidebarSectionId::Pins => s.pins.clear_selection(),
+        jinn_slices::SidebarSectionId::TaskList => s.task_list.selected_phase_index = None,
+        jinn_slices::SidebarSectionId::McpServers => s.mcp_servers.selected_index = None,
+        jinn_slices::SidebarSectionId::Sessions => {
             s.sessions.selected_index = None;
         }
     });
@@ -229,11 +229,17 @@ pub(crate) fn clear_cursor(id: SidebarSectionId, state: &mut AppState) {
 
 fn receive_cursor(id: SidebarSectionId, enter_from: EnterFrom, state: &mut AppState) {
     match id {
-        SidebarSectionId::Persona => persona_section::receive_cursor(state, enter_from),
-        SidebarSectionId::Pins => pins::receive_cursor(state, enter_from),
-        SidebarSectionId::TaskList => task_list_section::receive_cursor(state, enter_from),
-        SidebarSectionId::McpServers => mcp_servers_section::receive_cursor(state, enter_from),
-        SidebarSectionId::Sessions => sessions::receive_cursor(state, enter_from),
+        jinn_slices::SidebarSectionId::Persona => {
+            persona_section::receive_cursor(state, enter_from)
+        }
+        jinn_slices::SidebarSectionId::Pins => pins::receive_cursor(state, enter_from),
+        jinn_slices::SidebarSectionId::TaskList => {
+            task_list_section::receive_cursor(state, enter_from)
+        }
+        jinn_slices::SidebarSectionId::McpServers => {
+            mcp_servers_section::receive_cursor(state, enter_from)
+        }
+        jinn_slices::SidebarSectionId::Sessions => sessions::receive_cursor(state, enter_from),
     }
 }
 
@@ -241,11 +247,11 @@ fn receive_cursor(id: SidebarSectionId, enter_from: EnterFrom, state: &mut AppSt
 fn section_has_cursor(id: SidebarSectionId, state: &AppState) -> bool {
     state.frontend.with_sections(
         |s| match id {
-            SidebarSectionId::Persona => s.persona.cursor.is_some(),
-            SidebarSectionId::Pins => s.pins.selected_id().is_some(),
-            SidebarSectionId::TaskList => s.task_list.selected_phase_index.is_some(),
-            SidebarSectionId::McpServers => s.mcp_servers.selected_index.is_some(),
-            SidebarSectionId::Sessions => s.sessions.selected_index.is_some(),
+            jinn_slices::SidebarSectionId::Persona => s.persona.cursor.is_some(),
+            jinn_slices::SidebarSectionId::Pins => s.pins.selected_id().is_some(),
+            jinn_slices::SidebarSectionId::TaskList => s.task_list.selected_phase_index.is_some(),
+            jinn_slices::SidebarSectionId::McpServers => s.mcp_servers.selected_index.is_some(),
+            jinn_slices::SidebarSectionId::Sessions => s.sessions.selected_index.is_some(),
         },
         || false,
     )
@@ -265,7 +271,7 @@ pub fn jump_to_section(direction: &SidebarIntent, state: &mut AppState) {
     let focused = state
         .frontend
         .sidebar_section()
-        .unwrap_or(SidebarSectionId::Persona);
+        .unwrap_or(jinn_slices::SidebarSectionId::Persona);
     let neighbor_fn: fn(SidebarSectionId) -> Option<SidebarSectionId> = match direction {
         SidebarIntent::MoveDown => next_section,
         SidebarIntent::MoveUp => prev_section,
@@ -277,14 +283,16 @@ pub fn jump_to_section(direction: &SidebarIntent, state: &mut AppState) {
     while let Some(target) = candidate {
         if section_has_content(target, state) {
             // Restore history position when leaving Pins.
-            if focused == SidebarSectionId::Pins && target != SidebarSectionId::Pins {
+            if focused == jinn_slices::SidebarSectionId::Pins
+                && target != jinn_slices::SidebarSectionId::Pins
+            {
                 state.active_session_mut().restore_history_position();
             }
 
             state.frontend.scope_set_sidebar_section(target);
 
             // Save history position when entering Pins without receive_cursor.
-            if target == SidebarSectionId::Pins
+            if target == jinn_slices::SidebarSectionId::Pins
                 && !state.active_session().has_saved_history_position()
             {
                 state.active_session_mut().save_history_position();
@@ -298,10 +306,10 @@ pub fn jump_to_section(direction: &SidebarIntent, state: &mut AppState) {
                     SidebarIntent::Action(_) => return,
                 };
                 receive_cursor(target, enter_from, state);
-            } else if target == SidebarSectionId::Pins {
+            } else if target == jinn_slices::SidebarSectionId::Pins {
                 // Pins has a retained cursor - sync chat log to show it.
                 pins::pins_section::sync_chat_log_cursor(state);
-            } else if target == SidebarSectionId::Sessions {
+            } else if target == jinn_slices::SidebarSectionId::Sessions {
                 // Ensure scroll offset is valid for sessions.
                 sessions::scroll_to_cursor(state);
             }

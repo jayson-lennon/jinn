@@ -114,7 +114,7 @@ mod tests {
             .state
             .write_test_no_cap()
             .frontend
-            .scope_push(FocusScope::SidebarPersona);
+            .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
         let (mut terminal, _area) = setup_term(80, 24);
 
         // When rendering.

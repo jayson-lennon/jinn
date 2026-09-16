@@ -9,10 +9,10 @@
 
 use jinn_domain::common::app_state::AppState;
 use jinn_domain::protocol::IntentResult;
+use jinn_slices::SliceScopeId;
 use jinn_slices::route::{
     ActionCtx, ActionFn, BindSite, KeyRoutes, RouteId, RouteOutcome, RouteRow, ScopeSignal,
 };
-use jinn_slices::{SidebarSectionId, SliceScopeId};
 
 use crate::sections::intent as sidebar_intent;
 use crate::sections::pins::pins_section as pins;
@@ -26,7 +26,7 @@ use crate::sections::task_list_section as task_list;
 /// The sidebar's resize-mode dynamic scope.
 #[must_use]
 pub fn resize_scope() -> SliceScopeId {
-    SidebarSectionId::resize_scope_id()
+    jinn_slices::SidebarSectionId::resize_scope_id()
 }
 
 /// The rename popup's dynamic scope (input-capturing).
@@ -83,11 +83,11 @@ fn row(
 /// Attaches the sidebar's keybind rows onto the shared route table.
 /// Called once from the slice's `activate()`.
 pub fn attach_sidebar_rows(routes: &KeyRoutes) {
-    let persona = SidebarSectionId::Persona.scope_id();
-    let pins_scope = SidebarSectionId::Pins.scope_id();
-    let task_list_scope = SidebarSectionId::TaskList.scope_id();
-    let sessions_scope = SidebarSectionId::Sessions.scope_id();
-    let mcp = SidebarSectionId::McpServers.scope_id();
+    let persona = jinn_slices::SidebarSectionId::Persona.scope_id();
+    let pins_scope = jinn_slices::SidebarSectionId::Pins.scope_id();
+    let task_list_scope = jinn_slices::SidebarSectionId::TaskList.scope_id();
+    let sessions_scope = jinn_slices::SidebarSectionId::Sessions.scope_id();
+    let mcp = jinn_slices::SidebarSectionId::McpServers.scope_id();
     let resize = resize_scope();
     let sections = [
         persona.clone(),

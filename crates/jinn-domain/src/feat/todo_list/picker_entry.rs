@@ -1,7 +1,7 @@
 //! Task list tree entry type and rendering for the read-only task list picker.
 //!
 //! Implements [`TreeItem`] for the picker overlay opened via `s` from the
-//! `SidebarTaskList` scope. Entries are flattened from
+//! the sidebar task-list scope. Entries are flattened from
 //! [`TaskList`](super::TaskList) into a two-level tree: phases are roots,
 //! tasks are children of their owning phase. Postponed tasks are filtered
 //! out by the loader, not by this type.

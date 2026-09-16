@@ -22,10 +22,9 @@ async fn test_app() -> TuiApp {
 
 #[rstest::rstest]
 #[case::normal_chat(jinn_domain::FocusScope::Normal, Scope::Normal)]
-#[case::sidebar(jinn_domain::FocusScope::SidebarPersona, Scope::SidebarPersona)]
+#[case::sidebar(jinn_slices::SidebarSectionId::Persona.focus_scope(), Scope::Dynamic(jinn_slices::SliceScopeId::navigation("sidebar", "persona")))]
 #[case::input(jinn_domain::FocusScope::Input, Scope::Input)]
 #[case::picker_provider(jinn_domain::FocusScope::Picker { kind: jinn_domain::PickerKind::Provider }, Scope::PickerProvider)]
-#[case::sidebar_resize(jinn_domain::FocusScope::SidebarResize, Scope::SidebarResize)]
 #[case::picker_task_list(jinn_domain::FocusScope::Picker { kind: jinn_domain::PickerKind::TaskList }, Scope::PickerTaskList)]
 fn scope_for_focus_maps_correctly(#[case] focus: jinn_domain::FocusScope, #[case] expected: Scope) {
     // Given a focus scope.
@@ -230,10 +229,12 @@ fn key<'a>(notation: &'a str) -> jinn_domain::KeyEvent {
 #[rstest::rstest]
 #[case::normal(Scope::Normal)]
 #[case::input(Scope::Input)]
-#[case::sidebar_sessions(Scope::SidebarSessions)]
+#[case::sidebar_sessions(Scope::Dynamic(jinn_slices::SliceScopeId::navigation(
+    "sidebar", "sessions"
+)))]
 #[case::picker_session(Scope::PickerSession)]
 fn s_outside_sidebar_task_list_does_not_open_task_list_picker(#[case] scope: Scope) {
-    // Given the keymap rooted at a non-SidebarTaskList scope.
+    // Given the keymap rooted at a non-sidebar-task-list scope.
     let mut wk = keymap_at(scope);
 
     // When pressing `s`.
@@ -257,7 +258,7 @@ fn esc_in_picker_task_list_returns_to_normal_mode() {
     let intent = wk.handle_key(key("escape"));
 
     // Then it resolves to EnterNormalMode (the existing handler closes the picker
-    // and restores the prior SidebarTaskList scope).
+    // and restores the prior sidebar task-list scope).
     assert_eq!(
         intent.map(|i| i.to_string()).as_deref(),
         Some("enter normal mode")

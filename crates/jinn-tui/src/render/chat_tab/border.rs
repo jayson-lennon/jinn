@@ -13,11 +13,12 @@ pub fn render_border(frame: &mut Frame<'_>, border: Rect, ctx: &RenderCtx) {
     let theme = &ctx.state.frontend.theme;
 
     let border_color = match focus_scope {
-        jinn_domain::FocusScope::SidebarResize => theme.sidebar_resize_accent,
-        jinn_domain::FocusScope::SidebarPersona
-        | jinn_domain::FocusScope::SidebarPins
-        | jinn_domain::FocusScope::SidebarSessions
-        | jinn_domain::FocusScope::SidebarTaskList => theme.focus_accent,
+        jinn_domain::FocusScope::Dynamic(id)
+            if id.slice() == "sidebar" && id.name() == "resize" =>
+        {
+            theme.sidebar_resize_accent
+        }
+        jinn_domain::FocusScope::Dynamic(id) if id.slice() == "sidebar" => theme.focus_accent,
         _ => theme.border_unfocused,
     };
     let border_style = Style::default().fg(border_color);
@@ -55,7 +56,7 @@ mod tests {
             .state
             .write_test_no_cap()
             .frontend
-            .scope_push(jinn_domain::FocusScope::SidebarPersona);
+            .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
         let (mut terminal, _area) = setup_term(80, 24);
 
         // When rendering.
@@ -101,13 +102,15 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn separator_is_green_when_resizing() {
-        // Given a TuiApp rendered with SidebarResize scope.
+        // Given a TuiApp rendered with the sidebar resize scope.
         let mut app = crate::TuiApp::test_builder().build().await;
         app.core
             .state
             .write_test_no_cap()
             .frontend
-            .scope_push(jinn_domain::FocusScope::SidebarResize);
+            .scope_push(jinn_domain::FocusScope::Dynamic(
+                jinn_slices::SidebarSectionId::resize_scope_id(),
+            ));
         let (mut terminal, _area) = setup_term(80, 24);
 
         // When rendering.

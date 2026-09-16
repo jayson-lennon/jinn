@@ -247,9 +247,7 @@ mod tests {
         reason = "test module, panics are acceptable"
     )]
     use super::*;
-    use crate::feat::picker::registry::ENDPOINT_ID;
     use crate::feat::picker::registry::PERSONA_ID;
-    use crate::feat::picker::registry::PROJECT_ID;
 
     fn test_persona(name: &str) -> crate::feat::persona::PersonaEntry {
         crate::feat::persona::PersonaEntry {
