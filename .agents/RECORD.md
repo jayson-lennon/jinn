@@ -140,7 +140,7 @@ Entries are added or amended **only with human approval**.
 - (plugins) The plugin wire contract is a hand-maintained JSON Schema kept in sync with the `jinn-plugin-api` types by a drift test; plugin SDKs are consumed as a git dependency on the jinn repo, not crates.io.
 - (plugins) Plugin `Hello` subscriptions negotiate host→guest events (`tool_call`, `tool_result`, `turn_end`); the host forwards matching bus events to subscribed guests and validates `PushCitations` contributions before publishing.
 - (plugins) `url-citations` is a first-party plugin seeded enabled by default; a dead or missing instance means no Sources footer, never a startup failure.
-- (plugins) First-party plugin names carry no jinn-/plugin padding: the themes plugin is `theme-loader` and the personas plugin is `persona-loader`.
+- (plugins) First-party plugin names carry no jinn-/plugin padding (the loaders used names like `theme-loader`); the remaining first-party plugins are the behavioral watchdog/url-citations set.
 - (plugins) First-party plugins ship as prebuilt wasm embedded in the jinn binary; `jinn install` copies them into the plugins dir and registers them in `jinn.toml` only when `jinn.toml` does not yet exist — an existing `jinn.toml` is never modified by `jinn install`, even with `--force`. Artifacts are refreshed into `res/plugins/` by `just refresh-plugins` (run by `just release`).
 - (plugins) The plugin picker (`<leader>sP`) is a read-only list of loaded plugins (name + phase) snapshot from the contribution cache at open time; plugins are managed outside jinn and cannot be toggled from within.
 - (plugins) A plugin guest that closes stdout cleanly after the handshake ends in phase `Done` (run-to-completion loaders; contributions stay cached); `Dead` is reserved for spawn/handshake failure, traps, and abrupt pipe loss.
@@ -187,7 +187,7 @@ Entries are added or amended **only with human approval**.
 - (storage) Each pending schema migration prints an announcement to the terminal before applying, so an upgrade launch visibly explains the startup wait.
 - (storage) LATEST_VERSION tracks the newest migration in the apply chain, enforced by a drift test that upgrades a seeded database from every prior version to latest.
 - (storage) Schema v28 adds `fts_rowids`, a per-session map of FTS rowids backfilled from `session_fts`, maintained by the index write path; search SQL and the FTS5 schema are unchanged.
-- (theme) Theme discovery flows through a `theme-loader` plugin (prebuilt, shipped by `jinn install`): it scans `~/.config/jinn/themes/*.toml` (ANSI name, ANSI code, hex, RGB formats) and contributes full theme definitions over the plugin wire; the theme picker reads the contribution cache, not disk.
+- (theme) Themes are TOML files in `~/.config/jinn/themes/` (ANSI name, ANSI code, hex, RGB formats); the theme slice scans them into its cell at activation and the theme picker reads the cell, not disk.
 - (tokens) A token-count actor estimates per-entry token usage; these estimates drive context-assembly sizing and compaction thresholds.
 - (tokens) The session token ledger stores the pre-send local estimate (`tokens_sent`) alongside provider-reported `prompt_tokens` and `cached_tokens` per request; the estimate is never overwritten.
 - (tokens) The status-bar `↑sent` count uses the provider-reported `prompt_tokens` when a turn completed with usage, falling back to the estimate for turns without usage.
@@ -368,3 +368,5 @@ Entries are added or amended **only with human approval**.
 - (tools) The interactive_term tool guidance warns models not to append shell redirections, pipes, or grep (the tool returns the rendered screen, so piped output is silently lost) and advertises the no-argument interactive_term_send call as an anytime screen snapshot; the usage footer on every result repeats both.
 - (slices) The theme slice is a kernel-free crate loading theme files from the configured directories at activation into one cell; the theme picker and the app-state actor read the cell.
 - (plugins) The theme-loader plugin no longer exists; themes load directly from disk at boot, and the plugin wire contract no longer carries theme entries.
+- (slices) The persona slice is a kernel-free crate parsing persona markdown from the configured directory at activation into one cell; composition publishes the kernel's PersonasLoaded event from that scan after actor spawn, and the session actor consumes it unchanged.
+- (plugins) The persona-loader plugin no longer exists; personas parse from disk at boot, and the plugin wire contract carries no contribution types — only event subscriptions.

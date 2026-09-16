@@ -18,7 +18,6 @@ use crate::common::bus::test_harness::{TestHarness, await_recorded};
 use crate::common::root_supervisor::RootSupervisor;
 use crate::common::state::State;
 use crate::common::tcaps::mint::mint_plugins_cap;
-use crate::feat::context::protocol::event::PersonasLoaded;
 use crate::feat::plugin::PluginConfig;
 use crate::feat::plugin_coordinator_actor::PluginCoordinatorActor;
 use crate::feat::plugin_coordinator_actor::PluginCoordinatorActorDeps;
@@ -152,7 +151,7 @@ async fn healthy_guest_reaches_running_phase() {
 async fn malformed_lines_are_dropped_not_fatal() {
     // Given a guest whose wire output includes garbage around a valid line.
     let harness = TestHarness::new().await;
-    let recorder = harness.spawn_recorder::<PersonasLoaded>().await;
+    let recorder = harness.spawn_recorder::<CitationsReceived>().await;
     let _state = spawn_coordinator(
         &harness,
         plugins(),
@@ -160,7 +159,7 @@ async fn malformed_lines_are_dropped_not_fatal() {
             protocol_version: jinn_plugin_api::PROTOCOL_VERSION,
             lines: vec![
                 "this is not json".to_owned(),
-                persona_line("after-garbage", None),
+                citations_line("https://after-garbage.example"),
             ],
         },
     )
@@ -170,8 +169,8 @@ async fn malformed_lines_are_dropped_not_fatal() {
     // Then the valid contribution still lands (garbage dropped).
     let events = await_recorded(&recorder, 1, WAIT).await;
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].personas.len(), 1);
-    assert_eq!(events[0].personas[0].name, "after-garbage");
+    assert_eq!(events[0].citations.len(), 1);
+    assert_eq!(events[0].citations[0].url, "https://after-garbage.example");
 }
 
 /// A guest whose stdout closes after contributing ended cleanly; its
@@ -182,13 +181,13 @@ async fn guest_end_keeps_contributions_and_marks_done() {
     // Given a coordinator with a guest that contributes then ends.
     let harness = TestHarness::new().await;
     let recorder = harness.spawn_recorder::<PluginStatus>().await;
-    let contributions = harness.spawn_recorder::<PersonasLoaded>().await;
+    let contributions = harness.spawn_recorder::<CitationsReceived>().await;
     let _state = spawn_coordinator(
         &harness,
         plugins(),
         jinn_plugin::FakeGuestScript::HelloThenLines {
             protocol_version: jinn_plugin_api::PROTOCOL_VERSION,
-            lines: vec![persona_line("persisted", None)],
+            lines: vec![citations_line("https://persisted.example")],
         },
     )
     .await;
@@ -205,7 +204,7 @@ async fn guest_end_keeps_contributions_and_marks_done() {
     // Then its contribution reached the bus before Done (push-only: the
     // published event is the artifact, not a cache).
     let events = await_recorded(&contributions, 1, WAIT).await;
-    assert_eq!(events[0].personas[0].name, "persisted");
+    assert_eq!(events[0].citations[0].url, "https://persisted.example");
 }
 
 /// A guest that never sends Hello times out and dies without contributing.
@@ -236,11 +235,11 @@ async fn non_hello_first_message_fails_handshake() {
     // Given a coordinator with a guest whose first line is a contribution.
     let harness = TestHarness::new().await;
     let recorder = harness.spawn_recorder::<PluginStatus>().await;
-    let contributions = harness.spawn_recorder::<PersonasLoaded>().await;
+    let contributions = harness.spawn_recorder::<CitationsReceived>().await;
     let _state = spawn_coordinator(
         &harness,
         plugins(),
-        jinn_plugin::FakeGuestScript::FirstLine(persona_line("too-eager", None)),
+        jinn_plugin::FakeGuestScript::FirstLine(citations_line("https://too-eager.example")),
     )
     .await;
 
@@ -265,13 +264,13 @@ async fn version_mismatch_fails_handshake() {
     // Given a coordinator with a guest speaking a different major version.
     let harness = TestHarness::new().await;
     let recorder = harness.spawn_recorder::<PluginStatus>().await;
-    let contributions = harness.spawn_recorder::<PersonasLoaded>().await;
+    let contributions = harness.spawn_recorder::<CitationsReceived>().await;
     let _state = spawn_coordinator(
         &harness,
         plugins(),
         jinn_plugin::FakeGuestScript::HelloThenLines {
             protocol_version: jinn_plugin_api::PROTOCOL_VERSION + 1,
-            lines: vec![persona_line("future", None)],
+            lines: vec![citations_line("https://future.example")],
         },
     )
     .await;
@@ -303,13 +302,13 @@ async fn flooding_guest_is_marked_unresponsive_then_recovers() {
     // inbound channel holds, and recorders.
     let harness = TestHarness::new().await;
     let recorder = harness.spawn_recorder::<PluginStatus>().await;
-    let contributions = harness.spawn_recorder::<PersonasLoaded>().await;
+    let contributions = harness.spawn_recorder::<CitationsReceived>().await;
     let _state = spawn_coordinator(
         &harness,
         plugins(),
         jinn_plugin::FakeGuestScript::Flood {
             protocol_version: jinn_plugin_api::PROTOCOL_VERSION,
-            lines: vec![persona_line("flood", None)],
+            lines: vec![citations_line("https://flood.example")],
             repeat: 500,
         },
     )
@@ -338,7 +337,7 @@ async fn flooding_guest_is_marked_unresponsive_then_recovers() {
     assert!(
         events
             .iter()
-            .any(|e| e.personas.iter().any(|p| p.name == "flood")),
+            .any(|e| e.citations.iter().any(|c| c.url == "https://flood.example")),
         "no contribution survived the flood"
     );
 }
@@ -366,72 +365,13 @@ async fn no_plugins_configured_is_quiescent() {
     assert!(messages.is_empty(), "unexpected status events");
 }
 
-/// One valid wire `SetPersonaEntries` line (hand-encoded JSON to prove the raw
-/// wire shape survives decode).
-fn persona_line(name: &str, description: Option<&str>) -> String {
-    let description = match description {
-        Some(d) => format!("\"{d}\""),
-        None => "null".to_owned(),
-    };
+/// One valid wire `PushCitations` line (hand-encoded JSON to prove the raw
+/// path), citing `url` for a fresh session id.
+fn citations_line(url: &str) -> String {
+    let session_id = uuid::Uuid::new_v4().to_string();
     format!(
-        r#"{{"v":1,"seq":2,"ts":0,"type":"set_persona_entries","personas":[{{"name":"{name}","description":{description},"body":"You are {name}."}}]}}"#
+        r#"{{"v":1,"seq":2,"ts":0,"type":"push_citations","session_id":"{session_id}","citations":[{{"url":"{url}","title":"T","content":"c"}}]}}"#
     )
-}
-
-/// A persona contribution is translated and published as `PersonasLoaded`.
-#[rstest::rstest]
-#[tokio::test]
-async fn set_persona_entries_publishes_personas_loaded() {
-    // Given a coordinator with a guest contributing one persona and a recorder.
-    let harness = TestHarness::new().await;
-    let recorder = harness.spawn_recorder::<PersonasLoaded>().await;
-    let _state = spawn_coordinator(
-        &harness,
-        plugins(),
-        jinn_plugin::FakeGuestScript::HelloThenLines {
-            protocol_version: jinn_plugin_api::PROTOCOL_VERSION,
-            lines: vec![persona_line("coder", Some("Expert coder"))],
-        },
-    )
-    .await;
-
-    // When the contribution arrives (await the recorded event).
-    let events = await_recorded(&recorder, 1, WAIT).await;
-
-    // Then the event carries the translated persona with no error.
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].personas.len(), 1);
-    assert_eq!(events[0].personas[0].name, "coder");
-    assert_eq!(events[0].personas[0].description, "Expert coder");
-    assert_eq!(events[0].personas[0].body, "You are coder.");
-    assert!(events[0].error.is_none());
-}
-
-/// An identical consecutive persona batch is debounced to a single publish.
-#[rstest::rstest]
-#[tokio::test]
-async fn duplicate_persona_batch_is_debounced() {
-    // Given a coordinator with a guest pushing the same persona batch twice.
-    let harness = TestHarness::new().await;
-    let recorder = harness.spawn_recorder::<PersonasLoaded>().await;
-    let _state = spawn_coordinator(
-        &harness,
-        plugins(),
-        jinn_plugin::FakeGuestScript::HelloThenLines {
-            protocol_version: jinn_plugin_api::PROTOCOL_VERSION,
-            lines: vec![persona_line("coder", None), persona_line("coder", None)],
-        },
-    )
-    .await;
-
-    // When both lines arrive and the pipeline settles (GetRecorded drains,
-    // so read once after settling).
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let events = await_recorded(&recorder, 1, Duration::from_millis(200)).await;
-
-    // Then exactly one PersonasLoaded event was published — the duplicate
-    // batch was debounced.
-    assert_eq!(events.len(), 1, "duplicate batch must not re-publish");
 }
 
 // ── Host→guest event forwarding ──────────────────────────────────────────────

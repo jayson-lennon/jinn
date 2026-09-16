@@ -22,14 +22,12 @@
 //! ignored — an older host tolerates a newer plugin and vice versa.
 
 mod envelope;
-mod persona_def;
 mod wire;
 
 pub use envelope::{Envelope, PROTOCOL_VERSION, PluginToHostOrHostToPlugin};
-pub use persona_def::PersonaDef;
 pub use wire::{
     CancelStream, Hello, HostToPlugin, InsertSystemEntry, PluginCitation, PluginToHost,
-    PushCitations, RestartStalledStream, SUBSCRIPTION_KINDS, SetPersonaEntries, StreamEndEvent,
-    StreamEndReason, StreamEventPing, StreamStartEvent, TickEvent, ToolCallEvent, ToolResultEvent,
-    TurnEndEvent, Welcome,
+    PushCitations, RestartStalledStream, SUBSCRIPTION_KINDS, StreamEndEvent, StreamEndReason,
+    StreamEventPing, StreamStartEvent, TickEvent, ToolCallEvent, ToolResultEvent, TurnEndEvent,
+    Welcome,
 };

@@ -234,6 +234,13 @@ mod tests {
             std::path::PathBuf::new()
         }
 
+        fn publish_personas_loaded(
+            &self,
+            _personas: Vec<jinn_slices::Persona>,
+        ) -> jinn_slices::PublishClosure {
+            Box::new(|_bus| {})
+        }
+
         fn publish_session_cwd(
             &self,
             _session_id: jinn_core_types::SessionId,

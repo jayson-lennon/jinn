@@ -260,6 +260,12 @@ impl ActorSystemBuilder {
         jinn_sidebar_activate(&mut services);
         jinn_theme_activate(&mut services);
 
+        // Persona slice: activation scans the persona directories and
+        // mints the personas cell; the returned set is published as
+        // `PersonasLoaded` below, after the session actor (its sole
+        // subscriber) has spawned — the plugin's push-once contract.
+        let persona_entries = jinn_persona_activate(&mut services);
+
         // Quake bar slice: activation mints the cell, spawns the actor
         // (submit-log writer), attaches rows, and registers the input
         // hook + overlay geometry. Composition owns exactly this call.
@@ -1433,6 +1439,10 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
             // subscription must already exist. Do not move this publish ahead
             // of the coordinator spawn.
 
+            // Personas: the persona slice scanned at activation; publish
+            // now that every actor (the session actor subscribes to
+            // `PersonasLoaded`) is spawned.
+
             // Signal all actors spawned.
             let _ = bus_ref
                 .tell(kameo_actors::message_bus::Publish(
@@ -1583,6 +1593,22 @@ fn jinn_chat_input_activate(services: &mut Services) {
 /// Activates the theme slice: scans the theme directories once and mints
 /// the theme-entries cell. No routes, no actors, no view — the readers
 /// are the theme picker's open hook and the app-state actor's resolution.
+fn jinn_persona_activate(services: &mut Services) -> jinn_slices::Personas {
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    let scanned = jinn_persona::activate(&mut host, &services.paths.personas_dir());
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("persona slice finalize failed: {error}");
+    }
+    scanned
+}
+
 fn jinn_theme_activate(services: &mut Services) {
     let (themes_dir, system_themes_dir) = {
         (

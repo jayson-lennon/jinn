@@ -89,52 +89,6 @@
       "if": {
         "properties": {
           "type": {
-            "const": "set_persona_entries"
-          }
-        }
-      },
-      "then": {
-        "type": "object",
-        "required": [
-          "v",
-          "seq",
-          "ts",
-          "type",
-          "personas"
-        ],
-        "properties": {
-          "v": {
-            "type": "integer",
-            "const": 1,
-            "description": "Wire protocol major version."
-          },
-          "seq": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Sender-assigned monotonic sequence number (per direction)."
-          },
-          "ts": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Unix epoch milliseconds when the sender produced the message."
-          },
-          "type": {
-            "const": "set_persona_entries"
-          },
-          "personas": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/personaDef"
-            }
-          }
-        },
-        "additionalProperties": false
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "type": {
             "const": "welcome"
           }
         }
@@ -763,31 +717,6 @@
         "content": {
           "type": "string",
           "description": "Optional snippet text."
-        }
-      },
-      "additionalProperties": false
-    },
-    "personaDef": {
-      "type": "object",
-      "required": [
-        "name",
-        "body"
-      ],
-      "properties": {
-        "name": {
-          "type": "string",
-          "description": "Unique persona name."
-        },
-        "description": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Short picker description, if the source declared one."
-        },
-        "body": {
-          "type": "string",
-          "description": "The persona body — system prompt text."
         }
       },
       "additionalProperties": false

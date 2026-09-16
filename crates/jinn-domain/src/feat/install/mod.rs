@@ -365,13 +365,6 @@ const BUNDLED: &[Bundled] = &[
     // from the artifact's embedded [package.metadata.jinn] manifest.
     Bundled {
         kind: Kind::Plugin,
-        relative: "persona-loader.wasm",
-        contents: BundleContents::Wasm(include_bytes!(
-            "../../../../../res/plugins/persona-loader.wasm"
-        )),
-    },
-    Bundled {
-        kind: Kind::Plugin,
         relative: "url-citations.wasm",
         contents: BundleContents::Wasm(include_bytes!(
             "../../../../../res/plugins/url-citations.wasm"
@@ -936,8 +929,8 @@ mod tests {
         // When installing defaults.
         let report = env.run(false);
 
-        // Then the persona-loader payload was created under the plugins root.
-        let outcome = outcome_for(&report.outcomes, "persona-loader.wasm");
+        // Then the stall-watchdog payload was created under the plugins root.
+        let outcome = outcome_for(&report.outcomes, "stall-watchdog.wasm");
         assert!(
             outcome.path().starts_with(env.plugins_dir()),
             "plugin payload should be under the plugins root"
@@ -960,20 +953,14 @@ mod tests {
         // When installing defaults.
         env.run(false);
 
-        // Then the persona-loader entry carries the manifest-declared grant.
+        // Then the stall-watchdog entry carries the manifest-declared grant.
         let prefs = env.storage.reload().expect("reload");
         let entry = prefs
             .plugin
-            .get("persona-loader")
-            .expect("persona-loader entry registered");
-        assert_eq!(entry.wasm, "persona-loader.wasm");
-        assert_eq!(entry.grants.len(), 1);
-        assert!(
-            entry
-                .grants
-                .first()
-                .is_some_and(|g| g.path == "<config_dir>/personas" && !g.writable)
-        );
+            .get("stall-watchdog")
+            .expect("stall-watchdog entry registered");
+        assert_eq!(entry.wasm, "stall-watchdog.wasm");
+        assert!(entry.grants.is_empty(), "stall-watchdog declares no grants");
         assert!(!entry.http);
         assert!(entry.enabled);
     }
@@ -981,42 +968,42 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn install_skips_existing_plugin_without_force() {
-        // Given a plugins dir where persona-loader.wasm already exists, and a
+        // Given a plugins dir where stall-watchdog.wasm already exists, and a
         // jinn.toml that does NOT exist.
         let env = TestEnv::fresh();
-        let existing = env.plugins_dir().join("persona-loader.wasm");
+        let existing = env.plugins_dir().join("stall-watchdog.wasm");
         std::fs::create_dir_all(env.plugins_dir()).unwrap();
         std::fs::write(&existing, "PRE-EXISTING").unwrap();
 
         // When installing defaults without force.
         let report = env.run(false);
 
-        // Then the persona-loader payload is reported Skipped.
-        let outcome = outcome_for(&report.outcomes, "persona-loader.wasm");
+        // Then the stall-watchdog payload is reported Skipped.
+        let outcome = outcome_for(&report.outcomes, "stall-watchdog.wasm");
         assert!(
             matches!(outcome, InstallOutcome::Skipped(_)),
             "existing plugin payload should be Skipped"
         );
-        // And no [plugin.persona-loader] entry was written (skip covers config too).
+        // And no [plugin.stall-watchdog] entry was written (skip covers config too).
         let prefs = env.storage.reload().expect("reload");
-        assert!(!prefs.plugin.contains_key("persona-loader"));
+        assert!(!prefs.plugin.contains_key("stall-watchdog"));
     }
 
     #[rstest::rstest]
     #[test]
     fn install_force_overwrites_existing_plugin_payload_and_entry() {
-        // Given a plugins dir where persona-loader.wasm already exists, and a
+        // Given a plugins dir where stall-watchdog.wasm already exists, and a
         // jinn.toml that does NOT exist.
         let env = TestEnv::fresh();
-        let existing = env.plugins_dir().join("persona-loader.wasm");
+        let existing = env.plugins_dir().join("stall-watchdog.wasm");
         std::fs::create_dir_all(env.plugins_dir()).unwrap();
         std::fs::write(&existing, "PRE-EXISTING").unwrap();
 
         // When installing defaults with force.
         let report = env.run(true);
 
-        // Then the persona-loader payload is reported Overwritten.
-        let outcome = outcome_for(&report.outcomes, "persona-loader.wasm");
+        // Then the stall-watchdog payload is reported Overwritten.
+        let outcome = outcome_for(&report.outcomes, "stall-watchdog.wasm");
         assert!(
             matches!(outcome, InstallOutcome::Overwritten(_)),
             "existing plugin payload should be Overwritten"
@@ -1024,11 +1011,13 @@ mod tests {
         // And the entry was written with the manifest-declared grant (the file
         // did not exist, so this run created it).
         let prefs = env.storage.reload().expect("reload");
-        assert!(prefs.plugin.get("persona-loader").is_some_and(|e| {
-            e.grants
-                .first()
-                .is_some_and(|g| g.path == "<config_dir>/personas")
-        }));
+        assert!(
+            prefs
+                .plugin
+                .get("stall-watchdog")
+                .is_some_and(|e| e.grants.is_empty()),
+            "stall-watchdog entry registered with its (empty) grant set"
+        );
     }
 
     #[rstest::rstest]
@@ -1184,7 +1173,7 @@ mod tests {
         // And every builtin plugin entry is registered.
         let prefs = env.storage.reload().expect("reload");
         for name in [
-            "persona-loader",
+            "stall-watchdog",
             "url-citations",
             "tool-call-watchdog",
             "stall-watchdog",
@@ -1224,14 +1213,14 @@ mod tests {
     #[test]
     fn install_force_leaves_existing_jinn_toml_byte_identical() {
         // Given an environment where jinn.toml exists with a user customization
-        // and the persona-loader payload already exists on disk.
+        // and the stall-watchdog payload already exists on disk.
         let env = TestEnv::fresh();
         if let Some(parent) = env.prefs_path.parent() {
             std::fs::create_dir_all(parent).unwrap();
         }
-        let original = "# my edits\n[plugin.persona-loader]\nenabled = false\n";
+        let original = "# my edits\n[plugin.stall-watchdog]\nenabled = false\n";
         std::fs::write(&env.prefs_path, original).unwrap();
-        let existing = env.plugins_dir().join("persona-loader.wasm");
+        let existing = env.plugins_dir().join("stall-watchdog.wasm");
         std::fs::create_dir_all(env.plugins_dir()).unwrap();
         std::fs::write(&existing, "PRE-EXISTING").unwrap();
 
@@ -1246,7 +1235,7 @@ mod tests {
         let on_disk = std::fs::read_to_string(&env.prefs_path).expect("read");
         assert_eq!(on_disk, original);
         // And plugin payloads were still overwritten.
-        let persona_outcome = outcome_for(&report.outcomes, "persona-loader.wasm");
+        let persona_outcome = outcome_for(&report.outcomes, "stall-watchdog.wasm");
         assert!(
             matches!(persona_outcome, InstallOutcome::Overwritten(_)),
             "payloads must still follow --force"
@@ -1264,7 +1253,7 @@ mod tests {
 
         // Then every registered builtin entry is enabled with no user config.
         let prefs = env.storage.reload().expect("reload");
-        assert_eq!(prefs.plugin.len(), 4, "all four builtins registered");
+        assert_eq!(prefs.plugin.len(), 3, "all three builtins registered");
         assert!(
             prefs
                 .plugin

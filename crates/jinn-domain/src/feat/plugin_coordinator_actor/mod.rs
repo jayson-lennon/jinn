@@ -10,9 +10,9 @@
 //! Every inbound plugin message flows through the coordinator's private
 //! channel ([`PluginInbound`]). The coordinator validates and authorizes:
 //! unknown variants and malformed payloads are dropped, unrequested
-//! commands are ignored. Accepted contributions are translated
-//! and written into the plugin contribution
-//! cache in `AppState` — the coordinator is its only writer.
+//! commands are ignored. Accepted contributions are validated and
+//! forwarded onto the bus; citation contributions flow to the session
+//! actor's consumer.
 //!
 //! `PluginStatus` events published by the plugin actors are also received
 //! here (bus subscription) and mirrored into the state cache so the UI can
@@ -31,7 +31,6 @@ use parking_lot::Mutex;
 use tokio::sync::mpsc;
 
 pub mod protocol;
-pub mod translate;
 
 #[cfg(test)]
 mod tests;
@@ -40,7 +39,6 @@ use crate::common::actor_deps::{ActorDeps, BusPublish};
 use crate::common::root_supervisor::RootSupervisorRef;
 use crate::common::services::bus_service::BusService;
 use crate::common::state::State;
-use crate::feat::context::protocol::event::PersonasLoaded;
 use crate::feat::plugin::PluginConfig;
 use crate::feat::plugin_actor::{DeliverHostEvent, PluginActor, PluginActorDeps, PluginInbound};
 use crate::feat::plugin_coordinator_actor::protocol::{
@@ -54,7 +52,6 @@ use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
 use crate::feat::tools_actor::protocol::event::{
     ToolCallReceived, ToolCallStreaming, ToolExecutionCompleted, ToolUseStarted,
 };
-use jinn_plugin_api::SetPersonaEntries;
 
 /// Wall-clock pulse interval pushed to guests subscribed to `"tick"`.
 ///
@@ -83,10 +80,6 @@ pub struct PluginCoordinatorActor {
     /// Validated event-subscription kinds per running plugin (from each
     /// guest's `Hello`). Drives the host→guest event forwarder.
     subscriptions: Mutex<HashMap<String, Vec<String>>>,
-    /// Last `SetPersonaEntries` payload seen per plugin (flooding debounce:
-    /// an identical consecutive contribution is skipped — no translation,
-    /// no bus publish).
-    last_persona_payload: std::sync::Arc<Mutex<HashMap<String, SetPersonaEntries>>>,
     /// Test seam: when set, spawned plugin actors use a scripted fake
     /// guest instead of a real wasm module (see
     /// [`jinn_plugin::FakeGuestScript`]). Shared through deps so tests
@@ -214,7 +207,6 @@ impl kameo::Actor for PluginCoordinatorActor {
             dirs: args.dirs,
             spawned: Mutex::new(HashMap::new()),
             subscriptions: Mutex::new(HashMap::new()),
-            last_persona_payload: std::sync::Arc::new(Mutex::new(HashMap::new())),
             #[cfg(test)]
             fake_guest: args.fake_guest.clone(),
         };
@@ -309,12 +301,11 @@ impl PluginCoordinatorActor {
 
         // The coordinator's inbound pump: every message from this plugin is
         // validated here before it may touch state.
-        let last_persona_payload = self.last_persona_payload.clone();
         let bus = self.deps.services.bus.clone();
         let pump_name = name.to_owned();
         tokio::spawn(async move {
             while let Some(inbound) = inbound_rx.recv().await {
-                handle_inbound(&bus, &last_persona_payload, &pump_name, inbound).await;
+                handle_inbound(&bus, &pump_name, inbound).await;
             }
         });
     }
@@ -373,47 +364,12 @@ fn enabled_plugins(services: &crate::Services) -> Vec<(String, PluginConfig)> {
 /// The trust boundary: nothing from a plugin reaches `AppState` except
 /// through this function's match. Unknown variants are silently dropped
 /// payloads (forward compatibility). `Hello` outside the handshake is
-/// ignored. Persona contributions
-/// are translated and published on the bus as [`PersonasLoaded`] — the
-/// session actor's existing consumer owns active-persona resolution.
-async fn handle_inbound(
-    bus: &BusService,
-    last_persona_payload: &std::sync::Arc<Mutex<HashMap<String, SetPersonaEntries>>>,
-    name: &str,
-    inbound: PluginInbound,
-) {
+/// ignored.
+async fn handle_inbound(bus: &BusService, name: &str, inbound: PluginInbound) {
     match inbound.event {
         jinn_plugin_api::PluginToHost::Hello(_) => {
             // Handshake was already completed by the actor; a second Hello
             // is protocol noise — ignore it.
-        }
-        jinn_plugin_api::PluginToHost::SetPersonaEntries(entries) => {
-            // Flooding debounce: an identical consecutive payload is
-            // dropped before translation or any bus publish.
-            {
-                let mut last = last_persona_payload.lock();
-                if last.get(name) == Some(&entries) {
-                    tracing::debug!(plugin = %name, "duplicate persona batch debounced");
-                    return;
-                }
-                last.insert(name.to_owned(), entries.clone());
-            }
-            let personas =
-                crate::feat::plugin_coordinator_actor::translate::personas(&entries.personas);
-            if personas.is_empty() && !entries.personas.is_empty() {
-                tracing::warn!(plugin = %name, "all persona definitions failed translation");
-            }
-            tracing::info!(
-                plugin = %name,
-                received = entries.personas.len(),
-                published = personas.len(),
-                "plugin contributed personas"
-            );
-            bus.publish(PersonasLoaded {
-                personas,
-                error: None,
-            })
-            .await;
         }
         jinn_plugin_api::PluginToHost::PushCitations(entries) => {
             // Turn-scoped contribution — no identical-payload debounce: two

@@ -1,0 +1,21 @@
+[package]
+name = "jinn-persona"
+version.workspace = true
+edition.workspace = true
+description = "The persona slice: parses persona markdown into the personas cell at activation."
+
+[dependencies]
+jinn-slices = { workspace = true }
+toml = { workspace = true, features = ["parse"] }
+serde = { workspace = true, features = ["derive"] }
+tracing = { workspace = true }
+wherror = { workspace = true }
+error-stack = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tempfile = { workspace = true }
+jinn-domain = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,12 +1,7 @@
 //! Persona data model.
+//!
+//! The type lives in `jinn-slices` (shared vocabulary — the persona
+//! slice's cell and the kernel's consumers both use it); this shim keeps
+//! the kernel's `crate::feat::persona::Persona` paths resolving.
 
-/// A parsed persona ready for use in the system prompt.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Persona {
-    /// Unique persona name (from frontmatter).
-    pub name: String,
-    /// Short description for the picker UI.
-    pub description: String,
-    /// The persona body - the actual system prompt text.
-    pub body: String,
-}
+pub use jinn_slices::Persona;

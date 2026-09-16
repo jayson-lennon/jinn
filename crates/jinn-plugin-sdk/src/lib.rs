@@ -7,7 +7,7 @@
 //!
 //! ```no_run
 //! use jinn_plugin_sdk::{hello, welcome, push, PluginOutput};
-//! use jinn_plugin_api::{Hello, PluginToHost, SetPersonaEntries};
+//! use jinn_plugin_api::{Hello, PluginToHost, PushCitations};
 //!
 //! fn main() {
 //!     let mut out = PluginOutput::stdout();
@@ -15,7 +15,7 @@
 //!     let _grants = welcome();
 //!     push(
 //!         &mut out,
-//!         PluginToHost::SetPersonaEntries(SetPersonaEntries { personas: vec![] }),
+//!         PluginToHost::PushCitations(PushCitations { session_id: String::new(), citations: vec![] }),
 //!     );
 //! }
 //! ```

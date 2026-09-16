@@ -44,6 +44,18 @@ impl SliceActionState for AppState {
         self.active_session().cwd().to_owned()
     }
 
+    fn publish_personas_loaded(
+        &self,
+        personas: Vec<jinn_slices::Persona>,
+    ) -> jinn_slices::PublishClosure {
+        crate::common::bridge::Bridge::publish_closure(
+            crate::feat::context::protocol::event::PersonasLoaded {
+                personas,
+                error: None,
+            },
+        )
+    }
+
     fn publish_session_cwd(
         &self,
         session_id: jinn_core_types::SessionId,

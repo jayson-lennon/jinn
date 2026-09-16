@@ -1,6 +1,6 @@
 //! Wire messages — thin tagged unions over individual structs.
 //!
-//! The structs ([`Hello`], [`SetPersonaEntries`], ...) are the source of truth:
+//! The structs ([`Hello`], [`PushCitations`], ...) are the source of truth:
 //! each is versioned, tested, and evolves independently. The enums exist only
 //! as transport unions so a receiver can discriminate one line without
 //! knowing the type ahead of time, and `#[serde(other)]` on the
@@ -15,8 +15,6 @@
 //! receivers ignore what they don't understand rather than failing.
 
 use serde::{Deserialize, Serialize};
-
-use crate::persona_def::PersonaDef;
 
 /// Subscription kinds a plugin may declare in [`Hello::subscriptions`].
 ///
@@ -65,17 +63,6 @@ pub struct Welcome {
     /// Plugin-specific configuration table (free-form, from the manifest).
     #[serde(default)]
     pub config: serde_json::Value,
-}
-
-/// Contribution: the full set of persona definitions the plugin knows about.
-///
-/// Push, never pull — the plugin sends this on start and again whenever its
-/// view changes. The host translates and publishes them as loaded personas;
-/// opening the persona picker never queries the plugin.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SetPersonaEntries {
-    /// Complete set of personas (a full replacement, not a delta).
-    pub personas: Vec<PersonaDef>,
 }
 
 /// Event: a complete tool call the model produced (arguments assembled).
@@ -286,8 +273,6 @@ pub enum PluginToHost {
     /// Handshake opener.
     Hello(Hello),
     /// Theme contribution (full set).
-    /// Persona contribution (full set).
-    SetPersonaEntries(SetPersonaEntries),
     /// Citation contribution (turn-scoped).
     PushCitations(PushCitations),
     /// Cancel the active provider stream for a session.

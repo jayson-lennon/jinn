@@ -15,11 +15,9 @@
 //! They also pin the forward-compatibility behavior: unknown `type` tags
 //! deserialize to `Unknown` instead of erroring.
 
-use std::collections::BTreeMap;
-
 use jinn_plugin_api::{
-    CancelStream, Envelope, HostToPlugin, InsertSystemEntry, PersonaDef, PluginCitation,
-    PluginToHost, PluginToHostOrHostToPlugin, PushCitations, RestartStalledStream, StreamEndEvent,
+    CancelStream, Envelope, HostToPlugin, InsertSystemEntry, PluginCitation, PluginToHost,
+    PluginToHostOrHostToPlugin, PushCitations, RestartStalledStream, StreamEndEvent,
     StreamEndReason, StreamEventPing, StreamStartEvent, TickEvent, ToolCallEvent, ToolResultEvent,
     TurnEndEvent, Welcome,
 };
@@ -41,15 +39,6 @@ fn assert_valid(envelope: &Envelope) {
 }
 
 /// Builds a fully-populated theme for fixtures.
-/// Builds a fully-populated persona for fixtures.
-fn sample_persona() -> PersonaDef {
-    PersonaDef {
-        name: "coding-assistant".to_owned(),
-        description: Some("Expert coding assistant".to_owned()),
-        body: "You are an expert coding assistant.".to_owned(),
-    }
-}
-
 #[rstest::rstest]
 #[test]
 fn hello_envelope_validates_against_schema() {
@@ -61,42 +50,6 @@ fn hello_envelope_validates_against_schema() {
             subscriptions: vec![],
         }),
         0,
-        0,
-    );
-
-    // Then it validates against the committed schema.
-    assert_valid(&envelope);
-}
-
-#[rstest::rstest]
-#[test]
-fn set_persona_entries_envelope_validates_against_schema() {
-    // Given a SetPersonaEntries envelope with a populated persona.
-    let envelope = Envelope::for_plugin(
-        PluginToHost::SetPersonaEntries(jinn_plugin_api::SetPersonaEntries {
-            personas: vec![sample_persona()],
-        }),
-        1,
-        0,
-    );
-
-    // Then it validates against the committed schema.
-    assert_valid(&envelope);
-}
-
-#[rstest::rstest]
-#[test]
-fn set_persona_entries_without_description_validates_against_schema() {
-    // Given a SetPersonaEntries envelope whose persona has no description.
-    let envelope = Envelope::for_plugin(
-        PluginToHost::SetPersonaEntries(jinn_plugin_api::SetPersonaEntries {
-            personas: vec![PersonaDef {
-                name: "minimal".to_owned(),
-                description: None,
-                body: "Body text.".to_owned(),
-            }],
-        }),
-        1,
         0,
     );
 
@@ -616,8 +569,9 @@ fn new_event_and_contribution_envelopes_round_trip() {
 fn envelope_round_trips_through_json() {
     // Given a populated envelope.
     let envelope = Envelope::for_plugin(
-        PluginToHost::SetPersonaEntries(jinn_plugin_api::SetPersonaEntries {
-            personas: vec![sample_persona()],
+        PluginToHost::PushCitations(jinn_plugin_api::PushCitations {
+            session_id: "00000000-0000-0000-0000-000000000000".to_owned(),
+            citations: vec![],
         }),
         42,
         1_700_000_000_000,
