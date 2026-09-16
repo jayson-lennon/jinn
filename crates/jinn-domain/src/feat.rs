@@ -40,7 +40,6 @@ pub mod session_search;
 pub mod skills;
 pub mod theme;
 pub mod todo_list;
-pub mod token_count_actor;
 pub mod tools_actor;
 pub mod ui;
 pub mod web_fetch_actor;

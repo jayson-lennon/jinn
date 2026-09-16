@@ -73,6 +73,7 @@ pub async fn launch_for_test(core: AppCore, mut services: jinn_domain::Services)
         activate_sidebar(&mut services);
         activate_theme(&mut services);
         activate_persona(&mut services);
+        activate_token_count(&mut services);
         core.state
             .write_test_no_cap()
             .frontend
@@ -362,6 +363,20 @@ pub fn activate_sidebar(services: &mut jinn_domain::Services) {
 
 /// Activates the theme slice on the harness services, scanning the real
 /// user/system theme directories when they exist.
+pub fn activate_token_count(services: &mut jinn_domain::Services) {
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    let _cache = jinn_token_count::activate(&mut host);
+    if let Err(error) = host.finalize(&|_key| None) {
+        panic!("token-count slice finalize failed: {error}");
+    }
+}
+
 pub fn activate_persona(services: &mut jinn_domain::Services) {
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,

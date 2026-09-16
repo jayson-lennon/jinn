@@ -1,0 +1,23 @@
+[package]
+name = "jinn-token-count"
+version.workspace = true
+edition.workspace = true
+description = "The token-count slice: per-entry token counting and the shared token cache eviction."
+
+[dependencies]
+# Kernel dep (sidebar precedent): both actors are async kameo actors writing
+# through tcaps (State + SessionCap) and subscribing via ActorDeps — the sync
+# SliceActionState capability pattern does not fit async event handlers.
+jinn-core-types = { workspace = true }
+jinn-domain = { workspace = true }
+jinn-slices = { workspace = true }
+kameo = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

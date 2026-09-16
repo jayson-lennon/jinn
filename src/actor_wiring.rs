@@ -424,10 +424,10 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
         // deadlock risk: nothing downstream awaits the session actor's mailbox
         // capacity (publishers use fire-and-forget tell under BestEffort).
         let token_counter = TiktokenCounter::o200k_base();
-        // Shared entry-token cache for history workers — created here so the
-        // session actor's accumulation gate can read it too.
-        let entry_token_cache =
-            jinn_domain::feat::auto_prune_worker::HistoryWorkerChatEntryTokenCache::new();
+        // Token-count slice: activation registers the shared entry-token
+        // cache cell; the returned cache is handed to the session actor
+        // (accumulation gate), the eviction actor, and the prune workers.
+        let entry_token_cache = jinn_token_count_activate(&mut services);
         let _session =
             jinn_domain::feat::session::session_actor::SessionPersistenceActor::supervise(
                 &root,
@@ -866,9 +866,9 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
             &services.bus,
             "token-count",
             "TokenCountActor",
-            jinn_domain::feat::token_count_actor::TokenCountActor::supervise(
+            jinn_token_count::count_actor::TokenCountActor::supervise(
                 &root,
-                jinn_domain::feat::token_count_actor::TokenCountActorDeps {
+                jinn_token_count::count_actor::TokenCountActorDeps {
                     deps: actor_deps.clone(),
                     state: state.clone(),
                     session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
@@ -1237,8 +1237,8 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
 
         // HistoryWorkerChatEntryTokenCache eviction actor.
         {
-            use jinn_domain::feat::auto_prune_worker::HistoryWorkerChatEntryTokenCacheEvictionActor;
-            use jinn_domain::feat::auto_prune_worker::HistoryWorkerChatEntryTokenCacheEvictionActorDeps;
+            use jinn_token_count::eviction_actor::HistoryWorkerChatEntryTokenCacheEvictionActor;
+            use jinn_token_count::eviction_actor::HistoryWorkerChatEntryTokenCacheEvictionActorDeps;
 
             let _eviction = spawn_tracked!(
                 &services.bus,
@@ -1603,6 +1603,24 @@ fn jinn_chat_input_activate(services: &mut Services) {
 /// Activates the theme slice: scans the theme directories once and mints
 /// the theme-entries cell. No routes, no actors, no view — the readers
 /// are the theme picker's open hook and the app-state actor's resolution.
+fn jinn_token_count_activate(
+    services: &mut Services,
+) -> jinn_slices::HistoryWorkerChatEntryTokenCache {
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    let cache = jinn_token_count::activate(&mut host);
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("token-count slice finalize failed: {error}");
+    }
+    cache
+}
+
 fn jinn_persona_activate(services: &mut Services) -> jinn_slices::Personas {
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,

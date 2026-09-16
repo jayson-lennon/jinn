@@ -33,10 +33,7 @@ pub use broken_edit::BrokenEditAutoPruneWorker;
 pub use consecutive_reads::ConsecutiveReadsAutoPruneWorker;
 pub use double_edit::DoubleEditAutoPruneWorker;
 pub use edit_read::EditReadAutoPruneWorker;
-pub use entry_token_cache::{
-    HistoryWorkerChatEntryTokenCache, HistoryWorkerChatEntryTokenCacheEvictionActor,
-    HistoryWorkerChatEntryTokenCacheEvictionActorDeps,
-};
+pub use entry_token_cache::HistoryWorkerChatEntryTokenCache;
 pub use read_edit::ReadEditAutoPruneWorker;
 pub use regex::RegexAutoPruneWorker;
 pub use todo_prune::TodoAutoPruneWorker;

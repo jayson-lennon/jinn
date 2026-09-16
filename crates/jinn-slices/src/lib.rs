@@ -53,6 +53,7 @@ pub mod slice_scope;
 pub mod slices;
 pub mod status_bar_state;
 pub mod theme_state;
+pub mod token_cache_state;
 pub mod tui_signals;
 pub mod view;
 
@@ -113,6 +114,8 @@ pub use status_bar_state::status_bar_slot;
 pub use theme_state::NamedTheme;
 pub use theme_state::ThemeEntries;
 pub use theme_state::theme_entries_slot;
+pub use token_cache_state::HistoryWorkerChatEntryTokenCache;
+pub use token_cache_state::token_cache_slot;
 pub use tui_signals::TuiSignals;
 
 /// The slice host specialized to jinn's render facts — the spelling

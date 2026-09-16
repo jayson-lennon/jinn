@@ -2578,6 +2578,7 @@ dependencies = [
  "jinn-status-bar",
  "jinn-testutil",
  "jinn-theme-slice",
+ "jinn-token-count",
  "jinn-tui",
  "jinn-web-fetch",
  "jinn-web-search",
@@ -3064,6 +3065,7 @@ dependencies = [
 name = "jinn-slices"
 version = "0.118.0"
 dependencies = [
+ "dashmap 6.2.1",
  "derive_more",
  "dirs",
  "error-stack",
@@ -3076,6 +3078,7 @@ dependencies = [
  "ratatui",
  "rstest",
  "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "toml 0.8.23",
@@ -3141,6 +3144,20 @@ dependencies = [
  "rstest",
  "tempfile",
  "wherror",
+]
+
+[[package]]
+name = "jinn-token-count"
+version = "0.118.0"
+dependencies = [
+ "jinn-core-types",
+ "jinn-domain",
+ "jinn-slices",
+ "kameo",
+ "rstest",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

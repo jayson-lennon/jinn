@@ -1,4 +1,4 @@
-//! Token count actor — computes tiktoken-based counts for chat entries.
+//! The token-count actor — computes tiktoken-based counts for chat entries.
 //!
 //! Subscribes to [`HistoryAppended`] and [`SessionLoadCompleted`] to compute
 //! per-entry token counts and fill them into the entries themselves, in
@@ -10,17 +10,16 @@
 
 use std::collections::HashMap;
 
-use kameo::actor::ActorRef;
-use kameo::prelude::{Context, Message};
-
-use crate::common::actor_deps::ActorDeps;
-use crate::common::state::State;
-use crate::common::tcaps::session::SessionCap;
-use crate::feat::context::strategy::token_estimator::{
+use jinn_domain::common::actor_deps::ActorDeps;
+use jinn_domain::common::state::State;
+use jinn_domain::common::tcaps::session::SessionCap;
+use jinn_domain::feat::context::strategy::token_estimator::{
     TiktokenCounter, TokenCounter, TokenEstimator, estimate_entry_content_tokens,
 };
-use crate::feat::session::protocol::history_appended::HistoryAppended;
-use crate::feat::session::protocol::session_load_completed::SessionLoadCompleted;
+use jinn_domain::feat::session::protocol::history_appended::HistoryAppended;
+use jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted;
+use kameo::actor::ActorRef;
+use kameo::prelude::{Context, Message};
 
 /// Dependencies for [`TokenCountActor`].
 #[derive(Clone)]
@@ -99,7 +98,7 @@ impl Message<SessionLoadCompleted> for TokenCountActor {
 impl TokenCountActor {
     /// Handles a [`HistoryAppended`] event by computing counts for the active
     /// session's entries that don't have one yet, filling them in memory.
-    fn handle_history_appended(&self, session_id: &crate::protocol::SessionId) {
+    fn handle_history_appended(&self, session_id: &jinn_domain::protocol::SessionId) {
         let counts = {
             let state = self.state.read();
             let Some(session) = state.try_session(session_id) else {
@@ -118,7 +117,10 @@ impl TokenCountActor {
     /// loaded session's entries that don't have one yet, filling them in
     /// memory. The session was inserted into state before this event was
     /// emitted, so the fill lands on the live session.
-    fn handle_session_load_completed(&self, session: &crate::feat::session::ChatSessionState) {
+    fn handle_session_load_completed(
+        &self,
+        session: &jinn_domain::feat::session::ChatSessionState,
+    ) {
         let counts = self.compute_missing_counts(session.history());
         if counts.is_empty() {
             return;
@@ -133,8 +135,8 @@ impl TokenCountActor {
     /// text is immutable, so recomputing could only produce the same value.
     fn compute_missing_counts(
         &self,
-        history: &[crate::protocol::ChatEntry],
-    ) -> HashMap<crate::protocol::ChatEntryId, u32> {
+        history: &[jinn_domain::protocol::ChatEntry],
+    ) -> HashMap<jinn_domain::protocol::ChatEntryId, u32> {
         let estimator = TiktokenEstimator(self.counter);
         let mut counts = HashMap::new();
         for entry in history {
@@ -150,8 +152,8 @@ impl TokenCountActor {
     /// Fills computed counts into the named session's entries.
     fn fill_counts(
         &self,
-        session_id: &crate::protocol::SessionId,
-        counts: &HashMap<crate::protocol::ChatEntryId, u32>,
+        session_id: &jinn_domain::protocol::SessionId,
+        counts: &HashMap<jinn_domain::protocol::ChatEntryId, u32>,
     ) {
         self.state.with_session(&self.session_cap, |view| {
             if let Some(session) = view.session.map().get_mut(session_id) {
@@ -171,11 +173,13 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::common::app_state::AppState;
-    use crate::common::tcaps::mint::mint_session_cap;
-    use crate::feat::context::strategy::token_estimator::estimate_entry_tokens;
-    use crate::feat::session::ChatSessionState;
-    use crate::feat::session::chat_entry::ChatEntry;
+    use jinn_domain::common::app_state::AppState;
+    use jinn_domain::common::tcaps::mint::mint_session_cap;
+    use jinn_domain::feat::context::strategy::token_estimator::estimate_entry_tokens;
+    use jinn_domain::feat::session::ChatSessionState;
+    use jinn_domain::feat::session::chat_entry::ChatEntry;
+    use jinn_domain::protocol::ChangeSource;
+    use jinn_domain::protocol::ContextOverride;
 
     fn actor_for(state: &State) -> TokenCountActor {
         TokenCountActor {
@@ -287,10 +291,7 @@ mod tests {
     fn content_estimator_counts_excluded_entry_nonzero() {
         // Given a ForcedExclude user entry.
         let mut entry = ChatEntry::user("hello world");
-        entry.apply_context_override(
-            crate::protocol::ContextOverride::ForcedExclude,
-            crate::protocol::ChangeSource::User,
-        );
+        entry.apply_context_override(ContextOverride::ForcedExclude, ChangeSource::User);
 
         // When estimating with the content estimator.
         let estimator = TiktokenEstimator(TiktokenCounter::o200k_base());

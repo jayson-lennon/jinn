@@ -9,6 +9,7 @@ unicode-width = { workspace = true }
 parking_lot = { workspace = true }
 derive_more = { workspace = true }
 jinn-theme = { workspace = true }
+dashmap = { workspace = true }
 jinn-core-types = { workspace = true }
 jiff = { workspace = true }
 kameo = { workspace = true }
@@ -25,6 +26,7 @@ dirs = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+serde_json = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

@@ -370,3 +370,5 @@ Entries are added or amended **only with human approval**.
 - (plugins) The theme-loader plugin no longer exists; themes load directly from disk at boot, and the plugin wire contract no longer carries theme entries.
 - (slices) The persona slice is a kernel-free crate parsing persona markdown from the configured directory at activation into one cell; composition publishes the kernel's PersonasLoaded event from that scan after actor spawn, and the session actor consumes it unchanged.
 - (plugins) The persona-loader plugin no longer exists; personas parse from disk at boot, and the plugin wire contract carries no contribution types — only event subscriptions.
+- (slices) The token-count slice is a crate owning the per-session entry token cache cell and both token actors (count fill, cache eviction); the session actor and the prune workers share the cache from the cell.
+- (slices) The entry token cache was pruned-family vocabulary misfiled under auto_prune_worker; it lives in jinn-slices and the prune family consumes it from the token-count slice's cell.
