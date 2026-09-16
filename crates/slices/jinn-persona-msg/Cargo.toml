@@ -1,0 +1,13 @@
+[package]
+name = "jinn-persona-msg"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+jinn-core-types = { workspace = true }
+jinn-slices = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

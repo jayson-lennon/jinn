@@ -368,4 +368,6 @@ Entries are added or amended **only with human approval**.
 - (plugins) The persona-loader plugin no longer exists; personas parse from disk at boot, and the plugin wire contract carries no contribution types — only event subscriptions.
 - (slices) The token-count slice is a crate owning the per-session entry token cache cell and both token actors (count fill, cache eviction); the session actor and the prune workers share the cache from the cell.
 - (slices) The entry token cache was pruned-family vocabulary misfiled under auto_prune_worker; it lives in jinn-slices and the prune family consumes it from the token-count slice's cell.
-- (slices) The mcp slice is a crate owning both MCP actors (coordinator and per-connection); its wire contracts live in jinn-slices and the kernel reaches the coordinator through the McpCoordinatorHandle trait.
+- (slices) The mcp slice is a crate owning both MCP actors (coordinator and per-connection); its wire contracts live in jinn-mcp-msg and the kernel reaches the coordinator through the McpCoordinatorHandle trait.
+- (slices) Slice vocabulary lives in per-family -msg crates under crates/slices; jinn-slices holds only shared infrastructure and multi-party vocabulary such as the cell registry, routes, focus, and render facts.
+- (slices) Cell slot keys are declared beside their payload types in the family's msg crate and registered by the owning slice at activation; the registry resolves them at runtime by name, namespace, and version.

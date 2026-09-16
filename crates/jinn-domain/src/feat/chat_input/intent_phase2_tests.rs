@@ -164,7 +164,7 @@ fn delete_grapheme_deactivates_when_cursor_at_token_start_plus_one() {
     let filter_before = state
         .active_session()
         .with_input(
-            jinn_slices::ChatInputBoxState::autocomplete_filter,
+            jinn_chat_input_msg::ChatInputBoxState::autocomplete_filter,
             Default::default,
         )
         .unwrap_or_default();
@@ -184,7 +184,7 @@ fn delete_grapheme_deactivates_when_cursor_at_token_start_plus_one() {
     let filter_after = state
         .active_session()
         .with_input(
-            jinn_slices::ChatInputBoxState::autocomplete_filter,
+            jinn_chat_input_msg::ChatInputBoxState::autocomplete_filter,
             Default::default,
         )
         .unwrap_or_default();

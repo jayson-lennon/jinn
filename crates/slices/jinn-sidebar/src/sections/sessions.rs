@@ -37,7 +37,7 @@ pub use jinn_domain::feat::session::sessions_list::close::{
     SessionCloseError, handle_session_close, handle_session_close_with_lifecycle,
     validate_session_close,
 };
-pub use jinn_slices::{ArchiveTreePrompt, TreePromptAction};
+pub use jinn_sidebar_msg::{ArchiveTreePrompt, TreePromptAction};
 pub use load_subagent::{
     LoadSubagentError, handle_load_subagent_session, validate_load_subagent_session,
 };

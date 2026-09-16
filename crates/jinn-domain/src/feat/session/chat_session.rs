@@ -365,7 +365,7 @@ pub struct SessionCore {
     /// persisted.
     /// OWNER: McpCoordinatorActor (writes on `McpServerStatus` events).
     #[serde(skip)]
-    pub mcp_server_status: std::collections::BTreeMap<String, jinn_slices::McpConnectionStatus>,
+    pub mcp_server_status: std::collections::BTreeMap<String, jinn_mcp_msg::McpConnectionStatus>,
     /// Per-session captured stderr tail for each MCP server, updated live
     /// by the stderr-debounce republish.
     ///
@@ -416,7 +416,7 @@ impl Default for SessionCore {
 // Re-export shim: `SavedHistoryPosition` moved to `jinn-slices` (part of
 // the chat-log view vocabulary persisted in the chat-log-view slice's
 // cell); the kernel path stays stable for consumers.
-pub use jinn_slices::SavedHistoryPosition;
+pub use jinn_chat_log_view_msg::SavedHistoryPosition;
 
 /// UI state for a session - owned by IntentHandler (exempt from ownership restrictions).
 ///
@@ -476,12 +476,13 @@ pub struct ChatSessionState {
     /// unattached configuration behaves exactly like the pre-slice layout.
     /// Ignored entirely once the handle is attached.
     #[serde(skip)]
-    pub(in crate::feat::session) view_fallback: parking_lot::RwLock<jinn_slices::ChatLogViewUi>,
+    pub(in crate::feat::session) view_fallback:
+        parking_lot::RwLock<jinn_chat_log_view_msg::ChatLogViewUi>,
     /// In-struct stand-in for this session's input draft while `slices`
     /// is unattached. Same contract as [`Self::view_fallback`].
     #[serde(skip)]
     pub(in crate::feat::session) input_fallback:
-        parking_lot::RwLock<jinn_slices::ChatInputBoxState>,
+        parking_lot::RwLock<jinn_chat_input_msg::ChatInputBoxState>,
 }
 
 impl Clone for ChatSessionState {
@@ -508,8 +509,10 @@ impl ChatSessionState {
             core: SessionCore::default(),
             ui: SessionUi::default(),
             slices: std::sync::OnceLock::new(),
-            view_fallback: parking_lot::RwLock::new(jinn_slices::ChatLogViewUi::default()),
-            input_fallback: parking_lot::RwLock::new(jinn_slices::ChatInputBoxState::new()),
+            view_fallback: parking_lot::RwLock::new(
+                jinn_chat_log_view_msg::ChatLogViewUi::default(),
+            ),
+            input_fallback: parking_lot::RwLock::new(jinn_chat_input_msg::ChatInputBoxState::new()),
         }
     }
 
@@ -529,16 +532,20 @@ impl ChatSessionState {
 
     /// The session's chat-log-view cell, if the handle is attached and the
     /// slice's `activate()` minted the cell.
-    fn view_cell(&self) -> Option<jinn_slices::cell::TypedCell<jinn_slices::ChatLogViews>> {
+    fn view_cell(
+        &self,
+    ) -> Option<jinn_slices::cell::TypedCell<jinn_chat_log_view_msg::ChatLogViews>> {
         let slices = self.slices.get()?;
-        slices.reader::<jinn_slices::ChatLogViews>(&jinn_slices::chat_log_views_slot())
+        slices.reader::<jinn_chat_log_view_msg::ChatLogViews>(
+            &jinn_chat_log_view_msg::chat_log_views_slot(),
+        )
     }
 
     /// The session's chat-input cell, if the handle is attached and the
     /// slice's `activate()` minted the cell.
-    fn input_cell(&self) -> Option<jinn_slices::cell::TypedCell<jinn_slices::ChatInputs>> {
+    fn input_cell(&self) -> Option<jinn_slices::cell::TypedCell<jinn_chat_input_msg::ChatInputs>> {
         let slices = self.slices.get()?;
-        slices.reader::<jinn_slices::ChatInputs>(&jinn_slices::chat_inputs_slot())
+        slices.reader::<jinn_chat_input_msg::ChatInputs>(&jinn_chat_input_msg::chat_inputs_slot())
     }
 
     /// Runs `f` against this session's input draft (buffer, cursor, wrap
@@ -548,7 +555,7 @@ impl ChatSessionState {
     /// not activated).
     pub fn update_input<F>(&self, f: F)
     where
-        F: FnOnce(&mut jinn_slices::ChatInputBoxState),
+        F: FnOnce(&mut jinn_chat_input_msg::ChatInputBoxState),
     {
         match self.input_cell() {
             Some(cell) => {
@@ -568,7 +575,7 @@ impl ChatSessionState {
     /// reads as its default draft.
     pub fn with_input<R, F, D>(&self, f: F, default: D) -> R
     where
-        F: FnOnce(&jinn_slices::ChatInputBoxState) -> R,
+        F: FnOnce(&jinn_chat_input_msg::ChatInputBoxState) -> R,
         D: FnOnce() -> R,
     {
         match self.input_cell() {
@@ -593,7 +600,7 @@ impl ChatSessionState {
     /// when the cell is absent (handle unattached or slice not activated).
     pub fn update_view<F>(&self, f: F)
     where
-        F: FnOnce(&mut jinn_slices::ChatLogViewUi),
+        F: FnOnce(&mut jinn_chat_log_view_msg::ChatLogViewUi),
     {
         match self.view_cell() {
             Some(cell) => {
@@ -613,7 +620,7 @@ impl ChatSessionState {
     /// reads as its default view.
     pub fn with_view<R, F, D>(&self, f: F, default: D) -> R
     where
-        F: FnOnce(&jinn_slices::ChatLogViewUi) -> R,
+        F: FnOnce(&jinn_chat_log_view_msg::ChatLogViewUi) -> R,
         D: FnOnce() -> R,
     {
         match self.view_cell() {
@@ -637,7 +644,7 @@ impl ChatSessionState {
     fn update_view_taking<R, F>(&self, f: F) -> Option<R>
     where
         R: Send + 'static,
-        F: FnOnce(&mut jinn_slices::ChatLogViewUi) -> Option<R>,
+        F: FnOnce(&mut jinn_chat_log_view_msg::ChatLogViewUi) -> Option<R>,
     {
         let taken = parking_lot::Mutex::new(None);
         self.update_view(|v| *taken.lock() = f(v));
@@ -730,8 +737,10 @@ impl ChatSessionState {
             },
             ui: SessionUi::default(),
             slices: std::sync::OnceLock::new(),
-            view_fallback: parking_lot::RwLock::new(jinn_slices::ChatLogViewUi::default()),
-            input_fallback: parking_lot::RwLock::new(jinn_slices::ChatInputBoxState::new()),
+            view_fallback: parking_lot::RwLock::new(
+                jinn_chat_log_view_msg::ChatLogViewUi::default(),
+            ),
+            input_fallback: parking_lot::RwLock::new(jinn_chat_input_msg::ChatInputBoxState::new()),
         }
     }
 
@@ -755,8 +764,10 @@ impl ChatSessionState {
             },
             ui: SessionUi::default(),
             slices: std::sync::OnceLock::new(),
-            view_fallback: parking_lot::RwLock::new(jinn_slices::ChatLogViewUi::default()),
-            input_fallback: parking_lot::RwLock::new(jinn_slices::ChatInputBoxState::new()),
+            view_fallback: parking_lot::RwLock::new(
+                jinn_chat_log_view_msg::ChatLogViewUi::default(),
+            ),
+            input_fallback: parking_lot::RwLock::new(jinn_chat_input_msg::ChatInputBoxState::new()),
         }
     }
 
@@ -1923,7 +1934,7 @@ impl ChatSessionState {
     #[must_use]
     pub fn mcp_server_status(
         &self,
-    ) -> &std::collections::BTreeMap<String, jinn_slices::McpConnectionStatus> {
+    ) -> &std::collections::BTreeMap<String, jinn_mcp_msg::McpConnectionStatus> {
         &self.core.mcp_server_status
     }
 
@@ -1933,7 +1944,7 @@ impl ChatSessionState {
     pub fn set_mcp_server_status(
         &mut self,
         server: &str,
-        status: jinn_slices::McpConnectionStatus,
+        status: jinn_mcp_msg::McpConnectionStatus,
     ) {
         self.core
             .mcp_server_status

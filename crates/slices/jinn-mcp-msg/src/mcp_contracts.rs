@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use jinn_core_types::SessionId;
 
-use crate::route::BusMessage;
+use jinn_slices::BusMessage;
 
 /// Restart one (session × server) `McpActor`.
 ///

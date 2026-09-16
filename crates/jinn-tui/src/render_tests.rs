@@ -324,7 +324,7 @@ async fn mcp_inspector_renders_server_list_and_logs_pane() {
         use jinn_domain::feat::mcp::picker_entry::McpServerEntry;
         use jinn_domain::feat::theme::default_theme;
         use jinn_domain::feat::ui::picker_states::PickerExt;
-        use jinn_slices::McpConnectionStatus;
+        use jinn_mcp_msg::McpConnectionStatus;
         let mut w = app.core.state.write_test_no_cap();
         // Seed the active session's live data sources so the per-frame refresh
         // produces the right preview.

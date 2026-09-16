@@ -7,7 +7,7 @@
 //! writer — the activation-time directory scan — lives in the slice
 //! crate. Both import this one type; neither depends on the other.
 
-use crate::SlotKey;
+use jinn_slices::SlotKey;
 use jinn_theme::Theme;
 
 /// One selectable theme: its display name and resolved colors.

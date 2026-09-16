@@ -210,9 +210,10 @@ fn toggle_input_mode_flips_steer_to_queue() {
     // Given default state (mode = Steer).
     let mut state = AppState::default_with_scope_focus();
     assert_eq!(
-        state
-            .active_session()
-            .with_input(jinn_slices::ChatInputBoxState::input_mode, Default::default),
+        state.active_session().with_input(
+            jinn_chat_input_msg::ChatInputBoxState::input_mode,
+            Default::default
+        ),
         InputMode::Steer,
         "default mode is Steer"
     );
@@ -222,9 +223,10 @@ fn toggle_input_mode_flips_steer_to_queue() {
 
     // Then mode is Queue.
     assert_eq!(
-        state
-            .active_session()
-            .with_input(jinn_slices::ChatInputBoxState::input_mode, Default::default),
+        state.active_session().with_input(
+            jinn_chat_input_msg::ChatInputBoxState::input_mode,
+            Default::default
+        ),
         InputMode::Queue
     );
     // And no commands emitted.
@@ -247,9 +249,10 @@ fn toggle_input_mode_is_sticky_across_submissions() {
 
     // Then mode remains Steer (sticky).
     assert_eq!(
-        state
-            .active_session()
-            .with_input(jinn_slices::ChatInputBoxState::input_mode, Default::default),
+        state.active_session().with_input(
+            jinn_chat_input_msg::ChatInputBoxState::input_mode,
+            Default::default
+        ),
         InputMode::Steer,
         "mode sticky across submissions"
     );
@@ -339,9 +342,10 @@ fn steer_submit_while_idle_falls_back_to_enqueue() {
     );
     // And mode display remains Steer.
     assert_eq!(
-        state
-            .active_session()
-            .with_input(jinn_slices::ChatInputBoxState::input_mode, Default::default),
+        state.active_session().with_input(
+            jinn_chat_input_msg::ChatInputBoxState::input_mode,
+            Default::default
+        ),
         InputMode::Steer,
         "mode display unaffected by Idle fall-through"
     );
@@ -828,7 +832,7 @@ fn enter_normal_mode_from_input_with_sidebar_returns_to_normal() {
     let mut state = AppState::default_with_scope_focus();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
     state.frontend.scope_push(FocusScope::Input);
 
     // When handling EnterNormalMode.
@@ -847,7 +851,7 @@ fn enter_normal_mode_from_sidebar_input_emits_no_commands() {
     let mut state = AppState::default_with_scope_focus();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
     state.frontend.scope_push(FocusScope::Input);
 
     // When handling EnterNormalMode.
@@ -1138,7 +1142,7 @@ fn slash_autocomplete_filters_on_typing() {
     let filter = state
         .active_session()
         .with_input(
-            jinn_slices::ChatInputBoxState::autocomplete_filter,
+            jinn_chat_input_msg::ChatInputBoxState::autocomplete_filter,
             Default::default,
         )
         .unwrap_or_default();
@@ -2313,7 +2317,7 @@ fn backspace_within_token_keeps_popup_active() {
         state
             .active_session()
             .with_input(
-                jinn_slices::ChatInputBoxState::autocomplete_filter,
+                jinn_chat_input_msg::ChatInputBoxState::autocomplete_filter,
                 Default::default
             )
             .unwrap_or_default(),
@@ -2335,7 +2339,7 @@ fn backspace_within_token_updates_filter() {
         state
             .active_session()
             .with_input(
-                jinn_slices::ChatInputBoxState::autocomplete_filter,
+                jinn_chat_input_msg::ChatInputBoxState::autocomplete_filter,
                 Default::default
             )
             .unwrap_or_default(),
@@ -2641,7 +2645,7 @@ fn arrow_down_moves_within_filtered_entries() {
     // Selection starts at index 0 (popup default for an empty-matches trigger).
     assert_eq!(
         state.active_session().with_input(
-            jinn_slices::ChatInputBoxState::autocomplete_selected_index,
+            jinn_chat_input_msg::ChatInputBoxState::autocomplete_selected_index,
             Default::default
         ),
         0,
@@ -2654,7 +2658,7 @@ fn arrow_down_moves_within_filtered_entries() {
     // Then the selection moves to index 1.
     assert_eq!(
         state.active_session().with_input(
-            jinn_slices::ChatInputBoxState::autocomplete_selected_index,
+            jinn_chat_input_msg::ChatInputBoxState::autocomplete_selected_index,
             Default::default
         ),
         1,
@@ -2677,7 +2681,7 @@ fn arrow_down_clamps_at_filtered_entry_count() {
     // 'src' is visible).
     assert_eq!(
         state.active_session().with_input(
-            jinn_slices::ChatInputBoxState::autocomplete_selected_index,
+            jinn_chat_input_msg::ChatInputBoxState::autocomplete_selected_index,
             Default::default
         ),
         0,

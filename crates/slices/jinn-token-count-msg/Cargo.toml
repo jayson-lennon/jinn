@@ -1,0 +1,17 @@
+[package]
+name = "jinn-token-count-msg"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+jinn-core-types = { workspace = true }
+jinn-slices = { workspace = true }
+serde = { workspace = true }
+dashmap = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

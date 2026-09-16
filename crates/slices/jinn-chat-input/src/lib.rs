@@ -2,7 +2,7 @@
 //! the chat screen.
 //!
 //! Owns one cell ([`chat_inputs_slot`]) holding
-//! [`jinn_slices::ChatInputs`]: each session's input buffer, cursor, wrap
+//! [`jinn_chat_input_msg::ChatInputs`]: each session's input buffer, cursor, wrap
 //! cache, sticky Queue/Steer submission mode, and autocomplete session. The
 //! kernel's exempt IntentHandler performs the edits through `ChatSession`'s
 //! closure accessors (a facade over the cell), the render pass snapshots the
@@ -11,7 +11,7 @@
 //! and no route row: the writers are the exempt sync handler, the render
 //! pass, and the session actor, exactly as the migration docs prescribe.
 
-pub use jinn_slices::chat_inputs_slot;
+pub use jinn_chat_input_msg::chat_inputs_slot;
 
 use jinn_slices::SliceHost;
 
@@ -28,7 +28,7 @@ use jinn_slices::SliceHost;
 )]
 pub fn activate(host: &mut SliceHost<'_, jinn_slices::RenderFacts>) {
     let _cell = host
-        .register_cell(chat_inputs_slot(), jinn_slices::ChatInputs::new())
+        .register_cell(chat_inputs_slot(), jinn_chat_input_msg::ChatInputs::new())
         .expect("chat-input slot is registered exactly once at wiring");
 }
 
@@ -60,7 +60,7 @@ mod activation_tests {
 
         // Then the cell resolves and round-trips a per-session write.
         let cell = slices
-            .reader::<jinn_slices::ChatInputs>(&crate::chat_inputs_slot())
+            .reader::<jinn_chat_input_msg::ChatInputs>(&crate::chat_inputs_slot())
             .expect("activation must register the chat-inputs cell");
         let session_id = jinn_domain::SessionId::new();
         cell.update(|inputs| {
@@ -72,7 +72,7 @@ mod activation_tests {
         assert_eq!(
             cell.read()
                 .get(&session_id)
-                .map(jinn_slices::ChatInputBoxState::text),
+                .map(jinn_chat_input_msg::ChatInputBoxState::text),
             Some("draft"),
             "the cell must round-trip a per-session entry"
         );
@@ -96,7 +96,7 @@ mod activation_tests {
         );
         crate::activate(&mut host);
         let cell = slices
-            .reader::<jinn_slices::ChatInputs>(&crate::chat_inputs_slot())
+            .reader::<jinn_chat_input_msg::ChatInputs>(&crate::chat_inputs_slot())
             .expect("activation must register the chat-inputs cell");
         let session_a = jinn_domain::SessionId::new();
         let session_b = jinn_domain::SessionId::new();
@@ -118,13 +118,13 @@ mod activation_tests {
         assert_eq!(
             inputs
                 .get(&session_a)
-                .map(jinn_slices::ChatInputBoxState::text),
+                .map(jinn_chat_input_msg::ChatInputBoxState::text),
             Some("alpha")
         );
         assert_eq!(
             inputs
                 .get(&session_b)
-                .map(jinn_slices::ChatInputBoxState::text),
+                .map(jinn_chat_input_msg::ChatInputBoxState::text),
             Some("beta")
         );
     }

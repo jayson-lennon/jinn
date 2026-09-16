@@ -4,6 +4,15 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+jinn-chat-input-msg = { workspace = true }
+jinn-chat-log-view-msg = { workspace = true }
+jinn-cwd-msg = { workspace = true }
+jinn-persona-msg = { workspace = true }
+jinn-sidebar-msg = { workspace = true }
+jinn-status-bar-msg = { workspace = true }
+jinn-theme-msg = { workspace = true }
+jinn-token-count-msg = { workspace = true }
+jinn-mcp-msg = { workspace = true }
 jinn-domain = { workspace = true }
 jinn-sidebar = { workspace = true }
 jinn-cwd = { workspace = true }

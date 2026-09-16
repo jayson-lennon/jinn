@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+jinn-mcp-msg = { workspace = true }
 # Kernel dep (sidebar precedent): the coordinator writes ChatSession.mcp_server_status
 # through a SessionCap and consumes session lifecycle events — the sync
 # SliceActionState capability pattern does not fit async kameo actors.

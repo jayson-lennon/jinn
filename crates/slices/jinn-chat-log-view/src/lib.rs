@@ -1,7 +1,7 @@
 //! The chat-log-view slice — per-session chat log display state.
 //!
 //! Owns one cell ([`chat_log_views_slot`]) holding
-//! [`jinn_slices::ChatLogViews`]: each session's scroll intent and render
+//! [`jinn_chat_log_view_msg::ChatLogViews`]: each session's scroll intent and render
 //! caches, cursor selection, expand/ignore sets, saved pins position, and
 //! ignore-sweep. The kernel's exempt IntentHandler writes through
 //! `ChatSession`'s semantic methods (a facade over the cell), and the chat
@@ -11,7 +11,7 @@
 
 pub mod state;
 
-pub use jinn_slices::chat_log_views_slot;
+pub use jinn_chat_log_view_msg::chat_log_views_slot;
 pub use state::ChatLogViewUi;
 
 use jinn_slices::SliceHost;
@@ -29,7 +29,10 @@ use jinn_slices::SliceHost;
 )]
 pub fn activate(host: &mut SliceHost<'_, jinn_slices::RenderFacts>) {
     let _cell = host
-        .register_cell(chat_log_views_slot(), jinn_slices::ChatLogViews::new())
+        .register_cell(
+            chat_log_views_slot(),
+            jinn_chat_log_view_msg::ChatLogViews::new(),
+        )
         .expect("chat-log-view slot is registered exactly once at wiring");
 }
 
@@ -61,7 +64,7 @@ mod activation_tests {
 
         // Then the cell resolves and round-trips a per-session write.
         let cell = slices
-            .reader::<jinn_slices::ChatLogViews>(&crate::chat_log_views_slot())
+            .reader::<jinn_chat_log_view_msg::ChatLogViews>(&crate::chat_log_views_slot())
             .expect("activation must register the chat-log-views cell");
         let session_id = jinn_domain::SessionId::new();
         cell.update(|views| {
@@ -92,7 +95,7 @@ mod activation_tests {
         );
         crate::activate(&mut host);
         let cell = slices
-            .reader::<jinn_slices::ChatLogViews>(&crate::chat_log_views_slot())
+            .reader::<jinn_chat_log_view_msg::ChatLogViews>(&crate::chat_log_views_slot())
             .expect("activation must register the chat-log-views cell");
         let session_a = jinn_domain::SessionId::new();
         let session_b = jinn_domain::SessionId::new();

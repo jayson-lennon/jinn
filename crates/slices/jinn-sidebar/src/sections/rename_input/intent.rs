@@ -213,7 +213,7 @@ mod tests {
         let mut state = state_with_sessions(2);
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -240,7 +240,7 @@ mod tests {
             .set_title("My Session".to_owned());
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -269,7 +269,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
 
         // When handling SidebarRenameSession.
         let result = handle_rename_session_enter(&mut state);
@@ -277,7 +277,7 @@ mod tests {
         // Then scope is unchanged.
         assert_eq!(
             state.frontend.sidebar_section(),
-            Some(jinn_slices::SidebarSectionId::Sessions)
+            Some(jinn_sidebar_msg::SidebarSectionId::Sessions)
         );
         assert!(result.message_names.is_empty());
     }
@@ -289,7 +289,7 @@ mod tests {
         let session_id = state.session.active_session_id().clone();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .scope_push(FocusScope::Dynamic(rename_scope()));
@@ -313,7 +313,7 @@ mod tests {
         // And scope is popped back.
         assert_eq!(
             state.frontend.sidebar_section(),
-            Some(jinn_slices::SidebarSectionId::Sessions)
+            Some(jinn_sidebar_msg::SidebarSectionId::Sessions)
         );
         // And input state is cleared.
         assert!(
@@ -375,7 +375,7 @@ mod tests {
         );
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .scope_push(FocusScope::Dynamic(rename_scope()));
@@ -421,7 +421,7 @@ mod tests {
             .set_title("Original".to_owned());
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .scope_push(FocusScope::Dynamic(rename_scope()));
@@ -440,7 +440,7 @@ mod tests {
         // Then scope is popped back.
         assert_eq!(
             state.frontend.sidebar_section(),
-            Some(jinn_slices::SidebarSectionId::Sessions)
+            Some(jinn_sidebar_msg::SidebarSectionId::Sessions)
         );
         // And input state is cleared.
         assert!(

@@ -37,8 +37,8 @@ use crate::feat::picker::style::dim_style;
 use crate::feat::picker::style::split_match_indices;
 use crate::feat::ui::picker_states::PickerExt;
 use crate::protocol::ChatEntry;
-use jinn_slices::McpEnablementChanged;
-use jinn_slices::RestartMcpServer;
+use jinn_mcp_msg::McpEnablementChanged;
+use jinn_mcp_msg::RestartMcpServer;
 
 /// Builds the MCP server picker's spec.
 #[must_use]
@@ -182,13 +182,13 @@ fn tools_preview(entry: &McpServerEntry) -> Vec<Line<'static>> {
 fn status_badge_line(entry: &McpServerEntry) -> Line<'static> {
     let (label, color) = match entry.status {
         None => ("disabled", entry.theme.muted_text),
-        Some(jinn_slices::McpConnectionStatus::Starting) => {
+        Some(jinn_mcp_msg::McpConnectionStatus::Starting) => {
             ("starting", ratatui::style::Color::Yellow)
         }
-        Some(jinn_slices::McpConnectionStatus::Running) => {
+        Some(jinn_mcp_msg::McpConnectionStatus::Running) => {
             ("running", ratatui::style::Color::Green)
         }
-        Some(jinn_slices::McpConnectionStatus::Dead) => ("dead", ratatui::style::Color::Red),
+        Some(jinn_mcp_msg::McpConnectionStatus::Dead) => ("dead", ratatui::style::Color::Red),
     };
     Line::from(vec![
         Span::styled(
@@ -411,8 +411,8 @@ mod tests {
     use crate::feat::picker::registry::MCP_SERVER_ID;
     use crate::feat::session::chat_session::ChatSessionState;
     use crate::feat::theme::default_theme;
+    use jinn_mcp_msg::McpConnectionStatus;
     use jinn_picker::SpecHandle;
-    use jinn_slices::McpConnectionStatus;
 
     /// A configured MCP server: command + args become the picker description.
     fn server_config(command: &str, args: &[&str]) -> crate::feat::mcp::McpServerConfig {

@@ -40,9 +40,10 @@ pub fn render(app: &mut TuiApp, frame: &mut Frame<'_>) {
     // scopes.
     let layout = AppFrameLayout::new(
         area,
-        state
-            .active_session()
-            .with_input(jinn_slices::ChatInputBoxState::visual_line_count, || 0) as u16,
+        state.active_session().with_input(
+            jinn_chat_input_msg::ChatInputBoxState::visual_line_count,
+            || 0,
+        ) as u16,
         area.height / 2,
         state.frontend.sidebar_width,
         is_full_width_tab(&app.services.slices, &state.frontend.scope_base()),
@@ -97,9 +98,10 @@ fn apply_pre_render_mutation(app: &mut TuiApp, area: Rect) {
     let full_width = is_full_width_tab(&app.services.slices, &wstate.frontend.scope_base());
     let pre_layout = AppFrameLayout::new(
         area,
-        wstate
-            .active_session()
-            .with_input(jinn_slices::ChatInputBoxState::visual_line_count, || 0) as u16,
+        wstate.active_session().with_input(
+            jinn_chat_input_msg::ChatInputBoxState::visual_line_count,
+            || 0,
+        ) as u16,
         area.height / 2,
         wstate.frontend.sidebar_width,
         full_width,

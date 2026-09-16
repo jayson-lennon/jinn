@@ -32,7 +32,7 @@ use jinn_domain::feat::tools_actor::protocol::event::ToolExecutionCompleted;
 use jinn_domain::feat::tools_actor::protocol::event::ToolsUnregistered;
 use jinn_domain::feat::tools_actor::tool_types::ToolCall;
 use jinn_domain::protocol::SessionId;
-use jinn_slices::{McpConnectionStatus, McpServerStatus};
+use jinn_mcp_msg::{McpConnectionStatus, McpServerStatus};
 
 /// The server name injected into the actor — becomes the tool namespace segment
 /// (`mcp__stub__echo`) and the strip-namespace key the actor matches on.

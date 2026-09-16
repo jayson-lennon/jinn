@@ -8,7 +8,7 @@ use ratatui::layout::Rect;
 
 /// Identifies a sidebar section (shared vocabulary from `jinn-slices`;
 /// the focus stack carries it in its sidebar scopes).
-pub use jinn_slices::sidebar_section_id::SidebarSectionId;
+pub use jinn_sidebar_msg::sidebar_section_id::SidebarSectionId;
 
 /// Result of a section navigation attempt.
 ///

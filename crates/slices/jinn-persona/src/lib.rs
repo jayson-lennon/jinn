@@ -1,6 +1,6 @@
 //! The persona slice — persona discovery and selection state.
 //!
-//! Owns one cell ([`personas_slot`]) holding [`jinn_slices::Personas`]:
+//! Owns one cell ([`personas_slot`]) holding [`jinn_persona_msg::Personas`]:
 //! the markdown personas scanned from the user and system persona
 //! directories at activation. Activation also hands the scanned set back
 //! to composition, which publishes the kernel's `PersonasLoaded` event —
@@ -9,13 +9,13 @@
 
 use std::path::Path;
 
-use jinn_slices::Persona;
+use jinn_persona_msg::Persona;
 use jinn_slices::SliceHost;
 
 pub mod parse;
 
-pub use jinn_slices::Personas;
-pub use jinn_slices::personas_slot;
+pub use jinn_persona_msg::Personas;
+pub use jinn_persona_msg::personas_slot;
 pub use parse::PersonaParseError;
 pub use parse::parse_persona_content;
 pub use parse::parse_persona_file;

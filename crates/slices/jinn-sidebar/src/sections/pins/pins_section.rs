@@ -100,7 +100,7 @@ pub fn receive_cursor(state: &mut AppState, enter_from: EnterFrom) {
 
 impl SidebarSection for PinsSection {
     fn id(&self) -> SidebarSectionId {
-        jinn_slices::SidebarSectionId::Pins
+        jinn_sidebar_msg::SidebarSectionId::Pins
     }
 
     fn render(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
@@ -132,7 +132,7 @@ impl SidebarSection for PinsSection {
             let section_focused = sidebar_focused
                 && matches!(
                     state.frontend.sidebar_section(),
-                    Some(jinn_slices::SidebarSectionId::Pins)
+                    Some(jinn_sidebar_msg::SidebarSectionId::Pins)
                 );
             build_entry_list(
                 &pinned,
@@ -197,7 +197,7 @@ pub fn handle_sidebar_persona_edit(
 ) -> IntentResult {
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(jinn_slices::SidebarSectionId::Persona)
+        Some(jinn_sidebar_msg::SidebarSectionId::Persona)
     ) {
         return IntentResult::empty();
     }

@@ -113,7 +113,7 @@ fn popup_width(frame_area: Rect, sidebar_x: u16) -> u16 {
 /// The popup is hidden when the task list section is not focused, the task list
 /// is empty, no phase is selected, or the selected index is out of range.
 fn previewed_phase(state: &AppState) -> Option<&Phase> {
-    if state.frontend.sidebar_section() != Some(jinn_slices::SidebarSectionId::TaskList) {
+    if state.frontend.sidebar_section() != Some(jinn_sidebar_msg::SidebarSectionId::TaskList) {
         return None;
     }
     let list = state.active_session().task_list();
@@ -306,7 +306,7 @@ mod tests {
             },
         ]);
         app.frontend
-            .scope_push(jinn_slices::SidebarSectionId::TaskList.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::TaskList.focus_scope());
         app.frontend
             .update_sections(|s| s.task_list.selected_phase_index = Some(phase_index));
         app
@@ -466,7 +466,7 @@ mod tests {
             tasks: vec![],
         }]);
         app.frontend
-            .scope_push(jinn_slices::SidebarSectionId::TaskList.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::TaskList.focus_scope());
         app.frontend
             .update_sections(|s| s.task_list.selected_phase_index = Some(0));
 
@@ -526,7 +526,7 @@ mod tests {
             tasks: vec![(long_desc, TaskStatus::Pending)],
         }]);
         app.frontend
-            .scope_push(jinn_slices::SidebarSectionId::TaskList.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::TaskList.focus_scope());
         app.frontend
             .update_sections(|s| s.task_list.selected_phase_index = Some(0));
 

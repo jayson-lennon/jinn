@@ -54,9 +54,10 @@ impl UiElement for ChatInputBoxElement {
 
         let badge_line = {
             use crate::feat::chat_input::state::InputMode;
-            let mode = state
-                .active_session()
-                .with_input(jinn_slices::ChatInputBoxState::input_mode, Default::default);
+            let mode = state.active_session().with_input(
+                jinn_chat_input_msg::ChatInputBoxState::input_mode,
+                Default::default,
+            );
             let buffer_count = match mode {
                 InputMode::Queue => state.active_session().queue_len(),
                 InputMode::Steer => state.active_session().steering_buffer().len(),

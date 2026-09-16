@@ -1,7 +1,7 @@
 //! The cwd slice — the in-app "change working directory" popup.
 //!
-//! Owns one cell ([`jinn_slices::cwds_slot`]) holding the popup's single
-//! [`jinn_slices::CwdInputState`], the dynamic-scope overlay that renders it,
+//! Owns one cell ([`jinn_cwd_msg::cwds_slot`]) holding the popup's single
+//! [`jinn_cwd_msg::CwdInputState`], the dynamic-scope overlay that renders it,
 //! and the route rows that open, confirm, and leave the popup. Typing goes
 //! through a route-table input hook; confirm resolves the typed path with the
 //! shared pure resolver and publishes the kernel's `SetSessionCwd` through
@@ -9,7 +9,7 @@
 //! depends on the kernel. The external `<M-c>`/`<M-d>` selector flow is
 //! composition-side (TUI suspend) and unaffected by this slice.
 
-pub use jinn_slices::cwds_slot;
+pub use jinn_cwd_msg::cwds_slot;
 
 mod intent;
 mod render;
@@ -32,7 +32,7 @@ use jinn_slices::SliceHost;
 )]
 pub fn activate(host: &mut SliceHost<'_, jinn_slices::RenderFacts>) {
     let cell = host
-        .register_cell(cwds_slot(), jinn_slices::CwdInputState::default())
+        .register_cell(cwds_slot(), jinn_cwd_msg::CwdInputState::default())
         .expect("cwd slot is registered exactly once at wiring");
     host.register_overlay(
         intent::cwd_scope(),

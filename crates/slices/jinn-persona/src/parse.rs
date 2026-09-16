@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use jinn_slices::Persona;
+use jinn_persona_msg::Persona;
 use wherror::Error;
 
 /// Persona-file parse failures (carried between parse helpers).

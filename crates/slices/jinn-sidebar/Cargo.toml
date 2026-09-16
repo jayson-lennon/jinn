@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+jinn-mcp-msg = { workspace = true }
+jinn-sidebar-msg = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-theme = { workspace = true }
 # Slice → kernel edge (established by jinn-dashboard): the sidebar actor

@@ -1,0 +1,17 @@
+[package]
+name = "jinn-cwd-msg"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+dirs = { workspace = true }
+jinn-core-types = { workspace = true }
+jinn-slices = { workspace = true }
+serde = { workspace = true }
+tempfile = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+rstest = { workspace = true }
+
+[lints]
+workspace = true

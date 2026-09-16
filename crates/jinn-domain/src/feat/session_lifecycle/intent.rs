@@ -215,7 +215,7 @@ pub fn handle_session_lifecycle_setup(
         // new session's servers spawn without a picker visit. When nothing is
         // auto-enabled, the message is skipped (nothing to reconcile).
         if seed.has_auto_enabled_mcp() {
-            result = result.with_message(jinn_slices::McpEnablementChanged {
+            result = result.with_message(jinn_mcp_msg::McpEnablementChanged {
                 session_id: new_id,
                 enabled: seed.enabled_mcp,
             });
@@ -229,7 +229,7 @@ pub fn handle_session_lifecycle_setup(
     if !seed.has_auto_enabled_mcp() {
         return IntentResult::new_message(created_event);
     }
-    IntentResult::new_message(created_event).with_message(jinn_slices::McpEnablementChanged {
+    IntentResult::new_message(created_event).with_message(jinn_mcp_msg::McpEnablementChanged {
         session_id: new_id,
         enabled: seed.enabled_mcp,
     })
@@ -1598,7 +1598,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -1629,7 +1629,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -1649,7 +1649,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -1696,7 +1696,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         // No selected_index set.
 
         // When handling rerun setup.

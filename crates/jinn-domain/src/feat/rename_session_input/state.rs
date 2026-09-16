@@ -2,4 +2,4 @@
 //!
 //! The state type moved to the sidebar sections cell (shared vocabulary);
 //! re-exported here for the kernel's existing import paths.
-pub use jinn_slices::sidebar_sections::RenameSessionInputState;
+pub use jinn_sidebar_msg::sidebar_sections::RenameSessionInputState;

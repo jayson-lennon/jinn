@@ -5858,8 +5858,8 @@ fn attached_view_writes_land_in_the_cell() {
     let slices = jinn_slices::Slices::new();
     slices
         .register(
-            jinn_slices::chat_log_views_slot(),
-            jinn_slices::ChatLogViews::new(),
+            jinn_chat_log_view_msg::chat_log_views_slot(),
+            jinn_chat_log_view_msg::ChatLogViews::new(),
         )
         .expect("fresh registry");
     let mut session = ChatSessionState::new();
@@ -5870,7 +5870,9 @@ fn attached_view_writes_land_in_the_cell() {
 
     // Then the write lands in the cell, keyed by this session's id.
     let cell = slices
-        .reader::<jinn_slices::ChatLogViews>(&jinn_slices::chat_log_views_slot())
+        .reader::<jinn_chat_log_view_msg::ChatLogViews>(
+            &jinn_chat_log_view_msg::chat_log_views_slot(),
+        )
         .expect("cell");
     let stored = cell.read().get(session.session_id()).cloned();
     assert_eq!(
@@ -5897,7 +5899,10 @@ fn input_writes_roundtrip_without_the_cell() {
         "draft text"
     );
     assert_eq!(
-        session.with_input(jinn_slices::ChatInputBoxState::cursor_pos, Default::default),
+        session.with_input(
+            jinn_chat_input_msg::ChatInputBoxState::cursor_pos,
+            Default::default
+        ),
         0
     );
 }
@@ -5910,7 +5915,7 @@ fn input_reads_default_without_the_cell() {
     // When reading input fields through the facade.
     // Then the draft reads as its default.
     assert_eq!(session.with_input(|i| i.text().to_owned(), String::new), "");
-    assert!(session.with_input(jinn_slices::ChatInputBoxState::is_empty, || true));
+    assert!(session.with_input(jinn_chat_input_msg::ChatInputBoxState::is_empty, || true));
 }
 
 #[rstest::rstest]
@@ -5919,8 +5924,8 @@ fn attached_input_writes_land_in_the_cell() {
     let slices = jinn_slices::Slices::new();
     slices
         .register(
-            jinn_slices::chat_inputs_slot(),
-            jinn_slices::ChatInputs::new(),
+            jinn_chat_input_msg::chat_inputs_slot(),
+            jinn_chat_input_msg::ChatInputs::new(),
         )
         .expect("fresh registry");
     let mut session = ChatSessionState::new();
@@ -5931,7 +5936,7 @@ fn attached_input_writes_land_in_the_cell() {
 
     // Then the write lands in the cell, keyed by this session's id.
     let cell = slices
-        .reader::<jinn_slices::ChatInputs>(&jinn_slices::chat_inputs_slot())
+        .reader::<jinn_chat_input_msg::ChatInputs>(&jinn_chat_input_msg::chat_inputs_slot())
         .expect("cell");
     let stored = cell.read().get(session.session_id()).cloned();
     assert_eq!(
@@ -5952,8 +5957,8 @@ fn attached_input_reads_do_not_grow_the_cell() {
     let slices = jinn_slices::Slices::new();
     slices
         .register(
-            jinn_slices::chat_inputs_slot(),
-            jinn_slices::ChatInputs::new(),
+            jinn_chat_input_msg::chat_inputs_slot(),
+            jinn_chat_input_msg::ChatInputs::new(),
         )
         .expect("fresh registry");
     let mut session = ChatSessionState::new();
@@ -5965,7 +5970,7 @@ fn attached_input_reads_do_not_grow_the_cell() {
     // Then the read yields the default without growing the map.
     assert_eq!(text, "");
     let cell = slices
-        .reader::<jinn_slices::ChatInputs>(&jinn_slices::chat_inputs_slot())
+        .reader::<jinn_chat_input_msg::ChatInputs>(&jinn_chat_input_msg::chat_inputs_slot())
         .expect("cell");
     assert!(
         !cell.read().contains_key(session.session_id()),

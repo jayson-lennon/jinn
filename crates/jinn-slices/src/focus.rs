@@ -3,7 +3,6 @@
 
 use crate::mode::Mode;
 use crate::picker_kind::PickerKind;
-use crate::sidebar_section_id::SidebarSectionId;
 
 /// A single focus context on the scope stack.
 ///
@@ -186,28 +185,6 @@ impl ScopeStack {
             // The resize scope is not a section.
             FocusScope::Dynamic(id) => id.slice() == "sidebar" && id.name() != "resize",
             _ => false,
-        }
-    }
-
-    /// Returns the focused sidebar section, if a sidebar scope is active.
-    /// The resize scope is not a section.
-    #[must_use]
-    pub fn sidebar_section(&self) -> Option<SidebarSectionId> {
-        match self.current() {
-            FocusScope::Dynamic(id) if id.slice() == "sidebar" => {
-                SidebarSectionId::from_scope_name(id.name())
-            }
-            _ => None,
-        }
-    }
-
-    /// Swaps the top of the scope stack to a different sidebar section.
-    ///
-    /// No-op if the current scope is not a sidebar section.
-    pub fn set_sidebar_section(&mut self, section: SidebarSectionId) {
-        if self.is_sidebar() {
-            self.stack.pop();
-            self.stack.push(FocusScope::Dynamic(section.scope_id()));
         }
     }
 

@@ -58,7 +58,7 @@ pub struct ToolContext {
     /// whether a restart connected. Resolved from
     /// `services.mcp_coordinator` at dispatch time. `None` in tests and for
     /// every tool that doesn't need it.
-    pub mcp_coordinator: Option<std::sync::Arc<dyn jinn_slices::McpCoordinatorHandle>>,
+    pub mcp_coordinator: Option<std::sync::Arc<dyn jinn_mcp_msg::McpCoordinatorHandle>>,
     /// Interactive-term coordinator actor ref — `Some` only for the
     /// `interactive_term*` tools, which `ask` the coordinator to spawn/drive
     /// PTY sessions. Resolved from `services.interactive_term` at dispatch

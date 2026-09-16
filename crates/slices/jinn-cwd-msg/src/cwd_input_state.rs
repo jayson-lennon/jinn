@@ -5,8 +5,8 @@
 //! selector suspend in composition); the cwd slice owns the in-app popup.
 //! Both speak these types.
 
-use crate::SlotKey;
-use crate::line_input::LineInput;
+use jinn_slices::LineInput;
+use jinn_slices::SlotKey;
 use std::path::{Path, PathBuf};
 
 /// The `cwd/state` slot: the in-app cwd popup's single edit state.

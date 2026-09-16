@@ -5,7 +5,7 @@
 //! takeover/yank/push, the inert overlay toggle) and with the
 //! IntentHandler's every-intent prologue that clears it. The hint's
 //! *storage* lives in the status-bar slice's cell
-//! ([`jinn_slices::StatusBarState`], shared vocabulary so the kernel
+//! ([`jinn_status_bar_msg::StatusBarState`], shared vocabulary so the kernel
 //! never depends on slice crates). This module is the one write seam
 //! between the two: every writer goes through [`set_hint`], which is a
 //! silent no-op when the slice is not activated (the removability proof
@@ -22,8 +22,8 @@ use jinn_slices::Slices;
 /// kernel hint writers stay correct (and silent) in a slice-free
 /// configuration.
 pub fn set_hint(state: &mut AppState, slices: &Slices, hint: Option<String>) {
-    if let Some(cell) =
-        slices.reader::<jinn_slices::StatusBarState>(&jinn_slices::status_bar_slot())
+    if let Some(cell) = slices
+        .reader::<jinn_status_bar_msg::StatusBarState>(&jinn_status_bar_msg::status_bar_slot())
     {
         cell.update(|s| s.hint = hint);
     }
@@ -37,6 +37,7 @@ pub fn set_hint(state: &mut AppState, slices: &Slices, hint: Option<String>) {
 /// Reads the current hint, if the slice is activated.
 #[must_use]
 pub fn hint(slices: &Slices) -> Option<String> {
-    let cell = slices.reader::<jinn_slices::StatusBarState>(&jinn_slices::status_bar_slot())?;
+    let cell = slices
+        .reader::<jinn_status_bar_msg::StatusBarState>(&jinn_status_bar_msg::status_bar_slot())?;
     cell.read().hint.clone()
 }

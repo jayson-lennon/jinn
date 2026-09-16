@@ -14,7 +14,7 @@ use jinn_domain::feat::session::model_selection::ModelSelection;
 use jinn_domain::feat::theme::default_theme;
 use jinn_domain::feat::todo_list::{PhaseInput, TaskStatus};
 use jinn_domain::protocol::ChatEntry;
-use jinn_slices::SessionPreviewCache;
+use jinn_sidebar_msg::SessionPreviewCache;
 use jinn_testutil::{buffer_row, setup_term};
 use ratatui::layout::Rect;
 

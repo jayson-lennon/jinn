@@ -272,7 +272,7 @@ fn selected_entry_gutter_is_dark_gray_when_unfocused() {
         s.active_session_mut().push_entry(ChatEntry::user("world"));
         s.active_session_mut().select_prev_entry(); // index 0
         s.frontend
-            .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
         s
     };
 
@@ -684,7 +684,7 @@ fn render_pinned_selected_unfocused_entry_gutter_has_border_unfocused_bg() {
         s.active_session_mut()
             .push_entry(ChatEntry::user("hello").with_pin(PinPosition::Top));
         s.frontend
-            .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
         s
     };
 

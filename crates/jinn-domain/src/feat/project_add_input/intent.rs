@@ -8,7 +8,7 @@ use crate::feat::preferences_actor::protocol::command::{PreferenceUpdate, Update
 use crate::feat::project::ProjectConfig;
 use crate::feat::project_add_input::state::ProjectAddInputState;
 use crate::protocol::IntentResult;
-use jinn_slices::{CwdResolution, resolve_cwd_input};
+use jinn_cwd_msg::{CwdResolution, resolve_cwd_input};
 
 /// Opens the project-add input popup.
 ///

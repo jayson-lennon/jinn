@@ -1313,7 +1313,7 @@ fn jinn_chat_input_activate(services: &mut Services) {
 /// are the theme picker's open hook and the app-state actor's resolution.
 fn jinn_token_count_activate(
     services: &mut Services,
-) -> jinn_slices::HistoryWorkerChatEntryTokenCache {
+) -> jinn_token_count_msg::HistoryWorkerChatEntryTokenCache {
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,
         &mut services.viewport,
@@ -1329,7 +1329,7 @@ fn jinn_token_count_activate(
     cache
 }
 
-fn jinn_persona_activate(services: &mut Services) -> jinn_slices::Personas {
+fn jinn_persona_activate(services: &mut Services) -> jinn_persona_msg::Personas {
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,
         &mut services.viewport,

@@ -5,4 +5,4 @@
 //! it); this shim keeps the kernel's import paths resolving. The
 //! eviction actor moved to the `jinn-token-count` slice crate.
 
-pub use jinn_slices::HistoryWorkerChatEntryTokenCache;
+pub use jinn_token_count_msg::HistoryWorkerChatEntryTokenCache;

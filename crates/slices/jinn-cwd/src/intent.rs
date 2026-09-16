@@ -7,13 +7,14 @@
 //! cell through a route-table input hook — the same pattern as the rename
 //! popup.
 
+use jinn_cwd_msg::{CwdInputState, CwdResolution, resolve_cwd_input, shorten_path};
 use jinn_slices::RouteResult as IntentResult;
+use jinn_slices::SliceScopeId;
 use jinn_slices::cell::TypedCell;
 use jinn_slices::route::{
     ActionCtx, ActionFn, BindSite, EditIntent, InputHook, PublishClosure, RouteId, RouteRow,
     ScopeSignal,
 };
-use jinn_slices::{CwdInputState, CwdResolution, SliceScopeId, resolve_cwd_input, shorten_path};
 use std::sync::Arc;
 
 /// The cwd popup's dynamic scope (input-capturing).
@@ -222,13 +223,6 @@ mod tests {
 
         fn active_session_cwd(&self) -> std::path::PathBuf {
             self.cwd.clone()
-        }
-
-        fn publish_personas_loaded(
-            &self,
-            _personas: Vec<jinn_slices::Persona>,
-        ) -> jinn_slices::PublishClosure {
-            Box::new(|_bus| {})
         }
 
         fn publish_session_cwd(

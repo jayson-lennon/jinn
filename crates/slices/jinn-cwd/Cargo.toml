@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+jinn-cwd-msg = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-theme = { workspace = true }
 jinn-core-types = { workspace = true }

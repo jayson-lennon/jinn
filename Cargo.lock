@@ -2367,15 +2367,20 @@ dependencies = [
  "error-stack",
  "jiff",
  "jinn-chat-input",
+ "jinn-chat-input-msg",
  "jinn-chat-log-view",
+ "jinn-chat-log-view-msg",
  "jinn-cli",
  "jinn-cwd",
+ "jinn-cwd-msg",
  "jinn-dashboard",
  "jinn-discord",
  "jinn-discord-msg",
  "jinn-domain",
+ "jinn-mcp-msg",
  "jinn-mcp-slice",
  "jinn-persona",
+ "jinn-persona-msg",
  "jinn-picker",
  "jinn-plugin",
  "jinn-plugin-api",
@@ -2384,11 +2389,15 @@ dependencies = [
  "jinn-session-init",
  "jinn-session-msg",
  "jinn-sidebar",
+ "jinn-sidebar-msg",
  "jinn-slices",
  "jinn-status-bar",
+ "jinn-status-bar-msg",
  "jinn-testutil",
+ "jinn-theme-msg",
  "jinn-theme-slice",
  "jinn-token-count",
+ "jinn-token-count-msg",
  "jinn-tui",
  "kameo",
  "kameo_actors",
@@ -2416,6 +2425,7 @@ dependencies = [
 name = "jinn-chat-input"
 version = "0.118.0"
 dependencies = [
+ "jinn-chat-input-msg",
  "jinn-domain",
  "jinn-slices",
  "rstest",
@@ -2423,13 +2433,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "jinn-chat-input-msg"
+version = "0.118.0"
+dependencies = [
+ "jinn-core-types",
+ "jinn-slices",
+ "rstest",
+ "serde",
+ "unicode-segmentation",
+ "unicode-width 0.2.2",
+]
+
+[[package]]
 name = "jinn-chat-log-view"
 version = "0.118.0"
 dependencies = [
+ "jinn-chat-log-view-msg",
  "jinn-domain",
  "jinn-slices",
  "rstest",
  "tokio",
+]
+
+[[package]]
+name = "jinn-chat-log-view-msg"
+version = "0.118.0"
+dependencies = [
+ "jinn-core-types",
+ "jinn-slices",
+ "parking_lot",
+ "serde",
 ]
 
 [[package]]
@@ -2482,6 +2515,7 @@ dependencies = [
  "dirs",
  "error-stack",
  "jinn-core-types",
+ "jinn-cwd-msg",
  "jinn-slices",
  "jinn-theme",
  "ratatui",
@@ -2493,15 +2527,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "jinn-cwd-msg"
+version = "0.118.0"
+dependencies = [
+ "dirs",
+ "jinn-core-types",
+ "jinn-slices",
+ "rstest",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
 name = "jinn-dashboard"
 version = "0.118.0"
 dependencies = [
  "error-stack",
  "jinn-core-types",
  "jinn-domain",
+ "jinn-mcp-msg",
+ "jinn-sidebar-msg",
  "jinn-slices",
+ "jinn-status-bar-msg",
  "jinn-testutil",
  "jinn-theme",
+ "jinn-theme-msg",
  "kameo",
  "ratatui",
  "rstest",
@@ -2575,9 +2625,14 @@ dependencies = [
  "humantime",
  "indoc",
  "jiff",
+ "jinn-chat-input-msg",
+ "jinn-chat-log-view-msg",
  "jinn-common",
  "jinn-core-types",
+ "jinn-cwd-msg",
  "jinn-mcp",
+ "jinn-mcp-msg",
+ "jinn-persona-msg",
  "jinn-picker",
  "jinn-plugin",
  "jinn-plugin-api",
@@ -2586,9 +2641,13 @@ dependencies = [
  "jinn-selection-widget",
  "jinn-session-msg",
  "jinn-session-schema",
+ "jinn-sidebar-msg",
  "jinn-slices",
+ "jinn-status-bar-msg",
  "jinn-testutil",
  "jinn-theme",
+ "jinn-theme-msg",
+ "jinn-token-count-msg",
  "kameo",
  "kameo_actors",
  "kanal",
@@ -2652,6 +2711,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "jinn-mcp-msg"
+version = "0.118.0"
+dependencies = [
+ "async-trait",
+ "jinn-core-types",
+ "jinn-slices",
+ "serde",
+]
+
+[[package]]
 name = "jinn-mcp-slice"
 version = "0.118.0"
 dependencies = [
@@ -2662,6 +2731,7 @@ dependencies = [
  "jinn-core-types",
  "jinn-domain",
  "jinn-mcp",
+ "jinn-mcp-msg",
  "jinn-slices",
  "kameo",
  "libc",
@@ -2679,6 +2749,7 @@ version = "0.118.0"
 dependencies = [
  "error-stack",
  "jinn-domain",
+ "jinn-persona-msg",
  "jinn-slices",
  "rstest",
  "serde",
@@ -2686,6 +2757,15 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "wherror",
+]
+
+[[package]]
+name = "jinn-persona-msg"
+version = "0.118.0"
+dependencies = [
+ "jinn-core-types",
+ "jinn-slices",
+ "serde",
 ]
 
 [[package]]
@@ -2874,7 +2954,9 @@ dependencies = [
  "error-stack",
  "jiff",
  "jinn-domain",
+ "jinn-mcp-msg",
  "jinn-picker",
+ "jinn-sidebar-msg",
  "jinn-slices",
  "jinn-testutil",
  "jinn-theme",
@@ -2890,15 +2972,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "jinn-sidebar-msg"
+version = "0.118.0"
+dependencies = [
+ "jiff",
+ "jinn-core-types",
+ "jinn-slices",
+ "ratatui",
+ "rstest",
+ "serde",
+]
+
+[[package]]
 name = "jinn-slices"
 version = "0.118.0"
 dependencies = [
- "async-trait",
- "dashmap 6.2.1",
  "derive_more",
- "dirs",
  "error-stack",
- "jiff",
  "jinn-core-types",
  "jinn-theme",
  "kameo",
@@ -2926,11 +3016,21 @@ dependencies = [
  "jiff",
  "jinn-domain",
  "jinn-slices",
+ "jinn-status-bar-msg",
  "jinn-testutil",
  "jinn-theme",
  "ratatui",
  "rstest",
  "tokio",
+]
+
+[[package]]
+name = "jinn-status-bar-msg"
+version = "0.118.0"
+dependencies = [
+ "jinn-core-types",
+ "jinn-slices",
+ "serde",
 ]
 
 [[package]]
@@ -2964,12 +3064,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "jinn-theme-msg"
+version = "0.118.0"
+dependencies = [
+ "jinn-core-types",
+ "jinn-slices",
+ "jinn-theme",
+ "serde",
+]
+
+[[package]]
 name = "jinn-theme-slice"
 version = "0.118.0"
 dependencies = [
  "error-stack",
  "jinn-slices",
  "jinn-theme",
+ "jinn-theme-msg",
  "rstest",
  "tempfile",
  "wherror",
@@ -2982,11 +3093,25 @@ dependencies = [
  "jinn-core-types",
  "jinn-domain",
  "jinn-slices",
+ "jinn-token-count-msg",
  "kameo",
  "rstest",
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "jinn-token-count-msg"
+version = "0.118.0"
+dependencies = [
+ "dashmap 6.2.1",
+ "jinn-core-types",
+ "jinn-slices",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -3000,14 +3125,23 @@ dependencies = [
  "dirs",
  "error-stack",
  "futures",
+ "jinn-chat-input-msg",
+ "jinn-chat-log-view-msg",
  "jinn-cwd",
+ "jinn-cwd-msg",
  "jinn-domain",
+ "jinn-mcp-msg",
+ "jinn-persona-msg",
  "jinn-picker",
  "jinn-selection-widget",
  "jinn-sidebar",
+ "jinn-sidebar-msg",
  "jinn-slices",
  "jinn-status-bar",
+ "jinn-status-bar-msg",
  "jinn-testutil",
+ "jinn-theme-msg",
+ "jinn-token-count-msg",
  "kameo",
  "kameo_actors",
  "kanal",

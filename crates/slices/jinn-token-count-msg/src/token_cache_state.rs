@@ -27,7 +27,7 @@ use dashmap::DashMap;
 use jinn_core_types::chat_entry_id::ChatEntryId;
 use jinn_core_types::session_id::SessionId;
 
-use crate::SlotKey;
+use jinn_slices::SlotKey;
 
 /// Shared per-session, per-entry token-count cache for history workers.
 ///

@@ -5,7 +5,7 @@ use jinn_domain::feat::preferences_actor::protocol::app_state_command::{
     AppStateUpdate, UpdateAppState,
 };
 use jinn_domain::protocol::IntentResult;
-use jinn_slices::SidebarSectionId;
+use jinn_sidebar_msg::SidebarSectionId;
 
 /// The number of columns to change per resize step.
 const RESIZE_STEP: u16 = 2;
@@ -189,7 +189,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
         state
             .frontend
             .scope_push(FocusScope::Dynamic(SidebarSectionId::resize_scope_id()));

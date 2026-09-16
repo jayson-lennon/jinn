@@ -18,7 +18,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::common::app_state::AppState;
-pub use jinn_slices::{ArchiveTreePrompt, TreePromptAction};
+pub use jinn_sidebar_msg::{ArchiveTreePrompt, TreePromptAction};
 /// Emits the session command the tree action performs for `root`.
 #[must_use]
 fn command_for(action: TreePromptAction, root: SessionId) -> crate::protocol::IntentResult {
@@ -67,7 +67,7 @@ pub fn archive_tree_members(state: &AppState) -> Result<Vec<SessionId>, ArchiveT
     // Sessions section must be focused.
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(jinn_slices::SidebarSectionId::Sessions)
+        Some(jinn_sidebar_msg::SidebarSectionId::Sessions)
     ) {
         return Err(ArchiveTreeError::WrongSection);
     }

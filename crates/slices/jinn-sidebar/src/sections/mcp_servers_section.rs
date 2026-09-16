@@ -19,7 +19,7 @@ use crate::sections::section_trait::{
 };
 use jinn_domain::common::app_state::AppState;
 use jinn_domain::common::render_ctx::RenderCtx;
-use jinn_slices::McpConnectionStatus;
+use jinn_mcp_msg::McpConnectionStatus;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -30,7 +30,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 const SELECTED_INDICATOR: &str = "\u{2588}";
 /// One space used as the unselected border (same as other sections).
 const UNSELECTED_BORDER: &str = " ";
-pub use jinn_slices::McpServersSectionState;
+pub use jinn_sidebar_msg::McpServersSectionState;
 
 /// The effective visual state of a single (enabled) server row.
 ///
@@ -158,7 +158,7 @@ pub struct McpServersSection;
 
 impl SidebarSection for McpServersSection {
     fn id(&self) -> SidebarSectionId {
-        jinn_slices::SidebarSectionId::McpServers
+        jinn_sidebar_msg::SidebarSectionId::McpServers
     }
 
     fn render(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
@@ -167,7 +167,7 @@ impl SidebarSection for McpServersSection {
         let section_focused = sidebar_focused
             && matches!(
                 state.frontend.sidebar_section(),
-                Some(jinn_slices::SidebarSectionId::McpServers)
+                Some(jinn_sidebar_msg::SidebarSectionId::McpServers)
             );
 
         let cursor = state
@@ -272,7 +272,7 @@ mod tests {
     use jinn_domain::common::app_state::AppState;
     use jinn_domain::common::render_ctx::RenderCtx;
     use jinn_domain::feat::mcp::McpServerConfig;
-    use jinn_slices::McpConnectionStatus;
+    use jinn_mcp_msg::McpConnectionStatus;
     use jinn_testutil::setup_term;
 
     fn server(name: &str) -> (String, McpServerConfig) {
@@ -324,7 +324,7 @@ mod tests {
 
         // When asking for its ID.
         // Then it returns McpServers.
-        assert_eq!(section.id(), jinn_slices::SidebarSectionId::McpServers);
+        assert_eq!(section.id(), jinn_sidebar_msg::SidebarSectionId::McpServers);
     }
 
     #[rstest::rstest]

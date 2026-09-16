@@ -273,7 +273,7 @@ mod tests {
         assert!(
             state
                 .active_session()
-                .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
+                .with_input(jinn_chat_input_msg::ChatInputBoxState::is_empty, || true)
         );
         assert!(result.message_names.is_empty());
     }
@@ -290,7 +290,7 @@ mod tests {
         assert!(
             state
                 .active_session()
-                .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
+                .with_input(jinn_chat_input_msg::ChatInputBoxState::is_empty, || true)
         );
         assert!(result.message_names.is_empty());
     }
@@ -368,7 +368,7 @@ mod tests {
         assert!(
             state
                 .active_session()
-                .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
+                .with_input(jinn_chat_input_msg::ChatInputBoxState::is_empty, || true)
         );
         assert!(result.message_names.is_empty());
         assert!(maybe_intent.is_none());
@@ -387,7 +387,7 @@ mod tests {
         assert!(
             state
                 .active_session()
-                .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
+                .with_input(jinn_chat_input_msg::ChatInputBoxState::is_empty, || true)
         );
         assert!(result.message_names.is_empty());
         assert!(maybe_intent.is_none());

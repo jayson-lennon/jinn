@@ -601,7 +601,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::TaskList.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::TaskList.focus_scope());
         state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::TaskList,
         });
@@ -612,7 +612,7 @@ mod tests {
         // Then we should return to the task-list section, not Normal.
         assert_eq!(
             state.frontend.sidebar_section(),
-            Some(jinn_slices::SidebarSectionId::TaskList),
+            Some(jinn_sidebar_msg::SidebarSectionId::TaskList),
             "Esc from TaskList picker should restore the task-list section, got: {:?}",
             state.frontend.scope()
         );
@@ -701,7 +701,7 @@ mod tests {
         other.focus_accent = ratatui::style::Color::Red;
         let mut state = AppState::default_with_scope_focus();
         state.frontend.update_theme_entries(|cell| {
-            cell.entries = vec![jinn_slices::NamedTheme {
+            cell.entries = vec![jinn_theme_msg::NamedTheme {
                 name: "other".to_owned(),
                 theme: other.clone(),
             }];
@@ -745,7 +745,7 @@ mod tests {
         other.focus_accent = ratatui::style::Color::Red;
         let mut state = AppState::default_with_scope_focus();
         state.frontend.update_theme_entries(|cell| {
-            cell.entries = vec![jinn_slices::NamedTheme {
+            cell.entries = vec![jinn_theme_msg::NamedTheme {
                 name: "other".to_owned(),
                 theme: other.clone(),
             }];

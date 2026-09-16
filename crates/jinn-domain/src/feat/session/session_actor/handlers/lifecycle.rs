@@ -1453,7 +1453,7 @@ impl SessionPersistenceActor {
     /// replacement gets its own id without stealing any other session's MCP
     /// spawns (different `SpawnKey`s).
     ///
-    /// [`McpEnablementChanged`]: jinn_slices::McpEnablementChanged
+    /// [`McpEnablementChanged`]: jinn_mcp_msg::McpEnablementChanged
     ///
     /// Delegates cursor and active-session reconciliation to
     /// [`reconcile_after_session_removal`].
@@ -1462,7 +1462,7 @@ impl SessionPersistenceActor {
     pub(in crate::feat::session::session_actor) fn remove_and_replace(
         &self,
         session_id: &crate::protocol::SessionId,
-    ) -> Option<jinn_slices::McpEnablementChanged> {
+    ) -> Option<jinn_mcp_msg::McpEnablementChanged> {
         let (fresh_session, enablement) = {
             let app_state = self.services.app_state_storage.read();
             let prefs = self.services.user_preferences_storage.read();
@@ -1487,7 +1487,7 @@ impl SessionPersistenceActor {
 
             let enablement =
                 seed.has_auto_enabled_mcp()
-                    .then(|| jinn_slices::McpEnablementChanged {
+                    .then(|| jinn_mcp_msg::McpEnablementChanged {
                         session_id: fresh.session_id().clone(),
                         enabled: seed.enabled_mcp,
                     });

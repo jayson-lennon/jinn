@@ -6,7 +6,7 @@ use crate::common::app_state::AppState;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::protocol::SessionId;
 
-pub use jinn_slices::{SessionEntry, SessionEntryKind, SessionsSectionState};
+pub use jinn_sidebar_msg::{SessionEntry, SessionEntryKind, SessionsSectionState};
 
 /// Collects all loaded sessions in tree order (DFS).
 ///

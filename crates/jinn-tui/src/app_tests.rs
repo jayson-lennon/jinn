@@ -22,7 +22,7 @@ async fn test_app() -> TuiApp {
 
 #[rstest::rstest]
 #[case::normal_chat(jinn_domain::FocusScope::Normal, Scope::Normal)]
-#[case::sidebar(jinn_slices::SidebarSectionId::Persona.focus_scope(), Scope::Dynamic(jinn_slices::SliceScopeId::navigation("sidebar", "persona")))]
+#[case::sidebar(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope(), Scope::Dynamic(jinn_slices::SliceScopeId::navigation("sidebar", "persona")))]
 #[case::input(jinn_domain::FocusScope::Input, Scope::Input)]
 #[case::picker_provider(jinn_domain::FocusScope::Picker { kind: jinn_domain::PickerKind::Provider }, Scope::PickerProvider)]
 #[case::picker_task_list(jinn_domain::FocusScope::Picker { kind: jinn_domain::PickerKind::TaskList }, Scope::PickerTaskList)]

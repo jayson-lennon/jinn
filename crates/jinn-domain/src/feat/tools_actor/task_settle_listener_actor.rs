@@ -35,7 +35,7 @@ use crate::feat::context::protocol::event::ContextFilesLoaded;
 use crate::feat::provider::protocol::event::PromptTemplatesLoaded;
 use crate::feat::skills::SkillsLoaded;
 use crate::protocol::SessionId;
-use jinn_slices::{McpConnectionStatus, McpServerStatus};
+use jinn_mcp_msg::{McpConnectionStatus, McpServerStatus};
 
 /// Dependencies for spawning a [`TaskSettleListenerActor`].
 #[derive(Debug)]

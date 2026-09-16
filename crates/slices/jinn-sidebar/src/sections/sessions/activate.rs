@@ -19,7 +19,7 @@ pub fn handle_session_activate(state: &mut AppState) -> IntentResult {
 
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(jinn_slices::SidebarSectionId::Sessions)
+        Some(jinn_sidebar_msg::SidebarSectionId::Sessions)
     ) {
         return IntentResult::empty();
     }
@@ -53,7 +53,7 @@ pub fn handle_session_activate_insert(state: &mut AppState) -> IntentResult {
 
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(jinn_slices::SidebarSectionId::Sessions)
+        Some(jinn_sidebar_msg::SidebarSectionId::Sessions)
     ) {
         return IntentResult::empty();
     }
@@ -107,7 +107,7 @@ mod tests {
             .update_sections(|s| s.sessions.selected_index = Some(target_idx));
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         (state, second)
     }
 
@@ -133,7 +133,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         // selected_index stays None.
 
         // When activating.
@@ -199,7 +199,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         let initial_scope = state.frontend.scope().clone();
 
         // When activating into insert mode.

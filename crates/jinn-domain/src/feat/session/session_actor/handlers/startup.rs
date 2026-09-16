@@ -78,7 +78,7 @@ impl SessionPersistenceActor {
         }
 
         if let Some((session_id, enabled)) = welcome_mcp_enablement {
-            self.publish(jinn_slices::McpEnablementChanged {
+            self.publish(jinn_mcp_msg::McpEnablementChanged {
                 session_id,
                 enabled,
             })

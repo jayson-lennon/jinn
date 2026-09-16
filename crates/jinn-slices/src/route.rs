@@ -168,11 +168,6 @@ pub trait SliceActionState {
     fn push_session_error(&mut self, message: &str);
     /// The active session's working directory (the cwd popup's seeding base).
     fn active_session_cwd(&self) -> std::path::PathBuf;
-    /// Mints the publish closure for the kernel's `PersonasLoaded` event.
-    ///
-    /// The kernel impl wraps its own event type; the persona slice stays
-    /// kernel-free and only ever holds the opaque closure.
-    fn publish_personas_loaded(&self, personas: Vec<crate::Persona>) -> PublishClosure;
     /// Mints the publish closure for the kernel's `SetSessionCwd` command.
     ///
     /// The kernel impl wraps its own command type; the cwd slice stays
@@ -665,10 +660,6 @@ mod tests {
             std::path::PathBuf::from("/test/cwd")
         }
 
-        fn publish_personas_loaded(&self, _personas: Vec<crate::Persona>) -> PublishClosure {
-            Box::new(|_bus| {})
-        }
-
         fn publish_session_cwd(
             &self,
             _session_id: jinn_core_types::SessionId,
@@ -694,10 +685,6 @@ mod tests {
 
         fn active_session_cwd(&self) -> std::path::PathBuf {
             std::path::PathBuf::new()
-        }
-
-        fn publish_personas_loaded(&self, _personas: Vec<crate::Persona>) -> PublishClosure {
-            Box::new(|_bus| {})
         }
 
         fn publish_session_cwd(

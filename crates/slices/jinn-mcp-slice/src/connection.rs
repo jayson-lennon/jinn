@@ -42,7 +42,7 @@ use jinn_domain::feat::tools_actor::truncation::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_tail,
 };
 use jinn_domain::protocol::SessionId;
-use jinn_slices::{McpConnectionStatus, McpServerLog, McpServerStatus};
+use jinn_mcp_msg::{McpConnectionStatus, McpServerLog, McpServerStatus};
 
 use jinn_domain::Services;
 

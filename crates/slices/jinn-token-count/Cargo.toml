@@ -5,6 +5,7 @@ edition.workspace = true
 description = "The token-count slice: per-entry token counting and the shared token cache eviction."
 
 [dependencies]
+jinn-token-count-msg = { workspace = true }
 # Kernel dep (sidebar precedent): both actors are async kameo actors writing
 # through tcaps (State + SessionCap) and subscribing via ActorDeps — the sync
 # SliceActionState capability pattern does not fit async event handlers.

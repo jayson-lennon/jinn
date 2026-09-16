@@ -13,7 +13,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use unicode_segmentation::UnicodeSegmentation;
 
-use jinn_slices::{CwdResolution, resolve_cwd_input};
+use jinn_cwd_msg::{CwdResolution, resolve_cwd_input};
 
 /// Horizontal padding fraction for the popup (20% each side).
 const POPUP_H_PAD_FRAC: f32 = 0.20;

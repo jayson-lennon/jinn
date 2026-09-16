@@ -16,7 +16,7 @@ use crate::protocol::{ChatEntry, ChatEntryId};
 
 // Re-export shim: `VisualItem` moved to `jinn-slices` (chat-log view
 // vocabulary); the kernel path stays stable for consumers.
-pub use jinn_slices::VisualItem;
+pub use jinn_chat_log_view_msg::VisualItem;
 
 /// Number of entries from the end that are never hidden, regardless of `ignored`.
 pub const PROXIMITY_COUNT: usize = 3;

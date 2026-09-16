@@ -66,7 +66,7 @@ fn state_with_sessions(count: usize) -> AppState {
 #[rstest::rstest]
 fn section_id_is_sessions() {
     let section = SessionsSection::new();
-    assert_eq!(section.id(), jinn_slices::SidebarSectionId::Sessions);
+    assert_eq!(section.id(), jinn_sidebar_msg::SidebarSectionId::Sessions);
 }
 
 #[rstest::rstest]
@@ -711,7 +711,7 @@ fn render_footer_uses_focus_accent_when_sidebar_focused() {
     let state = {
         let s = AppState::default_with_scope_focus();
         s.frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         s
     };
 
@@ -770,7 +770,7 @@ fn render_footer_uses_border_unfocused_when_other_sidebar_section_focused() {
     let state = {
         let s = AppState::default_with_scope_focus();
         s.frontend
-            .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
         s
     };
 
@@ -801,7 +801,7 @@ fn close_session_switches_to_next() {
     let mut state = state_with_sessions(3);
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     // Active session is at index 0 (sorted newest-first, default is oldest → last, but we
     // set active to index 0 explicitly to test active-session close).
@@ -826,7 +826,7 @@ fn close_non_active_session_keeps_active() {
     let mut state = state_with_sessions(3);
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     // Active session is at index 0.
     state.session.set_active(sessions[0].id.clone());
@@ -852,7 +852,7 @@ fn close_last_session_creates_new() {
     let mut state = AppState::default_with_scope_focus();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     let original_id = state.session.active_session_id().clone();
     state
         .frontend
@@ -878,7 +878,7 @@ fn close_last_session_seeds_new_session_reasoning_effort_from_global() {
     let mut state = AppState::default_with_scope_focus();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     state.frontend.app_state.reasoning_effort = Some(jinn_domain::ReasoningEffort::High);
     state
         .frontend
@@ -901,7 +901,7 @@ fn close_last_session_seeds_disabled_sets_from_preferences() {
     let mut state = AppState::default_with_scope_focus();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     state.frontend.preferences.disabled_tools = ["bash"].iter().map(|s| (*s).to_owned()).collect();
     state.frontend.preferences.disabled_skills = ["phased-task-loop"]
         .iter()
@@ -934,7 +934,7 @@ fn close_last_session_with_auto_enable_returns_enablement_message() {
     let mut state = AppState::default_with_scope_focus();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     state.frontend.preferences.mcp_server = [(
         "excalimate".to_owned(),
         jinn_domain::feat::mcp::McpServerConfig {
@@ -971,7 +971,7 @@ fn close_last_session_without_auto_enable_emits_no_enablement() {
     let mut state = AppState::default_with_scope_focus();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     state
         .frontend
         .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -994,7 +994,7 @@ fn close_session_clamps_index() {
     let mut state = state_with_sessions(3);
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     state.session.set_active(sessions[2].id.clone());
     // Move cursor to index 2 (the active session, sorted to 0, so use index 0)
@@ -1019,7 +1019,7 @@ fn close_session_adjusts_scroll_offset() {
     let mut state = state_with_sessions(20);
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     state.frontend.update_sections(|s| {
         s.sessions.scroll_offset = 10;
     });
@@ -1053,7 +1053,7 @@ fn close_session_rejected_when_streaming() {
     let mut state = AppState::default_with_scope_focus();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     state
         .frontend
         .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -1072,7 +1072,7 @@ fn close_session_rejected_when_working_phase() {
     let mut state = AppState::default_with_scope_focus();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     state
         .frontend
         .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -1203,7 +1203,7 @@ fn activate_switches_to_cursor_session() {
     let mut state = state_with_sessions(3);
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     state
         .frontend
@@ -1263,7 +1263,7 @@ fn session_new_with_lifecycle_opens_picker_from_sidebar_sessions() {
     let mut state = AppState::default_with_scope_focus();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
 
     // When handling the intent via IntentHandler.
     let result = jinn_domain::feat::intent::IntentHandler::handle(
@@ -1315,7 +1315,7 @@ fn teardown_only_emits_run_session_teardown() {
         .update_sections(|s| s.sessions.selected_index = Some(0));
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
 
     // When handling session teardown (the route row's action).
     let result = super::sessions::handle_session_teardown(&mut state);
@@ -1349,7 +1349,7 @@ fn teardown_only_is_noop_without_lifecycle_teardown() {
         .update_sections(|s| s.sessions.selected_index = Some(0));
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
 
     // When handling session teardown (the route row's action).
     let result = super::sessions::handle_session_teardown(&mut state);
@@ -1391,7 +1391,7 @@ fn teardown_only_is_noop_when_session_busy() {
         .update_sections(|s| s.sessions.selected_index = Some(0));
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
 
     // When handling session teardown (the route row's action).
     let result = super::sessions::handle_session_teardown(&mut state);
@@ -1866,7 +1866,7 @@ fn close_child_session_clamps_cursor() {
     let mut state = state_with_tree();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     let child_a1_index = sessions
         .iter()
@@ -1897,7 +1897,7 @@ fn close_root_session_promotes_children_to_roots() {
     let mut state = state_with_tree();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     let root_a_index = sessions
         .iter()
@@ -1945,7 +1945,7 @@ fn activate_child_session_switches_active() {
     let mut state = state_with_tree();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     let child_a1_index = sessions
         .iter()
@@ -2007,7 +2007,7 @@ fn archiving_intermediate_parent_reparents_grandchild_under_grandparent() {
     let mut state = state_with_tree();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     let child_a1_index = sessions
         .iter()
@@ -2066,7 +2066,7 @@ fn archiving_root_does_not_create_visual_parents_for_orphaned_children() {
     let mut state = state_with_tree();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     let root_a_index = sessions
         .iter()
@@ -2131,7 +2131,7 @@ fn multi_level_intermediate_hiding_reparents_to_nearest_loaded_ancestor() {
     // When archiving A.
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(&state);
     let a_index = sessions.iter().position(|s| s.id == a_id).expect("A");
     state
@@ -2468,7 +2468,7 @@ fn sidebar_unmarks_forked_sessions() {
 
 use jinn_domain::feat::session::sessions_list::archive_tree::ArchiveTreeError;
 use jinn_domain::feat::session::sessions_list::archive_tree::archive_tree_members;
-use jinn_slices::{ArchiveTreePrompt, TreePromptAction};
+use jinn_sidebar_msg::{ArchiveTreePrompt, TreePromptAction};
 
 /// Helper: builds a session tree of root -> child -> grandchild, plus an
 /// unrelated survivor root. All sessions get titles for lookup. Returns the
@@ -2516,7 +2516,7 @@ fn state_with_archive_tree() -> (AppState, [jinn_domain::protocol::SessionId; 4]
 fn focus_sessions_and_select(state: &mut AppState, title: &str) {
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     let sessions = sorted_open_sessions(state);
     let index = sessions
         .iter()
@@ -2620,7 +2620,7 @@ fn archive_tree_members_rejected_when_no_selection() {
     let (mut state, _) = state_with_archive_tree();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     state
         .frontend
         .update_sections(|s| s.sessions.selected_index = None);

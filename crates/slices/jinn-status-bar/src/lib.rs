@@ -88,7 +88,7 @@ mod activation_tests {
 
         // Then the status-bar cell resolves and round-trips a hint.
         let cell = slices
-            .reader::<jinn_slices::StatusBarState>(&jinn_slices::status_bar_slot())
+            .reader::<jinn_status_bar_msg::StatusBarState>(&jinn_status_bar_msg::status_bar_slot())
             .expect("activation must register the status-bar cell");
         cell.update(|s| s.hint = Some("hello".to_owned()));
         assert_eq!(cell.read().hint.as_deref(), Some("hello"));

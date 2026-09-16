@@ -41,8 +41,8 @@ use jinn_domain::feat::session_lifecycle::protocol::event::{
     SessionCreated, SessionTeardownFinished,
 };
 use jinn_domain::protocol::SessionId;
-use jinn_slices::{McpEnablementChanged, RestartError, RestartMcpServer};
-use jinn_slices::{McpServerLog, McpServerStatus};
+use jinn_mcp_msg::{McpEnablementChanged, RestartError, RestartMcpServer};
+use jinn_mcp_msg::{McpServerLog, McpServerStatus};
 
 /// Key into the spawned-actor map: one `McpActor` per (session × server).
 type SpawnKey = (SessionId, String);
@@ -482,12 +482,12 @@ mod lifecycle_tests {
     use jinn_domain::feat::mcp::McpServerConfig;
     use jinn_domain::feat::preferences_actor::user_preferences::UserPreferences;
     use jinn_domain::protocol::SessionId;
-    use jinn_slices::RestartError;
-    use jinn_slices::{McpConnectionStatus, McpServerStatus};
+    use jinn_mcp_msg::RestartError;
+    use jinn_mcp_msg::{McpConnectionStatus, McpServerStatus};
 
     use super::{McpCoordinatorActor, McpCoordinatorActorDeps};
     use jinn_domain::feat::session::protocol::session_closed::SessionClosed;
-    use jinn_slices::McpEnablementChanged;
+    use jinn_mcp_msg::McpEnablementChanged;
 
     /// A configured MCP server whose command will never spawn successfully,
     /// so the spawned `McpActor` publishes Starting then Dead (never Running).
@@ -889,7 +889,7 @@ mod status_tests {
     use jinn_domain::common::state::State;
     use jinn_domain::feat::preferences_actor::user_preferences::UserPreferences;
     use jinn_domain::protocol::SessionId;
-    use jinn_slices::{McpConnectionStatus, McpServerLog, McpServerStatus};
+    use jinn_mcp_msg::{McpConnectionStatus, McpServerLog, McpServerStatus};
 
     use super::McpCoordinatorActor;
     use crate::coordinator::McpCoordinatorActorDeps;

@@ -1,0 +1,14 @@
+[package]
+name = "jinn-chat-log-view-msg"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+jinn-core-types = { workspace = true }
+jinn-slices = { workspace = true }
+serde = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

@@ -84,7 +84,7 @@ impl AppStateActor {
             self.deps
                 .services
                 .slices
-                .reader::<jinn_slices::ThemeEntries>(&jinn_slices::theme_entries_slot())
+                .reader::<jinn_theme_msg::ThemeEntries>(&jinn_theme_msg::theme_entries_slot())
                 .map(|cell| {
                     let entries = cell.read();
                     entries
@@ -373,9 +373,9 @@ mod tests {
             .services
             .slices
             .register(
-                jinn_slices::theme_entries_slot(),
-                jinn_slices::ThemeEntries {
-                    entries: vec![jinn_slices::NamedTheme {
+                jinn_theme_msg::theme_entries_slot(),
+                jinn_theme_msg::ThemeEntries {
+                    entries: vec![jinn_theme_msg::NamedTheme {
                         name: "dracula".to_owned(),
                         theme: contributed.clone(),
                     }],

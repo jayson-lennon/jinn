@@ -6,9 +6,9 @@
 //! the popup's dynamic scope at activation; the facts' `session.cwd` entry
 //! supplies the resolve base.
 
+use jinn_cwd_msg::{CwdInputState, CwdResolution, resolve_cwd_input};
 use jinn_slices::RenderFacts;
 use jinn_slices::cell::TypedCell;
-use jinn_slices::{CwdInputState, CwdResolution, resolve_cwd_input};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -167,7 +167,7 @@ pub fn render_cwd_input(frame: &mut Frame<'_>, area: Rect, ctx: &RenderFacts) {
     // popup rect) — draw into it directly.
     let cell: TypedCell<CwdInputState> = ctx
         .slices
-        .reader(&jinn_slices::cwds_slot())
+        .reader(&jinn_cwd_msg::cwds_slot())
         .expect("cwd overlay renders only when its cell is registered");
     let state = cell.read();
     let current_cwd = std::path::PathBuf::from(ctx.fact(SESSION_CWD_FACT).unwrap_or_default());

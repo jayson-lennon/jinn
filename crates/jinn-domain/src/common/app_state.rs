@@ -14,7 +14,7 @@ pub use crate::common::session_map::SessionLoadGuard;
 pub use crate::feat::context::assembly_state::ContextAssemblyState;
 pub use crate::feat::provider::ProviderState;
 pub use crate::feat::pruner_accumulation_input::state::PrunerAccumulationInputState;
-pub use jinn_slices::sidebar_sections::RenameSessionInputState;
+pub use jinn_sidebar_msg::sidebar_sections::RenameSessionInputState;
 
 pub use crate::feat::session_lifecycle::arg_input_state::ArgInputState;
 pub use crate::feat::ui::frontend_state::{FrontendCaches, FrontendState};
@@ -100,8 +100,8 @@ impl AppState {
         }
         if slices
             .register(
-                jinn_slices::chat_log_views_slot(),
-                jinn_slices::ChatLogViews::new(),
+                jinn_chat_log_view_msg::chat_log_views_slot(),
+                jinn_chat_log_view_msg::ChatLogViews::new(),
             )
             .is_err()
         {
@@ -109,8 +109,8 @@ impl AppState {
         }
         if slices
             .register(
-                jinn_slices::sidebar_sections_slot(),
-                jinn_slices::SidebarSections::default(),
+                jinn_sidebar_msg::sidebar_sections_slot(),
+                jinn_sidebar_msg::SidebarSections::default(),
             )
             .is_err()
         {
@@ -118,8 +118,8 @@ impl AppState {
         }
         if slices
             .register(
-                jinn_slices::theme_entries_slot(),
-                jinn_slices::ThemeEntries::default(),
+                jinn_theme_msg::theme_entries_slot(),
+                jinn_theme_msg::ThemeEntries::default(),
             )
             .is_err()
         {

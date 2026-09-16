@@ -1,7 +1,7 @@
 //! The theme slice — theme discovery and selection state.
 //!
 //! Owns one cell ([`theme_entries_slot`]) holding
-//! [`jinn_slices::ThemeEntries`]: the ordered theme selection the theme
+//! [`jinn_theme_msg::ThemeEntries`]: the ordered theme selection the theme
 //! picker displays and the app-state actor resolves the persisted theme
 //! name against. `activate` scans the user and system theme directories
 //! once — the same behavior the retired themes plugin had: one
@@ -10,12 +10,12 @@
 
 use std::path::Path;
 
-use jinn_slices::NamedTheme;
 use jinn_slices::SliceHost;
-use jinn_slices::ThemeEntries;
 use jinn_theme::loader::{discover_themes, load_theme_from_file};
+use jinn_theme_msg::NamedTheme;
+use jinn_theme_msg::ThemeEntries;
 
-pub use jinn_slices::theme_entries_slot;
+pub use jinn_theme_msg::theme_entries_slot;
 
 /// Activates the slice: scans both theme directories and mints the
 /// theme-entries cell with the ordered results.

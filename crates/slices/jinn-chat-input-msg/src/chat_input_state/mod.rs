@@ -28,8 +28,8 @@ pub use wrap::wrap_text;
 
 use std::collections::HashMap;
 
-use crate::SlotKey;
 use jinn_core_types::SessionId;
+use jinn_slices::SlotKey;
 
 /// A single match for the prompt template autocomplete popup.
 #[derive(Debug, Clone)]

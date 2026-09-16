@@ -910,8 +910,8 @@ mod tests {
         {
             slices
                 .register(
-                    jinn_slices::status_bar_slot(),
-                    jinn_slices::StatusBarState::default(),
+                    jinn_status_bar_msg::status_bar_slot(),
+                    jinn_status_bar_msg::StatusBarState::default(),
                 )
                 .expect("fresh Slices never has the status-bar cell registered");
         }
@@ -947,7 +947,7 @@ mod tests {
         assert!(
             state
                 .active_session()
-                .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
+                .with_input(jinn_chat_input_msg::ChatInputBoxState::is_empty, || true)
         );
         assert!(result.message_names.is_empty());
     }
@@ -1041,7 +1041,7 @@ mod tests {
         assert!(
             state
                 .active_session()
-                .with_input(jinn_slices::ChatInputBoxState::is_empty, || true),
+                .with_input(jinn_chat_input_msg::ChatInputBoxState::is_empty, || true),
             "chat input should be empty"
         );
     }
@@ -2150,7 +2150,7 @@ mod tests {
         state.frontend.terminal.set_live(&second_id, true);
         state
             .frontend
-            .scope_swap_base(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_swap_base(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(0));

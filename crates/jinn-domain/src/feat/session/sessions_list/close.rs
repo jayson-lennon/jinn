@@ -26,7 +26,7 @@ pub fn validate_session_close(state: &AppState) -> Result<(), SessionCloseError>
     // Sessions section must be focused.
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(jinn_slices::SidebarSectionId::Sessions)
+        Some(jinn_sidebar_msg::SidebarSectionId::Sessions)
     ) {
         return Err(SessionCloseError::WrongSection);
     }
@@ -118,7 +118,7 @@ pub fn handle_session_close(state: &mut AppState) -> crate::protocol::IntentResu
 
             let enablement =
                 seed.has_auto_enabled_mcp()
-                    .then(|| jinn_slices::McpEnablementChanged {
+                    .then(|| jinn_mcp_msg::McpEnablementChanged {
                         session_id: new_session.session_id().clone(),
                         enabled: seed.enabled_mcp,
                     });

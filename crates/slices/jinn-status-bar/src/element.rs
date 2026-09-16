@@ -23,8 +23,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use crate::turn_counter;
-use jinn_slices::StatusBarState;
-use jinn_slices::status_bar_slot;
+use jinn_status_bar_msg::StatusBarState;
+use jinn_status_bar_msg::status_bar_slot;
 
 /// A display element that shows the active strategy and provider/model in the status bar.
 #[derive(Debug)]

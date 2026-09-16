@@ -13,7 +13,7 @@ pub mod key_routes;
 pub mod overlay;
 pub mod sections;
 
-pub use jinn_slices::sidebar_sections_slot;
+pub use jinn_sidebar_msg::sidebar_sections_slot;
 
 use jinn_slices::SliceHost;
 
@@ -32,7 +32,7 @@ pub fn activate(host: &mut SliceHost<'_, jinn_slices::RenderFacts>) {
     let cell = host
         .register_cell(
             sidebar_sections_slot(),
-            jinn_slices::SidebarSections::default(),
+            jinn_sidebar_msg::SidebarSections::default(),
         )
         .expect("sidebar slot is registered exactly once at wiring");
     key_routes::attach_sidebar_rows(host.key_routes());

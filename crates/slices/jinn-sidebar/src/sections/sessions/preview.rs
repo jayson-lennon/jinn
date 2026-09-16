@@ -23,7 +23,7 @@ use jinn_domain::feat::session::chat_session::ChatSessionState;
 use jinn_domain::feat::theme::Theme;
 use jinn_domain::feat::ui::chat_log::RenderContext;
 use jinn_domain::feat::ui::chat_log::entry_to_lines;
-use jinn_slices::SessionPreviewCache;
+use jinn_sidebar_msg::SessionPreviewCache;
 
 /// Number of history entries to show in the preview.
 const PREVIEW_ENTRY_COUNT: usize = 5;
@@ -60,7 +60,7 @@ pub fn render_session_preview_for_state(
     ctx: &RenderCtx,
 ) {
     let state = ctx.state;
-    if state.frontend.sidebar_section() != Some(jinn_slices::SidebarSectionId::Sessions) {
+    if state.frontend.sidebar_section() != Some(jinn_sidebar_msg::SidebarSectionId::Sessions) {
         return;
     }
     let Some(idx) = state

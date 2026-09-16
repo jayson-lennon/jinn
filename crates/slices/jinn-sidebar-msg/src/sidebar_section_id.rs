@@ -33,8 +33,8 @@ impl SidebarSectionId {
     /// The focus scope for this section: the dynamic scope the sidebar
     /// pushes while the section is focused.
     #[must_use]
-    pub fn focus_scope(self) -> crate::focus::FocusScope {
-        crate::focus::FocusScope::Dynamic(self.scope_id())
+    pub fn focus_scope(self) -> jinn_slices::focus::FocusScope {
+        jinn_slices::focus::FocusScope::Dynamic(self.scope_id())
     }
 
     /// The section for a sidebar dynamic scope's name — the inverse of
@@ -56,8 +56,8 @@ impl SidebarSectionId {
     /// sidebar pushes while the section is focused. Navigation-only —
     /// the sections drive a cursor, they never capture text input.
     #[must_use]
-    pub fn scope_id(self) -> crate::slice_scope::SliceScopeId {
-        crate::slice_scope::SliceScopeId::navigation(
+    pub fn scope_id(self) -> jinn_slices::slice_scope::SliceScopeId {
+        jinn_slices::slice_scope::SliceScopeId::navigation(
             "sidebar",
             match self {
                 Self::Pins => "pins",
@@ -72,7 +72,7 @@ impl SidebarSectionId {
     /// The sidebar's resize-mode scope id (adjusting sidebar width with
     /// h/l keys).
     #[must_use]
-    pub fn resize_scope_id() -> crate::slice_scope::SliceScopeId {
-        crate::slice_scope::SliceScopeId::navigation("sidebar", "resize")
+    pub fn resize_scope_id() -> jinn_slices::slice_scope::SliceScopeId {
+        jinn_slices::slice_scope::SliceScopeId::navigation("sidebar", "resize")
     }
 }

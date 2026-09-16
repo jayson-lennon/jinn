@@ -1,8 +1,8 @@
 //! The chat-log-view slice's owned state.
 //!
 //! The payload type lives in `jinn-slices`
-//! ([`jinn_slices::ChatLogViewUi`]) so the kernel writes it without
+//! ([`jinn_chat_log_view_msg::ChatLogViewUi`]) so the kernel writes it without
 //! depending on this crate; this module re-exports it under the slice's
 //! name.
 
-pub use jinn_slices::ChatLogViewUi;
+pub use jinn_chat_log_view_msg::ChatLogViewUi;

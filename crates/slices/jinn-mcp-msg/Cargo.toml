@@ -1,0 +1,14 @@
+[package]
+name = "jinn-mcp-msg"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+jinn-core-types = { workspace = true }
+jinn-slices = { workspace = true }
+serde = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

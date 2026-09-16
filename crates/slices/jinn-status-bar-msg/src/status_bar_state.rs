@@ -10,7 +10,7 @@
 //! crates, and the slice crate re-exports this type under its
 //! own name.
 
-use crate::SlotKey;
+use jinn_slices::SlotKey;
 
 /// The status bar slice's cell payload.
 ///

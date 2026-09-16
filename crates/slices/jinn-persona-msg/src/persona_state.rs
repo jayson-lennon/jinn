@@ -2,13 +2,13 @@
 //!
 //! [`Persona`] lives in the slice-surface layer (not in the slice crate)
 //! because the *readers* include kernel-resident code: the session actor
-//! fills `context.personas` from the [`crate::tui_signals`]-adjacent
+//! fills `context.personas` from the TUI-adjacent
 //! `PersonasLoaded` event the slice publishes, and the persona picker
 //! spec renders from the same type. The writer — the activation-time
 //! markdown scan — lives in the slice crate. Both import this one type;
 //! neither depends on the other.
 
-use crate::SlotKey;
+use jinn_slices::SlotKey;
 
 /// A parsed persona ready for use in the system prompt.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

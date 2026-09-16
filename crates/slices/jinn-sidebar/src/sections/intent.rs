@@ -14,7 +14,7 @@ pub fn handle_sidebar_focus(state: &mut AppState) -> IntentResult {
 
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
 
     // If a section already has cursor state, restore it.
     let (persona_has_cursor, pins_has_cursor, sessions_has_cursor) = state.frontend.with_sections(
@@ -32,16 +32,16 @@ pub fn handle_sidebar_focus(state: &mut AppState) -> IntentResult {
     if has_existing_cursor {
         // Restore to whichever section has a cursor.
         let section = if sessions_has_cursor {
-            jinn_slices::SidebarSectionId::Sessions
+            jinn_sidebar_msg::SidebarSectionId::Sessions
         } else if pins_has_cursor {
-            jinn_slices::SidebarSectionId::Pins
+            jinn_sidebar_msg::SidebarSectionId::Pins
         } else {
-            jinn_slices::SidebarSectionId::Persona
+            jinn_sidebar_msg::SidebarSectionId::Persona
         };
         state.frontend.scope_set_sidebar_section(section);
 
         // Save history position when restoring to Pins with existing cursor.
-        if section == jinn_slices::SidebarSectionId::Pins
+        if section == jinn_sidebar_msg::SidebarSectionId::Pins
             && !state.active_session().has_saved_history_position()
         {
             state.active_session_mut().save_history_position();
@@ -74,7 +74,7 @@ pub fn handle_sidebar_leave(state: &mut AppState) -> IntentResult {
 ///
 /// If already in the sidebar, switches to Sessions section (clearing the
 /// previous section's cursor and placing cursor on the first session).
-/// If not in the sidebar, pushes `jinn_slices::SidebarSectionId::Sessions.focus_scope()` and
+/// If not in the sidebar, pushes `jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope()` and
 /// calls `receive_cursor`.
 pub fn handle_sidebar_focus_sessions(state: &mut AppState) -> IntentResult {
     use crate::sections::section_trait::EnterFrom;
@@ -84,9 +84,9 @@ pub fn handle_sidebar_focus_sessions(state: &mut AppState) -> IntentResult {
         let current_section = state
             .frontend
             .sidebar_section()
-            .unwrap_or(jinn_slices::SidebarSectionId::Persona);
+            .unwrap_or(jinn_sidebar_msg::SidebarSectionId::Persona);
 
-        if current_section == jinn_slices::SidebarSectionId::Sessions {
+        if current_section == jinn_sidebar_msg::SidebarSectionId::Sessions {
             return IntentResult::empty();
         }
 
@@ -94,20 +94,20 @@ pub fn handle_sidebar_focus_sessions(state: &mut AppState) -> IntentResult {
         crate::sections::sidebar::clear_cursor(current_section, state);
 
         // Restore history position when leaving Pins.
-        if current_section == jinn_slices::SidebarSectionId::Pins {
+        if current_section == jinn_sidebar_msg::SidebarSectionId::Pins {
             state.active_session_mut().restore_history_position();
         }
 
         // Switch to sessions.
         state
             .frontend
-            .scope_set_sidebar_section(jinn_slices::SidebarSectionId::Sessions);
+            .scope_set_sidebar_section(jinn_sidebar_msg::SidebarSectionId::Sessions);
         crate::sections::sessions::navigate::receive_cursor(state, EnterFrom::Top);
     } else {
         // Not in sidebar \u{2014} enter sidebar directly on Sessions.
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         crate::sections::sessions::navigate::receive_cursor(state, EnterFrom::Top);
     }
 
@@ -192,7 +192,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
 
         // When handling sidebar leave.
         let result = handle_sidebar_leave(&mut state);
@@ -209,7 +209,7 @@ mod tests {
         state.frontend.scope_push(FocusScope::Input);
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
 
         // When handling sidebar leave.
         handle_sidebar_leave(&mut state);
@@ -224,7 +224,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
         state.active_session_mut().begin_streaming();
 
         // When handling sidebar leave.
@@ -248,7 +248,7 @@ mod tests {
         // Then scope is the sessions section.
         assert_eq!(
             state.frontend.scope(),
-            jinn_slices::SidebarSectionId::Sessions.focus_scope()
+            jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope()
         );
         // And sessions section has a cursor.
         assert!(
@@ -272,7 +272,7 @@ mod tests {
         // Then scope is the sessions section.
         assert_eq!(
             state.frontend.scope(),
-            jinn_slices::SidebarSectionId::Sessions.focus_scope()
+            jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope()
         );
     }
 
@@ -282,7 +282,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
         state
             .frontend
             .update_sections(|s| s.persona.cursor = Some(0));
@@ -293,7 +293,7 @@ mod tests {
         // Then scope is the sessions section.
         assert_eq!(
             state.frontend.scope(),
-            jinn_slices::SidebarSectionId::Sessions.focus_scope()
+            jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope()
         );
         // And persona cursor is cleared.
         assert!(
@@ -317,7 +317,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -328,7 +328,7 @@ mod tests {
         // Then scope stays the sessions section.
         assert_eq!(
             state.frontend.scope(),
-            jinn_slices::SidebarSectionId::Sessions.focus_scope()
+            jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope()
         );
         // And cursor is unchanged.
         assert_eq!(
@@ -354,7 +354,7 @@ mod tests {
             .update_sections(|s| s.pins.select_by_id(id.clone()));
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Pins.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Pins.focus_scope());
 
         // When handling sidebar focus sessions.
         handle_sidebar_focus_sessions(&mut state);
@@ -362,7 +362,7 @@ mod tests {
         // Then scope is the sessions section.
         assert_eq!(
             state.frontend.scope(),
-            jinn_slices::SidebarSectionId::Sessions.focus_scope()
+            jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope()
         );
         // And sessions has a cursor.
         assert!(
@@ -401,7 +401,7 @@ mod tests {
         // Enter sidebar pins - this saves history position and syncs cursor to pin.
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Pins.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Pins.focus_scope());
         crate::sections::pins::pins_section::receive_cursor(
             &mut state,
             crate::sections::section_trait::EnterFrom::Top,

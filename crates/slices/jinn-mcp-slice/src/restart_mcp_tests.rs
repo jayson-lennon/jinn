@@ -34,7 +34,7 @@ use jinn_domain::feat::preferences_actor::UserPreferences;
 use jinn_domain::feat::tools_actor::restart_mcp::execute;
 use jinn_domain::feat::tools_actor::tool_types::{ToolCall, ToolContext};
 use jinn_domain::protocol::SessionId;
-use jinn_slices::{RestartError, RestartMcpServer};
+use jinn_mcp_msg::{RestartError, RestartMcpServer};
 use kameo::actor::Spawn;
 
 /// A configured MCP server whose command will never spawn successfully, so the

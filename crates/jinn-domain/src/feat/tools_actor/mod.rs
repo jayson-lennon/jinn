@@ -111,8 +111,8 @@ use crate::feat::tools_actor::protocol::event::{
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition, ToolResult};
 use crate::protocol::SessionId;
 use jiff::Timestamp;
+use jinn_mcp_msg::McpConnectionStatus;
 use jinn_provider::ServerToolType;
-use jinn_slices::McpConnectionStatus;
 use kameo::prelude::{Actor, ActorRef, Context, Message};
 
 /// Prefix for all MCP-provided tool `provider` values. A provider like
@@ -1483,7 +1483,7 @@ mod mcp_dispatch_gate_tests {
     use crate::feat::tools_actor::protocol::event::{ToolExecutionCompleted, ToolsUnregistered};
     use crate::feat::tools_actor::tool_types::{ToolCall, ToolDefinition};
     use crate::protocol::SessionId;
-    use jinn_slices::McpConnectionStatus;
+    use jinn_mcp_msg::McpConnectionStatus;
 
     use super::{ToolOrchestratorActor, ToolOrchestratorActorDeps};
 

@@ -748,8 +748,10 @@ impl TryFrom<SessionLoadContext> for ChatSessionState {
             core,
             ui: SessionUi::default(),
             slices: std::sync::OnceLock::new(),
-            view_fallback: parking_lot::RwLock::new(jinn_slices::ChatLogViewUi::default()),
-            input_fallback: parking_lot::RwLock::new(jinn_slices::ChatInputBoxState::new()),
+            view_fallback: parking_lot::RwLock::new(
+                jinn_chat_log_view_msg::ChatLogViewUi::default(),
+            ),
+            input_fallback: parking_lot::RwLock::new(jinn_chat_input_msg::ChatInputBoxState::new()),
         })
     }
 }

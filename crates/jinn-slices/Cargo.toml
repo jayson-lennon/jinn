@@ -4,15 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-async-trait = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
 parking_lot = { workspace = true }
 derive_more = { workspace = true }
 jinn-theme = { workspace = true }
-dashmap = { workspace = true }
 jinn-core-types = { workspace = true }
-jiff = { workspace = true }
 kameo = { workspace = true }
 kameo_actors = { workspace = true }
 ratatui = { workspace = true }
@@ -23,7 +20,6 @@ toml = { workspace = true }
 wherror = { workspace = true }
 error-stack = { workspace = true }
 uuid = { workspace = true }
-dirs = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

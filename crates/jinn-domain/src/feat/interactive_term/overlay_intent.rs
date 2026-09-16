@@ -21,7 +21,7 @@ use crate::protocol::intent::IntentResult;
 pub fn selected_sessions_sidebar_target(state: &AppState) -> Option<crate::protocol::SessionId> {
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(jinn_slices::SidebarSectionId::Sessions)
+        Some(jinn_sidebar_msg::SidebarSectionId::Sessions)
     ) {
         return None;
     }

@@ -16,8 +16,8 @@ use jinn_slices::SliceHost;
 pub mod count_actor;
 pub mod eviction_actor;
 
-pub use jinn_slices::HistoryWorkerChatEntryTokenCache;
-pub use jinn_slices::token_cache_slot;
+pub use jinn_token_count_msg::HistoryWorkerChatEntryTokenCache;
+pub use jinn_token_count_msg::token_cache_slot;
 
 /// Activates the slice: registers the shared token-cache cell and returns
 /// the cache for composition to hand to the actor spawn sites (count,

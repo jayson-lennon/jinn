@@ -20,7 +20,7 @@ const SELECTED_INDICATOR: &str = "\u{2588}";
 /// One space used as the unselected border (same as pins section).
 const UNSELECTED_BORDER: &str = " ";
 
-pub use jinn_slices::PersonaSectionState;
+pub use jinn_sidebar_msg::PersonaSectionState;
 
 /// Navigate within the persona section.
 ///
@@ -48,7 +48,7 @@ pub struct PersonaSection;
 
 impl SidebarSection for PersonaSection {
     fn id(&self) -> SidebarSectionId {
-        jinn_slices::SidebarSectionId::Persona
+        jinn_sidebar_msg::SidebarSectionId::Persona
     }
 
     fn render(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
@@ -57,7 +57,7 @@ impl SidebarSection for PersonaSection {
         let section_focused = sidebar_focused
             && matches!(
                 state.frontend.sidebar_section(),
-                Some(jinn_slices::SidebarSectionId::Persona)
+                Some(jinn_sidebar_msg::SidebarSectionId::Persona)
             );
         let theme = &state.frontend.theme;
 
@@ -154,7 +154,7 @@ mod tests {
 
         // When asking for its ID.
         // Then it returns Persona.
-        assert_eq!(section.id(), jinn_slices::SidebarSectionId::Persona);
+        assert_eq!(section.id(), jinn_sidebar_msg::SidebarSectionId::Persona);
     }
 
     #[rstest::rstest]

@@ -16,8 +16,8 @@ use std::sync::atomic::{AtomicU16, Ordering};
 
 use parking_lot::RwLock;
 
-use crate::SlotKey;
 use jinn_core_types::{ChatEntryId, ContextOverride, SessionId};
+use jinn_slices::SlotKey;
 
 /// A visual item in the chat log, computed from the flat history at render
 /// time.

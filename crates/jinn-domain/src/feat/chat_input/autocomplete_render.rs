@@ -104,7 +104,7 @@ pub fn render_autocomplete_popup(frame: &mut Frame<'_>, input_area: Rect, state:
     // floating one row above the trigger's on-screen visual line (the cursor's
     // line) instead of the top of the whole input box.
     let scroll_offset = state.active_session().with_input(
-        jinn_slices::ChatInputBoxState::scroll_offset,
+        jinn_chat_input_msg::ChatInputBoxState::scroll_offset,
         Default::default,
     );
     let trigger_screen_y = input_area
@@ -246,7 +246,7 @@ fn render_at_popup(
     // Vertically float the popup one row above the trigger's on-screen visual
     // line (the cursor's line), matching the `#`/`/` popup.
     let scroll_offset = state.active_session().with_input(
-        jinn_slices::ChatInputBoxState::scroll_offset,
+        jinn_chat_input_msg::ChatInputBoxState::scroll_offset,
         Default::default,
     );
     let trigger_screen_y = input_area

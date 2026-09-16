@@ -28,10 +28,10 @@ pub mod state;
 pub mod validator;
 
 // Re-export state types for convenience.
-pub use jinn_slices::AutocompleteMatch;
-pub use jinn_slices::AutocompleteTrigger;
-pub use jinn_slices::ChatInputBoxState;
-pub use jinn_slices::InputMode;
+pub use jinn_chat_input_msg::AutocompleteMatch;
+pub use jinn_chat_input_msg::AutocompleteTrigger;
+pub use jinn_chat_input_msg::ChatInputBoxState;
+pub use jinn_chat_input_msg::InputMode;
 
 // Re-export element for registration.
 pub use element::ChatInputBoxElement;

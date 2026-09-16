@@ -8,7 +8,7 @@
 use jinn_core_types::session_id::SessionId;
 use jinn_domain::common::actor_deps::ActorDeps;
 use jinn_domain::feat::session::protocol::session_closed::SessionClosed;
-use jinn_slices::HistoryWorkerChatEntryTokenCache;
+use jinn_token_count_msg::HistoryWorkerChatEntryTokenCache;
 use kameo::prelude::{Actor, ActorRef, Context, Message};
 
 /// Actor that owns session-lifecycle eviction of

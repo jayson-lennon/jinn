@@ -5,8 +5,9 @@
 //! in-progress text from the sections cell and the theme from the facts.
 
 use crate::sections::rename_input::render::rename_session_popup_rect;
+use jinn_sidebar_msg::{SidebarSections, sidebar_sections_slot};
+use jinn_slices::RenderFacts;
 use jinn_slices::cell::TypedCell;
-use jinn_slices::{RenderFacts, SidebarSections, sidebar_sections_slot};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;

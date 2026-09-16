@@ -42,10 +42,10 @@ fn sidebar_persona_edit_opens_picker_when_persona_focused() {
     let mut state = AppState::default_with_scope_focus();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
-        .scope_set_sidebar_section(jinn_slices::SidebarSectionId::Persona);
+        .scope_set_sidebar_section(jinn_sidebar_msg::SidebarSectionId::Persona);
 
     // When handling sidebar persona edit.
     let result = handle_sidebar_persona_edit(
@@ -73,10 +73,10 @@ fn sidebar_persona_edit_noop_when_pins_focused() {
     let mut state = AppState::default_with_scope_focus();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
-        .scope_set_sidebar_section(jinn_slices::SidebarSectionId::Pins);
+        .scope_set_sidebar_section(jinn_sidebar_msg::SidebarSectionId::Pins);
 
     // When handling sidebar persona edit.
     let result = handle_sidebar_persona_edit(
@@ -234,7 +234,7 @@ fn section_id_is_pins() {
 
     // When asking for its ID.
     // Then it returns Pins.
-    assert_eq!(section.id(), jinn_slices::SidebarSectionId::Pins);
+    assert_eq!(section.id(), jinn_sidebar_msg::SidebarSectionId::Pins);
 }
 
 #[rstest::rstest]
@@ -347,7 +347,7 @@ fn render_selected_entry_has_yellow_marker_when_sidebar_focused() {
     // Sidebar must be focused for the indicator to be yellow.
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Pins.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Pins.focus_scope());
 
     let (mut terminal, area) = setup_term(60, 20);
     terminal
@@ -450,10 +450,10 @@ fn session_new_works_when_sidebar_sessions_focused() {
     let mut state = AppState::default_with_scope_focus();
     state
         .frontend
-        .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+        .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
     state
         .frontend
-        .scope_set_sidebar_section(jinn_slices::SidebarSectionId::Sessions);
+        .scope_set_sidebar_section(jinn_sidebar_msg::SidebarSectionId::Sessions);
     let _old_id = state.session.active_session_id().clone();
 
     // When handling SessionNew via IntentHandler.

@@ -33,7 +33,7 @@ pub enum InterruptError {
 pub fn validate_interrupt(state: &AppState) -> Result<(), InterruptError> {
     if state
         .active_session()
-        .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
+        .with_input(jinn_chat_input_msg::ChatInputBoxState::is_empty, || true)
         && matches!(state.active_session().phase(), PhaseKind::Idle)
     {
         return Err(InterruptError::NothingToInterrupt);

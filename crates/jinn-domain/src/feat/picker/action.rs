@@ -267,7 +267,7 @@ mod tests {
         let mut other = crate::feat::theme::default_theme();
         other.focus_accent = ratatui::style::Color::Red;
         state.frontend.update_theme_entries(|cell| {
-            cell.entries = vec![jinn_slices::NamedTheme {
+            cell.entries = vec![jinn_theme_msg::NamedTheme {
                 name: "other".to_owned(),
                 theme: other.clone(),
             }];

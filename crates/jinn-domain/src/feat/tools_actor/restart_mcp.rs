@@ -16,7 +16,7 @@ use std::time::Duration;
 use futures::FutureExt;
 
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition, ToolResult};
-use jinn_slices::RestartError;
+use jinn_mcp_msg::RestartError;
 
 use super::BoxedToolFuture;
 

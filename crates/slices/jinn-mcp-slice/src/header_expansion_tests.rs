@@ -28,7 +28,7 @@ use crate::connection::{McpActor, McpActorDeps};
 use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
 use jinn_domain::feat::mcp::{McpServerConfig, TransportKind};
 use jinn_domain::protocol::SessionId;
-use jinn_slices::{McpConnectionStatus, McpServerStatus};
+use jinn_mcp_msg::{McpConnectionStatus, McpServerStatus};
 
 /// A RemoteHttp server whose header references an unknown variable publishes
 /// Dead (never Running) — the failure is surfaced through the standard

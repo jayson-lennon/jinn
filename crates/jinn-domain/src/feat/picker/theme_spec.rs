@@ -214,14 +214,14 @@ mod tests {
             .collect();
         named.sort_by_key(|(name, _)| name.to_lowercase());
         state.frontend.update_theme_entries(|cell| {
-            cell.entries = std::iter::once(jinn_slices::NamedTheme {
+            cell.entries = std::iter::once(jinn_theme_msg::NamedTheme {
                 name: "default".to_owned(),
                 theme: crate::feat::theme::default_theme(),
             })
             .chain(
                 named
                     .into_iter()
-                    .map(|(name, theme)| jinn_slices::NamedTheme { name, theme }),
+                    .map(|(name, theme)| jinn_theme_msg::NamedTheme { name, theme }),
             )
             .collect();
         });

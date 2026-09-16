@@ -14,7 +14,7 @@
 //!
 //! The wire contracts live in `jinn-slices::mcp_contracts` (single
 //! definition — kameo dispatches by `TypeId`); the kernel reaches the
-//! coordinator through `jinn_slices::McpCoordinatorHandle`, minted by
+//! coordinator through `jinn_mcp_msg::McpCoordinatorHandle`, minted by
 //! [`mcp_coordinator_handle`] at spawn.
 
 /// Installs the process-wide rustls crypto provider (ring) in this crate's
@@ -40,7 +40,7 @@ mod transport_routing_tests;
 pub mod connection;
 pub mod coordinator;
 
-use jinn_slices::McpCoordinatorHandle;
+use jinn_mcp_msg::McpCoordinatorHandle;
 use std::sync::Arc;
 
 /// Debug name for the minted handle (service-trait convention).
@@ -66,14 +66,14 @@ pub fn mcp_coordinator_handle(
             &self,
             session_id: jinn_core_types::SessionId,
             server: String,
-        ) -> Result<(), jinn_slices::RestartError> {
+        ) -> Result<(), jinn_mcp_msg::RestartError> {
             // Outer bound so a hung coordinator yields Timeout/Mailbox
             // instead of hanging the tool caller (the old tool-side
             // ASK_TIMEOUT semantics, moved into the seam).
             match tokio::time::timeout(
                 RESTART_ASK_TIMEOUT,
                 self.0
-                    .ask(jinn_slices::RestartMcpServer { session_id, server }),
+                    .ask(jinn_mcp_msg::RestartMcpServer { session_id, server }),
             )
             .await
             {
@@ -82,8 +82,8 @@ pub fn mcp_coordinator_handle(
                 // SendError::HandlerError(e) carries the domain variants.
                 Ok(Ok(())) => Ok(()),
                 Ok(Err(kameo::error::SendError::HandlerError(e))) => Err(e),
-                Ok(Err(_)) => Err(jinn_slices::RestartError::Mailbox),
-                Err(_) => Err(jinn_slices::RestartError::Timeout),
+                Ok(Err(_)) => Err(jinn_mcp_msg::RestartError::Mailbox),
+                Err(_) => Err(jinn_mcp_msg::RestartError::Timeout),
             }
         }
 

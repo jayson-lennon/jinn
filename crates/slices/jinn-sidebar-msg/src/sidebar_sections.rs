@@ -8,9 +8,9 @@
 
 use std::collections::HashMap;
 
-use crate::SlotKey;
 use crate::sidebar_section_id::SidebarSectionId;
 use jinn_core_types::SessionId;
+use jinn_slices::SlotKey;
 
 /// The slot key the sidebar sections cell lives under.
 #[must_use]
@@ -28,7 +28,7 @@ pub fn sidebar_sections_slot() -> SlotKey {
 #[derive(Debug, Clone, Default)]
 pub struct RenameSessionInputState {
     /// The editable text + cursor.
-    pub text: crate::line_input::LineInput,
+    pub text: jinn_slices::line_input::LineInput,
 }
 
 #[derive(Debug, Clone, Default)]

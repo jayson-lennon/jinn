@@ -31,7 +31,7 @@ use jinn_domain::protocol::IntentResult;
 pub fn handle_session_continue(state: &mut AppState) -> IntentResult {
     if !matches!(
         state.frontend.sidebar_section(),
-        Some(jinn_slices::SidebarSectionId::Sessions)
+        Some(jinn_sidebar_msg::SidebarSectionId::Sessions)
     ) {
         return IntentResult::empty();
     }
@@ -85,7 +85,7 @@ mod tests {
         // Focus sidebar on sessions section.
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         // Navigate to select the second entry in the sorted list.
         navigate_sidebar(&SidebarIntent::MoveDown, &mut state);
 
@@ -110,7 +110,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         // No selection set.
         assert!(
             state
@@ -131,7 +131,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Persona.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Persona.focus_scope());
 
         // When handling session continue.
         let result = handle_session_continue(&mut state);
@@ -146,7 +146,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state
             .frontend
-            .scope_push(jinn_slices::SidebarSectionId::Sessions.focus_scope());
+            .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
         navigate_sidebar(&SidebarIntent::MoveDown, &mut state);
         let scope_before = state.frontend.scope().clone();
 

@@ -1,5 +1,6 @@
 //! Frontend / UI state.
 
+use jinn_sidebar_msg::SidebarScopeExt;
 use parking_lot::RwLock;
 
 use crate::common::focus::FocusScope;
@@ -8,17 +9,17 @@ use crate::feat::preferences_actor::UserPreferences;
 use crate::feat::preferences_actor::app_state_file::AppStateFile;
 use crate::feat::project_add_input::state::ProjectAddInputState;
 use crate::feat::pruner_accumulation_input::state::PrunerAccumulationInputState;
-use jinn_slices::SidebarSectionId;
+use jinn_sidebar_msg::SidebarSectionId;
 
 use crate::feat::session_lifecycle::arg_input_state::ArgInputState;
 use crate::feat::theme::Theme;
 use crate::feat::ui::picker_states::PickerStates;
-pub use jinn_slices::McpServersSectionState;
-pub use jinn_slices::PersonaSectionState;
-pub use jinn_slices::PinsState;
-pub use jinn_slices::SessionsSectionState;
-pub use jinn_slices::SidebarSections;
-pub use jinn_slices::TaskListSectionState;
+pub use jinn_sidebar_msg::McpServersSectionState;
+pub use jinn_sidebar_msg::PersonaSectionState;
+pub use jinn_sidebar_msg::PinsState;
+pub use jinn_sidebar_msg::SessionsSectionState;
+pub use jinn_sidebar_msg::SidebarSections;
+pub use jinn_sidebar_msg::TaskListSectionState;
 
 /// Theme-sensitive caches owned by the frontend.
 ///
@@ -38,7 +39,7 @@ pub struct FrontendCaches {
     pub skill_preview_cache:
         std::sync::Arc<crate::feat::skills::skill_preview_cache::SkillPreviewCache>,
     /// Cached rendered lines for session preview popups.
-    pub session_preview_cache: RwLock<jinn_slices::SessionPreviewCache>,
+    pub session_preview_cache: RwLock<jinn_sidebar_msg::SessionPreviewCache>,
 }
 
 impl FrontendCaches {
@@ -114,7 +115,7 @@ pub struct FrontendState {
     /// subtree is streaming). OWNER: IntentHandler (set on first
     /// SidebarSessionArchiveTree, consumed on second SidebarSessionArchiveTree,
     /// dismissed on any other key).
-    pub archive_tree_prompt: Option<jinn_slices::ArchiveTreePrompt>,
+    pub archive_tree_prompt: Option<jinn_sidebar_msg::ArchiveTreePrompt>,
 
     /// All picker state - grouped for independent evolution.
     /// Use [`PickerExt`](super::picker_states::PickerExt) to access picker fields.
@@ -208,9 +209,12 @@ impl FrontendState {
 
     /// Resolves the sidebar sections cell, if the handle is attached and
     /// the sidebar slice's `activate()` minted it.
-    fn sections_cell(&self) -> Option<jinn_slices::cell::TypedCell<jinn_slices::SidebarSections>> {
+    fn sections_cell(
+        &self,
+    ) -> Option<jinn_slices::cell::TypedCell<jinn_sidebar_msg::SidebarSections>> {
         let slices = self.scope_focus.get()?;
-        slices.reader::<jinn_slices::SidebarSections>(&jinn_slices::sidebar_sections_slot())
+        slices
+            .reader::<jinn_sidebar_msg::SidebarSections>(&jinn_sidebar_msg::sidebar_sections_slot())
     }
 
     /// Runs `f` against the five sidebar sections' state. A no-op when the
@@ -218,7 +222,7 @@ impl FrontendState {
     /// matching the no-slice configuration.
     pub fn update_sections<F>(&self, f: F)
     where
-        F: FnOnce(&mut jinn_slices::SidebarSections),
+        F: FnOnce(&mut jinn_sidebar_msg::SidebarSections),
     {
         if let Some(cell) = self.sections_cell() {
             cell.update(f);
@@ -230,7 +234,7 @@ impl FrontendState {
     #[must_use]
     pub fn with_sections<R, F, D>(&self, f: F, default: D) -> R
     where
-        F: FnOnce(&jinn_slices::SidebarSections) -> R,
+        F: FnOnce(&jinn_sidebar_msg::SidebarSections) -> R,
         D: FnOnce() -> R,
     {
         match self.sections_cell() {
@@ -246,9 +250,9 @@ impl FrontendState {
     /// and the theme slice's `activate()` minted it.
     fn theme_entries_cell(
         &self,
-    ) -> Option<jinn_slices::cell::TypedCell<jinn_slices::ThemeEntries>> {
+    ) -> Option<jinn_slices::cell::TypedCell<jinn_theme_msg::ThemeEntries>> {
         let slices = self.scope_focus.get()?;
-        slices.reader::<jinn_slices::ThemeEntries>(&jinn_slices::theme_entries_slot())
+        slices.reader::<jinn_theme_msg::ThemeEntries>(&jinn_theme_msg::theme_entries_slot())
     }
 
     /// Reads the theme slice's entries through `f`, falling back to
@@ -256,7 +260,7 @@ impl FrontendState {
     #[must_use]
     pub fn with_theme_entries<R, F, D>(&self, f: F, default: D) -> R
     where
-        F: FnOnce(&jinn_slices::ThemeEntries) -> R,
+        F: FnOnce(&jinn_theme_msg::ThemeEntries) -> R,
         D: FnOnce() -> R,
     {
         match self.theme_entries_cell() {
@@ -273,7 +277,7 @@ impl FrontendState {
     /// matching the no-slice configuration.
     pub fn update_theme_entries<F>(&self, f: F)
     where
-        F: FnOnce(&mut jinn_slices::ThemeEntries),
+        F: FnOnce(&mut jinn_theme_msg::ThemeEntries),
     {
         if let Some(cell) = self.theme_entries_cell() {
             cell.update(f);

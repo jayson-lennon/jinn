@@ -23,7 +23,7 @@ pub enum SubmitMessageError {
 pub fn validate_submit_message(state: &AppState) -> Result<(), SubmitMessageError> {
     if state
         .active_session()
-        .with_input(jinn_slices::ChatInputBoxState::is_empty, || true)
+        .with_input(jinn_chat_input_msg::ChatInputBoxState::is_empty, || true)
     {
         return Err(SubmitMessageError::EmptyBuffer);
     }
