@@ -45,6 +45,16 @@ impl SidebarSectionId {
                 Self::McpServers => "mcp-servers",
             },
         )
+        // The scope stack still holds the static variants; the alias
+        // makes row keys bind in both scopes until the focus-model
+        // collapse lands.
+        .with_static_alias(match self {
+            Self::Pins => "SidebarPins",
+            Self::Persona => "SidebarPersona",
+            Self::TaskList => "SidebarTaskList",
+            Self::Sessions => "SidebarSessions",
+            Self::McpServers => "SidebarMcpServers",
+        })
     }
 
     /// The sidebar's resize-mode scope id (adjusting sidebar width with
@@ -52,5 +62,6 @@ impl SidebarSectionId {
     #[must_use]
     pub fn resize_scope_id() -> crate::slice_scope::SliceScopeId {
         crate::slice_scope::SliceScopeId::navigation("sidebar", "resize")
+            .with_static_alias("SidebarResize")
     }
 }

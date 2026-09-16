@@ -111,7 +111,19 @@ fn scopes_for_row<'a>(
     hooks: &'a [SliceScopeId],
 ) -> Vec<Scope> {
     match row.site {
-        BindSite::OwnScope => vec![Scope::Dynamic(row.scope.clone())],
+        BindSite::OwnScope => {
+            let mut scopes = vec![Scope::Dynamic(row.scope.clone())];
+            // Static-alias bridging: a dynamic scope that shadows a static
+            // focus scope (the sidebar's sections, until the focus-model
+            // collapse) binds its keys in both — the stack may hold either
+            // the static variant or the dynamic id.
+            if let Some(alias) = row.scope.static_alias()
+                && let Ok(static_scope) = alias.parse::<Scope>()
+            {
+                scopes.push(static_scope);
+            }
+            scopes
+        }
         BindSite::StaticScopes(names) => names
             .iter()
             .filter_map(|name| match name.parse::<Scope>() {
@@ -772,6 +784,54 @@ mod tests {
                 Some(Intent::ToggleTerminalOverlay { session_id: None })
             ),
             "the slice's dynamic scope must carry the <M-t> toggle, got {leaf:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn static_alias_rows_bind_in_both_the_dynamic_and_static_scope() {
+        // Given an OwnScope row whose dynamic scope aliases a static focus
+        // scope (the sidebar's section scopes, until the focus collapse).
+        let routes = KeyRoutes::new();
+        let aliased = SliceScopeId::navigation("sidebar", "pins")
+            .with_static_alias("SidebarPins");
+        routes.attach(RouteRow {
+            route_id: RouteId::new("sidebar:move-down"),
+            scope: aliased,
+            key: "j",
+            category: "navigation",
+            site: BindSite::OwnScope,
+            feature: "sidebar",
+            outcome: RouteOutcome::Action {
+                action: "move-down",
+                display: "cursor down",
+                run: ActionFn::new(|_ctx| IntentResult::empty()),
+            },
+        });
+
+        // When generating bindings.
+        let mut keymap = Keymap::new();
+        bind_route_rows(&routes, &mut keymap);
+
+        let key = key("j");
+
+        // Then `j` resolves in the dynamic scope.
+        let in_dynamic = leaf_at(
+            &keymap,
+            &[key.clone()],
+            &Scope::Dynamic(
+                SliceScopeId::navigation("sidebar", "pins")
+                    .with_static_alias("SidebarPins"),
+            ),
+        );
+        assert!(in_dynamic.is_some(), "row key binds in the dynamic scope");
+
+        // And in the aliased static scope (the stack still holds static
+        // variants when focus entered via the static push).
+        let in_static = leaf_at(&keymap, &[key], &Scope::SidebarPins);
+        assert!(
+            in_static.is_some(),
+            "aliased row key binds in the static scope too, got {in_static:?}"
         );
     }
 

@@ -25,6 +25,12 @@ pub struct SliceScopeId {
     /// and serves the editing intents through its input hook). Navigation
     /// surfaces (browser lists, tabs) set this false.
     captures_input: bool,
+    /// Optional name of the static focus scope this dynamic scope
+    /// shadows, e.g. `"SidebarPins"`. Rows bound in this scope also bind
+    /// in the static scope so a stack that still holds the static
+    /// variant resolves the same keys. Composition parses the alias
+    /// into its keymap scope type.
+    static_alias: Option<String>,
 }
 
 impl SliceScopeId {
@@ -37,6 +43,7 @@ impl SliceScopeId {
             slice: slice.to_owned(),
             name: name.to_owned(),
             captures_input: true,
+            static_alias: None,
         }
     }
 
@@ -49,7 +56,21 @@ impl SliceScopeId {
             slice: slice.to_owned(),
             name: name.to_owned(),
             captures_input: false,
+            static_alias: None,
         }
+    }
+
+    /// Sets the static focus scope alias (builder style).
+    #[must_use]
+    pub fn with_static_alias(mut self, alias: &str) -> Self {
+        self.static_alias = Some(alias.to_owned());
+        self
+    }
+
+    /// The static focus scope alias, if any.
+    #[must_use]
+    pub fn static_alias(&self) -> Option<&str> {
+        self.static_alias.as_deref()
     }
 
     /// Whether this scope captures text input.
@@ -98,6 +119,7 @@ impl std::str::FromStr for SliceScopeId {
             slice: slice.to_owned(),
             name: name.to_owned(),
             captures_input: true,
+            static_alias: None,
         })
     }
 }
