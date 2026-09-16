@@ -83,6 +83,17 @@ pub fn definition() -> ToolDefinition {
             pseudo-terminal and return its rendered screen. Use this instead of `bash` when the \
             command needs a full-screen TUI, cursor addressing, or incremental input. \
             \
+            NOT A NON-INTERACTIVE COMMAND RUNNER: do NOT append shell redirections, pipes, \
+            `tee`, `grep`, `less`, or `> file` to the command. The program runs attached to a \
+            real terminal and the tool returns the RENDERED SCREEN — anything redirected or \
+            piped away never appears on that screen (you silently lose the output). Run the \
+            command bare: `interactive_term` with command \"vim notes.txt\", NOT \
+            \"vim notes.txt | tee out.txt\". If a command doesn't need interactivity, use \
+            `bash` instead. \
+            \
+            You can take a SNAPSHOT at any time without touching the program: a no-argument \
+            `interactive_term_send` re-renders and returns the current screen. \
+            \
             BLOCKING: returns once the screen output settles (quiet window, capped), so you see \
             the program's actual rendered state, not raw bytes. The session persists across tool \
             calls — the program keeps running after this returns. \
@@ -101,6 +112,8 @@ pub fn definition() -> ToolDefinition {
         ),
         prompt_guidelines: vec![
             "Prefer `bash` for one-shot commands; use this only when the program needs a full-screen TUI, cursor addressing, or incremental input.".to_owned(),
+            "Do NOT add shell redirections, pipes, or grep to the interactive_term command (e.g. \"htop | grep foo\" or \"psql > out.txt\") — the tool returns the rendered SCREEN, so piped/redirected output is silently lost. Run the command bare; filter nothing.".to_owned(),
+            "You can snapshot the terminal at any time: call interactive_term_send with NO arguments to re-render and read the current screen without sending input.".to_owned(),
             "Each call BLOCKS until screen output settles and returns the rendered screen — call interactive_term_send afterwards to type text or press named keys (\"enter\", \"tab\", \"ctrl+c\", \"up\").".to_owned(),
             "The spawned program keeps running between calls; its state (REPL variables, vim buffers) persists. Kill the session with interactive_term_kill when finished.".to_owned(),
             "The user may take over the terminal from the TUI. If interactive_term_send reports the user has control, stop and wait — the screen will be delivered to you when they hand it back.".to_owned(),
@@ -280,7 +293,10 @@ pub(crate) fn success_result(
 
 /// The usage footer appended to every interactive-term result.
 pub(crate) fn usage_footer() -> String {
-    "USAGE: send input with interactive_term_send; kill with interactive_term_kill.".to_owned()
+    "USAGE: send input with interactive_term_send; kill with interactive_term_kill. \
+     Take a snapshot anytime with a no-argument interactive_term_send — do not \
+     pipe or redirect output, the rendered screen IS the result."
+        .to_owned()
 }
 
 /// Builds a failure [`ToolResult`].

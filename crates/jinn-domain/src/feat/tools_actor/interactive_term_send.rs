@@ -45,11 +45,14 @@ pub fn definition() -> ToolDefinition {
         description: "Send input to this session's running `interactive_term` terminal: type text, \
             press named keys, or both — then receive the updated rendered screen. \
             \
+            SNAPSHOT: call this with NO arguments at any time to re-render and read the \
+            terminal's current screen without sending anything — use it to check on progress, \
+            poll a long-running program, or re-read a screen you scrolled past. Never pipe or \
+            redirect terminal output to capture it; the screen snapshot IS the output. \
+            \
             Named keys: \"enter\", \"esc\", \"tab\", \"backspace\", \"delete\", \"up\", \"down\", \
             \"left\", \"right\", \"home\", \"end\", \"pageup\", \"pagedown\", \"ctrl+<letter>\" \
             (e.g. \"ctrl+c\"), \"alt+<key>\", or any single character. \
-            \
-            Call with NO arguments to re-sync the current screen without sending anything. \
             \
             BLOCKING: returns after the screen output settles. If the user has taken control of \
             the terminal, your input is NOT delivered — the result tells you to stop and wait."
@@ -60,6 +63,7 @@ pub fn definition() -> ToolDefinition {
         ),
         prompt_guidelines: vec![
             "After typing text, include \"enter\": true or the keys entry \"enter\" — text alone does not submit.".to_owned(),
+            "Snapshot anytime: call with NO arguments to re-render and read the current screen without sending input (useful for polling progress).".to_owned(),
             "If the result says the user has control, STOP and wait for the user to hand the terminal back.".to_owned(),
         ],
         parameters: serde_json::json!({
