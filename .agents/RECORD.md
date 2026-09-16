@@ -357,3 +357,5 @@ Entries are added or amended **only with human approval**.
 - (skills) jinn ships a bundled `jinn-usage` agent skill whose body routes to per-topic reference files (keybindings, workflows, configuration) installed beside its SKILL.md.
 - (skills) Bundled skill content is compile-time embedded, so installed skill docs match the running jinn binary; refreshing them requires `jinn install --force`.
 - (plugins) Plugin authoring guidance lives in the `jinn plugin new` scaffold output and the jinn-plugin-api/sdk crate docs; no bundled agent skill covers it.
+- (slices) The cwd slice is a kernel-free crate owning the change-directory popup's state cell, route rows, and input hook; confirm resolves the path and publishes SetSessionCwd through capabilities on SliceActionState.
+- (slices) SetSessionCwd and SessionCwdChanged stay session-lifecycle contracts; the session actor applies the cwd and session-init re-discovers on the change.
