@@ -27,7 +27,6 @@ pub fn mint_frontend_cap() -> FrontendCap {
     FrontendCap::new()
 }
 
-/// Mint a [`ContextCap`]. Called from actor wiring.
 /// Mint a [`SessionCap`]. Called from actor wiring.
 pub fn mint_session_cap() -> SessionCap {
     SessionCap::new()
