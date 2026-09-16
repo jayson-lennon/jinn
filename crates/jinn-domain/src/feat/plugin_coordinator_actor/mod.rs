@@ -11,7 +11,7 @@
 //! channel ([`PluginInbound`]). The coordinator validates and authorizes:
 //! unknown variants and malformed payloads are dropped, unrequested
 //! commands are ignored. Accepted contributions are translated
-//! (`ThemeDef` → core `Theme`) and written into the plugin contribution
+//! and written into the plugin contribution
 //! cache in `AppState` — the coordinator is its only writer.
 //!
 //! `PluginStatus` events published by the plugin actors are also received
@@ -54,7 +54,7 @@ use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
 use crate::feat::tools_actor::protocol::event::{
     ToolCallReceived, ToolCallStreaming, ToolExecutionCompleted, ToolUseStarted,
 };
-use jinn_plugin_api::{SetPersonaEntries, SetThemeEntries};
+use jinn_plugin_api::SetPersonaEntries;
 
 /// Wall-clock pulse interval pushed to guests subscribed to `"tick"`.
 ///
@@ -83,10 +83,6 @@ pub struct PluginCoordinatorActor {
     /// Validated event-subscription kinds per running plugin (from each
     /// guest's `Hello`). Drives the host→guest event forwarder.
     subscriptions: Mutex<HashMap<String, Vec<String>>>,
-    /// Last `SetThemeEntries` payload seen per plugin (flooding debounce:
-    /// an identical consecutive contribution is skipped — no cache write,
-    /// no late-apply re-run).
-    last_theme_payload: std::sync::Arc<Mutex<HashMap<String, SetThemeEntries>>>,
     /// Last `SetPersonaEntries` payload seen per plugin (flooding debounce:
     /// an identical consecutive contribution is skipped — no translation,
     /// no bus publish).
@@ -218,7 +214,6 @@ impl kameo::Actor for PluginCoordinatorActor {
             dirs: args.dirs,
             spawned: Mutex::new(HashMap::new()),
             subscriptions: Mutex::new(HashMap::new()),
-            last_theme_payload: std::sync::Arc::new(Mutex::new(HashMap::new())),
             last_persona_payload: std::sync::Arc::new(Mutex::new(HashMap::new())),
             #[cfg(test)]
             fake_guest: args.fake_guest.clone(),
@@ -314,26 +309,12 @@ impl PluginCoordinatorActor {
 
         // The coordinator's inbound pump: every message from this plugin is
         // validated here before it may touch state.
-        let state = self.state.clone();
-        let cap = self.cap;
-        let frontend_cap = self.frontend_cap;
-        let last_theme_payload = self.last_theme_payload.clone();
         let last_persona_payload = self.last_persona_payload.clone();
         let bus = self.deps.services.bus.clone();
         let pump_name = name.to_owned();
         tokio::spawn(async move {
             while let Some(inbound) = inbound_rx.recv().await {
-                handle_inbound(
-                    &state,
-                    cap,
-                    frontend_cap,
-                    &bus,
-                    &last_theme_payload,
-                    &last_persona_payload,
-                    &pump_name,
-                    inbound,
-                )
-                .await;
+                handle_inbound(&bus, &last_persona_payload, &pump_name, inbound).await;
             }
         });
     }
@@ -391,16 +372,12 @@ fn enabled_plugins(services: &crate::Services) -> Vec<(String, PluginConfig)> {
 ///
 /// The trust boundary: nothing from a plugin reaches `AppState` except
 /// through this function's match. Unknown variants are silently dropped
-/// (forward compatibility); malformed theme payloads are dropped with a
-/// warn. `Hello` outside the handshake is ignored. Persona contributions
+/// payloads (forward compatibility). `Hello` outside the handshake is
+/// ignored. Persona contributions
 /// are translated and published on the bus as [`PersonasLoaded`] — the
 /// session actor's existing consumer owns active-persona resolution.
 async fn handle_inbound(
-    state: &State,
-    cap: crate::common::tcaps::PluginsCap,
-    frontend_cap: crate::common::tcaps::FrontendCap,
     bus: &BusService,
-    last_theme_payload: &std::sync::Arc<Mutex<HashMap<String, SetThemeEntries>>>,
     last_persona_payload: &std::sync::Arc<Mutex<HashMap<String, SetPersonaEntries>>>,
     name: &str,
     inbound: PluginInbound,
@@ -409,34 +386,6 @@ async fn handle_inbound(
         jinn_plugin_api::PluginToHost::Hello(_) => {
             // Handshake was already completed by the actor; a second Hello
             // is protocol noise — ignore it.
-        }
-        jinn_plugin_api::PluginToHost::SetThemeEntries(entries) => {
-            // Flooding debounce: an identical consecutive payload is
-            // dropped before translation or any state work.
-            {
-                let mut last = last_theme_payload.lock();
-                if last.get(name) == Some(&entries) {
-                    tracing::debug!(plugin = %name, "duplicate theme batch debounced");
-                    return;
-                }
-                last.insert(name.to_owned(), entries.clone());
-            }
-            let themes = crate::feat::plugin_coordinator_actor::translate::themes(&entries.themes);
-            if themes.is_empty() && !entries.themes.is_empty() {
-                tracing::warn!(plugin = %name, "all theme definitions failed translation");
-            }
-            tracing::info!(
-                plugin = %name,
-                received = entries.themes.len(),
-                cached = themes.len(),
-                "plugin contributed themes"
-            );
-            state.with_plugins(&cap, |p| p.set_themes(name, themes));
-
-            // Late-apply: if the persisted theme name is not yet applied
-            // (app-state sync ran before this first contribution), resolve
-            // it against the now-populated cache and apply it.
-            apply_pending_theme(state, frontend_cap);
         }
         jinn_plugin_api::PluginToHost::SetPersonaEntries(entries) => {
             // Flooding debounce: an identical consecutive payload is
@@ -630,32 +579,6 @@ fn validate_citation(
         start_index: None,
         end_index: None,
     })
-}
-
-/// Applies the persisted theme name against the contribution cache when
-/// the frontend still holds the embedded default — the late-apply half of
-/// startup ordering (app-state sync may run before the themes plugin's
-/// first contribution lands).
-fn apply_pending_theme(state: &State, frontend_cap: crate::common::tcaps::FrontendCap) {
-    let pending_name = state.read().frontend.app_state.theme_name.clone();
-    let Some(name) = pending_name else {
-        return;
-    };
-
-    let theme = {
-        let snapshot = state.read();
-        let Some(contributed) = snapshot.plugins.theme(&name) else {
-            return;
-        };
-        contributed.theme.clone()
-    };
-
-    state.with_preferences(&frontend_cap, |ops| {
-        let frontend = ops.frontend();
-        frontend.theme = theme;
-        frontend.caches.invalidate_all();
-    });
-    tracing::debug!(theme = %name, "late-applied persisted theme from plugin cache");
 }
 
 impl Message<PluginStatus> for PluginCoordinatorActor {

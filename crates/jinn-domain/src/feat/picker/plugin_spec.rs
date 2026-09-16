@@ -154,7 +154,7 @@ mod tests {
     #[rstest::rstest]
     fn confirm_is_a_noop_and_keeps_the_picker_open() {
         // Given a plugin picker open with one entry.
-        let mut state = state_with(&[("theme-loader", PluginPhase::Running)]);
+        let mut state = state_with(&[("plugin-x", PluginPhase::Running)]);
         let registry = crate::feat::picker::registry::build_picker_registry();
         handle_open_picker(&mut state, PickerKind::Plugin, &registry);
 
@@ -189,7 +189,7 @@ mod tests {
     fn row_shows_name_and_phase_label(#[case] phase: PluginPhase, #[case] label: &str) {
         // Given a plugin entry with this phase.
         let entry = PluginPickerEntry::new(
-            "theme-loader".to_owned(),
+            "plugin-x".to_owned(),
             phase,
             crate::feat::theme::default_theme(),
         );
@@ -199,7 +199,7 @@ mod tests {
         let text: String = line.spans.iter().map(|s| s.content.to_string()).collect();
 
         // Then the name and phase label both appear.
-        assert!(text.contains("theme-loader"), "row shows name: {text}");
+        assert!(text.contains("plugin-x"), "row shows name: {text}");
         assert!(text.contains(label), "row shows phase {label}: {text}");
     }
 }

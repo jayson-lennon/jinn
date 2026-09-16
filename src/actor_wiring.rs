@@ -258,6 +258,7 @@ impl ActorSystemBuilder {
         jinn_chat_input_activate(&mut services);
         jinn_cwd_activate(&mut services);
         jinn_sidebar_activate(&mut services);
+        jinn_theme_activate(&mut services);
 
         // Quake bar slice: activation mints the cell, spawns the actor
         // (submit-log writer), attaches rows, and registers the input
@@ -1576,6 +1577,30 @@ fn jinn_chat_input_activate(services: &mut Services) {
     let staged = host.finalize(&|_key| None);
     if let Err(error) = staged {
         panic!("chat-input slice finalize failed: {error}");
+    }
+}
+
+/// Activates the theme slice: scans the theme directories once and mints
+/// the theme-entries cell. No routes, no actors, no view — the readers
+/// are the theme picker's open hook and the app-state actor's resolution.
+fn jinn_theme_activate(services: &mut Services) {
+    let (themes_dir, system_themes_dir) = {
+        (
+            services.paths.themes_dir(),
+            services.paths.system_themes_dir(),
+        )
+    };
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_theme_slice::activate(&mut host, &themes_dir, &system_themes_dir);
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("theme slice finalize failed: {error}");
     }
 }
 

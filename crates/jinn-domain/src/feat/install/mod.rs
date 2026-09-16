@@ -93,7 +93,7 @@ impl Kind {
 struct Bundled {
     kind: Kind,
     /// Path relative to the destination root (e.g. `default.toml`,
-    /// `phased-task-loop/SKILL.md`, `theme-loader.wasm`).
+    /// `phased-task-loop/SKILL.md`).
     relative: &'static str,
     /// The embedded payload — text for resources, bytes for wasm plugins.
     contents: BundleContents,
@@ -368,13 +368,6 @@ const BUNDLED: &[Bundled] = &[
         relative: "persona-loader.wasm",
         contents: BundleContents::Wasm(include_bytes!(
             "../../../../../res/plugins/persona-loader.wasm"
-        )),
-    },
-    Bundled {
-        kind: Kind::Plugin,
-        relative: "theme-loader.wasm",
-        contents: BundleContents::Wasm(include_bytes!(
-            "../../../../../res/plugins/theme-loader.wasm"
         )),
     },
     Bundled {
@@ -943,8 +936,8 @@ mod tests {
         // When installing defaults.
         let report = env.run(false);
 
-        // Then the theme-loader payload was created under the plugins root.
-        let outcome = outcome_for(&report.outcomes, "theme-loader.wasm");
+        // Then the persona-loader payload was created under the plugins root.
+        let outcome = outcome_for(&report.outcomes, "persona-loader.wasm");
         assert!(
             outcome.path().starts_with(env.plugins_dir()),
             "plugin payload should be under the plugins root"
@@ -967,65 +960,63 @@ mod tests {
         // When installing defaults.
         env.run(false);
 
-        // Then the theme-loader entry carries the manifest-declared grant.
+        // Then the persona-loader entry carries the manifest-declared grant.
         let prefs = env.storage.reload().expect("reload");
         let entry = prefs
             .plugin
-            .get("theme-loader")
-            .expect("theme-loader entry registered");
-        assert_eq!(entry.wasm, "theme-loader.wasm");
+            .get("persona-loader")
+            .expect("persona-loader entry registered");
+        assert_eq!(entry.wasm, "persona-loader.wasm");
         assert_eq!(entry.grants.len(), 1);
         assert!(
             entry
                 .grants
                 .first()
-                .is_some_and(|g| g.path == "<config_dir>/themes" && !g.writable)
+                .is_some_and(|g| g.path == "<config_dir>/personas" && !g.writable)
         );
         assert!(!entry.http);
         assert!(entry.enabled);
-        // And the persona-loader entry is registered too.
-        assert!(prefs.plugin.contains_key("persona-loader"));
     }
 
     #[rstest::rstest]
     #[test]
     fn install_skips_existing_plugin_without_force() {
-        // Given a plugins dir where theme-loader.wasm already exists, and a
+        // Given a plugins dir where persona-loader.wasm already exists, and a
         // jinn.toml that does NOT exist.
         let env = TestEnv::fresh();
-        let existing = env.plugins_dir().join("theme-loader.wasm");
+        let existing = env.plugins_dir().join("persona-loader.wasm");
         std::fs::create_dir_all(env.plugins_dir()).unwrap();
         std::fs::write(&existing, "PRE-EXISTING").unwrap();
 
         // When installing defaults without force.
         let report = env.run(false);
 
-        // Then the theme-loader payload is reported Skipped.
-        let outcome = outcome_for(&report.outcomes, "theme-loader.wasm");
+        // Then the persona-loader payload is reported Skipped.
+        let outcome = outcome_for(&report.outcomes, "persona-loader.wasm");
         assert!(
             matches!(outcome, InstallOutcome::Skipped(_)),
             "existing plugin payload should be Skipped"
         );
-        // And no [plugin.theme-loader] entry was written (skip covers config too).
+        // And no [plugin.persona-loader] entry was written (skip covers config too).
         let prefs = env.storage.reload().expect("reload");
-        assert!(!prefs.plugin.contains_key("theme-loader"));
+        assert!(!prefs.plugin.contains_key("persona-loader"));
     }
 
     #[rstest::rstest]
     #[test]
     fn install_force_overwrites_existing_plugin_payload_and_entry() {
-        // Given a plugins dir where theme-loader.wasm already exists, and a
+        // Given a plugins dir where persona-loader.wasm already exists, and a
         // jinn.toml that does NOT exist.
         let env = TestEnv::fresh();
-        let existing = env.plugins_dir().join("theme-loader.wasm");
+        let existing = env.plugins_dir().join("persona-loader.wasm");
         std::fs::create_dir_all(env.plugins_dir()).unwrap();
         std::fs::write(&existing, "PRE-EXISTING").unwrap();
 
         // When installing defaults with force.
         let report = env.run(true);
 
-        // Then the theme-loader payload is reported Overwritten.
-        let outcome = outcome_for(&report.outcomes, "theme-loader.wasm");
+        // Then the persona-loader payload is reported Overwritten.
+        let outcome = outcome_for(&report.outcomes, "persona-loader.wasm");
         assert!(
             matches!(outcome, InstallOutcome::Overwritten(_)),
             "existing plugin payload should be Overwritten"
@@ -1033,10 +1024,10 @@ mod tests {
         // And the entry was written with the manifest-declared grant (the file
         // did not exist, so this run created it).
         let prefs = env.storage.reload().expect("reload");
-        assert!(prefs.plugin.get("theme-loader").is_some_and(|e| {
+        assert!(prefs.plugin.get("persona-loader").is_some_and(|e| {
             e.grants
                 .first()
-                .is_some_and(|g| g.path == "<config_dir>/themes")
+                .is_some_and(|g| g.path == "<config_dir>/personas")
         }));
     }
 
@@ -1194,7 +1185,6 @@ mod tests {
         let prefs = env.storage.reload().expect("reload");
         for name in [
             "persona-loader",
-            "theme-loader",
             "url-citations",
             "tool-call-watchdog",
             "stall-watchdog",
@@ -1234,14 +1224,14 @@ mod tests {
     #[test]
     fn install_force_leaves_existing_jinn_toml_byte_identical() {
         // Given an environment where jinn.toml exists with a user customization
-        // and the theme-loader payload already exists on disk.
+        // and the persona-loader payload already exists on disk.
         let env = TestEnv::fresh();
         if let Some(parent) = env.prefs_path.parent() {
             std::fs::create_dir_all(parent).unwrap();
         }
-        let original = "# my edits\n[plugin.theme-loader]\nenabled = false\n";
+        let original = "# my edits\n[plugin.persona-loader]\nenabled = false\n";
         std::fs::write(&env.prefs_path, original).unwrap();
-        let existing = env.plugins_dir().join("theme-loader.wasm");
+        let existing = env.plugins_dir().join("persona-loader.wasm");
         std::fs::create_dir_all(env.plugins_dir()).unwrap();
         std::fs::write(&existing, "PRE-EXISTING").unwrap();
 
@@ -1256,9 +1246,9 @@ mod tests {
         let on_disk = std::fs::read_to_string(&env.prefs_path).expect("read");
         assert_eq!(on_disk, original);
         // And plugin payloads were still overwritten.
-        let theme_outcome = outcome_for(&report.outcomes, "theme-loader.wasm");
+        let persona_outcome = outcome_for(&report.outcomes, "persona-loader.wasm");
         assert!(
-            matches!(theme_outcome, InstallOutcome::Overwritten(_)),
+            matches!(persona_outcome, InstallOutcome::Overwritten(_)),
             "payloads must still follow --force"
         );
     }
@@ -1274,7 +1264,7 @@ mod tests {
 
         // Then every registered builtin entry is enabled with no user config.
         let prefs = env.storage.reload().expect("reload");
-        assert_eq!(prefs.plugin.len(), 5, "all five builtins registered");
+        assert_eq!(prefs.plugin.len(), 4, "all four builtins registered");
         assert!(
             prefs
                 .plugin

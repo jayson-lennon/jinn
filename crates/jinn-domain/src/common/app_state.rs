@@ -116,6 +116,15 @@ impl AppState {
         {
             // Same re-seed intent as scope-focus above.
         }
+        if slices
+            .register(
+                jinn_slices::theme_entries_slot(),
+                jinn_slices::ThemeEntries::default(),
+            )
+            .is_err()
+        {
+            // Same re-seed intent as scope-focus above.
+        }
         state.frontend.attach_slices(slices.clone());
         state.session.attach_slices(slices);
         state

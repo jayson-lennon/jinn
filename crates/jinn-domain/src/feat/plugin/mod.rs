@@ -63,54 +63,11 @@ use crate::feat::plugin_coordinator_actor::protocol::PluginPhase;
 /// consumer.
 #[derive(Debug, Default)]
 pub struct PluginContributions {
-    /// Contributed themes, keyed by theme name. A contributed
-    /// `"default"` restyles the picker's pinned built-in entry.
-    themes: BTreeMap<String, ContributedTheme>,
     /// Latest known phase per plugin name.
     phases: BTreeMap<String, PluginPhase>,
 }
 
-/// One contributed theme: the resolved core [`Theme`] plus its
-/// description.
-#[derive(Debug, Clone)]
-pub struct ContributedTheme {
-    /// The resolved theme.
-    pub theme: Theme,
-    /// The contributing plugin's description, if any.
-    pub description: Option<String>,
-    /// The contributing plugin's name (for source-accurate replacement).
-    pub source: String,
-}
-
 impl PluginContributions {
-    /// Replaces the theme set contributed by one plugin.
-    pub fn set_themes(&mut self, source: &str, themes: Vec<(String, Option<String>, Theme)>) {
-        // Remove this source's previous contributions first: the wire
-        // message is a full replacement, not a delta.
-        self.themes.retain(|_, t| t.source != source);
-        for (name, description, theme) in themes {
-            self.themes.insert(
-                name,
-                ContributedTheme {
-                    source: source.to_owned(),
-                    theme,
-                    description,
-                },
-            );
-        }
-    }
-
-    /// All contributed themes, ordered by name.
-    pub fn themes(&self) -> impl Iterator<Item = (&str, &ContributedTheme)> {
-        self.themes.iter().map(|(k, v)| (k.as_str(), v))
-    }
-
-    /// One contributed theme by name.
-    #[must_use]
-    pub fn theme(&self, name: &str) -> Option<&ContributedTheme> {
-        self.themes.get(name)
-    }
-
     /// Records a plugin's latest phase.
     pub fn set_phase(&mut self, name: String, phase: PluginPhase) {
         self.phases.insert(name, phase);
@@ -219,7 +176,7 @@ mod tests {
     fn render_row_shows_name_and_phase_label(#[case] phase: PluginPhase, #[case] label: &str) {
         // Given a plugin entry with this phase.
         let entry = PluginPickerEntry::new(
-            "theme-loader".to_owned(),
+            "stall-watchdog".to_owned(),
             phase,
             crate::feat::theme::default_theme(),
         );
@@ -228,7 +185,7 @@ mod tests {
         let text = row_text(&entry);
 
         // Then the name and phase label both appear.
-        assert!(text.contains("theme-loader"), "row shows name: {text}");
+        assert!(text.contains("stall-watchdog"), "row shows name: {text}");
         assert!(text.contains(label), "row shows phase {label}: {text}");
     }
 

@@ -30,14 +30,6 @@ use crate::feat::plugin_coordinator_actor::protocol::{
 /// Timeout for awaiting expected plugin outcomes.
 const WAIT: Duration = Duration::from_secs(5);
 
-/// One valid wire `SetThemeEntries` line (hand-encoded JSON to also prove the
-/// raw wire shape survives decode).
-fn theme_line(name: &str, color: &str) -> String {
-    format!(
-        r#"{{"v":1,"seq":2,"ts":0,"type":"set_theme_entries","themes":[{{"name":"{name}","description":null,"colors":{{"focus_accent":"{color}"}}}}]}}"#
-    )
-}
-
 /// Spawns the coordinator with the given plugin entries and fake script.
 async fn spawn_coordinator(
     harness: &TestHarness,
@@ -154,58 +146,21 @@ async fn healthy_guest_reaches_running_phase() {
     );
 }
 
-/// Contributions from a healthy guest land in the cache.
-#[rstest::rstest]
-#[tokio::test]
-async fn set_theme_entries_populates_contribution_cache() {
-    // Given a coordinator with a guest contributing one theme.
-    let harness = TestHarness::new().await;
-    let state = spawn_coordinator(
-        &harness,
-        plugins(),
-        jinn_plugin::FakeGuestScript::HelloThenLines {
-            protocol_version: jinn_plugin_api::PROTOCOL_VERSION,
-            lines: vec![theme_line("ocean", "#00aabb")],
-        },
-    )
-    .await;
-
-    // When the contribution arrives (poll: async pipeline).
-    let deadline = tokio::time::Instant::now() + WAIT;
-    loop {
-        if state.read().plugins.theme("ocean").is_some() {
-            break;
-        }
-        assert!(
-            deadline > tokio::time::Instant::now(),
-            "theme contribution never arrived"
-        );
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-
-    // Then the theme is cached with its contributing source.
-    let source = state
-        .read()
-        .plugins
-        .theme("ocean")
-        .map(|t| t.source.clone());
-    assert_eq!(source.as_deref(), Some("test-plugin"));
-}
-
 /// Malformed input from a guest does not kill it or the app.
 #[rstest::rstest]
 #[tokio::test]
 async fn malformed_lines_are_dropped_not_fatal() {
     // Given a guest whose wire output includes garbage around a valid line.
     let harness = TestHarness::new().await;
-    let state = spawn_coordinator(
+    let recorder = harness.spawn_recorder::<PersonasLoaded>().await;
+    let _state = spawn_coordinator(
         &harness,
         plugins(),
         jinn_plugin::FakeGuestScript::HelloThenLines {
             protocol_version: jinn_plugin_api::PROTOCOL_VERSION,
             lines: vec![
                 "this is not json".to_owned(),
-                theme_line("after-garbage", "#123456"),
+                persona_line("after-garbage", None),
             ],
         },
     )
@@ -213,17 +168,10 @@ async fn malformed_lines_are_dropped_not_fatal() {
 
     // When the lines are processed.
     // Then the valid contribution still lands (garbage dropped).
-    let deadline = tokio::time::Instant::now() + WAIT;
-    loop {
-        if state.read().plugins.theme("after-garbage").is_some() {
-            break;
-        }
-        assert!(
-            deadline > tokio::time::Instant::now(),
-            "valid line after garbage never arrived"
-        );
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
+    let events = await_recorded(&recorder, 1, WAIT).await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].personas.len(), 1);
+    assert_eq!(events[0].personas[0].name, "after-garbage");
 }
 
 /// A guest whose stdout closes after contributing ended cleanly; its
@@ -234,12 +182,13 @@ async fn guest_end_keeps_contributions_and_marks_done() {
     // Given a coordinator with a guest that contributes then ends.
     let harness = TestHarness::new().await;
     let recorder = harness.spawn_recorder::<PluginStatus>().await;
-    let state = spawn_coordinator(
+    let contributions = harness.spawn_recorder::<PersonasLoaded>().await;
+    let _state = spawn_coordinator(
         &harness,
         plugins(),
         jinn_plugin::FakeGuestScript::HelloThenLines {
             protocol_version: jinn_plugin_api::PROTOCOL_VERSION,
-            lines: vec![theme_line("persisted", "#abcdef")],
+            lines: vec![persona_line("persisted", None)],
         },
     )
     .await;
@@ -253,8 +202,10 @@ async fn guest_end_keeps_contributions_and_marks_done() {
         "expected Done for test-plugin, got {messages:?}"
     );
 
-    // Then its contribution is still cached (stale is visible, not erased).
-    assert!(state.read().plugins.theme("persisted").is_some());
+    // Then its contribution reached the bus before Done (push-only: the
+    // published event is the artifact, not a cache).
+    let events = await_recorded(&contributions, 1, WAIT).await;
+    assert_eq!(events[0].personas[0].name, "persisted");
 }
 
 /// A guest that never sends Hello times out and dies without contributing.
@@ -275,8 +226,7 @@ async fn silent_guest_dies_at_handshake() {
         "expected Dead for test-plugin, got {messages:?}"
     );
 
-    // Then nothing was contributed.
-    assert_eq!(state.read().plugins.themes().count(), 0);
+    // Then nothing was contributed (silent guest: no publish possible).
 }
 
 /// A first message that is not Hello fails the handshake.
@@ -286,10 +236,11 @@ async fn non_hello_first_message_fails_handshake() {
     // Given a coordinator with a guest whose first line is a contribution.
     let harness = TestHarness::new().await;
     let recorder = harness.spawn_recorder::<PluginStatus>().await;
-    let state = spawn_coordinator(
+    let contributions = harness.spawn_recorder::<PersonasLoaded>().await;
+    let _state = spawn_coordinator(
         &harness,
         plugins(),
-        jinn_plugin::FakeGuestScript::FirstLine(theme_line("too-eager", "#000001")),
+        jinn_plugin::FakeGuestScript::FirstLine(persona_line("too-eager", None)),
     )
     .await;
 
@@ -303,7 +254,8 @@ async fn non_hello_first_message_fails_handshake() {
     );
 
     // Then the eager contribution was never accepted.
-    assert!(state.read().plugins.theme("too-eager").is_none());
+    let events = await_recorded(&contributions, 1, Duration::from_millis(200)).await;
+    assert!(events.is_empty(), "eager contribution must not publish");
 }
 
 /// Protocol version mismatch fails the handshake.
@@ -313,12 +265,13 @@ async fn version_mismatch_fails_handshake() {
     // Given a coordinator with a guest speaking a different major version.
     let harness = TestHarness::new().await;
     let recorder = harness.spawn_recorder::<PluginStatus>().await;
-    let state = spawn_coordinator(
+    let contributions = harness.spawn_recorder::<PersonasLoaded>().await;
+    let _state = spawn_coordinator(
         &harness,
         plugins(),
         jinn_plugin::FakeGuestScript::HelloThenLines {
             protocol_version: jinn_plugin_api::PROTOCOL_VERSION + 1,
-            lines: vec![theme_line("future", "#000002")],
+            lines: vec![persona_line("future", None)],
         },
     )
     .await;
@@ -333,58 +286,10 @@ async fn version_mismatch_fails_handshake() {
     );
 
     // Then the future version's contributions are not trusted.
-    assert!(state.read().plugins.theme("future").is_none());
-}
-
-/// A persisted theme name pending on startup is late-applied when the
-/// plugin's first contribution lands.
-#[rstest::rstest]
-#[tokio::test]
-async fn first_contribution_late_applies_pending_theme_name() {
-    // Given a coordinator whose frontend holds a persisted theme name that
-    // the default state has not yet applied, and a guest contributing it.
-    let harness = TestHarness::new().await;
-    let state = spawn_coordinator_prepared(
-        &harness,
-        plugins(),
-        jinn_plugin::FakeGuestScript::HelloThenLines {
-            protocol_version: jinn_plugin_api::PROTOCOL_VERSION,
-            lines: vec![theme_line("dracula", "#ff00ff")],
-        },
-        |state| {
-            let frontend_cap = crate::common::tcaps::mint::mint_frontend_cap();
-            state.with_preferences(&frontend_cap, |ops| {
-                ops.frontend().app_state.theme_name = Some("dracula".to_owned());
-            });
-        },
-    )
-    .await;
-
-    // When the contribution arrives and the coordinator late-applies.
-    let deadline = tokio::time::Instant::now() + WAIT;
-    loop {
-        let focus = {
-            let guard = state.read();
-            (guard.plugins.theme("dracula").is_some()).then_some(guard.frontend.theme.focus_accent)
-        };
-        if focus.is_some() {
-            break;
-        }
-        assert!(
-            deadline > tokio::time::Instant::now(),
-            "late-apply never happened"
-        );
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-
-    // Then the frontend theme is the contributed one.
-    let guard = state.read();
+    let events = await_recorded(&contributions, 1, Duration::from_millis(200)).await;
     assert!(
-        matches!(
-            guard.frontend.theme.focus_accent,
-            ratatui::style::Color::Rgb(255, 0, 255)
-        ),
-        "expected contributed focus_accent #ff00ff"
+        events.is_empty(),
+        "future-version contribution must not publish"
     );
 }
 
@@ -395,15 +300,16 @@ async fn first_contribution_late_applies_pending_theme_name() {
 #[tokio::test]
 async fn flooding_guest_is_marked_unresponsive_then_recovers() {
     // Given a coordinator with a guest flooding far more lines than the
-    // inbound channel holds, and a recorder.
+    // inbound channel holds, and recorders.
     let harness = TestHarness::new().await;
     let recorder = harness.spawn_recorder::<PluginStatus>().await;
-    let state = spawn_coordinator(
+    let contributions = harness.spawn_recorder::<PersonasLoaded>().await;
+    let _state = spawn_coordinator(
         &harness,
         plugins(),
         jinn_plugin::FakeGuestScript::Flood {
             protocol_version: jinn_plugin_api::PROTOCOL_VERSION,
-            lines: vec![theme_line("flood", "#123456")],
+            lines: vec![persona_line("flood", None)],
             repeat: 500,
         },
     )
@@ -426,87 +332,15 @@ async fn flooding_guest_is_marked_unresponsive_then_recovers() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
 
-    // Then the theme still landed (drop-newest lost some, not all).
-    let deadline = tokio::time::Instant::now() + WAIT;
-    loop {
-        if state.read().plugins.theme("flood").is_some() {
-            break;
-        }
-        assert!(
-            deadline > tokio::time::Instant::now(),
-            "no contribution survived the flood"
-        );
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-}
-
-/// An identical consecutive contribution is debounced: no duplicate work.
-#[rstest::rstest]
-#[tokio::test]
-async fn identical_consecutive_theme_batch_is_debounced() {
-    // Given a guest contributing the same batch twice (names differ so a
-    // non-debounced run would cache both).
-    let harness = TestHarness::new().await;
-    let state = spawn_coordinator(
-        &harness,
-        plugins(),
-        jinn_plugin::FakeGuestScript::HelloThenLines {
-            protocol_version: jinn_plugin_api::PROTOCOL_VERSION,
-            lines: vec![theme_line("dupe", "#aabbcc"), theme_line("dupe", "#aabbcc")],
-        },
-    )
-    .await;
-
-    // When both contributions have been processed (poll for the first).
-    let deadline = tokio::time::Instant::now() + WAIT;
-    loop {
-        if state.read().plugins.theme("dupe").is_some() {
-            break;
-        }
-        assert!(
-            deadline > tokio::time::Instant::now(),
-            "first contribution never arrived"
-        );
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    tokio::time::sleep(Duration::from_millis(200)).await;
-
-    // Then the theme is cached exactly once (set_themes is a full
-    // replacement; the observable check is that the batch still holds it).
-    assert!(state.read().plugins.theme("dupe").is_some());
-}
-
-/// A batch whose every entry fails translation is dropped with a warn,
-/// leaving the cache empty for that plugin.
-#[rstest::rstest]
-#[tokio::test]
-async fn all_invalid_theme_batch_is_dropped_entirely() {
-    // Given a guest contributing one theme with no valid color values.
-    let bad_line = r#"{"v":1,"seq":2,"ts":0,"type":"set_theme_entries","themes":[{"name":"bad","description":null,"colors":{"focus_accent":"banana"}}]}"#.to_owned();
-    let harness = TestHarness::new().await;
-    let state = spawn_coordinator(
-        &harness,
-        plugins(),
-        jinn_plugin::FakeGuestScript::HelloThenLines {
-            protocol_version: jinn_plugin_api::PROTOCOL_VERSION,
-            lines: vec![bad_line],
-        },
-    )
-    .await;
-
-    // When the pipeline settles (guest ends: wait for Done phase).
-    let deadline = tokio::time::Instant::now() + WAIT;
-    loop {
-        let phase = state.read().plugins.phase("test-plugin");
-        if phase == Some(PluginPhase::Done) {
-            break;
-        }
-        assert!(deadline > tokio::time::Instant::now(), "guest never ended");
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-
-    // Then nothing from the bad batch was cached.
-    assert!(state.read().plugins.theme("bad").is_none());
+    // Then at least one persona still landed (drop-newest lost some, not
+    // all).
+    let events = await_recorded(&contributions, 1, WAIT).await;
+    assert!(
+        events
+            .iter()
+            .any(|e| e.personas.iter().any(|p| p.name == "flood")),
+        "no contribution survived the flood"
+    );
 }
 
 /// No configured plugins means no spawns, no status events, and an empty
@@ -530,7 +364,6 @@ async fn no_plugins_configured_is_quiescent() {
     // Then nothing was published and the cache is empty.
     let messages = await_recorded(&recorder, 1, Duration::from_millis(200)).await;
     assert!(messages.is_empty(), "unexpected status events");
-    assert_eq!(state.read().plugins.themes().count(), 0);
 }
 
 /// One valid wire `SetPersonaEntries` line (hand-encoded JSON to prove the raw

@@ -52,7 +52,6 @@ fn install_seeds_plugins_and_registers_entries() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("persona-loader.wasm"));
-    assert!(stdout.contains("theme-loader.wasm"));
     assert!(
         stdout.contains("Created") && stdout.contains("jinn.toml"),
         "first install must list jinn.toml as Created: {stdout}"
@@ -107,8 +106,8 @@ fn install_force_preserves_edited_jinn_toml() {
     let edited = format!(
         "# user was here\n{}",
         original.replace(
-            "[plugin.theme-loader]\nwasm = \"theme-loader.wasm\"",
-            "[plugin.theme-loader]\nwasm = \"theme-loader.wasm\"\nenabled = false",
+            "[plugin.persona-loader]\nwasm = \"persona-loader.wasm\"",
+            "[plugin.persona-loader]\nwasm = \"persona-loader.wasm\"\nenabled = false",
         )
     );
     std::fs::write(&toml_path, &edited).expect("write edited jinn.toml");
@@ -167,7 +166,7 @@ fn install_notes_unregistered_payload_when_toml_exists() {
     let first = run_jinn(&bin, &config, &data, &["install"]);
     assert!(first.status.success());
 
-    // Drop the [plugin.theme-loader] section and delete its payload.
+    // Drop the [plugin.persona-loader] section and delete its payload.
     let toml_path = config.join("jinn/jinn.toml");
     let original = std::fs::read_to_string(&toml_path).expect("read jinn.toml");
     let edited = {
@@ -175,7 +174,7 @@ fn install_notes_unregistered_payload_when_toml_exists() {
         original
             .lines()
             .filter(|line| {
-                if line.starts_with("[plugin.theme-loader]") {
+                if line.starts_with("[plugin.persona-loader]") {
                     keeping = false;
                     return false;
                 }
@@ -189,7 +188,7 @@ fn install_notes_unregistered_payload_when_toml_exists() {
             + "\n"
     };
     std::fs::write(&toml_path, &edited).expect("write edited jinn.toml");
-    std::fs::remove_file(data.join("jinn/plugins/theme-loader.wasm")).expect("remove payload");
+    std::fs::remove_file(data.join("jinn/plugins/persona-loader.wasm")).expect("remove payload");
 
     let output = run_jinn(&bin, &config, &data, &["install"]);
     assert!(output.status.success());
@@ -201,11 +200,11 @@ fn install_notes_unregistered_payload_when_toml_exists() {
     // And the missing entry was NOT re-added (add-only gap stays visible).
     let on_disk = std::fs::read_to_string(&toml_path).expect("read jinn.toml");
     assert!(
-        !on_disk.contains("[plugin.theme-loader]"),
+        !on_disk.contains("[plugin.persona-loader]"),
         "install must not add entries to an existing jinn.toml"
     );
     // And the payload was restored.
-    assert!(data.join("jinn/plugins/theme-loader.wasm").is_file());
+    assert!(data.join("jinn/plugins/persona-loader.wasm").is_file());
 }
 
 // A temp HOME whose subdirectories carry the XDG roots; the guard keeps the
@@ -237,8 +236,6 @@ fn install_builtins_fresh_env_registers_all() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("theme-loader.wasm"));
-    assert!(stdout.contains("Registered theme-loader"));
     assert!(stdout.contains("Registered persona-loader"));
     assert!(stdout.contains("Registered stall-watchdog"));
     assert!(stdout.contains("Restart jinn to activate plugins."));
@@ -246,7 +243,6 @@ fn install_builtins_fresh_env_registers_all() {
     let toml = std::fs::read_to_string(config.join("jinn/jinn.toml")).expect("read jinn.toml");
     for name in [
         "persona-loader",
-        "theme-loader",
         "url-citations",
         "tool-call-watchdog",
         "stall-watchdog",
@@ -256,7 +252,7 @@ fn install_builtins_fresh_env_registers_all() {
             "{name} registered"
         );
     }
-    assert!(data.join("jinn/plugins/theme-loader.wasm").is_file());
+    assert!(data.join("jinn/plugins/persona-loader.wasm").is_file());
 }
 
 // Given a completed first run whose jinn.toml the user hand-edited
@@ -280,8 +276,8 @@ fn install_builtins_preserves_existing_entries() {
     let edited = format!(
         "# hands off\n{}",
         original.replace(
-            "[plugin.theme-loader]\nwasm = \"theme-loader.wasm\"",
-            "[plugin.theme-loader]\nwasm = \"theme-loader.wasm\"\nenabled = false",
+            "[plugin.persona-loader]\nwasm = \"persona-loader.wasm\"",
+            "[plugin.persona-loader]\nwasm = \"persona-loader.wasm\"\nenabled = false",
         )
     );
     std::fs::write(&toml_path, &edited).expect("write edited jinn.toml");
@@ -295,7 +291,7 @@ fn install_builtins_preserves_existing_entries() {
 
     let stdout = String::from_utf8_lossy(&second.stdout);
     assert!(
-        stdout.contains("Already registered, skipped theme-loader"),
+        stdout.contains("Already registered, skipped persona-loader"),
         "existing entries must be skipped, got: {stdout}"
     );
 }
@@ -346,13 +342,13 @@ fn install_builtins_fills_only_missing_entry() {
         "the missing entry must be registered, got: {stdout}"
     );
     assert!(
-        stdout.contains("Already registered, skipped theme-loader"),
+        stdout.contains("Already registered, skipped persona-loader"),
         "existing entries must be skipped, got: {stdout}"
     );
     // And the other entries are unchanged.
     let on_disk = std::fs::read_to_string(&toml_path).expect("read jinn.toml");
     assert!(on_disk.contains("[plugin.stall-watchdog]"));
-    assert!(on_disk.contains("[plugin.theme-loader]"));
+    assert!(on_disk.contains("[plugin.persona-loader]"));
 }
 
 // Given a malformed jinn.toml.

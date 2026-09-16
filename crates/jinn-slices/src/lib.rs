@@ -51,6 +51,7 @@ pub mod sidebar_sections;
 pub mod slice_scope;
 pub mod slices;
 pub mod status_bar_state;
+pub mod theme_state;
 pub mod tui_signals;
 pub mod view;
 
@@ -105,6 +106,9 @@ pub use sidebar_sections::TaskListSectionState;
 pub use sidebar_sections::sidebar_sections_slot;
 pub use status_bar_state::StatusBarState;
 pub use status_bar_state::status_bar_slot;
+pub use theme_state::NamedTheme;
+pub use theme_state::ThemeEntries;
+pub use theme_state::theme_entries_slot;
 pub use tui_signals::TuiSignals;
 
 /// The slice host specialized to jinn's render facts — the spelling

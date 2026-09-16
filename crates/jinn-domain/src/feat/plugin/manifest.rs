@@ -330,7 +330,7 @@ mod tests {
         // Given a Cargo.toml with a complete metadata.jinn section.
         let cargo_toml = r#"
 [package]
-name = "theme-loader"
+name = "sample-plugin"
 version = "0.1.0"
 
 [package.metadata.jinn]
@@ -343,7 +343,7 @@ http = true
         let cm = read_manifest(cargo_toml).expect("read");
 
         // Then every field is parsed.
-        assert_eq!(cm.crate_name, "theme-loader");
+        assert_eq!(cm.crate_name, "sample-plugin");
         assert_eq!(cm.manifest.name.as_deref(), Some("themes"));
         assert_eq!(cm.manifest.grants.len(), 2);
         let [first, second] = &cm.manifest.grants[..] else {
@@ -362,7 +362,7 @@ http = true
         // Given a manifest section with no name override.
         let cargo_toml = r#"
 [package]
-name = "theme-loader"
+name = "sample-plugin"
 
 [package.metadata.jinn]
 grants = []
@@ -374,7 +374,7 @@ http = false
 
         // Then the manifest carries no name (callers fall back).
         assert!(cm.manifest.name.is_none());
-        assert_eq!(cm.crate_name, "theme-loader");
+        assert_eq!(cm.crate_name, "sample-plugin");
     }
 
     #[rstest::rstest]

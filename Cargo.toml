@@ -69,6 +69,7 @@ tiktoken = { path = "vendor/tiktoken" }
 path = "src/lib.rs"
 
 [dependencies]
+jinn-theme-slice = { workspace = true }
 jinn-cli = { workspace = true }
 jinn-chat-input = { workspace = true }
 jinn-chat-log-view = { workspace = true }
@@ -150,6 +151,7 @@ jinn-discord-msg = { path = "crates/slices/jinn-discord-msg" }
 jinn-common = { path = "crates/jinn-common" }
 jinn-core-types = { path = "crates/jinn-core-types" }
 jinn-dashboard = { path = "crates/slices/jinn-dashboard" }
+jinn-theme-slice = { path = "crates/slices/jinn-theme" }
 jinn-quake-bar = { path = "crates/slices/jinn-quake-bar" }
 jinn-session-init = { path = "crates/slices/jinn-session-init" }
 jinn-chat-input = { path = "crates/slices/jinn-chat-input" }

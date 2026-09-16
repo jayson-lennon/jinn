@@ -1,0 +1,18 @@
+[package]
+name = "jinn-theme-slice"
+version.workspace = true
+edition.workspace = true
+description = "The theme slice: loads theme files into the theme-entries cell at activation."
+
+[dependencies]
+jinn-slices = { workspace = true }
+jinn-theme = { workspace = true }
+error-stack = { workspace = true }
+wherror = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

@@ -20,8 +20,8 @@ use std::collections::BTreeMap;
 use jinn_plugin_api::{
     CancelStream, Envelope, HostToPlugin, InsertSystemEntry, PersonaDef, PluginCitation,
     PluginToHost, PluginToHostOrHostToPlugin, PushCitations, RestartStalledStream, StreamEndEvent,
-    StreamEndReason, StreamEventPing, StreamStartEvent, THEME_COLOR_SLOTS, ThemeDef, TickEvent,
-    ToolCallEvent, ToolResultEvent, TurnEndEvent, Welcome,
+    StreamEndReason, StreamEventPing, StreamStartEvent, TickEvent, ToolCallEvent, ToolResultEvent,
+    TurnEndEvent, Welcome,
 };
 
 /// Compiles the committed schema file for validation.
@@ -41,18 +41,6 @@ fn assert_valid(envelope: &Envelope) {
 }
 
 /// Builds a fully-populated theme for fixtures.
-fn sample_theme() -> ThemeDef {
-    let mut colors = BTreeMap::new();
-    colors.insert("focus_accent".to_owned(), "#ff8800".to_owned());
-    colors.insert("primary_text".to_owned(), "cyan".to_owned());
-    colors.insert("gutter_bg".to_owned(), "14".to_owned());
-    ThemeDef {
-        name: "sample".to_owned(),
-        description: Some("a sample".to_owned()),
-        colors,
-    }
-}
-
 /// Builds a fully-populated persona for fixtures.
 fn sample_persona() -> PersonaDef {
     PersonaDef {
@@ -73,22 +61,6 @@ fn hello_envelope_validates_against_schema() {
             subscriptions: vec![],
         }),
         0,
-        0,
-    );
-
-    // Then it validates against the committed schema.
-    assert_valid(&envelope);
-}
-
-#[rstest::rstest]
-#[test]
-fn set_theme_entries_envelope_validates_against_schema() {
-    // Given a SetThemeEntries envelope with a populated theme.
-    let envelope = Envelope::for_plugin(
-        PluginToHost::SetThemeEntries(jinn_plugin_api::SetThemeEntries {
-            themes: vec![sample_theme()],
-        }),
-        1,
         0,
     );
 
@@ -644,8 +616,8 @@ fn new_event_and_contribution_envelopes_round_trip() {
 fn envelope_round_trips_through_json() {
     // Given a populated envelope.
     let envelope = Envelope::for_plugin(
-        PluginToHost::SetThemeEntries(jinn_plugin_api::SetThemeEntries {
-            themes: vec![sample_theme()],
+        PluginToHost::SetPersonaEntries(jinn_plugin_api::SetPersonaEntries {
+            personas: vec![sample_persona()],
         }),
         42,
         1_700_000_000_000,
@@ -657,78 +629,4 @@ fn envelope_round_trips_through_json() {
 
     // Then it is unchanged.
     assert_eq!(envelope, back);
-}
-
-#[rstest::rstest]
-#[case("cyan")]
-#[case("14")]
-#[case("#112233")]
-#[case("rgb(10, 20, 30)")]
-fn color_strings_accept_all_core_formats(#[case] color: &str) {
-    // Given a theme whose color values use the given format.
-    let mut colors = BTreeMap::new();
-    colors.insert(THEME_COLOR_SLOTS[0].key().to_owned(), color.to_owned());
-    let theme = ThemeDef {
-        name: "formats".to_owned(),
-        description: None,
-        colors,
-    };
-
-    // When serializing to wire JSON and back.
-    let json = serde_json::to_value(&theme).expect("serialize");
-    let back: ThemeDef = serde_json::from_value(json).expect("deserialize");
-
-    // Then the color string is preserved verbatim.
-    assert_eq!(
-        back.colors.get(THEME_COLOR_SLOTS[0].key()),
-        Some(&color.to_owned())
-    );
-}
-
-#[rstest::rstest]
-#[test]
-fn theme_def_serializes_slot_keys_as_snake_case() {
-    // Given a theme def referencing two slots via the typed enum.
-    let mut colors = BTreeMap::new();
-    colors.insert(
-        jinn_plugin_api::ThemeColorSlot::FocusAccent
-            .key()
-            .to_owned(),
-        "#ffffff".to_owned(),
-    );
-    colors.insert(
-        jinn_plugin_api::ThemeColorSlot::QuakeBarBg.key().to_owned(),
-        "black".to_owned(),
-    );
-    let theme = ThemeDef {
-        name: "keys".to_owned(),
-        description: None,
-        colors,
-    };
-
-    // When serializing to wire JSON.
-    let json = serde_json::to_value(&theme).expect("serialize");
-    let colors = json.get("colors").expect("colors map");
-
-    // Then the keys are snake_case (matching core Theme field names).
-    assert!(colors.get("focus_accent").is_some());
-    assert!(colors.get("quake_bar_bg").is_some());
-}
-
-#[rstest::rstest]
-#[test]
-fn every_slot_key_is_a_snake_case_identifier() {
-    // Given every declared color slot.
-    // When examining each wire key.
-    for slot in THEME_COLOR_SLOTS {
-        let key = slot.key();
-
-        // Then it is non-empty, snake_case, and ASCII.
-        assert!(!key.is_empty(), "empty key for {slot:?}");
-        assert!(
-            key.chars()
-                .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit()),
-            "non-snake-case key {key:?}"
-        );
-    }
 }

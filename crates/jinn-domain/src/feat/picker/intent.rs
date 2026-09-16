@@ -700,10 +700,12 @@ mod tests {
         let mut other = crate::feat::theme::default_theme();
         other.focus_accent = ratatui::style::Color::Red;
         let mut state = AppState::default_with_scope_focus();
-        state.plugins.set_themes(
-            "theme-loader",
-            vec![("other".to_owned(), None, other.clone())],
-        );
+        state.frontend.update_theme_entries(|cell| {
+            cell.entries = vec![jinn_slices::NamedTheme {
+                name: "other".to_owned(),
+                theme: other.clone(),
+            }];
+        });
         crate::feat::picker::intent::handle_open_picker(&mut state, PickerKind::Theme, &registry);
 
         // When moving the selection down one entry.
@@ -742,10 +744,12 @@ mod tests {
         let mut other = crate::feat::theme::default_theme();
         other.focus_accent = ratatui::style::Color::Red;
         let mut state = AppState::default_with_scope_focus();
-        state.plugins.set_themes(
-            "theme-loader",
-            vec![("other".to_owned(), None, other.clone())],
-        );
+        state.frontend.update_theme_entries(|cell| {
+            cell.entries = vec![jinn_slices::NamedTheme {
+                name: "other".to_owned(),
+                theme: other.clone(),
+            }];
+        });
         crate::feat::picker::intent::handle_open_picker(&mut state, PickerKind::Theme, &registry);
 
         // When paging down (selection jumps to the last entry).

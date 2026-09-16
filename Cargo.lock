@@ -2576,6 +2576,7 @@ dependencies = [
  "jinn-slices",
  "jinn-status-bar",
  "jinn-testutil",
+ "jinn-theme-slice",
  "jinn-tui",
  "jinn-web-fetch",
  "jinn-web-search",
@@ -3111,6 +3112,18 @@ dependencies = [
  "serde",
  "tempfile",
  "toml 0.8.23",
+ "wherror",
+]
+
+[[package]]
+name = "jinn-theme-slice"
+version = "0.118.0"
+dependencies = [
+ "error-stack",
+ "jinn-slices",
+ "jinn-theme",
+ "rstest",
+ "tempfile",
  "wherror",
 ]
 
@@ -6074,17 +6087,6 @@ dependencies = [
  "smawk",
  "unicode-linebreak",
  "unicode-width 0.2.2",
-]
-
-[[package]]
-name = "theme-loader"
-version = "0.118.0"
-dependencies = [
- "error-stack",
- "jinn-plugin-api",
- "jinn-plugin-sdk",
- "jinn-theme",
- "serde_json",
 ]
 
 [[package]]

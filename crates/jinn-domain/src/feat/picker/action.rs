@@ -266,10 +266,12 @@ mod tests {
         let original_accent = state.frontend.theme.focus_accent;
         let mut other = crate::feat::theme::default_theme();
         other.focus_accent = ratatui::style::Color::Red;
-        state.plugins.set_themes(
-            "theme-loader",
-            vec![("other".to_owned(), None, other.clone())],
-        );
+        state.frontend.update_theme_entries(|cell| {
+            cell.entries = vec![jinn_slices::NamedTheme {
+                name: "other".to_owned(),
+                theme: other.clone(),
+            }];
+        });
         crate::feat::picker::intent::handle_open_picker(
             &mut state,
             crate::feat::picker::PickerKind::Theme,

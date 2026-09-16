@@ -140,7 +140,7 @@ fn main_rs(name: &str) -> String {
 //! The host keeps whatever you pushed cached after your process ends, so
 //! a push-once plugin that exits is a complete, correct plugin.
 
-use jinn_plugin_api::{{PluginToHost, SetThemeEntries}};
+use jinn_plugin_api::{{PluginToHost, SetPersonaEntries}};
 use jinn_plugin_sdk::{{PluginOutput, hello, push, welcome}};
 
 fn main() {{
@@ -159,8 +159,8 @@ fn main() {{
     let _ = &grants;
     let _ = push(
         &mut out,
-        PluginToHost::SetThemeEntries(SetThemeEntries {{
-            themes: vec![],
+        PluginToHost::SetPersonaEntries(SetPersonaEntries {{
+            personas: vec![],
         }}),
     );
 }}
@@ -180,7 +180,7 @@ edition = "2024"
 # variables; `:w` marks a grant writable.
 [package.metadata.jinn]
 grants = []
-# grants = ["<config_dir>/themes"]
+# grants = ["<config_dir>/personas"]
 http = false
 
 [dependencies]

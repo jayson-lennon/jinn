@@ -77,16 +77,20 @@ impl AppStateActor {
     fn sync_state(&self, updated: &AppStateFile) {
         use crate::common::tcaps::context::PersonaWrite;
 
-        // Resolve the persisted theme name against the plugin contribution
-        // cache — core no longer reads theme files from disk (the themes
-        // plugin owns discovery). Names not yet cached fall back to the
-        // embedded default; the coordinator late-applies the resolved theme
-        // once the themes plugin's first contribution lands.
+        // Resolve the persisted theme name against the theme slice's
+        // entries cell (populated by the activation-time directory scan).
+        // Unknown names fall back to the embedded default.
         let new_theme = resolve_cached_theme(
-            self.state
-                .read()
-                .plugins
-                .theme(updated.theme_name.as_deref().unwrap_or("default")),
+            self.deps
+                .services
+                .slices
+                .reader::<jinn_slices::ThemeEntries>(&jinn_slices::theme_entries_slot())
+                .map(|cell| {
+                    let entries = cell.read();
+                    entries
+                        .theme(updated.theme_name.as_deref().unwrap_or("default"))
+                        .cloned()
+                }),
         );
 
         // Cache the entire state and update sidebar/theme/caches.
@@ -135,14 +139,13 @@ impl BusPublish for AppStateActor {
     }
 }
 
-/// Resolves a theme name against the contribution cache, falling back to
-/// the embedded default when the name is not (yet) contributed — the
-/// startup window before the themes plugin's first contribution, or a
-/// dead themes plugin.
+/// Resolves a theme name against the theme slice's entries cell, falling
+/// back to the embedded default when the cell is absent (slice not
+/// activated) or the name is not found.
 fn resolve_cached_theme(
-    contributed: Option<&crate::feat::plugin::ContributedTheme>,
+    resolved: Option<Option<crate::feat::theme::Theme>>,
 ) -> crate::feat::theme::Theme {
-    contributed.map_or_else(theme::default_theme, |c| c.theme.clone())
+    resolved.flatten().unwrap_or_else(theme::default_theme)
 }
 
 #[cfg(test)]
@@ -361,17 +364,24 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn sync_state_applies_contributed_theme_from_cache() {
-        // Given an app-state actor whose cache holds a contributed theme.
+        // Given an app-state actor whose theme cell holds a scanned theme.
         let (actor, _audit, _services) = create_actor().await;
         let mut contributed = crate::feat::theme::default_theme();
         contributed.focus_accent = ratatui::style::Color::Red;
-        let plugins_cap = crate::common::tcaps::mint::mint_plugins_cap();
-        actor.state.with_plugins(&plugins_cap, |p| {
-            p.set_themes(
-                "theme-loader",
-                vec![("dracula".to_owned(), None, contributed.clone())],
-            );
-        });
+        actor
+            .deps
+            .services
+            .slices
+            .register(
+                jinn_slices::theme_entries_slot(),
+                jinn_slices::ThemeEntries {
+                    entries: vec![jinn_slices::NamedTheme {
+                        name: "dracula".to_owned(),
+                        theme: contributed.clone(),
+                    }],
+                },
+            )
+            .expect("theme cell minted once");
 
         // When syncing AppStateFile with theme_name = Some("dracula").
         let app_state = AppStateFile {
@@ -390,7 +400,7 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn sync_state_unknown_theme_falls_back_to_default() {
-        // Given an app-state actor with an empty contribution cache.
+        // Given an app-state actor whose theme cell lacks the name.
         let (actor, _audit, _services) = create_actor().await;
 
         // When syncing AppStateFile with a name the cache lacks.

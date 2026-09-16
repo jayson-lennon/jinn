@@ -977,10 +977,10 @@ mod tests {
             false,
             false,
             &manifest,
-            std::path::Path::new("/tmp/theme-loader.wasm"),
+            std::path::Path::new("/tmp/some-plugin.wasm"),
         );
 
-        assert_eq!(resolved.name, "theme-loader");
+        assert_eq!(resolved.name, "some-plugin");
     }
 
     #[rstest::rstest]

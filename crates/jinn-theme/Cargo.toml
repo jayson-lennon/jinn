@@ -36,6 +36,6 @@ struct_excessive_bools = "allow"
 
 [features]
 # `entry` pulls in the picker-facing ThemeEntry (ratatui/crossterm world);
-# guests like theme-loader use the crate loader-only.
+# guests like persona-loader use the crate loader-only.
 entry = ["dep:jinn-selection-widget"]
 default = ["entry"]

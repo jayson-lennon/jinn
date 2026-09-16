@@ -89,52 +89,6 @@
       "if": {
         "properties": {
           "type": {
-            "const": "set_theme_entries"
-          }
-        }
-      },
-      "then": {
-        "type": "object",
-        "required": [
-          "v",
-          "seq",
-          "ts",
-          "type",
-          "themes"
-        ],
-        "properties": {
-          "v": {
-            "type": "integer",
-            "const": 1,
-            "description": "Wire protocol major version."
-          },
-          "seq": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Sender-assigned monotonic sequence number (per direction)."
-          },
-          "ts": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Unix epoch milliseconds when the sender produced the message."
-          },
-          "type": {
-            "const": "set_theme_entries"
-          },
-          "themes": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/themeDef"
-            }
-          }
-        },
-        "additionalProperties": false
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "type": {
             "const": "set_persona_entries"
           }
         }
@@ -809,29 +763,6 @@
         "content": {
           "type": "string",
           "description": "Optional snippet text."
-        }
-      },
-      "additionalProperties": false
-    },
-    "themeDef": {
-      "type": "object",
-      "required": [
-        "name"
-      ],
-      "properties": {
-        "name": {
-          "type": "string",
-          "description": "Unique theme name. \"default\" is reserved by the host."
-        },
-        "description": {
-          "type": "string"
-        },
-        "colors": {
-          "type": "object",
-          "description": "Slot key to color string. Slot keys are the snake_case core Theme field names; color strings accept ANSI name, ANSI code, hex, or RGB form.",
-          "additionalProperties": {
-            "type": "string"
-          }
         }
       },
       "additionalProperties": false

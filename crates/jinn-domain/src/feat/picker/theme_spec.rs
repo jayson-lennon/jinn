@@ -150,41 +150,36 @@ fn restore_theme(ctx: &mut ActionCtx<'_>) -> PickerOutcome {
     PickerOutcome::empty().close()
 }
 
-/// Loads themes into the theme picker from the plugin contribution cache.
+/// Loads themes into the theme picker from the theme slice's entries cell.
 ///
-/// The built-in default always leads; contributed themes follow in name
-/// order. Opening the picker never touches the filesystem — it reads
-/// whatever the themes plugin last pushed (a dead plugin means default only).
+/// The cell's order is canonical (default pinned first, the rest in
+/// case-insensitive name order — assembled once at slice activation).
+/// Opening the picker never touches the filesystem; without the slice's
+/// `activate()` the picker shows the built-in default alone.
 fn load_theme_picker_entries(state: &mut AppState) {
-    let entries = {
-        let mut entries = vec![ThemeEntry {
+    let entries: Vec<ThemeEntry> = {
+        let scanned = state
+            .frontend
+            .with_theme_entries(|cell| cell.entries.clone(), Vec::new);
+        let mut entries = Vec::with_capacity(scanned.len() + 1);
+        entries.push(ThemeEntry {
             name: "default".to_owned(),
             theme: crate::feat::theme::default_theme(),
-        }];
-
-        // A user-contributed "default" replaces the built-in entry's look
-        // while keeping its reserved slot.
-        if let (Some(entry), Some(contributed)) =
-            (entries.first_mut(), state.plugins.theme("default"))
-        {
-            entry.theme = contributed.theme.clone();
-        }
-
-        for (name, contributed) in state.plugins.themes() {
-            if name == "default" {
-                continue;
+        });
+        for named in scanned {
+            if named.name == "default" {
+                // A scanned "default" replaces the built-in entry's look
+                // while keeping its reserved first slot.
+                if let Some(pinned) = entries.first_mut() {
+                    pinned.theme = named.theme;
+                }
+            } else {
+                entries.push(ThemeEntry {
+                    name: named.name,
+                    theme: named.theme,
+                });
             }
-            entries.push(ThemeEntry {
-                name: name.to_owned(),
-                theme: contributed.theme.clone(),
-            });
         }
-
-        // Default stays pinned first; the rest follow in case-insensitive
-        // name order.
-        let mut rest = entries.split_off(1);
-        rest.sort_by_key(|e| e.name.to_lowercase());
-        entries.extend(rest);
         entries
     };
 
@@ -210,13 +205,26 @@ mod tests {
 
     fn state_with_themes(contributed: &[(&str, crate::feat::theme::Theme)]) -> AppState {
         let mut state = AppState::default_with_scope_focus();
-        state.plugins.set_themes(
-            "theme-loader",
-            contributed
-                .iter()
-                .map(|(name, theme)| ((*name).to_owned(), None, theme.clone()))
-                .collect(),
-        );
+        // Seed the theme slice's entries cell directly, in the canonical
+        // order the activation scan produces: "default" first, the rest
+        // case-insensitively sorted.
+        let mut named: Vec<(String, crate::feat::theme::Theme)> = contributed
+            .iter()
+            .map(|(name, theme)| ((*name).to_owned(), theme.clone()))
+            .collect();
+        named.sort_by_key(|(name, _)| name.to_lowercase());
+        state.frontend.update_theme_entries(|cell| {
+            cell.entries = std::iter::once(jinn_slices::NamedTheme {
+                name: "default".to_owned(),
+                theme: crate::feat::theme::default_theme(),
+            })
+            .chain(
+                named
+                    .into_iter()
+                    .map(|(name, theme)| jinn_slices::NamedTheme { name, theme }),
+            )
+            .collect();
+        });
         state
     }
 

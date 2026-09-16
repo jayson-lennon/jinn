@@ -1,6 +1,6 @@
 //! Wire messages — thin tagged unions over individual structs.
 //!
-//! The structs ([`Hello`], [`SetThemeEntries`], ...) are the source of truth:
+//! The structs ([`Hello`], [`SetPersonaEntries`], ...) are the source of truth:
 //! each is versioned, tested, and evolves independently. The enums exist only
 //! as transport unions so a receiver can discriminate one line without
 //! knowing the type ahead of time, and `#[serde(other)]` on the
@@ -17,7 +17,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::persona_def::PersonaDef;
-use crate::theme_def::ThemeDef;
 
 /// Subscription kinds a plugin may declare in [`Hello::subscriptions`].
 ///
@@ -66,16 +65,6 @@ pub struct Welcome {
     /// Plugin-specific configuration table (free-form, from the manifest).
     #[serde(default)]
     pub config: serde_json::Value,
-}
-
-/// Contribution: the full set of theme definitions the plugin knows about.
-///
-/// Push, never pull — the plugin sends this on start and again whenever its
-/// view changes. Opening the theme picker never queries the plugin.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SetThemeEntries {
-    /// Complete set of themes (a full replacement, not a delta).
-    pub themes: Vec<ThemeDef>,
 }
 
 /// Contribution: the full set of persona definitions the plugin knows about.
@@ -297,7 +286,6 @@ pub enum PluginToHost {
     /// Handshake opener.
     Hello(Hello),
     /// Theme contribution (full set).
-    SetThemeEntries(SetThemeEntries),
     /// Persona contribution (full set).
     SetPersonaEntries(SetPersonaEntries),
     /// Citation contribution (turn-scoped).

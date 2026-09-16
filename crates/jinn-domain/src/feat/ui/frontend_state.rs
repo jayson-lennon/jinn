@@ -120,22 +120,9 @@ pub struct FrontendState {
     /// Use [`PickerExt`](super::picker_states::PickerExt) to access picker fields.
     pub pickers: PickerStates,
 
-    /// Path to the themes directory (`~/.config/jinn/themes/`).
-    /// Set once during init from `AppPaths`. Used by the theme picker to discover themes.
-    /// OWNER: Init code (set once at startup).
-    pub themes_dir: std::path::PathBuf,
-
-    /// Path to the system themes directory (`/usr/share/jinn/themes/`).
-    /// Set once during init from `AppPaths`. Used as fallback for theme discovery.
-    /// OWNER: Init code (set once at startup).
-    pub system_themes_dir: std::path::PathBuf,
-
     /// Arg input popup state - active when `FocusScope::ArgInput` is on the scope stack.
     /// OWNER: IntentHandler (arg input editing, confirmation).
     pub arg_input: ArgInputState,
-
-    /// Rename session input popup state - active when `FocusScope::RenameSessionInput` is on the scope stack.
-    /// OWNER: IntentHandler (rename input editing, confirmation).
 
     /// Pruner accumulation threshold input popup state - active when
     /// `FocusScope::PrunerAccumulationInput` is on the scope stack.
@@ -192,8 +179,6 @@ impl Default for FrontendState {
             close_session_prompt: false,
             archive_tree_prompt: None,
             pickers: PickerStates::default(),
-            themes_dir: std::path::PathBuf::new(),
-            system_themes_dir: std::path::PathBuf::new(),
             arg_input: ArgInputState::default(),
             pruner_accumulation_input: PrunerAccumulationInputState::default(),
             project_add_input: ProjectAddInputState::default(),
@@ -254,6 +239,44 @@ impl FrontendState {
                 f(&guard)
             }
             None => default(),
+        }
+    }
+
+    /// Resolves the theme slice's entries cell, if the handle is attached
+    /// and the theme slice's `activate()` minted it.
+    fn theme_entries_cell(
+        &self,
+    ) -> Option<jinn_slices::cell::TypedCell<jinn_slices::ThemeEntries>> {
+        let slices = self.scope_focus.get()?;
+        slices.reader::<jinn_slices::ThemeEntries>(&jinn_slices::theme_entries_slot())
+    }
+
+    /// Reads the theme slice's entries through `f`, falling back to
+    /// `default` when the cell is absent (slice not activated).
+    #[must_use]
+    pub fn with_theme_entries<R, F, D>(&self, f: F, default: D) -> R
+    where
+        F: FnOnce(&jinn_slices::ThemeEntries) -> R,
+        D: FnOnce() -> R,
+    {
+        match self.theme_entries_cell() {
+            Some(cell) => {
+                let guard = cell.read();
+                f(&guard)
+            }
+            None => default(),
+        }
+    }
+
+    /// Runs `f` against the theme slice's entries. A no-op when the cell
+    /// is absent (slice not activated) — writes are silently dropped,
+    /// matching the no-slice configuration.
+    pub fn update_theme_entries<F>(&self, f: F)
+    where
+        F: FnOnce(&mut jinn_slices::ThemeEntries),
+    {
+        if let Some(cell) = self.theme_entries_cell() {
+            cell.update(f);
         }
     }
 
