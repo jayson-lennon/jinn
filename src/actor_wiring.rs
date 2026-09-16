@@ -1442,6 +1442,16 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
             // Personas: the persona slice scanned at activation; publish
             // now that every actor (the session actor subscribes to
             // `PersonasLoaded`) is spawned.
+            if !persona_entries.entries.is_empty() {
+                let _ = bus_ref
+                    .tell(kameo_actors::message_bus::Publish(
+                        jinn_domain::feat::context::protocol::event::PersonasLoaded {
+                            personas: persona_entries.entries.clone(),
+                            error: None,
+                        },
+                    ))
+                    .await;
+            }
 
             // Signal all actors spawned.
             let _ = bus_ref
