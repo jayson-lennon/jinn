@@ -163,12 +163,13 @@ fn draw(
     reason = "the overlay only renders when the cwd scope registered its cell"
 )]
 pub fn render_cwd_input(frame: &mut Frame<'_>, area: Rect, ctx: &RenderFacts) {
-    let popup_area = cwd_input_popup_rect(area);
+    // `area` is the overlay rect the geometry fn computed (the centered
+    // popup rect) — draw into it directly.
     let cell: TypedCell<CwdInputState> = ctx
         .slices
         .reader(&jinn_slices::cwds_slot())
         .expect("cwd overlay renders only when its cell is registered");
     let state = cell.read();
     let current_cwd = std::path::PathBuf::from(ctx.fact(SESSION_CWD_FACT).unwrap_or_default());
-    draw(frame, popup_area, &state, &ctx.theme, &current_cwd);
+    draw(frame, area, &state, &ctx.theme, &current_cwd);
 }
