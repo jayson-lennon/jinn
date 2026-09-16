@@ -38,7 +38,7 @@ pub fn activate(host: &mut SliceHost<'_, jinn_slices::RenderFacts>) {
         intent::cwd_scope(),
         std::sync::Arc::new(render::cwd_overlay_rect),
     );
-    host.register_overlay_selectable(intent::cwd_scope());
+    host.register_overlay_selectable(&intent::cwd_scope());
     host.register_overlay_slot(intent::cwd_scope(), cwds_slot());
     host.register_overlay_view(
         intent::cwd_scope(),

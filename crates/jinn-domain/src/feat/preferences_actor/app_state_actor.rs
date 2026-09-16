@@ -22,7 +22,6 @@ pub struct AppStateActorDeps {
     /// Shared application state.
     pub state: State,
     pub frontend_cap: crate::common::tcaps::frontend::FrontendCap,
-    pub context_cap: crate::common::tcaps::context::ContextCap,
 }
 
 /// The app-state actor.
@@ -36,7 +35,6 @@ pub struct AppStateActor {
     /// theme, and context.active_persona inline after persist.
     state: State,
     frontend_cap: crate::common::tcaps::frontend::FrontendCap,
-    context_cap: crate::common::tcaps::context::ContextCap,
 }
 
 impl Actor for AppStateActor {
@@ -52,7 +50,6 @@ impl Actor for AppStateActor {
             deps: args.deps.clone(),
             state: args.state,
             frontend_cap: args.frontend_cap,
-            context_cap: args.context_cap,
         })
     }
 }
@@ -75,8 +72,6 @@ impl AppStateActor {
 
     /// Syncs persisted state into the shared `AppState` frontend/context fields.
     fn sync_state(&self, updated: &AppStateFile) {
-        use crate::common::tcaps::context::PersonaWrite;
-
         // Resolve the persisted theme name against the theme slice's
         // entries cell (populated by the activation-time directory scan).
         // Unknown names fall back to the embedded default.
@@ -106,20 +101,21 @@ impl AppStateActor {
             ops.frontend().caches.invalidate_all();
         });
 
-        // Sync active_persona when persona_name changes.
+        // Sync active_persona when persona_name changes (persona
+        // selection lives in the persona slice's cell).
         if let Some(ref persona_name) = updated.persona_name {
-            let found = self
-                .state
-                .read()
-                .context
-                .personas()
-                .iter()
-                .find(|p| p.name == *persona_name)
-                .cloned();
-            if let Some(persona) = found {
-                self.state.with_context(&self.context_cap, |view| {
-                    view.context.set_active_persona(Some(persona));
-                });
+            if let Some(cell) = self
+                .deps
+                .services
+                .slices
+                .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            {
+                let present = cell.read().entries.iter().any(|p| p.name == *persona_name);
+                if present {
+                    cell.update(|selection| {
+                        selection.active = Some(persona_name.clone());
+                    });
+                }
             }
         }
     }
@@ -188,7 +184,6 @@ mod tests {
             },
             state: crate::common::state::State::new(crate::common::app_state::AppState::default()),
             frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
-            context_cap: crate::common::tcaps::mint::mint_context_cap(),
         };
         (actor, audit, services)
     }
@@ -306,25 +301,29 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn sync_state_sets_correct_persona() {
-        use crate::feat::persona::Persona;
         // If the condition were flipped, the wrong persona would be set.
-        // Given an app-state actor with two personas loaded.
+        // Given an app-state actor with two personas in the persona cell.
         let (actor, _audit, _services) = create_actor().await;
-        {
-            let mut guard = actor.state.write_test_no_cap();
-            guard.context.set_personas(vec![
-                Persona {
+        let cell = actor
+            .deps
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .expect("test: persona cell seeded");
+        cell.update(|selection| {
+            selection.entries = vec![
+                jinn_persona_msg::Persona {
                     name: "coder".to_owned(),
                     description: String::new(),
                     body: String::new(),
                 },
-                Persona {
+                jinn_persona_msg::Persona {
                     name: "writer".to_owned(),
                     description: String::new(),
                     body: String::new(),
                 },
-            ]);
-        }
+            ];
+        });
 
         // When syncing AppStateFile with persona_name = "writer".
         let app_state = AppStateFile {
@@ -334,12 +333,12 @@ mod tests {
         actor.sync_state(&app_state);
 
         // Then the active persona is "writer", not "coder".
-        let guard = actor.state.read();
-        let active = guard
-            .context
-            .active_persona()
+        let active = cell
+            .read()
+            .active
+            .clone()
             .expect("should have active persona");
-        assert_eq!(active.name, "writer");
+        assert_eq!(active, "writer");
     }
 
     #[rstest::rstest]

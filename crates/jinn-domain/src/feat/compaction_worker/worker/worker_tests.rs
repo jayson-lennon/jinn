@@ -115,6 +115,7 @@ fn test_worker(summary_text: &str) -> CompactionWorker {
         handle,
         State::new(AppState::default()),
         crate::common::tcaps::mint::mint_session_cap(),
+        String::new(),
     )
 }
 
@@ -148,6 +149,7 @@ fn test_worker_with_session(
         handle,
         state,
         crate::common::tcaps::mint::mint_session_cap(),
+        String::new(),
     );
 
     (worker, session_id)
@@ -233,6 +235,7 @@ fn compaction_passes_prompt_explicitly_not_in_message_array() {
         handle,
         State::new(AppState::default()),
         crate::common::tcaps::mint::mint_session_cap(),
+        String::new(),
     );
     let history = alternating_history(20);
     let config = small_reserve_config();
@@ -601,6 +604,7 @@ fn session_continues_after_background_compaction() {
         handle,
         state,
         crate::common::tcaps::mint::mint_session_cap(),
+        String::new(),
     );
 
     // When evaluating compaction for the session.
@@ -743,6 +747,7 @@ impl ThresholdTestEnv {
             handle,
             self.state.clone(),
             crate::common::tcaps::mint::mint_session_cap(),
+            String::new(),
         )
     }
 
@@ -1263,6 +1268,7 @@ fn gate_passes_but_nothing_to_compact_with_empty_history() {
         handle,
         state,
         crate::common::tcaps::mint::mint_session_cap(),
+        String::new(),
     );
 
     let rt = tokio::runtime::Runtime::new().expect("test runtime");
@@ -1583,6 +1589,7 @@ fn error_clears_flag_and_allows_retry() {
         handle,
         state,
         crate::common::tcaps::mint::mint_session_cap(),
+        String::new(),
     );
 
     // When evaluating (LLM will fail).

@@ -260,19 +260,28 @@ mod tests {
             .session
             .set_active(state.session.active_session_id().clone());
 
-        // Add two personas to context.
-        state.context.set_personas(vec![
-            crate::feat::persona::Persona {
-                name: "coder".to_owned(),
-                description: String::new(),
-                body: "You are a coder.".to_owned(),
-            },
-            crate::feat::persona::Persona {
-                name: "writer".to_owned(),
-                description: String::new(),
-                body: "You are a writer.".to_owned(),
-            },
-        ]);
+        // Add two personas to the persona slice's cell.
+        let cell = state
+            .frontend
+            .slices()
+            .and_then(|s| {
+                s.reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            })
+            .expect("persona cell seeded by default_with_scope_focus");
+        cell.update(|selection| {
+            selection.entries = vec![
+                jinn_persona_msg::Persona {
+                    name: "coder".to_owned(),
+                    description: String::new(),
+                    body: "You are a coder.".to_owned(),
+                },
+                jinn_persona_msg::Persona {
+                    name: "writer".to_owned(),
+                    description: String::new(),
+                    body: "You are a writer.".to_owned(),
+                },
+            ];
+        });
 
         // Set picker entries with "writer" as the selected item.
         let entries = vec![
@@ -308,8 +317,15 @@ mod tests {
         );
 
         // Then the active persona is "writer", not "coder".
+        let active = state
+            .frontend
+            .slices()
+            .and_then(|s| {
+                s.reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            })
+            .and_then(|cell| cell.read().active.clone());
         assert_eq!(
-            state.context.active_persona().map(|p| p.name.as_str()),
+            active.as_deref(),
             Some("writer"),
             "confirm_persona should set the correct persona"
         );
@@ -356,12 +372,15 @@ mod tests {
             .session
             .set_active(state.session.active_session_id().clone());
         state
-            .context
-            .set_personas(vec![crate::feat::persona::Persona {
-                name: "coder".to_owned(),
-                description: String::new(),
-                body: "You are a coder.".to_owned(),
-            }]);
+            .persona_selection()
+            .expect("persona cell attached")
+            .update(|p| {
+                p.entries.push(jinn_persona_msg::Persona {
+                    name: "coder".to_owned(),
+                    description: String::new(),
+                    body: "You are a coder.".to_owned(),
+                });
+            });
         let entry = PersonaEntry {
             name: "coder".to_owned(),
             description: String::new(),

@@ -9,7 +9,6 @@
 //! mutations of `AppState`, not part of prompt assembly.
 
 use crate::common::actor_deps::BusPublish;
-use crate::common::tcaps::context::PersonaWrite;
 use crate::feat::context::protocol::command::{
     LoadPersonaPickerEntries, PinChatEntry, UnpinChatEntry,
 };
@@ -97,28 +96,28 @@ impl SessionPersistenceActor {
         &self,
         evt: &ToolsRegistered,
     ) {
-        use crate::common::tcaps::context::{
-            GlobalToolDefinitionsWrite, SessionToolDefinitionsWrite,
+        let Some(cell) = self
+            .services
+            .slices
+            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+        else {
+            tracing::warn!("tools registry cell missing; dropping ToolsRegistered");
+            return;
         };
 
         match &evt.session_id {
             // Global tools (builtins) -> shared map.
             None => {
-                self.state.with_context(&self.context_cap, |view| {
-                    let map = view.context.global_tool_definitions_mut();
+                cell.update(|registry| {
                     for def in &evt.definitions {
-                        map.insert(def.name.clone(), def.clone());
+                        registry.global.insert(def.name.clone(), def.clone());
                     }
                 });
             }
             // Session-scoped tools -> per-session map.
             Some(target_id) => {
-                self.state.with_context(&self.context_cap, |view| {
-                    let session_map = view
-                        .context
-                        .session_tool_definitions_mut()
-                        .entry(target_id.clone())
-                        .or_default();
+                cell.update(|registry| {
+                    let session_map = registry.session.entry(target_id.clone()).or_default();
                     for def in &evt.definitions {
                         session_map.insert(def.name.clone(), def.clone());
                     }
@@ -134,22 +133,25 @@ impl SessionPersistenceActor {
         &self,
         evt: &ToolsUnregistered,
     ) {
-        use crate::common::tcaps::context::SessionToolDefinitionsWrite;
-
         // Tool names are "<provider><tool>" — the provider string already
         // carries its trailing "__" separator (e.g. `mcp__stub__echo`), so a
         // plain provider-prefix match never over-matches `stub_extended`.
         let prefix = evt.provider.clone();
-        self.state.with_context(&self.context_cap, |view| {
-            let session_map = view.context.session_tool_definitions_mut();
-            let Some(map) = session_map.get_mut(&evt.session_id) else {
-                return;
-            };
-            map.retain(|name, _| !name.starts_with(&prefix));
-            if map.is_empty() {
-                session_map.remove(&evt.session_id);
-            }
-        });
+        if let Some(cell) = self
+            .services
+            .slices
+            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+        {
+            cell.update(|registry| {
+                let Some(map) = registry.session.get_mut(&evt.session_id) else {
+                    return;
+                };
+                map.retain(|name, _| !name.starts_with(&prefix));
+                if map.is_empty() {
+                    registry.session.remove(&evt.session_id);
+                }
+            });
+        }
     }
 
     /// SessionClosed cleanup: drop the closed session's entry from the
@@ -159,13 +161,15 @@ impl SessionPersistenceActor {
         &self,
         session_id: &crate::protocol::SessionId,
     ) {
-        use crate::common::tcaps::context::SessionToolDefinitionsWrite;
-
-        self.state.with_context(&self.context_cap, |view| {
-            view.context
-                .session_tool_definitions_mut()
-                .remove(session_id);
-        });
+        if let Some(cell) = self
+            .services
+            .slices
+            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+        {
+            cell.update(|registry| {
+                registry.session.remove(session_id);
+            });
+        }
     }
 
     /// No-op receiver for [`PromptTemplatesLoaded`].
@@ -213,34 +217,23 @@ impl SessionPersistenceActor {
         // Read frontend.app_state.persona_name (if set) before writing.
         let seeded_persona_name = self.state.read().frontend.app_state.persona_name.clone();
 
-        self.state.with_context(&self.context_cap, |view| {
-            view.context.set_personas(payload.personas.clone());
-
-            let active_persona_name = view.context.active_persona().map(|p| p.name.clone());
-
-            let target_name = seeded_persona_name
-                .as_deref()
-                .filter(|name| payload.personas.iter().any(|p| p.name == *name))
-                .or_else(|| {
-                    active_persona_name
-                        .as_deref()
-                        .filter(|name| payload.personas.iter().any(|sp| sp.name == *name))
-                })
-                .unwrap_or(DEFAULT_PERSONA_NAME);
-
-            let found = payload
-                .personas
-                .iter()
-                .find(|p| p.name == target_name)
-                .cloned();
-
-            if let Some(persona) = found {
-                view.context.set_active_persona(Some(persona));
-            } else {
-                // Edge case: coding-assistant not found either.
-                view.context
-                    .set_active_persona(payload.personas.first().cloned());
-            }
+        // The persona catalog lives in the persona slice's cell now; the
+        // actor only carries authority to write the selection it was
+        // seeded with.
+        let Some(cell) = self
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+        else {
+            tracing::warn!("persona slice not activated; dropping PersonasLoaded catalog");
+            return;
+        };
+        cell.update(|personas| {
+            personas.seeded_replace(
+                payload.personas.clone(),
+                seeded_persona_name.as_deref(),
+                DEFAULT_PERSONA_NAME,
+            );
         });
     }
 
@@ -250,23 +243,30 @@ impl SessionPersistenceActor {
         _payload: &LoadPersonaPickerEntries,
     ) {
         let state = self.state.read();
-        let active_name = state
-            .context
-            .active_persona()
-            .as_ref()
-            .map(|p| p.name.clone());
-        let mut entries: Vec<PersonaEntry> = state
-            .context
-            .personas()
-            .iter()
-            .map(|p| PersonaEntry {
-                name: p.name.clone(),
-                description: p.description.clone(),
-                is_active: active_name.as_ref() == Some(&p.name),
-                theme: state.frontend.theme.clone(),
-            })
-            .collect();
+        let selection = self
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .map(|cell| cell.read().clone());
         drop(state);
+        let (_active_name, mut entries): (Option<String>, Vec<PersonaEntry>) = match selection {
+            Some(selection) => {
+                let active_name = selection.active.clone();
+                let theme = self.state.read().frontend.theme.clone();
+                let entries = selection
+                    .entries
+                    .iter()
+                    .map(|p| PersonaEntry {
+                        name: p.name.clone(),
+                        description: p.description.clone(),
+                        is_active: active_name.as_ref() == Some(&p.name),
+                        theme: theme.clone(),
+                    })
+                    .collect();
+                (active_name, entries)
+            }
+            None => (None, Vec::new()),
+        };
 
         entries.sort_by_key(|e| e.name.to_lowercase());
 
@@ -338,9 +338,13 @@ mod tests {
         actor.on_tools_registered(&payload);
 
         // Then regular tools are in the global map.
-        let guard = state.read();
+        let registry = actor
+            .services
+            .slices
+            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .expect("tools registry cell seeded");
         assert!(
-            guard.context.global_tool_definitions.contains_key("bash"),
+            registry.read().global.contains_key("bash"),
             "bash should be in global tool map"
         );
     }
@@ -369,21 +373,20 @@ mod tests {
         actor.on_tools_registered(&payload);
 
         // Then the tool is NOT in any global map.
-        let guard = state.read();
+        let registry = actor
+            .services
+            .slices
+            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .expect("tools registry cell seeded");
+        let registry_guard = registry.read();
         assert!(
-            !guard
-                .context
-                .global_tool_definitions
-                .contains_key("judgment_passed"),
+            !registry_guard.global.contains_key("judgment_passed"),
             "attached tool for different session should not be in global map"
         );
         // And NOT in the target session's map either (it was stored by session_id key).
         // Since the tool WAS stored in session_tool_definitions[other_session_id],
         // it should be there, not in global.
-        let session_tools = guard
-            .context
-            .session_tool_definitions
-            .get(&other_session_id);
+        let session_tools = registry_guard.session.get(&other_session_id);
         // The tool IS stored under the correct session key (that's the new behavior).
         assert!(
             session_tools.is_some_and(|m| m.contains_key("judgment_passed")),
@@ -416,8 +419,13 @@ mod tests {
         actor.on_tools_registered(&payload);
 
         // Then the tool IS stored in the session-specific map.
-        let guard = state.read();
-        let session_tools = guard.context.session_tool_definitions.get(&session_id);
+        let registry = actor
+            .services
+            .slices
+            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .expect("tools registry cell seeded");
+        let registry_guard = registry.read();
+        let session_tools = registry_guard.session.get(&session_id);
         assert!(
             session_tools.is_some_and(|m| m.contains_key("judgment_passed")),
             "attached tool for own session should be stored in session map"
@@ -456,10 +464,14 @@ mod tests {
         });
 
         // Then only the other provider's tool remains cached.
-        let guard = state.read();
-        let session_tools = guard
-            .context
-            .session_tool_definitions
+        let registry = actor
+            .services
+            .slices
+            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .expect("tools registry cell seeded");
+        let registry_guard = registry.read();
+        let session_tools = registry_guard
+            .session
             .get(&session_id)
             .expect("session map must survive while another provider's tools remain");
         assert!(
@@ -498,12 +510,13 @@ mod tests {
         });
 
         // Then the emptied session map is removed entirely.
-        let guard = state.read();
+        let registry = actor
+            .services
+            .slices
+            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .expect("tools registry cell seeded");
         assert!(
-            !guard
-                .context
-                .session_tool_definitions
-                .contains_key(&session_id),
+            !registry.read().session.contains_key(&session_id),
             "emptied session map must be dropped"
         );
     }
@@ -540,10 +553,14 @@ mod tests {
 
         // Then "stub_extended"'s tool survives (prefix match includes the
         // trailing "__" separator).
-        let guard = state.read();
-        let session_tools = guard
-            .context
-            .session_tool_definitions
+        let registry = actor
+            .services
+            .slices
+            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .expect("tools registry cell seeded");
+        let registry_guard = registry.read();
+        let session_tools = registry_guard
+            .session
             .get(&session_id)
             .expect("session map must survive");
         assert!(
@@ -575,12 +592,13 @@ mod tests {
         actor.on_session_closed_cleanup(&session_id);
 
         // Then the session's context-cache entry is gone.
-        let guard = state.read();
+        let registry = actor
+            .services
+            .slices
+            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .expect("tools registry cell seeded");
         assert!(
-            !guard
-                .context
-                .session_tool_definitions
-                .contains_key(&session_id),
+            !registry.read().session.contains_key(&session_id),
             "closed session's context tool cache must be removed"
         );
     }
@@ -610,12 +628,13 @@ mod tests {
         actor.on_tools_registered(&payload);
 
         // Then the global tool is stored.
-        let guard = state.read();
+        let registry = actor
+            .services
+            .slices
+            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .expect("tools registry cell seeded");
         assert!(
-            guard
-                .context
-                .global_tool_definitions
-                .contains_key("global_helper"),
+            registry.read().global.contains_key("global_helper"),
             "global tool should be stored unconditionally"
         );
     }
@@ -638,11 +657,13 @@ mod tests {
         actor.on_personas_loaded(&payload);
 
         // Then coding-assistant is selected by name, not position.
-        let guard = state.read();
-        assert_eq!(
-            guard.context.active_persona().map(|p| p.name.as_str()),
-            Some("coding-assistant")
-        );
+        let selection = actor
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .expect("personas cell seeded");
+        let selection_guard = selection.read();
+        assert_eq!(selection_guard.active.as_deref(), Some("coding-assistant"));
     }
 
     #[rstest::rstest]
@@ -650,12 +671,12 @@ mod tests {
     async fn on_personas_loaded_keeps_existing_active_persona() {
         // Given a session actor with active persona "learning-tutor".
         let (actor, state, _audit) = create_actor().await;
-        {
-            let mut guard = state.write_test_no_cap();
-            guard
-                .context
-                .set_active_persona(Some(make_persona("learning-tutor")));
-        }
+        actor
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .expect("personas cell seeded")
+            .update(|p| p.active = Some("learning-tutor".to_owned()));
         let personas = vec![
             make_persona("coding-assistant"),
             make_persona("learning-tutor"),
@@ -669,11 +690,12 @@ mod tests {
         actor.on_personas_loaded(&payload);
 
         // Then learning-tutor is kept (still exists in list).
-        let guard = state.read();
-        assert_eq!(
-            guard.context.active_persona().map(|p| p.name.as_str()),
-            Some("learning-tutor")
-        );
+        let selection = actor
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .expect("personas cell seeded");
+        assert_eq!(selection.read().active.as_deref(), Some("learning-tutor"));
     }
 
     #[rstest::rstest]
@@ -681,10 +703,12 @@ mod tests {
     async fn on_personas_loaded_falls_back_when_active_missing() {
         // Given a session actor where active persona "foo" was deleted from disk.
         let (actor, state, _audit) = create_actor().await;
-        {
-            let mut guard = state.write_test_no_cap();
-            guard.context.set_active_persona(Some(make_persona("foo")));
-        }
+        actor
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .expect("personas cell seeded")
+            .update(|p| p.active = Some("foo".to_owned()));
         let personas = vec![make_persona("coding-assistant")];
         let payload = PersonasLoaded {
             personas,
@@ -695,11 +719,13 @@ mod tests {
         actor.on_personas_loaded(&payload);
 
         // Then falls back to coding-assistant.
-        let guard = state.read();
-        assert_eq!(
-            guard.context.active_persona().map(|p| p.name.as_str()),
-            Some("coding-assistant")
-        );
+        let selection = actor
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .expect("personas cell seeded");
+        let selection_guard = selection.read();
+        assert_eq!(selection_guard.active.as_deref(), Some("coding-assistant"));
     }
 
     #[rstest::rstest]
@@ -717,11 +743,12 @@ mod tests {
         actor.on_personas_loaded(&payload);
 
         // Then first available is selected.
-        let guard = state.read();
-        assert_eq!(
-            guard.context.active_persona().map(|p| p.name.as_str()),
-            Some("learning-tutor")
-        );
+        let selection = actor
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .expect("personas cell seeded");
+        assert_eq!(selection.read().active.as_deref(), Some("learning-tutor"));
     }
 
     #[rstest::rstest]
@@ -729,10 +756,12 @@ mod tests {
     async fn on_personas_loaded_clears_active_when_list_empty() {
         // Given a session actor with some active persona.
         let (actor, state, _audit) = create_actor().await;
-        {
-            let mut guard = state.write_test_no_cap();
-            guard.context.set_active_persona(Some(make_persona("foo")));
-        }
+        actor
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .expect("personas cell seeded")
+            .update(|p| p.active = Some("foo".to_owned()));
         let payload = PersonasLoaded {
             personas: vec![],
             error: None,
@@ -742,8 +771,13 @@ mod tests {
         actor.on_personas_loaded(&payload);
 
         // Then active_persona is None.
-        let guard = state.read();
-        assert!(guard.context.active_persona().is_none());
+        let selection = actor
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .expect("personas cell seeded");
+        let selection_guard = selection.read();
+        assert!(selection_guard.active.is_none());
     }
 
     #[rstest::rstest]
@@ -765,11 +799,12 @@ mod tests {
         actor.on_personas_loaded(&payload);
 
         // Then the seeded persona_name wins over the coding-assistant default.
-        let guard = state.read();
-        assert_eq!(
-            guard.context.active_persona().map(|p| p.name.as_str()),
-            Some("general")
-        );
+        let selection = actor
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .expect("personas cell seeded");
+        assert_eq!(selection.read().active.as_deref(), Some("general"));
     }
 
     #[rstest::rstest]
@@ -1051,16 +1086,18 @@ mod tests {
     async fn handle_load_persona_picker_entries_populates_picker() {
         // Given a session actor with personas loaded.
         let (actor, state, _audit) = create_actor().await;
-        {
-            let mut guard = state.write_test_no_cap();
-            guard.context.set_personas(vec![
-                make_persona("coding-assistant"),
-                make_persona("learning-tutor"),
-            ]);
-            guard
-                .context
-                .set_active_persona(Some(make_persona("learning-tutor")));
-        }
+        actor
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            .expect("personas cell seeded")
+            .update(|p| {
+                p.entries = vec![
+                    make_persona("coding-assistant"),
+                    make_persona("learning-tutor"),
+                ];
+                p.active = Some("learning-tutor".to_owned());
+            });
 
         // When loading persona picker entries.
         actor.handle_load_persona_picker_entries(&LoadPersonaPickerEntries);

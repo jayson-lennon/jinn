@@ -390,9 +390,16 @@ async fn mcp_inspector_tools_pane_renders_tool_names() {
         use jinn_domain::feat::mcp::picker_entry::{McpPreviewMode, McpServerEntry};
         use jinn_domain::feat::theme::default_theme;
         use jinn_domain::feat::ui::picker_states::PickerExt;
-        let mut w = app.core.state.write_test_no_cap();
+        let registry_cell = app
+            .services
+            .slices
+            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .expect("tools registry seeded by render test app");
+        let session_id = {
+            let w = app.core.state.read();
+            w.active_session().session_id().clone()
+        };
         // Seed a tool definition so the per-frame refresh surfaces it in tools mode.
-        let session_id = w.active_session().session_id().clone();
         let mut defs = std::collections::BTreeMap::new();
         defs.insert(
             "mcp__excalimate__create_scene".to_owned(),
@@ -405,7 +412,9 @@ async fn mcp_inspector_tools_pane_renders_tool_names() {
                 server_tool_type: None,
             },
         );
-        w.context.session_tool_definitions.insert(session_id, defs);
+        registry_cell.update(|registry| {
+            registry.session.insert(session_id, defs);
+        });
         // Entry starts in Logs mode; flip to Tools so the rendered pane shows tools.
         let mut entry = McpServerEntry::new(
             "excalimate".to_owned(),
@@ -421,6 +430,7 @@ async fn mcp_inspector_tools_pane_renders_tool_names() {
                 vec![entry],
             )
             .expect("mcp-server spec registered");
+        let mut w = app.core.state.write_test_no_cap();
         w.frontend.mcp_server_picker_mut().set_items(wrapped);
         w.frontend.scope_push(jinn_domain::FocusScope::Picker {
             kind: jinn_domain::PickerKind::McpServer,

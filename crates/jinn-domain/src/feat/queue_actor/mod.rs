@@ -29,8 +29,7 @@ use kameo::prelude::{Actor, ActorRef, Context, Message};
 use crate::common::actor_deps::{ActorDeps, BusPublish};
 use crate::common::state::State;
 use crate::feat::chat_input::protocol::event::ChatEntrySubmitted;
-use crate::feat::context::assemble::assemble_prompt;
-use crate::feat::context::strategy::token_estimator::TiktokenCounter;
+use crate::feat::context::snapshot::{assemble_via_service, build_assembly_inputs};
 use crate::feat::provider::protocol::command::{SendToLlmProvider, StreamOrigin};
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
@@ -45,8 +44,6 @@ use crate::protocol::SessionId;
 pub struct QueueActor {
     /// Shared application state (read/write access to session queue and data).
     state: State,
-    /// Token counter for recording token usage in the session ledger.
-    counter: TiktokenCounter,
     /// Universal actor dependencies (bus, services, etc.).
     deps: ActorDeps,
     /// Authority to write the session capsule.
@@ -58,8 +55,6 @@ pub struct QueueActor {
 pub struct QueueActorDeps {
     /// Shared application state.
     pub state: State,
-    /// Token counter for usage tracking.
-    pub counter: TiktokenCounter,
     /// Universal actor dependencies (bus, services, etc.).
     pub deps: ActorDeps,
     /// Authority to write the session capsule.
@@ -77,7 +72,6 @@ impl Actor for QueueActor {
 
         Ok(Self {
             state: args.state,
-            counter: args.counter,
             deps: args.deps,
             cap: args.cap,
         })
@@ -233,8 +227,21 @@ impl QueueActor {
         }
 
         let assembled = {
-            let guard = self.state.read();
-            assemble_prompt(&guard, session_id, &self.counter)
+            let inputs = {
+                let guard = self.state.read();
+                build_assembly_inputs(&guard, session_id)
+            };
+            match assemble_via_service(&self.deps.services, inputs).await {
+                Ok(prompt) => prompt,
+                Err(error) => {
+                    tracing::error!(
+                        error = ?error,
+                        session_id = %session_id,
+                        "context assembly failed; dispatch aborted"
+                    );
+                    return;
+                }
+            }
         };
 
         let (provider_id, model_used, reasoning_effort, endpoint_tag) =
@@ -344,8 +351,21 @@ impl QueueActor {
             });
         }
         let assembled = {
-            let guard = self.state.read();
-            assemble_prompt(&guard, session_id, &self.counter)
+            let inputs = {
+                let guard = self.state.read();
+                build_assembly_inputs(&guard, session_id)
+            };
+            match assemble_via_service(&self.deps.services, inputs).await {
+                Ok(prompt) => prompt,
+                Err(error) => {
+                    tracing::error!(
+                        error = ?error,
+                        session_id = %session_id,
+                        "context assembly failed; dispatch aborted"
+                    );
+                    return;
+                }
+            }
         };
 
         let (provider_id, model_used, reasoning_effort, endpoint_tag) =
@@ -387,7 +407,6 @@ mod tests {
     use crate::common::services::bus_service::BusAudit;
     use crate::common::state::State;
     use crate::feat::chat_input::protocol::event::ChatEntrySubmitted;
-    use crate::feat::context::strategy::token_estimator::TiktokenCounter;
     use crate::feat::provider::protocol::command::{SendToLlmProvider, StreamOrigin};
     use crate::feat::session::chat_entry::ChatEntry;
     use crate::feat::session::phase_machine::PhaseKind;
@@ -398,11 +417,11 @@ mod tests {
 
     async fn create_actor() -> (QueueActor, BusAudit) {
         let (bus, audit) = crate::common::services::BusService::new_recording();
-        let services = Services::new_fake_with_bus(bus).await;
+        let mut services = Services::new_fake_with_bus(bus).await;
+        let _ = jinn_context_assembly::service::ensure_spawned(&services.trouper_system);
         (
             QueueActor {
-                state: State::new(AppState::default()),
-                counter: TiktokenCounter::o200k_base(),
+                state: State::new(AppState::default_with_scope_focus()),
                 deps: ActorDeps { services },
                 cap: crate::common::tcaps::mint::mint_session_cap(),
             },

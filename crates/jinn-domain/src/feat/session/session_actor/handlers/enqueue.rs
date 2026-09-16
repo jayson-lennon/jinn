@@ -9,7 +9,7 @@ use crate::feat::chat_input::protocol::command::{
     EnqueueResumeTurn, EnqueueUserMessage, PushChatEntry, SubmitSteeringMessage,
 };
 use crate::feat::chat_input::protocol::event::ChatEntrySubmitted;
-use crate::feat::context::assemble::assemble_prompt;
+use crate::feat::context::snapshot::{assemble_via_service, build_assembly_inputs};
 use crate::feat::provider::protocol::command::{SendMessage, SendToLlmProvider};
 use crate::feat::session::token_stats::TokenRecord;
 use crate::protocol::{ChatEntry, ChatEntryKind};
@@ -112,10 +112,23 @@ impl SessionPersistenceActor {
                         );
                     }
                 });
-                // Assemble the prompt directly and emit SendToLlmProvider.
+                // Assemble via the service and emit SendToLlmProvider.
                 let assembled = {
-                    let guard = self.state.read();
-                    assemble_prompt(&guard, &payload.session_id, &self.counter)
+                    let inputs = {
+                        let guard = self.state.read();
+                        build_assembly_inputs(&guard, &payload.session_id)
+                    };
+                    match assemble_via_service(&self.services, inputs).await {
+                        Ok(prompt) => prompt,
+                        Err(error) => {
+                            tracing::error!(
+                                error = ?error,
+                                session_id = %payload.session_id,
+                                "context assembly failed; enqueue dispatch aborted"
+                            );
+                            return;
+                        }
+                    }
                 };
 
                 let (old_phase, new_phase) = {
@@ -462,10 +475,23 @@ impl SessionPersistenceActor {
     ) {
         use crate::feat::session::token_stats::TokenRecord;
 
-        // Assemble prompt. Marker is excluded by default.
+        // Assemble prompt via the service. Marker is excluded by default.
         let assembled = {
-            let guard = self.state.read();
-            assemble_prompt(&guard, session_id, &self.counter)
+            let inputs = {
+                let guard = self.state.read();
+                build_assembly_inputs(&guard, session_id)
+            };
+            match assemble_via_service(&self.services, inputs).await {
+                Ok(prompt) => prompt,
+                Err(error) => {
+                    tracing::error!(
+                        error = ?error,
+                        session_id = %session_id,
+                        "context assembly failed; resume dispatch aborted"
+                    );
+                    return;
+                }
+            }
         };
 
         // Resolve model under write lock (round-robin mutates index).

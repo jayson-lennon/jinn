@@ -99,10 +99,9 @@ pub fn handle_session_lifecycle_setup(
         .unwrap_or_default();
 
     let persona_name = state
-        .context
-        .active_persona()
-        .as_ref()
-        .map_or_else(|| DEFAULT_PERSONA_NAME.to_owned(), |p| p.name.clone());
+        .persona_selection()
+        .and_then(|cell| cell.read().active.clone())
+        .unwrap_or_else(|| DEFAULT_PERSONA_NAME.to_owned());
 
     let reasoning_effort = state.frontend.app_state.reasoning_effort;
 

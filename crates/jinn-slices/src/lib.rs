@@ -29,6 +29,7 @@
     )
 )]
 
+pub mod assembled_prompt;
 pub mod cell;
 pub mod cwd_root;
 pub mod fabric;
@@ -44,9 +45,12 @@ pub mod scope_focus_state;
 pub mod service_status;
 pub mod slice_scope;
 pub mod slices;
+pub mod tools_registry;
 pub mod tui_signals;
 pub mod view;
 
+pub use assembled_prompt::AssembledPrompt;
+pub use assembled_prompt::SystemPrompt;
 pub use cell::TypedCell;
 pub use cwd_root::CwdRoot;
 pub use fabric::ActorStarted;
@@ -64,6 +68,8 @@ pub use render_facts::AppFact;
 pub use render_facts::RenderFacts;
 pub use scope_focus_state::ScopeFocusState;
 pub use scope_focus_state::scope_focus_slot;
+pub use tools_registry::ToolRegistry;
+pub use tools_registry::tools_registry_slot;
 pub use tui_signals::TuiSignals;
 
 /// The slice host specialized to jinn's render facts — the spelling

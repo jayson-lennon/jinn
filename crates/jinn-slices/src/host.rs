@@ -208,8 +208,8 @@ impl<'a, C: 'static> SliceHost<'a, C> {
     /// Registers a scope's overlay renderer.
     /// Marks `scope`'s overlay rect as a selectable region (popups with
     /// focusable content).
-    pub fn register_overlay_selectable(&self, scope: SliceScopeId) {
-        self.slices.register_overlay_selectable(&scope);
+    pub fn register_overlay_selectable(&self, scope: &SliceScopeId) {
+        self.slices.register_overlay_selectable(scope);
     }
 
     pub fn register_overlay_view(&self, scope: SliceScopeId, view: OverlayViewFn<C>) {

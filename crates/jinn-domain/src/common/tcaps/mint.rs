@@ -6,7 +6,6 @@
 //! Caps are ZSTs with private constructors scoped `pub(in crate::common::tcaps)`,
 //! so this module is the *only* code that can construct them.
 
-use crate::common::tcaps::context::ContextCap;
 use crate::common::tcaps::frontend::FrontendCap;
 use crate::common::tcaps::intent_handler::IntentHandlerCap;
 use crate::common::tcaps::plugins::PluginsCap;
@@ -29,10 +28,6 @@ pub fn mint_frontend_cap() -> FrontendCap {
 }
 
 /// Mint a [`ContextCap`]. Called from actor wiring.
-pub fn mint_context_cap() -> ContextCap {
-    ContextCap::new()
-}
-
 /// Mint a [`SessionCap`]. Called from actor wiring.
 pub fn mint_session_cap() -> SessionCap {
     SessionCap::new()

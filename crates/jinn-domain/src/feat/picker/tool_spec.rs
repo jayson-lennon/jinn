@@ -191,22 +191,27 @@ fn load_tool_entries(state: &mut AppState) {
         (disabled, provider_name, theme)
     };
     let active_id = state.session.active_session_id().clone();
-    let mut entries: Vec<ToolEntry> = state
-        .context
-        .tools_for_session(&active_id)
-        .into_iter()
-        .filter(|def| def.available_for_provider(&provider_name))
-        .map(|def| {
-            let name = def.name.clone();
-            let description = def.description.clone();
-            ToolEntry {
-                name,
-                description,
-                enabled: !disabled.contains(&def.name),
-                theme: theme.clone(),
-            }
-        })
-        .collect();
+    let mut entries: Vec<ToolEntry> = {
+        let Some(registry) = state.tool_registry() else {
+            return;
+        };
+        registry
+            .read()
+            .tools_for_session(&active_id)
+            .into_iter()
+            .filter(|def| def.available_for_provider(&provider_name))
+            .map(|def| {
+                let name = def.name.clone();
+                let description = def.description.clone();
+                ToolEntry {
+                    name,
+                    description,
+                    enabled: !disabled.contains(&def.name),
+                    theme: theme.clone(),
+                }
+            })
+            .collect()
+    };
 
     entries.sort_by_key(|e| e.name.to_lowercase());
 
@@ -240,19 +245,24 @@ mod tests {
         state
             .session
             .set_active(state.session.active_session_id().clone());
-        for (name, description, server_tool_type) in defs {
-            state.context.global_tool_definitions.insert(
-                (*name).to_owned(),
-                crate::protocol::ToolDefinition {
-                    name: (*name).to_owned(),
-                    description: (*description).to_owned(),
-                    parameters: serde_json::json!({}),
-                    prompt_snippet: None,
-                    prompt_guidelines: vec![],
-                    server_tool_type: server_tool_type.clone(),
-                },
-            );
-        }
+        let registry = state
+            .tool_registry()
+            .expect("tools registry seeded by default_with_scope_focus");
+        registry.update(|r| {
+            for (name, description, server_tool_type) in defs {
+                r.global.insert(
+                    (*name).to_owned(),
+                    crate::protocol::ToolDefinition {
+                        name: (*name).to_owned(),
+                        description: (*description).to_owned(),
+                        parameters: serde_json::json!({}),
+                        prompt_snippet: None,
+                        prompt_guidelines: vec![],
+                        server_tool_type: server_tool_type.clone(),
+                    },
+                );
+            }
+        });
         state
     }
 
@@ -520,17 +530,22 @@ mod tests {
             .profile_mut()
             .disabled_tools
             .insert(crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned());
-        state.context.global_tool_definitions.insert(
-            crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned(),
-            crate::protocol::ToolDefinition {
-                name: crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned(),
-                description: "Delegate a sub-task to a subagent".to_owned(),
-                parameters: serde_json::json!({}),
-                prompt_snippet: None,
-                prompt_guidelines: vec![],
-                server_tool_type: None,
-            },
-        );
+        let registry = state
+            .tool_registry()
+            .expect("tools registry seeded by default_with_scope_focus");
+        registry.update(|r| {
+            r.global.insert(
+                crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned(),
+                crate::protocol::ToolDefinition {
+                    name: crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned(),
+                    description: "Delegate a sub-task to a subagent".to_owned(),
+                    parameters: serde_json::json!({}),
+                    prompt_snippet: None,
+                    prompt_guidelines: vec![],
+                    server_tool_type: None,
+                },
+            );
+        });
 
         // When opening the tool picker.
         open(&mut state);

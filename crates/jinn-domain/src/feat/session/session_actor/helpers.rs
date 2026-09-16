@@ -49,7 +49,6 @@ pub(crate) async fn test_actor() -> super::SessionPersistenceActor {
         state: State::new(AppState::default_with_scope_focus()),
         cap: crate::common::tcaps::mint::mint_session_cap(),
         frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
-        context_cap: crate::common::tcaps::mint::mint_context_cap(),
         services: crate::common::services::Services::new_fake().await,
         counter: TiktokenCounter::o200k_base(),
         token_cache: HistoryWorkerChatEntryTokenCache::default(),
@@ -61,6 +60,7 @@ pub(crate) async fn test_actor() -> super::SessionPersistenceActor {
 }
 
 #[cfg(test)]
+#[cfg(test)]
 pub(crate) async fn test_actor_recording() -> (
     super::SessionPersistenceActor,
     crate::common::services::BusAudit,
@@ -71,14 +71,16 @@ pub(crate) async fn test_actor_recording() -> (
     use crate::feat::context::strategy::token_estimator::TiktokenCounter;
 
     let (bus, audit) = crate::common::services::BusService::new_recording();
-    let services = crate::common::services::Services::new_fake_with_bus(bus).await;
+    let mut services = crate::common::services::Services::new_fake_with_bus(bus).await;
+    // Dispatch paths assemble through the trouper context-assembly
+    // service; spawn it so session-actor tests exercise the real ask.
+    let _ = jinn_context_assembly::service::ensure_spawned(&services.trouper_system);
 
     (
         super::SessionPersistenceActor {
             state: State::new(AppState::default()),
             cap: crate::common::tcaps::mint::mint_session_cap(),
             frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
-            context_cap: crate::common::tcaps::mint::mint_context_cap(),
             services,
             counter: TiktokenCounter::o200k_base(),
             token_cache: HistoryWorkerChatEntryTokenCache::default(),
@@ -341,7 +343,6 @@ pub(crate) async fn test_actor_with_store_recording(
             state: crate::common::state::State::new(crate::common::app_state::AppState::default()),
             cap: crate::common::tcaps::mint::mint_session_cap(),
             frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
-            context_cap: crate::common::tcaps::mint::mint_context_cap(),
             services,
             counter: crate::feat::context::strategy::token_estimator::TiktokenCounter::o200k_base(),
             token_cache: crate::feat::auto_prune_worker::entry_token_cache::HistoryWorkerChatEntryTokenCache::default(),

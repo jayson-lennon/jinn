@@ -73,7 +73,6 @@ use crate::common::actor_deps::{ActorDeps, BusPublish};
 use crate::common::services::bus_service::BusService;
 use crate::common::state::State;
 use crate::feat::chat_input::protocol::command::PushChatEntry;
-use crate::feat::context::assemble::SystemPrompt;
 use crate::feat::provider::protocol::command::{CancelStream, SendToLlmProvider, StreamOrigin};
 use crate::feat::provider::protocol::event::{StreamCompleted, StreamCompletedReason, StreamToken};
 use crate::feat::provider_infra::LlmServiceFactoryService;
@@ -89,6 +88,7 @@ use crate::protocol::{ChatEntry, SessionId};
 use error_stack::Report;
 use futures::StreamExt as _;
 use jiff::Timestamp;
+use jinn_slices::SystemPrompt;
 
 use jinn_provider::{
     LlmMessage, LlmService, LlmServiceError, OnRetry, RetryingLlmService, ToolDefinition,

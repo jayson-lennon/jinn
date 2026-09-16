@@ -1,86 +1,29 @@
-//! Prompt assembly - builds LLM-ready messages from session state.
+//! Prompt assembly — the pure core of the context-assembly service.
 //!
-//! Produces [`AssembledPrompt`] via a single pure function call.
-//! The assembly pipeline reads all context (skills, persona, context files,
-//! tools, history) from [`AppState`] in one pass, splits pinned entries,
-//! builds the system prompt, converts history to messages, and counts tokens.
+//! [`assemble`] turns caller-provided [`AssemblyInputs`] into an
+//! [`AssembledPrompt`] in a single pass: splits pinned entries, builds
+//! the system prompt from per-section builders, converts history to
+//! messages, and counts tokens. Reads no shared state.
+//!
+//! The section builders live in the kernel (`env_context`,
+//! `tool_prompt`, `skills::format`) and are consumed through the
+//! slice's justified kernel dependency.
 
 use std::collections::BTreeMap;
 
-use crate::common::app_state::AppState;
-use crate::feat::context::env_context::{
+use jinn_domain::feat::context::env_context::{
     context_files_section, cwd_section, date_section, persona_section,
 };
-use crate::feat::context::strategy::token_estimator::TokenCounter;
-use crate::feat::context::tool_prompt::build_tool_context_block;
-use crate::feat::session::profile::DEFAULT_PERSONA_NAME;
-use crate::feat::skills::format::format_skills_for_prompt;
-use crate::protocol::{
-    ChatEntry, LlmMessage, PinPosition, SessionId, ToolDefinition, entries_to_messages,
+use jinn_domain::feat::context::protocol::inputs::AssemblyInputs;
+use jinn_domain::feat::context::strategy::token_estimator::TokenCounter;
+use jinn_domain::feat::context::tool_prompt::build_tool_context_block;
+use jinn_domain::feat::skills::format::format_skills_for_prompt;
+use jinn_domain::protocol::{
+    ChatEntry, LlmMessage, PinPosition, ToolDefinition, entries_to_messages,
 };
+use jinn_slices::AssembledPrompt;
+use jinn_slices::SystemPrompt;
 
-/// The assembled system prompt for one LLM request.
-///
-/// A newtype over `Option<String>`: `None` when the assembly produced no
-/// system content at all. Renders as an empty string when absent so
-/// `to_string()` is always safe.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct SystemPrompt(Option<String>);
-
-impl SystemPrompt {
-    /// Wraps prompt content. An empty string becomes [`None`].
-    #[must_use]
-    pub fn new(content: String) -> Self {
-        Self(if content.is_empty() {
-            None
-        } else {
-            Some(content)
-        })
-    }
-
-    /// The prompt content, if any.
-    #[must_use]
-    pub fn as_deref(&self) -> Option<&str> {
-        self.0.as_deref()
-    }
-}
-
-impl std::fmt::Display for SystemPrompt {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_deref().unwrap_or(""))
-    }
-}
-
-/// Fully assembled LLM prompt - everything a provider needs to make a request.
-///
-/// Produced by [`assemble_prompt`]. Token count is computed at construction time
-/// via the provided [`TokenCounter`]. Contains messages, tool definitions,
-/// and the estimated token count.
-#[derive(Debug, Clone)]
-pub struct AssembledPrompt {
-    /// The session this prompt was assembled for.
-    pub session_id: SessionId,
-    /// The assembled system prompt, separate from the conversation messages.
-    pub system_prompt: SystemPrompt,
-    /// The assembled conversation messages ready for the LLM. Contains no
-    /// system-level content; pins ride in conversation order.
-    pub messages: Vec<LlmMessage>,
-    /// Tool definitions to include in the API request.
-    pub tool_definitions: Vec<ToolDefinition>,
-    /// Estimated token count (tiktoken o200k_base) of the system prompt and
-    /// all messages.
-    pub estimated_tokens: u32,
-}
-
-impl AssembledPrompt {
-    /// Returns the estimated token count of this assembled prompt.
-    #[must_use]
-    pub fn estimated_tokens(&self) -> u32 {
-        self.estimated_tokens
-    }
-}
-
-/// Assembles a complete LLM prompt from session state in a single pass.
 ///
 /// Reads all context (skills, persona, context files, tools, history) from
 /// [`AppState`] in one read-lock scope, produces messages and counts tokens.
@@ -99,37 +42,35 @@ impl AssembledPrompt {
 ///
 /// Panics if the given `session_id` does not exist in the session map.
 #[must_use]
-pub fn assemble_prompt(
-    state: &AppState,
-    session_id: &SessionId,
-    counter: &dyn TokenCounter,
-) -> AssembledPrompt {
-    let session = state.session(session_id);
-    let cwd = session.cwd().to_path_buf();
-    let context_files = session.discovered_context_files();
+/// Assembles a complete LLM prompt from caller-provided inputs, in a
+/// single pure pass.
+///
+/// Reads nothing from any shared state: every field comes from
+/// [`AssemblyInputs`]. Splits pinned entries, builds the system prompt,
+/// converts history to messages, and counts tokens.
+pub fn assemble(inputs: &AssemblyInputs, counter: &dyn TokenCounter) -> AssembledPrompt {
+    let AssemblyInputs {
+        session_id,
+        cwd,
+        persona,
+        history,
+        tools,
+        disabled_tools,
+        provider_name,
+        skills,
+        disabled_skills,
+        loaded_skills,
+        context_files,
+    } = inputs;
 
-    let persona = state
-        .context
-        .personas()
-        .iter()
-        .find(|p| p.name == session.persona_name())
-        .or_else(|| {
-            state
-                .context
-                .personas()
-                .iter()
-                .find(|p| p.name == DEFAULT_PERSONA_NAME)
-        });
+    let persona = persona.as_ref();
 
-    let history = session.history();
-
-    let mut tool_defs: Vec<ToolDefinition> = state.context.tools_for_session(session_id);
+    let mut tool_defs: Vec<ToolDefinition> = tools.clone();
 
     // Filter out disabled tools and server tools that don't match the active provider.
-    let provider_name = session.model_selection().provider_name().to_owned();
-    let disabled = session.disabled_tools();
-    tool_defs
-        .retain(|def| !disabled.contains(&def.name) && def.available_for_provider(&provider_name));
+    tool_defs.retain(|def| {
+        !disabled_tools.contains(&def.name) && def.available_for_provider(provider_name)
+    });
 
     let filtered_map: BTreeMap<String, ToolDefinition> = tool_defs
         .iter()
@@ -138,14 +79,12 @@ pub fn assemble_prompt(
         .collect();
     let tool_block = build_tool_context_block(&filtered_map);
 
-    let disabled_skills = session.disabled_skills();
-    let filtered: Vec<_> = session
-        .discovered_skills()
+    let filtered: Vec<_> = skills
         .iter()
         .filter(|s| !disabled_skills.contains(&s.name))
         .cloned()
         .collect();
-    let skills_block = format_skills_for_prompt(&filtered, &session.loaded_skills());
+    let skills_block = format_skills_for_prompt(&filtered, loaded_skills);
 
     // Compose environment sections. Builders returning an empty section are
     // omitted entirely.
@@ -294,17 +233,30 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::common::app_state::AppState;
-    use crate::common::state::State;
-    use crate::feat::context::env_context::ContextFile;
-    use crate::feat::context::strategy::token_estimator::TiktokenCounter;
-    use crate::feat::session::model_selection::ModelSelection;
-    use crate::feat::session::tool_result_status::ToolResultStatus;
-    use crate::feat::skills::Skill;
-    use crate::feat::tools_actor::task::TASK_TOOL_NAME;
-    use crate::feat::tools_actor::tool_types::ToolDefinition;
-    use crate::protocol::{ChatEntry, SessionId};
+    use jinn_domain::common::app_state::AppState;
+    use jinn_domain::common::state::State;
+    use jinn_domain::feat::context::env_context::ContextFile;
+    use jinn_domain::feat::context::strategy::token_estimator::TiktokenCounter;
+    use jinn_domain::feat::session::model_selection::ModelSelection;
+    use jinn_domain::feat::session::tool_result_status::ToolResultStatus;
+    use jinn_domain::feat::skills::Skill;
+    use jinn_domain::feat::tools_actor::task::TASK_TOOL_NAME;
+    use jinn_domain::feat::tools_actor::tool_types::ToolDefinition;
+    use jinn_domain::protocol::{ChatEntry, SessionId};
     use jinn_provider::ServerToolType;
+
+    /// Test bridge: build inputs from an AppState the way production
+    /// callers do (via the kernel snapshot builder) and run the pure
+    /// assemble. Keeps the historic stateful test style while the core
+    /// under test stays pure.
+    fn assemble_prompt(
+        state: &AppState,
+        session_id: &SessionId,
+        counter: &TiktokenCounter,
+    ) -> jinn_slices::AssembledPrompt {
+        let inputs = jinn_domain::feat::context::snapshot::build_assembly_inputs(state, session_id);
+        assemble(&inputs, counter)
+    }
 
     pub(crate) fn counter() -> TiktokenCounter {
         TiktokenCounter::o200k_base()
@@ -317,7 +269,7 @@ mod tests {
             body: String::new(),
             file_path: std::path::PathBuf::from(format!("/skills/{name}/SKILL.md")),
             base_dir: std::path::PathBuf::from(format!("/skills/{name}")),
-            source: crate::feat::skills::SkillSource::Global,
+            source: jinn_domain::feat::skills::SkillSource::Global,
         }
     }
 
@@ -333,7 +285,7 @@ mod tests {
     }
 
     pub(crate) fn state_with_history(entries: Vec<ChatEntry>) -> (State, SessionId) {
-        let state = State::new(AppState::default());
+        let state = State::new(AppState::default_with_scope_focus());
         let session_id = {
             let mut guard = state.write_test_no_cap();
             let session = guard.active_session_mut();
@@ -351,7 +303,7 @@ mod tests {
         // Given a tool loop bottom-pinned via the editor (which pins the whole
         // loop, the only legitimate producer of such state) and a later user turn.
         let (state, session_id) = {
-            let state = State::new(AppState::default());
+            let state = State::new(AppState::default_with_scope_focus());
             let session_id = {
                 let mut guard = state.write_test_no_cap();
                 let session = guard.active_session_mut();
@@ -363,7 +315,7 @@ mod tests {
                         "call-1",
                         "bash",
                         "ok",
-                        crate::feat::session::tool_result_status::ToolResultStatus::Success,
+                        jinn_domain::feat::session::tool_result_status::ToolResultStatus::Success,
                     ),
                     ChatEntry::user("continue"),
                 ] {
@@ -402,7 +354,7 @@ mod tests {
                 "orphan",
                 "bash",
                 "bad",
-                crate::feat::session::tool_result_status::ToolResultStatus::Success,
+                jinn_domain::feat::session::tool_result_status::ToolResultStatus::Success,
             ),
             ChatEntry::user("after"),
         ]);
@@ -431,7 +383,7 @@ mod tests {
         // Given a tool loop top-pinned via the editor (which pins the whole
         // loop) and a later user turn.
         let (state, session_id) = {
-            let state = State::new(AppState::default());
+            let state = State::new(AppState::default_with_scope_focus());
             let session_id = {
                 let mut guard = state.write_test_no_cap();
                 let session = guard.active_session_mut();
@@ -553,7 +505,7 @@ mod tests {
                 "orphan",
                 "bash",
                 "stray",
-                crate::feat::session::tool_result_status::ToolResultStatus::Success,
+                jinn_domain::feat::session::tool_result_status::ToolResultStatus::Success,
             ),
             ChatEntry::user("after"),
         ];
@@ -693,7 +645,7 @@ mod tests {
             "call-1",
             "bash",
             "ok",
-            crate::feat::session::tool_result_status::ToolResultStatus::Success,
+            jinn_domain::feat::session::tool_result_status::ToolResultStatus::Success,
         );
         let steer = ChatEntry::user_expanded("stay at the foo part", "stay at the foo part");
         let (state, session_id) = state_with_history(vec![
@@ -721,7 +673,7 @@ mod tests {
     #[test]
     fn assemble_prompt_steering_and_bottom_pin_coexist_at_respective_positions() {
         // Given a user-pinned entry and a tail steering entry.
-        use crate::feat::session::chat_entry::PinPosition;
+        use jinn_domain::feat::session::chat_entry::PinPosition;
         let pinned = ChatEntry::user("pinned constraint").with_pin(PinPosition::Bottom);
         let middle = ChatEntry::user("middle");
         let assistant = ChatEntry::assistant("response");
@@ -826,11 +778,15 @@ mod tests {
         // Given a state with tool definitions.
         let (state, session_id) = state_with_history(vec![ChatEntry::user("use tools")]);
         {
-            let mut guard = state.write_test_no_cap();
-            guard
-                .context
-                .global_tool_definitions
-                .insert("bash".to_owned(), make_tool("bash"));
+            let cell = {
+                state
+                    .read()
+                    .tool_registry()
+                    .expect("registry cell attached")
+            };
+            cell.update(|r| {
+                r.global.insert("bash".to_owned(), make_tool("bash"));
+            });
         }
 
         // When assembling the prompt.
@@ -867,11 +823,16 @@ mod tests {
         let (state, session_id) = state_with_history(vec![ChatEntry::user("search it")]);
         set_active_model(&state, "openrouter/openai/gpt-oss-120b");
         {
-            let mut guard = state.write_test_no_cap();
-            guard
-                .context
-                .global_tool_definitions
-                .insert("openrouter:web_search".to_owned(), make_web_search_tool());
+            let cell = {
+                state
+                    .read()
+                    .tool_registry()
+                    .expect("registry cell attached")
+            };
+            cell.update(|r| {
+                r.global
+                    .insert("openrouter:web_search".to_owned(), make_web_search_tool());
+            });
         }
 
         // When assembling the prompt.
@@ -895,11 +856,16 @@ mod tests {
         let (state, session_id) = state_with_history(vec![ChatEntry::user("search it")]);
         set_active_model(&state, "zai/glm-4.6");
         {
-            let mut guard = state.write_test_no_cap();
-            guard
-                .context
-                .global_tool_definitions
-                .insert("openrouter:web_search".to_owned(), make_web_search_tool());
+            let cell = {
+                state
+                    .read()
+                    .tool_registry()
+                    .expect("registry cell attached")
+            };
+            cell.update(|r| {
+                r.global
+                    .insert("openrouter:web_search".to_owned(), make_web_search_tool());
+            });
         }
 
         // When assembling the prompt.
@@ -922,11 +888,15 @@ mod tests {
         let (state, session_id) = state_with_history(vec![ChatEntry::user("do work")]);
         set_active_model(&state, "zai/glm-4.6");
         {
-            let mut guard = state.write_test_no_cap();
-            guard
-                .context
-                .global_tool_definitions
-                .insert("bash".to_owned(), make_tool("bash"));
+            let cell = {
+                state
+                    .read()
+                    .tool_registry()
+                    .expect("registry cell attached")
+            };
+            cell.update(|r| {
+                r.global.insert("bash".to_owned(), make_tool("bash"));
+            });
         }
 
         // When assembling the prompt.
@@ -969,14 +939,19 @@ mod tests {
         // Given a state with skills and tools.
         let (state, session_id) = state_with_history(vec![ChatEntry::user("hello")]);
         {
+            let cell = {
+                state
+                    .read()
+                    .tool_registry()
+                    .expect("registry cell attached")
+            };
+            cell.update(|r| {
+                r.global.insert("bash".to_owned(), make_tool("bash"));
+            });
             let mut guard = state.write_test_no_cap();
             guard
                 .active_session_mut()
                 .set_discovered_skills(vec![make_skill("test-skill")]);
-            guard
-                .context
-                .global_tool_definitions
-                .insert("bash".to_owned(), make_tool("bash"));
         }
 
         // When assembling the prompt.
@@ -997,28 +972,29 @@ mod tests {
         // Given a session with tools and some disabled.
         let (state, session_id) = state_with_history(vec![ChatEntry::user("use tools")]);
         {
-            let mut guard = state.write_test_no_cap();
-            guard
-                .context
-                .global_tool_definitions
-                .insert("bash".to_owned(), make_tool("bash"));
-            guard
-                .context
-                .global_tool_definitions
-                .insert("read".to_owned(), make_tool("read"));
-            guard
-                .context
-                .global_tool_definitions
-                .insert("write".to_owned(), make_tool("write"));
+            let cell = {
+                state
+                    .read()
+                    .tool_registry()
+                    .expect("registry cell attached")
+            };
+            cell.update(|r| {
+                r.global.insert("bash".to_owned(), make_tool("bash"));
+                r.global.insert("read".to_owned(), make_tool("read"));
+                r.global.insert("write".to_owned(), make_tool("write"));
+            });
             // Disable bash and write.
             let mut disabled = std::collections::HashSet::new();
             disabled.insert("bash".to_owned());
             disabled.insert("write".to_owned());
-            guard
-                .session
-                .get_mut(&session_id)
-                .expect("session exists")
-                .set_disabled_tools(disabled);
+            {
+                let mut guard = state.write_test_no_cap();
+                guard
+                    .session
+                    .get_mut(&session_id)
+                    .expect("session exists")
+                    .set_disabled_tools(disabled);
+            }
         }
 
         // When assembling the prompt.
@@ -1050,18 +1026,25 @@ mod tests {
     fn parent_linked_session_keeps_task_tool_when_not_disabled() {
         // Given a state whose context advertises the task tool, and a child
         // session linked to a parent with nothing disabled.
-        let state = State::new(AppState::default());
+        let state = State::new(AppState::default_with_scope_focus());
         let parent_id = SessionId::new();
         let child_id;
         {
-            let mut guard = state.write_test_no_cap();
-            guard
-                .context
-                .global_tool_definitions
-                .insert(TASK_TOOL_NAME.to_owned(), make_tool(TASK_TOOL_NAME));
-            let child =
-                crate::feat::session::chat_session::ChatSessionState::new_child(&parent_id, true);
+            let cell = {
+                state
+                    .read()
+                    .tool_registry()
+                    .expect("registry cell attached")
+            };
+            cell.update(|r| {
+                r.global
+                    .insert(TASK_TOOL_NAME.to_owned(), make_tool(TASK_TOOL_NAME));
+            });
+            let child = jinn_domain::feat::session::chat_session::ChatSessionState::new_child(
+                &parent_id, true,
+            );
             child_id = child.session_id().clone();
+            let mut guard = state.write_test_no_cap();
             guard.session.insert(child);
         }
 
@@ -1090,18 +1073,20 @@ mod tests {
         // Given a session with tools and some disabled.
         let (state, session_id) = state_with_history(vec![ChatEntry::user("use tools")]);
         {
-            let mut guard = state.write_test_no_cap();
-            guard
-                .context
-                .global_tool_definitions
-                .insert("bash".to_owned(), make_tool("bash"));
-            guard
-                .context
-                .global_tool_definitions
-                .insert("read".to_owned(), make_tool("read"));
+            let cell = {
+                state
+                    .read()
+                    .tool_registry()
+                    .expect("registry cell attached")
+            };
+            cell.update(|r| {
+                r.global.insert("bash".to_owned(), make_tool("bash"));
+                r.global.insert("read".to_owned(), make_tool("read"));
+            });
             // Disable bash.
             let mut disabled = std::collections::HashSet::new();
             disabled.insert("bash".to_owned());
+            let mut guard = state.write_test_no_cap();
             guard
                 .session
                 .get_mut(&session_id)
@@ -1171,12 +1156,20 @@ mod tests {
         // Given a session with persona "custom" and a persona list containing "custom".
         let (state, session_id) = state_with_history(vec![ChatEntry::user("hello")]);
         {
-            let mut guard = state.write_test_no_cap();
-            guard.context.push_persona(crate::feat::persona::Persona {
-                name: "custom".to_owned(),
-                description: "Custom persona".to_owned(),
-                body: "You are a custom persona.".to_owned(),
+            let cell = {
+                state
+                    .read()
+                    .persona_selection()
+                    .expect("persona cell attached")
+            };
+            let _ = cell.update(|p| {
+                p.entries.push(jinn_persona_msg::Persona {
+                    name: "custom".to_owned(),
+                    description: "Custom persona".to_owned(),
+                    body: "You are a custom persona.".to_owned(),
+                })
             });
+            let mut guard = state.write_test_no_cap();
             guard
                 .session
                 .get_mut(&session_id)
@@ -1202,12 +1195,20 @@ mod tests {
         // Given a session with persona name "nonexistent" but "coding-assistant" is available.
         let (state, session_id) = state_with_history(vec![ChatEntry::user("hello")]);
         {
-            let mut guard = state.write_test_no_cap();
-            guard.context.push_persona(crate::feat::persona::Persona {
-                name: "coding-assistant".to_owned(),
-                description: "Default".to_owned(),
-                body: "You are a coding assistant.".to_owned(),
+            let cell = {
+                state
+                    .read()
+                    .persona_selection()
+                    .expect("persona cell attached")
+            };
+            let _ = cell.update(|p| {
+                p.entries.push(jinn_persona_msg::Persona {
+                    name: "coding-assistant".to_owned(),
+                    description: "Default".to_owned(),
+                    body: "You are a coding assistant.".to_owned(),
+                })
             });
+            let mut guard = state.write_test_no_cap();
             guard
                 .session
                 .get_mut(&session_id)
@@ -1288,12 +1289,20 @@ mod tests {
         // Given a state where every system section has content.
         let (state, session_id) = state_with_history(vec![]);
         {
-            let mut guard = state.write_test_no_cap();
-            guard.context.push_persona(crate::feat::persona::Persona {
-                name: "custom".to_owned(),
-                description: "Custom persona".to_owned(),
-                body: "ORDER-MARK-PERSONA".to_owned(),
+            let cell = {
+                state
+                    .read()
+                    .persona_selection()
+                    .expect("persona cell attached")
+            };
+            let _ = cell.update(|p| {
+                p.entries.push(jinn_persona_msg::Persona {
+                    name: "custom".to_owned(),
+                    description: "Custom persona".to_owned(),
+                    body: "ORDER-MARK-PERSONA".to_owned(),
+                })
             });
+            let mut guard = state.write_test_no_cap();
             guard
                 .session
                 .get_mut(&session_id)
@@ -1306,12 +1315,21 @@ mod tests {
                     content: "ORDER-MARK-FILES".to_owned(),
                 }]);
             guard
-                .context
-                .global_tool_definitions
-                .insert("ordermark".to_owned(), make_tool("ordermark"));
-            guard
                 .active_session_mut()
                 .set_discovered_skills(vec![make_skill("ordermark-skill")]);
+            drop(guard);
+            {
+                let cell = {
+                    state
+                        .read()
+                        .tool_registry()
+                        .expect("registry cell attached")
+                };
+                cell.update(|r| {
+                    r.global
+                        .insert("ordermark".to_owned(), make_tool("ordermark"));
+                });
+            }
         }
 
         // When assembling the prompt.

@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use crate::common::bus::BusMessage;
 use serde::{Deserialize, Serialize};
 
-use crate::feat::context::assemble::SystemPrompt;
 use crate::feat::provider::llm_message::LlmMessage;
+use jinn_slices::SystemPrompt;
 
 use crate::feat::session::model_selection::ModelSelection;
 use crate::feat::tools_actor::tool_types::ToolDefinition;

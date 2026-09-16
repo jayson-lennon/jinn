@@ -80,6 +80,7 @@ jinn-status-bar-msg = { workspace = true }
 jinn-theme-msg = { workspace = true }
 jinn-token-count-msg = { workspace = true }
 jinn-mcp-msg = { workspace = true }
+jinn-context-assembly = { workspace = true }
 jinn-theme-slice = { workspace = true }
 jinn-cli = { workspace = true }
 jinn-chat-input = { workspace = true }
@@ -210,6 +211,7 @@ jinn-status-bar-msg = { path = "crates/slices/jinn-status-bar-msg" }
 jinn-theme-msg = { path = "crates/slices/jinn-theme-msg" }
 jinn-token-count-msg = { path = "crates/slices/jinn-token-count-msg" }
 jinn-mcp-msg = { path = "crates/slices/jinn-mcp-msg" }
+jinn-context-assembly = { path = "crates/slices/jinn-context-assembly" }
 jinn-plugin-api = { path = "crates/jinn-plugin-api" }
 jinn-plugin = { path = "crates/jinn-plugin" }
 wasm-encoder = "=0.252.0"

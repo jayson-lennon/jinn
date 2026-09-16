@@ -180,7 +180,10 @@ fn refresh_mcp_inspector_snapshot(state: &mut jinn_domain::AppState) {
             .get(&server_name)
             .cloned()
             .unwrap_or_default();
-        let defs = state.context.tools_for_session(&session_id);
+        let defs = state
+            .tool_registry()
+            .map(|cell| cell.read().tools_for_session(&session_id))
+            .unwrap_or_default();
         jinn_domain::feat::mcp::picker_entry::refresh_snapshot(
             &server_name,
             status,

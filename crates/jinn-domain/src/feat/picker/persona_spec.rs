@@ -76,15 +76,15 @@ fn confirm_persona(ctx: &mut ActionCtx<'_>) -> PickerOutcome {
         };
         let persona_name = entry.entry().name.clone();
 
-        // Find the matching persona and set it as active.
-        let persona = state
-            .context
-            .personas()
-            .iter()
-            .find(|p| p.name == persona_name)
-            .cloned();
-        if let Some(p) = persona {
-            state.context.set_active_persona(Some(p));
+        // Find the matching persona and set it as active (persona
+        // selection lives in the persona slice's cell).
+        if let Some(cell) = state.frontend.slices().and_then(|s| {
+            s.reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+        }) {
+            let found = cell.read().entries.iter().any(|p| p.name == persona_name);
+            if found {
+                cell.update(|selection| selection.active = Some(persona_name.clone()));
+            }
         }
 
         // Also update the active session's persona binding.
@@ -108,9 +108,11 @@ fn persona_status(ctx: &StatusCtx<'_>) -> Option<Line<'static>> {
     let state = ctx.state_any_ref().downcast_ref::<AppState>()?;
     let theme = &state.frontend.theme;
     let active_name = state
-        .context
-        .active_persona()
-        .map_or("none", |p| p.name.as_str());
+        .frontend
+        .slices()
+        .and_then(|s| s.reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot()))
+        .and_then(|cell| cell.read().active.clone())
+        .unwrap_or_else(|| "none".to_owned());
     Some(Line::from(vec![
         ratatui::text::Span::styled("Active: ".to_owned(), Style::default().fg(theme.muted_text)),
         ratatui::text::Span::styled(
@@ -122,6 +124,7 @@ fn persona_status(ctx: &StatusCtx<'_>) -> Option<Line<'static>> {
 
 #[cfg(test)]
 mod tests {
+
     #![allow(
         clippy::expect_used,
         clippy::panic,
@@ -134,6 +137,40 @@ mod tests {
     use crate::feat::session::ChatSessionState;
     use crate::protocol::PickerKind;
     use jinn_picker::ActionCtx;
+    /// Seeds the persona cell attached to the state (persona slice).
+    fn seed_personas(state: &AppState, entries: Vec<jinn_persona_msg::Persona>) {
+        let cell = state
+            .frontend
+            .slices()
+            .and_then(|s| {
+                s.reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            })
+            .expect("persona cell seeded by default_with_scope_focus");
+        cell.update(|selection| selection.entries = entries);
+    }
+
+    /// Sets the active persona by name in the persona slice's cell.
+    fn set_active_persona(state: &AppState, name: &str) {
+        let cell = state
+            .frontend
+            .slices()
+            .and_then(|s| {
+                s.reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            })
+            .expect("persona cell seeded by default_with_scope_focus");
+        cell.update(|selection| selection.active = Some(name.to_owned()));
+    }
+
+    /// Reads the active persona name from the persona slice's cell.
+    fn active_persona_name(state: &AppState) -> Option<String> {
+        state
+            .frontend
+            .slices()
+            .and_then(|s| {
+                s.reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+            })
+            .and_then(|cell| cell.read().active.clone())
+    }
 
     fn state_with_open_picker() -> AppState {
         let mut state = AppState::default_with_scope_focus();
@@ -210,9 +247,7 @@ mod tests {
     fn on_confirm_sets_persona_and_session_binding_then_closes() {
         // Given an open persona picker with "writer" selected.
         let mut state = state_with_open_picker();
-        state
-            .context
-            .set_personas(vec![persona("coder"), persona("writer")]);
+        seed_personas(&state, vec![persona("coder"), persona("writer")]);
         wrap(&mut state, vec![test_entry("coder"), test_entry("writer")]);
         state.frontend.persona_picker_mut().move_down(1);
         state.frontend.persona_picker_mut().move_down(1);
@@ -227,10 +262,8 @@ mod tests {
         };
 
         // Then the active persona and the session binding are set.
-        assert_eq!(
-            state.context.active_persona().map(|p| p.name.as_str()),
-            Some("writer"),
-        );
+        let active_name = active_persona_name(&state);
+        assert_eq!(active_name.as_deref(), Some("writer"));
         assert_eq!(state.active_session().profile().persona_name, "writer",);
         // And the outcome closes the picker and persists both updates.
         assert!(outcome.close, "confirm must close the picker");
@@ -278,7 +311,8 @@ mod tests {
         // Given an app state with "coder" active.
         let state = {
             let mut state = AppState::default_with_scope_focus();
-            state.context.set_active_persona(Some(persona("coder")));
+            seed_personas(&state, vec![persona("coder")]);
+            set_active_persona(&state, "coder");
             state
         };
         let registry = crate::feat::picker::registry::build_picker_registry();

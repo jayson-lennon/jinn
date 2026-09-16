@@ -1,0 +1,24 @@
+[package]
+name = "jinn-context-assembly"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+jinn-core-types = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-persona-msg = { workspace = true }
+jinn-domain = { workspace = true }
+jinn-provider = { workspace = true }
+trouper = { workspace = true }
+kameo = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+error-stack = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[lints]
+workspace = true

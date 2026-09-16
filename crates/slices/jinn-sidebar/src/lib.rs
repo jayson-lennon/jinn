@@ -48,7 +48,7 @@ pub fn activate(host: &mut SliceHost<'_, jinn_slices::RenderFacts>) {
         key_routes::rename_scope(),
         std::sync::Arc::new(overlay::render_rename_overlay),
     );
-    host.register_overlay_selectable(key_routes::rename_scope());
+    host.register_overlay_selectable(&key_routes::rename_scope());
     // The sessions-cursor clamp actor spawns from composition (it needs
     // the supervised runtime), not from `activate`.
 }

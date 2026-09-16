@@ -222,7 +222,18 @@ impl Services {
             interactive_term: Arc::new(std::sync::OnceLock::new()),
             request_dump: RequestDumpService::default(),
             task_spawns: crate::feat::tools_actor::task_registry::TaskSpawnRegistry::default(),
-            slices: crate::common::slices::Slices::new(),
+            slices: {
+                let slices = crate::common::slices::Slices::new();
+                let _ = slices.register(
+                    jinn_persona_msg::personas_slot(),
+                    jinn_persona_msg::Personas::default(),
+                );
+                let _ = slices.register(
+                    jinn_slices::tools_registry_slot(),
+                    jinn_slices::ToolRegistry::default(),
+                );
+                slices
+            },
             key_routes: crate::common::slices::key_routes::KeyRoutes::new(),
             viewport: crate::common::slices::view::Viewport::new(),
             overlay_views:
@@ -280,7 +291,18 @@ impl Services {
             interactive_term: Arc::new(std::sync::OnceLock::new()),
             request_dump: RequestDumpService::default(),
             task_spawns: crate::feat::tools_actor::task_registry::TaskSpawnRegistry::default(),
-            slices: crate::common::slices::Slices::new(),
+            slices: {
+                let slices = crate::common::slices::Slices::new();
+                let _ = slices.register(
+                    jinn_persona_msg::personas_slot(),
+                    jinn_persona_msg::Personas::default(),
+                );
+                let _ = slices.register(
+                    jinn_slices::tools_registry_slot(),
+                    jinn_slices::ToolRegistry::default(),
+                );
+                slices
+            },
             key_routes: crate::common::slices::key_routes::KeyRoutes::new(),
             viewport: crate::common::slices::view::Viewport::new(),
             overlay_views:
@@ -290,5 +312,16 @@ impl Services {
             ),
             picker_registry: jinn_picker::PickerRegistry::new(),
         }
+    }
+}
+
+#[cfg(test)]
+impl Services {
+    /// Test wiring: spawn the context-assembly service on this fake
+    /// services' trouper system, mirroring production composition.
+    /// (The slice crate is a dev-dependency; the production spawn lives
+    /// in `src/actor_wiring.rs`.)
+    pub async fn spawn_context_assembly_for_test(&mut self) {
+        let _ = jinn_context_assembly::service::spawn(&self.trouper_system);
     }
 }

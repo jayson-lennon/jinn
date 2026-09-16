@@ -378,6 +378,15 @@ pub fn activate_token_count(services: &mut jinn_domain::Services) {
 }
 
 pub fn activate_persona(services: &mut jinn_domain::Services) {
+    // `Services::new_fake*` pre-seeds the personas cell the way production
+    // wiring does; re-activating would trip the once-only slot invariant.
+    if services
+        .slices
+        .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+        .is_some()
+    {
+        return;
+    }
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,
         &mut services.viewport,

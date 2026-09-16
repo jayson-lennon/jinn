@@ -67,6 +67,8 @@ pub struct CompactionWorker {
     state: State,
     /// Proof of authority to write session state (model round-robin advance).
     cap: crate::common::tcaps::SessionCap,
+    /// The compaction system prompt loaded once at startup.
+    compaction_prompt: String,
     /// Sessions with an auto-compaction currently in flight.
     ///
     /// Keyed by `SessionId` because a single process hosts multiple
@@ -92,12 +94,14 @@ impl CompactionWorker {
         handle: Handle,
         state: State,
         cap: crate::common::tcaps::SessionCap,
+        compaction_prompt: String,
     ) -> Self {
         Self {
             services,
             handle,
             state,
             cap,
+            compaction_prompt,
             compaction_in_progress: Arc::new(Mutex::new(HashSet::new())),
             pending_compaction_id: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -186,9 +190,8 @@ impl CompactionWorker {
 
         // Read context (read-only, no cap needed).
         let (config, compaction_prompt, retry_config) = {
-            let state = self.state.read();
             let config = prefs.compaction.clone();
-            let compaction_prompt = state.context.compaction_prompt.clone();
+            let compaction_prompt = self.compaction_prompt.clone();
             let retry_config = prefs.request_retry.to_retry_config();
             (config, compaction_prompt, retry_config)
         };
@@ -257,7 +260,7 @@ impl CompactionWorker {
                 return vec![];
             };
             let model_name = session.profile().model.clone();
-            let compaction_prompt = state.context.compaction_prompt.clone();
+            let compaction_prompt = self.compaction_prompt.clone();
             let retry_config = prefs.request_retry.to_retry_config();
 
             // Uses the exact same values displayed in the status bar:

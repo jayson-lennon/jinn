@@ -196,6 +196,15 @@ impl Default for FrontendState {
 impl FrontendState {
     /// Attaches the slice registry handle carrying the scope-focus
     /// cell. Called once at wiring; later calls are ignored.
+    /// The attached slice registry, if composition attached one.
+    ///
+    /// Cell-backed state (personas, tool registry) resolves through this;
+    /// `None` before attachment or in tests that skip activation.
+    #[must_use]
+    pub fn slices(&self) -> Option<&jinn_slices::Slices> {
+        self.scope_focus.get()
+    }
+
     pub fn attach_slices(&self, slices: jinn_slices::Slices) {
         let _ = self.scope_focus.set(slices);
     }

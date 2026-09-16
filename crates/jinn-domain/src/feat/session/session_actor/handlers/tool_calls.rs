@@ -4,8 +4,8 @@
 //! execution tracking, result collection, and batch completion routing.
 
 use crate::common::actor_deps::BusPublish;
-use crate::feat::context::assemble::assemble_prompt;
 use crate::feat::context::protocol::event::ContextOverrideChanged;
+use crate::feat::context::snapshot::{assemble_via_service, build_assembly_inputs};
 use crate::feat::provider::protocol::command::SendToLlmProvider;
 use crate::feat::session::chat_entry::PinPosition;
 use crate::feat::session::model_selection::ModelSelection;
@@ -171,9 +171,22 @@ impl SessionPersistenceActor {
     /// and emits the SendToLlmProvider command.
     async fn assemble_and_send_continuation(&self, session_id: &crate::protocol::SessionId) {
         let assembled = {
-            let guard = self.state.read();
-            // FIXME: make spawn_blocking probably
-            assemble_prompt(&guard, session_id, &self.counter)
+            let inputs = {
+                let guard = self.state.read();
+                // FIXME: make spawn_blocking probably
+                build_assembly_inputs(&guard, session_id)
+            };
+            match assemble_via_service(&self.services, inputs).await {
+                Ok(prompt) => prompt,
+                Err(error) => {
+                    tracing::error!(
+                        error = ?error,
+                        session_id = %session_id,
+                        "context assembly failed; continuation aborted"
+                    );
+                    return;
+                }
+            }
         };
 
         // Resolve model under write lock (round-robin mutates index), push token
@@ -439,11 +452,16 @@ mod tests {
 
         let actor_ref = harness
             .spawn_actor::<SessionPersistenceActor>(SessionPersistenceActorDeps {
-                deps: harness.actor_deps().await,
+                deps: {
+                    let mut deps = harness.actor_deps().await;
+                    let _ = jinn_context_assembly::service::ensure_spawned(
+                        &deps.services.trouper_system,
+                    );
+                    deps
+                },
                 state,
                 cap: crate::common::tcaps::mint::mint_session_cap(),
                 frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
-                context_cap: crate::common::tcaps::mint::mint_context_cap(),
                 counter: TiktokenCounter::o200k_base(),
                 token_cache:
                     crate::feat::auto_prune_worker::HistoryWorkerChatEntryTokenCache::default(),
@@ -517,11 +535,16 @@ mod tests {
 
         let actor_ref = harness
             .spawn_actor::<SessionPersistenceActor>(SessionPersistenceActorDeps {
-                deps: harness.actor_deps().await,
+                deps: {
+                    let mut deps = harness.actor_deps().await;
+                    let _ = jinn_context_assembly::service::ensure_spawned(
+                        &deps.services.trouper_system,
+                    );
+                    deps
+                },
                 state: state.clone(),
                 cap: crate::common::tcaps::mint::mint_session_cap(),
                 frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
-                context_cap: crate::common::tcaps::mint::mint_context_cap(),
                 counter: TiktokenCounter::o200k_base(),
                 token_cache:
                     crate::feat::auto_prune_worker::HistoryWorkerChatEntryTokenCache::default(),
@@ -668,11 +691,16 @@ mod tests {
         let actor_ref = harness
             .spawn_actor_with_mailbox::<SessionPersistenceActor>(
                 SessionPersistenceActorDeps {
-                    deps: harness.actor_deps().await,
+                    deps: {
+                        let mut deps = harness.actor_deps().await;
+                        let _ = jinn_context_assembly::service::ensure_spawned(
+                            &deps.services.trouper_system,
+                        );
+                        deps
+                    },
                     state,
                     cap: crate::common::tcaps::mint::mint_session_cap(),
                     frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
-                    context_cap: crate::common::tcaps::mint::mint_context_cap(),
                     counter: TiktokenCounter::o200k_base(),
                     token_cache:
                         crate::feat::auto_prune_worker::HistoryWorkerChatEntryTokenCache::default(),

@@ -98,6 +98,7 @@ trouper = { workspace = true }
 # JSON surgery that dao's typed DAO layer doesn't cover.
 rusqlite = { workspace = true }
 [dev-dependencies]
+jinn-context-assembly = { workspace = true }
 wasm-encoder = { workspace = true }
 indoc = "2"
 rstest = { workspace = true }

@@ -162,11 +162,17 @@ mod tests {
         // Given a PersonaSection and state with an active persona.
         let section = PersonaSection;
         let mut state = AppState::default_with_scope_focus();
-        state.context.set_active_persona(Some(Persona {
-            name: "coding-assistant".to_owned(),
-            description: "Expert coder".to_owned(),
-            body: String::new(),
-        }));
+        state
+            .persona_selection()
+            .expect("persona cell attached")
+            .update(|p| {
+                p.entries.push(Persona {
+                    name: "coding-assistant".to_owned(),
+                    description: "Expert coder".to_owned(),
+                    body: String::new(),
+                });
+                p.active = Some("coding-assistant".to_owned());
+            });
 
         // When asking for content height.
         let slices = jinn_slices::Slices::new();

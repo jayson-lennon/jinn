@@ -39,8 +39,7 @@ pub use common::actor::{ActorCounter, ActorName};
 pub use common::app_paths::{AppPaths, BrowserProfileMode};
 pub use common::app_state::pin_sort_key;
 pub use common::app_state::{
-    AppState, ContextAssemblyState, FocusScope, FrontendState, ProviderState, ScopeStack,
-    SessionState,
+    AppState, FocusScope, FrontendState, ProviderState, ScopeStack, SessionState,
 };
 pub use common::bridge::{Bridge, BridgeClosure};
 pub use common::bus::BusMessage;
@@ -125,7 +124,6 @@ pub use common::actor::protocol::event::{
 };
 pub use feat::chat_input::protocol::command::{EnqueueUserMessage, PushChatEntry};
 pub use feat::chat_input::protocol::event::ChatEntrySubmitted;
-pub use feat::context::assemble::AssembledPrompt;
 pub use feat::context::protocol::command::{PinChatEntry, UnpinChatEntry};
 pub use feat::provider::llm_message::LlmMessage;
 pub use feat::provider::protocol::command::{
@@ -149,3 +147,4 @@ pub use feat::tools_actor::protocol::event::{
 };
 pub use feat::tools_actor::registry::{BuiltinToolEntry, builtin_tools};
 pub use feat::tools_actor::tool_types::{ToolCall, ToolDefinition, ToolResult};
+pub use jinn_slices::AssembledPrompt;

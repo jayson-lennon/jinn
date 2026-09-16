@@ -53,12 +53,7 @@ pub fn launch(
 ) -> Result<TuiApp, Report<LaunchError>> {
     let paths = &services.paths;
     let intent_handler_cap = jinn_domain::common::tcaps::mint::mint_intent_handler_cap();
-    load_compaction_prompt(
-        &core.state,
-        &paths.prompts_dir(),
-        &paths.system_prompts_dir(),
-        &intent_handler_cap,
-    )?;
+    load_compaction_prompt(&paths.prompts_dir(), &paths.system_prompts_dir())?;
     load_theme(
         &core.state,
         &paths.themes_dir(),
@@ -139,16 +134,13 @@ pub fn launch(
 /// Returns an error if the compaction prompt is missing from both directories
 /// or cannot be read. This is a fatal error - the application cannot run without it.
 pub fn load_compaction_prompt(
-    state: &State,
     user_dir: &Path,
     system_dir: &Path,
-    cap: &jinn_domain::common::tcaps::IntentHandlerCap,
-) -> Result<(), Report<LaunchError>> {
+) -> Result<String, Report<LaunchError>> {
     let prompt =
         load_system_resource("_compaction.md", user_dir, system_dir).change_context(LaunchError)?;
     tracing::info!("loaded compaction prompt");
-    state.write(cap).context.compaction_prompt = prompt;
-    Ok(())
+    Ok(prompt)
 }
 
 /// Loads the theme from user preferences into application state.

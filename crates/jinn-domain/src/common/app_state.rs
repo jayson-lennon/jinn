@@ -11,7 +11,6 @@
 
 pub use crate::common::focus::{FocusScope, ScopeStack};
 pub use crate::common::session_map::SessionLoadGuard;
-pub use crate::feat::context::assembly_state::ContextAssemblyState;
 pub use crate::feat::provider::ProviderState;
 pub use crate::feat::pruner_accumulation_input::state::PrunerAccumulationInputState;
 pub use jinn_sidebar_msg::sidebar_sections::RenameSessionInputState;
@@ -37,8 +36,6 @@ pub type SessionState = SessionMap;
 pub struct AppState {
     /// Session lifecycle state - owned by session-actor.
     pub session: SessionState,
-    /// Context assembly state - owned by context-actor.
-    pub context: ContextAssemblyState,
     /// Provider selection state - owned by provider-actor.
     pub provider: ProviderState,
     /// Frontend / UI state - owned by IntentHandler.
@@ -125,9 +122,51 @@ impl AppState {
         {
             // Same re-seed intent as scope-focus above.
         }
+        if slices
+            .register(
+                jinn_persona_msg::personas_slot(),
+                jinn_persona_msg::Personas::default(),
+            )
+            .is_err()
+        {
+            // Same re-seed intent as scope-focus above.
+        }
+        if slices
+            .register(
+                jinn_slices::tools_registry_slot(),
+                jinn_slices::ToolRegistry::default(),
+            )
+            .is_err()
+        {
+            // Same re-seed intent as scope-focus above.
+        }
         state.frontend.attach_slices(slices.clone());
         state.session.attach_slices(slices);
         state
+    }
+
+    /// The tools-family registry cell, if the registry is attached.
+    ///
+    /// Multi-party state (written by kernel tools handlers, read by
+    /// dispatch snapshots, the TUI, and picker specs) — the cell lives
+    /// in `jinn-slices` per the decomposition policy.
+    #[must_use]
+    pub fn tool_registry(&self) -> Option<jinn_slices::cell::TypedCell<jinn_slices::ToolRegistry>> {
+        match self.frontend.slices() {
+            Some(s) => s.reader(&jinn_slices::tools_registry_slot()),
+            None => None,
+        }
+    }
+
+    /// The persona slice's selection cell, if attached.
+    #[must_use]
+    pub fn persona_selection(
+        &self,
+    ) -> Option<jinn_slices::cell::TypedCell<jinn_persona_msg::Personas>> {
+        match self.frontend.slices() {
+            Some(s) => s.reader(&jinn_persona_msg::personas_slot()),
+            None => None,
+        }
     }
 
     pub fn active_picker_ops_ref(&self) -> Option<&dyn jinn_selection_widget::PickerOps> {

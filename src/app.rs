@@ -531,6 +531,11 @@ impl App {
             Commands::Tui => {
                 let intent_handler_cap =
                     jinn_domain::common::tcaps::mint::mint_intent_handler_cap();
+                let compaction_prompt = jinn_tui::load_compaction_prompt(
+                    &jinn_domain::AppPaths::default().prompts_dir(),
+                    &jinn_domain::AppPaths::default().system_prompts_dir(),
+                )
+                .change_context(AppError)?;
                 let (core, services, discord_activated) = self.runtime.block_on(async {
                     actor_wiring::ActorSystemBuilder::new(actor_wiring::ActorSystemBuilderArgs {
                         handle: self.handle(),
@@ -543,6 +548,7 @@ impl App {
                         app_state_storage: app_state_storage.clone(),
                         paths: jinn_domain::AppPaths::default(),
                         dump_requests: cli.dump_requests.clone(),
+                        compaction_prompt,
                     })
                     .build()
                     .await
@@ -568,6 +574,11 @@ impl App {
                 let intent_handler_cap =
                     jinn_domain::common::tcaps::mint::mint_intent_handler_cap();
                 let store_for_shutdown = session_store.clone();
+                let compaction_prompt = jinn_tui::load_compaction_prompt(
+                    &jinn_domain::AppPaths::default().prompts_dir(),
+                    &jinn_domain::AppPaths::default().system_prompts_dir(),
+                )
+                .change_context(AppError)?;
                 let (core, services, _discord_activated) = self.runtime.block_on(async {
                     actor_wiring::ActorSystemBuilder::new(actor_wiring::ActorSystemBuilderArgs {
                         handle: self.handle(),
@@ -580,18 +591,12 @@ impl App {
                         app_state_storage,
                         paths: jinn_domain::AppPaths::default(),
                         dump_requests: cli.dump_requests.clone(),
+                        compaction_prompt,
                     })
                     .build()
                     .await
                 });
 
-                jinn_tui::load_compaction_prompt(
-                    &core.state,
-                    &services.paths.prompts_dir(),
-                    &services.paths.system_prompts_dir(),
-                    &intent_handler_cap,
-                )
-                .change_context(AppError)?;
                 jinn_tui::load_theme(
                     &core.state,
                     &services.paths.themes_dir(),
@@ -988,16 +993,13 @@ mod tests {
         std::fs::write(dir.path().join("_compaction.md"), "test compaction prompt")
             .expect("write compaction prompt");
 
-        let state = State::new(AppState::default());
         let empty = PathBuf::from("/nonexistent");
-        let cap = jinn_domain::common::tcaps::mint::mint_intent_handler_cap();
 
         // When loading the compaction prompt.
-        load_compaction_prompt(&state, dir.path(), &empty, &cap).expect("load");
+        let prompt = load_compaction_prompt(dir.path(), &empty).expect("load");
 
-        // Then the state contains the prompt text.
-        let state = state.read();
-        assert_eq!(state.context.compaction_prompt, "test compaction prompt");
+        // Then the loader returns the prompt text.
+        assert_eq!(prompt, "test compaction prompt");
     }
 
     #[rstest::rstest]
@@ -1006,11 +1008,8 @@ mod tests {
         let user_dir = tempfile::tempdir().expect("temp dir");
         let system_dir = tempfile::tempdir().expect("temp dir");
 
-        let state = State::new(AppState::default());
-        let cap = jinn_domain::common::tcaps::mint::mint_intent_handler_cap();
-
         // When loading the compaction prompt with no file present.
-        let result = load_compaction_prompt(&state, user_dir.path(), system_dir.path(), &cap);
+        let result = load_compaction_prompt(user_dir.path(), system_dir.path());
 
         // Then an error is returned (hard-fail semantics).
         assert!(
@@ -1018,9 +1017,8 @@ mod tests {
             "expected error when compaction prompt is missing"
         );
 
-        // And the state compaction prompt remains empty.
-        let state = state.read();
-        assert!(state.context.compaction_prompt.is_empty());
+        // And the loader does not touch any state (pure function — nothing
+        // to assert beyond the error).
     }
 
     #[rstest::rstest]

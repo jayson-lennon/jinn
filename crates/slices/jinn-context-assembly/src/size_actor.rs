@@ -4,16 +4,16 @@
 //! to update `cached_context_size` for the active session. Uses eager
 //! recalculation — each event triggers an immediate assembly.
 
-use crate::common::actor_deps::{ActorDeps, BusPublish};
-use crate::common::services::bus_service::BusService;
-use crate::common::state::State;
-use crate::feat::context::assemble::assemble_prompt;
-use crate::feat::context::protocol::event::ChatEntryPinChanged;
-use crate::feat::context::protocol::event::ContextOverrideChanged;
-use crate::feat::context::strategy::token_estimator::TiktokenCounter;
-use crate::feat::session::protocol::history_appended::HistoryAppended;
-use crate::feat::session::protocol::session_load_completed::SessionLoadCompleted;
-use crate::protocol::system::ActiveSessionChanged;
+use jinn_domain::common::actor_deps::{ActorDeps, BusPublish};
+use jinn_domain::common::services::bus_service::BusService;
+use jinn_domain::common::state::State;
+use jinn_domain::feat::context::protocol::event::ChatEntryPinChanged;
+use jinn_domain::feat::context::protocol::event::ContextOverrideChanged;
+use jinn_domain::feat::context::snapshot::{assemble_via_service, build_assembly_inputs};
+use jinn_domain::feat::context::strategy::token_estimator::TiktokenCounter;
+use jinn_domain::feat::session::protocol::history_appended::HistoryAppended;
+use jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted;
+use jinn_domain::protocol::system::ActiveSessionChanged;
 use kameo::actor::ActorRef;
 use kameo::prelude::{Context, Message};
 use tracing::error;
@@ -31,7 +31,9 @@ pub struct ContextSizeActor {
     /// Bus for message routing.
     bus: BusService,
     /// Authority to write assembled context size into sessions.
-    session_cap: crate::common::tcaps::session::SessionCap,
+    session_cap: jinn_domain::common::tcaps::session::SessionCap,
+    /// Runtime services (the trouper system for assembly asks).
+    services: jinn_domain::common::services::Services,
 }
 
 /// Dependencies for [`ContextSizeActor`].
@@ -44,7 +46,7 @@ pub struct ContextSizeActorDeps {
     /// Token counter for prompt assembly.
     pub counter: TiktokenCounter,
     /// Authority to write assembled context size into sessions.
-    pub session_cap: crate::common::tcaps::session::SessionCap,
+    pub session_cap: jinn_domain::common::tcaps::session::SessionCap,
 }
 
 impl BusPublish for ContextSizeActor {
@@ -79,6 +81,7 @@ impl kameo::Actor for ContextSizeActor {
             counter: args.counter,
             bus: args.deps.services.bus.clone(),
             session_cap: args.session_cap,
+            services: args.deps.services.clone(),
         })
     }
 }
@@ -140,12 +143,17 @@ impl ContextSizeActor {
         };
 
         let state_clone = self.state.clone();
-        let counter = self.counter;
+        let _counter = self.counter;
         let id_for_blocking = session_id.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            let guard = state_clone.read();
-            assemble_prompt(&guard, &id_for_blocking, &counter).estimated_tokens()
-        })
+        let result = async {
+            let inputs = {
+                let guard = state_clone.read();
+                build_assembly_inputs(&guard, &id_for_blocking)
+            };
+            assemble_via_service(&self.services, inputs)
+                .await
+                .map(|prompt| prompt.estimated_tokens())
+        }
         .await;
 
         match result {
@@ -175,17 +183,23 @@ mod tests {
     )]
 
     use super::*;
-    use crate::common::app_state::AppState;
-    use crate::feat::session::chat_session::ChatSessionState;
-    use crate::protocol::ChatEntry;
+    use jinn_domain::common::app_state::AppState;
+    use jinn_domain::feat::session::chat_session::ChatSessionState;
+    use jinn_domain::protocol::ChatEntry;
 
     async fn test_actor() -> ContextSizeActor {
-        let harness = crate::common::bus::test_harness::TestHarness::new().await;
+        let harness = jinn_domain::common::bus::test_harness::TestHarness::new().await;
+        let mut services = jinn_domain::Services::new_fake().await;
+        {
+            // Spawn the service directly: this crate IS the slice under test.
+            crate::service::spawn(&services.trouper_system);
+        }
         ContextSizeActor {
             state: State::new(AppState::default()),
             counter: TiktokenCounter::o200k_base(),
             bus: harness.bus(),
-            session_cap: crate::common::tcaps::mint::mint_session_cap(),
+            session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
+            services,
         }
     }
 

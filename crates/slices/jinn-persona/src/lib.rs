@@ -42,7 +42,10 @@ pub fn activate(
     personas_dir: &Path,
 ) -> Personas {
     let entries = scan(personas_dir);
-    let scanned = Personas { entries };
+    let scanned = Personas {
+        entries,
+        ..Default::default()
+    };
     let _cell = host
         .register_cell(personas_slot(), scanned.clone())
         .expect("personas slot is registered exactly once at wiring");

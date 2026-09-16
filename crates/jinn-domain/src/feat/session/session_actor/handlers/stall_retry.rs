@@ -128,12 +128,22 @@ impl SessionPersistenceActor {
         // The assembled prompt is summarized into the warn so a misretried
         // turn is decidable from logs alone: what the retry actually sent.
         let assembled = {
-            let guard = self.state.read();
-            crate::feat::context::assemble::assemble_prompt(
-                &guard,
-                &payload.session_id,
-                &self.counter,
-            )
+            let inputs = {
+                let guard = self.state.read();
+                crate::feat::context::snapshot::build_assembly_inputs(&guard, &payload.session_id)
+            };
+            match crate::feat::context::snapshot::assemble_via_service(&self.services, inputs).await
+            {
+                Ok(prompt) => prompt,
+                Err(error) => {
+                    tracing::error!(
+                        error = ?error,
+                        session_id = %payload.session_id,
+                        "context assembly failed; stall retry aborted"
+                    );
+                    return;
+                }
+            }
         };
         let tail: Vec<String> = assembled
             .messages
@@ -187,7 +197,10 @@ mod tests {
     /// partial tool call slot free, and an in-flight stream generation
     /// registered — the exact shape a stalled stream presents.
     async fn stall_setup() -> (SessionPersistenceActor, BusAudit, RetryStalledSession) {
-        let (actor, audit) = test_actor_recording().await;
+        let (mut actor, audit) = test_actor_recording().await;
+        // The retry path assembles through the trouper service; spawn it
+        // on this actor's system (production wiring does this at boot).
+        let _ = jinn_context_assembly::service::ensure_spawned(&actor.services.trouper_system);
         let session_id = {
             let mut state = actor.state.write_test_no_cap();
             let session = state.active_session_mut();

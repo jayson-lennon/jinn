@@ -88,6 +88,9 @@ pub struct ActorSystemBuilderArgs {
     pub paths: jinn_domain::AppPaths,
     /// Dump directory for provider request debugging. `None` disables.
     pub dump_requests: Option<std::path::PathBuf>,
+    /// The compaction system prompt loaded from the prompts directory at
+    /// startup (the compaction worker consumes it on each compaction).
+    pub compaction_prompt: String,
 }
 
 /// Builds the actor system: spawns all actors via kameo.
@@ -117,6 +120,7 @@ impl ActorSystemBuilder {
             app_state_storage,
             paths,
             dump_requests,
+            compaction_prompt,
         } = self.args;
 
         // Create shared State FIRST — injected into multiple actors.
@@ -250,6 +254,17 @@ impl ActorSystemBuilder {
         // subscriber) has spawned — the plugin's push-once contract.
         let persona_entries = jinn_persona_activate(&mut services);
 
+        // Tools registry cell: multi-party vocabulary (written by the
+        // tools handlers, read by dispatch snapshots + the TUI) — hosted
+        // in jinn-slices until the tools family migrates and owns it.
+        {
+            let slices = services.slices.clone();
+            let _ = slices.register(
+                jinn_slices::tools_registry_slot(),
+                jinn_slices::ToolRegistry::default(),
+            );
+        }
+
         // Quake bar slice: activation mints the cell, spawns the actor
         // (submit-log writer), attaches rows, and registers the input
         // hook + overlay geometry. Composition owns exactly this call.
@@ -264,6 +279,12 @@ impl ActorSystemBuilder {
         // before the first `EnvironmentLoaded` trigger.
         jinn_session_init_activate(&mut services, state.clone());
         jinn_session_init::bridge::drain_routes(&services).await;
+
+        // ── Context-assembly slice ─────────────────────────────────────
+        // Spawn the stateless assembly service on trouper. Pure: holds
+        // nothing, reads nothing — dispatch paths snapshot their own
+        // inputs and ask.
+        let _path = jinn_context_assembly::service::spawn(&services.trouper_system);
 
         // ── Infrastructure actors ──────────────────────────────────────────
 
@@ -348,7 +369,6 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
                 jinn_domain::feat::preferences_actor::app_state_actor::AppStateActorDeps {
                     deps: actor_deps.clone(),
                     state: state.clone(),
-                    context_cap: jinn_domain::common::tcaps::mint::mint_context_cap(),
                     frontend_cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
                 },
             )
@@ -419,7 +439,6 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
                     state: state.clone(),
                     cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
                     frontend_cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
-                    context_cap: jinn_domain::common::tcaps::mint::mint_context_cap(),
                     counter: token_counter,
                     token_cache: entry_token_cache.clone(),
                     builtin_registry:
@@ -634,7 +653,6 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
                 jinn_domain::feat::queue_actor::QueueActorDeps {
                     deps: actor_deps.clone(),
                     state: state.clone(),
-                    counter: token_counter,
                     cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
                 },
             )
@@ -648,9 +666,9 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
             &services.bus,
             "context-size",
             "ContextSizeActor",
-            jinn_domain::feat::context::context_size_actor::ContextSizeActor::supervise(
+            jinn_context_assembly::size_actor::ContextSizeActor::supervise(
                 &root,
-                jinn_domain::feat::context::context_size_actor::ContextSizeActorDeps {
+                jinn_context_assembly::size_actor::ContextSizeActorDeps {
                     deps: actor_deps.clone(),
                     state: state.clone(),
                     counter: token_counter,
@@ -711,6 +729,7 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
                             handle.clone(),
                             state.clone(),
                             jinn_domain::common::tcaps::mint::mint_session_cap(),
+                            compaction_prompt.clone(),
                         ),
                     },
                 )
@@ -739,6 +758,7 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
                             handle.clone(),
                             state.clone(),
                             jinn_domain::common::tcaps::mint::mint_session_cap(),
+                            compaction_prompt,
                         ),
                     },
                 )
