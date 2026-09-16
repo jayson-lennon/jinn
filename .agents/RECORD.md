@@ -351,3 +351,4 @@ Entries are added or amended **only with human approval**.
 - (tools) interactive_term_send and interactive_term_kill carry the calling chat session id and act only on that session's own terminal; no model-facing terminal id argument exists.
 - (tools) Terminal control (user takeover) is tracked per chat session; a takeover or handback in one session never affects another session's in-flight interactive_term calls.
 - (tools) Closing a session kills its live interactive_term terminal; the coordinator subscribes to SessionClosed.
+- (tools) The interactive_term tool guidance warns models not to append shell redirections, pipes, or grep (the tool returns the rendered screen, so piped output is silently lost) and advertises the no-argument interactive_term_send call as an anytime screen snapshot; the usage footer on every result repeats both.
