@@ -10,6 +10,7 @@
 //! rows, no bindings, no cell).
 
 pub mod key_routes;
+pub mod overlay;
 pub mod sections;
 
 pub use jinn_slices::sidebar_sections_slot;
@@ -36,6 +37,18 @@ pub fn activate(host: &mut SliceHost<'_, jinn_slices::RenderFacts>) {
         .expect("sidebar slot is registered exactly once at wiring");
     key_routes::attach_sidebar_rows(host.key_routes());
     key_routes::register_rename_input_hook(host.key_routes(), &cell);
+    // The rename popup renders through the overlay registry keyed on its
+    // dynamic scope; its rect registers as selectable (it hosts an input).
+    host.register_overlay(
+        key_routes::rename_scope(),
+        std::sync::Arc::new(overlay::rename_overlay_rect),
+    );
+    host.register_overlay_slot(key_routes::rename_scope(), sidebar_sections_slot());
+    host.register_overlay_view(
+        key_routes::rename_scope(),
+        std::sync::Arc::new(overlay::render_rename_overlay),
+    );
+    host.register_overlay_selectable(key_routes::rename_scope());
     // The sessions-cursor clamp actor spawns from composition (it needs
     // the supervised runtime), not from `activate`.
 }

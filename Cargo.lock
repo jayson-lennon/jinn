@@ -3031,6 +3031,7 @@ dependencies = [
  "jinn-picker",
  "jinn-slices",
  "jinn-testutil",
+ "jinn-theme",
  "kameo",
  "ratatui",
  "rstest",

@@ -323,11 +323,25 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "r",
         "general",
         "rename session",
-        sync(move |state| {
-            let mut result = rename::handle_rename_session_enter(state);
-            result.scope_signal = Some(ScopeSignal::Push(rename_scope()));
-            result
-        }),
+        // The enter handler pushes the popup's dynamic scope itself.
+        sync(|state| rename::handle_rename_session_enter(state)),
+    ));
+
+    routes.attach(row(
+        "rename-confirm",
+        rename_scope(),
+        "<enter>",
+        "input",
+        "rename the session",
+        sync(|state| rename::handle_rename_session_confirm(state)),
+    ));
+    routes.attach(row(
+        "rename-leave",
+        rename_scope(),
+        "<esc>",
+        "general",
+        "cancel rename",
+        sync(|state| rename::handle_rename_session_leave(state)),
     ));
     routes.attach(row(
         "session-archive",
