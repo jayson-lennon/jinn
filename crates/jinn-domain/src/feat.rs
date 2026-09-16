@@ -34,7 +34,6 @@ pub use jinn_provider_config as provider_infra;
 pub mod pruner_accumulation_input;
 pub mod queue_actor;
 pub mod reasoning;
-pub mod rename_session_input;
 pub mod session;
 pub mod session_lifecycle;
 pub mod session_search;
