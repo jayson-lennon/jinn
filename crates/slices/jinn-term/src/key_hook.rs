@@ -13,8 +13,8 @@
 //! the intent to its row, which publishes `SendTermKey` with the bytes.
 //! Unencodable keys encode to nothing and are dropped.
 
-use jinn_slices::route::{DynamicIntent, KeyHook, KeyRoutes};
 use jinn_slices::SliceScopeId;
+use jinn_slices::route::{DynamicIntent, KeyHook, KeyRoutes};
 use jinn_term_msg::control_scope;
 
 /// Builds the capture hook for `term:control`.
@@ -72,13 +72,16 @@ mod tests {
     #[case(Key::Char('c'), Modifiers::ctrl(), vec![0x03])]
     #[case(Key::Enter, Modifiers::none(), b"\r".to_vec())]
     #[case(Key::F(4), Modifiers::none(), b"\x1bOS".to_vec())]
-    fn hook_encodes_keys_to_pty_bytes(#[case] key: Key, #[case] modifiers: Modifiers, #[case] expected: Vec<u8>) {
+    fn hook_encodes_keys_to_pty_bytes(
+        #[case] key: Key,
+        #[case] modifiers: Modifiers,
+        #[case] expected: Vec<u8>,
+    ) {
         // Given the capture hook.
         let hook = send_key_hook();
 
         // When encoding a raw key event.
-        let intent = hook(&KeyEvent { key, modifiers })
-            .expect("encodable keys produce an intent");
+        let intent = hook(&KeyEvent { key, modifiers }).expect("encodable keys produce an intent");
 
         // Then the intent targets the control scope's send-key action and
         // carries the PTY bytes.

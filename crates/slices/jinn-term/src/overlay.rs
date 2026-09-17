@@ -38,7 +38,10 @@ pub const TOGGLE_KEY_FACT: &str = "term.toggle-key";
 /// The renderer reads the scope id it is handed only through the
 /// registry (both scopes render the same overlay; capture styling comes
 /// from the `term.capturing` fact).
-pub fn register_views(slices: &jinn_slices::Slices, views: &jinn_slices::OverlayViews<RenderFacts>) {
+pub fn register_views(
+    slices: &jinn_slices::Slices,
+    views: &jinn_slices::OverlayViews<RenderFacts>,
+) {
     for scope in [jinn_term_msg::view_scope(), jinn_term_msg::control_scope()] {
         slices.register_overlay(
             scope.clone(),
@@ -212,9 +215,10 @@ fn render_empty(frame: &mut Frame<'_>, area: Rect, accent: ratatui::style::Color
 /// would lie.
 fn bottom_border_hints(facts: &RenderFacts, capturing: bool) -> ratatui::text::Line<'static> {
     let theme = &facts.theme;
-    let toggle = facts
-        .fact(TOGGLE_KEY_FACT)
-        .map_or_else(|| jinn_term_msg::prefs::DEFAULT_CONTROL_TOGGLE_KEY.to_owned(), ToOwned::to_owned);
+    let toggle = facts.fact(TOGGLE_KEY_FACT).map_or_else(
+        || jinn_term_msg::prefs::DEFAULT_CONTROL_TOGGLE_KEY.to_owned(),
+        ToOwned::to_owned,
+    );
     let key_style = Style::default()
         .fg(theme.accent_action)
         .add_modifier(Modifier::BOLD);
@@ -289,13 +293,28 @@ mod tests {
             .reader::<jinn_term_msg::TerminalTabState>(&term_tabs_slot())
             .expect("cell")
             .update(|t| {
-                t.apply_screen(&id, screen.to_owned(), ScreenCells::default(), cursor, cursor_hidden)
+                t.apply_screen(
+                    &id,
+                    screen.to_owned(),
+                    ScreenCells::default(),
+                    cursor,
+                    cursor_hidden,
+                )
             });
         let mut facts = RenderFacts::new(default_theme(), &slices);
         facts.set_facts([
-            jinn_slices::AppFact { key: SESSION_ID_FACT, value: id.to_string() },
-            jinn_slices::AppFact { key: CAPTURING_FACT, value: "0".to_owned() },
-            jinn_slices::AppFact { key: TOGGLE_KEY_FACT, value: "<c-g>".to_owned() },
+            jinn_slices::AppFact {
+                key: SESSION_ID_FACT,
+                value: id.to_string(),
+            },
+            jinn_slices::AppFact {
+                key: CAPTURING_FACT,
+                value: "0".to_owned(),
+            },
+            jinn_slices::AppFact {
+                key: TOGGLE_KEY_FACT,
+                value: "<c-g>".to_owned(),
+            },
         ]);
         (slices, facts, id)
     }
@@ -326,7 +345,9 @@ mod tests {
         let buffer = render_to_buffer(&facts, area);
 
         // Then the interior (inside the border) contains the screen text.
-        let row: String = (1..15).map(|x| buffer[(x, 1)].symbol().to_owned()).collect();
+        let row: String = (1..15)
+            .map(|x| buffer[(x, 1)].symbol().to_owned())
+            .collect();
         assert!(row.contains("hello from vim"), "row was: {row:?}");
         // And the border ring was drawn around it.
         assert_eq!(buffer[(0, 0)].symbol(), "\u{250c}");
@@ -342,16 +363,27 @@ mod tests {
             .expect("fresh registry");
         let mut facts = RenderFacts::new(default_theme(), &slices);
         facts.set_facts([
-            jinn_slices::AppFact { key: SESSION_ID_FACT, value: jinn_core_types::SessionId::new().to_string() },
-            jinn_slices::AppFact { key: CAPTURING_FACT, value: "0".to_owned() },
-            jinn_slices::AppFact { key: TOGGLE_KEY_FACT, value: "<c-g>".to_owned() },
+            jinn_slices::AppFact {
+                key: SESSION_ID_FACT,
+                value: jinn_core_types::SessionId::new().to_string(),
+            },
+            jinn_slices::AppFact {
+                key: CAPTURING_FACT,
+                value: "0".to_owned(),
+            },
+            jinn_slices::AppFact {
+                key: TOGGLE_KEY_FACT,
+                value: "<c-g>".to_owned(),
+            },
         ]);
 
         // When rendering.
         let buffer = render_to_buffer(&facts, Rect::new(0, 0, 80, 24));
 
         // Then the buffer shows the empty-session hint inside the border.
-        let row: String = (1..60).map(|x| buffer[(x, 1)].symbol().to_owned()).collect();
+        let row: String = (1..60)
+            .map(|x| buffer[(x, 1)].symbol().to_owned())
+            .collect();
         assert!(row.contains("no active terminal session"), "row: {row:?}");
     }
 
@@ -392,9 +424,18 @@ mod tests {
             .update(|t| t.apply_screen(&id, "Rx".to_owned(), styled, (0, 2), false));
         let mut facts = RenderFacts::new(default_theme(), &slices);
         facts.set_facts([
-            jinn_slices::AppFact { key: SESSION_ID_FACT, value: id.to_string() },
-            jinn_slices::AppFact { key: CAPTURING_FACT, value: "0".to_owned() },
-            jinn_slices::AppFact { key: TOGGLE_KEY_FACT, value: "<c-g>".to_owned() },
+            jinn_slices::AppFact {
+                key: SESSION_ID_FACT,
+                value: id.to_string(),
+            },
+            jinn_slices::AppFact {
+                key: CAPTURING_FACT,
+                value: "0".to_owned(),
+            },
+            jinn_slices::AppFact {
+                key: TOGGLE_KEY_FACT,
+                value: "<c-g>".to_owned(),
+            },
         ]);
 
         // When rendering on a test backend.
@@ -441,9 +482,18 @@ mod tests {
             .update(|t| t.apply_screen(&id, "漢".to_owned(), styled, (0, 2), false));
         let mut facts = RenderFacts::new(default_theme(), &slices);
         facts.set_facts([
-            jinn_slices::AppFact { key: SESSION_ID_FACT, value: id.to_string() },
-            jinn_slices::AppFact { key: CAPTURING_FACT, value: "0".to_owned() },
-            jinn_slices::AppFact { key: TOGGLE_KEY_FACT, value: "<c-g>".to_owned() },
+            jinn_slices::AppFact {
+                key: SESSION_ID_FACT,
+                value: id.to_string(),
+            },
+            jinn_slices::AppFact {
+                key: CAPTURING_FACT,
+                value: "0".to_owned(),
+            },
+            jinn_slices::AppFact {
+                key: TOGGLE_KEY_FACT,
+                value: "<c-g>".to_owned(),
+            },
         ]);
 
         // When rendering on a test backend.
@@ -462,9 +512,18 @@ mod tests {
         let (slices, mut viewing, _) = facts_with_mirror("screen", (0, 0), true);
         let mut capturing = RenderFacts::new(default_theme(), &slices);
         capturing.set_facts([
-            jinn_slices::AppFact { key: SESSION_ID_FACT, value: String::new() },
-            jinn_slices::AppFact { key: CAPTURING_FACT, value: "1".to_owned() },
-            jinn_slices::AppFact { key: TOGGLE_KEY_FACT, value: "<c-g>".to_owned() },
+            jinn_slices::AppFact {
+                key: SESSION_ID_FACT,
+                value: String::new(),
+            },
+            jinn_slices::AppFact {
+                key: CAPTURING_FACT,
+                value: "1".to_owned(),
+            },
+            jinn_slices::AppFact {
+                key: TOGGLE_KEY_FACT,
+                value: "<c-g>".to_owned(),
+            },
         ]);
         let _ = &mut viewing;
 
@@ -505,9 +564,18 @@ mod tests {
         let (slices, _, id) = facts_with_mirror("screen", (0, 0), true);
         let mut facts = RenderFacts::new(default_theme(), &slices);
         facts.set_facts([
-            jinn_slices::AppFact { key: SESSION_ID_FACT, value: id.to_string() },
-            jinn_slices::AppFact { key: CAPTURING_FACT, value: "1".to_owned() },
-            jinn_slices::AppFact { key: TOGGLE_KEY_FACT, value: "<c-g>".to_owned() },
+            jinn_slices::AppFact {
+                key: SESSION_ID_FACT,
+                value: id.to_string(),
+            },
+            jinn_slices::AppFact {
+                key: CAPTURING_FACT,
+                value: "1".to_owned(),
+            },
+            jinn_slices::AppFact {
+                key: TOGGLE_KEY_FACT,
+                value: "<c-g>".to_owned(),
+            },
         ]);
 
         // When rendering.
@@ -528,9 +596,18 @@ mod tests {
         let (slices, _, id) = facts_with_mirror("screen", (0, 0), true);
         let mut facts = RenderFacts::new(default_theme(), &slices);
         facts.set_facts([
-            jinn_slices::AppFact { key: SESSION_ID_FACT, value: id.to_string() },
-            jinn_slices::AppFact { key: CAPTURING_FACT, value: "0".to_owned() },
-            jinn_slices::AppFact { key: TOGGLE_KEY_FACT, value: "<m-g>".to_owned() },
+            jinn_slices::AppFact {
+                key: SESSION_ID_FACT,
+                value: id.to_string(),
+            },
+            jinn_slices::AppFact {
+                key: CAPTURING_FACT,
+                value: "0".to_owned(),
+            },
+            jinn_slices::AppFact {
+                key: TOGGLE_KEY_FACT,
+                value: "<m-g>".to_owned(),
+            },
         ]);
 
         // When rendering.
@@ -567,10 +644,7 @@ mod tests {
         let mut terminal = Terminal::new(backend).expect("terminal");
         terminal
             .draw(|f| {
-                f.render_widget(
-                    Paragraph::new("LEAK".repeat(30)),
-                    f.area(),
-                );
+                f.render_widget(Paragraph::new("LEAK".repeat(30)), f.area());
             })
             .expect("seed draw");
 
@@ -580,7 +654,9 @@ mod tests {
 
         // Then the interior shows no trace of the underlying frame.
         let buffer = terminal.backend().buffer();
-        let interior_row: String = (1..79).map(|x| buffer[(x, 1)].symbol().to_owned()).collect();
+        let interior_row: String = (1..79)
+            .map(|x| buffer[(x, 1)].symbol().to_owned())
+            .collect();
         assert!(
             !interior_row.contains("LEAK"),
             "frame content leaked through: {interior_row:?}"

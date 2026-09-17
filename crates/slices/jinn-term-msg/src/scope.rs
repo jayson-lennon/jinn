@@ -55,10 +55,12 @@ mod tests {
         assert!(is_overlay_scope(&view_scope()));
         assert!(is_overlay_scope(&control_scope()));
         assert!(!is_overlay_scope(&jinn_slices::SliceScopeId::new(
-            "quake-bar", "open"
+            "quake-bar",
+            "open"
         )));
         assert!(!is_overlay_scope(&jinn_slices::SliceScopeId::navigation(
-            "other-slice", "view"
+            "other-slice",
+            "view"
         )));
     }
 }

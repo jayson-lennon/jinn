@@ -170,7 +170,9 @@ pub fn handle_take_control(state: &mut AppState) {
     if let Some(registry) = jinn_term_msg::term_controls() {
         registry.set(state.session.active_session_id(), ControlHolder::User);
     }
-    state.frontend.scope_push(FocusScope::Dynamic(control_scope()));
+    state
+        .frontend
+        .scope_push(FocusScope::Dynamic(control_scope()));
 }
 
 /// Handles the `send-key` action (the key hook's target in `term:control`).
@@ -491,12 +493,12 @@ mod tests {
     use super::view_scope;
     use jinn_domain::common::app_state::AppState;
     use jinn_domain::common::app_state::FocusScope;
+    use jinn_slices::Slices;
     use jinn_slices::route::ActionCtx;
     use jinn_slices::route::KeyRoutes;
     use jinn_slices::route::RouteResult;
-    use jinn_slices::Slices;
-    use jinn_term_msg::command::ControlHolder;
     use jinn_term_msg::cells::ScreenCells;
+    use jinn_term_msg::command::ControlHolder;
 
     fn app_state() -> AppState {
         // The control registry is a process-wide OnceLock minted by
@@ -530,10 +532,15 @@ mod tests {
     /// Mirrors a screen onto the active session's terminal.
     fn mirror_screen(state: &mut AppState, screen: &str) {
         let id = state.session.active_session_id().clone();
-        state
-            .term_tabs()
-            .expect("term tabs cell")
-            .update(|t| t.apply_screen(&id, screen.to_owned(), ScreenCells::default(), (0, 0), false));
+        state.term_tabs().expect("term tabs cell").update(|t| {
+            t.apply_screen(
+                &id,
+                screen.to_owned(),
+                ScreenCells::default(),
+                (0, 0),
+                false,
+            )
+        });
     }
 
     /// Runs a row's action through the route table exactly as the
@@ -568,7 +575,14 @@ mod tests {
         set_live(&mut state, &chat);
 
         // When dispatching the toggle-overlay action.
-        dispatch(&routes, &mut state, &slices, "toggle-overlay", &view_scope(), Vec::new());
+        dispatch(
+            &routes,
+            &mut state,
+            &slices,
+            "toggle-overlay",
+            &view_scope(),
+            Vec::new(),
+        );
 
         // Then the overlay opens in view mode.
         assert_eq!(state.frontend.scope(), FocusScope::Dynamic(view_scope()));
@@ -583,14 +597,22 @@ mod tests {
         attach_rows(&routes, "<c-g>");
 
         // When dispatching the toggle-overlay action.
-        dispatch(&routes, &mut state, &slices, "toggle-overlay", &view_scope(), Vec::new());
+        dispatch(
+            &routes,
+            &mut state,
+            &slices,
+            "toggle-overlay",
+            &view_scope(),
+            Vec::new(),
+        );
 
         // Then no overlay opened.
         assert_eq!(state.frontend.scope(), FocusScope::Input);
         // And a status hint explains the inert press.
         let hint = jinn_domain::feat::ui::status_hint::hint(&slices);
         assert!(
-            hint.as_deref().is_some_and(|h| h.contains("no live terminal")),
+            hint.as_deref()
+                .is_some_and(|h| h.contains("no live terminal")),
             "expected a no-live-terminal hint, got: {hint:?}"
         );
     }
@@ -604,10 +626,24 @@ mod tests {
         attach_rows(&routes, "<c-g>");
         let chat = state.session.active_session_id().clone();
         set_live(&mut state, &chat);
-        dispatch(&routes, &mut state, &slices, "toggle-overlay", &view_scope(), Vec::new());
+        dispatch(
+            &routes,
+            &mut state,
+            &slices,
+            "toggle-overlay",
+            &view_scope(),
+            Vec::new(),
+        );
 
         // When dispatching the toggle-overlay action again.
-        dispatch(&routes, &mut state, &slices, "toggle-overlay", &view_scope(), Vec::new());
+        dispatch(
+            &routes,
+            &mut state,
+            &slices,
+            "toggle-overlay",
+            &view_scope(),
+            Vec::new(),
+        );
 
         // Then the overlay closes back to the base scope.
         assert_eq!(state.frontend.scope(), FocusScope::Normal);
@@ -626,11 +662,9 @@ mod tests {
         let second_id = second.session_id().clone();
         state.session.insert(second);
         set_live(&mut state, &second_id);
-        state
-            .frontend
-            .scope_swap_base(FocusScope::Dynamic(
-                jinn_sidebar_msg::SidebarSectionId::Sessions.scope_id(),
-            ));
+        state.frontend.scope_swap_base(FocusScope::Dynamic(
+            jinn_sidebar_msg::SidebarSectionId::Sessions.scope_id(),
+        ));
         state
             .frontend
             .update_sections(|s| s.sessions.selected_index = Some(0));
@@ -783,7 +817,8 @@ mod tests {
         // And a status hint explains the inert press.
         let hint = jinn_domain::feat::ui::status_hint::hint(&slices);
         assert!(
-            hint.as_deref().is_some_and(|h| h.contains("no live terminal")),
+            hint.as_deref()
+                .is_some_and(|h| h.contains("no live terminal")),
             "expected a no-live-terminal hint, got: {hint:?}"
         );
     }
