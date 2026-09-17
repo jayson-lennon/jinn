@@ -244,7 +244,7 @@ kameo_actors = "0.5"
 
 # The trouper actor runtime (published to crates.io; the SDK workspace
 # remains the development home — see .plans/actor-canvas/plan.md)
-trouper = "0.1.1"
+trouper = "0.2.0"
 
 # PTY + terminal emulation (interactive_term tool)
 portable-pty = "0.9"
