@@ -891,7 +891,6 @@ mod tests {
     use crate::common::app_state::{AppState, FocusScope};
     use crate::feat::intent::IntentHandler;
     use crate::protocol::{ChatEntry, Intent};
-    use jinn_term_msg::cells::ScreenCells;
 
     #[rstest::rstest]
     fn paste_text_ignored_in_normal_scope() {
@@ -1671,9 +1670,12 @@ mod tests {
         state
             .frontend
             .scope_push(FocusScope::Dynamic(jinn_term_msg::control_scope()));
-        if let Some(registry) = jinn_term_msg::TERM_CONTROLS.get() {
-            registry.set(&first_id, ControlHolder::User);
-        }
+        // Mint the registry (idempotent: a no-op when already present) so
+        // the release assertion below is unconditional — production always
+        // has the registry wired, and this test must prove the flip.
+        let _ = jinn_term_msg::TERM_CONTROLS.set(jinn_term_msg::TermControls::default());
+        let registry = jinn_term_msg::TERM_CONTROLS.get().expect("minted above");
+        registry.set(&first_id, ControlHolder::User);
 
         // When switching the active session.
         IntentHandler::handle(
@@ -1685,15 +1687,12 @@ mod tests {
         );
 
         // Then the switched-from session's control is released back to the
-        // agent — a stuck User holder would refuse every future agent send
-        // (only reachable when the wired registry is present).
-        if let Some(registry) = jinn_term_msg::TERM_CONTROLS.get() {
-            assert_eq!(
-                registry.holder_for(&first_id),
-                ControlHolder::Agent,
-                "control must not stick on User after a switch"
-            );
-        }
+        // agent — a stuck User holder would refuse every future agent send.
+        assert_eq!(
+            registry.holder_for(&first_id),
+            ControlHolder::Agent,
+            "control must not stick on User after a switch"
+        );
         // And the overlay is closed.
         assert_ne!(
             state.frontend.scope(),
@@ -1707,7 +1706,7 @@ mod tests {
         // terminal, and no overlay open yet.
         use crate::feat::session::chat_session::ChatSessionState;
         let mut state = AppState::default_with_scope_focus();
-        let mut second = ChatSessionState::new();
+        let second = ChatSessionState::new();
         let second_id = second.session_id().clone();
         state.session.insert(second);
         state

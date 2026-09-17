@@ -904,12 +904,8 @@ mod tests {
         let hook: super::KeyHook = {
             let hook_scope = navigation.clone();
             std::sync::Arc::new(move |event: &crate::key::KeyEvent| {
-                Some(crate::DynamicIntent::new(
-                    hook_scope.clone(),
-                    "send-key",
-                    "send key",
-                ))
-                .filter(|_| event.key == crate::key::Key::Char('x'))
+                (event.key == crate::key::Key::Char('x'))
+                    .then(|| crate::DynamicIntent::new(hook_scope.clone(), "send-key", "send key"))
             })
         };
         routes.register_key_hook(&navigation, hook);
@@ -951,6 +947,26 @@ mod tests {
         let scopes = routes.key_hook_scopes();
 
         // Then the registered scope is listed.
+        assert_eq!(scopes, vec![scope()]);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn modal_scope_registration_is_idempotent_and_scoped() {
+        // Given a route table with one modal scope declared.
+        let routes = KeyRoutes::new();
+        routes.register_modal_scope(&scope());
+        routes.register_modal_scope(&scope());
+
+        // When querying modal membership.
+        let is_modal = routes.is_modal_scope(&scope());
+        let is_other_modal = routes.is_modal_scope(&SliceScopeId::navigation("term", "view"));
+        let scopes = routes.modal_scopes();
+
+        // Then the declared scope is modal exactly once, and an
+        // undeclared scope is not.
+        assert!(is_modal);
+        assert!(!is_other_modal);
         assert_eq!(scopes, vec![scope()]);
     }
 

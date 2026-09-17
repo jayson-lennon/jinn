@@ -274,6 +274,7 @@ pub fn composition_routes() -> jinn_domain::common::slices::key_routes::KeyRoute
     // matters for hermeticity tests; the hook fn only encodes keys).
     jinn_term::route_rows::attach_rows(&routes, "<c-g>");
     jinn_term::key_hook::register(&routes);
+    jinn_sidebar::key_routes::attach_sidebar_rows(&routes);
     routes
 }
 
@@ -558,6 +559,55 @@ mod term_keybinds_spot_check {
         assert!(
             intent.is_none(),
             "`i` must stay unbound in view: {intent:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    fn sidebar_t_resolves_to_the_session_terminal_row() {
+        // Given the composed keymap queried in the sidebar sessions scope.
+        let sessions = jinn_sidebar_msg::SidebarSectionId::Sessions.scope_id();
+        let mut wk = wk(Scope::Dynamic(sessions));
+
+        // When pressing 'T'.
+        let intent = wk.handle_key(KeyEvent {
+            key: Key::Char('T'),
+            modifiers: Modifiers::none(),
+        });
+
+        // Then the session-terminal row resolves.
+        assert!(
+            matches!(&intent, Some(Intent::Dynamic(d)) if d.action == "session-terminal"),
+            "sidebar T must resolve the session-terminal row, got {intent:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn session_terminal_row_publishes_the_term_toggle_for_selected_intent() {
+        // Given the sidebar's session-terminal row dispatching in its scope.
+        let routes = jinn_domain::common::slices::key_routes::KeyRoutes::new();
+        jinn_sidebar::key_routes::attach_sidebar_rows(&routes);
+        let sessions = jinn_sidebar_msg::SidebarSectionId::Sessions.scope_id();
+        let mut state = jinn_domain::AppState::default();
+
+        // When firing the row.
+        let result = routes
+            .action_for(
+                &jinn_slices::DynamicIntent::new(sessions, "session-terminal", "toggle terminal"),
+                jinn_domain::common::slices::key_routes::ActionCtx {
+                    state: &mut state,
+                    slices: &jinn_domain::common::slices::Slices::new(),
+                    key_bytes: Vec::new(),
+                },
+            )
+            .expect("session-terminal row must dispatch");
+
+        // Then it publishes the term slice's toggle-for-selected dynamic
+        // intent (targets the term view scope, not a kernel intent variant).
+        assert!(
+            result.message_names.iter().any(|n| n.contains("Intent")),
+            "session-terminal row must publish an Intent, got {:?}",
+            result.message_names
         );
     }
 }

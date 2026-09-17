@@ -767,6 +767,64 @@ mod tests {
     }
 
     #[rstest::rstest]
+    #[case("Normal")]
+    #[case("Input")]
+    #[case("ArgInput")]
+    #[case("TokenBudgetInput")]
+    #[case("RenameSessionInput")]
+    #[case("ProjectAddInput")]
+    #[case("PrunerAccumulationInput")]
+    #[case("Picker(provider)")]
+    #[case("Picker(session)")]
+    #[case("Picker(persona)")]
+    #[case("Picker(theme)")]
+    #[case("Picker(lifecycle)")]
+    #[case("Picker(reasoning-effort)")]
+    #[case("Picker(endpoint)")]
+    #[case("Picker(tool)")]
+    #[case("Picker(skill)")]
+    #[case("Picker(task-list)")]
+    #[case("Picker(project)")]
+    #[case("Picker(mcp-server)")]
+    #[case("Picker(plugin)")]
+    fn alt_t_resolves_in_every_static_scope(#[case] scope_name: &str) {
+        // Given the composed term rows (the GlobalToggle toggle-overlay
+        // row) generated into a fresh keymap, queried in a static scope
+        // parsed from its display name (the FromStr table doubles as the
+        // drift-guard list: a scope added to the enum without joining the
+        // spread shows up the next time this list is revisited).
+        let routes = KeyRoutes::new();
+        routes.attach(term_toggle_row());
+        let mut keymap = Keymap::new();
+        bind_route_rows(&routes, &mut keymap);
+        let scope: Scope = scope_name
+            .parse()
+            .unwrap_or_else(|()| panic!("{scope_name} must parse to a static scope"));
+
+        // When pressing <M-t>.
+        let mut wk = WhichKeyInstance::new(keymap, scope);
+        let intent = wk.handle_key(KeyEvent {
+            key: jinn_domain::Key::Char('t'),
+            modifiers: jinn_domain::Modifiers {
+                ctrl: false,
+                alt: true,
+                shift: false,
+            },
+        });
+
+        // Then the overlay toggle resolves.
+        assert!(
+            matches!(
+                &intent,
+                Some(Intent::Dynamic(d))
+                    if d.slice == SliceScopeId::new("term", "view")
+                        && d.action == "toggle-overlay"
+            ),
+            "{scope_name}: <M-t> must resolve to the term toggle-overlay intent, got {intent:?}"
+        );
+    }
+
+    #[rstest::rstest]
     #[test]
     fn global_toggle_row_binds_in_its_own_scope_too() {
         // Given the term toggle-overlay row (a GlobalToggle whose scope
@@ -846,7 +904,7 @@ mod tests {
         // Then `j` resolves in the dynamic scope.
         let in_dynamic = leaf_at(
             &keymap,
-            &[key.clone()],
+            std::slice::from_ref(&key),
             &Scope::Dynamic(SliceScopeId::navigation("sidebar", "pins")),
         );
         assert!(in_dynamic.is_some(), "row key binds in the dynamic scope");
