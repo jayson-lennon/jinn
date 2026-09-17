@@ -7,6 +7,7 @@
   - `todo_set_phase`: rewrites a single phase
   - `todo_get_list`: returns the entire todo list
 - Task loop skills reference `todo_*` tools generically instead of by exact name.
+- The `#approve-plan` prompt should produce more detailed todo lists.
 - Added a new `jinn-usage` skill.
   - This enables the agent to answer meta-questions about `jinn` usage and configuration. `jinn` should now be able to edit it's configuration on your behalf.
 - Remove `jinn-plugin` skill. It will need to be manually removed from your `~/.agent/skills` directory.
