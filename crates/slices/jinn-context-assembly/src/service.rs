@@ -54,10 +54,7 @@ pub fn spawn(system: &trouper::system::ActorSystem) -> ActorPath {
 #[must_use]
 pub fn ensure_spawned(system: &trouper::system::ActorSystem) -> Option<ActorPath> {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| spawn(system)));
-    match result {
-        Ok(path) => Some(path),
-        Err(_) => None,
-    }
+    result.ok()
 }
 
 #[cfg(test)]
@@ -72,7 +69,7 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn ask_returns_assembled_prompt() {
-        let mut services = jinn_domain::Services::new_fake().await;
+        let services = jinn_domain::Services::new_fake().await;
         crate::service::spawn(&services.trouper_system);
         let state = State::new(AppState::default_with_scope_focus());
         let session_id = state.read().session.active_session_id().clone();

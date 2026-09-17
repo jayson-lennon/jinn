@@ -11,21 +11,21 @@
 pub mod command;
 pub mod command_policy;
 pub mod event;
-pub mod task_registry;
 pub mod notices;
-pub mod truncation;
+pub mod task_registry;
+pub mod todo_list;
 pub mod tool_future;
 pub mod tool_registry;
-pub mod todo_list;
+pub mod truncation;
 
 pub use command::*;
-pub use notices::*;
 pub use command_policy::*;
 pub use event::*;
+pub use notices::*;
 pub use task_registry::*;
+pub use todo_list::*;
 pub use tool_future::*;
 pub use tool_registry::*;
-pub use todo_list::*;
 
 #[cfg(test)]
 mod tests;

@@ -115,10 +115,7 @@ fn persona_status(ctx: &StatusCtx<'_>) -> Option<Line<'static>> {
         .unwrap_or_else(|| "none".to_owned());
     Some(Line::from(vec![
         ratatui::text::Span::styled("Active: ".to_owned(), Style::default().fg(theme.muted_text)),
-        ratatui::text::Span::styled(
-            active_name.to_owned(),
-            Style::default().fg(theme.primary_text),
-        ),
+        ratatui::text::Span::styled(active_name.clone(), Style::default().fg(theme.primary_text)),
     ]))
 }
 
@@ -163,13 +160,10 @@ mod tests {
 
     /// Reads the active persona name from the persona slice's cell.
     fn active_persona_name(state: &AppState) -> Option<String> {
-        state
-            .frontend
-            .slices()
-            .and_then(|s| {
-                s.reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-            })
-            .and_then(|cell| cell.read().active.clone())
+        let cell = state.frontend.slices().and_then(|s| {
+            s.reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+        })?;
+        cell.read().active.clone()
     }
 
     fn state_with_open_picker() -> AppState {
@@ -310,7 +304,7 @@ mod tests {
     fn status_line_names_the_active_persona() {
         // Given an app state with "coder" active.
         let state = {
-            let mut state = AppState::default_with_scope_focus();
+            let state = AppState::default_with_scope_focus();
             seed_personas(&state, vec![persona("coder")]);
             set_active_persona(&state, "coder");
             state

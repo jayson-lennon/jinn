@@ -74,6 +74,7 @@ pub async fn launch_for_test(core: AppCore, mut services: jinn_domain::Services)
         activate_theme(&mut services);
         activate_persona(&mut services);
         activate_token_count(&mut services);
+        jinn_tools::activate(&mut services, &core.state);
         core.state
             .write_test_no_cap()
             .frontend

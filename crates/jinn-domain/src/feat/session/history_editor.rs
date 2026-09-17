@@ -739,7 +739,10 @@ mod tests {
 
         // Then nothing changed (user exclude wins).
         assert!(changed.is_empty());
-        assert!(session.history()[1].context_override() == ContextOverride::ForcedExclude);
+        assert_eq!(
+            session.history()[1].context_override(),
+            ContextOverride::ForcedExclude
+        );
     }
 
     #[rstest::rstest]
@@ -782,8 +785,14 @@ mod tests {
 
         // Then the incomplete loop is excluded despite the pin.
         assert_eq!(changed.len(), 2, "assistant+call excluded: {changed:?}");
-        assert!(session.history()[1].context_override() == ContextOverride::ForcedExclude);
-        assert!(session.history()[2].context_override() == ContextOverride::ForcedExclude);
+        assert_eq!(
+            session.history()[1].context_override(),
+            ContextOverride::ForcedExclude
+        );
+        assert_eq!(
+            session.history()[2].context_override(),
+            ContextOverride::ForcedExclude
+        );
     }
 
     #[rstest::rstest]
@@ -993,9 +1002,18 @@ mod tests {
 
         // Then only the incomplete loop's members changed.
         assert_eq!(changed.len(), 2);
-        assert!(session.history()[2].context_override() == ContextOverride::Default);
-        assert!(session.history()[4].context_override() == ContextOverride::ForcedExclude);
-        assert!(session.history()[5].context_override() == ContextOverride::ForcedExclude);
+        assert_eq!(
+            session.history()[2].context_override(),
+            ContextOverride::Default
+        );
+        assert_eq!(
+            session.history()[4].context_override(),
+            ContextOverride::ForcedExclude
+        );
+        assert_eq!(
+            session.history()[5].context_override(),
+            ContextOverride::ForcedExclude
+        );
     }
 
     #[rstest::rstest]

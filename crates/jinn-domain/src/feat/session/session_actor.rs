@@ -60,11 +60,11 @@ use crate::feat::session_lifecycle::protocol::command::{
     RunSessionTeardown, SetSessionCwd,
 };
 use crate::feat::skills::SkillsLoaded;
+use crate::init::EnvironmentLoaded;
 use jinn_tools_msg::{
     ToolBatchCompleted, ToolCallReceived, ToolCallStreaming, ToolExecutionCompleted,
     ToolExecutionOutput, ToolExecutionStarted, ToolUseStarted, ToolsRegistered, ToolsUnregistered,
 };
-use crate::init::EnvironmentLoaded;
 
 /// Session lifecycle and persistence actor.
 ///

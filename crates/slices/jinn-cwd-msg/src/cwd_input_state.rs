@@ -133,6 +133,28 @@ pub fn resolve_cwd_input(raw: &str, current_cwd: &Path) -> CwdResolution {
     }
 }
 
+/// Shorten a path for display: replace the home directory prefix with `~`.
+///
+/// Paths under `$HOME` collapse to `~/…` (or just `~` when the path *is* the home
+/// directory); any other path is returned unchanged as a display string. Falls
+/// back to the raw path when `dirs::home_dir()` cannot be determined.
+///
+/// This is a pure display transform — [`resolve_cwd_input`] expands `~` back
+/// when resolving user input, so shortened paths round-trip.
+#[must_use]
+pub fn shorten_path(path: &Path) -> String {
+    if let Some(home) = dirs::home_dir()
+        && let Ok(relative) = path.strip_prefix(&home)
+    {
+        let display = relative.display().to_string();
+        if display.is_empty() {
+            return "~".to_owned();
+        }
+        return format!("~/{display}");
+    }
+    path.display().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -259,26 +281,4 @@ mod tests {
     fn canonicalize(p: &Path) -> PathBuf {
         std::fs::canonicalize(p).expect("test fixture dir must canonicalize")
     }
-}
-
-/// Shorten a path for display: replace the home directory prefix with `~`.
-///
-/// Paths under `$HOME` collapse to `~/…` (or just `~` when the path *is* the home
-/// directory); any other path is returned unchanged as a display string. Falls
-/// back to the raw path when `dirs::home_dir()` cannot be determined.
-///
-/// This is a pure display transform — [`resolve_cwd_input`] expands `~` back
-/// when resolving user input, so shortened paths round-trip.
-#[must_use]
-pub fn shorten_path(path: &Path) -> String {
-    if let Some(home) = dirs::home_dir()
-        && let Ok(relative) = path.strip_prefix(&home)
-    {
-        let display = relative.display().to_string();
-        if display.is_empty() {
-            return "~".to_owned();
-        }
-        return format!("~/{display}");
-    }
-    path.display().to_string()
 }

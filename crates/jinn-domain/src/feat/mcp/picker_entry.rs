@@ -1,8 +1,8 @@
 //! MCP server picker entry type.
 
 use crate::feat::theme::Theme;
-use jinn_mcp_msg::McpConnectionStatus;
 use jinn_core_types::ToolDefinition;
+use jinn_mcp_msg::McpConnectionStatus;
 
 /// An MCP server entry ready for display in the MCP inspector.
 ///

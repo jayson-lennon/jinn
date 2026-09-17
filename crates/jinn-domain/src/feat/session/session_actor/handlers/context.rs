@@ -293,9 +293,9 @@ mod tests {
     use crate::common::state::State;
     use crate::feat::context::protocol::event::PersonasLoaded;
     use crate::feat::persona::Persona;
-    use jinn_core_types::tool_types::ToolDefinition;
     use crate::feat::ui::picker_states::PickerExt;
     use crate::protocol::{ChatEntryId, PinPosition, SessionId};
+    use jinn_core_types::tool_types::ToolDefinition;
 
     fn make_persona(name: &str) -> Persona {
         Persona {
@@ -323,7 +323,7 @@ mod tests {
     #[tokio::test]
     async fn on_tools_registered_keeps_regular_tools_in_global_map() {
         // Given a session actor.
-        let (actor, state, _audit) = create_actor().await;
+        let (actor, _state, _audit) = create_actor().await;
 
         // Build a ToolsRegistered with a builtin-shaped tool definition.
         let definitions = vec![ToolDefinition {
@@ -359,7 +359,7 @@ mod tests {
     #[tokio::test]
     async fn on_tools_registered_ignores_attached_tools_for_different_session() {
         // Given a session actor.
-        let (actor, state, _audit) = create_actor().await;
+        let (actor, _state, _audit) = create_actor().await;
         // Build a ToolsRegistered targeting a different session.
         let other_session_id = SessionId::new();
         let payload = ToolsRegistered {
@@ -443,7 +443,7 @@ mod tests {
     async fn on_tools_unregistered_prunes_the_providers_tools_from_the_context_cache() {
         // Given a session actor with two MCP providers' tools cached for one
         // session (stub's echo + other's tool).
-        let (actor, state, _audit) = create_actor().await;
+        let (actor, _state, _audit) = create_actor().await;
         let session_id = SessionId::new();
         for (provider, tool_name) in [
             ("mcp__stub__", "mcp__stub__echo"),
@@ -494,7 +494,7 @@ mod tests {
     #[tokio::test]
     async fn on_tools_unregistered_drops_the_session_map_when_it_empties() {
         // Given a session actor with one provider's tool cached.
-        let (actor, state, _audit) = create_actor().await;
+        let (actor, _state, _audit) = create_actor().await;
         let session_id = SessionId::new();
         actor.on_tools_registered(&ToolsRegistered {
             provider: "mcp__stub__".to_owned(),
@@ -531,7 +531,7 @@ mod tests {
     #[tokio::test]
     async fn on_tools_unregistered_spares_similarly_named_servers() {
         // Given a session actor with tools from "stub" and "stub_extended".
-        let (actor, state, _audit) = create_actor().await;
+        let (actor, _state, _audit) = create_actor().await;
         let session_id = SessionId::new();
         for (provider, tool_name) in [
             ("mcp__stub__", "mcp__stub__echo"),
@@ -579,7 +579,7 @@ mod tests {
     #[tokio::test]
     async fn session_closed_removes_the_sessions_context_tool_cache() {
         // Given a session actor with a session-scoped tool cached.
-        let (actor, state, _audit) = create_actor().await;
+        let (actor, _state, _audit) = create_actor().await;
         let session_id = SessionId::new();
         actor.on_tools_registered(&ToolsRegistered {
             provider: "mcp__stub__".to_owned(),
@@ -613,7 +613,7 @@ mod tests {
     #[tokio::test]
     async fn on_tools_registered_stores_global_tools_unconditionally() {
         // Given a session actor.
-        let (actor, state, _audit) = create_actor().await;
+        let (actor, _state, _audit) = create_actor().await;
         // Given a session actor.
 
         // Build a global ToolsRegistered (session_id: None).
@@ -649,7 +649,7 @@ mod tests {
     #[tokio::test]
     async fn on_personas_loaded_selects_coding_assistant_when_none_active() {
         // Given a session actor with no active persona.
-        let (actor, state, _audit) = create_actor().await;
+        let (actor, _state, _audit) = create_actor().await;
         let personas = vec![
             make_persona("learning-tutor"),
             make_persona("coding-assistant"),
@@ -676,7 +676,7 @@ mod tests {
     #[tokio::test]
     async fn on_personas_loaded_keeps_existing_active_persona() {
         // Given a session actor with active persona "learning-tutor".
-        let (actor, state, _audit) = create_actor().await;
+        let (actor, _state, _audit) = create_actor().await;
         actor
             .services
             .slices
@@ -708,7 +708,7 @@ mod tests {
     #[tokio::test]
     async fn on_personas_loaded_falls_back_when_active_missing() {
         // Given a session actor where active persona "foo" was deleted from disk.
-        let (actor, state, _audit) = create_actor().await;
+        let (actor, _state, _audit) = create_actor().await;
         actor
             .services
             .slices
@@ -738,7 +738,7 @@ mod tests {
     #[tokio::test]
     async fn on_personas_loaded_uses_first_when_coding_assistant_missing() {
         // Given a session actor with no coding-assistant in the scanned list.
-        let (actor, state, _audit) = create_actor().await;
+        let (actor, _state, _audit) = create_actor().await;
         let personas = vec![make_persona("learning-tutor")];
         let payload = PersonasLoaded {
             personas,
@@ -761,7 +761,7 @@ mod tests {
     #[tokio::test]
     async fn on_personas_loaded_clears_active_when_list_empty() {
         // Given a session actor with some active persona.
-        let (actor, state, _audit) = create_actor().await;
+        let (actor, _state, _audit) = create_actor().await;
         actor
             .services
             .slices

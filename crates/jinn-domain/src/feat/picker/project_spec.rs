@@ -280,7 +280,7 @@ mod tests {
     fn ctrl_enter_chains_into_lifecycle_picker_with_entries() {
         // Given a project picker whose highlighted entry is /tmp/project-a.
         let mut state = state_with_projects(&["/tmp/project-a"]);
-        let registry = build_picker_registry();
+        let _registry = build_picker_registry();
 
         // When pressing <c-enter> (new + lifecycle).
         let _result = crate::feat::picker::action::run_action(

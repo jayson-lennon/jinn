@@ -19,6 +19,7 @@ pub mod registry;
 pub mod session_lifecycle_spec;
 pub mod session_spec;
 pub mod skill_spec;
+pub mod task_list_picker_entry;
 pub mod task_list_spec;
 pub mod theme_spec;
 pub mod tool_entry;

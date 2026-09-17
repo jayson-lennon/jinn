@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
 use jinn_core_types::SessionId;
+use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
 
 use jiff::Timestamp;
 

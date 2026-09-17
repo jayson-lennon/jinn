@@ -49,9 +49,7 @@ use crate::feat::provider::protocol::event::{StreamCompleted, StreamCompletedRea
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::protocol::retry_stalled_session::RetryStalledSession;
 use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
-use jinn_tools_msg::{
-    ToolCallReceived, ToolCallStreaming, ToolExecutionCompleted, ToolUseStarted,
-};
+use jinn_tools_msg::{ToolCallReceived, ToolCallStreaming, ToolExecutionCompleted, ToolUseStarted};
 
 /// Wall-clock pulse interval pushed to guests subscribed to `"tick"`.
 ///

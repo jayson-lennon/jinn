@@ -508,7 +508,7 @@ impl TaskList {
                 TaskStatus::Completed => ("\u{2713}", task.description.clone()),
                 TaskStatus::Cancelled => ("\u{2717}", format!("CANCELLED: {}", task.description)),
             };
-            out.push(format!("- [{}] {}", check, desc));
+            out.push(format!("- [{check}] {desc}"));
         }
     }
 

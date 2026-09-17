@@ -14,8 +14,8 @@ use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::protocol::citations_received::CitationsReceived;
 use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
 use crate::feat::session::queue_item::QueueItem;
-use jinn_core_types::tool_types::ToolCall;
 use crate::protocol::{ChatEntry, ChatEntryId, ChatEntryKind, SessionId};
+use jinn_core_types::tool_types::ToolCall;
 
 use super::super::SessionPersistenceActor;
 use crate::feat::session::phase_machine::PhaseKind;

@@ -260,9 +260,8 @@ mod key_event_tests {
         clippy::indexing_slicing,
         reason = "test code"
     )]
-    use super::{encode_input, encode_key, encode_key_event, quiet_deadline, should_settle};
+    use super::{encode_key, encode_key_event};
     use jinn_slices::{Key, KeyEvent, Modifiers};
-    use std::time::Duration;
 
     /// The user-takeover path and the agent path must agree on f-keys —
     /// both wrap [`fkey_bytes`].

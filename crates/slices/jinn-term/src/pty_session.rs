@@ -507,7 +507,6 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use jinn_domain::common::services::bus_service::BusService;
 
     /// Test timeout for child-process waits; keeps a wedged pty from hanging
     /// the suite past tokio's default 10s test timeout.

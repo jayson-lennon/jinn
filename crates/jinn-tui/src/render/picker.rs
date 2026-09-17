@@ -93,7 +93,7 @@ mod tests {
     fn picker_draws_footer_rows_matching_kind_declaration(#[case] kind: PickerKind) {
         // Given a picker scope of this kind with the default (empty) state,
         // and the domain's picker registry.
-        let mut state = AppState::default_with_scope_focus();
+        let state = AppState::default_with_scope_focus();
         state.frontend.scope_push(FocusScope::Picker { kind });
         let pickers = jinn_domain::feat::picker::registry::build_picker_registry();
 
@@ -149,7 +149,7 @@ mod tests {
     #[test]
     fn persona_picker_draws_status_and_keybind_rows_via_spec() {
         // Given a persona picker open, rendered through its spec.
-        let mut state = AppState::default_with_scope_focus();
+        let state = AppState::default_with_scope_focus();
         state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Persona,
         });
@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn theme_picker_draws_status_and_keybind_rows_via_spec() {
         // Given a theme picker open, rendered through its spec.
-        let mut state = AppState::default_with_scope_focus();
+        let state = AppState::default_with_scope_focus();
         state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::Theme,
         });
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn mcp_picker_draws_status_and_keybind_rows_via_spec() {
         // Given an MCP server picker open, rendered through its spec.
-        let mut state = AppState::default_with_scope_focus();
+        let state = AppState::default_with_scope_focus();
         state.frontend.scope_push(FocusScope::Picker {
             kind: PickerKind::McpServer,
         });

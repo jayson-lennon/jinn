@@ -213,7 +213,7 @@ async fn silent_guest_dies_at_handshake() {
     // Given a coordinator with a guest that says nothing.
     let harness = TestHarness::new().await;
     let recorder = harness.spawn_recorder::<PluginStatus>().await;
-    let state = spawn_coordinator(&harness, plugins(), jinn_plugin::FakeGuestScript::Silent).await;
+    let _state = spawn_coordinator(&harness, plugins(), jinn_plugin::FakeGuestScript::Silent).await;
 
     // When the handshake timeout lapses.
     let messages = await_recorded(&recorder, 1, WAIT).await;
@@ -349,7 +349,7 @@ async fn no_plugins_configured_is_quiescent() {
     // Given a coordinator with zero plugin entries and a recorder.
     let harness = TestHarness::new().await;
     let recorder = harness.spawn_recorder::<PluginStatus>().await;
-    let state = spawn_coordinator(
+    let _state = spawn_coordinator(
         &harness,
         std::collections::BTreeMap::new(),
         jinn_plugin::FakeGuestScript::Silent,
@@ -379,9 +379,9 @@ use crate::common::tcaps::mint::mint_session_cap;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::protocol::citations_received::CitationsReceived;
 use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
-use jinn_tools_msg::ToolCallReceived;
-use jinn_core_types::tool_types::ToolCall;
 use crate::protocol::SessionId;
+use jinn_core_types::tool_types::ToolCall;
+use jinn_tools_msg::ToolCallReceived;
 
 /// Seeds one history entry into a session for `final_answer` tests.
 fn seed_entry(state: &State, session_id: &SessionId, is_assistant: bool) {
@@ -747,20 +747,18 @@ async fn truncated_result_forwards_full_content_to_guest() {
     // can never split a UTF-8 boundary.
     let clipped: String = full_json.chars().take(40).collect();
     harness
-        .publish(
-            jinn_tools_msg::ToolExecutionCompleted {
-                session_id: SessionId::new(),
-                result: jinn_core_types::tool_types::ToolResult {
-                    tool_call_id: "call_trunc".to_owned(),
-                    name: "mcp__parallel__web_search".to_owned(),
-                    content: clipped.clone(),
-                    success: true,
-                    full_content: Some(full_json.to_owned()),
-                    truncation: None,
-                    pin_position: None,
-                },
+        .publish(jinn_tools_msg::ToolExecutionCompleted {
+            session_id: SessionId::new(),
+            result: jinn_core_types::tool_types::ToolResult {
+                tool_call_id: "call_trunc".to_owned(),
+                name: "mcp__parallel__web_search".to_owned(),
+                content: clipped.clone(),
+                success: true,
+                full_content: Some(full_json.to_owned()),
+                truncation: None,
+                pin_position: None,
             },
-        )
+        })
         .await;
 
     // Then the guest received the complete JSON, not the clip: the echo

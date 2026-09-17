@@ -243,11 +243,11 @@ mod tests {
     fn empty_pickers() -> jinn_picker::PickerRegistry {
         jinn_picker::PickerRegistry::new()
     }
+    use crate::feat::picker::task_list_picker_entry::RowStatus;
     use crate::feat::session::ChatSessionState;
     use crate::feat::session::model_selection::AlloyStrategy;
-    use jinn_tools_msg::TaskStatus;
-    use crate::feat::todo_list::picker_entry::RowStatus;
     use jinn_selection_widget::TreeItem;
+    use jinn_tools_msg::TaskStatus;
     #[rstest::rstest]
     fn confirm_persona_sets_correct_persona() {
         // If the match were inverted, the wrong persona would be set.

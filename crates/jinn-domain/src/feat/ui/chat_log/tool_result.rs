@@ -24,9 +24,9 @@
 
 use crate::feat::session::tool_result_status::ToolResultStatus;
 use crate::feat::skills::loaded_skill_summary_label;
+use jinn_core_types::tool_types::TruncationMeta;
 use jinn_tools_msg::TASK_TOOL_NAME;
 use jinn_tools_msg::truncation::format_size;
-use jinn_core_types::tool_types::TruncationMeta;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 

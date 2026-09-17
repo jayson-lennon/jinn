@@ -253,17 +253,6 @@ impl ActorSystemBuilder {
         // subscriber) has spawned — the plugin's push-once contract.
         let persona_entries = jinn_persona_activate(&mut services);
 
-        // Tools registry cell: multi-party vocabulary (written by the
-        // tools handlers, read by dispatch snapshots + the TUI) — hosted
-        // in jinn-slices until the tools family migrates and owns it.
-        {
-            let slices = services.slices.clone();
-            let _ = slices.register(
-                jinn_tools_msg::tools_registry_slot(),
-                jinn_tools_msg::ToolRegistry::default(),
-            );
-        }
-
         // Term slice: registers the terminal tab mirrors cell (written
         // by the coordinator actor, read by the TUI overlay + tools),
         // attaches the keybind rows, the capture key hook, and the
@@ -272,6 +261,11 @@ impl ActorSystemBuilder {
         // that set-once static so it can hand the same registry to the
         // coordinator actor spawned below.
         jinn_term::activate(&mut services, &state);
+
+        // Tools slice: activation mints the tools/registry cell (idempotent);
+        // the orchestrator actor is spawned below (it needs the announce
+        // supervisor and explicit ordering vs. the MCP coordinator).
+        jinn_tools::activate(&mut services, &state);
 
         // Quake bar slice: activation mints the cell, spawns the actor
         // (submit-log writer), attaches rows, and registers the input
@@ -461,14 +455,18 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
             .await;
         _session.wait_for_startup().await;
 
-        // Tool orchestrator actor.
+        // Tool orchestrator actor: dispatched batches emit per-call
+        // execution events and a final ToolBatchCompleted. Spawned after
+        // the session actor (consumes SessionClosed) and before the MCP
+        // coordinator (so MCP tool registrations land in a running
+        // orchestrator).
         let _tools = spawn_tracked!(
             &services.bus,
             "tool-orchestrator",
             "ToolOrchestratorActor",
-            jinn_domain::feat::tools_actor::ToolOrchestratorActor::supervise(
+            jinn_tools::ToolOrchestratorActor::supervise(
                 &root,
-                jinn_domain::feat::tools_actor::ToolOrchestratorActorDeps {
+                jinn_tools::ToolOrchestratorActorDeps {
                     deps: actor_deps.clone(),
                     state: state.clone(),
                     services: services.clone(),

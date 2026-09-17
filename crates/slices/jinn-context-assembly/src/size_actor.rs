@@ -189,7 +189,7 @@ mod tests {
 
     async fn test_actor() -> ContextSizeActor {
         let harness = jinn_domain::common::bus::test_harness::TestHarness::new().await;
-        let mut services = jinn_domain::Services::new_fake().await;
+        let services = jinn_domain::Services::new_fake().await;
         {
             // Spawn the service directly: this crate IS the slice under test.
             crate::service::spawn(&services.trouper_system);

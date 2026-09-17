@@ -1187,11 +1187,7 @@ fn yank_text_strips_ansi_escapes() {
 fn task_tool_call_with_child_session_roundtrips_through_serde() {
     // Given a task ToolCall entry linked to a child session.
     let child = SessionId::new();
-    let mut entry = ChatEntry::tool_call(
-        "call_1",
-        jinn_tools_msg::TASK_TOOL_NAME,
-        "{}",
-    );
+    let mut entry = ChatEntry::tool_call("call_1", jinn_tools_msg::TASK_TOOL_NAME, "{}");
     let ChatEntryKind::ToolCall { child_session, .. } = &mut entry.kind else {
         panic!("expected ToolCall kind");
     };
@@ -1239,11 +1235,7 @@ fn tool_call_without_child_session_key_deserializes_to_none() {
 #[rstest::rstest]
 fn tool_call_without_link_omits_child_session_key() {
     // Given a task ToolCall entry with no link.
-    let entry = ChatEntry::tool_call(
-        "call_1",
-        jinn_tools_msg::TASK_TOOL_NAME,
-        "{}",
-    );
+    let entry = ChatEntry::tool_call("call_1", jinn_tools_msg::TASK_TOOL_NAME, "{}");
 
     // When serializing.
     let json = serde_json::to_string(&entry.kind).expect("serialize");

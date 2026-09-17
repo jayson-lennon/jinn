@@ -12,10 +12,10 @@ use crate::sections::sessions::preview::{render_session_preview, session_preview
 use jinn_domain::feat::session::chat_session::ChatSessionState;
 use jinn_domain::feat::session::model_selection::ModelSelection;
 use jinn_domain::feat::theme::default_theme;
-use jinn_tools_msg::{PhaseInput, TaskStatus};
 use jinn_domain::protocol::ChatEntry;
 use jinn_sidebar_msg::SessionPreviewCache;
 use jinn_testutil::{buffer_row, setup_term};
+use jinn_tools_msg::{PhaseInput, TaskStatus};
 use ratatui::layout::Rect;
 
 fn make_session_with_entries(n: usize) -> ChatSessionState {

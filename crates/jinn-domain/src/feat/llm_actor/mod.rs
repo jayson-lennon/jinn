@@ -78,17 +78,15 @@ use crate::feat::provider::protocol::event::{StreamCompleted, StreamCompletedRea
 use crate::feat::provider_infra::LlmServiceFactoryService;
 use crate::feat::provider_infra::StopReason;
 use crate::feat::provider_infra::StreamEvent;
-use jinn_tools_msg::CancelToolBatch;
-use jinn_tools_msg::ExecuteToolBatch;
-use jinn_tools_msg::{
-    ToolCallReceived, ToolCallStreaming, ToolUseStarted,
-};
-use jinn_core_types::tool_types::ToolCall;
 use crate::protocol::{ChatEntry, SessionId};
 use error_stack::Report;
 use futures::StreamExt as _;
 use jiff::Timestamp;
+use jinn_core_types::tool_types::ToolCall;
 use jinn_slices::SystemPrompt;
+use jinn_tools_msg::CancelToolBatch;
+use jinn_tools_msg::ExecuteToolBatch;
+use jinn_tools_msg::{ToolCallReceived, ToolCallStreaming, ToolUseStarted};
 
 use jinn_provider::{
     LlmMessage, LlmService, LlmServiceError, OnRetry, RetryingLlmService, ToolDefinition,

@@ -173,7 +173,7 @@ mod tests {
     use crate::protocol::ChatEntryKind;
 
     fn state_with_skill_picker() -> AppState {
-        let mut state = AppState::default_with_scope_focus();
+        let state = AppState::default_with_scope_focus();
         state.frontend.scope_push(FocusScope::Picker {
             kind: crate::feat::picker::PickerKind::Skill,
         });

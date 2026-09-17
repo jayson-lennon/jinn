@@ -103,19 +103,18 @@ impl AppStateActor {
 
         // Sync active_persona when persona_name changes (persona
         // selection lives in the persona slice's cell).
-        if let Some(ref persona_name) = updated.persona_name {
-            if let Some(cell) = self
+        if let Some(ref persona_name) = updated.persona_name
+            && let Some(cell) = self
                 .deps
                 .services
                 .slices
                 .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-            {
-                let present = cell.read().entries.iter().any(|p| p.name == *persona_name);
-                if present {
-                    cell.update(|selection| {
-                        selection.active = Some(persona_name.clone());
-                    });
-                }
+        {
+            let present = cell.read().entries.iter().any(|p| p.name == *persona_name);
+            if present {
+                cell.update(|selection| {
+                    selection.active = Some(persona_name.clone());
+                });
             }
         }
     }

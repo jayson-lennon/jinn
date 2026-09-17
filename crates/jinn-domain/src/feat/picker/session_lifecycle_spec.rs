@@ -238,7 +238,7 @@ mod tests {
             .iter()
             .map(|(name, description, setup)| SessionLifecycle {
                 name: (*name).to_owned(),
-                description: description.map(|d| d.to_owned()),
+                description: description.map(std::borrow::ToOwned::to_owned),
                 setup: setup.map(|s| LifecycleCommand::Shell(s.to_owned())),
                 teardown: None,
             })

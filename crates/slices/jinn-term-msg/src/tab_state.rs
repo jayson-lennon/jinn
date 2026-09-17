@@ -106,6 +106,12 @@ impl TerminalTabState {
     }
 }
 
+/// The slot key the terminal tab state cell lives under.
+#[must_use]
+pub fn term_tabs_slot() -> SlotKey {
+    SlotKey::builtin("term", "tabs")
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
@@ -209,10 +215,4 @@ mod tests {
         // Then the spawn size is that rect (WYSIWYG).
         assert_eq!(state.spawn_size(), (30, 110));
     }
-}
-
-/// The slot key the terminal tab state cell lives under.
-#[must_use]
-pub fn term_tabs_slot() -> SlotKey {
-    SlotKey::builtin("term", "tabs")
 }

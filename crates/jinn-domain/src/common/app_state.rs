@@ -160,7 +160,9 @@ impl AppState {
     /// dispatch snapshots, the TUI, and picker specs) — the cell lives
     /// in `jinn-slices` per the decomposition policy.
     #[must_use]
-    pub fn tool_registry(&self) -> Option<jinn_slices::cell::TypedCell<jinn_tools_msg::ToolRegistry>> {
+    pub fn tool_registry(
+        &self,
+    ) -> Option<jinn_slices::cell::TypedCell<jinn_tools_msg::ToolRegistry>> {
         match self.frontend.slices() {
             Some(s) => s.reader(&jinn_tools_msg::tools_registry_slot()),
             None => None,

@@ -16,10 +16,10 @@ use ratatui::text::Span;
 use crate::common::app_state::AppState;
 use jinn_selection_widget::TreeItem;
 
-use jinn_tools_msg::TaskStatus;
-use crate::feat::todo_list::picker_entry::TaskListTreeEntry;
-use crate::feat::todo_list::picker_entry::render_task_list_row;
+use crate::feat::picker::task_list_picker_entry::TaskListTreeEntry;
+use crate::feat::picker::task_list_picker_entry::render_task_list_row;
 use crate::feat::ui::picker_states::PickerExt;
+use jinn_tools_msg::TaskStatus;
 
 /// Builds the task-list picker's spec.
 #[must_use]
@@ -54,7 +54,7 @@ pub fn task_list_row(entry: &TaskListTreeEntry, ctx: &RowCtx<'_>) -> Line<'stati
     );
     if !ctx.tree_prefix.is_empty() {
         let mut spans = vec![Span::styled(ctx.tree_prefix.to_owned(), ctx.tree_style)];
-        spans.extend(line.spans.drain(..));
+        spans.append(&mut line.spans);
         line = Line::from(spans);
     }
     line
@@ -166,13 +166,13 @@ mod tests {
         let roots: Vec<&str> = entries
             .iter()
             .filter(|item| item.parent_id().is_none())
-            .map(|item| item.display_label())
+            .map(jinn_selection_widget::TreeItem::display_label)
             .collect();
         assert_eq!(roots.len(), 2, "two phase roots");
         let child_labels: Vec<&str> = entries
             .iter()
             .filter(|item| item.parent_id().is_some())
-            .map(|item| item.display_label())
+            .map(jinn_selection_widget::TreeItem::display_label)
             .collect();
         assert_eq!(
             child_labels,

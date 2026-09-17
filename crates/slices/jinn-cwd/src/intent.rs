@@ -302,7 +302,7 @@ mod tests {
                     .expect("name")
                     .to_string_lossy()
                     .to_string(),
-            )
+            );
         });
         let mut cx = ctx(&mut state, &slices);
 
@@ -355,8 +355,8 @@ mod tests {
     #[rstest::rstest]
     fn leave_clears_the_cell() {
         // Given a popup with typed text.
-        let state = FakeState::default();
-        let (slices, cell) = cell();
+        let _state = FakeState::default();
+        let (_slices, cell) = cell();
         cell.update(|s| s.text.set("/some/path".to_owned()));
 
         // When leaving.
@@ -370,7 +370,7 @@ mod tests {
     fn rows_bind_open_confirm_and_leave() {
         // Given a route table with the cwd rows attached.
         let routes = KeyRoutes::new();
-        let (slices, cell) = cell();
+        let (_slices, cell) = cell();
         attach_cwd_rows(&routes, &cell);
 
         // When enumerating the rows.
@@ -401,7 +401,7 @@ mod tests {
     fn input_hook_edits_the_cell_and_ignores_non_edit_intents() {
         // Given a route table with the input hook registered.
         let routes = KeyRoutes::new();
-        let (slices, cell) = cell();
+        let (_slices, cell) = cell();
         register_cwd_input_hook(&routes, &cell);
         let hook = routes
             .input_hook(&cwd_scope())

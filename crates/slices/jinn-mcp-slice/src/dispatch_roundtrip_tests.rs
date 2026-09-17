@@ -24,15 +24,15 @@ use jinn_mcp::server_testkit::{spawn_stub_client, spawn_stub_client_with_killer}
 use kameo::actor::Spawn;
 
 use crate::connection::{McpActor, McpActorDeps};
+use jinn_core_types::tool_types::ToolCall;
 use jinn_domain::common::actor_deps::ActorDeps;
 use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
 use jinn_domain::feat::mcp::McpServerConfig;
+use jinn_domain::protocol::SessionId;
+use jinn_mcp_msg::{McpConnectionStatus, McpServerStatus};
 use jinn_tools_msg::ExecuteTool;
 use jinn_tools_msg::ToolExecutionCompleted;
 use jinn_tools_msg::ToolsUnregistered;
-use jinn_core_types::tool_types::ToolCall;
-use jinn_domain::protocol::SessionId;
-use jinn_mcp_msg::{McpConnectionStatus, McpServerStatus};
 
 /// The server name injected into the actor — becomes the tool namespace segment
 /// (`mcp__stub__echo`) and the strip-namespace key the actor matches on.

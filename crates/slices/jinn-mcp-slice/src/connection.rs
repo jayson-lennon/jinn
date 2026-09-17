@@ -33,16 +33,14 @@ use kameo::prelude::{Context, Message};
 use parking_lot::Mutex;
 
 use error_stack::{Report, ResultExt as _};
+use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
 use jinn_domain::common::actor_deps::{ActorDeps, BusPublish};
 use jinn_domain::feat::mcp::{McpServerConfig, TransportKind};
-use jinn_tools_msg::{ExecuteTool, RegisterTools};
-use jinn_tools_msg::{ToolExecutionCompleted, ToolsUnregistered};
-use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
-use jinn_tools_msg::truncation::{
-    DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_tail,
-};
 use jinn_domain::protocol::SessionId;
 use jinn_mcp_msg::{McpConnectionStatus, McpServerLog, McpServerStatus};
+use jinn_tools_msg::truncation::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_tail};
+use jinn_tools_msg::{ExecuteTool, RegisterTools};
+use jinn_tools_msg::{ToolExecutionCompleted, ToolsUnregistered};
 
 use jinn_domain::Services;
 

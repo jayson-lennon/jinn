@@ -10,8 +10,8 @@ use crate::feat::context::strategy::token_estimator::{
     CharRatioEstimator, TiktokenCounter, TokenCounter, TokenEstimator, estimate_entry_tokens,
     estimate_tool_schema_tokens,
 };
-use jinn_core_types::tool_types::ToolDefinition;
 use crate::protocol::{ChatEntry, PinPosition};
+use jinn_core_types::tool_types::ToolDefinition;
 
 #[rstest::rstest]
 fn char_ratio_returns_nonzero_for_empty_string() {

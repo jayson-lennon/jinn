@@ -76,7 +76,7 @@ mod tests {
         }
     }
 
-    fn row_ctx<'a>(ranges: &'a [std::ops::Range<usize>], is_selected: bool) -> RowCtx<'a> {
+    fn row_ctx(ranges: &[std::ops::Range<usize>], is_selected: bool) -> RowCtx<'_> {
         RowCtx::flat(is_selected, ranges)
     }
 

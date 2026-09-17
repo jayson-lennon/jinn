@@ -593,7 +593,7 @@ async fn model_picker_uses_dark_gray_border() {
     // Given a provider picker open with entries loaded.
     let mut app = render_test_app_with_provider().await;
     {
-        let mut w = app.core.state.write_test_no_cap();
+        let w = app.core.state.write_test_no_cap();
         w.frontend.scope_push(jinn_domain::FocusScope::Picker {
             kind: jinn_domain::PickerKind::Provider,
         });

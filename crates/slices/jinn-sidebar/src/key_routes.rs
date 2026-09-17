@@ -149,7 +149,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
             "<esc>",
             "general",
             "return to chat",
-            sync(|state| sidebar_intent::handle_sidebar_leave(state)),
+            sync(sidebar_intent::handle_sidebar_leave),
         ));
         routes.attach(row(
             "leave-chat",
@@ -157,7 +157,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
             "<c-h>",
             "navigation",
             "return to chat",
-            sync(|state| sidebar_intent::handle_sidebar_leave(state)),
+            sync(sidebar_intent::handle_sidebar_leave),
         ));
         routes.attach(RouteRow {
             route_id: RouteId::new("sidebar:quit"),
@@ -220,7 +220,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "u",
         "general",
         "unpin entry",
-        sync(|state| pins::handle_pins_unpin(state)),
+        sync(pins::handle_pins_unpin),
     ));
     routes.attach(row(
         "pin-top",
@@ -252,7 +252,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "m",
         "general",
         "cycle pin position",
-        sync(|state| pins::handle_pins_pin_cycle(state)),
+        sync(pins::handle_pins_pin_cycle),
     ));
     routes.attach(row(
         "leave-enter",
@@ -260,7 +260,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "<enter>",
         "general",
         "return to chat",
-        sync(|state| sidebar_intent::handle_sidebar_leave(state)),
+        sync(sidebar_intent::handle_sidebar_leave),
     ));
 
     // ---- Sessions section ----
@@ -270,7 +270,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "x",
         "general",
         "close session",
-        sync(|state| sessions::handle_session_close_arm(state)),
+        sync(sessions::handle_session_close_arm),
     ));
     routes.attach(row(
         "session-teardown-tree",
@@ -291,7 +291,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "t",
         "general",
         "run teardown",
-        sync(|state| sessions::handle_session_teardown(state)),
+        sync(sessions::handle_session_teardown),
     ));
     routes.attach(row(
         "session-confirm",
@@ -299,7 +299,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "<enter>",
         "general",
         "activate session",
-        sync(|state| sessions::handle_session_activate(state)),
+        sync(sessions::handle_session_activate),
     ));
     routes.attach(row(
         "session-new",
@@ -324,7 +324,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "general",
         "rename session",
         // The enter handler pushes the popup's dynamic scope itself.
-        sync(|state| rename::handle_rename_session_enter(state)),
+        sync(rename::handle_rename_session_enter),
     ));
 
     routes.attach(row(
@@ -333,7 +333,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "<enter>",
         "input",
         "rename the session",
-        sync(|state| rename::handle_rename_session_confirm(state)),
+        sync(rename::handle_rename_session_confirm),
     ));
     routes.attach(row(
         "rename-leave",
@@ -341,7 +341,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "<esc>",
         "general",
         "cancel rename",
-        sync(|state| rename::handle_rename_session_leave(state)),
+        sync(rename::handle_rename_session_leave),
     ));
     routes.attach(row(
         "session-archive",
@@ -349,7 +349,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "a",
         "general",
         "archive session",
-        sync(|state| sessions::handle_session_archive(state)),
+        sync(sessions::handle_session_archive),
     ));
     routes.attach(row(
         "session-archive-tree",
@@ -367,7 +367,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "c",
         "general",
         "continue session",
-        sync(|state| sessions::handle_session_continue(state)),
+        sync(sessions::handle_session_continue),
     ));
     routes.attach(row(
         "session-rerun-setup",
@@ -401,7 +401,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "i",
         "general",
         "activate + insert",
-        sync(|state| sessions::handle_session_activate_insert(state)),
+        sync(sessions::handle_session_activate_insert),
     ));
 
     // ---- Task list section ----
@@ -426,7 +426,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "<pgup>",
         "navigation",
         "preview up",
-        sync(|state| task_list::handle_preview_scroll_up(state)),
+        sync(task_list::handle_preview_scroll_up),
     ));
     routes.attach(row(
         "task-preview-down",
@@ -434,7 +434,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "<pgdn>",
         "navigation",
         "preview down",
-        sync(|state| task_list::handle_preview_scroll_down(state)),
+        sync(task_list::handle_preview_scroll_down),
     ));
 
     // ---- Resize mode ----
@@ -444,7 +444,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "h",
         "general",
         "widen sidebar",
-        sync(|state| resize::handle_resize_expand(state)),
+        sync(resize::handle_resize_expand),
     ));
     routes.attach(row(
         "resize-contract",
@@ -452,7 +452,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "l",
         "general",
         "narrow sidebar",
-        sync(|state| resize::handle_resize_contract(state)),
+        sync(resize::handle_resize_contract),
     ));
     routes.attach(row(
         "resize-leave",

@@ -2,8 +2,8 @@
 //! context-assembly slice.
 
 use jinn_core_types::SessionId;
-use jinn_provider::LlmMessage;
 use jinn_core_types::ToolDefinition;
+use jinn_provider::LlmMessage;
 
 /// The assembled system prompt for one LLM request.
 ///

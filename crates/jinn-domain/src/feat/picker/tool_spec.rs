@@ -238,7 +238,9 @@ mod tests {
 
     /// State with an active session and the given tool definitions
     /// registered in the context.
-    fn state_with_tools(defs: &[(&str, &str, Option<jinn_core_types::ServerToolType>)]) -> AppState {
+    fn state_with_tools(
+        defs: &[(&str, &str, Option<jinn_core_types::ServerToolType>)],
+    ) -> AppState {
         let mut state = AppState::default_with_scope_focus();
         let origin = crate::feat::session::chat_session::ChatSessionState::new();
         state.session.insert(origin);
@@ -529,15 +531,15 @@ mod tests {
             .active_session_mut()
             .profile_mut()
             .disabled_tools
-            .insert(crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned());
+            .insert(jinn_tools_msg::TASK_TOOL_NAME.to_owned());
         let registry = state
             .tool_registry()
             .expect("tools registry seeded by default_with_scope_focus");
         registry.update(|r| {
             r.global.insert(
-                crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned(),
+                jinn_tools_msg::TASK_TOOL_NAME.to_owned(),
                 jinn_core_types::ToolDefinition {
-                    name: crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned(),
+                    name: jinn_tools_msg::TASK_TOOL_NAME.to_owned(),
                     description: "Delegate a sub-task to a subagent".to_owned(),
                     parameters: serde_json::json!({}),
                     prompt_snippet: None,
@@ -557,7 +559,7 @@ mod tests {
                 .tool_picker()
                 .items()
                 .iter()
-                .find(|item| item.entry().name == crate::feat::tools_actor::task::TASK_TOOL_NAME)
+                .find(|item| item.entry().name == jinn_tools_msg::TASK_TOOL_NAME)
                 .is_some_and(|item| !item.entry().enabled)
         );
     }

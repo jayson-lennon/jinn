@@ -64,10 +64,10 @@ pub fn scan(themes_dir: &Path, system_themes_dir: &Path) -> ThemeEntries {
         name: "default".to_owned(),
         theme: jinn_theme::default_theme(),
     }];
-    if let Some(default) = defs.remove("default") {
-        if let Some(pinned) = entries.first_mut() {
-            pinned.theme = default;
-        }
+    if let Some(default) = defs.remove("default")
+        && let Some(pinned) = entries.first_mut()
+    {
+        pinned.theme = default;
     }
     entries.extend(
         defs.into_iter()

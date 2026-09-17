@@ -1163,7 +1163,7 @@ binary = "auto"
 
         // When loading, mutating keep_last, and saving.
         let mut prefs = load_preferences_from(&path).expect("load");
-        if let Some(rule) = prefs.auto_prune.regex.rules.iter_mut().next() {
+        if let Some(rule) = prefs.auto_prune.regex.rules.first_mut() {
             rule.keep_last = 99;
         }
         save_preferences_to(&prefs, &path).expect("save");

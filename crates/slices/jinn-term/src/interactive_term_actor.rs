@@ -616,6 +616,26 @@ impl Message<jinn_domain::feat::session::protocol::session_closed::SessionClosed
     }
 }
 
+impl InteractiveTermActor {
+    /// Updates the `term/tabs` cell (the slice-owned terminal mirrors).
+    fn with_tabs<R>(&self, f: impl FnOnce(&mut jinn_term_msg::TerminalTabState) -> R) -> R {
+        let slices = self
+            .state
+            .read()
+            .frontend
+            .slices()
+            .cloned()
+            .expect("term cell missing: slices not attached");
+        let cell = slices
+            .reader::<jinn_term_msg::TerminalTabState>(&jinn_term_msg::term_tabs_slot())
+            .expect("term/tabs cell missing: slice not registered");
+        let mut tabs = cell.read().clone();
+        let out = f(&mut tabs);
+        cell.update(|t| *t = tabs.clone());
+        out
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -2052,25 +2072,5 @@ mod tests {
         // Then the fresh terminal is agent-controlled — a new terminal never
         // inherits the replaced one's takeover.
         assert_eq!(controls.holder_for(&chat_a), ControlHolder::Agent);
-    }
-}
-
-impl InteractiveTermActor {
-    /// Updates the `term/tabs` cell (the slice-owned terminal mirrors).
-    fn with_tabs<R>(&self, f: impl FnOnce(&mut jinn_term_msg::TerminalTabState) -> R) -> R {
-        let slices = self
-            .state
-            .read()
-            .frontend
-            .slices()
-            .cloned()
-            .expect("term cell missing: slices not attached");
-        let cell = slices
-            .reader::<jinn_term_msg::TerminalTabState>(&jinn_term_msg::term_tabs_slot())
-            .expect("term/tabs cell missing: slice not registered");
-        let mut tabs = cell.read().clone();
-        let out = f(&mut tabs);
-        cell.update(|t| *t = tabs.clone());
-        out
     }
 }

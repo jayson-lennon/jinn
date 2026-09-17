@@ -1578,8 +1578,8 @@ mod tests {
         // Given a state with two sessions, the overlay open over the first.
         use crate::feat::session::chat_entry::ChatEntryKind;
         use crate::feat::session::chat_session::ChatSessionState;
-        use jinn_tools_msg::TASK_TOOL_NAME;
         use crate::protocol::SessionId;
+        use jinn_tools_msg::TASK_TOOL_NAME;
         let mut state = AppState::default_with_scope_focus();
         let slices = status_bar_slices();
         let first_id = state.session.active_session_id().clone();
@@ -1645,8 +1645,8 @@ mod tests {
         use crate::feat::interactive_term::protocol::command::ControlHolder;
         use crate::feat::session::chat_entry::ChatEntryKind;
         use crate::feat::session::chat_session::ChatSessionState;
-        use jinn_tools_msg::TASK_TOOL_NAME;
         use crate::protocol::SessionId;
+        use jinn_tools_msg::TASK_TOOL_NAME;
         let mut state = AppState::default_with_scope_focus();
         let first_id = state.session.active_session_id().clone();
         let child_id = SessionId::new();

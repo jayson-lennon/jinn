@@ -200,7 +200,7 @@ Entries are added or amended **only with human approval**.
 - (tokens) The status-bar cache-hit percentage is color-banded on its displayed value: >=95% uses theme.success, 90-94% uses theme.warning, below 90% uses theme.error_text.
 - (tokens) The session-tree aggregate applies the same cache-hit color bands, shown only when more than one session exists.
 - (tools) After a successful edit, a numbered snippet of the changed region is returned so the agent can chain edits without re-reading.
-- (tools) File edits, reads, and other built-in tool calls all funnel through a single `tools_actor` chokepoint.
+- (tools) File edits, reads, and other built-in tool calls all funnel through the jinn-tools orchestrator chokepoint.
 - (tools) The `bash` tool accepts an optional `max_duration_secs` argument that overrides the default timeout; the schema exposes `max_duration_secs`, not a raw `timeout`.
 - (tools) The `bash` tool has a streaming output threshold that truncates accumulated output to prevent unbounded memory growth between timer ticks.
 - (tools) The `bash` tool runs commands through `bash` (not `sh`, `fish`, or `dash`).
@@ -376,7 +376,9 @@ Entries are added or amended **only with human approval**.
 - (slices) Cell slot keys are declared beside their payload types in the family's msg crate and registered by the owning slice at activation; the registry resolves them at runtime by name, namespace, and version.
 - (slices) The context-assembly slice is a crate hosting a stateless trouper service at the context-assembly path; callers pass an AssemblyInputs snapshot and receive the assembled prompt as the reply.
 - (slices) Context assembly never reads AppState; the kernel's queue and session-enqueue dispatch paths build the inputs snapshot from their own state guards before asking the service.
-- (slices) Persona selection persists in the persona slice's cell as the active persona name plus the scanned entries; the tools registry persists in a shared cell until the tools family migrates.
+- (slices) The tools registry cell is owned by the jinn-tools slice, which mints it at activation; kernel dispatch snapshots, the session actor, and the TUI read it.
 - (slices) The term slice is a crate owning the PTY actor family, the per-session terminal tab state cell, and the terminal control registry; the tools ask it through a TermHandle trait and the TUI renders the terminal overlay from jinn-term-msg types.
 - (term) The terminal control toggle is a per-session ownership flip between the user and the agent, resolved through the control registry the term slice mints at spawn.
 - (term) The previous session's terminal control holder is released when the active session changes while the overlay is open.
+- (tools) The jinn-tools slice owns the tool orchestrator, the built-in and todo tools, the task subagent machinery, and the tool protocol contracts in jinn-tools-msg; tool nouns (ToolDefinition/ToolCall/ToolResult) live in jinn-core-types.
+- (slices) Kernel feature extraction follows the absorb model: each slice family absorbs its feat/ modules, leaving jinn-domain as shared multi-slice vocabulary.

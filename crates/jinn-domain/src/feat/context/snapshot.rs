@@ -90,13 +90,13 @@ mod composition_ask_tests {
     use super::*;
     use crate::common::app_state::AppState;
     use crate::common::state::State;
-    use crate::feat::context::protocol::inputs::AssembleContext;
+
     use crate::protocol::ChatEntry;
 
     #[rstest::rstest]
     #[tokio::test]
     async fn minimal_ask_reproduces_resolution() {
-        let mut services = crate::Services::new_fake().await;
+        let services = crate::Services::new_fake().await;
         // Composition parity: production wiring spawns this exact service
         // at boot; kernel dispatch tests rely on it for the ask path.
         jinn_context_assembly::service::spawn(&services.trouper_system);

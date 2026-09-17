@@ -171,8 +171,7 @@ pub fn sorted_open_sessions_split(
                 .and_then(|s| {
                     s.reader::<jinn_term_msg::TerminalTabState>(&jinn_term_msg::term_tabs_slot())
                 })
-                .map(|cell| cell.read().live_terms.contains(id))
-                .unwrap_or(false),
+                .is_some_and(|cell| cell.read().live_terms.contains(id)),
         })
         .collect();
 

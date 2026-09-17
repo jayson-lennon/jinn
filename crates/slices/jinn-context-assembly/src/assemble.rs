@@ -11,6 +11,7 @@
 
 use std::collections::BTreeMap;
 
+use jinn_core_types::ToolDefinition;
 use jinn_domain::feat::context::env_context::{
     context_files_section, cwd_section, date_section, persona_section,
 };
@@ -18,10 +19,7 @@ use jinn_domain::feat::context::protocol::inputs::AssemblyInputs;
 use jinn_domain::feat::context::strategy::token_estimator::TokenCounter;
 use jinn_domain::feat::context::tool_prompt::build_tool_context_block;
 use jinn_domain::feat::skills::format::format_skills_for_prompt;
-use jinn_core_types::ToolDefinition;
-use jinn_domain::protocol::{
-    ChatEntry, LlmMessage, PinPosition, entries_to_messages,
-};
+use jinn_domain::protocol::{ChatEntry, LlmMessage, PinPosition, entries_to_messages};
 use jinn_slices::AssembledPrompt;
 use jinn_slices::SystemPrompt;
 
@@ -120,7 +118,7 @@ pub fn assemble(inputs: &AssemblyInputs, counter: &dyn TokenCounter) -> Assemble
             system_parts.push(skills_block);
         }
         system_parts.push(date_section());
-        system_parts.push(cwd_section(&cwd));
+        system_parts.push(cwd_section(cwd));
         SystemPrompt::new(system_parts.join("\n\n"))
     };
 
@@ -234,6 +232,8 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
+    use jinn_core_types::ServerToolType;
+    use jinn_core_types::tool_types::ToolDefinition;
     use jinn_domain::common::app_state::AppState;
     use jinn_domain::common::state::State;
     use jinn_domain::feat::context::env_context::ContextFile;
@@ -241,10 +241,8 @@ mod tests {
     use jinn_domain::feat::session::model_selection::ModelSelection;
     use jinn_domain::feat::session::tool_result_status::ToolResultStatus;
     use jinn_domain::feat::skills::Skill;
-    use jinn_tools_msg::TASK_TOOL_NAME;
-    use jinn_core_types::tool_types::ToolDefinition;
     use jinn_domain::protocol::{ChatEntry, SessionId};
-    use jinn_core_types::ServerToolType;
+    use jinn_tools_msg::TASK_TOOL_NAME;
 
     /// Test bridge: build inputs from an AppState the way production
     /// callers do (via the kernel snapshot builder) and run the pure
@@ -1163,12 +1161,12 @@ mod tests {
                     .persona_selection()
                     .expect("persona cell attached")
             };
-            let _ = cell.update(|p| {
+            let () = cell.update(|p| {
                 p.entries.push(jinn_persona_msg::Persona {
                     name: "custom".to_owned(),
                     description: "Custom persona".to_owned(),
                     body: "You are a custom persona.".to_owned(),
-                })
+                });
             });
             let mut guard = state.write_test_no_cap();
             guard
@@ -1202,12 +1200,12 @@ mod tests {
                     .persona_selection()
                     .expect("persona cell attached")
             };
-            let _ = cell.update(|p| {
+            let () = cell.update(|p| {
                 p.entries.push(jinn_persona_msg::Persona {
                     name: "coding-assistant".to_owned(),
                     description: "Default".to_owned(),
                     body: "You are a coding assistant.".to_owned(),
-                })
+                });
             });
             let mut guard = state.write_test_no_cap();
             guard
@@ -1296,12 +1294,12 @@ mod tests {
                     .persona_selection()
                     .expect("persona cell attached")
             };
-            let _ = cell.update(|p| {
+            let () = cell.update(|p| {
                 p.entries.push(jinn_persona_msg::Persona {
                     name: "custom".to_owned(),
                     description: "Custom persona".to_owned(),
                     body: "ORDER-MARK-PERSONA".to_owned(),
-                })
+                });
             });
             let mut guard = state.write_test_no_cap();
             guard

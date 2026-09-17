@@ -1316,7 +1316,7 @@ mod tests {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../res/skills/jinn-usage");
         let mut disk_files: Vec<String> = Vec::new();
         if dir.join("SKILL.md").is_file() {
-            disk_files.push("jinn-usage/SKILL.md".to_string());
+            disk_files.push("jinn-usage/SKILL.md".to_owned());
         }
         let refs = dir.join("references");
         if refs.is_dir() {

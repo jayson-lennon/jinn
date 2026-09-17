@@ -71,7 +71,7 @@ pub(crate) async fn test_actor_recording() -> (
     use crate::feat::context::strategy::token_estimator::TiktokenCounter;
 
     let (bus, audit) = crate::common::services::BusService::new_recording();
-    let mut services = crate::common::services::Services::new_fake_with_bus(bus).await;
+    let services = crate::common::services::Services::new_fake_with_bus(bus).await;
     // Dispatch paths assemble through the trouper context-assembly
     // service; spawn it so session-actor tests exercise the real ask.
     let _ = jinn_context_assembly::service::ensure_spawned(&services.trouper_system);

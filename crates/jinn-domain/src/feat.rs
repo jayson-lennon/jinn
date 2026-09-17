@@ -35,6 +35,5 @@ pub mod session_lifecycle;
 pub mod session_search;
 pub mod skills;
 pub mod theme;
-pub mod todo_list;
-pub mod tools_actor;
+
 pub mod ui;

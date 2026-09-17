@@ -24,6 +24,7 @@ parking_lot = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
+jinn-tools = { workspace = true }
 rstest = { workspace = true }
 ctor = "0.8"
 rustls = { workspace = true }

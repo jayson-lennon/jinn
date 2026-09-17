@@ -12,9 +12,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::llm_message::LlmMessage;
-use jinn_core_types::tool_types::ToolCall;
 use error_stack::Report;
 use futures::stream;
+use jinn_core_types::tool_types::ToolCall;
 
 use crate::service::{ChatStream, LlmService, LlmServiceError, LlmServiceFactory, ToolStream};
 use crate::stream_event::StopReason;

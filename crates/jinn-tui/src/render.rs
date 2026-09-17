@@ -113,14 +113,11 @@ fn apply_pre_render_mutation(app: &mut TuiApp, area: Rect) {
     ) {
         let inner = jinn_term_msg::geometry::terminal_overlay_inner_rect(area);
         let (rows, cols) = (inner.height, inner.width);
-        let layout_changed = wstate
-            .term_tabs()
-            .map(|cell| {
-                let mut changed = false;
-                cell.update(|t| changed = t.record_layout_size(rows, cols));
-                changed
-            })
-            .unwrap_or(false);
+        let layout_changed = wstate.term_tabs().is_some_and(|cell| {
+            let mut changed = false;
+            cell.update(|t| changed = t.record_layout_size(rows, cols));
+            changed
+        });
         if layout_changed {
             let closure = jinn_domain::common::bridge::Bridge::publish_closure(
                 jinn_term_msg::command::ResizeTerm {

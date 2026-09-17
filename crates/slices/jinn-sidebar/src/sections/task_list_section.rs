@@ -14,8 +14,8 @@ use crate::sections::section_trait::{
 use jinn_domain::common::app_state::AppState;
 use jinn_domain::common::render_ctx::RenderCtx;
 use jinn_domain::feat::theme::Theme;
-use jinn_tools_msg::{Phase, PhaseId, TaskList};
 use jinn_domain::protocol::IntentResult;
+use jinn_tools_msg::{Phase, PhaseId, TaskList};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};

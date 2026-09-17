@@ -197,7 +197,7 @@ mod tests {
     /// partial tool call slot free, and an in-flight stream generation
     /// registered — the exact shape a stalled stream presents.
     async fn stall_setup() -> (SessionPersistenceActor, BusAudit, RetryStalledSession) {
-        let (mut actor, audit) = test_actor_recording().await;
+        let (actor, audit) = test_actor_recording().await;
         // The retry path assembles through the trouper service; spawn it
         // on this actor's system (production wiring does this at boot).
         let _ = jinn_context_assembly::service::ensure_spawned(&actor.services.trouper_system);

@@ -8,8 +8,8 @@
 
 use crate::common::app_state::AppState;
 use crate::feat::session::chat_entry::ChatEntryKind;
-use jinn_tools_msg::TASK_TOOL_NAME;
 use crate::protocol::{IntentResult, SessionId};
+use jinn_tools_msg::TASK_TOOL_NAME;
 use wherror::Error;
 
 /// Why a selected entry cannot be opened as a subagent session.

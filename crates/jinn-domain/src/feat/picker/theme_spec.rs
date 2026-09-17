@@ -204,7 +204,7 @@ mod tests {
     use jinn_selection_widget::PreviewCache as _;
 
     fn state_with_themes(contributed: &[(&str, crate::feat::theme::Theme)]) -> AppState {
-        let mut state = AppState::default_with_scope_focus();
+        let state = AppState::default_with_scope_focus();
         // Seed the theme slice's entries cell directly, in the canonical
         // order the activation scan produces: "default" first, the rest
         // case-insensitively sorted.

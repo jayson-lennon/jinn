@@ -1,0 +1,34 @@
+[package]
+name = "jinn-tools"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+jinn-core-types = { workspace = true }
+jinn-tools-msg = { workspace = true }
+jinn-common = { workspace = true }
+jinn-mcp-msg = { workspace = true }
+jinn-term-msg = { workspace = true }
+jiff = { workspace = true }
+kameo = { workspace = true }
+regex = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+error-stack = { workspace = true }
+wherror = { workspace = true }
+unicode-segmentation = { workspace = true }
+# Kernel dep (justified): the orchestrator builds `ToolContext`, whose state/
+# caps/prefs reads (skills discovery, task model selection, term spawn size,
+# project command-policy resolution) are kernel type reads — the discord
+# precedent for a slice consuming kernel vocabulary at execution time.
+jinn-domain = { workspace = true, features = ["test-harness"] }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+tempfile = { workspace = true }
+rstest = { workspace = true }

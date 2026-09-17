@@ -23,6 +23,7 @@
 use std::path::PathBuf;
 
 use crate::coordinator::{McpCoordinatorActor, McpCoordinatorActorDeps};
+use jinn_core_types::tool_types::ToolCall;
 use jinn_domain::common::actor_deps::ActorDeps;
 use jinn_domain::common::app_paths::AppPaths;
 use jinn_domain::common::app_state::AppState;
@@ -31,11 +32,10 @@ use jinn_domain::common::root_supervisor::RootSupervisor;
 use jinn_domain::common::state::State;
 use jinn_domain::feat::mcp::McpServerConfig;
 use jinn_domain::feat::preferences_actor::UserPreferences;
-use jinn_domain::feat::tools_actor::restart_mcp::execute;
-use jinn_domain::feat::tools_actor::tool_types::ToolContext;
-use jinn_core_types::tool_types::ToolCall;
 use jinn_domain::protocol::SessionId;
 use jinn_mcp_msg::{RestartError, RestartMcpServer};
+use jinn_tools::restart_mcp::execute;
+use jinn_tools::tool_types::ToolContext;
 use kameo::actor::Spawn;
 
 /// A configured MCP server whose command will never spawn successfully, so the
@@ -111,8 +111,7 @@ fn ctx_with_coordinator(
 
     ToolContext {
         cwd: PathBuf::from("/tmp"),
-        command_policy:
-            jinn_tools_msg::CompiledCommandPolicy::default(),
+        command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
         timeout: None,
         state: Some(state),
         session_id: Some(session_id),
@@ -205,8 +204,7 @@ async fn execute_fails_when_coordinator_ref_is_none() {
     let session_id = SessionId::new();
     let ctx = ToolContext {
         cwd: PathBuf::from("/tmp"),
-        command_policy:
-            jinn_tools_msg::CompiledCommandPolicy::default(),
+        command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
         timeout: None,
         state: Some(State::new(AppState::default())),
         session_id: Some(session_id),

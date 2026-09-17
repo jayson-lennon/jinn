@@ -96,6 +96,33 @@ pub fn project_entries(
     entries
 }
 
+impl jinn_selection_widget::TreeItem for ProjectEntry {
+    fn id(&self) -> &str {
+        // Paths are unique in `projects`; lossy is fine — this is identity only.
+        &self.id_string
+    }
+
+    fn parent_id(&self) -> Option<&str> {
+        None
+    }
+
+    fn display_label(&self) -> &str {
+        &self.display
+    }
+
+    fn render_row(&self, is_selected: bool) -> Line<'static> {
+        PickerItem::render_row(self, is_selected)
+    }
+
+    fn render_row_with_highlight(
+        &self,
+        is_selected: bool,
+        match_indices: &[std::ops::Range<usize>],
+    ) -> Line<'static> {
+        PickerItem::render_row_with_highlight(self, is_selected, match_indices)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -172,32 +199,5 @@ mod tests {
 
         // Then the result is empty.
         assert!(entries.is_empty());
-    }
-}
-
-impl jinn_selection_widget::TreeItem for ProjectEntry {
-    fn id(&self) -> &str {
-        // Paths are unique in `projects`; lossy is fine — this is identity only.
-        &self.id_string
-    }
-
-    fn parent_id(&self) -> Option<&str> {
-        None
-    }
-
-    fn display_label(&self) -> &str {
-        &self.display
-    }
-
-    fn render_row(&self, is_selected: bool) -> Line<'static> {
-        PickerItem::render_row(self, is_selected)
-    }
-
-    fn render_row_with_highlight(
-        &self,
-        is_selected: bool,
-        match_indices: &[std::ops::Range<usize>],
-    ) -> Line<'static> {
-        PickerItem::render_row_with_highlight(self, is_selected, match_indices)
     }
 }

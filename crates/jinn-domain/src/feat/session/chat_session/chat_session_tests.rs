@@ -2154,16 +2154,8 @@ fn append_tool_result_output_appends_to_pending_entry() {
     session.begin_tool_result("call_1", "bash", jiff::Timestamp::now());
 
     // When appending output.
-    session.append_tool_result_output(
-        "call_1",
-        "line 1\n",
-        jinn_tools_msg::ToolOutputKind::Normal,
-    );
-    session.append_tool_result_output(
-        "call_1",
-        "line 2\n",
-        jinn_tools_msg::ToolOutputKind::Normal,
-    );
+    session.append_tool_result_output("call_1", "line 1\n", jinn_tools_msg::ToolOutputKind::Normal);
+    session.append_tool_result_output("call_1", "line 2\n", jinn_tools_msg::ToolOutputKind::Normal);
 
     // Then the entry content has both outputs.
     match &session.history()[0].kind {
@@ -2194,11 +2186,7 @@ fn append_tool_result_output_bumps_history_activity_timestamp() {
     // When appending streaming output.
     let before = session.core.last_history_activity_at;
     std::thread::sleep(std::time::Duration::from_millis(10));
-    session.append_tool_result_output(
-        "call_1",
-        "tick",
-        jinn_tools_msg::ToolOutputKind::Normal,
-    );
+    session.append_tool_result_output("call_1", "tick", jinn_tools_msg::ToolOutputKind::Normal);
 
     // Then the activity timestamp advanced past its pre-append value.
     assert!(session.core.last_history_activity_at > before);
@@ -2212,11 +2200,7 @@ fn append_tool_result_output_ignores_unknown_call_id() {
 
     // When appending output for an unknown call ID.
     // Then it does not panic (defensive).
-    session.append_tool_result_output(
-        "unknown",
-        "output",
-        jinn_tools_msg::ToolOutputKind::Normal,
-    );
+    session.append_tool_result_output("unknown", "output", jinn_tools_msg::ToolOutputKind::Normal);
     assert!(session.history().is_empty());
 }
 
@@ -5928,7 +5912,7 @@ fn attached_input_writes_land_in_the_cell() {
             jinn_chat_input_msg::ChatInputs::new(),
         )
         .expect("fresh registry");
-    let mut session = ChatSessionState::new();
+    let session = ChatSessionState::new();
     session.attach_slices(slices.clone());
 
     // When writing a draft through the facade.
@@ -5961,7 +5945,7 @@ fn attached_input_reads_do_not_grow_the_cell() {
             jinn_chat_input_msg::ChatInputs::new(),
         )
         .expect("fresh registry");
-    let mut session = ChatSessionState::new();
+    let session = ChatSessionState::new();
     session.attach_slices(slices.clone());
 
     // When reading through the facade.

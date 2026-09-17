@@ -492,8 +492,7 @@ mod tests {
     use super::handle_push_screen;
     use super::handle_send_key;
     use super::handle_take_control;
-    use super::handle_toggle_for_selected;
-    use super::handle_toggle_overlay;
+
     use super::handle_yank;
     use super::push_screen_text;
     use super::view_scope;
@@ -919,9 +918,7 @@ mod tests {
         // a handback, and never embeds the refusal note.
         assert!(!text.contains("The user"));
         assert!(!text.contains("handed"));
-        assert!(!text.contains(
-            jinn_tools_msg::USER_HAS_CONTROL_NOTICE
-        ));
+        assert!(!text.contains(jinn_tools_msg::USER_HAS_CONTROL_NOTICE));
     }
 
     #[rstest::rstest]

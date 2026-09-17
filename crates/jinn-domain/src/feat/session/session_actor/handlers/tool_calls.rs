@@ -378,12 +378,12 @@ mod tests {
     use crate::feat::session::phase_machine::PhaseKind;
     use crate::feat::session::token_stats::TokenRecord;
     use crate::feat::session::tool_result_status::ToolResultStatus;
+    use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind};
+    use jinn_core_types::tool_types::{ToolCall, ToolResult};
     use jinn_tools_msg::{
         ToolBatchCompleted, ToolCallReceived, ToolCallStreaming, ToolExecutionOutput,
         ToolExecutionStarted, ToolOutputKind, ToolUseStarted,
     };
-    use jinn_core_types::tool_types::{ToolCall, ToolResult};
-    use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind};
 
     #[rstest::rstest]
     #[tokio::test]
@@ -453,7 +453,7 @@ mod tests {
         let actor_ref = harness
             .spawn_actor::<SessionPersistenceActor>(SessionPersistenceActorDeps {
                 deps: {
-                    let mut deps = harness.actor_deps().await;
+                    let deps = harness.actor_deps().await;
                     let _ = jinn_context_assembly::service::ensure_spawned(
                         &deps.services.trouper_system,
                     );
@@ -512,9 +512,9 @@ mod tests {
             SessionPersistenceActor, SessionPersistenceActorDeps,
         };
         use crate::feat::session_lifecycle::builtin::BuiltinRegistry;
-        use jinn_tools_msg::ToolBatchCompleted;
-        use jinn_core_types::tool_types::ToolResult;
         use crate::protocol::ChatEntry;
+        use jinn_core_types::tool_types::ToolResult;
+        use jinn_tools_msg::ToolBatchCompleted;
         use std::time::Duration;
 
         let harness = TestHarness::new().await;
@@ -536,7 +536,7 @@ mod tests {
         let actor_ref = harness
             .spawn_actor::<SessionPersistenceActor>(SessionPersistenceActorDeps {
                 deps: {
-                    let mut deps = harness.actor_deps().await;
+                    let deps = harness.actor_deps().await;
                     let _ = jinn_context_assembly::service::ensure_spawned(
                         &deps.services.trouper_system,
                     );
@@ -692,7 +692,7 @@ mod tests {
             .spawn_actor_with_mailbox::<SessionPersistenceActor>(
                 SessionPersistenceActorDeps {
                     deps: {
-                        let mut deps = harness.actor_deps().await;
+                        let deps = harness.actor_deps().await;
                         let _ = jinn_context_assembly::service::ensure_spawned(
                             &deps.services.trouper_system,
                         );

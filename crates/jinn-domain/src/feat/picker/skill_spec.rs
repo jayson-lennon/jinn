@@ -488,8 +488,8 @@ mod tests {
     }
 
     /// Runs a spec hook against `state` with a fresh dispatch context.
-    fn run<'a>(
-        state: &'a mut AppState,
+    fn run(
+        state: &mut AppState,
         f: impl FnOnce(&mut ActionCtx<'_>) -> PickerOutcome,
     ) -> PickerOutcome {
         let mut host = AppStatePickerHost::new(state);

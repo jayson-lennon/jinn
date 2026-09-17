@@ -417,7 +417,7 @@ mod tests {
 
     async fn create_actor() -> (QueueActor, BusAudit) {
         let (bus, audit) = crate::common::services::BusService::new_recording();
-        let mut services = Services::new_fake_with_bus(bus).await;
+        let services = Services::new_fake_with_bus(bus).await;
         let _ = jinn_context_assembly::service::ensure_spawned(&services.trouper_system);
         (
             QueueActor {

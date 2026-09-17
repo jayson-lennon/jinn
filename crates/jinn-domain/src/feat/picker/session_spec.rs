@@ -128,7 +128,7 @@ mod tests {
         let result = handle_open_picker(&mut state, PickerKind::Session, &registry);
 
         // Then the load request is dispatched to the actor.
-        assert!(result.message_names.contains(&&"jinn_domain::feat::session::protocol::load_session_picker_entries::LoadSessionPickerEntries"));
+        assert!(result.message_names.contains((&"jinn_domain::feat::session::protocol::load_session_picker_entries::LoadSessionPickerEntries")));
     }
 
     #[rstest::rstest]
@@ -165,11 +165,10 @@ mod tests {
                 kind: PickerKind::Session,
             });
         let session_id = {
-            let expected = state.frontend.session_picker().items()[0]
+            state.frontend.session_picker().items()[0]
                 .entry()
                 .session_id
-                .clone();
-            expected
+                .clone()
         };
 
         // When confirming through the real confirm path.
@@ -181,7 +180,7 @@ mod tests {
         assert!(
             result
                 .message_names
-                .contains(&&"jinn_domain::feat::session::protocol::session_load_requested::SessionLoadRequested"),
+                .contains((&"jinn_domain::feat::session::protocol::session_load_requested::SessionLoadRequested")),
             "switch command dispatched: {:?}",
             result.message_names
         );

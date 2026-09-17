@@ -6,8 +6,8 @@
 
 use std::sync::OnceLock;
 
-use jinn_core_types::tool_types::ToolDefinition;
 use crate::protocol::{ChatEntry, ChatEntryKind, ContextOverride};
+use jinn_core_types::tool_types::ToolDefinition;
 use unicode_segmentation::UnicodeSegmentation;
 
 /// Estimates the token count of text.

@@ -52,7 +52,7 @@ impl BusService {
     /// Returns a `(BusService, BusAudit)` pair. The service captures all
     /// `publish()` calls; the audit handle reads them back.
     /// `register()` is a no-op in recording mode.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-harness"))]
     pub fn new_recording() -> (Self, BusAudit) {
         let messages = Arc::new(Mutex::new(Vec::new()));
         let service = Self {

@@ -10,6 +10,8 @@ use std::collections::HashSet;
 
 use crate::feat::mcp::picker_entry::McpServerEntry;
 use crate::feat::persona::PersonaEntry;
+use crate::feat::picker::task_list_picker_entry::TaskListTreeEntry;
+use crate::feat::picker::tool_entry::ToolEntry;
 use crate::feat::plugin::PluginPickerEntry;
 use crate::feat::reasoning::ReasoningEffortEntry;
 use crate::feat::session::picker_entry::SessionTreeEntry;
@@ -17,8 +19,6 @@ use crate::feat::session_lifecycle::picker_entry::SessionLifecycleEntry;
 use crate::feat::skills::skill_entry::SkillEntry;
 use crate::feat::theme::Theme;
 use crate::feat::theme::ThemeEntry;
-use crate::feat::todo_list::picker_entry::TaskListTreeEntry;
-use crate::feat::picker::tool_entry::ToolEntry;
 
 /// All picker state - grouped so the picker subsystem can evolve independently.
 ///

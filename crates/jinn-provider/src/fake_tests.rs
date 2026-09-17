@@ -2,8 +2,8 @@
 
 use futures::StreamExt;
 
-use jinn_core_types::tool_types::ToolCall;
 use crate::{FakeLlmServiceFactory, LlmMessage, LlmServiceFactory, StopReason, StreamEvent};
+use jinn_core_types::tool_types::ToolCall;
 
 #[rstest::rstest]
 #[tokio::test]

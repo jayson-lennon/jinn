@@ -161,7 +161,7 @@ mod tests {
     fn content_height_is_four_with_active_persona() {
         // Given a PersonaSection and state with an active persona.
         let section = PersonaSection;
-        let mut state = AppState::default_with_scope_focus();
+        let state = AppState::default_with_scope_focus();
         state
             .persona_selection()
             .expect("persona cell attached")
