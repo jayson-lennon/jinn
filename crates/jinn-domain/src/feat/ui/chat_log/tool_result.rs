@@ -24,9 +24,9 @@
 
 use crate::feat::session::tool_result_status::ToolResultStatus;
 use crate::feat::skills::loaded_skill_summary_label;
-use crate::feat::tools_actor::task::TASK_TOOL_NAME;
-use crate::feat::tools_actor::truncation::format_size;
-use jinn_provider::tool_types::TruncationMeta;
+use jinn_tools_msg::TASK_TOOL_NAME;
+use jinn_tools_msg::truncation::format_size;
+use jinn_core_types::tool_types::TruncationMeta;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
@@ -562,7 +562,7 @@ mod tests {
 
     fn sample_truncation_meta() -> TruncationMeta {
         TruncationMeta {
-            truncated_by: jinn_provider::tool_types::TruncatedBy::Lines,
+            truncated_by: jinn_core_types::tool_types::TruncatedBy::Lines,
             total_lines: 5000,
             total_bytes: 200_000,
             output_lines: 500,

@@ -3,7 +3,7 @@
 //! [`StreamEvent`] is the unified streaming output type for LLM responses,
 //! decoupled from any specific provider's stream format.
 
-use crate::tool_types::ToolCall;
+use jinn_core_types::tool_types::ToolCall;
 
 /// Why the stream stopped.
 ///

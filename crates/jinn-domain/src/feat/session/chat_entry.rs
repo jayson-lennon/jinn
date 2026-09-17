@@ -38,12 +38,12 @@ impl std::fmt::Display for PinPosition {
     }
 }
 
-impl From<jinn_provider::tool_types::ToolResultPinPosition> for PinPosition {
-    fn from(pos: jinn_provider::tool_types::ToolResultPinPosition) -> Self {
+impl From<jinn_core_types::tool_types::ToolResultPinPosition> for PinPosition {
+    fn from(pos: jinn_core_types::tool_types::ToolResultPinPosition) -> Self {
         match pos {
-            jinn_provider::tool_types::ToolResultPinPosition::Top => Self::Top,
-            jinn_provider::tool_types::ToolResultPinPosition::Bottom => Self::Bottom,
-            jinn_provider::tool_types::ToolResultPinPosition::Relative => Self::Relative,
+            jinn_core_types::tool_types::ToolResultPinPosition::Top => Self::Top,
+            jinn_core_types::tool_types::ToolResultPinPosition::Bottom => Self::Bottom,
+            jinn_core_types::tool_types::ToolResultPinPosition::Relative => Self::Relative,
         }
     }
 }
@@ -244,7 +244,7 @@ pub enum ChatEntryKind {
         /// Full untruncated content, if truncation occurred.
         full_content: Option<String>,
         /// Truncation metadata, if truncation occurred.
-        truncation: Option<jinn_provider::tool_types::TruncationMeta>,
+        truncation: Option<jinn_core_types::tool_types::TruncationMeta>,
         /// Where this entry should appear in the assembled prompt. `None` (default)
         /// means the entry participates in normal history compaction/trimming.
         pin_position: Option<PinPosition>,
@@ -540,7 +540,7 @@ impl ChatEntry {
         content: String,
         full_content: String,
         status: ToolResultStatus,
-        truncation: jinn_provider::tool_types::TruncationMeta,
+        truncation: jinn_core_types::tool_types::TruncationMeta,
     ) -> Self
     where
         S1: Into<String>,
@@ -1110,7 +1110,7 @@ impl Serialize for ChatEntryKind {
                     #[serde(skip_serializing_if = "Option::is_none")]
                     full_content: Option<String>,
                     #[serde(skip_serializing_if = "Option::is_none")]
-                    truncation: Option<jinn_provider::tool_types::TruncationMeta>,
+                    truncation: Option<jinn_core_types::tool_types::TruncationMeta>,
                     #[serde(default, skip_serializing_if = "Option::is_none")]
                     pin_position: Option<PinPosition>,
                     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -1278,7 +1278,7 @@ impl<'de> Deserialize<'de> for ChatEntryKind {
                             #[serde(default)]
                             full_content: Option<String>,
                             #[serde(default)]
-                            truncation: Option<jinn_provider::tool_types::TruncationMeta>,
+                            truncation: Option<jinn_core_types::tool_types::TruncationMeta>,
                             #[serde(default)]
                             pin_position: Option<PinPosition>,
                         }

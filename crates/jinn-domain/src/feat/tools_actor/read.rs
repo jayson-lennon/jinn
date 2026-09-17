@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition, ToolResult};
 
-use super::truncation::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_head};
+use jinn_tools_msg::truncation::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_head};
 use super::visible_lines;
 
 use super::BoxedToolFuture;
@@ -108,7 +108,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             if let Some(meta) = truncation_result.meta {
                 let end_line_display = start_line + meta.output_lines - 1;
                 let next_offset = end_line_display + 1;
-                let notice = if meta.truncated_by == jinn_provider::tool_types::TruncatedBy::Bytes {
+                let notice = if meta.truncated_by == jinn_core_types::tool_types::TruncatedBy::Bytes {
                     format!(
                         "\n\n[Showing lines {start_line}-{end_line_display} of {total_file_lines} ({} limit). Use offset={next_offset} to continue.]",
                         format_size(max_bytes)
@@ -331,7 +331,7 @@ mod tests {
     fn test_ctx() -> crate::feat::tools_actor::tool_types::ToolContext {
         crate::feat::tools_actor::tool_types::ToolContext {
             command_policy:
-                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                jinn_tools_msg::CompiledCommandPolicy::default(),
             cwd: PathBuf::from("/tmp"),
             timeout: None,
             state: None,
@@ -432,7 +432,7 @@ mod tests {
         let ctx = crate::feat::tools_actor::tool_types::ToolContext {
             cwd: dir.path().to_owned(),
             command_policy:
-                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                jinn_tools_msg::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -518,7 +518,7 @@ mod tests {
         let ctx = ToolContext {
             cwd: dir.path().to_owned(),
             command_policy:
-                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                jinn_tools_msg::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -567,7 +567,7 @@ mod tests {
         let ctx = ToolContext {
             cwd: dir.path().to_owned(),
             command_policy:
-                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                jinn_tools_msg::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,

@@ -19,7 +19,7 @@ use std::collections::HashMap;
 
 use crate::StreamEvent;
 use crate::stream_event::{StopReason, StreamUsage, UrlCitation};
-use crate::tool_types::ToolCall;
+use jinn_core_types::tool_types::ToolCall;
 
 /// State tracked per tool call index during streaming.
 #[derive(Debug, Default)]

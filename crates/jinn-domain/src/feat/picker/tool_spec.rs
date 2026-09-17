@@ -24,7 +24,7 @@ use ratatui::text::Span;
 use crate::common::app_state::AppState;
 use crate::feat::picker::style::dim_style;
 use crate::feat::picker::style::split_match_indices;
-use crate::feat::tools_actor::tool_entry::ToolEntry;
+use crate::feat::picker::tool_entry::ToolEntry;
 use crate::feat::ui::picker_states::PickerExt;
 
 /// Builds the tool picker's spec.
@@ -238,7 +238,7 @@ mod tests {
 
     /// State with an active session and the given tool definitions
     /// registered in the context.
-    fn state_with_tools(defs: &[(&str, &str, Option<jinn_provider::ServerToolType>)]) -> AppState {
+    fn state_with_tools(defs: &[(&str, &str, Option<jinn_core_types::ServerToolType>)]) -> AppState {
         let mut state = AppState::default_with_scope_focus();
         let origin = crate::feat::session::chat_session::ChatSessionState::new();
         state.session.insert(origin);
@@ -252,7 +252,7 @@ mod tests {
             for (name, description, server_tool_type) in defs {
                 r.global.insert(
                     (*name).to_owned(),
-                    crate::protocol::ToolDefinition {
+                    jinn_core_types::ToolDefinition {
                         name: (*name).to_owned(),
                         description: (*description).to_owned(),
                         parameters: serde_json::json!({}),
@@ -464,7 +464,7 @@ mod tests {
         let mut state = state_with_tools(&[(
             "openrouter:web_search",
             "Search the web",
-            Some(jinn_provider::ServerToolType::OpenrouterWebSearch),
+            Some(jinn_core_types::ServerToolType::OpenrouterWebSearch),
         )]);
         state.active_session_mut().set_model(
             crate::feat::session::model_selection::ModelSelection::Single("zai/glm-4.6".to_owned()),
@@ -491,7 +491,7 @@ mod tests {
         let mut state = state_with_tools(&[(
             "openrouter:web_search",
             "Search the web",
-            Some(jinn_provider::ServerToolType::OpenrouterWebSearch),
+            Some(jinn_core_types::ServerToolType::OpenrouterWebSearch),
         )]);
         state.active_session_mut().set_model(
             crate::feat::session::model_selection::ModelSelection::Single(
@@ -536,7 +536,7 @@ mod tests {
         registry.update(|r| {
             r.global.insert(
                 crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned(),
-                crate::protocol::ToolDefinition {
+                jinn_core_types::ToolDefinition {
                     name: crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned(),
                     description: "Delegate a sub-task to a subagent".to_owned(),
                     parameters: serde_json::json!({}),

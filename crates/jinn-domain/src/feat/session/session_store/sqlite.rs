@@ -558,7 +558,7 @@ pub(crate) struct PersistableCore {
     /// Phased task list for agent session planning.
     /// OWNER: tools-actor (mutated by task list tools).
     #[serde(default)]
-    task_list: crate::feat::todo_list::TaskList,
+    task_list: jinn_tools_msg::TaskList,
     /// Names of MCP servers enabled for this session.
     /// Persisted in the metadata blob; off by default.
     #[serde(default)]
@@ -1270,7 +1270,7 @@ fn fork_metadata(
     core.origin = SessionOrigin::Fork;
     core.profile
         .disabled_tools
-        .remove(crate::feat::tools_actor::task::TASK_TOOL_NAME);
+        .remove(jinn_tools_msg::TASK_TOOL_NAME);
     serde_json::to_string(&core).ok()
 }
 

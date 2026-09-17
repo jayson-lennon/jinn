@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::feat::context::protocol::prompt_template::PromptTemplate;
-use crate::feat::tools_actor::tool_types::ToolCall;
+use jinn_core_types::tool_types::ToolCall;
 use crate::protocol::SessionId;
 
 use jiff::Timestamp;

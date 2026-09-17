@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 
 use regex::Regex;
 
-use crate::feat::project::{CommandPolicyRule, ProjectConfig};
+use jinn_tools_msg::CommandPolicyRule;
+
+use crate::feat::project::ProjectConfig;
 
 /// Compiled blocked-command rules for one project. Empty matches nothing.
 #[derive(Debug, Clone, Default)]

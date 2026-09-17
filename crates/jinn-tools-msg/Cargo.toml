@@ -1,0 +1,21 @@
+[package]
+name = "jinn-tools-msg"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+jinn-core-types = { workspace = true }
+jinn-slices = { workspace = true }
+kameo = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+jiff = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[lints]
+workspace = true

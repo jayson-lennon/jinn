@@ -78,12 +78,12 @@ use crate::feat::provider::protocol::event::{StreamCompleted, StreamCompletedRea
 use crate::feat::provider_infra::LlmServiceFactoryService;
 use crate::feat::provider_infra::StopReason;
 use crate::feat::provider_infra::StreamEvent;
-use crate::feat::tools_actor::protocol::command::CancelToolBatch;
-use crate::feat::tools_actor::protocol::command::ExecuteToolBatch;
-use crate::feat::tools_actor::protocol::event::{
+use jinn_tools_msg::CancelToolBatch;
+use jinn_tools_msg::ExecuteToolBatch;
+use jinn_tools_msg::{
     ToolCallReceived, ToolCallStreaming, ToolUseStarted,
 };
-use crate::feat::tools_actor::tool_types::ToolCall;
+use jinn_core_types::tool_types::ToolCall;
 use crate::protocol::{ChatEntry, SessionId};
 use error_stack::Report;
 use futures::StreamExt as _;
@@ -915,7 +915,7 @@ mod test_fakes {
             &self,
             _system_prompt: Option<&str>,
             _messages: Vec<jinn_provider::LlmMessage>,
-            _tools: Vec<jinn_provider::ToolDefinition>,
+            _tools: Vec<jinn_core_types::ToolDefinition>,
         ) -> Result<ToolStream, Report<LlmServiceError>> {
             Ok(Box::pin(futures::stream::pending()))
         }
@@ -968,7 +968,7 @@ mod test_fakes {
             &self,
             _system_prompt: Option<&str>,
             _messages: Vec<jinn_provider::LlmMessage>,
-            _tools: Vec<jinn_provider::ToolDefinition>,
+            _tools: Vec<jinn_core_types::ToolDefinition>,
         ) -> Result<ToolStream, Report<LlmServiceError>> {
             Err(Report::new(LlmServiceError::Provider))
         }

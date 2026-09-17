@@ -11,8 +11,13 @@ pub mod actor_lifecycle;
 pub mod chat_entry_id;
 pub mod context_override;
 pub mod session_id;
+pub mod tool_types;
 
 pub use actor_lifecycle::ActorLifecycle;
 pub use chat_entry_id::ChatEntryId;
 pub use context_override::ContextOverride;
 pub use session_id::SessionId;
+pub use tool_types::{
+    ServerToolType, ToolCall, ToolDefinition, ToolResult, ToolResultPinPosition, TruncatedBy,
+    TruncationMeta,
+};

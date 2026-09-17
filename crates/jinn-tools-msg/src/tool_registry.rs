@@ -1,18 +1,18 @@
-//! Shared tool-registry cell vocabulary.
+//! The tools family's shared registry payload.
 //!
 //! The global + per-session tool definition registries were formerly
-//! fields on the kernel's `ContextAssemblyState`; they are genuinely
-//! multi-party — kernel tools handlers write them, the queue/session
-//! dispatch snapshots, the TUI, and MCP picker refresh read them — so
-//! the cell lives in `jinn-slices` under the decomposition policy.
-//! When the tools family migrates, this module graduates to its crate.
+//! fields on the kernel's `ContextAssemblyState`, then a `jinn-slices`
+//! cell; they are genuinely multi-party — the tools orchestrator
+//! announces via `ToolsRegistered`, the kernel session actor writes
+//! the cell, and the queue/session dispatch snapshots, the TUI, and
+//! the MCP picker refresh read it.
 
 use std::collections::{BTreeMap, HashSet};
 
 use jinn_core_types::SessionId;
-use jinn_provider::ToolDefinition;
+use jinn_core_types::ToolDefinition;
 
-use crate::SlotKey;
+use jinn_slices::SlotKey;
 
 /// The tools family's registry payload: global definitions plus
 /// per-session overrides (session tools shadow global tools by name).

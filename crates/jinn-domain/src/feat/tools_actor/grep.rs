@@ -10,7 +10,7 @@ use std::process::Stdio;
 
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition, ToolResult};
 
-use super::truncation::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_tail};
+use jinn_tools_msg::truncation::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_tail};
 
 use super::BoxedToolFuture;
 
@@ -92,7 +92,7 @@ fn format_output(
         if let Some(meta) = truncation_result.meta {
             let start_line = meta.total_lines.saturating_sub(meta.output_lines) + 1;
             let end_line = meta.total_lines;
-            let notice = if meta.truncated_by == jinn_provider::tool_types::TruncatedBy::Bytes {
+            let notice = if meta.truncated_by == jinn_core_types::tool_types::TruncatedBy::Bytes {
                 format!(
                     "\n\n[Showing lines {start_line}-{end_line} of {} ({} limit)]",
                     meta.total_lines,
@@ -238,7 +238,7 @@ mod tests {
         ToolContext {
             cwd: PathBuf::from("/tmp"),
             command_policy:
-                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                jinn_tools_msg::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -259,7 +259,7 @@ mod tests {
         ToolContext {
             cwd,
             command_policy:
-                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                jinn_tools_msg::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,

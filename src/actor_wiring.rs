@@ -181,8 +181,7 @@ impl ActorSystemBuilder {
             mcp_coordinator: std::sync::Arc::new(std::sync::OnceLock::new()),
             interactive_term: std::sync::Arc::new(std::sync::OnceLock::new()),
             request_dump: jinn_domain::common::request_dump::RequestDumpService::new(dump_requests),
-            task_spawns: jinn_domain::feat::tools_actor::task_registry::TaskSpawnRegistry::default(
-            ),
+            task_spawns: jinn_tools_msg::TaskSpawnRegistry::default(),
             slices: jinn_domain::common::slices::Slices::new(),
             key_routes: jinn_domain::common::slices::key_routes::KeyRoutes::new(),
             viewport: jinn_domain::common::slices::view::Viewport::new(),
@@ -260,8 +259,8 @@ impl ActorSystemBuilder {
         {
             let slices = services.slices.clone();
             let _ = slices.register(
-                jinn_slices::tools_registry_slot(),
-                jinn_slices::ToolRegistry::default(),
+                jinn_tools_msg::tools_registry_slot(),
+                jinn_tools_msg::ToolRegistry::default(),
             );
         }
 

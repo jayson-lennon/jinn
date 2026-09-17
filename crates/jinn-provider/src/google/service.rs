@@ -12,7 +12,7 @@ use crate::llm_message::LlmMessage;
 use crate::openai_compat::sse::{SseEvent, SseParser};
 use crate::service::{ChatStream, LlmService, LlmServiceError, ToolStream};
 use crate::stream_event::StreamEvent;
-use crate::tool_types::ToolDefinition;
+use jinn_core_types::tool_types::ToolDefinition;
 
 const PROVIDER_NAME: &str = "Google";
 

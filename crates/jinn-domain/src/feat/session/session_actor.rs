@@ -60,7 +60,7 @@ use crate::feat::session_lifecycle::protocol::command::{
     RunSessionTeardown, SetSessionCwd,
 };
 use crate::feat::skills::SkillsLoaded;
-use crate::feat::tools_actor::protocol::event::{
+use jinn_tools_msg::{
     ToolBatchCompleted, ToolCallReceived, ToolCallStreaming, ToolExecutionCompleted,
     ToolExecutionOutput, ToolExecutionStarted, ToolUseStarted, ToolsRegistered, ToolsUnregistered,
 };

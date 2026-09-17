@@ -16,7 +16,7 @@ use ratatui::text::Span;
 use crate::common::app_state::AppState;
 use jinn_selection_widget::TreeItem;
 
-use crate::feat::todo_list::TaskStatus;
+use jinn_tools_msg::TaskStatus;
 use crate::feat::todo_list::picker_entry::TaskListTreeEntry;
 use crate::feat::todo_list::picker_entry::render_task_list_row;
 use crate::feat::ui::picker_states::PickerExt;
@@ -121,7 +121,7 @@ mod tests {
     use super::*;
     use crate::feat::picker::PickerKind;
     use crate::feat::picker::intent::handle_open_picker;
-    use crate::feat::todo_list::TaskList;
+    use jinn_tools_msg::TaskList;
 
     /// State with a two-phase task list (one phase holding a postponed task).
     fn state_with_task_list() -> AppState {
@@ -133,18 +133,18 @@ mod tests {
             let session = state.active_session_mut();
             *session.task_list_mut() = list;
             let phases = &mut session.task_list_mut().phases;
-            phases[0].tasks.push(crate::feat::todo_list::Task {
-                id: crate::feat::todo_list::TaskId::new_for_test("t1"),
+            phases[0].tasks.push(jinn_tools_msg::Task {
+                id: jinn_tools_msg::TaskId::new_for_test("t1"),
                 description: "Tokenize input".to_owned(),
                 status: TaskStatus::Pending,
             });
-            phases[0].tasks.push(crate::feat::todo_list::Task {
-                id: crate::feat::todo_list::TaskId::new_for_test("t2"),
+            phases[0].tasks.push(jinn_tools_msg::Task {
+                id: jinn_tools_msg::TaskId::new_for_test("t2"),
                 description: "Skip postponed work".to_owned(),
                 status: TaskStatus::Postponed,
             });
-            phases[1].tasks.push(crate::feat::todo_list::Task {
-                id: crate::feat::todo_list::TaskId::new_for_test("t3"),
+            phases[1].tasks.push(jinn_tools_msg::Task {
+                id: jinn_tools_msg::TaskId::new_for_test("t3"),
                 description: "Draft README".to_owned(),
                 status: TaskStatus::Pending,
             });

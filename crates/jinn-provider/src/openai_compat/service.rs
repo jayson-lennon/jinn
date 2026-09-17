@@ -18,7 +18,7 @@ use crate::openai_compat::sse::{SseEvent, SseParser};
 use crate::reasoning::ReasoningEffort;
 use crate::service::{ChatStream, LlmService, LlmServiceError, ToolStream};
 use crate::stream_event::StreamEvent;
-use crate::tool_types::ToolDefinition;
+use jinn_core_types::tool_types::ToolDefinition;
 
 /// An LLM service that talks to an OpenAI-compatible API.
 pub struct OpenAiCompatibleService {

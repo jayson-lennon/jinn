@@ -24,7 +24,7 @@ use crate::sections::task_list_section::clamp_scroll;
 use jinn_domain::common::app_state::AppState;
 use jinn_domain::common::render_ctx::RenderCtx;
 use jinn_domain::feat::theme::Theme;
-use jinn_domain::feat::todo_list::{Phase, Task, TaskStatus};
+use jinn_tools_msg::{Phase, Task, TaskStatus};
 
 /// Minimum popup width in columns (mirrors the session preview floor).
 const MIN_POPUP_WIDTH: u16 = 30;
@@ -280,7 +280,7 @@ mod tests {
     use super::*;
     use jinn_domain::common::app_state::AppState;
     use jinn_domain::feat::theme::default_theme;
-    use jinn_domain::feat::todo_list::{PhaseInput, TaskList, TaskStatus};
+    use jinn_tools_msg::{PhaseInput, TaskList, TaskStatus};
     use ratatui::{Terminal, backend::TestBackend};
 
     fn frame_area() -> Rect {

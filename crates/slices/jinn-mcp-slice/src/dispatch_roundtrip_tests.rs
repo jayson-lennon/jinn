@@ -27,10 +27,10 @@ use crate::connection::{McpActor, McpActorDeps};
 use jinn_domain::common::actor_deps::ActorDeps;
 use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
 use jinn_domain::feat::mcp::McpServerConfig;
-use jinn_domain::feat::tools_actor::protocol::command::ExecuteTool;
-use jinn_domain::feat::tools_actor::protocol::event::ToolExecutionCompleted;
-use jinn_domain::feat::tools_actor::protocol::event::ToolsUnregistered;
-use jinn_domain::feat::tools_actor::tool_types::ToolCall;
+use jinn_tools_msg::ExecuteTool;
+use jinn_tools_msg::ToolExecutionCompleted;
+use jinn_tools_msg::ToolsUnregistered;
+use jinn_core_types::tool_types::ToolCall;
 use jinn_domain::protocol::SessionId;
 use jinn_mcp_msg::{McpConnectionStatus, McpServerStatus};
 

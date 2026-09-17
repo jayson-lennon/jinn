@@ -19,7 +19,7 @@ use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition
 use jinn_term_msg::settle::default_max_wait;
 
 use super::BoxedToolFuture;
-use super::truncation::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_tail};
+use jinn_tools_msg::truncation::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_tail};
 
 /// Identifies the tool call for streaming output (watchdog keepalive).
 #[derive(Debug, Clone)]

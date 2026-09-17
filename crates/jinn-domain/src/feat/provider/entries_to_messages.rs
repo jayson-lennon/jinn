@@ -1,7 +1,7 @@
 //! Conversion from chat entries to LLM messages.
 
 use crate::feat::provider::llm_message::LlmMessage;
-use crate::feat::tools_actor::tool_types::ToolCall;
+use jinn_core_types::tool_types::ToolCall;
 use crate::protocol::{ChatEntry, ChatEntryKind, ContextOverride};
 
 /// Convert chat history entries to LLM messages.

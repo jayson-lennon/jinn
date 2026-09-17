@@ -24,7 +24,7 @@
 //! no background while pending, green on success, red on failure.
 
 use crate::feat::session::tool_result_status::ToolResultStatus;
-use crate::feat::tools_actor::task::TASK_TOOL_NAME;
+use jinn_tools_msg::TASK_TOOL_NAME;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
@@ -283,7 +283,7 @@ mod tests {
     )]
     use super::*;
     use crate::feat::session::tool_result_status::ToolResultStatus;
-    use crate::feat::tools_actor::task::TASK_TOOL_NAME;
+    use jinn_tools_msg::TASK_TOOL_NAME;
     use crate::feat::ui::chat_log::shared::RenderContext;
 
     fn render_context(max_lines: u16, is_expanded: bool) -> RenderContext {

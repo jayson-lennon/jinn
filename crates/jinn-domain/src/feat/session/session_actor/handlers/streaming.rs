@@ -14,7 +14,7 @@ use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::protocol::citations_received::CitationsReceived;
 use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
 use crate::feat::session::queue_item::QueueItem;
-use crate::feat::tools_actor::tool_types::ToolCall;
+use jinn_core_types::tool_types::ToolCall;
 use crate::protocol::{ChatEntry, ChatEntryId, ChatEntryKind, SessionId};
 
 use super::super::SessionPersistenceActor;
@@ -1067,7 +1067,7 @@ mod tests {
             session_id: session_id.clone(),
             reason: StreamCompletedReason::ToolUse,
             assistant_content: Some("response".to_owned()),
-            tool_calls: Some(vec![crate::feat::tools_actor::tool_types::ToolCall {
+            tool_calls: Some(vec![jinn_core_types::tool_types::ToolCall {
                 id: "tc-1".to_owned(),
                 name: "bash".to_owned(),
                 arguments: "{}".to_owned(),
@@ -1118,7 +1118,7 @@ mod tests {
             session_id: session_id.clone(),
             reason: StreamCompletedReason::ToolUse,
             assistant_content: Some("checking".to_owned()),
-            tool_calls: Some(vec![crate::feat::tools_actor::tool_types::ToolCall {
+            tool_calls: Some(vec![jinn_core_types::tool_types::ToolCall {
                 id: "tc-1".to_owned(),
                 name: "bash".to_owned(),
                 arguments: r#"{"command":"ls -la /very/long/path"}"#.to_owned(),
@@ -1462,7 +1462,7 @@ mod tests {
             session_id: session_id.clone(),
             reason: StreamCompletedReason::ToolUse,
             assistant_content: Some("response".to_owned()),
-            tool_calls: Some(vec![crate::feat::tools_actor::tool_types::ToolCall {
+            tool_calls: Some(vec![jinn_core_types::tool_types::ToolCall {
                 id: "tc-1".to_owned(),
                 name: "bash".to_owned(),
                 arguments: "{}".to_owned(),
@@ -2266,7 +2266,7 @@ mod tests {
     fn count_tokens_locally_includes_tool_call_arguments_and_names() {
         // Given a char-counting counter, content, and one tool call.
         let counter = CharCounter;
-        let tool_calls = vec![crate::feat::tools_actor::tool_types::ToolCall {
+        let tool_calls = vec![jinn_core_types::tool_types::ToolCall {
             id: "tc-1".to_owned(),
             name: "bash".to_owned(),
             arguments: "ls".to_owned(),

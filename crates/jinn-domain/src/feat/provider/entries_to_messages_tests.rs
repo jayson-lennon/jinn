@@ -1514,7 +1514,7 @@ fn entries_to_messages_passes_user_attachments_through() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::feat::provider::entries_to_messages::enforce_valid_tool_sequences;
-use crate::feat::tools_actor::tool_types::ToolCall;
+use jinn_core_types::tool_types::ToolCall;
 
 fn call(id: &str) -> ToolCall {
     ToolCall {

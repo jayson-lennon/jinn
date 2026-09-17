@@ -342,7 +342,7 @@ impl TestServices {
             mcp_coordinator: Arc::new(std::sync::OnceLock::new()),
             interactive_term: Arc::new(std::sync::OnceLock::new()),
             request_dump: crate::common::request_dump::RequestDumpService::default(),
-            task_spawns: crate::feat::tools_actor::task_registry::TaskSpawnRegistry::default(),
+            task_spawns: jinn_tools_msg::TaskSpawnRegistry::default(),
             slices: crate::common::slices::Slices::new(),
             key_routes: crate::common::slices::key_routes::KeyRoutes::new(),
             viewport: crate::common::slices::view::Viewport::new(),

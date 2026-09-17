@@ -11,7 +11,7 @@ use crate::feat::session::chat_entry::PinPosition;
 use crate::feat::session::model_selection::ModelSelection;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::token_stats::TokenRecord;
-use crate::feat::tools_actor::protocol::event::{
+use jinn_tools_msg::{
     ToolBatchCompleted, ToolCallReceived, ToolCallStreaming, ToolExecutionCompleted,
     ToolExecutionOutput, ToolExecutionStarted, ToolUseStarted,
 };
@@ -378,11 +378,11 @@ mod tests {
     use crate::feat::session::phase_machine::PhaseKind;
     use crate::feat::session::token_stats::TokenRecord;
     use crate::feat::session::tool_result_status::ToolResultStatus;
-    use crate::feat::tools_actor::protocol::event::{
+    use jinn_tools_msg::{
         ToolBatchCompleted, ToolCallReceived, ToolCallStreaming, ToolExecutionOutput,
         ToolExecutionStarted, ToolOutputKind, ToolUseStarted,
     };
-    use crate::feat::tools_actor::tool_types::{ToolCall, ToolResult};
+    use jinn_core_types::tool_types::{ToolCall, ToolResult};
     use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind};
 
     #[rstest::rstest]
@@ -512,8 +512,8 @@ mod tests {
             SessionPersistenceActor, SessionPersistenceActorDeps,
         };
         use crate::feat::session_lifecycle::builtin::BuiltinRegistry;
-        use crate::feat::tools_actor::protocol::event::ToolBatchCompleted;
-        use crate::feat::tools_actor::tool_types::ToolResult;
+        use jinn_tools_msg::ToolBatchCompleted;
+        use jinn_core_types::tool_types::ToolResult;
         use crate::protocol::ChatEntry;
         use std::time::Duration;
 
@@ -934,9 +934,9 @@ mod tests {
             state.session.active_session_id().clone()
         };
 
-        let event = crate::feat::tools_actor::protocol::event::ToolExecutionCompleted {
+        let event = jinn_tools_msg::ToolExecutionCompleted {
             session_id: session_id.clone(),
-            result: crate::feat::tools_actor::tool_types::ToolResult {
+            result: jinn_core_types::tool_types::ToolResult {
                 tool_call_id: "tc-1".to_owned(),
                 name: "bash".to_owned(),
                 content: "file1.txt".to_owned(),
@@ -974,9 +974,9 @@ mod tests {
         };
 
         // When a stale ToolExecutionCompleted arrives post-cancel.
-        let event = crate::feat::tools_actor::protocol::event::ToolExecutionCompleted {
+        let event = jinn_tools_msg::ToolExecutionCompleted {
             session_id: session_id.clone(),
-            result: crate::feat::tools_actor::tool_types::ToolResult {
+            result: jinn_core_types::tool_types::ToolResult {
                 tool_call_id: "tc-1".to_owned(),
                 name: "bash".to_owned(),
                 content: "file1.txt".to_owned(),

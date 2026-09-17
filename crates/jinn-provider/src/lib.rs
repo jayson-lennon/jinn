@@ -28,7 +28,6 @@ mod retry;
 mod sample;
 mod service;
 mod stream_event;
-pub mod tool_types;
 
 // Custom provider implementations (not OpenAI-compatible).
 pub mod anthropic;
@@ -51,7 +50,7 @@ pub use reasoning::ReasoningEffort;
 pub use sample::SampleLlmServiceFactory;
 pub use service::{ChatStream, LlmService, LlmServiceError, LlmServiceFactory, ToolStream};
 pub use stream_event::{StopReason, StreamEvent, StreamUsage, UrlCitation};
-pub use tool_types::{ServerToolType, ToolCall, ToolDefinition, ToolResult};
+pub use jinn_core_types::tool_types::{ServerToolType, ToolCall, ToolDefinition, ToolResult};
 
 pub use retry::{NoOpOnRetry, OnRetry, RetryConfig, RetryingLlmService};
 

@@ -109,7 +109,7 @@ pub struct Services {
     /// In-flight subagent registry: parent → child sessions spawned by the
     /// `task` tool. Read by the stall watchdog to skip waiting parents.
     #[debug(skip)]
-    pub task_spawns: crate::feat::tools_actor::task_registry::TaskSpawnRegistry,
+    pub task_spawns: jinn_tools_msg::TaskSpawnRegistry,
 
     /// Dynamic registry of per-slice render cells.
     ///
@@ -217,7 +217,7 @@ impl Services {
             mcp_coordinator: Arc::new(std::sync::OnceLock::new()),
             interactive_term: Arc::new(std::sync::OnceLock::new()),
             request_dump: RequestDumpService::default(),
-            task_spawns: crate::feat::tools_actor::task_registry::TaskSpawnRegistry::default(),
+            task_spawns: jinn_tools_msg::TaskSpawnRegistry::default(),
             slices: {
                 let slices = crate::common::slices::Slices::new();
                 let _ = slices.register(
@@ -225,8 +225,8 @@ impl Services {
                     jinn_persona_msg::Personas::default(),
                 );
                 let _ = slices.register(
-                    jinn_slices::tools_registry_slot(),
-                    jinn_slices::ToolRegistry::default(),
+                    jinn_tools_msg::tools_registry_slot(),
+                    jinn_tools_msg::ToolRegistry::default(),
                 );
                 let _ = slices.register(
                     jinn_term_msg::term_tabs_slot(),
@@ -290,7 +290,7 @@ impl Services {
             mcp_coordinator: Arc::new(std::sync::OnceLock::new()),
             interactive_term: Arc::new(std::sync::OnceLock::new()),
             request_dump: RequestDumpService::default(),
-            task_spawns: crate::feat::tools_actor::task_registry::TaskSpawnRegistry::default(),
+            task_spawns: jinn_tools_msg::TaskSpawnRegistry::default(),
             slices: {
                 let slices = crate::common::slices::Slices::new();
                 let _ = slices.register(
@@ -298,8 +298,8 @@ impl Services {
                     jinn_persona_msg::Personas::default(),
                 );
                 let _ = slices.register(
-                    jinn_slices::tools_registry_slot(),
-                    jinn_slices::ToolRegistry::default(),
+                    jinn_tools_msg::tools_registry_slot(),
+                    jinn_tools_msg::ToolRegistry::default(),
                 );
                 let _ = slices.register(
                     jinn_term_msg::term_tabs_slot(),

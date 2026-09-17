@@ -13,7 +13,7 @@
 //! BDD-style tests following AGENTS.md conventions.
 //! Each test covers a single behavior.
 
-use crate::feat::todo_list::{PhaseId, PhaseInput, TaskList, TaskStatus};
+use jinn_tools_msg::{PhaseId, PhaseInput, TaskList, TaskStatus};
 
 // ---------------------------------------------------------------------------
 // set_from_inputs
@@ -179,7 +179,7 @@ fn serde_deserializes_partial_json() {
 #[test]
 fn id_display_format() {
     let pid = PhaseId::new_for_test("p1");
-    let tid = crate::feat::todo_list::TaskId::new_for_test("t2");
+    let tid = jinn_tools_msg::TaskId::new_for_test("t2");
     assert_eq!(format!("{pid}"), "p1");
     assert_eq!(format!("{tid}"), "t2");
 }
@@ -904,7 +904,7 @@ fn render_next_block_after_completion_falls_back_when_phase_missing() {
         tasks: vec![("Task".to_owned(), TaskStatus::Pending)],
     }]);
 
-    let bogus = PhaseId::new(&[]);
+    let bogus = PhaseId::new_for_test("p9");
     let block = list.render_next_block_after_completion(&bogus);
     // Falls back to global next-task.
     assert!(block.starts_with("→ NEXT:"));

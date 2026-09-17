@@ -2401,6 +2401,7 @@ dependencies = [
  "jinn-theme-slice",
  "jinn-token-count",
  "jinn-token-count-msg",
+ "jinn-tools-msg",
  "jinn-tui",
  "kameo",
  "kameo_actors",
@@ -2511,6 +2512,7 @@ dependencies = [
  "jinn-persona-msg",
  "jinn-provider",
  "jinn-slices",
+ "jinn-tools-msg",
  "kameo",
  "rstest",
  "serde",
@@ -2672,6 +2674,7 @@ dependencies = [
  "jinn-theme",
  "jinn-theme-msg",
  "jinn-token-count-msg",
+ "jinn-tools-msg",
  "kameo",
  "kameo_actors",
  "kanal",
@@ -2757,6 +2760,7 @@ dependencies = [
  "jinn-mcp",
  "jinn-mcp-msg",
  "jinn-slices",
+ "jinn-tools-msg",
  "kameo",
  "libc",
  "parking_lot",
@@ -2850,6 +2854,7 @@ dependencies = [
  "error-stack",
  "futures",
  "jiff",
+ "jinn-core-types",
  "mockito",
  "parking_lot",
  "rand 0.9.5",
@@ -2985,6 +2990,7 @@ dependencies = [
  "jinn-term-msg",
  "jinn-testutil",
  "jinn-theme",
+ "jinn-tools-msg",
  "kameo",
  "ratatui",
  "rstest",
@@ -3073,6 +3079,7 @@ dependencies = [
  "jinn-status-bar-msg",
  "jinn-term-msg",
  "jinn-theme",
+ "jinn-tools-msg",
  "kameo",
  "parking_lot",
  "portable-pty",
@@ -3183,6 +3190,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "jinn-tools-msg"
+version = "0.118.0"
+dependencies = [
+ "jiff",
+ "jinn-core-types",
+ "jinn-slices",
+ "kameo",
+ "rand 0.9.5",
+ "regex",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "jinn-tui"
 version = "0.118.0"
 dependencies = [
@@ -3195,6 +3218,7 @@ dependencies = [
  "futures",
  "jinn-chat-input-msg",
  "jinn-chat-log-view-msg",
+ "jinn-core-types",
  "jinn-cwd",
  "jinn-cwd-msg",
  "jinn-domain",
@@ -3211,6 +3235,7 @@ dependencies = [
  "jinn-testutil",
  "jinn-theme-msg",
  "jinn-token-count-msg",
+ "jinn-tools-msg",
  "kameo",
  "kameo_actors",
  "kanal",

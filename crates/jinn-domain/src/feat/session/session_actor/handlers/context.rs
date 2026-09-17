@@ -16,7 +16,7 @@ use crate::feat::context::protocol::event::ChatEntryPinChanged;
 use crate::feat::persona::PersonaEntry;
 use crate::feat::provider::protocol::event::PromptTemplatesLoaded;
 use crate::feat::session::profile::DEFAULT_PERSONA_NAME;
-use crate::feat::tools_actor::protocol::event::{ToolsRegistered, ToolsUnregistered};
+use jinn_tools_msg::{ToolsRegistered, ToolsUnregistered};
 
 use super::super::SessionPersistenceActor;
 
@@ -99,7 +99,7 @@ impl SessionPersistenceActor {
         let Some(cell) = self
             .services
             .slices
-            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
         else {
             tracing::warn!("tools registry cell missing; dropping ToolsRegistered");
             return;
@@ -140,7 +140,7 @@ impl SessionPersistenceActor {
         if let Some(cell) = self
             .services
             .slices
-            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
         {
             cell.update(|registry| {
                 let Some(map) = registry.session.get_mut(&evt.session_id) else {
@@ -164,7 +164,7 @@ impl SessionPersistenceActor {
         if let Some(cell) = self
             .services
             .slices
-            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
         {
             cell.update(|registry| {
                 registry.session.remove(session_id);
@@ -293,7 +293,7 @@ mod tests {
     use crate::common::state::State;
     use crate::feat::context::protocol::event::PersonasLoaded;
     use crate::feat::persona::Persona;
-    use crate::feat::tools_actor::tool_types::ToolDefinition;
+    use jinn_core_types::tool_types::ToolDefinition;
     use crate::feat::ui::picker_states::PickerExt;
     use crate::protocol::{ChatEntryId, PinPosition, SessionId};
 
@@ -325,9 +325,15 @@ mod tests {
         // Given a session actor.
         let (actor, state, _audit) = create_actor().await;
 
-        // Build a ToolsRegistered with all builtin tools.
-        let all_tools = crate::feat::tools_actor::registry::builtin_tools(300);
-        let definitions: Vec<_> = all_tools.iter().map(|(def, _, _)| def.clone()).collect();
+        // Build a ToolsRegistered with a builtin-shaped tool definition.
+        let definitions = vec![ToolDefinition {
+            name: "bash".to_owned(),
+            description: "Run a shell command".to_owned(),
+            parameters: serde_json::json!({"type": "object"}),
+            prompt_snippet: None,
+            prompt_guidelines: vec![],
+            server_tool_type: None,
+        }];
         let payload = ToolsRegistered {
             provider: "builtin".to_owned(),
             definitions,
@@ -341,7 +347,7 @@ mod tests {
         let registry = actor
             .services
             .slices
-            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
             .expect("tools registry cell seeded");
         assert!(
             registry.read().global.contains_key("bash"),
@@ -376,7 +382,7 @@ mod tests {
         let registry = actor
             .services
             .slices
-            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
             .expect("tools registry cell seeded");
         let registry_guard = registry.read();
         assert!(
@@ -422,7 +428,7 @@ mod tests {
         let registry = actor
             .services
             .slices
-            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
             .expect("tools registry cell seeded");
         let registry_guard = registry.read();
         let session_tools = registry_guard.session.get(&session_id);
@@ -467,7 +473,7 @@ mod tests {
         let registry = actor
             .services
             .slices
-            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
             .expect("tools registry cell seeded");
         let registry_guard = registry.read();
         let session_tools = registry_guard
@@ -513,7 +519,7 @@ mod tests {
         let registry = actor
             .services
             .slices
-            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
             .expect("tools registry cell seeded");
         assert!(
             !registry.read().session.contains_key(&session_id),
@@ -556,7 +562,7 @@ mod tests {
         let registry = actor
             .services
             .slices
-            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
             .expect("tools registry cell seeded");
         let registry_guard = registry.read();
         let session_tools = registry_guard
@@ -595,7 +601,7 @@ mod tests {
         let registry = actor
             .services
             .slices
-            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
             .expect("tools registry cell seeded");
         assert!(
             !registry.read().session.contains_key(&session_id),
@@ -631,7 +637,7 @@ mod tests {
         let registry = actor
             .services
             .slices
-            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
             .expect("tools registry cell seeded");
         assert!(
             registry.read().global.contains_key("global_helper"),

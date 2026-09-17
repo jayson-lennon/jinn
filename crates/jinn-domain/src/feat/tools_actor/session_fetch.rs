@@ -266,12 +266,12 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
         // `full_content` so nothing is lost.
         let max_lines = ctx
             .max_output_lines
-            .unwrap_or(crate::feat::tools_actor::truncation::DEFAULT_MAX_LINES);
+            .unwrap_or(jinn_tools_msg::truncation::DEFAULT_MAX_LINES);
         let max_bytes = ctx
             .max_output_bytes
-            .unwrap_or(crate::feat::tools_actor::truncation::DEFAULT_MAX_BYTES);
+            .unwrap_or(jinn_tools_msg::truncation::DEFAULT_MAX_BYTES);
         let full_content = format_window(&window);
-        let truncation_result = crate::feat::tools_actor::truncation::truncate_head(
+        let truncation_result = jinn_tools_msg::truncation::truncate_head(
             &full_content,
             max_lines,
             max_bytes,

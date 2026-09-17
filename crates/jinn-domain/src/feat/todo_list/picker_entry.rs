@@ -13,7 +13,7 @@ use ratatui::{style::Style, symbols};
 
 use crate::feat::picker::style::{dim_style, selected_style};
 use crate::feat::theme::Theme;
-use crate::feat::todo_list::TaskStatus;
+use jinn_tools_msg::TaskStatus;
 
 use jinn_selection_widget::TreeItem;
 use jinn_selection_widget::highlight_text_with_bg;

@@ -190,7 +190,7 @@ mod tests {
     )]
     use crate::common::app_state::AppState;
     use crate::common::state::State;
-    use crate::feat::todo_list::{PhaseInput, TaskStatus};
+    use jinn_tools_msg::{PhaseInput, TaskStatus};
     use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext};
     use crate::protocol::SessionId;
 
@@ -214,7 +214,7 @@ mod tests {
             task_spawns: None,
             session_store: None,
             command_policy:
-                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                jinn_tools_msg::CompiledCommandPolicy::default(),
         }
     }
 

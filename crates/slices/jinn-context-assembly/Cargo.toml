@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 jinn-core-types = { workspace = true }
+jinn-tools-msg = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-persona-msg = { workspace = true }
 jinn-domain = { workspace = true }

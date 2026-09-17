@@ -35,10 +35,10 @@ use parking_lot::Mutex;
 use error_stack::{Report, ResultExt as _};
 use jinn_domain::common::actor_deps::{ActorDeps, BusPublish};
 use jinn_domain::feat::mcp::{McpServerConfig, TransportKind};
-use jinn_domain::feat::tools_actor::protocol::command::{ExecuteTool, RegisterTools};
-use jinn_domain::feat::tools_actor::protocol::event::{ToolExecutionCompleted, ToolsUnregistered};
-use jinn_domain::feat::tools_actor::tool_types::{ToolCall, ToolDefinition, ToolResult};
-use jinn_domain::feat::tools_actor::truncation::{
+use jinn_tools_msg::{ExecuteTool, RegisterTools};
+use jinn_tools_msg::{ToolExecutionCompleted, ToolsUnregistered};
+use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
+use jinn_tools_msg::truncation::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_tail,
 };
 use jinn_domain::protocol::SessionId;

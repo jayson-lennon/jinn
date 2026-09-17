@@ -1,11 +1,15 @@
 //! Tool calling types - definitions, calls, and results.
+//!
+//! Layer-0 vocabulary: the payload nouns shared by provider-selection
+//! (which builds requests from them), the tools family (which executes
+//! them), and the TUI (which renders them).
 
 use serde::{Deserialize, Serialize};
 
 /// Where a tool result's session entry should be pinned in the assembled prompt.
 ///
 /// Mirrors `jinn_domain::session::chat_entry::PinPosition`; duplicated here so
-/// `jinn-provider` can express pinning without depending on `jinn-domain`. The
+/// provider-side code can express pinning without depending on `jinn-domain`. The
 /// session actor converts to the domain type at the boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ToolResultPinPosition {

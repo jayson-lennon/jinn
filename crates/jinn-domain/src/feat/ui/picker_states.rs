@@ -18,7 +18,7 @@ use crate::feat::skills::skill_entry::SkillEntry;
 use crate::feat::theme::Theme;
 use crate::feat::theme::ThemeEntry;
 use crate::feat::todo_list::picker_entry::TaskListTreeEntry;
-use crate::feat::tools_actor::tool_entry::ToolEntry;
+use crate::feat::picker::tool_entry::ToolEntry;
 
 /// All picker state - grouped so the picker subsystem can evolve independently.
 ///

@@ -49,7 +49,7 @@ use crate::feat::provider::protocol::event::{StreamCompleted, StreamCompletedRea
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::protocol::retry_stalled_session::RetryStalledSession;
 use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
-use crate::feat::tools_actor::protocol::event::{
+use jinn_tools_msg::{
     ToolCallReceived, ToolCallStreaming, ToolExecutionCompleted, ToolUseStarted,
 };
 
@@ -671,7 +671,7 @@ fn last_entry_is_assistant(state: &State, session_id: &crate::protocol::SessionI
 /// correctly (a clipped JSON payload cannot be parsed by shape detection),
 /// so the untruncated original wins whenever it exists and `content`
 /// stands only for results that were never truncated.
-fn full_output_for_plugin(result: &crate::feat::tools_actor::tool_types::ToolResult) -> String {
+fn full_output_for_plugin(result: &jinn_core_types::tool_types::ToolResult) -> String {
     result
         .full_content
         .clone()

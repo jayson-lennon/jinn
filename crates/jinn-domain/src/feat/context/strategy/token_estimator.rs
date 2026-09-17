@@ -6,7 +6,7 @@
 
 use std::sync::OnceLock;
 
-use crate::feat::tools_actor::tool_types::ToolDefinition;
+use jinn_core_types::tool_types::ToolDefinition;
 use crate::protocol::{ChatEntry, ChatEntryKind, ContextOverride};
 use unicode_segmentation::UnicodeSegmentation;
 

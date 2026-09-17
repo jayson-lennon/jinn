@@ -27,7 +27,7 @@ use crate::feat::session::chat_entry::{ChatEntry, ChatEntryKind};
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
 use crate::feat::session_lifecycle::protocol::event::SessionCreated;
-use crate::feat::todo_list::{PhaseInput, TaskStatus};
+use jinn_tools_msg::{PhaseInput, TaskStatus};
 use crate::feat::tools_actor::task::execute;
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolResult};
 use crate::protocol::SessionId;
@@ -51,7 +51,7 @@ async fn task_ctx(harness: &TestHarness, state: &State, session_id: SessionId) -
     let services = harness.services().await;
     ToolContext {
         cwd: std::path::PathBuf::from("/tmp"),
-        command_policy: crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+        command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
         timeout: None,
         state: Some(state.clone()),
         session_id: Some(session_id),

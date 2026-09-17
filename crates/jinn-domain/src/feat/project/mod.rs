@@ -13,21 +13,8 @@ pub mod resolver;
 
 use std::path::PathBuf;
 
+use jinn_tools_msg::CommandPolicyRule;
 use serde::{Deserialize, Serialize};
-
-/// One blocked-command rule enforced by the bash tool inside a project.
-///
-/// A rule pairs a user-authored regex with the corrective message returned
-/// when the regex matches a command. Rules are advisory-strength by design:
-/// they exist to stop well-trained habits (like `cargo test -p` in a
-/// whole-workspace repo), not to resist a determined actor.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CommandPolicyRule {
-    /// Regex matched against the full command string.
-    pub pattern: String,
-    /// Message returned in the failed tool result when [`Self::pattern`] matches.
-    pub message: String,
-}
 
 /// A curated project directory shown in the project picker.
 ///

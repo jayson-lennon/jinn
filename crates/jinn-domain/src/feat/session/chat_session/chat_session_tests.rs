@@ -2157,12 +2157,12 @@ fn append_tool_result_output_appends_to_pending_entry() {
     session.append_tool_result_output(
         "call_1",
         "line 1\n",
-        crate::feat::tools_actor::protocol::event::ToolOutputKind::Normal,
+        jinn_tools_msg::ToolOutputKind::Normal,
     );
     session.append_tool_result_output(
         "call_1",
         "line 2\n",
-        crate::feat::tools_actor::protocol::event::ToolOutputKind::Normal,
+        jinn_tools_msg::ToolOutputKind::Normal,
     );
 
     // Then the entry content has both outputs.
@@ -2197,7 +2197,7 @@ fn append_tool_result_output_bumps_history_activity_timestamp() {
     session.append_tool_result_output(
         "call_1",
         "tick",
-        crate::feat::tools_actor::protocol::event::ToolOutputKind::Normal,
+        jinn_tools_msg::ToolOutputKind::Normal,
     );
 
     // Then the activity timestamp advanced past its pre-append value.
@@ -2215,7 +2215,7 @@ fn append_tool_result_output_ignores_unknown_call_id() {
     session.append_tool_result_output(
         "unknown",
         "output",
-        crate::feat::tools_actor::protocol::event::ToolOutputKind::Normal,
+        jinn_tools_msg::ToolOutputKind::Normal,
     );
     assert!(session.history().is_empty());
 }
@@ -2231,7 +2231,7 @@ fn finalize_tool_result_completes_pending_entry() {
     session.append_tool_result_output(
         "call_1",
         "building...\n",
-        crate::feat::tools_actor::protocol::event::ToolOutputKind::Normal,
+        jinn_tools_msg::ToolOutputKind::Normal,
     );
 
     // When finalizing with success.
@@ -2399,8 +2399,8 @@ fn finalize_tool_result_updates_existing_with_truncation() {
     session.push_entry(pending);
 
     // When finalizing with truncation data.
-    let meta = jinn_provider::tool_types::TruncationMeta {
-        truncated_by: jinn_provider::tool_types::TruncatedBy::Bytes,
+    let meta = jinn_core_types::tool_types::TruncationMeta {
+        truncated_by: jinn_core_types::tool_types::TruncatedBy::Bytes,
         total_lines: 50,
         total_bytes: 1000,
         output_lines: 25,
@@ -2443,8 +2443,8 @@ fn finalize_tool_result_pushes_new_with_truncation_when_no_existing() {
     let mut session = ChatSessionState::new();
 
     // When finalizing with truncation but no existing entry.
-    let meta = jinn_provider::tool_types::TruncationMeta {
-        truncated_by: jinn_provider::tool_types::TruncatedBy::Bytes,
+    let meta = jinn_core_types::tool_types::TruncationMeta {
+        truncated_by: jinn_core_types::tool_types::TruncatedBy::Bytes,
         total_lines: 50,
         total_bytes: 1000,
         output_lines: 25,

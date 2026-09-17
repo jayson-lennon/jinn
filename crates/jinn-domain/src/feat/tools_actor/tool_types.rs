@@ -13,7 +13,7 @@ use crate::common::state::State;
 use crate::protocol::SessionId;
 
 // Re-export provider types.
-pub use jinn_provider::tool_types::ToolResultPinPosition;
+pub use jinn_core_types::tool_types::ToolResultPinPosition;
 pub use jinn_provider::{ToolCall, ToolDefinition, ToolResult};
 
 /// Context provided to every built-in tool at execution time.
@@ -27,7 +27,7 @@ pub struct ToolContext {
     pub cwd: PathBuf,
     /// Compiled blocked-command rules for the project containing [`Self::cwd`],
     /// if any. Only `bash` consults it; an empty policy matches nothing.
-    pub command_policy: crate::feat::tools_actor::command_policy::CompiledCommandPolicy,
+    pub command_policy: jinn_tools_msg::CompiledCommandPolicy,
     /// Optional execution timeout.
     pub timeout: Option<Duration>,
     /// Shared application state (only available for tools that need it).
@@ -67,7 +67,7 @@ pub struct ToolContext {
     /// In-flight subagent spawn registry — read by the stall watchdog to
     /// skip sessions suspended on a `task` call, and written by the `task`
     /// tool through its drop-guard. `None` in tests.
-    pub task_spawns: Option<crate::feat::tools_actor::task_registry::TaskSpawnRegistry>,
+    pub task_spawns: Option<jinn_tools_msg::TaskSpawnRegistry>,
     /// Session store — `Some` only for the `session_search`/`session_fetch`
     /// tools, which read persisted history across all sessions. Resolved
     /// from `services.session_store` at dispatch time. `None` in tests that
@@ -105,7 +105,7 @@ mod tests {
         let ctx = ToolContext {
             cwd: PathBuf::from("/tmp/test"),
             command_policy:
-                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                jinn_tools_msg::CompiledCommandPolicy::default(),
             timeout: Some(std::time::Duration::from_secs(30)),
             state: None,
             session_id: Some(crate::protocol::SessionId::new()),

@@ -14,6 +14,7 @@ jinn-theme = { workspace = true }
 # capability plumbing, and the route actions reuse kernel feature helpers.
 # The kernel never depends back on this crate.
 jinn-domain = { workspace = true }
+jinn-tools-msg = { workspace = true }
 jinn-picker = { workspace = true }
 kameo = { workspace = true }
 error-stack = { workspace = true }

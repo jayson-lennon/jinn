@@ -1405,7 +1405,7 @@ fn task_waiting_fixture(
     child_phase: Option<crate::feat::session::phase_machine::PhaseKind>,
 ) -> AppState {
     use crate::feat::session::chat_entry::ChatEntryKind;
-    use crate::feat::tools_actor::task::TASK_TOOL_NAME;
+    use jinn_tools_msg::TASK_TOOL_NAME;
 
     let mut state = AppState::default_with_scope_focus();
     let call_id = "tc_task_render";
@@ -1502,7 +1502,7 @@ fn waiting_line_absent_for_non_task_tool_call() {
 
 #[rstest::rstest]
 fn waiting_line_absent_when_task_call_has_paired_result() {
-    use crate::feat::tools_actor::task::TASK_TOOL_NAME;
+    use jinn_tools_msg::TASK_TOOL_NAME;
 
     // Given a task call with its completed (paired) result.
     let mut element = ChatLogElement::new();
@@ -1540,7 +1540,7 @@ fn waiting_line_absent_when_task_call_has_paired_result() {
 
 #[rstest::rstest]
 fn waiting_line_absent_when_child_not_in_memory() {
-    use crate::feat::tools_actor::task::TASK_TOOL_NAME;
+    use jinn_tools_msg::TASK_TOOL_NAME;
 
     // Given a linked task call whose child session is not loaded.
     let mut element = ChatLogElement::new();
@@ -1643,7 +1643,7 @@ fn content_row(
 
 #[rstest::rstest]
 fn task_call_entry_renders_on_subagent_block() {
-    use crate::feat::tools_actor::task::TASK_TOOL_NAME;
+    use jinn_tools_msg::TASK_TOOL_NAME;
 
     // Given a session containing only a pending task call.
     let mut element = ChatLogElement::new();
@@ -1722,7 +1722,7 @@ fn non_task_call_entry_does_not_use_subagent_block() {
 
 #[rstest::rstest]
 fn completed_task_result_shows_finished_status_row() {
-    use crate::feat::tools_actor::task::TASK_TOOL_NAME;
+    use jinn_tools_msg::TASK_TOOL_NAME;
 
     // Given a task call with its completed success result.
     let mut element = ChatLogElement::new();

@@ -9,6 +9,7 @@ jinn-mcp-msg = { workspace = true }
 # through a SessionCap and consumes session lifecycle events — the sync
 # SliceActionState capability pattern does not fit async kameo actors.
 jinn-domain = { workspace = true }
+jinn-tools-msg = { workspace = true }
 jinn-mcp = { workspace = true }
 jinn-slices = { workspace = true }
 async-trait = { workspace = true }

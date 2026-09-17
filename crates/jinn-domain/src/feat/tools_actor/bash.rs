@@ -19,7 +19,7 @@ use crate::feat::tools_actor::protocol::event::{
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition, ToolResult};
 use crate::protocol::SessionId;
 
-use super::truncation::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_tail};
+use jinn_tools_msg::truncation::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_tail};
 
 use super::BoxedToolFuture;
 
@@ -219,7 +219,7 @@ fn format_exit_result(
         if let Some(meta) = truncation_result.meta {
             let start_line = meta.total_lines.saturating_sub(meta.output_lines) + 1;
             let end_line = meta.total_lines;
-            let notice = if meta.truncated_by == jinn_provider::tool_types::TruncatedBy::Bytes {
+            let notice = if meta.truncated_by == jinn_core_types::tool_types::TruncatedBy::Bytes {
                 format!(
                     "\n\n[Showing lines {start_line}-{end_line} of {} ({} limit)]",
                     meta.total_lines,
@@ -580,14 +580,14 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::feat::tools_actor::command_policy::CompiledCommandPolicy;
+    use jinn_tools_msg::CompiledCommandPolicy;
     use std::path::PathBuf;
 
     fn test_ctx() -> ToolContext {
         ToolContext {
             cwd: PathBuf::from("/tmp"),
             command_policy:
-                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                jinn_tools_msg::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -630,7 +630,7 @@ mod tests {
         let sentinel = dir.path().join("sentinel");
         let ctx = ctx_with_policy(
             dir.path(),
-            CompiledCommandPolicy::compile(&[crate::feat::project::CommandPolicyRule {
+            CompiledCommandPolicy::compile(&[jinn_tools_msg::CommandPolicyRule {
                 pattern: r"cargo\s+(test|t)\b.*\s-p\b".to_owned(),
                 message: "use just test".to_owned(),
             }]),
@@ -671,7 +671,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let ctx = ctx_with_policy(
             dir.path(),
-            CompiledCommandPolicy::compile(&[crate::feat::project::CommandPolicyRule {
+            CompiledCommandPolicy::compile(&[jinn_tools_msg::CommandPolicyRule {
                 pattern: r"cargo\s+(test|t)\b.*\s-p\b".to_owned(),
                 message: "use just test".to_owned(),
             }]),
@@ -794,7 +794,7 @@ mod tests {
         let ctx = ToolContext {
             cwd: dir.path().to_owned(),
             command_policy:
-                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                jinn_tools_msg::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,

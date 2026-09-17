@@ -1,14 +1,14 @@
 //! Tool prompt context builder - assembles "Available tools" and "Tool guidelines"
 //! sections for the system prompt from registered tool definitions.
 //!
-//! Each tool can optionally carry a [`prompt_snippet`](jinn_provider::ToolDefinition::prompt_snippet)
-//! (a one-line summary) and [`prompt_guidelines`](jinn_provider::ToolDefinition::prompt_guidelines)
+//! Each tool can optionally carry a [`prompt_snippet`](jinn_core_types::ToolDefinition::prompt_snippet)
+//! (a one-line summary) and [`prompt_guidelines`](jinn_core_types::ToolDefinition::prompt_guidelines)
 //! (behavioral bullet points). This module collects them from all registered tools
 //! and formats them into a single string for injection into the system prompt.
 
 use std::collections::BTreeMap;
 
-use crate::protocol::ToolDefinition;
+use jinn_core_types::ToolDefinition;
 
 /// Builds the tool context block for the system prompt.
 ///

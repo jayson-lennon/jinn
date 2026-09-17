@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::tool_types::ToolCall;
+use jinn_core_types::tool_types::ToolCall;
 
 /// A single message in an LLM conversation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -25,13 +25,7 @@ use jinn_term_msg::settle::default_max_wait;
 
 use super::BoxedToolFuture;
 use super::interactive_term::{failure_result, parse, success_result};
-
-/// The notice returned when the user holds control. Wording is the product
-/// decision: it instructs the model to stop and wait — there is no
-/// programmatic enforcement.
-pub const USER_HAS_CONTROL_NOTICE: &str = "NOTE: The user has taken control of this terminal. \
-     Stop your current response and wait for the user to finish; \
-     they will hand the terminal back with a screen update.";
+use jinn_tools_msg::notices::USER_HAS_CONTROL_NOTICE;
 
 /// Defensive outer bound on the ask; mirrors the spawn tool.
 const ASK_MARGIN: Duration = Duration::from_secs(5);

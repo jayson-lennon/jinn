@@ -12,7 +12,8 @@ use jinn_core_types::SessionId;
 use crate::feat::context::env_context::ContextFile;
 use crate::feat::persona::Persona;
 use crate::feat::skills::Skill;
-use crate::protocol::{ChatEntry, ToolDefinition};
+use crate::protocol::ChatEntry;
+use jinn_core_types::ToolDefinition;
 
 /// Everything assembly needs, provided by the caller.
 ///

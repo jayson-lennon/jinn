@@ -15,6 +15,7 @@ ratatui = { workspace = true }
 # SessionClosed event, writes app state through the tcaps caps, and its
 # deps carry ActorDeps — the sidebar-actor precedent for in-slice actors.
 jinn-domain = { workspace = true }
+jinn-tools-msg = { workspace = true }
 kameo = { workspace = true }
 portable-pty = { workspace = true }
 vt100 = { workspace = true }

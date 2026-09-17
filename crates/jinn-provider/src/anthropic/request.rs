@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::Attachment;
 use crate::LlmMessage;
-use crate::tool_types::ToolDefinition;
+use jinn_core_types::tool_types::ToolDefinition;
 
 /// Top-level request body for Anthropic Messages API.
 #[derive(Debug, Serialize)]
@@ -226,7 +226,7 @@ mod tests {
     fn assistant_with_tool_calls_uses_content_blocks() {
         let json = message_to_json(&LlmMessage::Assistant {
             content: String::new(),
-            tool_calls: Some(vec![crate::tool_types::ToolCall {
+            tool_calls: Some(vec![jinn_core_types::tool_types::ToolCall {
                 id: "toolu_1".into(),
                 name: "echo".into(),
                 arguments: r#"{"x":1}"#.into(),

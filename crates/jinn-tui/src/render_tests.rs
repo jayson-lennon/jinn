@@ -393,7 +393,7 @@ async fn mcp_inspector_tools_pane_renders_tool_names() {
         let registry_cell = app
             .services
             .slices
-            .reader::<jinn_slices::ToolRegistry>(&jinn_slices::tools_registry_slot())
+            .reader::<jinn_tools_msg::ToolRegistry>(&jinn_tools_msg::tools_registry_slot())
             .expect("tools registry seeded by render test app");
         let session_id = {
             let w = app.core.state.read();
@@ -403,7 +403,7 @@ async fn mcp_inspector_tools_pane_renders_tool_names() {
         let mut defs = std::collections::BTreeMap::new();
         defs.insert(
             "mcp__excalimate__create_scene".to_owned(),
-            jinn_domain::ToolDefinition {
+            jinn_core_types::ToolDefinition {
                 name: "mcp__excalimate__create_scene".to_owned(),
                 description: "Create a scene".to_owned(),
                 parameters: serde_json::Value::Object(serde_json::Map::new()),

@@ -154,7 +154,7 @@ mod tests {
         ToolContext {
             cwd: PathBuf::from("/tmp"),
             command_policy:
-                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                jinn_tools_msg::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -405,7 +405,7 @@ mod tests {
         let ctx = ToolContext {
             cwd: dir.path().to_owned(),
             command_policy:
-                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                jinn_tools_msg::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,

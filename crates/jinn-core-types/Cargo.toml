@@ -5,11 +5,11 @@ edition.workspace = true
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
-serde_json = { workspace = true }
 
 [lints]
 workspace = true

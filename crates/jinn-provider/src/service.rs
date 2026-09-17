@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::llm_message::LlmMessage;
 use crate::stream_event::StopReason;
 use crate::stream_event::StreamEvent;
-use crate::tool_types::ToolDefinition;
+use jinn_core_types::tool_types::ToolDefinition;
 use error_stack::Report;
 use futures::StreamExt as _;
 use futures::stream;

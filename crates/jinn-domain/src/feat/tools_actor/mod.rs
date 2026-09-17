@@ -12,55 +12,8 @@
 //! (for resolving relative paths) and an optional timeout. The orchestrator
 //! reads CWD from shared [`State`] at dispatch time.
 
-use serde::{Deserialize, Serialize};
+use crate::feat::preferences_actor::user_preferences::OpenrouterWebSearchConfig;
 
-/// OpenRouter web search server tool configuration.
-///
-/// Serialized as `[openrouter_web_search]` in `jinn.toml`.
-/// Controls parameters sent to the `openrouter:web_search` server tool.
-/// All fields are optional - when `None`, the parameter is omitted from
-/// the request and OpenRouter uses its default.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct OpenrouterWebSearchConfig {
-    /// Search engine: "auto", "native", "exa", "firecrawl", or "parallel".
-    /// Default: "exa".
-    #[serde(default)]
-    pub engine: Option<String>,
-
-    /// Maximum results per search call (1–25). `None` = OpenRouter default (5).
-    #[serde(default)]
-    pub max_results: Option<u32>,
-
-    /// Maximum total results across all searches in one request.
-    #[serde(default)]
-    pub max_total_results: Option<u32>,
-
-    /// How much context to retrieve: "low", "medium", or "high".
-    /// `None` = OpenRouter picks adaptively.
-    #[serde(default)]
-    pub search_context_size: Option<String>,
-
-    /// Only return results from these domains.
-    #[serde(default)]
-    pub allowed_domains: Option<Vec<String>>,
-
-    /// Exclude results from these domains.
-    #[serde(default)]
-    pub excluded_domains: Option<Vec<String>>,
-}
-
-impl Default for OpenrouterWebSearchConfig {
-    fn default() -> Self {
-        Self {
-            engine: Some("exa".to_owned()),
-            max_results: None,
-            max_total_results: None,
-            search_context_size: None,
-            allowed_domains: None,
-            excluded_domains: None,
-        }
-    }
-}
 pub mod bash;
 pub mod command_policy;
 pub mod edit;
@@ -86,9 +39,7 @@ pub mod task_registry;
 pub mod task_settle_listener_actor;
 #[cfg(test)]
 mod task_tests;
-pub mod tool_entry;
 pub mod tool_types;
-pub mod truncation;
 pub(crate) mod visible_lines;
 pub mod write;
 
@@ -112,7 +63,7 @@ use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition
 use crate::protocol::SessionId;
 use jiff::Timestamp;
 use jinn_mcp_msg::McpConnectionStatus;
-use jinn_provider::ServerToolType;
+use jinn_core_types::ServerToolType;
 use kameo::prelude::{Actor, ActorRef, Context, Message};
 
 /// Prefix for all MCP-provided tool `provider` values. A provider like
@@ -572,12 +523,13 @@ impl ToolOrchestratorActor {
         let max_output_bytes = prefs.max_tool_output_bytes;
         let timeout = std::time::Duration::from_secs(prefs.tool_default_timeout_secs);
         let command_policy = {
-            use crate::feat::tools_actor::command_policy::{self, CompiledCommandPolicy};
-            let rules = command_policy::resolve_project_rules(
-                &prefs.projects,
-                &cwd,
-                self.services.paths.home_dir(),
-            );
+            use jinn_tools_msg::CompiledCommandPolicy;
+            let rules =
+                crate::feat::tools_actor::command_policy::resolve_project_rules(
+                    &prefs.projects,
+                    &cwd,
+                    self.services.paths.home_dir(),
+                );
             CompiledCommandPolicy::compile(&rules)
         };
         ToolContext {
@@ -941,92 +893,6 @@ async fn run_builtin_with_timeout(
 }
 
 #[cfg(test)]
-mod openrouter_web_search_config_tests {
-    #![allow(clippy::expect_used, clippy::indexing_slicing, reason = "test code")]
-    use tempfile::TempDir;
-
-    use super::OpenrouterWebSearchConfig;
-    use crate::common::app_info::PREFS_FILE_NAME;
-    use crate::feat::preferences_actor::user_preferences::load_preferences_from;
-
-    #[rstest::rstest]
-    fn load_parses_openrouter_web_search_config() {
-        let dir = TempDir::new().expect("temp dir");
-        let path = dir.path().join(PREFS_FILE_NAME);
-        std::fs::write(
-            &path,
-            r#"[openrouter_web_search]
-engine = "parallel"
-max_results = 5
-max_total_results = 20
-search_context_size = "medium"
-allowed_domains = ["nature.com", "arxiv.org"]
-excluded_domains = ["spam.com"]
-"#,
-        )
-        .expect("write");
-
-        let prefs = load_preferences_from(&path).expect("load");
-
-        assert_eq!(
-            prefs.openrouter_web_search.engine.as_deref(),
-            Some("parallel")
-        );
-        assert_eq!(prefs.openrouter_web_search.max_results, Some(5));
-        assert_eq!(prefs.openrouter_web_search.max_total_results, Some(20));
-        assert_eq!(
-            prefs.openrouter_web_search.search_context_size.as_deref(),
-            Some("medium")
-        );
-        assert_eq!(
-            prefs.openrouter_web_search.allowed_domains,
-            Some(vec!["nature.com".to_owned(), "arxiv.org".to_owned()])
-        );
-        assert_eq!(
-            prefs.openrouter_web_search.excluded_domains,
-            Some(vec!["spam.com".to_owned()])
-        );
-    }
-
-    #[rstest::rstest]
-    fn load_without_openrouter_web_search_section_uses_defaults() {
-        let dir = TempDir::new().expect("temp dir");
-        let path = dir.path().join(PREFS_FILE_NAME);
-        std::fs::write(
-            &path,
-            r#"last_model = "ollama/llama3"
-"#,
-        )
-        .expect("write");
-
-        let prefs = load_preferences_from(&path).expect("load");
-
-        let defaults = OpenrouterWebSearchConfig::default();
-        assert_eq!(prefs.openrouter_web_search.engine, defaults.engine);
-        assert_eq!(
-            prefs.openrouter_web_search.max_results,
-            defaults.max_results
-        );
-        assert_eq!(
-            prefs.openrouter_web_search.max_total_results,
-            defaults.max_total_results
-        );
-        assert_eq!(
-            prefs.openrouter_web_search.search_context_size,
-            defaults.search_context_size
-        );
-        assert_eq!(
-            prefs.openrouter_web_search.allowed_domains,
-            defaults.allowed_domains
-        );
-        assert_eq!(
-            prefs.openrouter_web_search.excluded_domains,
-            defaults.excluded_domains
-        );
-    }
-}
-
-#[cfg(test)]
 mod timeout_tests {
     #![allow(clippy::expect_used, clippy::indexing_slicing, reason = "test code")]
     use std::path::PathBuf;
@@ -1035,7 +901,7 @@ mod timeout_tests {
     use super::{BoxedToolFuture, ToolContext, run_builtin_with_timeout};
     use crate::common::app_paths::AppPaths;
     use crate::feat::preferences_actor::user_preferences::UserPreferences;
-    use jinn_provider::tool_types::{ToolCall, ToolResult};
+    use jinn_core_types::tool_types::{ToolCall, ToolResult};
 
     fn make_call() -> ToolCall {
         ToolCall {
@@ -1049,7 +915,7 @@ mod timeout_tests {
         ToolContext {
             cwd: PathBuf::from("/tmp"),
             command_policy:
-                crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                jinn_tools_msg::CompiledCommandPolicy::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -1281,7 +1147,7 @@ mod panic_safety_tests {
     use futures::FutureExt as _;
 
     use super::panicked_tool_result;
-    use jinn_provider::tool_types::{ToolCall, ToolResult};
+    use jinn_core_types::tool_types::{ToolCall, ToolResult};
 
     #[rstest::rstest]
     #[tokio::test]
@@ -1304,7 +1170,7 @@ mod panic_safety_tests {
             super::ToolContext {
                 cwd: std::path::PathBuf::from("/tmp"),
                 command_policy:
-                    crate::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+                    jinn_tools_msg::CompiledCommandPolicy::default(),
                 timeout: None,
                 state: None,
                 session_id: None,
@@ -1362,7 +1228,7 @@ mod routing_lookup_tests {
     use std::collections::HashMap;
 
     use super::{ToolRegistration, lookup_registration};
-    use jinn_provider::ToolDefinition;
+    use jinn_core_types::ToolDefinition;
 
     fn actor_reg(name: &str, provider: &str) -> ToolRegistration {
         ToolRegistration::Actor {

@@ -21,6 +21,7 @@ pub mod session_spec;
 pub mod skill_spec;
 pub mod task_list_spec;
 pub mod theme_spec;
+pub mod tool_entry;
 pub mod tool_spec;
 
 pub mod style;

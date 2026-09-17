@@ -9,7 +9,7 @@
 
 use crate::StreamEvent;
 use crate::stream_event::{StopReason, StreamUsage};
-use crate::tool_types::ToolCall;
+use jinn_core_types::tool_types::ToolCall;
 
 /// Stateful parser for Google Gemini streaming responses.
 #[derive(Debug, Default)]

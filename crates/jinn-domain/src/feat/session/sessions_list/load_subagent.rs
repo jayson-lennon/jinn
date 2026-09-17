@@ -8,7 +8,7 @@
 
 use crate::common::app_state::AppState;
 use crate::feat::session::chat_entry::ChatEntryKind;
-use crate::feat::tools_actor::task::TASK_TOOL_NAME;
+use jinn_tools_msg::TASK_TOOL_NAME;
 use crate::protocol::{IntentResult, SessionId};
 use wherror::Error;
 

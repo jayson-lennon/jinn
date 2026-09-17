@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use crate::StreamEvent;
 use crate::stream_event::{StopReason, StreamUsage};
-use crate::tool_types::ToolCall;
+use jinn_core_types::tool_types::ToolCall;
 
 /// State tracked per content block index for tool use.
 #[derive(Debug, Default)]

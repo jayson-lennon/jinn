@@ -9,6 +9,7 @@ base64 = { workspace = true }
 error-stack = { workspace = true }
 futures = { workspace = true }
 jiff = { workspace = true }
+jinn-core-types = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }

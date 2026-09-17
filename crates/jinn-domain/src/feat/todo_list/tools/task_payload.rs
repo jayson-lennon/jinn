@@ -22,7 +22,7 @@
 //! payload is fully validated here before any task list state is touched, so
 //! the writers can build their replacement atomically.
 
-use crate::feat::todo_list::{PhaseInput, TaskStatus};
+use jinn_tools_msg::{PhaseInput, TaskStatus};
 
 /// Parses the `status` field of one task entry.
 ///

@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::Attachment;
 use crate::LlmMessage;
-use crate::tool_types::ToolDefinition;
+use jinn_core_types::tool_types::ToolDefinition;
 
 /// Top-level request body for OpenAI-compatible chat completions.
 #[derive(Debug, Serialize)]
@@ -203,8 +203,8 @@ fn message_to_json(msg: &LlmMessage) -> serde_json::Value {
     }
 }
 
-/// Convert a [`crate::tool_types::ToolCall`] to OpenAI-format JSON.
-fn tool_call_to_json(tc: &crate::tool_types::ToolCall) -> serde_json::Value {
+/// Convert a [`jinn_core_types::tool_types::ToolCall`] to OpenAI-format JSON.
+fn tool_call_to_json(tc: &jinn_core_types::tool_types::ToolCall) -> serde_json::Value {
     serde_json::json!({
         "id": tc.id,
         "type": "function",
@@ -249,7 +249,7 @@ fn tool_definition_to_json(def: &ToolDefinition) -> serde_json::Value {
 mod tests {
     #![allow(clippy::expect_used, clippy::indexing_slicing, reason = "test code")]
     use super::*;
-    use crate::tool_types::ServerToolType;
+    use jinn_core_types::tool_types::ServerToolType;
 
     #[rstest::rstest]
     fn build_request_includes_model_and_stream() {
@@ -386,7 +386,7 @@ mod tests {
     fn assistant_with_tool_calls_serializes_correctly() {
         let json = message_to_json(&LlmMessage::Assistant {
             content: String::new(),
-            tool_calls: Some(vec![crate::tool_types::ToolCall {
+            tool_calls: Some(vec![jinn_core_types::tool_types::ToolCall {
                 id: "call_1".into(),
                 name: "echo".into(),
                 arguments: r#"{"x":1}"#.into(),
@@ -456,7 +456,7 @@ mod tests {
         let messages = vec![
             LlmMessage::Assistant {
                 content: "checking".into(),
-                tool_calls: Some(vec![crate::tool_types::ToolCall {
+                tool_calls: Some(vec![jinn_core_types::tool_types::ToolCall {
                     id: "call_1".into(),
                     name: "echo".into(),
                     arguments: "{}".into(),
@@ -601,7 +601,7 @@ mod tests {
             },
             LlmMessage::Assistant {
                 content: "looking".into(),
-                tool_calls: Some(vec![crate::tool_types::ToolCall {
+                tool_calls: Some(vec![jinn_core_types::tool_types::ToolCall {
                     id: "call_1".into(),
                     name: "get_weather".into(),
                     arguments: "{}".into(),
@@ -670,7 +670,7 @@ mod tests {
             },
             LlmMessage::Assistant {
                 content: "Let me check.".into(),
-                tool_calls: Some(vec![crate::tool_types::ToolCall {
+                tool_calls: Some(vec![jinn_core_types::tool_types::ToolCall {
                     id: "call_1".into(),
                     name: "get_weather".into(),
                     arguments: r#"{"city":"SF"}"#.into(),

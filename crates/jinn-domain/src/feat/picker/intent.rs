@@ -245,7 +245,7 @@ mod tests {
     }
     use crate::feat::session::ChatSessionState;
     use crate::feat::session::model_selection::AlloyStrategy;
-    use crate::feat::todo_list::TaskStatus;
+    use jinn_tools_msg::TaskStatus;
     use crate::feat::todo_list::picker_entry::RowStatus;
     use jinn_selection_widget::TreeItem;
     #[rstest::rstest]
@@ -414,8 +414,8 @@ mod tests {
         );
     }
 
-    fn setup_state_with_task_list() -> (AppState, crate::feat::todo_list::TaskId) {
-        use crate::feat::todo_list::{PhaseInput, TaskStatus};
+    fn setup_state_with_task_list() -> (AppState, jinn_tools_msg::TaskId) {
+        use jinn_tools_msg::{PhaseInput, TaskStatus};
 
         let mut state = AppState::default_with_scope_focus();
         let mut origin = ChatSessionState::new();

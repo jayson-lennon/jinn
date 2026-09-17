@@ -195,7 +195,7 @@ pub struct SessionCoreEphemeral {
     /// transitions the session to `Sending`, so the continuation is dispatched
     /// instead of the batch being dropped as stale. OWNER: session-actor.
     #[serde(skip)]
-    pub pending_tool_batch: Option<Vec<crate::feat::tools_actor::tool_types::ToolResult>>,
+    pub pending_tool_batch: Option<Vec<jinn_core_types::tool_types::ToolResult>>,
 }
 
 // Core session state - owned by session-actor and context-actor.
@@ -351,7 +351,7 @@ pub struct SessionCore {
     /// Phased task list for agent session planning.
     /// OWNER: tools-actor (mutated by task list tools).
     #[serde(default)]
-    pub task_list: crate::feat::todo_list::TaskList,
+    pub task_list: jinn_tools_msg::TaskList,
     /// Names of MCP servers (`jinn.toml` `[[mcp_server]].name`) enabled for
     /// this session. Off by default — enabling spawns a dedicated `McpActor`
     /// and its child-process connection; disabling kills both. Persisted with
@@ -403,7 +403,7 @@ impl Default for SessionCore {
             lifecycle_script_state: LifecycleScriptState::NothingRan,
             persist: true,
 
-            task_list: crate::feat::todo_list::TaskList::default(),
+            task_list: jinn_tools_msg::TaskList::default(),
             enabled_mcp_servers: std::collections::BTreeSet::new(),
             mcp_server_status: std::collections::BTreeMap::new(),
             mcp_server_stderr: std::collections::BTreeMap::new(),
@@ -1639,7 +1639,7 @@ impl ChatSessionState {
         &mut self,
         tool_call_id: &str,
         output: &str,
-        kind: crate::feat::tools_actor::protocol::event::ToolOutputKind,
+        kind: jinn_tools_msg::ToolOutputKind,
     ) {
         let Some(&history_index) = self
             .core
@@ -1660,7 +1660,7 @@ impl ChatSessionState {
                 } = entry.kind
                 {
                     content.push_str(output);
-                    if kind == crate::feat::tools_actor::protocol::event::ToolOutputKind::Alert {
+                    if kind == jinn_tools_msg::ToolOutputKind::Alert {
                         *is_alert = true;
                     }
                 }
@@ -1686,7 +1686,7 @@ impl ChatSessionState {
         content: &str,
         status: crate::feat::session::tool_result_status::ToolResultStatus,
         full_content: Option<String>,
-        truncation: Option<jinn_provider::tool_types::TruncationMeta>,
+        truncation: Option<jinn_core_types::tool_types::TruncationMeta>,
         pin_position: Option<PinPosition>,
     ) -> bool {
         let streaming_index = self
@@ -1747,7 +1747,7 @@ impl ChatSessionState {
         content: &str,
         success: bool,
         full_content: Option<String>,
-        truncation: Option<jinn_provider::tool_types::TruncationMeta>,
+        truncation: Option<jinn_core_types::tool_types::TruncationMeta>,
         pin_position: Option<PinPosition>,
     ) {
         let status = if success {
@@ -3051,12 +3051,12 @@ impl ChatSessionState {
     }
 
     /// Read-only access to this session's task list.
-    pub fn task_list(&self) -> &crate::feat::todo_list::TaskList {
+    pub fn task_list(&self) -> &jinn_tools_msg::TaskList {
         &self.core.task_list
     }
 
     /// Mutable access to this session's task list.
-    pub fn task_list_mut(&mut self) -> &mut crate::feat::todo_list::TaskList {
+    pub fn task_list_mut(&mut self) -> &mut jinn_tools_msg::TaskList {
         &mut self.core.task_list
     }
 

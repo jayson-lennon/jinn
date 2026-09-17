@@ -379,8 +379,8 @@ use crate::common::tcaps::mint::mint_session_cap;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::protocol::citations_received::CitationsReceived;
 use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
-use crate::feat::tools_actor::protocol::event::ToolCallReceived;
-use crate::feat::tools_actor::tool_types::ToolCall;
+use jinn_tools_msg::ToolCallReceived;
+use jinn_core_types::tool_types::ToolCall;
 use crate::protocol::SessionId;
 
 /// Seeds one history entry into a session for `final_answer` tests.
@@ -748,9 +748,9 @@ async fn truncated_result_forwards_full_content_to_guest() {
     let clipped: String = full_json.chars().take(40).collect();
     harness
         .publish(
-            crate::feat::tools_actor::protocol::event::ToolExecutionCompleted {
+            jinn_tools_msg::ToolExecutionCompleted {
                 session_id: SessionId::new(),
-                result: crate::feat::tools_actor::tool_types::ToolResult {
+                result: jinn_core_types::tool_types::ToolResult {
                     tool_call_id: "call_trunc".to_owned(),
                     name: "mcp__parallel__web_search".to_owned(),
                     content: clipped.clone(),
@@ -996,7 +996,7 @@ async fn mirror_with_bad_session_id_is_dropped() {
 
 use crate::feat::provider::protocol::command::SendToLlmProvider;
 use crate::feat::provider::protocol::event::{StreamCompleted, StreamCompletedReason, StreamToken};
-use crate::feat::tools_actor::protocol::event::{ToolCallStreaming, ToolUseStarted};
+use jinn_tools_msg::{ToolCallStreaming, ToolUseStarted};
 
 /// Builds a minimal `SendToLlmProvider` via its serde shape (most fields
 /// carry `#[serde(default)]`; the tests only care about `session_id`).

@@ -13,7 +13,7 @@
 
 // Re-export truncation types from the provider crate so domain code can
 // reference them without depending on the provider directly.
-pub use jinn_provider::tool_types::{TruncatedBy, TruncationMeta};
+pub use jinn_core_types::tool_types::{TruncatedBy, TruncationMeta};
 
 /// Default maximum number of output lines.
 pub const DEFAULT_MAX_LINES: usize = 2000;

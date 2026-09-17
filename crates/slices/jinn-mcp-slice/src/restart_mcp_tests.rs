@@ -32,7 +32,8 @@ use jinn_domain::common::state::State;
 use jinn_domain::feat::mcp::McpServerConfig;
 use jinn_domain::feat::preferences_actor::UserPreferences;
 use jinn_domain::feat::tools_actor::restart_mcp::execute;
-use jinn_domain::feat::tools_actor::tool_types::{ToolCall, ToolContext};
+use jinn_domain::feat::tools_actor::tool_types::ToolContext;
+use jinn_core_types::tool_types::ToolCall;
 use jinn_domain::protocol::SessionId;
 use jinn_mcp_msg::{RestartError, RestartMcpServer};
 use kameo::actor::Spawn;
@@ -111,7 +112,7 @@ fn ctx_with_coordinator(
     ToolContext {
         cwd: PathBuf::from("/tmp"),
         command_policy:
-            jinn_domain::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+            jinn_tools_msg::CompiledCommandPolicy::default(),
         timeout: None,
         state: Some(state),
         session_id: Some(session_id),
@@ -205,7 +206,7 @@ async fn execute_fails_when_coordinator_ref_is_none() {
     let ctx = ToolContext {
         cwd: PathBuf::from("/tmp"),
         command_policy:
-            jinn_domain::feat::tools_actor::command_policy::CompiledCommandPolicy::default(),
+            jinn_tools_msg::CompiledCommandPolicy::default(),
         timeout: None,
         state: Some(State::new(AppState::default())),
         session_id: Some(session_id),

@@ -2,11 +2,11 @@
 
 use crate::feat::theme::Theme;
 use jinn_mcp_msg::McpConnectionStatus;
-use jinn_provider::ToolDefinition;
+use jinn_core_types::ToolDefinition;
 
 /// An MCP server entry ready for display in the MCP inspector.
 ///
-/// Mirrors [`ToolEntry`](crate::feat::tools_actor::tool_entry::ToolEntry): a
+/// Mirrors [`ToolEntry`](crate::feat::picker::tool_entry::ToolEntry): a
 /// name plus a dim description, with a ✓/✗ marker showing the per-session
 /// enabled state. Rendering lives in the picker spec
 /// ([`mcp_server_spec`](crate::feat::picker::mcp_server_spec)); this type is

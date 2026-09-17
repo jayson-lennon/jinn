@@ -10,7 +10,7 @@ use crate::feat::context::strategy::token_estimator::{
     CharRatioEstimator, TiktokenCounter, TokenCounter, TokenEstimator, estimate_entry_tokens,
     estimate_tool_schema_tokens,
 };
-use crate::feat::tools_actor::tool_types::ToolDefinition;
+use jinn_core_types::tool_types::ToolDefinition;
 use crate::protocol::{ChatEntry, PinPosition};
 
 #[rstest::rstest]

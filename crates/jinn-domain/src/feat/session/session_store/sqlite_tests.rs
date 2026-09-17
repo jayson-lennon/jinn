@@ -684,7 +684,7 @@ async fn fork_strips_suppressed_task_tool() {
         let profile = source.profile_mut();
         profile
             .disabled_tools
-            .insert(crate::feat::tools_actor::task::TASK_TOOL_NAME.to_owned());
+            .insert(jinn_tools_msg::TASK_TOOL_NAME.to_owned());
     }
     store.save(&source).await.expect("save source");
 
@@ -701,7 +701,7 @@ async fn fork_strips_suppressed_task_tool() {
         !forked
             .profile()
             .disabled_tools
-            .contains(crate::feat::tools_actor::task::TASK_TOOL_NAME),
+            .contains(jinn_tools_msg::TASK_TOOL_NAME),
         "a fork must not inherit the task suppression stamp, got: {:?}",
         forked.profile().disabled_tools
     );
@@ -740,7 +740,7 @@ async fn fork_preserves_other_disabled_tools() {
         !forked
             .profile()
             .disabled_tools
-            .contains(crate::feat::tools_actor::task::TASK_TOOL_NAME),
+            .contains(jinn_tools_msg::TASK_TOOL_NAME),
         "fork must not gain a task disable, got: {:?}",
         forked.profile().disabled_tools
     );

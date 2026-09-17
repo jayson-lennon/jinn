@@ -14,7 +14,7 @@ use crate::sections::section_trait::{
 use jinn_domain::common::app_state::AppState;
 use jinn_domain::common::render_ctx::RenderCtx;
 use jinn_domain::feat::theme::Theme;
-use jinn_domain::feat::todo_list::{Phase, PhaseId, TaskList};
+use jinn_tools_msg::{Phase, PhaseId, TaskList};
 use jinn_domain::protocol::IntentResult;
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -382,7 +382,7 @@ mod tests {
     use super::*;
     use jinn_domain::common::app_state::AppState;
     use jinn_domain::common::render_ctx::RenderCtx;
-    use jinn_domain::feat::todo_list::{PhaseInput, TaskStatus};
+    use jinn_tools_msg::{PhaseInput, TaskStatus};
 
     fn setup_with_tasks() -> AppState {
         let mut app = AppState::default_with_scope_focus();

@@ -534,8 +534,8 @@ fn tool_result_fingerprint_differs_with_truncation() {
         "line1".to_owned(),
         "line1\nline2".to_owned(),
         ToolResultStatus::Success,
-        jinn_provider::tool_types::TruncationMeta {
-            truncated_by: jinn_provider::tool_types::TruncatedBy::Lines,
+        jinn_core_types::tool_types::TruncationMeta {
+            truncated_by: jinn_core_types::tool_types::TruncatedBy::Lines,
             total_lines: 2,
             total_bytes: 19,
             output_lines: 1,
@@ -1126,8 +1126,8 @@ fn yank_text_tool_result_prefers_full_content_when_truncated() {
         "truncated slice\n[Showing lines 1-2 of 10]".to_owned(),
         "complete output\nwith all lines".to_owned(),
         ToolResultStatus::Success,
-        jinn_provider::tool_types::TruncationMeta {
-            truncated_by: jinn_provider::tool_types::TruncatedBy::Lines,
+        jinn_core_types::tool_types::TruncationMeta {
+            truncated_by: jinn_core_types::tool_types::TruncatedBy::Lines,
             total_lines: 10,
             total_bytes: 100,
             output_lines: 2,
@@ -1189,7 +1189,7 @@ fn task_tool_call_with_child_session_roundtrips_through_serde() {
     let child = SessionId::new();
     let mut entry = ChatEntry::tool_call(
         "call_1",
-        crate::feat::tools_actor::task::TASK_TOOL_NAME,
+        jinn_tools_msg::TASK_TOOL_NAME,
         "{}",
     );
     let ChatEntryKind::ToolCall { child_session, .. } = &mut entry.kind else {
@@ -1241,7 +1241,7 @@ fn tool_call_without_link_omits_child_session_key() {
     // Given a task ToolCall entry with no link.
     let entry = ChatEntry::tool_call(
         "call_1",
-        crate::feat::tools_actor::task::TASK_TOOL_NAME,
+        jinn_tools_msg::TASK_TOOL_NAME,
         "{}",
     );
 

@@ -18,8 +18,9 @@ use jinn_domain::feat::context::protocol::inputs::AssemblyInputs;
 use jinn_domain::feat::context::strategy::token_estimator::TokenCounter;
 use jinn_domain::feat::context::tool_prompt::build_tool_context_block;
 use jinn_domain::feat::skills::format::format_skills_for_prompt;
+use jinn_core_types::ToolDefinition;
 use jinn_domain::protocol::{
-    ChatEntry, LlmMessage, PinPosition, ToolDefinition, entries_to_messages,
+    ChatEntry, LlmMessage, PinPosition, entries_to_messages,
 };
 use jinn_slices::AssembledPrompt;
 use jinn_slices::SystemPrompt;
@@ -240,10 +241,10 @@ mod tests {
     use jinn_domain::feat::session::model_selection::ModelSelection;
     use jinn_domain::feat::session::tool_result_status::ToolResultStatus;
     use jinn_domain::feat::skills::Skill;
-    use jinn_domain::feat::tools_actor::task::TASK_TOOL_NAME;
-    use jinn_domain::feat::tools_actor::tool_types::ToolDefinition;
+    use jinn_tools_msg::TASK_TOOL_NAME;
+    use jinn_core_types::tool_types::ToolDefinition;
     use jinn_domain::protocol::{ChatEntry, SessionId};
-    use jinn_provider::ServerToolType;
+    use jinn_core_types::ServerToolType;
 
     /// Test bridge: build inputs from an AppState the way production
     /// callers do (via the kernel snapshot builder) and run the pure

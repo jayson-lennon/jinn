@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::llm_message::LlmMessage;
-use crate::tool_types::ToolCall;
+use jinn_core_types::tool_types::ToolCall;
 use error_stack::Report;
 use futures::stream;
 
@@ -381,7 +381,7 @@ impl LlmService for FakeLlmService {
         &self,
         system_prompt: Option<&str>,
         messages: Vec<LlmMessage>,
-        _tools: Vec<crate::tool_types::ToolDefinition>,
+        _tools: Vec<jinn_core_types::tool_types::ToolDefinition>,
     ) -> Result<ToolStream, Report<LlmServiceError>> {
         // Record the messages and system prompt for test observability.
         self.received_calls.lock().push(messages.clone());

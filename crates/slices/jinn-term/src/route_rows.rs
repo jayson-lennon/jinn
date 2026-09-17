@@ -920,7 +920,7 @@ mod tests {
         assert!(!text.contains("The user"));
         assert!(!text.contains("handed"));
         assert!(!text.contains(
-            jinn_domain::feat::tools_actor::interactive_term_send::USER_HAS_CONTROL_NOTICE
+            jinn_tools_msg::USER_HAS_CONTROL_NOTICE
         ));
     }
 

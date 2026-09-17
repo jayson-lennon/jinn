@@ -35,7 +35,7 @@ use crate::common::ui_element::UiElement;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::tool_result_status::ToolResultStatus;
 use crate::feat::theme::Theme;
-use crate::feat::tools_actor::task::TASK_TOOL_NAME;
+use jinn_tools_msg::TASK_TOOL_NAME;
 use crate::protocol::{ChatEntry, ChatEntryKind};
 use ratatui::Frame;
 use ratatui::layout::Rect;

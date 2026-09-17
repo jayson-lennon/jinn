@@ -42,4 +42,3 @@ pub use crate::feat::session::chat_entry::{
 pub use crate::feat::session::entry_timing::EntryTiming;
 pub use crate::feat::session::picker_entry::SessionTreeEntry;
 pub use crate::feat::session::tool_result_status::ToolResultStatus;
-pub use crate::feat::tools_actor::tool_types::{ToolCall, ToolDefinition, ToolResult};

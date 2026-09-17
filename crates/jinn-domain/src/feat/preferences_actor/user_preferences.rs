@@ -34,7 +34,7 @@ pub use crate::feat::cwd_input::CwdSelectorConfig;
 pub use crate::feat::llm_actor::RequestRetryConfig;
 pub use crate::feat::project::ProjectConfig;
 pub use crate::feat::session_lifecycle::SessionLifecycle;
-pub use crate::feat::tools_actor::OpenrouterWebSearchConfig;
+
 pub use crate::feat::ui::MinimapConfig;
 
 /// Canonical default `jinn.toml` embedded at compile time.
@@ -65,6 +65,54 @@ pub enum UserPreferencesError {
     /// TOML parsing or structural error.
     #[error("user preferences parse error")]
     Parse,
+}
+
+/// OpenRouter web search server tool configuration.
+///
+/// Serialized as `[openrouter_web_search]` in `jinn.toml`.
+/// Controls parameters sent to the `openrouter:web_search` server tool.
+/// All fields are optional - when `None`, the parameter is omitted from
+/// the request and OpenRouter uses its default.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenrouterWebSearchConfig {
+    /// Search engine: "auto", "native", "exa", "firecrawl", or "parallel".
+    /// Default: "exa".
+    #[serde(default)]
+    pub engine: Option<String>,
+
+    /// Maximum results per search call (1–25). `None` = OpenRouter default (5).
+    #[serde(default)]
+    pub max_results: Option<u32>,
+
+    /// Maximum total results across all searches in one request.
+    #[serde(default)]
+    pub max_total_results: Option<u32>,
+
+    /// How much context to retrieve: "low", "medium", or "high".
+    /// `None` = OpenRouter picks adaptively.
+    #[serde(default)]
+    pub search_context_size: Option<String>,
+
+    /// Only return results from these domains.
+    #[serde(default)]
+    pub allowed_domains: Option<Vec<String>>,
+
+    /// Exclude results from these domains.
+    #[serde(default)]
+    pub excluded_domains: Option<Vec<String>>,
+}
+
+impl Default for OpenrouterWebSearchConfig {
+    fn default() -> Self {
+        Self {
+            engine: Some("exa".to_owned()),
+            max_results: None,
+            max_total_results: None,
+            search_context_size: None,
+            allowed_domains: None,
+            excluded_domains: None,
+        }
+    }
 }
 
 /// User preferences persisted in `jinn.toml`.
@@ -1700,5 +1748,91 @@ path = "~/code/current"
         assert_eq!(prefs.projects[0].command_policy.len(), 1);
         assert_eq!(prefs.projects[0].command_policy[0].pattern, "cargo test -p");
         assert_eq!(prefs.projects[0].command_policy[0].message, "use just test");
+    }
+}
+
+#[cfg(test)]
+mod openrouter_web_search_config_tests {
+    #![allow(clippy::expect_used, clippy::indexing_slicing, reason = "test code")]
+    use tempfile::TempDir;
+
+    use super::OpenrouterWebSearchConfig;
+    use crate::common::app_info::PREFS_FILE_NAME;
+    use crate::feat::preferences_actor::user_preferences::load_preferences_from;
+
+    #[rstest::rstest]
+    fn load_parses_openrouter_web_search_config() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join(PREFS_FILE_NAME);
+        std::fs::write(
+            &path,
+            r#"[openrouter_web_search]
+engine = "parallel"
+max_results = 5
+max_total_results = 20
+search_context_size = "medium"
+allowed_domains = ["nature.com", "arxiv.org"]
+excluded_domains = ["spam.com"]
+"#,
+        )
+        .expect("write");
+
+        let prefs = load_preferences_from(&path).expect("load");
+
+        assert_eq!(
+            prefs.openrouter_web_search.engine.as_deref(),
+            Some("parallel")
+        );
+        assert_eq!(prefs.openrouter_web_search.max_results, Some(5));
+        assert_eq!(prefs.openrouter_web_search.max_total_results, Some(20));
+        assert_eq!(
+            prefs.openrouter_web_search.search_context_size.as_deref(),
+            Some("medium")
+        );
+        assert_eq!(
+            prefs.openrouter_web_search.allowed_domains,
+            Some(vec!["nature.com".to_owned(), "arxiv.org".to_owned()])
+        );
+        assert_eq!(
+            prefs.openrouter_web_search.excluded_domains,
+            Some(vec!["spam.com".to_owned()])
+        );
+    }
+
+    #[rstest::rstest]
+    fn load_without_openrouter_web_search_section_uses_defaults() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join(PREFS_FILE_NAME);
+        std::fs::write(
+            &path,
+            r#"last_model = "ollama/llama3"
+"#,
+        )
+        .expect("write");
+
+        let prefs = load_preferences_from(&path).expect("load");
+
+        let defaults = OpenrouterWebSearchConfig::default();
+        assert_eq!(prefs.openrouter_web_search.engine, defaults.engine);
+        assert_eq!(
+            prefs.openrouter_web_search.max_results,
+            defaults.max_results
+        );
+        assert_eq!(
+            prefs.openrouter_web_search.max_total_results,
+            defaults.max_total_results
+        );
+        assert_eq!(
+            prefs.openrouter_web_search.search_context_size,
+            defaults.search_context_size
+        );
+        assert_eq!(
+            prefs.openrouter_web_search.allowed_domains,
+            defaults.allowed_domains
+        );
+        assert_eq!(
+            prefs.openrouter_web_search.excluded_domains,
+            defaults.excluded_domains
+        );
     }
 }
