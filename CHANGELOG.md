@@ -13,6 +13,7 @@
   - Fix: now impossible to send keystrokes to the wrong interactive session
   - Fix: agent `interactive_*` invocations now go to the correct sessions even when forked
 - `interactive_term` tool now has guidelines instructing agents not to redirect it's output.
+- The `#gap-analysis` prompt should now produce more concise reports.
 
 ## 2026-09-13 v0.118.0
 
