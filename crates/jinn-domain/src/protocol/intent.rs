@@ -243,7 +243,6 @@ pub enum Intent {
 
     /// Switch between Chat and the registered dynamic tabs.
     SwitchTab,
-
 }
 
 impl std::fmt::Display for Intent {

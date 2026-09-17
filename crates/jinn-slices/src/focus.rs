@@ -29,7 +29,6 @@ pub enum FocusScope {
     /// data, so slices never edit this enum. The scope the slice's
     /// `activate()` pushed (or signaled via a route action).
     Dynamic(crate::slice_scope::SliceScopeId),
-
 }
 
 impl FocusScope {

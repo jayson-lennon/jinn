@@ -899,7 +899,6 @@ mod tests {
             other => panic!("[s must be a leaf, got branch: {other:?}"),
         }
     }
-
 }
 
 #[cfg(test)]

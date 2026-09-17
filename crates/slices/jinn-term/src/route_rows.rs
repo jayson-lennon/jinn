@@ -350,6 +350,12 @@ pub fn attach_rows(routes: &KeyRoutes, toggle_key: &'static str) {
     // not skip own scopes) — which is exactly the close binding view
     // needs. The key-hook scope (`term:control`) is excluded by
     // composition, so capture mode stays hermetic.
+    // Both overlay scopes are modal: foreign would-be-global toggles do
+    // not pierce them (trunk parity — the overlay is a deliberate surface
+    // with its own keys).
+    routes.register_modal_scope(&view);
+    routes.register_modal_scope(&control);
+
     routes.attach(row(
         "toggle-overlay",
         view.clone(),
@@ -501,8 +507,8 @@ mod tests {
     use jinn_term_msg::command::ControlHolder;
 
     fn app_state() -> AppState {
-        // The control registry is a process-wide OnceLock minted by
-        // `activate` in production; tests mint it on first use (idempotent
+        // The control registry is a process-wide OnceLock minted by actor
+        // wiring in production; tests mint it on first use (idempotent
         // — the set is a no-op when already present).
         let _ = jinn_term_msg::TERM_CONTROLS.set(jinn_term_msg::TermControls::default());
         AppState::default_with_scope_focus()

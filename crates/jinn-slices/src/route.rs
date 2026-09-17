@@ -39,6 +39,7 @@
 //! The table is small and scanned linearly; rows attach at slice
 //! activation (startup wiring) before the keymap is generated.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use kameo::prelude::ActorRef;
@@ -495,6 +496,7 @@ pub struct KeyRoutes {
     rows: row_store::Rows,
     input_hooks: row_store::HookStore<InputHook>,
     key_hooks: row_store::HookStore<KeyHook>,
+    modals: ModalScopes,
 }
 
 impl KeyRoutes {
@@ -568,7 +570,31 @@ impl KeyRoutes {
     pub fn key_hook_scopes(&self) -> Vec<SliceScopeId> {
         self.key_hooks.keys()
     }
+
+    /// Declares `scope` as modal: while it is on top, other slices'
+    /// would-be-global toggles do not pierce it (the scope's keys come
+    /// from its own rows + hooks). The terminal overlay's scopes are
+    /// modal; the quake bar (a bordered popup, not modal) is not.
+    pub fn register_modal_scope(&self, scope: &SliceScopeId) {
+        self.modals.0.write().insert(scope.clone());
+    }
+
+    /// The modal scopes declared by slices.
+    #[must_use]
+    pub fn modal_scopes(&self) -> Vec<SliceScopeId> {
+        self.modals.0.read().iter().cloned().collect()
+    }
+
+    /// Whether `scope` was declared modal.
+    #[must_use]
+    pub fn is_modal_scope(&self, scope: &SliceScopeId) -> bool {
+        self.modals.0.read().contains(scope)
+    }
 }
+
+/// The modal-scope set, clone-shared like the row store.
+#[derive(Clone, Debug, Default)]
+struct ModalScopes(Arc<parking_lot::RwLock<BTreeSet<SliceScopeId>>>);
 
 /// Append-only row/hook store shared by all clones of the table.
 mod row_store {

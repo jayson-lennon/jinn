@@ -1756,7 +1756,10 @@ mod tests {
                             .frontend
                             .with_sections(|s| s.sessions.selected_index, || None);
                         if let Some(index) = index {
-                            let sessions = crate::feat::session::sessions_list::state::sorted_open_sessions(state);
+                            let sessions =
+                                crate::feat::session::sessions_list::state::sorted_open_sessions(
+                                    state,
+                                );
                             if let Some(entry) = sessions.get(index)
                                 && entry.id != *state.session.active_session_id()
                             {

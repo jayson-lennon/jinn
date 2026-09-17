@@ -108,9 +108,11 @@ fn category(name: &str) -> KeyCategory {
 /// so capture stays hermetic); `StaticScopes` rows bind in the named
 /// composition scopes, looked up by display name.
 fn scopes_for_row<'a>(
+    routes: &'a KeyRoutes,
     row: &'a RouteRow,
     tabs: &'a [SliceScopeId],
     hooks: &'a [SliceScopeId],
+    key_hooks: &'a [SliceScopeId],
 ) -> Vec<Scope> {
     match row.site {
         BindSite::OwnScope => vec![Scope::Dynamic(row.scope.clone())],
@@ -163,8 +165,23 @@ fn scopes_for_row<'a>(
             }
             // Key-hook scopes are intentionally excluded — this is the
             // GlobalToggle pass, and those scopes carry catch-all key
-            // hooks instead (capture mode hermeticity). They still get
-            // the toggle when their slice attaches one as a row.
+            // hooks instead (capture mode hermeticity). Modal scopes
+            // (declared by their slice) are excluded too: while such a
+            // scope is on top, other slices' toggles do not pierce it —
+            // its keys come from its own rows and hooks. Both include
+            // scopes that host their own rows (term:control hosts the
+            // release-control row); the owning slice still binds there.
+            scopes.retain(|scope| match scope {
+                Scope::Dynamic(id) => {
+                    // The row's own scope always binds (the owning
+                    // slice's rows are the point).
+                    if id == &row.scope {
+                        return true;
+                    }
+                    !key_hooks.contains(id) && !routes.is_modal_scope(id)
+                }
+                _ => true,
+            });
             scopes
         }
     }
@@ -283,7 +300,7 @@ pub fn bind_route_rows(
     tabs.dedup();
     for row in &rows {
         let category = category(row.category);
-        let scopes = scopes_for_row(row, &tabs, &input_hooks);
+        let scopes = scopes_for_row(routes, row, &tabs, &input_hooks, &key_hooks);
         match &row.outcome {
             RouteOutcome::StaticIntent(_) => {
                 let Some(intent) = static_intent(row.route_id.as_str()) else {
@@ -354,9 +371,7 @@ pub fn bind_route_rows(
             continue;
         };
         keymap.scope(Scope::Dynamic(hook.clone()), move |b| {
-            b.catch_all(move |key: KeyEvent| {
-                hook_fn(&key).map(Intent::Dynamic)
-            });
+            b.catch_all(move |key: KeyEvent| hook_fn(&key).map(Intent::Dynamic));
         });
     }
 }
@@ -924,10 +939,7 @@ mod tests {
         // scope (terminal capture).
         let routes = KeyRoutes::new();
         let key_hook_scope = SliceScopeId::navigation("term", "control");
-        routes.register_key_hook(
-            &key_hook_scope,
-            std::sync::Arc::new(|_: &KeyEvent| None),
-        );
+        routes.register_key_hook(&key_hook_scope, std::sync::Arc::new(|_: &KeyEvent| None));
         routes.attach(term_toggle_row());
 
         // When generating bindings and pressing <M-t> in the capture
@@ -946,7 +958,10 @@ mod tests {
 
         // Then nothing resolves (capture hermeticity: no global toggle
         // pierces the key-hook scope; the hook itself declines the key).
-        assert!(intent.is_none(), "key-hook scope must stay hermetic, got {intent:?}");
+        assert!(
+            intent.is_none(),
+            "key-hook scope must stay hermetic, got {intent:?}"
+        );
     }
 
     #[rstest::rstest]
@@ -962,11 +977,7 @@ mod tests {
             &key_hook_scope,
             std::sync::Arc::new(move |key: &KeyEvent| {
                 (key.key == jinn_domain::Key::Char('x')).then(|| {
-                    jinn_slices::DynamicIntent::new(
-                        hook_target.clone(),
-                        "send-key",
-                        "send key",
-                    )
+                    jinn_slices::DynamicIntent::new(hook_target.clone(), "send-key", "send key")
                 })
             }),
         );

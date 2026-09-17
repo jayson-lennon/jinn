@@ -270,6 +270,10 @@ pub fn composition_routes() -> jinn_domain::common::slices::key_routes::KeyRoute
     jinn_quake_bar::attach_quake_bar_rows(&routes, &cell);
     jinn_quake_bar::register_quake_input_hook(&routes, &cell);
     jinn_discord::attach_discord_rows(&routes);
+    // The term slice's rows + capture key hook (the hook's scope shape
+    // matters for hermeticity tests; the hook fn only encodes keys).
+    jinn_term::route_rows::attach_rows(&routes, "<c-g>");
+    jinn_term::key_hook::register(&routes);
     routes
 }
 
@@ -430,5 +434,130 @@ pub fn activate_cwd(services: &mut jinn_domain::Services) {
     jinn_cwd::activate(&mut host);
     if let Err(error) = host.finalize(&|_key| None) {
         panic!("cwd slice finalize failed: {error}");
+    }
+}
+
+#[cfg(test)]
+mod term_keybinds_spot_check {
+    use super::composed_keymap;
+    use jinn_domain::{Intent, Key, KeyEvent, Modifiers};
+    use jinn_tui::Scope;
+    use jinn_tui::app::WhichKeyInstance;
+
+    fn wk(scope: Scope) -> WhichKeyInstance {
+        WhichKeyInstance::new(composed_keymap(), scope)
+    }
+
+    fn alt_t() -> KeyEvent {
+        KeyEvent {
+            key: Key::Char('t'),
+            modifiers: Modifiers {
+                ctrl: false,
+                alt: true,
+                shift: false,
+            },
+        }
+    }
+
+    #[rstest::rstest]
+    fn capture_hermeticity_and_view_binds_hold_in_composition() {
+        // In capture (term:control): <M-t> stays hermetic — no overlay
+        // intent fires; the key forwards to the pty like any other
+        // (encoded as the ESC-prefix bytes a program expects).
+        let intent = wk(Scope::Dynamic(jinn_term_msg::control_scope())).handle_key(alt_t());
+        assert!(
+            !matches!(&intent, Some(Intent::Dynamic(d)) if d.action == "toggle-overlay"),
+            "<M-t> must not toggle in capture: {intent:?}"
+        );
+        assert!(
+            matches!(&intent, Some(Intent::Dynamic(d)) if d.bytes == vec![0x1b, b't']),
+            "<M-t> in capture must forward as ESC+t: {intent:?}"
+        );
+        // ...printable keys forward with bytes...
+        let intent = wk(Scope::Dynamic(jinn_term_msg::control_scope())).handle_key(KeyEvent {
+            key: Key::Char('a'),
+            modifiers: Modifiers::none(),
+        });
+        let Some(Intent::Dynamic(d)) = &intent else {
+            panic!("capture must forward: {intent:?}");
+        };
+        assert_eq!(d.bytes, b"a".to_vec());
+        // ...<c-c> forwards as ETX...
+        let intent = wk(Scope::Dynamic(jinn_term_msg::control_scope())).handle_key(KeyEvent {
+            key: Key::Char('c'),
+            modifiers: Modifiers::ctrl(),
+        });
+        assert!(matches!(&intent, Some(Intent::Dynamic(d)) if d.bytes == vec![0x03]));
+        // ...f-keys forward...
+        let intent = wk(Scope::Dynamic(jinn_term_msg::control_scope())).handle_key(KeyEvent {
+            key: Key::F(4),
+            modifiers: Modifiers::none(),
+        });
+        assert!(matches!(&intent, Some(Intent::Dynamic(d)) if d.bytes == b"\x1bOS".to_vec()));
+        // ...and the configured toggle beats the catch-all (handback).
+        let intent = wk(Scope::Dynamic(jinn_term_msg::control_scope())).handle_key(KeyEvent {
+            key: Key::Char('g'),
+            modifiers: Modifiers {
+                ctrl: true,
+                alt: false,
+                shift: false,
+            },
+        });
+        let Some(Intent::Dynamic(d)) = &intent else {
+            panic!("toggle must beat catch-all: {intent:?}");
+        };
+        assert_eq!(d.action, "release-control");
+
+        // In view (term:view): toggle, yank, push, chrome, T resolve.
+        let view = || Scope::Dynamic(jinn_term_msg::view_scope());
+        let intent = wk(view()).handle_key(alt_t());
+        assert!(matches!(&intent, Some(Intent::Dynamic(d)) if d.action == "toggle-overlay"));
+        let intent = wk(view()).handle_key(KeyEvent {
+            key: Key::Char('y'),
+            modifiers: Modifiers::none(),
+        });
+        assert!(matches!(&intent, Some(Intent::Dynamic(d)) if d.action == "yank-screen"));
+        let intent = wk(view()).handle_key(KeyEvent {
+            key: Key::Char('I'),
+            modifiers: Modifiers::none(),
+        });
+        assert!(matches!(&intent, Some(Intent::Dynamic(d)) if d.action == "push-screen"));
+        let intent = wk(view()).handle_key(KeyEvent {
+            key: Key::Char('T'),
+            modifiers: Modifiers::none(),
+        });
+        assert!(matches!(&intent, Some(Intent::Dynamic(d)) if d.action == "toggle-for-selected"));
+        let intent = wk(view()).handle_key(KeyEvent {
+            key: Key::Char('q'),
+            modifiers: Modifiers::none(),
+        });
+        assert!(matches!(intent, Some(Intent::Quit)));
+        let intent = wk(view()).handle_key(KeyEvent {
+            key: Key::Char('?'),
+            modifiers: Modifiers::none(),
+        });
+        assert!(matches!(intent, Some(Intent::ToggleWhichkey)));
+
+        // Deliberately unbound in view: <M-`> and `i`.
+        let intent = wk(view()).handle_key(KeyEvent {
+            key: Key::Char('`'),
+            modifiers: Modifiers {
+                ctrl: false,
+                alt: true,
+                shift: false,
+            },
+        });
+        assert!(
+            intent.is_none(),
+            "<M-`> must stay unbound in view: {intent:?}"
+        );
+        let intent = wk(view()).handle_key(KeyEvent {
+            key: Key::Char('i'),
+            modifiers: Modifiers::none(),
+        });
+        assert!(
+            intent.is_none(),
+            "`i` must stay unbound in view: {intent:?}"
+        );
     }
 }
