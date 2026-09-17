@@ -66,27 +66,9 @@ pub fn launch(
     let tui_config = TuiConfig::new(mouse_selection);
 
     // The single keymap-bootstrap site. Production and tests reach this
-    // via the same path. The terminal control-toggle binding comes from
-    // `[interactive_term]` prefs, validated by the same parser the keymap
-    // binds through (falls back to the default, loudly).
-    let configured = core
-        .state
-        .read()
-        .frontend
-        .preferences
-        .interactive_term
-        .control_toggle_key
-        .clone();
-    let control_toggle =
-        jinn_domain::feat::interactive_term::prefs::normalize_control_toggle_key(&configured)
-            .unwrap_or_else(|| {
-                tracing::warn!(
-                    configured = %configured,
-                    default = jinn_term_msg::prefs::DEFAULT_CONTROL_TOGGLE_KEY,
-                    "invalid [interactive_term] control_toggle_key; falling back to the default"
-                );
-                jinn_term_msg::prefs::DEFAULT_CONTROL_TOGGLE_KEY.to_owned()
-            });
+    // via the same path. (The terminal control-toggle binding is a slice
+    // route row — attached from `jinn_term::activate` during actor-system
+    // bootstrap, not here.)
 
     let mut ui_registry = AppUiRegistry::new();
     jinn_domain::register_all_ui_elements(&mut ui_registry);
@@ -98,7 +80,7 @@ pub fn launch(
 
     // Generated keymap bindings from the slice route rows attached
     // during actor-system bootstrap (single keymap bootstrap site).
-    let mut keymap = keymap::init_with_control_toggle(&control_toggle);
+    let mut keymap = keymap::init();
     register_slice_wiring(&mut services, &mut keymap);
     let which_key = WhichKeyInstance::new(keymap, Scope::Normal);
 

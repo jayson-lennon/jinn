@@ -41,7 +41,6 @@ pub enum KeyCategory {
 /// Includes: escape, confirm, navigation (up/down), cursor (left/right),
 /// backspace, new session, and catch-all char input.
 fn add_picker_base(b: &mut ratatui_which_key::ScopeBuilder<KeyEvent, Scope, Intent, KeyCategory>) {
-    add_terminal_toggles(b);
     b.bind("<esc>", Intent::EnterNormalMode, KeyCategory::General)
         .bind("<enter>", Intent::PickerConfirm, KeyCategory::Model)
         .bind("<up>", Intent::PickerMoveUp, KeyCategory::Navigation)
@@ -62,48 +61,10 @@ fn add_picker_base(b: &mut ratatui_which_key::ScopeBuilder<KeyEvent, Scope, Inte
         });
 }
 
-/// Registers the would-be-global terminal toggle on a non-terminal
-/// scope. Globals pierce capture mode (globals beat catch-alls), which used
-/// to strand the terminal control flag on `User`; keeping this as a scope
-/// binding makes capture mode hermetic while preserving the toggle
-/// everywhere else. (Slice keys are generated from route rows — see
-/// `keymap_gen`.)
-fn add_terminal_toggles(
-    b: &mut ratatui_which_key::ScopeBuilder<KeyEvent, Scope, Intent, KeyCategory>,
-) {
-    b.bind(
-        "<M-t>",
-        Intent::ToggleTerminalOverlay { session_id: None },
-        KeyCategory::General,
-    );
-}
-
 /// Builds and returns the full keymap with all scope bindings.
 #[must_use]
 #[rustfmt::skip]
 pub fn init() -> Keymap<KeyEvent, Scope, Intent, KeyCategory> {
-    init_with_control_toggle(
-        jinn_term_msg::prefs::DEFAULT_CONTROL_TOGGLE_KEY,
-    )
-}
-
-/// Builds the keymap with a configured terminal control-toggle binding.
-///
-/// `control_toggle` is the normalized `<c-?>` notation from
-/// `[interactive_term] control_toggle_key` in `jinn.toml`; invalid notations
-/// degrade to no toggle binding (the caller validates config earlier).
-///
-/// The terminal overlay toggle (`<M-t>`) and the quake-bar open key
-/// (`<M-\`>`, a slice row binding) are deliberately **scope bindings, not
-/// globals**: in `TerminalControl` a toggle would leave the control flag
-/// stuck on `User`
-/// (the agent locked out). Every other scope registers them locally,
-/// including `TerminalView` where `<M-t>` closes the overlay; only
-/// `TerminalControl` does not — capture mode is hermetic.
-#[must_use]
-#[rustfmt::skip]
-#[expect(clippy::too_many_lines, reason = "exhaustive keymap bindings grow with each scope")]
-pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope, Intent, KeyCategory> {
     let mut keymap = Keymap::new();
 
     keymap
@@ -200,7 +161,6 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
                     None
                 }
             });
-            add_terminal_toggles(b);
         })
         // Sidebar - Persona section
         
@@ -250,7 +210,6 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
                     None
                 }
             });
-            add_terminal_toggles(b);
         });
 
     // Picker scopes - each picker kind has its own scope for kind-specific bindings.
@@ -309,54 +268,12 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
             add_picker_base(b);
         });
 
-    // TerminalView scope — watching an interactive_term session. Passive:
-    // nothing forwards to the pty. The configured toggle key enters control
-    // mode; `<M-t>` toggles the overlay closed (view mode holds no user
-    // state, so the toggle is safe here); `y` yanks the visible screen to
-    // the clipboard; `I` yanks it and pushes the text to the model. `T`
-    // mirrors the sidebar's toggle. Deliberately unbound here: <M-`> (would
-    // pop the overlay) and `i` (capture must be a deliberate act via the
-    // toggle key).
-    keymap.scope(Scope::TerminalView, |b| {
-        b
-        .bind("<Tab>", Intent::SwitchTab, KeyCategory::General)
-        .bind("T", Intent::ToggleTerminalOverlayForSelected, KeyCategory::General)
-        .bind("<M-t>", Intent::ToggleTerminalOverlay { session_id: None }, KeyCategory::General)
-        .bind(control_toggle, Intent::TerminalTakeControl, KeyCategory::General)
-        .bind("y", Intent::TerminalYank, KeyCategory::General)
-        .bind("I", Intent::TerminalPushScreen, KeyCategory::General)
-        .bind("q", Intent::Quit, KeyCategory::General)
-        .bind("?", Intent::ToggleWhichkey, KeyCategory::General);
-    });
-
-    // TerminalControl scope — the user holds the pty. Capture mode is
-    // hermetic: every key except the configured control-toggle forwards via
-    // catch_all (the toggle is bound; bindings beat catch_all) and never
-    // reaches the program. Toggling exits to TerminalView and releases
-    // control back to the agent.
-    keymap.scope(Scope::TerminalControl, |b| {
-        b
-        .bind(control_toggle, Intent::TerminalHandback, KeyCategory::General)
-        .catch_all(|key: KeyEvent| {
-            let bytes =
-                jinn_domain::feat::interactive_term::settle::encode_key_event(&key);
-            if bytes.is_empty() {
-                None
-            } else {
-                Some(Intent::TerminalSendKey {
-                    bytes,
-                    label: String::new(),
-                })
-            }
-        });
-    });
-
     // ArgInput scope - typing positional args for a lifecycle command.
     keymap.scope(Scope::ArgInput, |b| {
-        // Only the toggles here, not slice openers: `<M-`>` is a shell
-        // character and this scope has an InsertChar guard — unlike other
-        // scopes' catch-alls, an unresolved key would mutate arg text.
-        b.bind("<M-t>", Intent::ToggleTerminalOverlay { session_id: None }, KeyCategory::General);
+        // The <M-t> toggle lands here via the slice GlobalToggle spread
+        // (composition); no slice openers: `<M-`>` is a shell character
+        // and this scope has an InsertChar guard — an unresolved key
+        // would mutate arg text.
         b.bind("<esc>", Intent::EnterNormalMode, KeyCategory::General)
         .bind("<enter>", Intent::ArgInputConfirm, KeyCategory::Input)
         .bind("<left>", Intent::MoveCursorLeft, KeyCategory::Input)
@@ -376,7 +293,6 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
 
     // PrunerAccumulationInput scope — numeric-only threshold input.
     keymap.scope(Scope::PrunerAccumulationInput, |b| {
-        add_terminal_toggles(b);
         b
         .bind("<esc>", Intent::PrunerAccumulationLeave, KeyCategory::General)
         .bind("<enter>", Intent::PrunerAccumulationConfirm, KeyCategory::Input)
@@ -397,7 +313,6 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
     // ProjectAddInput scope - clone of CwdInput, specialized for registering
     // a new project directory from inside the project picker (<c-n>).
     keymap.scope(Scope::ProjectAddInput, |b| {
-        add_terminal_toggles(b);
         b.bind("<esc>", Intent::ProjectAddInputLeave, KeyCategory::General)
             .bind("<enter>", Intent::ProjectAddInputConfirm, KeyCategory::Input)
             .bind("<left>", Intent::MoveCursorLeft, KeyCategory::Input)
@@ -416,9 +331,9 @@ pub fn init_with_control_toggle(control_toggle: &str) -> Keymap<KeyEvent, Scope,
     });
 
     // No global bindings by design: globals survive every scope's catch-all
-    // and would pierce TerminalControl's forwarding catch-all (stranding the
-    // control flag on User) and TerminalView (popping the overlay). The two
-    // would-be globals (<M-t>, <M-`>) are per-scope via add_terminal_toggles.
+    // and would pierce slice capture-mode hooks (stranding the control flag
+    // on User) and overlay views (popping overlays mid-composition). The
+    // would-be globals are per-scope slice rows — see `keymap_gen`.
 
     keymap.on_mouse(|mouse: event::MouseEvent, _scope: &Scope| {
         match mouse.kind {
@@ -475,279 +390,6 @@ mod tests {
         );
     }
 
-    /// The <M-t> overlay toggle resolves from every non-terminal scope —
-    /// it is registered per-scope (via `add_terminal_toggles`), so the list
-    /// of scopes here doubles as the drift guard: a scope added to the
-    /// keymap without the toggles fails the terminal-scopes test only if it
-    /// is one of the two, and this test pins the chat-tab scopes explicitly.
-    #[rstest::rstest]
-    #[test]
-    fn alt_t_resolves_from_non_terminal_scopes() {
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, Modifiers};
-
-        let alt_t = jinn_domain::KeyEvent {
-            key: Key::Char('t'),
-            modifiers: Modifiers {
-                alt: true,
-                ..Modifiers::none()
-            },
-        };
-
-        for scope in [Scope::Normal, Scope::Input] {
-            // Given the default keymap starting in `scope`.
-            let keymap = init();
-            let mut wk = WhichKeyInstance::new(keymap, scope.clone());
-
-            // When pressing <M-t>.
-            let intent = wk.handle_key(alt_t.clone());
-
-            // Then the terminal overlay toggle fires.
-            assert!(
-                matches!(
-                    intent,
-                    Some(Intent::ToggleTerminalOverlay { session_id: None })
-                ),
-                "scope {scope:?}: expected ToggleTerminalOverlay, got {intent:?}"
-            );
-        }
-    }
-
-    /// Capture mode is hermetic: neither would-be global resolves in the
-    /// TerminalControl scope — the catch-all forwards <M-t>/<M-`> to the
-    /// pty like any other key. (The old globals leaked here and could
-    /// strand the control flag on User.) In TerminalView, <M-t> is bound
-    /// (the toggle closes the overlay); <M-`> stays unbound.
-    #[rstest::rstest]
-    #[case(Scope::TerminalControl)]
-    fn alt_t_and_quake_do_not_resolve_in_terminal_control(#[case] scope: Scope) {
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, scope.clone());
-
-        // When pressing <M-t>.
-        let alt_t = KeyEvent {
-            key: Key::Char('t'),
-            modifiers: Modifiers {
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-        };
-        let intent = wk.handle_key(alt_t);
-
-        // Then it never toggles the overlay: control mode forwards it to
-        // the pty.
-        assert!(
-            !matches!(intent, Some(Intent::ToggleTerminalOverlay { .. })),
-            "{scope:?}: <M-t> must not fire an overlay intent; got {intent:?}"
-        );
-
-        // When pressing <M-`>.
-        let alt_backtick = KeyEvent {
-            key: Key::Char('`'),
-            modifiers: Modifiers {
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-        };
-        let intent = wk.handle_key(alt_backtick);
-
-        // Then likewise no quake intent fires.
-        assert!(
-            !matches!(intent, Some(Intent::Dynamic(ref d)) if d.action == "open"),
-            "{scope:?}: <M-`> must not open the quake bar; got {intent:?}"
-        );
-    }
-
-    /// Every scope except TerminalControl (hermetic capture) and the
-    /// quake-adjacent exclusions noted per-test must carry the would-be
-    /// global toggles. This is the audit half of the hermetic-capture
-    /// guarantee: a future scope registered without `add_terminal_toggles`
-    /// fails here (toggle dead in that scope).
-    #[rstest::rstest]
-    #[case(Scope::Normal)]
-    #[case(Scope::Input)]
-    #[case(Scope::PickerProvider)]
-    #[case(Scope::PickerSession)]
-    #[case(Scope::PickerPersona)]
-    #[case(Scope::PickerTheme)]
-    #[case(Scope::PickerLifecycle)]
-    #[case(Scope::PickerReasoningEffort)]
-    #[case(Scope::PickerEndpoint)]
-    #[case(Scope::PickerTool)]
-    #[case(Scope::PickerSkill)]
-    #[case(Scope::PickerTaskList)]
-    #[case(Scope::PickerProject)]
-    #[case(Scope::PickerMcpServer)]
-    #[case(Scope::PickerPlugin)]
-    #[case(Scope::ArgInput)]
-    #[case(Scope::PrunerAccumulationInput)]
-    #[case(Scope::ProjectAddInput)]
-    #[case(Scope::TerminalView)]
-    fn alt_t_resolves_in_every_non_terminal_scope(#[case] scope: Scope) {
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        // Given the default keymap queried in a non-terminal scope.
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, scope.clone());
-
-        // When pressing <M-t>.
-        let alt_t = KeyEvent {
-            key: Key::Char('t'),
-            modifiers: Modifiers {
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-        };
-        let intent = wk.handle_key(alt_t);
-
-        // Then the overlay toggle resolves.
-        assert!(
-            matches!(
-                intent,
-                Some(Intent::ToggleTerminalOverlay { session_id: None })
-            ),
-            "{scope:?}: <M-t> must resolve to ToggleTerminalOverlay; got {intent:?}"
-        );
-    }
-
-    /// `y` and `I` resolve in view mode only; in control mode the catch-all
-    /// forwards them to the pty (yanking/sharing must be a deliberate
-    /// view-mode act, never a stray keypress during capture).
-    #[rstest::rstest]
-    #[test]
-    fn yank_and_push_resolve_only_in_view_mode() {
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        for ch in ['y', 'I'] {
-            // Given the keymap in TerminalView scope.
-            let keymap = init();
-            let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalView);
-
-            // When pressing the key.
-            let intent = wk.handle_key(KeyEvent {
-                key: Key::Char(ch),
-                modifiers: Modifiers::none(),
-            });
-
-            // Then it resolves to the view-mode action.
-            let expected = if ch == 'y' {
-                Intent::TerminalYank
-            } else {
-                Intent::TerminalPushScreen
-            };
-            assert!(
-                matches!(intent.as_ref(), Some(got) if std::mem::discriminant(got) == std::mem::discriminant(&expected)),
-                "'{ch}' in TerminalView must resolve to {expected:?}; got {intent:?}"
-            );
-
-            // Given the keymap in TerminalControl scope.
-            let keymap = init();
-            let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalControl);
-
-            // When pressing the same key.
-            let intent = wk.handle_key(KeyEvent {
-                key: Key::Char(ch),
-                modifiers: Modifiers::none(),
-            });
-
-            // Then it forwards to the pty instead.
-            assert!(
-                matches!(intent, Some(Intent::TerminalSendKey { .. })),
-                "'{ch}' in TerminalControl must forward to the pty; got {intent:?}"
-            );
-        }
-    }
-
-    /// Capital-I reaches the keymap already normalized by `convert.rs`
-    /// (both terminal spellings — `Char('i')+SHIFT` and `Char('I')±SHIFT —
-    /// become `Char('I')` with shift cleared). This pins the end-to-end
-    /// path: raw crossterm shift-I in view mode resolves to
-    /// TerminalPushScreen, and the same key in control mode forwards the
-    /// literal `I` byte to the pty.
-    #[rstest::rstest]
-    #[case(
-        crossterm::event::KeyCode::Char('I'),
-        crossterm::event::KeyModifiers::NONE
-    )]
-    #[case(
-        crossterm::event::KeyCode::Char('I'),
-        crossterm::event::KeyModifiers::SHIFT
-    )]
-    #[case(
-        crossterm::event::KeyCode::Char('i'),
-        crossterm::event::KeyModifiers::SHIFT
-    )]
-    fn raw_shift_i_pushes_in_view_and_forwards_in_control(
-        #[case] code: crossterm::event::KeyCode,
-        #[case] cmods: crossterm::event::KeyModifiers,
-    ) {
-        use crate::app::WhichKeyInstance;
-        use crate::convert::from_crossterm;
-
-        // Given the raw crossterm event converted through the app adapter.
-        let raw = crossterm::event::KeyEvent::new(code, cmods);
-        let key = from_crossterm(raw).expect("capital-I converts");
-
-        // When pressing it in TerminalView.
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalView);
-        let intent = wk.handle_key(key.clone());
-
-        // Then it resolves to TerminalPushScreen.
-        assert!(
-            matches!(intent, Some(Intent::TerminalPushScreen)),
-            "capital-I ({key:?}) must resolve to TerminalPushScreen; got {intent:?}"
-        );
-
-        // When pressing it in TerminalControl.
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalControl);
-        let intent = wk.handle_key(key);
-
-        // Then it forwards the literal byte to the pty.
-        match intent {
-            Some(Intent::TerminalSendKey { bytes, .. }) => assert_eq!(bytes, b"I"),
-            other => panic!("capital-I in control must forward; got {other:?}"),
-        }
-    }
-
-    /// The sidebar `T` key resolves to the selected-session overlay toggle.
-    #[rstest::rstest]
-    #[test]
-
-    /// `T` inside the overlay resolves to the toggle (same intent as the
-    /// sidebar key), so the overlay closes from inside it.
-    #[rstest::rstest]
-    #[test]
-    fn upper_t_inside_overlay_resolves_to_the_toggle() {
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, Modifiers};
-
-        // Given the default keymap in the TerminalView scope.
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalView);
-
-        // When pressing 'T'.
-        let intent = wk.handle_key(jinn_domain::KeyEvent {
-            key: Key::Char('T'),
-            modifiers: Modifiers::none(),
-        });
-
-        // Then the overlay toggle fires.
-        assert!(matches!(
-            intent,
-            Some(Intent::ToggleTerminalOverlayForSelected)
-        ));
-    }
-
     /// Regression test for ratatui-which-key v0.12.1: when a key is bound as a
     /// leaf in one scope (Normal) and used as a describe_group prefix in
     /// another scope (the sidebar sessions scope), the leaf must survive the
@@ -773,38 +415,6 @@ mod tests {
         assert!(
             matches!(intent, Some(jinn_domain::Intent::ChatEntryPinSelected)),
             "'p' in Normal scope should fire ChatEntryPinSelected; got {intent:?}",
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn alt_t_in_input_scope_does_not_insert_literal_t() {
-        // Given a keymap with the per-scope <M-t> binding, queried in Input scope.
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::Input);
-
-        // When pressing <M-t> (Alt+t).
-        let alt_t = KeyEvent {
-            key: Key::Char('t'),
-            modifiers: Modifiers {
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-        };
-        let intent = wk.handle_key(alt_t);
-
-        // Then it resolves to the overlay toggle, NOT a literal InsertChar('t') —
-        // the scope binding beats the Input catch-all.
-        let intent = intent.expect(
-            "<M-t> in Input scope must fire an intent; got None (scope binding missing, catch-all regression)",
-        );
-        assert!(
-            matches!(intent, Intent::ToggleTerminalOverlay { session_id: None }),
-            "<M-t> must resolve to the overlay toggle, not InsertChar; got {intent:?}",
         );
     }
 
@@ -1290,277 +900,6 @@ mod tests {
         }
     }
 
-    #[rstest::rstest]
-    #[test]
-    fn terminal_view_scope_does_not_forward_keys() {
-        // Given a keymap queried in TerminalView scope.
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalView);
-
-        // When pressing a printable key.
-        let g = KeyEvent {
-            key: Key::Char('g'),
-            modifiers: Modifiers::none(),
-        };
-        let intent = wk.handle_key(g);
-
-        // Then nothing fires (view mode is passive — no pty forwarding).
-        assert!(
-            intent.is_none(),
-            "TerminalView must not forward keys; got {intent:?}"
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn terminal_view_scope_i_is_inert() {
-        // Given a keymap queried in TerminalView scope.
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalView);
-
-        // When pressing `i`.
-        let i = KeyEvent {
-            key: Key::Char('i'),
-            modifiers: Modifiers::none(),
-        };
-        let intent = wk.handle_key(i);
-
-        // Then nothing fires: capture is a deliberate act via the configured
-        // toggle key, and `i` is a single keystroke away from accident.
-        assert!(
-            intent.is_none(),
-            "unbound `i` in TerminalView must not fire (accidental-capture guard); got {intent:?}"
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn terminal_control_scope_printable_forwards_to_send_key() {
-        // Given a keymap queried in TerminalControl scope.
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalControl);
-
-        // When pressing a printable key.
-        let a = KeyEvent {
-            key: Key::Char('a'),
-            modifiers: Modifiers::none(),
-        };
-        let intent = wk.handle_key(a);
-
-        // Then it resolves to TerminalSendKey carrying the encoded byte.
-        let intent = intent.expect("printable key in TerminalControl must forward");
-        match intent {
-            Intent::TerminalSendKey { bytes, .. } => assert_eq!(bytes, b"a"),
-            other => panic!("expected TerminalSendKey, got {other:?}"),
-        }
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn control_toggle_key_does_not_forward_and_takes_control_in_view() {
-        // Given a keymap queried in TerminalControl scope.
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalControl);
-
-        // When pressing <c-g> (the handback key).
-        let ctrl_g = KeyEvent {
-            key: Key::Char('g'),
-            modifiers: Modifiers {
-                ctrl: true,
-                alt: false,
-                shift: false,
-            },
-        };
-        let intent = wk.handle_key(ctrl_g);
-
-        // Then it resolves to TerminalHandback, not a pty forward — the
-        // toggle key is consumed by jinn in both directions.
-        let intent = intent.expect("<c-g> in TerminalControl must fire an intent");
-        assert!(matches!(intent, Intent::TerminalHandback));
-
-        // Given the same keymap in TerminalView scope.
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalView);
-
-        // When pressing <c-g> (the same configured toggle key).
-        let ctrl_g = KeyEvent {
-            key: Key::Char('g'),
-            modifiers: Modifiers {
-                ctrl: true,
-                alt: false,
-                shift: false,
-            },
-        };
-        let intent = wk.handle_key(ctrl_g);
-
-        // Then it resolves to TerminalTakeControl — the toggle works in
-        // both directions.
-        let intent = intent.expect("<c-g> in TerminalView must fire an intent");
-        assert!(matches!(intent, Intent::TerminalTakeControl));
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn terminal_control_scope_ctrl_c_forwards_as_control_byte() {
-        // Given a keymap queried in TerminalControl scope.
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        let keymap = init();
-        let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalControl);
-
-        // When pressing Ctrl+C.
-        let ctrl_c = KeyEvent {
-            key: Key::Char('c'),
-            modifiers: Modifiers {
-                ctrl: true,
-                alt: false,
-                shift: false,
-            },
-        };
-        let intent = wk.handle_key(ctrl_c);
-
-        // Then it forwards as the C0 ETX byte (not jinn's CtrlClear).
-        let intent = intent.expect("ctrl+c in TerminalControl must forward");
-        match intent {
-            Intent::TerminalSendKey { bytes, .. } => assert_eq!(bytes, vec![0x03]),
-            other => panic!("expected TerminalSendKey, got {other:?}"),
-        }
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn custom_control_toggle_binding_is_respected() {
-        // Given a keymap built with `<c-q>` as the handback key.
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        let keymap = init_with_control_toggle("<c-q>");
-        let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalControl);
-
-        // When pressing <c-q>.
-        let ctrl_q = KeyEvent {
-            key: Key::Char('q'),
-            modifiers: Modifiers {
-                ctrl: true,
-                alt: false,
-                shift: false,
-            },
-        };
-        let intent = wk.handle_key(ctrl_q);
-
-        // Then it resolves to TerminalHandback.
-        let intent = intent.expect("configured handback key must fire an intent");
-        assert!(matches!(intent, Intent::TerminalHandback));
-
-        // When pressing <c-g> (no longer the handback key).
-        let ctrl_g = KeyEvent {
-            key: Key::Char('g'),
-            modifiers: Modifiers {
-                ctrl: true,
-                alt: false,
-                shift: false,
-            },
-        };
-        let intent = wk.handle_key(ctrl_g);
-
-        // Then it forwards to the pty instead (TerminalSendKey).
-        let intent = intent.expect("former handback key must forward");
-        assert!(matches!(intent, Intent::TerminalSendKey { .. }));
-    }
-
-    /// An alt-modified control-toggle key (e.g. `<m-g>`) must bind and resolve:
-    /// any keymap-parseable binding is accepted (`[interactive_term]
-    /// control_toggle_key = "<m-g>"` in jinn.toml).
-    #[rstest::rstest]
-    #[test]
-    fn alt_control_toggle_key_resolves() {
-        // Given a keymap built with `<m-g>` as the handback key.
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        let keymap = init_with_control_toggle("<m-g>");
-        let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalControl);
-
-        // When pressing alt+g.
-        let alt_g = KeyEvent {
-            key: Key::Char('g'),
-            modifiers: Modifiers {
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-        };
-        let intent = wk.handle_key(alt_g);
-
-        // Then it resolves to TerminalHandback.
-        let intent = intent.expect("configured alt handback key must fire an intent");
-        assert!(matches!(intent, Intent::TerminalHandback));
-    }
-
-    /// A sequence control-toggle (e.g. `zx`) binds as a prefix: the first key
-    /// enters which-key pending state rather than forwarding to the pty.
-    #[rstest::rstest]
-    #[test]
-    fn sequence_control_toggle_first_key_pends_not_forwards() {
-        // Given a keymap built with a two-key handback sequence.
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        let keymap = init_with_control_toggle("zx");
-        let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalControl);
-
-        // When pressing the sequence's first key.
-        let z = KeyEvent {
-            key: Key::Char('z'),
-            modifiers: Modifiers::none(),
-        };
-        let intent = wk.handle_key(z);
-
-        // Then nothing forwards to the pty yet (pending state).
-        assert!(intent.is_none());
-    }
-
-    /// A punctuation control-toggle key (e.g. `<c-'>`) must bind and resolve —
-    /// `normalize_control_toggle_key` permits any single character after
-    /// `c-`, so the keymap must too.
-    #[rstest::rstest]
-    #[test]
-    fn punctuation_control_toggle_key_resolves() {
-        // Given a keymap built with `<c-'>` as the handback key.
-        use crate::app::WhichKeyInstance;
-        use jinn_domain::{Key, KeyEvent, Modifiers};
-
-        let keymap = init_with_control_toggle("<c-'>");
-        let mut wk = WhichKeyInstance::new(keymap, Scope::TerminalControl);
-
-        // When pressing ctrl+'.
-        let ctrl_quote = KeyEvent {
-            key: Key::Char('\''),
-            modifiers: Modifiers {
-                ctrl: true,
-                alt: false,
-                shift: false,
-            },
-        };
-        let intent = wk.handle_key(ctrl_quote);
-
-        // Then it resolves to TerminalHandback.
-        let intent = intent.expect("configured punctuation handback key must fire an intent");
-        assert!(matches!(intent, Intent::TerminalHandback));
-    }
 }
 
 #[cfg(test)]
