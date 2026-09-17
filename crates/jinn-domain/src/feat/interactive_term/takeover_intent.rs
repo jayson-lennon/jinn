@@ -23,8 +23,8 @@
 //! authoritative-write pattern.
 
 use crate::common::app_state::{AppState, FocusScope};
-use crate::feat::interactive_term::interactive_term_actor::TermControls;
 use crate::feat::interactive_term::protocol::command::ControlHolder;
+use jinn_term_msg::takeover::TermControls;
 
 /// The shared control registry installed by actor wiring. Set once at
 /// startup; before that, takeover intents no-op (the overlay renders an
@@ -109,10 +109,8 @@ pub fn push_screen_text(screen: &str) -> String {
 fn active_screen(state: &AppState) -> Option<String> {
     let chat = state.session.active_session_id();
     state
-        .frontend
-        .terminal
-        .mirror(chat)
-        .map(|mirror| mirror.screen.clone())
+        .term_tabs()
+        .and_then(|cell| cell.read().mirror(chat).map(|m| m.screen.clone()))
 }
 
 /// Handles [`Intent::TerminalYank`].

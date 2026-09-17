@@ -53,7 +53,11 @@ pub fn handle_toggle_overlay(
     );
     // A session without a live terminal has nothing to show; the overlay is
     // never a spawn trigger. A status hint explains the inert press.
-    if !state.frontend.terminal.live_terms.contains(&target) {
+    let live = state
+        .term_tabs()
+        .map(|cell| cell.read().live_terms.contains(&target))
+        .unwrap_or(false);
+    if !live {
         crate::feat::ui::status_hint::set_hint(
             state,
             slices,

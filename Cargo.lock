@@ -2394,6 +2394,8 @@ dependencies = [
  "jinn-slices",
  "jinn-status-bar",
  "jinn-status-bar-msg",
+ "jinn-term",
+ "jinn-term-msg",
  "jinn-testutil",
  "jinn-theme-msg",
  "jinn-theme-slice",
@@ -2665,6 +2667,7 @@ dependencies = [
  "jinn-sidebar-msg",
  "jinn-slices",
  "jinn-status-bar-msg",
+ "jinn-term-msg",
  "jinn-testutil",
  "jinn-theme",
  "jinn-theme-msg",
@@ -3056,6 +3059,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "jinn-term"
+version = "0.118.0"
+dependencies = [
+ "error-stack",
+ "futures",
+ "jinn-core-types",
+ "jinn-domain",
+ "jinn-sidebar-msg",
+ "jinn-slices",
+ "jinn-term-msg",
+ "kameo",
+ "parking_lot",
+ "portable-pty",
+ "rstest",
+ "serde",
+ "tokio",
+ "tracing",
+ "vt100",
+ "wherror",
+]
+
+[[package]]
+name = "jinn-term-msg"
+version = "0.118.0"
+dependencies = [
+ "async-trait",
+ "jinn-core-types",
+ "jinn-slices",
+ "kameo",
+ "parking_lot",
+ "ratatui",
+ "rstest",
+ "serde",
+ "wherror",
+]
+
+[[package]]
 name = "jinn-testutil"
 version = "0.118.0"
 dependencies = [
@@ -3161,6 +3201,7 @@ dependencies = [
  "jinn-slices",
  "jinn-status-bar",
  "jinn-status-bar-msg",
+ "jinn-term-msg",
  "jinn-testutil",
  "jinn-theme-msg",
  "jinn-token-count-msg",

@@ -11,6 +11,7 @@
 
 use std::collections::VecDeque;
 
+pub use jinn_term_msg::cells::{CellStyle, ScreenCells, TermCell, TermColor};
 use vt100::Parser;
 
 /// Smallest emulator grid vt100 0.15 can hold without panicking. Audit of
@@ -137,8 +138,8 @@ impl Emulator {
                     continue;
                 }
                 let style = CellStyle {
-                    fg: cell.fgcolor().into(),
-                    bg: cell.bgcolor().into(),
+                    fg: term_color(cell.fgcolor()),
+                    bg: term_color(cell.bgcolor()),
                     bold: cell.bold(),
                     italic: cell.italic(),
                     underline: cell.underline(),
@@ -270,77 +271,13 @@ fn normalize_hvp(bytes: &[u8]) -> Vec<u8> {
 }
 
 /// A styled snapshot of the visible screen's cells.
-#[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ScreenCells {
-    /// Grid height in rows.
-    pub rows: u16,
-    /// Grid width in columns.
-    pub cols: u16,
-    /// Row-major cell grid, `rows * cols` entries.
-    pub cells: Vec<TermCell>,
-}
 
-impl ScreenCells {
-    /// The cell at `(row, col)`, or `None` when out of bounds.
-    #[must_use]
-    pub fn get(&self, row: u16, col: u16) -> Option<&TermCell> {
-        let idx = usize::from(row) * usize::from(self.cols) + usize::from(col);
-        self.cells.get(idx)
-    }
-}
-
-/// One renderable cell of the terminal screen.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum TermCell {
-    /// The default cell (no contents, no styling).
-    Blank,
-    /// The right half of a double-width character.
-    WideSpacer,
-    /// A cell with content and optional styling.
-    Styled {
-        /// The character to draw.
-        ch: char,
-        /// Foreground/background/attributes.
-        style: CellStyle,
-    },
-}
-
-/// Foreground, background, and attribute styling of a cell.
-#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-pub struct CellStyle {
-    /// Foreground color.
-    pub fg: TermColor,
-    /// Background color.
-    pub bg: TermColor,
-    /// Bold attribute.
-    pub bold: bool,
-    /// Italic attribute.
-    pub italic: bool,
-    /// Underline attribute.
-    pub underline: bool,
-    /// Inverse attribute.
-    pub inverse: bool,
-}
-
-/// Terminal color, normalized from vt100's palette.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-pub enum TermColor {
-    /// Terminal default foreground/background.
-    #[default]
-    Default,
-    /// One of the 256-color palette entries.
-    Idx(u8),
-    /// A direct RGB color.
-    Rgb(u8, u8, u8),
-}
-
-impl From<vt100::Color> for TermColor {
-    fn from(color: vt100::Color) -> Self {
-        match color {
-            vt100::Color::Default => Self::Default,
-            vt100::Color::Idx(idx) => Self::Idx(idx),
-            vt100::Color::Rgb(r, g, b) => Self::Rgb(r, g, b),
-        }
+/// Converts vt100's palette color into the wire `TermColor`.
+fn term_color(color: vt100::Color) -> TermColor {
+    match color {
+        vt100::Color::Default => TermColor::Default,
+        vt100::Color::Idx(idx) => TermColor::Idx(idx),
+        vt100::Color::Rgb(r, g, b) => TermColor::Rgb(r, g, b),
     }
 }
 

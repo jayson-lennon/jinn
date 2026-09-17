@@ -923,8 +923,8 @@ mod tests {
     }
     use crate::common::app_state::{AppState, FocusScope};
     use crate::feat::intent::IntentHandler;
-    use crate::feat::interactive_term::emulator::ScreenCells;
     use crate::protocol::{ChatEntry, Intent};
+    use jinn_term_msg::cells::ScreenCells;
 
     #[rstest::rstest]
     fn paste_text_ignored_in_normal_scope() {
@@ -1483,7 +1483,10 @@ mod tests {
         // Given default state whose active session has a live terminal.
         let mut state = AppState::default_with_scope_focus();
         let chat = state.session.active_session_id().clone();
-        state.frontend.terminal.set_live(&chat, true);
+        state
+            .term_tabs()
+            .expect("term tabs cell")
+            .update(|t| t.set_live(&chat, true));
 
         // When toggling the terminal overlay.
         IntentHandler::handle(
@@ -1611,7 +1614,10 @@ mod tests {
         // Given an open terminal overlay (view mode).
         let mut state = AppState::default_with_scope_focus();
         let chat = state.session.active_session_id().clone();
-        state.frontend.terminal.set_live(&chat, true);
+        state
+            .term_tabs()
+            .expect("term tabs cell")
+            .update(|t| t.set_live(&chat, true));
         IntentHandler::handle(
             &Intent::ToggleTerminalOverlay { session_id: None },
             &mut state,
@@ -1640,7 +1646,10 @@ mod tests {
         // a live terminal.
         let mut state = AppState::default_with_scope_focus();
         let selected = crate::protocol::SessionId::new();
-        state.frontend.terminal.set_live(&selected, true);
+        state
+            .term_tabs()
+            .expect("term tabs cell")
+            .update(|t| t.set_live(&selected, true));
 
         // When toggling with the explicit session id.
         IntentHandler::handle(
@@ -1717,7 +1726,10 @@ mod tests {
         // Given an open terminal overlay over the Normal base.
         let mut state = AppState::default_with_scope_focus();
         let chat = state.session.active_session_id().clone();
-        state.frontend.terminal.set_live(&chat, true);
+        state
+            .term_tabs()
+            .expect("term tabs cell")
+            .update(|t| t.set_live(&chat, true));
         IntentHandler::handle(
             &Intent::ToggleTerminalOverlay { session_id: None },
             &mut state,
@@ -1769,13 +1781,15 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         let handback_slices = status_bar_slices();
         state.frontend.scope_swap_base(FocusScope::TerminalView);
-        state.frontend.terminal.apply_screen(
-            state.session.active_session_id(),
-            "handback-screen-marker".to_owned(),
-            ScreenCells::default(),
-            (0, 0),
-            false,
-        );
+        state.term_tabs().expect("term tabs cell").update(|t| {
+            t.apply_screen(
+                state.session.active_session_id(),
+                "handback-screen-marker".to_owned(),
+                ScreenCells::default(),
+                (0, 0),
+                false,
+            )
+        });
         IntentHandler::handle(
             &Intent::TerminalTakeControl,
             &mut state,
@@ -1815,13 +1829,15 @@ mod tests {
         // and the session is idle.
         let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_swap_base(FocusScope::TerminalView);
-        state.frontend.terminal.apply_screen(
-            state.session.active_session_id(),
-            "idle-screen-marker".to_owned(),
-            ScreenCells::default(),
-            (0, 0),
-            false,
-        );
+        state.term_tabs().expect("term tabs cell").update(|t| {
+            t.apply_screen(
+                state.session.active_session_id(),
+                "idle-screen-marker".to_owned(),
+                ScreenCells::default(),
+                (0, 0),
+                false,
+            )
+        });
 
         // When handling TerminalPushScreen.
         let result = IntentHandler::handle(
@@ -1849,13 +1865,15 @@ mod tests {
         // while the session is mid-turn (Streaming).
         let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_swap_base(FocusScope::TerminalView);
-        state.frontend.terminal.apply_screen(
-            state.session.active_session_id(),
-            "busy-screen-marker".to_owned(),
-            ScreenCells::default(),
-            (0, 0),
-            false,
-        );
+        state.term_tabs().expect("term tabs cell").update(|t| {
+            t.apply_screen(
+                state.session.active_session_id(),
+                "busy-screen-marker".to_owned(),
+                ScreenCells::default(),
+                (0, 0),
+                false,
+            )
+        });
         {
             let sid = state.session.active_session_id().clone();
             if let Some(session) = state.session.get_mut(&sid) {
@@ -1889,13 +1907,15 @@ mod tests {
         // Given an AppState in the TerminalView overlay with a screen mirror.
         let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_swap_base(FocusScope::TerminalView);
-        state.frontend.terminal.apply_screen(
-            state.session.active_session_id(),
-            "yank-and-push-marker".to_owned(),
-            ScreenCells::default(),
-            (0, 0),
-            false,
-        );
+        state.term_tabs().expect("term tabs cell").update(|t| {
+            t.apply_screen(
+                state.session.active_session_id(),
+                "yank-and-push-marker".to_owned(),
+                ScreenCells::default(),
+                (0, 0),
+                false,
+            )
+        });
 
         // When handling TerminalPushScreen.
         IntentHandler::handle(
@@ -1920,13 +1940,15 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_swap_base(FocusScope::TerminalView);
         let yank_slices = status_bar_slices();
-        state.frontend.terminal.apply_screen(
-            state.session.active_session_id(),
-            "line one\nline two\nline three".to_owned(),
-            ScreenCells::default(),
-            (0, 0),
-            false,
-        );
+        state.term_tabs().expect("term tabs cell").update(|t| {
+            t.apply_screen(
+                state.session.active_session_id(),
+                "line one\nline two\nline three".to_owned(),
+                ScreenCells::default(),
+                (0, 0),
+                false,
+            )
+        });
 
         // When handling TerminalYank.
         IntentHandler::handle(
@@ -2005,7 +2027,10 @@ mod tests {
         // control registry unwired, so control stays with the agent).
         let mut state = AppState::default_with_scope_focus();
         let chat = state.session.active_session_id().clone();
-        state.frontend.terminal.set_live(&chat, true);
+        state
+            .term_tabs()
+            .expect("term tabs cell")
+            .update(|t| t.set_live(&chat, true));
         state.frontend.scope_swap_base(FocusScope::TerminalView);
 
         // When toggling the overlay closed.
@@ -2044,7 +2069,10 @@ mod tests {
         state.active_session_mut().push_entry(entry);
         state.active_session_mut().select_prev_entry();
 
-        state.frontend.terminal.set_live(&first_id, true);
+        state
+            .term_tabs()
+            .expect("term tabs cell")
+            .update(|t| t.set_live(&first_id, true));
         // The real overlay opens on top of the base scope
         // (clear_overlays + push); the guard clears overlays, so the
         // overlay must not be the base itself.
@@ -2091,7 +2119,7 @@ mod tests {
         use crate::feat::session::chat_session::ChatSessionState;
         use crate::feat::tools_actor::task::TASK_TOOL_NAME;
         use crate::protocol::SessionId;
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         let first_id = state.session.active_session_id().clone();
         let child_id = SessionId::new();
         let mut child = ChatSessionState::new_child(&first_id, false);
@@ -2106,7 +2134,10 @@ mod tests {
         state.active_session_mut().push_entry(entry);
         state.active_session_mut().select_prev_entry();
 
-        state.frontend.terminal.set_live(&first_id, true);
+        state
+            .term_tabs()
+            .expect("term tabs cell")
+            .update(|t| t.set_live(&first_id, true));
         state.frontend.scope_swap_base(FocusScope::Normal);
         state.frontend.scope_push(FocusScope::TerminalControl);
         if let Some(registry) = crate::feat::interactive_term::takeover_intent::TERM_CONTROLS.get()
@@ -2147,7 +2178,10 @@ mod tests {
         let mut second = ChatSessionState::new();
         let second_id = second.session_id().clone();
         state.session.insert(second);
-        state.frontend.terminal.set_live(&second_id, true);
+        state
+            .term_tabs()
+            .expect("term tabs cell")
+            .update(|t| t.set_live(&second_id, true));
         state
             .frontend
             .scope_swap_base(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());

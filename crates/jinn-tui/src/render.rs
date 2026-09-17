@@ -112,14 +112,19 @@ fn apply_pre_render_mutation(app: &mut TuiApp, area: Rect) {
         wstate.frontend.scope(),
         jinn_domain::FocusScope::TerminalView | jinn_domain::FocusScope::TerminalControl
     ) {
-        let inner =
-            jinn_domain::feat::interactive_term::overlay_geometry::terminal_overlay_inner_rect(
-                area,
-            );
+        let inner = jinn_term_msg::geometry::terminal_overlay_inner_rect(area);
         let (rows, cols) = (inner.height, inner.width);
-        if wstate.frontend.terminal.record_layout_size(rows, cols) {
+        let layout_changed = wstate
+            .term_tabs()
+            .map(|cell| {
+                let mut changed = false;
+                cell.update(|t| changed = t.record_layout_size(rows, cols));
+                changed
+            })
+            .unwrap_or(false);
+        if layout_changed {
             let closure = jinn_domain::common::bridge::Bridge::publish_closure(
-                jinn_domain::feat::interactive_term::protocol::command::ResizeTerm {
+                jinn_term_msg::command::ResizeTerm {
                     chat_session_id: Some(wstate.session.active_session_id().clone()),
                     size: (rows, cols),
                 },
@@ -317,8 +322,7 @@ fn render_active_overlay(
             Some(jinn_domain::feat::project_add_input::render::project_add_input_popup_rect(area))
         }
         FocusScope::TerminalView | FocusScope::TerminalControl => {
-            let overlay_rect =
-                jinn_domain::feat::interactive_term::overlay_geometry::terminal_overlay_rect(area);
+            let overlay_rect = jinn_term_msg::geometry::terminal_overlay_rect(area);
             crate::render::terminal_tab::render_terminal_tab(frame, overlay_rect, ctx);
             Some(overlay_rect)
         }

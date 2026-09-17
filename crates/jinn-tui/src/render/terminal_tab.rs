@@ -6,10 +6,9 @@
 //! The program's cursor is drawn only when the program shows it (TUIs hide
 //! it while repainting).
 //!
-//! [`TerminalTabState`]: jinn_domain::feat::interactive_term::terminal_tab_state::TerminalTabState
 
 use jinn_domain::RenderCtx;
-use jinn_domain::feat::interactive_term::emulator::{TermCell, TermColor};
+use jinn_term_msg::cells::{TermCell, TermColor};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -29,8 +28,8 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 /// control_toggle_key`), yank, and push keys; capture mode shows only the
 /// toggle (everything else types into the program).
 pub fn render_terminal_tab(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx<'_>) {
-    let terminal = &ctx.state.frontend.terminal;
     let theme = &ctx.state.frontend.theme;
+    let terminal = ctx.state.term_tabs().map(|cell| cell.read().clone());
 
     // Stale frame content would otherwise bleed through Blank cells.
     frame.render_widget(Clear, area);
@@ -57,7 +56,8 @@ pub fn render_terminal_tab(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx<'_
 
     // The view shows the active chat session's mirrored terminal.
     let chat = ctx.state.session.active_session_id().clone();
-    let Some(mirror) = terminal.mirror(&chat) else {
+    let mirror = terminal.as_ref().and_then(|t| t.mirror(&chat));
+    let Some(mirror) = mirror else {
         render_empty(frame, interior, theme.focus_accent);
         return;
     };
@@ -85,11 +85,7 @@ pub fn render_terminal_tab(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx<'_
 /// `Blank` cells are left untouched; [`TermCell::WideSpacer`] cells are
 /// skipped — the wide `ch` already occupies the leading slot and ratatui's
 /// buffer advances past the second column on its own.
-fn render_cells(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    cells: &jinn_domain::feat::interactive_term::emulator::ScreenCells,
-) {
+fn render_cells(frame: &mut Frame<'_>, area: Rect, cells: &jinn_term_msg::cells::ScreenCells) {
     let buf = frame.buffer_mut();
     for row in 0..cells.rows.min(area.height) {
         for col in 0..cells.cols.min(area.width) {
@@ -121,7 +117,7 @@ fn render_plain_text(frame: &mut Frame<'_>, area: Rect, text: &str) {
 }
 
 /// Maps the emulator's cell style to a ratatui style.
-fn to_ratatui_style(style: &jinn_domain::feat::interactive_term::emulator::CellStyle) -> Style {
+fn to_ratatui_style(style: &jinn_term_msg::cells::CellStyle) -> Style {
     let mut out = Style::default();
     if let Some(fg) = to_ratatui_color(style.fg) {
         out = out.fg(fg);
@@ -185,9 +181,7 @@ fn bottom_border_hints(ctx: &RenderCtx<'_>, capturing: bool) -> ratatui::text::L
         .clone();
     let toggle =
         jinn_domain::feat::interactive_term::prefs::normalize_control_toggle_key(&configured)
-            .unwrap_or_else(|| {
-                jinn_domain::feat::interactive_term::prefs::DEFAULT_CONTROL_TOGGLE_KEY.to_owned()
-            });
+            .unwrap_or_else(|| jinn_term_msg::prefs::DEFAULT_CONTROL_TOGGLE_KEY.to_owned());
     let key_style = Style::default()
         .fg(theme.accent_action)
         .add_modifier(Modifier::BOLD);
@@ -228,21 +222,23 @@ mod tests {
     #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
     use super::*;
     use jinn_domain::common::app_state::{AppState, FocusScope};
-    use jinn_domain::feat::interactive_term::emulator::{CellStyle, ScreenCells};
+    use jinn_term_msg::cells::{CellStyle, ScreenCells};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::layout::Position;
 
     fn app_with_terminal_screen(screen: &str, cursor: (u16, u16)) -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_swap_base(FocusScope::TerminalView);
-        state.frontend.terminal.apply_screen(
-            state.session.active_session_id(),
-            screen.to_owned(),
-            ScreenCells::default(),
-            cursor,
-            false,
-        );
+        state.term_tabs().expect("term tabs cell").update(|term| {
+            term.apply_screen(
+                state.session.active_session_id(),
+                screen.to_owned(),
+                ScreenCells::default(),
+                cursor,
+                false,
+            );
+        });
         state
     }
 
@@ -280,7 +276,7 @@ mod tests {
     #[tokio::test]
     async fn renders_hint_when_no_session() {
         // Given an app with no mirrored session.
-        let state = AppState::default();
+        let state = AppState::default_with_scope_focus();
         state.frontend.scope_swap_base(FocusScope::TerminalView);
         let app = crate::TuiApp::test_builder().state(state).build().await;
 
@@ -309,12 +305,10 @@ mod tests {
     async fn renders_styled_cells_with_colors_and_attributes() {
         // Given an app whose mirror carries a styled cell grid: red bold "R"
         // followed by default-colored plain text.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_swap_base(FocusScope::TerminalView);
         let styled = {
-            use jinn_domain::feat::interactive_term::emulator::{
-                CellStyle, ScreenCells, TermCell, TermColor,
-            };
+            use jinn_term_msg::cells::{CellStyle, ScreenCells, TermCell, TermColor};
             let mut cells = vec![
                 TermCell::Styled {
                     ch: 'R',
@@ -336,8 +330,7 @@ mod tests {
                 cells,
             }
         };
-        {
-            let mut term = state.frontend.terminal.clone();
+        state.term_tabs().expect("term tabs cell").update(|term| {
             term.apply_screen(
                 state.session.active_session_id(),
                 "Rx".to_owned(),
@@ -345,8 +338,7 @@ mod tests {
                 (0, 2),
                 false,
             );
-            state.frontend.terminal = term;
-        }
+        });
         let app = crate::TuiApp::test_builder().state(state).build().await;
 
         // When rendering on a test backend.
@@ -376,23 +368,25 @@ mod tests {
     /// Renders a single styled cell `ch` at (0, 0) and returns the buffer
     /// cell, so style-mapping cases share one assertion path.
     async fn rendered_cell_for_style(style: CellStyle) -> ratatui::buffer::Cell {
-        use jinn_domain::feat::interactive_term::emulator::{ScreenCells, TermCell};
+        use jinn_term_msg::cells::{ScreenCells, TermCell};
 
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_swap_base(FocusScope::TerminalView);
         let mut cells = vec![TermCell::Styled { ch: 'S', style }];
         cells.resize(200, TermCell::Blank);
-        state.frontend.terminal.apply_screen(
-            state.session.active_session_id(),
-            "S".to_owned(),
-            ScreenCells {
-                rows: 24,
-                cols: 80,
-                cells,
-            },
-            (0, 0),
-            true,
-        );
+        state.term_tabs().expect("term tabs cell").update(|term| {
+            term.apply_screen(
+                state.session.active_session_id(),
+                "S".to_owned(),
+                ScreenCells {
+                    rows: 24,
+                    cols: 80,
+                    cells,
+                },
+                (0, 0),
+                true,
+            );
+        });
         let app = crate::TuiApp::test_builder().state(state).build().await;
 
         let backend = TestBackend::new(80, 24);
@@ -471,10 +465,10 @@ mod tests {
     async fn wide_char_spacer_cells_are_skipped_not_rendered() {
         // Given a mirror whose grid contains a wide char followed by its
         // spacer (as the emulator emits for double-width glyphs).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_swap_base(FocusScope::TerminalView);
         let styled = {
-            use jinn_domain::feat::interactive_term::emulator::{CellStyle, ScreenCells, TermCell};
+            use jinn_term_msg::cells::{CellStyle, ScreenCells, TermCell};
             let mut cells = vec![
                 TermCell::Styled {
                     ch: '漢',
@@ -489,8 +483,7 @@ mod tests {
                 cells,
             }
         };
-        {
-            let mut term = state.frontend.terminal.clone();
+        state.term_tabs().expect("term tabs cell").update(|term| {
             term.apply_screen(
                 state.session.active_session_id(),
                 "漢".to_owned(),
@@ -498,8 +491,7 @@ mod tests {
                 (0, 2),
                 false,
             );
-            state.frontend.terminal = term;
-        }
+        });
         let app = crate::TuiApp::test_builder().state(state).build().await;
 
         // When rendering on a test backend.
@@ -527,8 +519,7 @@ mod tests {
     async fn rendered_overlay_with_scope(scope: FocusScope) -> ratatui::buffer::Buffer {
         let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_swap_base(scope);
-        {
-            let mut term = state.frontend.terminal.clone();
+        state.term_tabs().expect("term tabs cell").update(|term| {
             term.apply_screen(
                 state.session.active_session_id(),
                 "screen".to_owned(),
@@ -536,8 +527,7 @@ mod tests {
                 (0, 0),
                 true,
             );
-            state.frontend.terminal = term;
-        }
+        });
         let app = crate::TuiApp::test_builder().state(state).build().await;
 
         let backend = TestBackend::new(80, 24);
@@ -614,15 +604,17 @@ mod tests {
     #[tokio::test]
     async fn border_hint_shows_a_custom_configured_toggle_key() {
         // Given an app whose preferences configure `<m-g>` as the toggle.
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_swap_base(FocusScope::TerminalView);
-        state.frontend.terminal.apply_screen(
-            state.session.active_session_id(),
-            "screen".to_owned(),
-            ScreenCells::default(),
-            (0, 0),
-            true,
-        );
+        state.term_tabs().expect("term tabs cell").update(|term| {
+            term.apply_screen(
+                state.session.active_session_id(),
+                "screen".to_owned(),
+                ScreenCells::default(),
+                (0, 0),
+                true,
+            );
+        });
         state
             .frontend
             .preferences
@@ -693,10 +685,9 @@ mod tests {
                 f.render_widget(Paragraph::new("LEAK".repeat(30)), f.area());
             })
             .expect("seed draw");
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_swap_base(FocusScope::TerminalView);
-        {
-            let mut term = state.frontend.terminal.clone();
+        state.term_tabs().expect("term tabs cell").update(|term| {
             term.apply_screen(
                 state.session.active_session_id(),
                 String::new(),
@@ -704,8 +695,7 @@ mod tests {
                 (0, 0),
                 true,
             );
-            state.frontend.terminal = term;
-        }
+        });
         let app = crate::TuiApp::test_builder().state(state).build().await;
         let guard = app.core.state.read();
         let slices = jinn_slices::Slices::new();
@@ -733,10 +723,9 @@ mod tests {
     #[tokio::test]
     async fn cursor_position_is_set_when_visible_and_skipped_when_hidden() {
         // Given a mirror with an unhidden cursor at (1, 3).
-        let mut state = AppState::default();
+        let mut state = AppState::default_with_scope_focus();
         state.frontend.scope_swap_base(FocusScope::TerminalView);
-        {
-            let mut term = state.frontend.terminal.clone();
+        state.term_tabs().expect("term tabs cell").update(|term| {
             term.apply_screen(
                 state.session.active_session_id(),
                 "hello".to_owned(),
@@ -744,8 +733,7 @@ mod tests {
                 (1, 3),
                 false,
             );
-            state.frontend.terminal = term;
-        }
+        });
         let app = crate::TuiApp::test_builder().state(state).build().await;
 
         // When rendering.

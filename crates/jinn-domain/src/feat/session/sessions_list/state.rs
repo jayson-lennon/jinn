@@ -166,7 +166,13 @@ pub fn sorted_open_sessions_split(
             is_last_child: false,
             is_subagent: session.origin()
                 == crate::feat::session::chat_session::SessionOrigin::Subagent,
-            has_live_term: frontend.terminal.live_terms.contains(id),
+            has_live_term: frontend
+                .slices()
+                .and_then(|s| {
+                    s.reader::<jinn_term_msg::TerminalTabState>(&jinn_term_msg::term_tabs_slot())
+                })
+                .map(|cell| cell.read().live_terms.contains(id))
+                .unwrap_or(false),
         })
         .collect();
 

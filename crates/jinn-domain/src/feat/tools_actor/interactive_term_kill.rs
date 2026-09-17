@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use futures::FutureExt;
 
-use crate::feat::interactive_term::protocol::command::{KillTerm, KillTermOutcome};
+use crate::feat::interactive_term::protocol::command::KillTermOutcome;
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition, ToolResult};
 
 use super::BoxedToolFuture;
@@ -74,13 +74,8 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
     };
 
     async move {
-        let outcome = tokio::time::timeout(
-            ASK_TIMEOUT,
-            coordinator.ask(KillTerm {
-                chat_session_id: chat_session_id.clone(),
-            }),
-        )
-        .await;
+        let outcome =
+            tokio::time::timeout(ASK_TIMEOUT, coordinator.kill_term(chat_session_id.clone())).await;
 
         let replied = match outcome {
             Ok(Ok(replied)) => replied,

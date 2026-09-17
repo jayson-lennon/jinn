@@ -180,7 +180,8 @@ pub struct GetRecorded<M> {
 }
 
 impl<M> GetRecorded<M> {
-    pub(crate) fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self {
             _phantom: PhantomData,
         }

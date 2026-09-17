@@ -265,6 +265,18 @@ impl ActorSystemBuilder {
             );
         }
 
+        // Terminal tab mirrors (written by the term coordinator actor,
+        // read by the TUI overlay + tools) — hosted in jinn-slices
+        // vocabulary until the term slice's own activate() owns it
+        // (it arrives with the actor move).
+        {
+            let slices = services.slices.clone();
+            let _ = slices.register(
+                jinn_term_msg::term_tabs_slot(),
+                jinn_term_msg::TerminalTabState::default(),
+            );
+        }
+
         // Quake bar slice: activation mints the cell, spawns the actor
         // (submit-log writer), attaches rows, and registers the input
         // hook + overlay geometry. Composition owns exactly this call.
@@ -511,31 +523,40 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
         // (the `interactive_term*` tools ask it directly). Spawned with the
         // same lifecycle shape as the MCP coordinator; the per-session
         // control registry goes to the terminal tab (takeover UI) wiring.
-        let term_controls =
-            jinn_domain::feat::interactive_term::interactive_term_actor::TermControls::default();
+        let term_controls = jinn_term_msg::TermControls::default();
         let (term_coordinator, _controls) =
-            jinn_domain::feat::interactive_term::interactive_term_actor::spawn_interactive_term_actor(
-                jinn_domain::feat::interactive_term::interactive_term_actor::InteractiveTermActorDeps {
+            jinn_term::interactive_term_actor::spawn_interactive_term_actor(
+                jinn_term::interactive_term_actor::InteractiveTermActorDeps {
                     bus: services.bus.clone(),
                     controls: term_controls.clone(),
                     state: state.clone(),
-                    cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
                     settle_quiet: std::time::Duration::from_millis(
-                        state.read().frontend.preferences.interactive_term.settle_quiet_ms,
+                        state
+                            .read()
+                            .frontend
+                            .preferences
+                            .interactive_term
+                            .settle_quiet_ms,
                     ),
                     settle_cap: std::time::Duration::from_millis(
-                        state.read().frontend.preferences.interactive_term.settle_max_wait_ms,
+                        state
+                            .read()
+                            .frontend
+                            .preferences
+                            .interactive_term
+                            .settle_max_wait_ms,
                     ),
                 },
                 &root,
             )
             .await;
-        let _ = services.interactive_term.set(term_coordinator);
+        let _ = services
+            .interactive_term
+            .set(std::sync::Arc::new(ActorTermHandle::new(term_coordinator)));
         // Install the shared registry for the IntentHandler's takeover
         // intents (synchronous flips that in-flight tool calls observe
         // mid-drain).
-        let _ =
-            jinn_domain::feat::interactive_term::takeover_intent::TERM_CONTROLS.set(term_controls);
+        let _ = jinn_term_msg::TERM_CONTROLS.set(term_controls);
 
         // Plugin lifecycle actor: reads `[[plugin]]` entries from jinn.toml and spawns one in-process
         // WASM guest per entry. Guests are hosted directly by jinn via the
@@ -1551,5 +1572,83 @@ fn jinn_session_init_activate(services: &mut Services, state: jinn_domain::commo
     }
     if let Err(error) = host.finalize(&|_key| None) {
         panic!("session-init slice finalize failed: {error}");
+    }
+}
+
+/// The `TermHandle` implementation over the coordinator's actor ref.
+///
+/// Lives with the term slice's wiring; the actor type stays private to
+/// the slice once the feature tree moves.
+#[derive(Debug, Clone)]
+pub struct ActorTermHandle {
+    coordinator: kameo::actor::ActorRef<jinn_term::interactive_term_actor::InteractiveTermActor>,
+}
+
+impl ActorTermHandle {
+    pub fn new(
+        coordinator: kameo::actor::ActorRef<
+            jinn_term::interactive_term_actor::InteractiveTermActor,
+        >,
+    ) -> Self {
+        Self { coordinator }
+    }
+}
+
+#[async_trait::async_trait]
+impl jinn_term_msg::TermHandle for ActorTermHandle {
+    async fn spawn_term(
+        &self,
+        chat_session_id: jinn_domain::protocol::SessionId,
+        command: String,
+        cwd: std::path::PathBuf,
+        size: (u16, u16),
+        max_wait: std::time::Duration,
+    ) -> Result<jinn_term_msg::SpawnTermOutcome, jinn_term_msg::TermAskError> {
+        let msg = jinn_term_msg::SpawnTerm {
+            chat_session_id,
+            command,
+            cwd,
+            size,
+            max_wait,
+        };
+        self.coordinator
+            .ask(msg)
+            .await
+            .map_err(|_| jinn_term_msg::TermAskError)
+    }
+
+    async fn send_input(
+        &self,
+        chat_session_id: jinn_domain::protocol::SessionId,
+        text: Option<String>,
+        keys: Vec<String>,
+        enter: bool,
+        max_wait: std::time::Duration,
+    ) -> Result<jinn_term_msg::SendTermOutcome, jinn_term_msg::TermAskError> {
+        let msg = jinn_term_msg::SendTermInput {
+            chat_session_id,
+            text,
+            keys,
+            enter,
+            max_wait,
+        };
+        self.coordinator
+            .ask(msg)
+            .await
+            .map_err(|_| jinn_term_msg::TermAskError)
+    }
+
+    async fn kill_term(
+        &self,
+        chat_session_id: jinn_domain::protocol::SessionId,
+    ) -> Result<jinn_term_msg::KillTermOutcome, jinn_term_msg::TermAskError> {
+        self.coordinator
+            .ask(jinn_term_msg::KillTerm { chat_session_id })
+            .await
+            .map_err(|_| jinn_term_msg::TermAskError)
+    }
+
+    fn name(&self) -> &'static str {
+        "term-coordinator"
     }
 }

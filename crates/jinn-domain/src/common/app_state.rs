@@ -140,6 +140,15 @@ impl AppState {
         {
             // Same re-seed intent as scope-focus above.
         }
+        if slices
+            .register(
+                jinn_term_msg::term_tabs_slot(),
+                jinn_term_msg::TerminalTabState::default(),
+            )
+            .is_err()
+        {
+            // Same re-seed intent as scope-focus above.
+        }
         state.frontend.attach_slices(slices.clone());
         state.session.attach_slices(slices);
         state
@@ -154,6 +163,17 @@ impl AppState {
     pub fn tool_registry(&self) -> Option<jinn_slices::cell::TypedCell<jinn_slices::ToolRegistry>> {
         match self.frontend.slices() {
             Some(s) => s.reader(&jinn_slices::tools_registry_slot()),
+            None => None,
+        }
+    }
+
+    /// The term slice's terminal tab state cell, if attached.
+    #[must_use]
+    pub fn term_tabs(
+        &self,
+    ) -> Option<jinn_slices::cell::TypedCell<jinn_term_msg::TerminalTabState>> {
+        match self.frontend.slices() {
+            Some(s) => s.reader(&jinn_term_msg::term_tabs_slot()),
             None => None,
         }
     }

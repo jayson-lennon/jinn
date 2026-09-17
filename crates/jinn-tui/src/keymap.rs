@@ -83,7 +83,7 @@ fn add_terminal_toggles(
 #[rustfmt::skip]
 pub fn init() -> Keymap<KeyEvent, Scope, Intent, KeyCategory> {
     init_with_control_toggle(
-        jinn_domain::feat::interactive_term::prefs::DEFAULT_CONTROL_TOGGLE_KEY,
+        jinn_term_msg::prefs::DEFAULT_CONTROL_TOGGLE_KEY,
     )
 }
 

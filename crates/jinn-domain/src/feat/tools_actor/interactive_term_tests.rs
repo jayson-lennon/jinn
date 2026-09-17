@@ -115,7 +115,7 @@ async fn spawn_without_a_command_is_rejected() {
 fn started_result_surfaces_the_kill_notice() {
     // Given a started outcome describing a replaced terminal.
     let killed = crate::feat::interactive_term::protocol::command::KilledPrevious {
-        exited: crate::feat::interactive_term::pty_session::ExitInfo {
+        exited: jinn_term_msg::ExitInfo {
             code: 0,
             signal: None,
         },
@@ -329,4 +329,120 @@ fn usage_footer_mentions_the_snapshot_and_no_piping() {
     // piping output.
     assert!(footer.contains("snapshot"));
     assert!(footer.contains("pipe or redirect"));
+}
+
+/// A stub [`jinn_term_msg::TermHandle`] recording the asks it receives.
+#[derive(Debug, Clone, Default)]
+struct FakeTermHandle {
+    spawns: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    kills: std::sync::Arc<std::sync::Mutex<Vec<SessionId>>>,
+}
+
+#[async_trait::async_trait]
+impl jinn_term_msg::TermHandle for FakeTermHandle {
+    async fn spawn_term(
+        &self,
+        _chat_session_id: SessionId,
+        command: String,
+        _cwd: PathBuf,
+        _size: (u16, u16),
+        _max_wait: std::time::Duration,
+    ) -> Result<jinn_term_msg::SpawnTermOutcome, jinn_term_msg::TermAskError> {
+        self.spawns.lock().unwrap().push(command);
+        Ok(jinn_term_msg::SpawnTermOutcome::Started {
+            screen: jinn_term_msg::TermScreen {
+                screen: "fake screen".to_owned(),
+                exited: None,
+            },
+            killed_previous: None,
+        })
+    }
+
+    async fn send_input(
+        &self,
+        _chat_session_id: SessionId,
+        _text: Option<String>,
+        _keys: Vec<String>,
+        _enter: bool,
+        _max_wait: std::time::Duration,
+    ) -> Result<jinn_term_msg::SendTermOutcome, jinn_term_msg::TermAskError> {
+        Ok(jinn_term_msg::SendTermOutcome::UserHasControl)
+    }
+
+    async fn kill_term(
+        &self,
+        chat_session_id: SessionId,
+    ) -> Result<jinn_term_msg::KillTermOutcome, jinn_term_msg::TermAskError> {
+        self.kills.lock().unwrap().push(chat_session_id);
+        Ok(jinn_term_msg::KillTermOutcome::Killed {
+            screen: String::new(),
+            transcript_tail: String::new(),
+            exited: jinn_term_msg::ExitInfo {
+                code: 0,
+                signal: None,
+            },
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        "fake-term"
+    }
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn spawn_tool_uses_the_term_handle_trait() {
+    // Given a tool context carrying a fake term handle.
+    let fake = FakeTermHandle::default();
+    let mut ctx = ctx_with(Some(SessionId::new()), "/tmp");
+    ctx.interactive_term = Some(std::sync::Arc::new(fake.clone()));
+    let call = call("htop");
+
+    // When executing the spawn tool.
+    let result = execute(call, ctx).await;
+
+    // Then the tool succeeded through the handle.
+    assert!(result.success, "expected success: {:?}", result.content);
+    // And the handle received the command.
+    assert_eq!(fake.spawns.lock().unwrap().as_slice(), ["htop"]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn kill_tool_uses_the_term_handle_trait() {
+    // Given a tool context carrying a fake term handle.
+    let fake = FakeTermHandle::default();
+    let mut ctx = ctx_with(Some(SessionId::new()), "/tmp");
+    ctx.interactive_term = Some(std::sync::Arc::new(fake.clone()));
+    let call = ToolCall {
+        id: "call-2".to_owned(),
+        name: "interactive_term_kill".to_owned(),
+        arguments: serde_json::json!({}).to_string(),
+    };
+
+    // When executing the kill tool.
+    let result = interactive_term_kill::execute(call, ctx).await;
+
+    // Then the kill reached the handle.
+    assert!(
+        result.success || result.content.contains("unknown"),
+        "unexpected: {:?}",
+        result.content
+    );
+    assert_eq!(fake.kills.lock().unwrap().len(), 1);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn tools_fail_gracefully_when_the_handle_is_unset() {
+    // Given a tool context with no handle (slice not activated).
+    let ctx = ctx_with(Some(SessionId::new()), "/tmp");
+    let call = call("htop");
+
+    // When executing the spawn tool.
+    let result = execute(call, ctx).await;
+
+    // Then the tool fails with the unavailability notice — no panic.
+    assert!(!result.success);
+    assert!(result.content.contains("unavailable"));
 }

@@ -17,13 +17,11 @@ use std::time::Duration;
 
 use futures::FutureExt;
 
-use crate::feat::interactive_term::protocol::command::{
-    SendTermInput, SendTermOutcome, TermScreen,
-};
-use crate::feat::interactive_term::pty_session::ExitInfo;
-use crate::feat::interactive_term::settle::default_max_wait;
+use crate::feat::interactive_term::protocol::command::{SendTermOutcome, TermScreen};
 use crate::feat::tools_actor::interactive_term::StreamCtx;
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition, ToolResult};
+use jinn_term_msg::ExitInfo;
+use jinn_term_msg::settle::default_max_wait;
 
 use super::BoxedToolFuture;
 use super::interactive_term::{failure_result, parse, success_result};
@@ -133,15 +131,13 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
     async move {
         // `AskRequest` needs `.send()` to become a future; the keepalive
         // pacer publishes heartbeats while the ask blocks on the settle wait.
-        let ask_fut = coordinator
-            .ask(SendTermInput {
-                chat_session_id: chat_session_id.clone(),
-                text: text.clone(),
-                keys: keys.clone(),
-                enter,
-                max_wait,
-            })
-            .send();
+        let ask_fut = coordinator.send_input(
+            chat_session_id.clone(),
+            text.clone(),
+            keys.clone(),
+            enter,
+            max_wait,
+        );
         let replied =
             super::interactive_term::with_keepalive(ctx.bus, stream_ctx, ask_timeout, ask_fut)
                 .await;

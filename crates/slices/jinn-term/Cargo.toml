@@ -1,0 +1,28 @@
+[package]
+name = "jinn-term"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+jinn-core-types = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-sidebar-msg = { workspace = true }
+jinn-term-msg = { workspace = true }
+# Kernel dep (justified): the coordinator subscribes to the session bus's
+# SessionClosed event, writes app state through the tcaps caps, and its
+# deps carry ActorDeps — the sidebar-actor precedent for in-slice actors.
+jinn-domain = { workspace = true }
+kameo = { workspace = true }
+portable-pty = { workspace = true }
+vt100 = { workspace = true }
+tokio = { workspace = true }
+parking_lot = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+error-stack = { workspace = true }
+futures = { workspace = true }
+wherror = { workspace = true }
+
+[dev-dependencies]
+jinn-domain = { workspace = true }
+rstest = { workspace = true }

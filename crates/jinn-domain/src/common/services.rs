@@ -97,15 +97,11 @@ pub struct Services {
     pub mcp_coordinator:
         Arc<std::sync::OnceLock<std::sync::Arc<dyn jinn_mcp_msg::McpCoordinatorHandle>>>,
 
-    /// Interactive-term coordinator actor ref, exposed to the tool layer
-    /// (the `interactive_term*` tools) after actor wiring spawns it.
-    pub interactive_term: Arc<
-        std::sync::OnceLock<
-            kameo::actor::ActorRef<
-                crate::feat::interactive_term::interactive_term_actor::InteractiveTermActor,
-            >,
-        >,
-    >,
+    /// Interactive-term coordinator handle, exposed to the tool layer
+    /// (the `interactive_term*` tools) after actor wiring spawns the
+    /// term slice's coordinator and mints the implementation.
+    #[debug(skip)]
+    pub interactive_term: Arc<std::sync::OnceLock<std::sync::Arc<dyn jinn_term_msg::TermHandle>>>,
 
     /// Request dump directory. `None` disables dumping (default).
     pub request_dump: RequestDumpService,
@@ -232,6 +228,10 @@ impl Services {
                     jinn_slices::tools_registry_slot(),
                     jinn_slices::ToolRegistry::default(),
                 );
+                let _ = slices.register(
+                    jinn_term_msg::term_tabs_slot(),
+                    jinn_term_msg::TerminalTabState::default(),
+                );
                 slices
             },
             key_routes: crate::common::slices::key_routes::KeyRoutes::new(),
@@ -300,6 +300,10 @@ impl Services {
                 let _ = slices.register(
                     jinn_slices::tools_registry_slot(),
                     jinn_slices::ToolRegistry::default(),
+                );
+                let _ = slices.register(
+                    jinn_term_msg::term_tabs_slot(),
+                    jinn_term_msg::TerminalTabState::default(),
                 );
                 slices
             },

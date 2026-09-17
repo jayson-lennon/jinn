@@ -77,6 +77,8 @@ jinn-cwd-msg = { workspace = true }
 jinn-persona-msg = { workspace = true }
 jinn-sidebar-msg = { workspace = true }
 jinn-status-bar-msg = { workspace = true }
+jinn-term = { workspace = true }
+jinn-term-msg = { workspace = true }
 jinn-theme-msg = { workspace = true }
 jinn-token-count-msg = { workspace = true }
 jinn-mcp-msg = { workspace = true }
@@ -208,6 +210,8 @@ jinn-cwd-msg = { path = "crates/slices/jinn-cwd-msg" }
 jinn-persona-msg = { path = "crates/slices/jinn-persona-msg" }
 jinn-sidebar-msg = { path = "crates/slices/jinn-sidebar-msg" }
 jinn-status-bar-msg = { path = "crates/slices/jinn-status-bar-msg" }
+jinn-term = { path = "crates/slices/jinn-term" }
+jinn-term-msg = { path = "crates/slices/jinn-term-msg" }
 jinn-theme-msg = { path = "crates/slices/jinn-theme-msg" }
 jinn-token-count-msg = { path = "crates/slices/jinn-token-count-msg" }
 jinn-mcp-msg = { path = "crates/slices/jinn-mcp-msg" }

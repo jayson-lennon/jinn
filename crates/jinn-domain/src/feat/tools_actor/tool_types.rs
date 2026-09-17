@@ -59,15 +59,11 @@ pub struct ToolContext {
     /// `services.mcp_coordinator` at dispatch time. `None` in tests and for
     /// every tool that doesn't need it.
     pub mcp_coordinator: Option<std::sync::Arc<dyn jinn_mcp_msg::McpCoordinatorHandle>>,
-    /// Interactive-term coordinator actor ref — `Some` only for the
-    /// `interactive_term*` tools, which `ask` the coordinator to spawn/drive
+    /// Interactive-term coordinator handle — `Some` only for the
+    /// `interactive_term*` tools, which ask the coordinator to spawn/drive
     /// PTY sessions. Resolved from `services.interactive_term` at dispatch
     /// time. `None` in tests and for every tool that doesn't need it.
-    pub interactive_term: Option<
-        kameo::actor::ActorRef<
-            crate::feat::interactive_term::interactive_term_actor::InteractiveTermActor,
-        >,
-    >,
+    pub interactive_term: Option<std::sync::Arc<dyn jinn_term_msg::TermHandle>>,
     /// In-flight subagent spawn registry — read by the stall watchdog to
     /// skip sessions suspended on a `task` call, and written by the `task`
     /// tool through its drop-guard. `None` in tests.

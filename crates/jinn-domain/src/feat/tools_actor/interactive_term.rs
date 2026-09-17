@@ -1,6 +1,6 @@
 //! `interactive_term` built-in tool — spawns an interactive program in a PTY.
 //!
-//! Each call is **blocking**: it asks the [`InteractiveTermActor`] to spawn
+//! Each call is **blocking**: it asks the term actor (via [`jinn_term_msg::TermHandle`]) to spawn
 //! the command and waits for the screen to settle (quiet window capped at
 //! `max_wait`), then returns the rendered screen. The session persists in
 //! the coordinator across calls; drive it with `interactive_term_send` and
@@ -13,10 +13,10 @@ use std::time::Duration;
 
 use futures::FutureExt;
 
-use crate::feat::interactive_term::protocol::command::{SpawnTerm, SpawnTermOutcome};
-use crate::feat::interactive_term::settle::default_max_wait;
+use crate::feat::interactive_term::protocol::command::SpawnTermOutcome;
 use crate::feat::interactive_term::terminal_tab_state::DEFAULT_PTY_SIZE;
 use crate::feat::tools_actor::tool_types::{ToolCall, ToolContext, ToolDefinition, ToolResult};
+use jinn_term_msg::settle::default_max_wait;
 
 use super::BoxedToolFuture;
 use super::truncation::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_tail};
@@ -181,10 +181,16 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
     // Spawn size: the overlay's inner rect once known (WYSIWYG); the VT100
     // default before the first frame. Never zero — vt100 panics on a 0-row
     // grid (`last_layout_size` is (0, 0) until the overlay's first frame).
-    let size = ctx.state.as_ref().map_or(DEFAULT_PTY_SIZE, |state| {
-        let s = state.read();
-        s.frontend.terminal.spawn_size()
-    });
+    let size = ctx
+        .state
+        .as_ref()
+        .and_then(|state| {
+            state
+                .read()
+                .term_tabs()
+                .map(|cell| cell.read().spawn_size())
+        })
+        .unwrap_or(DEFAULT_PTY_SIZE);
 
     // Stream context so the coordinator's settle wait emits deltas attributed
     // to this tool call (watchdog keepalive).
@@ -194,16 +200,15 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
     });
 
     async move {
-        // `AskRequest` needs `.send()` to become a future.
-        let ask_fut = coordinator
-            .ask(SpawnTerm {
-                chat_session_id: chat_session_id.clone(),
-                command: command.clone(),
-                cwd: ctx.cwd.clone(),
-                size,
-                max_wait,
-            })
-            .send();
+        // The keepalive pacer publishes heartbeats while the ask blocks
+        // on the settle wait.
+        let ask_fut = coordinator.spawn_term(
+            chat_session_id.clone(),
+            command.clone(),
+            ctx.cwd.clone(),
+            size,
+            max_wait,
+        );
         let replied =
             super::interactive_term::with_keepalive(ctx.bus, stream_ctx, ask_timeout, ask_fut)
                 .await;
@@ -262,7 +267,7 @@ pub(crate) fn success_result(
     tool_call_id: &str,
     tool_name: &str,
     screen: &str,
-    exited: Option<&crate::feat::interactive_term::pty_session::ExitInfo>,
+    exited: Option<&jinn_term_msg::ExitInfo>,
     killed_previous: Option<&crate::feat::interactive_term::protocol::command::KilledPrevious>,
 ) -> ToolResult {
     let exit_line = exited

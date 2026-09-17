@@ -34,21 +34,21 @@
 //! under cancellation — see the bash tool).
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use kameo::actor::{ActorRef, Spawn};
 use kameo::prelude::{Context, Message};
 
-use crate::common::services::bus_service::BusService;
-use crate::feat::interactive_term::protocol::command::{
+use crate::pty_session::{ExitInfo, PtySession};
+use crate::screen_task::{ScreenHandle, ScreenWiring};
+use crate::settle::{encode_input, should_settle};
+use jinn_domain::common::services::bus_service::BusService;
+use jinn_term_msg::command::{
     ControlHolder, KillTerm, KillTermOutcome, ResizeTerm, SendTermInput, SendTermKey,
     SendTermOutcome, SpawnTerm, SpawnTermOutcome, TermScreen,
 };
-use crate::feat::interactive_term::protocol::event::TermScreenUpdated;
-use crate::feat::interactive_term::pty_session::{ExitInfo, PtySession};
-use crate::feat::interactive_term::screen_task::{ScreenHandle, ScreenWiring};
-use crate::feat::interactive_term::settle::{encode_input, should_settle};
+use jinn_term_msg::event::TermScreenUpdated;
+use jinn_term_msg::takeover::TermControls;
 
 /// How many transcript screens the kill result reports.
 const TRANSCRIPT_TAIL_SCREENS: usize = 20;
@@ -62,29 +62,6 @@ const TRANSCRIPT_TAIL_SCREENS: usize = 20;
 /// message handling cannot deliver that). Polled from async settle loops:
 /// plain mutex, never held across an await. Sessions with no entry default
 /// to [`ControlHolder::Agent`].
-#[derive(Debug, Clone, Default)]
-pub struct TermControls(
-    Arc<parking_lot::Mutex<HashMap<crate::protocol::SessionId, ControlHolder>>>,
-);
-
-impl TermControls {
-    /// The holder for `chat`, defaulting to [`ControlHolder::Agent`] when the
-    /// session has no entry (never spawned, spawn failed, or torn down).
-    #[must_use]
-    pub fn holder_for(&self, chat: &crate::protocol::SessionId) -> ControlHolder {
-        self.0.lock().get(chat).copied().unwrap_or_default()
-    }
-
-    /// Sets who holds control of `chat` (mints the entry when absent).
-    pub fn set(&self, chat: &crate::protocol::SessionId, holder: ControlHolder) {
-        self.0.lock().insert(chat.clone(), holder);
-    }
-
-    /// Removes `chat`'s entry (session teardown).
-    pub fn remove(&self, chat: &crate::protocol::SessionId) {
-        self.0.lock().remove(chat);
-    }
-}
 
 /// A live interactive session owned by the actor.
 struct TermSession {
@@ -99,14 +76,7 @@ struct TermSession {
 
 impl TermSession {
     /// Screen text, styled cells, cursor, and visibility from the emulator.
-    fn snapshot(
-        &self,
-    ) -> (
-        String,
-        crate::feat::interactive_term::emulator::ScreenCells,
-        (u16, u16),
-        bool,
-    ) {
+    fn snapshot(&self) -> (String, crate::emulator::ScreenCells, (u16, u16), bool) {
         let handle = self.pty.screen();
         let guard = handle.lock();
         (
@@ -137,9 +107,8 @@ pub struct InteractiveTermActor {
     bus: BusService,
     controls: TermControls,
     /// Live sessions keyed by their owning chat session.
-    sessions: HashMap<crate::protocol::SessionId, TermSession>,
-    state: crate::common::state::State,
-    cap: crate::common::tcaps::frontend::FrontendCap,
+    sessions: HashMap<jinn_core_types::SessionId, TermSession>,
+    state: jinn_domain::common::state::State,
     settle_quiet: Duration,
     settle_cap: Duration,
 }
@@ -153,9 +122,7 @@ pub struct InteractiveTermActorDeps {
     pub controls: TermControls,
     /// Shared application state — the actor owns `frontend.terminal` and
     /// mirrors published screen events into it.
-    pub state: crate::common::state::State,
-    /// Capability to write `frontend.terminal`.
-    pub cap: crate::common::tcaps::frontend::FrontendCap,
+    pub state: jinn_domain::common::state::State,
     /// Quiet window for the settle wait.
     pub settle_quiet: Duration,
     /// Hard cap for the settle wait.
@@ -177,7 +144,7 @@ impl kameo::Actor for InteractiveTermActor {
         // pty drop kills the process group) instead of outliving the session
         // until app exit.
         args.bus
-            .subscribe::<crate::feat::session::protocol::session_closed::SessionClosed, _>(
+            .subscribe::<jinn_domain::feat::session::protocol::session_closed::SessionClosed, _>(
                 &actor_ref,
             )
             .await;
@@ -186,7 +153,6 @@ impl kameo::Actor for InteractiveTermActor {
             controls: args.controls,
             sessions: HashMap::new(),
             state: args.state,
-            cap: args.cap,
             settle_quiet: args.settle_quiet,
             settle_cap: args.settle_cap,
         })
@@ -199,7 +165,7 @@ impl kameo::Actor for InteractiveTermActor {
 /// the takeover UI wiring).
 pub async fn spawn_interactive_term_actor(
     deps: InteractiveTermActorDeps,
-    supervisor: &crate::common::root_supervisor::RootSupervisorRef,
+    supervisor: &jinn_domain::common::root_supervisor::RootSupervisorRef,
 ) -> (ActorRef<InteractiveTermActor>, TermControls) {
     let controls = deps.controls.clone();
     let actor = InteractiveTermActor::supervise(supervisor, deps)
@@ -232,7 +198,7 @@ enum SettleReason {
 async fn wait_for_settle(
     handle: &ScreenHandle,
     controls: &TermControls,
-    chat: &crate::protocol::SessionId,
+    chat: &jinn_core_types::SessionId,
     quiet: Duration,
     cap: Duration,
 ) -> SettleReason {
@@ -290,7 +256,7 @@ impl InteractiveTermActor {
         // One terminal per chat session: replace any live terminal first.
         let killed_previous = if self.sessions.contains_key(&msg.chat_session_id) {
             self.remove_session(&msg.chat_session_id).map(|removed| {
-                crate::feat::interactive_term::protocol::command::KilledPrevious {
+                jinn_term_msg::command::KilledPrevious {
                     exited: removed.exited.unwrap_or(ExitInfo {
                         code: 0,
                         signal: None,
@@ -367,11 +333,10 @@ impl InteractiveTermActor {
     }
 
     /// The per-session screen-task wiring (bus + mirror + live-flag key).
-    fn wiring(&self, chat: &crate::protocol::SessionId) -> ScreenWiring {
+    fn wiring(&self, chat: &jinn_core_types::SessionId) -> ScreenWiring {
         ScreenWiring {
             bus: self.bus.clone(),
             state: self.state.clone(),
-            cap: self.cap,
             chat: chat.clone(),
         }
     }
@@ -379,35 +344,30 @@ impl InteractiveTermActor {
     /// Writes one screen snapshot into the frontend mirror.
     fn write_mirror(
         &self,
-        chat: &crate::protocol::SessionId,
+        chat: &jinn_core_types::SessionId,
         screen: String,
-        cells: crate::feat::interactive_term::emulator::ScreenCells,
+        cells: crate::emulator::ScreenCells,
         cursor: (u16, u16),
         cursor_hidden: bool,
     ) {
-        use crate::common::tcaps::frontend::TerminalMirrorWrite;
-        self.state.with_terminal(&self.cap, |ops| {
-            ops.apply_screen(chat, screen, cells, cursor, cursor_hidden)
-        });
+        self.with_tabs(|ops| ops.apply_screen(chat, screen, cells, cursor, cursor_hidden));
     }
 
     /// Marks (or clears) a session's live-terminal flag in the mirror.
-    fn set_live(&self, chat: &crate::protocol::SessionId, live: bool) {
-        use crate::common::tcaps::frontend::TerminalMirrorWrite;
-        self.state.with_terminal(&self.cap, |ops| {
+    fn set_live(&self, chat: &jinn_core_types::SessionId, live: bool) {
+        self.with_tabs(|ops| {
             ops.set_live(chat, live);
         });
     }
 
     /// Removes and tears down a session (aborts its screen task, clears its
     /// live flag and control entry), returning exit info for reporting.
-    fn remove_session(&mut self, chat: &crate::protocol::SessionId) -> Option<RemovedSession> {
-        use crate::common::tcaps::frontend::TerminalMirrorWrite;
+    fn remove_session(&mut self, chat: &jinn_core_types::SessionId) -> Option<RemovedSession> {
         // Clear the live flag *before* the session is dropped: dropping the
         // session aborts the screen task, and a task killed before it observed
         // EOF never gets to clear the flag itself.
         let session = self.sessions.remove(chat)?;
-        self.state.with_terminal(&self.cap, |ops| {
+        self.with_tabs(|ops| {
             ops.set_live(chat, false);
         });
         self.controls.remove(chat);
@@ -633,14 +593,14 @@ impl InteractiveTermActor {
     }
 }
 
-impl Message<crate::feat::session::protocol::session_closed::SessionClosed>
+impl Message<jinn_domain::feat::session::protocol::session_closed::SessionClosed>
     for InteractiveTermActor
 {
     type Reply = ();
 
     async fn handle(
         &mut self,
-        msg: crate::feat::session::protocol::session_closed::SessionClosed,
+        msg: jinn_domain::feat::session::protocol::session_closed::SessionClosed,
         _ctx: &mut Context<Self, Self::Reply>,
     ) {
         // `remove_session` clears the live flag before dropping the session
@@ -648,8 +608,7 @@ impl Message<crate::feat::session::protocol::session_closed::SessionClosed>
         // drops the pty (killing the process group), and removes the
         // session's control entry. The overlay mirror goes with it.
         if self.remove_session(&msg.session_id).is_some() {
-            use crate::common::tcaps::frontend::TerminalMirrorWrite;
-            self.state.with_terminal(&self.cap, |ops| {
+            self.with_tabs(|ops| {
                 ops.remove_mirror(&msg.session_id);
             });
             tracing::debug!(session = %msg.session_id, "terminal torn down on SessionClosed");
@@ -670,8 +629,29 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::common::bus::test_harness::{GetRecorded, TestHarness};
-    use crate::common::root_supervisor::RootSupervisor;
+
+    /// Snapshot a session's mirror from the term/tabs cell.
+    fn test_mirror(
+        guard: &jinn_domain::common::state::StateReadGuard<'_>,
+        chat: &jinn_core_types::SessionId,
+    ) -> Option<jinn_term_msg::TerminalMirror> {
+        guard
+            .term_tabs()
+            .and_then(|c| c.read().mirror(chat).cloned())
+    }
+
+    /// Whether a session has a live terminal (from the term/tabs cell).
+    fn test_live(
+        guard: &jinn_domain::common::state::StateReadGuard<'_>,
+        chat: &jinn_core_types::SessionId,
+    ) -> bool {
+        guard
+            .term_tabs()
+            .map(|c| c.read().live_terms.contains(chat))
+            .unwrap_or(false)
+    }
+    use jinn_domain::common::bus::test_harness::{GetRecorded, TestHarness};
+    use jinn_domain::common::root_supervisor::RootSupervisor;
 
     const QUIET: Duration = Duration::from_millis(150);
     const CAP: Duration = Duration::from_secs(2);
@@ -679,13 +659,14 @@ mod tests {
     fn deps(
         bus: BusService,
         controls: TermControls,
-    ) -> (InteractiveTermActorDeps, crate::common::state::State) {
-        let state = crate::common::state::State::new(crate::common::app_state::AppState::default());
+    ) -> (InteractiveTermActorDeps, jinn_domain::common::state::State) {
+        let state = jinn_domain::common::state::State::new(
+            jinn_domain::common::app_state::AppState::default_with_scope_focus(),
+        );
         let deps = InteractiveTermActorDeps {
             bus,
             controls,
             state: state.clone(),
-            cap: crate::common::tcaps::mint::mint_frontend_cap(),
             settle_quiet: QUIET,
             settle_cap: CAP,
         };
@@ -701,7 +682,7 @@ mod tests {
         controls: TermControls,
     ) -> (
         ActorRef<InteractiveTermActor>,
-        crate::common::root_supervisor::RootSupervisorRef,
+        jinn_domain::common::root_supervisor::RootSupervisorRef,
     ) {
         let root = RootSupervisor::spawn_root().await;
         let (deps, _state) = deps(harness.bus(), controls);
@@ -715,8 +696,8 @@ mod tests {
         controls: TermControls,
     ) -> (
         ActorRef<InteractiveTermActor>,
-        crate::common::state::State,
-        crate::common::root_supervisor::RootSupervisorRef,
+        jinn_domain::common::state::State,
+        jinn_domain::common::root_supervisor::RootSupervisorRef,
     ) {
         let root = RootSupervisor::spawn_root().await;
         let (deps, state) = deps(harness.bus(), controls);
@@ -724,7 +705,7 @@ mod tests {
         (actor, state, root)
     }
 
-    fn spawn_msg(chat: crate::protocol::SessionId, command: &str) -> SpawnTerm {
+    fn spawn_msg(chat: jinn_core_types::SessionId, command: &str) -> SpawnTerm {
         SpawnTerm {
             chat_session_id: chat,
             command: command.to_owned(),
@@ -734,7 +715,7 @@ mod tests {
         }
     }
 
-    fn send_msg(chat: crate::protocol::SessionId) -> SendTermInput {
+    fn send_msg(chat: jinn_core_types::SessionId) -> SendTermInput {
         SendTermInput {
             chat_session_id: chat,
             text: None,
@@ -755,7 +736,7 @@ mod tests {
     }
 
     /// Spawns `cat` for a chat session (the most common test fixture).
-    async fn spawn_cat(actor: &ActorRef<InteractiveTermActor>, chat: &crate::protocol::SessionId) {
+    async fn spawn_cat(actor: &ActorRef<InteractiveTermActor>, chat: &jinn_core_types::SessionId) {
         let SpawnTermOutcome::Started { .. } = actor
             .ask(spawn_msg(chat.clone(), "cat"))
             .await
@@ -775,7 +756,7 @@ mod tests {
         // Given a coordinator running `cat -v`.
         let harness = TestHarness::new().await;
         let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         actor
             .ask(spawn_msg(chat.clone(), "cat -v"))
             .await
@@ -814,7 +795,7 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("scratch dir");
 
         // When spawning `pwd` with that directory as cwd.
-        let mut msg = spawn_msg(crate::protocol::SessionId::new(), "pwd");
+        let mut msg = spawn_msg(jinn_core_types::SessionId::new(), "pwd");
         msg.cwd = PathBuf::from(&dir);
         let reply = actor.ask(msg).await.expect("spawn reply");
 
@@ -841,7 +822,7 @@ mod tests {
 
         // When spawning `echo`.
         let reply = actor
-            .ask(spawn_msg(crate::protocol::SessionId::new(), "echo hello"))
+            .ask(spawn_msg(jinn_core_types::SessionId::new(), "echo hello"))
             .await
             .expect("spawn reply");
 
@@ -864,7 +845,7 @@ mod tests {
         // When spawning with an empty command (bash exits immediately with a
         // usage error — the observable "spawn went wrong" path).
         let reply = actor
-            .ask(spawn_msg(crate::protocol::SessionId::new(), ""))
+            .ask(spawn_msg(jinn_core_types::SessionId::new(), ""))
             .await
             .expect("spawn reply");
 
@@ -885,7 +866,7 @@ mod tests {
         // Given a coordinator with a running `cat`.
         let harness = TestHarness::new().await;
         let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat).await;
 
         // When sending text plus enter in a second call.
@@ -906,7 +887,7 @@ mod tests {
         // Given a coordinator with an interactive bash session.
         let harness = TestHarness::new().await;
         let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         {
             let SpawnTermOutcome::Started { .. } = actor
                 .ask(spawn_msg(chat.clone(), "bash --noprofile --norc"))
@@ -959,7 +940,7 @@ mod tests {
         );
         let harness = TestHarness::new().await;
         let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         {
             let SpawnTermOutcome::Started { .. } = actor
                 .ask(spawn_msg(chat.clone(), tui))
@@ -992,7 +973,7 @@ mod tests {
         // Given a coordinator with a running `cat` (blocks on input).
         let harness = TestHarness::new().await;
         let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat).await;
 
         // When sending the named key ctrl+c.
@@ -1015,7 +996,7 @@ mod tests {
 
         // When sending input to a chat session with no terminal.
         let reply = actor
-            .ask(send_msg(crate::protocol::SessionId::new()))
+            .ask(send_msg(jinn_core_types::SessionId::new()))
             .await
             .expect("send reply");
 
@@ -1029,7 +1010,7 @@ mod tests {
         // Given a coordinator with an exited session.
         let harness = TestHarness::new().await;
         let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         {
             let SpawnTermOutcome::Started { .. } = actor
                 .ask(spawn_msg(chat.clone(), "true"))
@@ -1059,7 +1040,7 @@ mod tests {
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
         let (actor, _root) = spawn_coordinator(&harness, controls.clone()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat).await;
 
         // When the user takes control and the agent then sends input.
@@ -1082,7 +1063,7 @@ mod tests {
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
         let (actor, _state, _root) = spawn_coordinator_with_state(&harness, controls.clone()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         {
             let SpawnTermOutcome::Started { .. } = actor
                 .ask(spawn_msg(
@@ -1131,7 +1112,7 @@ mod tests {
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
         let (actor, _root) = spawn_coordinator(&harness, controls.clone()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         {
             let SpawnTermOutcome::Started { .. } = actor
                 .ask(spawn_msg(
@@ -1178,7 +1159,7 @@ mod tests {
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
         let (actor, state, _root) = spawn_coordinator_with_state(&harness, controls.clone()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         {
             let SpawnTermOutcome::Started { .. } = actor
                 .ask(spawn_msg(chat.clone(), "cat"))
@@ -1224,10 +1205,13 @@ mod tests {
         loop {
             let contains = state
                 .read()
-                .frontend
-                .terminal
-                .mirror(&chat)
-                .is_some_and(|m| m.screen.contains("user-marker"));
+                .term_tabs()
+                .and_then(|c| {
+                    c.read()
+                        .mirror(&chat)
+                        .map(|m| m.screen.contains("user-marker"))
+                })
+                .unwrap_or(false);
             if contains {
                 break;
             }
@@ -1245,7 +1229,7 @@ mod tests {
         // Given a coordinator with a program that printed before blocking.
         let harness = TestHarness::new().await;
         let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         {
             let SpawnTermOutcome::Started { .. } = actor
                 .ask(spawn_msg(chat.clone(), "printf before-kill; cat"))
@@ -1283,7 +1267,7 @@ mod tests {
         // Given a coordinator whose session exited naturally.
         let harness = TestHarness::new().await;
         let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         {
             let SpawnTermOutcome::Started { .. } = actor
                 .ask(spawn_msg(chat.clone(), "true"))
@@ -1327,7 +1311,7 @@ mod tests {
         // When killing a chat session with no terminal.
         let reply = actor
             .ask(KillTerm {
-                chat_session_id: crate::protocol::SessionId::new(),
+                chat_session_id: jinn_core_types::SessionId::new(),
             })
             .await
             .expect("kill reply");
@@ -1349,7 +1333,7 @@ mod tests {
         // recorded by the time it returns.
         let _ = actor
             .ask(spawn_msg(
-                crate::protocol::SessionId::new(),
+                jinn_core_types::SessionId::new(),
                 "echo one; sleep 0.05; echo two",
             ))
             .await
@@ -1378,7 +1362,7 @@ mod tests {
         // Given a coordinator with a short-lived program.
         let harness = TestHarness::new().await;
         let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
 
         // When the spawn reply already observed the exit.
         let SpawnTermOutcome::Started { screen, .. } = actor
@@ -1401,7 +1385,7 @@ mod tests {
         let harness = TestHarness::new().await;
         let (actor, state, _root) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
 
         // When spawning a program that prints to the screen.
         actor
@@ -1412,9 +1396,8 @@ mod tests {
         // Then the frontend terminal mirror carries the rendered screen.
         let guard = state.read();
         let mirror = guard
-            .frontend
-            .terminal
-            .mirror(&chat)
+            .term_tabs()
+            .and_then(|c| c.read().mirror(&chat).cloned())
             .expect("mirror for chat session");
         assert!(
             mirror.screen.contains("mirror-me"),
@@ -1431,7 +1414,7 @@ mod tests {
         let harness = TestHarness::new().await;
         let (actor, state, _root) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
 
         // When spawning a program that emits red text.
         actor
@@ -1447,22 +1430,17 @@ mod tests {
         let mirror = {
             let guard = state.read();
             guard
-                .frontend
-                .terminal
-                .mirror(&chat)
+                .term_tabs()
+                .and_then(|c| c.read().mirror(&chat).cloned())
                 .expect("mirror for chat session")
-                .clone()
         };
         let row = 0;
         let mut red_span = None;
         let mut default_before = None;
         for col in 0..mirror.cells.cols {
             match mirror.cells.get(row, col) {
-                Some(crate::feat::interactive_term::emulator::TermCell::Styled { ch, style })
-                    if *ch != ' ' =>
-                {
-                    let is_red =
-                        style.fg == crate::feat::interactive_term::emulator::TermColor::Idx(1);
+                Some(crate::emulator::TermCell::Styled { ch, style }) if ch != &' ' => {
+                    let is_red = style.fg == crate::emulator::TermColor::Idx(1);
                     if is_red && red_span.is_none() {
                         red_span = Some(col);
                     }
@@ -1492,7 +1470,7 @@ mod tests {
         let harness = TestHarness::new().await;
         let (actor, state, _root) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat).await;
 
         // When sending text through the send path.
@@ -1506,7 +1484,7 @@ mod tests {
 
         // Then the mirror reflects the echoed output.
         let guard = state.read();
-        let mirror = guard.frontend.terminal.mirror(&chat).expect("mirror");
+        let mirror = test_mirror(&guard, &chat).expect("mirror");
         assert!(mirror.screen.contains("mirrored-after-send"));
     }
 
@@ -1517,7 +1495,7 @@ mod tests {
         let harness = TestHarness::new().await;
         let (actor, state, _root) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat).await;
 
         // When resizing that chat session to a small grid.
@@ -1532,7 +1510,7 @@ mod tests {
         // Then the session's emulator regrided to the requested size.
         tokio::time::sleep(Duration::from_millis(50)).await;
         let guard = state.read();
-        let mirror = guard.frontend.terminal.mirror(&chat).expect("mirror");
+        let mirror = test_mirror(&guard, &chat).expect("mirror");
         assert_eq!(
             (mirror.cells.rows, mirror.cells.cols),
             (10, 40),
@@ -1548,8 +1526,8 @@ mod tests {
         let harness = TestHarness::new().await;
         let (actor, state, _root) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
-        let chat_a = crate::protocol::SessionId::new();
-        let chat_b = crate::protocol::SessionId::new();
+        let chat_a = jinn_core_types::SessionId::new();
+        let chat_b = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
         spawn_cat(&actor, &chat_b).await;
 
@@ -1565,8 +1543,8 @@ mod tests {
 
         // Then chat_a regrided and chat_b kept the default grid.
         let guard = state.read();
-        let a = guard.frontend.terminal.mirror(&chat_a).expect("a mirror");
-        let b = guard.frontend.terminal.mirror(&chat_b).expect("b mirror");
+        let a = test_mirror(&guard, &chat_a).expect("a mirror");
+        let b = test_mirror(&guard, &chat_b).expect("b mirror");
         assert_eq!((a.cells.rows, a.cells.cols), (10, 40));
         assert_ne!(
             (b.cells.rows, b.cells.cols),
@@ -1602,13 +1580,13 @@ mod tests {
         let harness = TestHarness::new().await;
         let (actor, _state, _root) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
-        let live = crate::protocol::SessionId::new();
+        let live = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &live).await;
 
         // When resizing an unknown chat session.
         let result = actor
             .tell(ResizeTerm {
-                chat_session_id: Some(crate::protocol::SessionId::new()),
+                chat_session_id: Some(jinn_core_types::SessionId::new()),
                 size: (10, 40),
             })
             .await;
@@ -1626,7 +1604,7 @@ mod tests {
         // program (`sleep 31` — distinctive, so /proc probing finds exactly it).
         let harness = TestHarness::new().await;
         let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         {
             let SpawnTermOutcome::Started { .. } = actor
                 .ask(spawn_msg(chat.clone(), "sleep 31"))
@@ -1714,8 +1692,8 @@ mod tests {
         // Given a coordinator with a terminal for session A.
         let harness = TestHarness::new().await;
         let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
-        let chat_a = crate::protocol::SessionId::new();
-        let chat_b = crate::protocol::SessionId::new();
+        let chat_a = jinn_core_types::SessionId::new();
+        let chat_b = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
 
         // When spawning a terminal for session B.
@@ -1756,12 +1734,12 @@ mod tests {
         let harness = TestHarness::new().await;
         let (actor, state, _root) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat).await;
 
         // Then the session is marked live after spawn.
         assert!(
-            state.read().frontend.terminal.live_terms.contains(&chat),
+            test_live(&state.read(), &chat),
             "chat session must be live after spawn"
         );
 
@@ -1775,7 +1753,7 @@ mod tests {
 
         // Then the live flag clears.
         assert!(
-            !state.read().frontend.terminal.live_terms.contains(&chat),
+            !test_live(&state.read(), &chat),
             "chat session must not be live after kill"
         );
     }
@@ -1787,7 +1765,7 @@ mod tests {
         let harness = TestHarness::new().await;
         let (actor, state, _root) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         {
             let SpawnTermOutcome::Started { .. } = actor
                 .ask(spawn_msg(chat.clone(), "true"))
@@ -1803,7 +1781,7 @@ mod tests {
 
         // Then the live flag cleared without any kill call.
         assert!(
-            !state.read().frontend.terminal.live_terms.contains(&chat),
+            !test_live(&state.read(), &chat),
             "live flag must clear on natural exit"
         );
     }
@@ -1815,7 +1793,7 @@ mod tests {
         let harness = TestHarness::new().await;
         let (actor, state, _root) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
-        let chat = crate::protocol::SessionId::new();
+        let chat = jinn_core_types::SessionId::new();
         {
             let SpawnTermOutcome::Started { .. } = actor
                 .ask(spawn_msg(
@@ -1837,10 +1815,13 @@ mod tests {
         loop {
             let contains = state
                 .read()
-                .frontend
-                .terminal
-                .mirror(&chat)
-                .is_some_and(|m| m.screen.contains("realtime-echo"));
+                .term_tabs()
+                .and_then(|c| {
+                    c.read()
+                        .mirror(&chat)
+                        .map(|m| m.screen.contains("realtime-echo"))
+                })
+                .unwrap_or(false);
             if contains {
                 break;
             }
@@ -1861,8 +1842,8 @@ mod tests {
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
         let (actor, _root) = spawn_coordinator(&harness, controls.clone()).await;
-        let chat_a = crate::protocol::SessionId::new();
-        let chat_b = crate::protocol::SessionId::new();
+        let chat_a = jinn_core_types::SessionId::new();
+        let chat_b = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
         spawn_cat(&actor, &chat_b).await;
 
@@ -1889,8 +1870,8 @@ mod tests {
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
         let (actor, _root) = spawn_coordinator(&harness, controls.clone()).await;
-        let chat_a = crate::protocol::SessionId::new();
-        let chat_b = crate::protocol::SessionId::new();
+        let chat_a = jinn_core_types::SessionId::new();
+        let chat_b = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
         spawn_cat(&actor, &chat_b).await;
         controls.set(&chat_a, ControlHolder::User);
@@ -1916,7 +1897,7 @@ mod tests {
         // Given a coordinator with `cat` running in session A only.
         let harness = TestHarness::new().await;
         let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
-        let chat_a = crate::protocol::SessionId::new();
+        let chat_a = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
 
         // When sending a marker to A.
@@ -1931,7 +1912,7 @@ mod tests {
         // Then a send naming a session with no terminal is UnknownSession —
         // there is no cross-session address to reach, not even by accident.
         let reply = actor
-            .ask(send_msg(crate::protocol::SessionId::new()))
+            .ask(send_msg(jinn_core_types::SessionId::new()))
             .await
             .expect("send reply");
         assert!(matches!(reply, SendTermOutcome::UnknownSession));
@@ -1943,8 +1924,8 @@ mod tests {
         // Given a coordinator with live terminals in sessions A and B.
         let harness = TestHarness::new().await;
         let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
-        let chat_a = crate::protocol::SessionId::new();
-        let chat_b = crate::protocol::SessionId::new();
+        let chat_a = jinn_core_types::SessionId::new();
+        let chat_b = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
         spawn_cat(&actor, &chat_b).await;
 
@@ -1982,8 +1963,8 @@ mod tests {
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
         let (actor, state, _root) = spawn_coordinator_with_state(&harness, controls.clone()).await;
-        let chat_a = crate::protocol::SessionId::new();
-        let chat_b = crate::protocol::SessionId::new();
+        let chat_a = jinn_core_types::SessionId::new();
+        let chat_b = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
         spawn_cat(&actor, &chat_b).await;
         controls.set(&chat_a, ControlHolder::User);
@@ -1991,7 +1972,7 @@ mod tests {
         // When closing session A.
         harness
             .publish(
-                crate::feat::session::protocol::session_closed::SessionClosed {
+                jinn_domain::feat::session::protocol::session_closed::SessionClosed {
                     session_id: chat_a.clone(),
                 },
             )
@@ -2007,8 +1988,8 @@ mod tests {
         assert!(matches!(reply, SendTermOutcome::UnknownSession));
         {
             let guard = state.read();
-            assert!(guard.frontend.terminal.mirror(&chat_a).is_none());
-            assert!(!guard.frontend.terminal.live_terms.contains(&chat_a));
+            assert!(test_mirror(&guard, &chat_a).is_none());
+            assert!(!test_live(&guard, &chat_a));
         }
         // And B's terminal is untouched and still live.
         let mut b_msg = send_msg(chat_b.clone());
@@ -2018,7 +1999,7 @@ mod tests {
             panic!("session B's terminal must survive A's close");
         };
         assert!(plain_screen(&b_screen.screen).contains("b-survives"));
-        assert!(state.read().frontend.terminal.live_terms.contains(&chat_b));
+        assert!(test_live(&state.read(), &chat_b));
     }
 
     #[rstest::rstest]
@@ -2028,14 +2009,14 @@ mod tests {
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
         let (actor, _root) = spawn_coordinator(&harness, controls.clone()).await;
-        let chat_a = crate::protocol::SessionId::new();
+        let chat_a = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
         controls.set(&chat_a, ControlHolder::User);
 
         // When closing session A.
         harness
             .publish(
-                crate::feat::session::protocol::session_closed::SessionClosed {
+                jinn_domain::feat::session::protocol::session_closed::SessionClosed {
                     session_id: chat_a.clone(),
                 },
             )
@@ -2054,7 +2035,7 @@ mod tests {
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
         let (actor, _root) = spawn_coordinator(&harness, controls.clone()).await;
-        let chat_a = crate::protocol::SessionId::new();
+        let chat_a = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
         controls.set(&chat_a, ControlHolder::User);
 
@@ -2071,5 +2052,25 @@ mod tests {
         // Then the fresh terminal is agent-controlled — a new terminal never
         // inherits the replaced one's takeover.
         assert_eq!(controls.holder_for(&chat_a), ControlHolder::Agent);
+    }
+}
+
+impl InteractiveTermActor {
+    /// Updates the `term/tabs` cell (the slice-owned terminal mirrors).
+    fn with_tabs<R>(&self, f: impl FnOnce(&mut jinn_term_msg::TerminalTabState) -> R) -> R {
+        let slices = self
+            .state
+            .read()
+            .frontend
+            .slices()
+            .cloned()
+            .expect("term cell missing: slices not attached");
+        let cell = slices
+            .reader::<jinn_term_msg::TerminalTabState>(&jinn_term_msg::term_tabs_slot())
+            .expect("term/tabs cell missing: slice not registered");
+        let mut tabs = cell.read().clone();
+        let out = f(&mut tabs);
+        cell.update(|t| *t = tabs.clone());
+        out
     }
 }

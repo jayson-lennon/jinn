@@ -374,3 +374,5 @@ Entries are added or amended **only with human approval**.
 - (slices) The context-assembly slice is a crate hosting a stateless trouper service at the context-assembly path; callers pass an AssemblyInputs snapshot and receive the assembled prompt as the reply.
 - (slices) Context assembly never reads AppState; the kernel's queue and session-enqueue dispatch paths build the inputs snapshot from their own state guards before asking the service.
 - (slices) Persona selection persists in the persona slice's cell as the active persona name plus the scanned entries; the tools registry persists in a shared cell until the tools family migrates.
+- (slices) The term slice is a crate owning the PTY actor family, the per-session terminal tab state cell, and the terminal control registry; the tools ask it through a TermHandle trait and the TUI renders the terminal overlay from jinn-term-msg types.
+- (term) The terminal control toggle is a per-session ownership flip between the user and the agent, resolved through the control registry the term slice mints at spawn.

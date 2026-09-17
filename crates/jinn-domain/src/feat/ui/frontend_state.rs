@@ -144,11 +144,6 @@ pub struct FrontendState {
     /// OWNER: IntentHandler (set by project picker, consumed by session creation).
     pub pending_creation: Option<PendingSessionCreation>,
 
-    /// Terminal tab state - mirror of the active `interactive_term` session.
-    /// OWNER: InteractiveTermActor (screen/control events); the IntentHandler
-    /// flips the control holder on takeover intents (exempt writer).
-    pub terminal: crate::feat::interactive_term::terminal_tab_state::TerminalTabState,
-
     pub sidebar_width: u16,
 
     /// `@path` file popup state.
@@ -184,8 +179,6 @@ impl Default for FrontendState {
             pruner_accumulation_input: PrunerAccumulationInputState::default(),
             project_add_input: ProjectAddInputState::default(),
             pending_creation: None,
-            terminal: crate::feat::interactive_term::terminal_tab_state::TerminalTabState::default(
-            ),
 
             sidebar_width: 30,
             file_picker: crate::feat::file_lister::FilePickerState::default(),

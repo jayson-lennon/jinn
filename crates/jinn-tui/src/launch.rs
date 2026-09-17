@@ -77,17 +77,16 @@ pub fn launch(
         .interactive_term
         .control_toggle_key
         .clone();
-    let control_toggle = jinn_domain::feat::interactive_term::prefs::normalize_control_toggle_key(
-        &configured,
-    )
-    .unwrap_or_else(|| {
-        tracing::warn!(
-            configured = %configured,
-            default = jinn_domain::feat::interactive_term::prefs::DEFAULT_CONTROL_TOGGLE_KEY,
-            "invalid [interactive_term] control_toggle_key; falling back to the default"
-        );
-        jinn_domain::feat::interactive_term::prefs::DEFAULT_CONTROL_TOGGLE_KEY.to_owned()
-    });
+    let control_toggle =
+        jinn_domain::feat::interactive_term::prefs::normalize_control_toggle_key(&configured)
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    configured = %configured,
+                    default = jinn_term_msg::prefs::DEFAULT_CONTROL_TOGGLE_KEY,
+                    "invalid [interactive_term] control_toggle_key; falling back to the default"
+                );
+                jinn_term_msg::prefs::DEFAULT_CONTROL_TOGGLE_KEY.to_owned()
+            });
 
     let mut ui_registry = AppUiRegistry::new();
     jinn_domain::register_all_ui_elements(&mut ui_registry);

@@ -1,0 +1,20 @@
+[package]
+name = "jinn-term-msg"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+jinn-core-types = { workspace = true }
+kameo = { workspace = true }
+jinn-slices = { workspace = true }
+serde = { workspace = true }
+async-trait = { workspace = true }
+ratatui = { workspace = true }
+wherror = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[lints]
+workspace = true

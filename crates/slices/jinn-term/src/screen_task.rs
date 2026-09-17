@@ -21,12 +21,11 @@ use std::time::Duration;
 
 use parking_lot::{Mutex, MutexGuard};
 
-use crate::common::services::bus_service::BusService;
-use crate::common::tcaps::frontend::FrontendCap;
-use crate::feat::interactive_term::emulator::Emulator;
-use crate::feat::interactive_term::protocol::event::TermScreenUpdated;
-use crate::feat::interactive_term::pty_session::OutputRx;
-use crate::feat::interactive_term::query_responder::respond_to_queries;
+use crate::emulator::Emulator;
+use crate::pty_session::OutputRx;
+use crate::query_responder::respond_to_queries;
+use jinn_domain::common::services::bus_service::BusService;
+use jinn_term_msg::event::TermScreenUpdated;
 
 /// Parse cadence of the screen task: ~20 fps — smooth for htop-style
 /// animation, cheap for quiet programs.
@@ -151,17 +150,14 @@ pub struct ScreenWiring {
     /// Bus for `TermScreenUpdated` events.
     pub bus: BusService,
     /// Shared application state (mirror writes).
-    pub state: crate::common::state::State,
-    /// Capability to write `frontend.terminal`.
-    pub cap: FrontendCap,
+    pub state: jinn_domain::common::state::State,
     /// The owning chat session (event, mirror + live-flag key).
-    pub chat: crate::protocol::SessionId,
+    pub chat: jinn_core_types::SessionId,
 }
 
 impl ScreenWiring {
     fn set_live(&self, live: bool) {
-        use crate::common::tcaps::frontend::TerminalMirrorWrite;
-        self.state.with_terminal(&self.cap, |ops| {
+        self.with_tabs(|ops| {
             ops.set_live(&self.chat, live);
         });
     }
@@ -170,7 +166,7 @@ impl ScreenWiring {
     pub async fn publish_screen(
         &self,
         screen: String,
-        cells: crate::feat::interactive_term::emulator::ScreenCells,
+        cells: crate::emulator::ScreenCells,
         cursor: (u16, u16),
         cursor_hidden: bool,
     ) {
@@ -183,8 +179,7 @@ impl ScreenWiring {
                 cursor_hidden,
             })
             .await;
-        self.state.with_terminal(&self.cap, |ops| {
-            use crate::common::tcaps::frontend::TerminalMirrorWrite;
+        self.with_tabs(|ops| {
             ops.apply_screen(&self.chat, screen, cells, cursor, cursor_hidden);
         });
     }
@@ -249,4 +244,24 @@ pub(crate) fn spawn_screen_task(
         handle.finish(&wiring);
     })
     .abort_handle()
+}
+
+impl ScreenWiring {
+    /// Updates the `term/tabs` cell (slice-owned terminal mirrors).
+    fn with_tabs<R>(&self, f: impl FnOnce(&mut jinn_term_msg::TerminalTabState) -> R) -> R {
+        let slices = self
+            .state
+            .read()
+            .frontend
+            .slices()
+            .cloned()
+            .expect("term cell missing: slices not attached");
+        let cell = slices
+            .reader::<jinn_term_msg::TerminalTabState>(&jinn_term_msg::term_tabs_slot())
+            .expect("term/tabs cell missing: slice not registered");
+        let mut tabs = cell.read().clone();
+        let out = f(&mut tabs);
+        cell.update(|t| *t = tabs.clone());
+        out
+    }
 }
