@@ -29,9 +29,11 @@ use jinn_domain::Intent;
 /// intents (shared-chrome keys like `q` → quit).
 fn static_intent(route_id: &str) -> Option<Intent> {
     match route_id {
-        "dashboard:quit" | "sidebar:quit" => Some(Intent::Quit),
+        "dashboard:quit" | "sidebar:quit" | "term:quit" => Some(Intent::Quit),
         "dashboard:switch-tab" => Some(Intent::SwitchTab),
-        "dashboard:which-key" | "sidebar:which-key" => Some(Intent::ToggleWhichkey),
+        "dashboard:which-key" | "sidebar:which-key" | "term:which-key" => {
+            Some(Intent::ToggleWhichkey)
+        }
         "quake-bar:ctrl-clear" | "sidebar:ctrl-clear" => Some(Intent::CtrlClear),
         _ => None,
     }
@@ -101,10 +103,10 @@ fn category(name: &str) -> KeyCategory {
 /// The keymap scope a row binds into.
 ///
 /// `OwnScope` rows bind in their slice's dynamic scope; `GlobalToggle`
-/// rows bind in every static scope (skipping the slice's own scope,
-/// where its own close row wins) and in other slices' dynamic scopes;
-/// `StaticScopes` rows bind in the named composition scopes, looked up
-/// by display name.
+/// rows bind in every static scope and in other slices' dynamic scopes
+/// (input-hook scopes included, key-hook scopes deliberately excluded
+/// so capture stays hermetic); `StaticScopes` rows bind in the named
+/// composition scopes, looked up by display name.
 fn scopes_for_row<'a>(
     row: &'a RouteRow,
     tabs: &'a [SliceScopeId],
@@ -127,7 +129,6 @@ fn scopes_for_row<'a>(
             })
             .collect(),
         BindSite::GlobalToggle => {
-            let terminal_scopes = [Scope::TerminalView, Scope::TerminalControl];
             let mut scopes: Vec<Scope> = [
                 Scope::Normal,
                 Scope::Input,
@@ -160,13 +161,10 @@ fn scopes_for_row<'a>(
                     scopes.push(Scope::Dynamic(scope.clone()));
                 }
             }
-            // Terminal scopes are intentionally excluded: globals would
-            // strand the terminal control flag (globals beat catch-alls
-            // and pierce capture mode) and pop the passive view.
-            debug_assert!(
-                !terminal_scopes.contains(&Scope::Dynamic(row.scope.clone())),
-                "terminal scopes are static; a slice never binds there"
-            );
+            // Key-hook scopes are intentionally excluded — this is the
+            // GlobalToggle pass, and those scopes carry catch-all key
+            // hooks instead (capture mode hermeticity). They still get
+            // the toggle when their slice attaches one as a row.
             scopes
         }
     }
@@ -269,13 +267,15 @@ pub fn bind_route_rows(
     keymap: &mut Keymap<KeyEvent, Scope, Intent, KeyCategory>,
 ) {
     let rows = routes.rows();
-    let hooks = routes.input_hook_scopes();
+    let input_hooks = routes.input_hook_scopes();
+    let key_hooks = routes.key_hook_scopes();
     derive_groups_from_rows(&rows, keymap);
     // Row scopes that host other slices' global toggles: every registered
-    // scope (rows + hooks) except the row's own, where its OwnScope rows
-    // must win.
+    // scope (rows + input hooks) except the row's own, where its OwnScope
+    // rows must win. Key-hook scopes are excluded: nothing from the row
+    // spread may land there (capture hermeticity).
     let mut tabs: Vec<SliceScopeId> = rows.iter().map(|r| r.scope.clone()).collect();
-    for hook in &hooks {
+    for hook in &input_hooks {
         if !tabs.contains(hook) {
             tabs.push(hook.clone());
         }
@@ -283,7 +283,7 @@ pub fn bind_route_rows(
     tabs.dedup();
     for row in &rows {
         let category = category(row.category);
-        let scopes = scopes_for_row(row, &tabs, &hooks);
+        let scopes = scopes_for_row(row, &tabs, &input_hooks);
         match &row.outcome {
             RouteOutcome::StaticIntent(_) => {
                 let Some(intent) = static_intent(row.route_id.as_str()) else {
@@ -311,15 +311,16 @@ pub fn bind_route_rows(
             }
         }
     }
-    // Typing carve-out: a slice with a registered input hook captures
+    // Typing carve-out: a slice with a registered *input* hook captures
     // printable keystrokes in its own scope. The keymap synthesizes the
     // generic editing intents — the char catch-all for printable keys,
     // plus trunk-parity explicit binds for the six non-char editing
     // keys (Backspace used to fall into the catch-all, resolve to
     // nothing, and die in the which-key popup). The intent handler's
     // hook consult (not a god-match arm) routes them to the slice's
-    // sync writer via `as_edit_intent`.
-    for hook in hooks {
+    // sync writer via `as_edit_intent`. Key-hook scopes are excluded:
+    // their catch-all encodes keys for the slice's own consumer.
+    for hook in input_hooks {
         keymap.scope(Scope::Dynamic(hook.clone()), |b| {
             b.bind("<backspace>", Intent::DeleteGrapheme, KeyCategory::Input)
                 .bind(
@@ -342,26 +343,21 @@ pub fn bind_route_rows(
                     }
                 });
         });
-        // Per-scope composition chrome: the `<M-t>` overlay toggle is
-        // bound in every dynamic scope (never a global — globals pierce
-        // terminal capture). Dynamic scopes are non-terminal by
-        // construction, so hook scopes get it too.
-        keymap.bind(
-            "<M-t>",
-            Intent::ToggleTerminalOverlay { session_id: None },
-            KeyCategory::General,
-            Scope::Dynamic(hook),
-        );
     }
-    // The same chrome for the row scopes (tab scopes), which are not
-    // hook scopes.
-    for scope in routes.rows().iter().map(|r| r.scope.clone()) {
-        keymap.bind(
-            "<M-t>",
-            Intent::ToggleTerminalOverlay { session_id: None },
-            KeyCategory::General,
-            Scope::Dynamic(scope),
-        );
+    // Key-hook catch-alls: a slice key hook captures *every* unbound key
+    // in its scope (terminal capture mode forwards them to the pty).
+    // Bindings beat catch-alls, so rows bound in the scope (the toggle
+    // handback) keep priority; there is no global or chrome spread into
+    // key-hook scopes, so the hook is the only exit — capture hermetic.
+    for hook in key_hooks {
+        let Some(hook_fn) = routes.key_hook(&hook) else {
+            continue;
+        };
+        keymap.scope(Scope::Dynamic(hook.clone()), move |b| {
+            b.catch_all(move |key: KeyEvent| {
+                hook_fn(&key).map(Intent::Dynamic)
+            });
+        });
     }
 }
 
@@ -378,6 +374,7 @@ mod tests {
     use super::bind_route_rows;
     use super::category;
     use super::static_intent;
+    use crate::app::WhichKeyInstance;
     use crate::keymap::KeyCategory;
     use crate::scope::Scope;
     use jinn_domain::Intent;
@@ -403,6 +400,22 @@ mod tests {
             outcome: RouteOutcome::Action {
                 action: "open",
                 display: "quake bar",
+                run: ActionFn::new(|_ctx| IntentResult::empty()),
+            },
+        }
+    }
+
+    fn term_toggle_row() -> RouteRow {
+        RouteRow {
+            route_id: RouteId::new("term:toggle-overlay"),
+            scope: SliceScopeId::new("term", "view"),
+            key: "<M-t>",
+            category: "general",
+            site: BindSite::GlobalToggle,
+            feature: "term",
+            outcome: RouteOutcome::Action {
+                action: "toggle-overlay",
+                display: "terminal overlay",
                 run: ActionFn::new(|_ctx| IntentResult::empty()),
             },
         }
@@ -740,19 +753,32 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn dynamic_scope_spread_binds_the_terminal_toggle_for_synthetic_rows() {
-        // Given a synthetic OwnScope row (its scope is the only dynamic one).
+    fn global_toggle_row_binds_in_its_own_scope_too() {
+        // Given the term toggle-overlay row (a GlobalToggle whose scope
+        // is `term:view`).
         let routes = KeyRoutes::new();
-        routes.attach(quake_open_row());
+        routes.attach(RouteRow {
+            route_id: RouteId::new("term:toggle-overlay"),
+            scope: SliceScopeId::new("term", "view"),
+            key: "<M-t>",
+            category: "general",
+            site: BindSite::GlobalToggle,
+            feature: "term",
+            outcome: RouteOutcome::Action {
+                action: "toggle-overlay",
+                display: "terminal overlay",
+                run: ActionFn::new(|_ctx| IntentResult::empty()),
+            },
+        });
 
-        // When generating bindings: `bind_route_rows` alone spreads the
-        // per-scope `<M-t>` chrome (production parity — the old manual
-        // spread lived in the test harness, which prod never ran).
+        // When generating bindings.
         let mut keymap = Keymap::new();
         bind_route_rows(&routes, &mut keymap);
 
-        // Then the toggle resolves inside the row's own dynamic scope.
-        let dynamic = Scope::Dynamic(SliceScopeId::new("quake-bar", "open"));
+        // Then the toggle binds inside the row's own dynamic scope too
+        // (scopes_for_row spreads GlobalToggle rows through all row
+        // scopes, own scope included — open and close are one action).
+        let dynamic = Scope::Dynamic(SliceScopeId::new("term", "view"));
         let leaf = leaf_at(
             &keymap,
             &[KeyEvent {
@@ -767,10 +793,12 @@ mod tests {
         );
         assert!(
             matches!(
-                leaf,
-                Some(Intent::ToggleTerminalOverlay { session_id: None })
+                &leaf,
+                Some(Intent::Dynamic(d))
+                    if d.slice == SliceScopeId::new("term", "view")
+                        && d.action == "toggle-overlay"
             ),
-            "the slice's dynamic scope must carry the <M-t> toggle, got {leaf:?}"
+            "the GlobalToggle row's own scope must carry the toggle, got {leaf:?}"
         );
     }
 
@@ -848,21 +876,24 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn hook_scopes_carry_the_terminal_toggle() {
-        // Given a route table whose slice registers an input hook.
+    fn global_toggle_spreads_into_other_slices_input_hook_scopes() {
+        // Given a route table with the term toggle row and another
+        // slice's input-hook scope.
         let routes = KeyRoutes::new();
         let hook_scope = SliceScopeId::new("quake-bar", "bar");
         routes.register_input_hook(
             &hook_scope,
             std::sync::Arc::new(|_: &jinn_slices::route::EditIntent| None),
         );
+        routes.attach(term_toggle_row());
 
         // When generating bindings into a fresh keymap.
         let mut keymap = Keymap::new();
         bind_route_rows(&routes, &mut keymap);
 
-        // Then the hook scope resolves <M-t> (hook scopes are dynamic
-        // scopes, so they get the per-scope chrome too).
+        // Then the input-hook scope resolves <M-t> (the GlobalToggle
+        // spread covers other slices' dynamic scopes, input hooks
+        // included — typing there still allows opening the overlay).
         let leaf = leaf_at(
             &keymap,
             &[KeyEvent {
@@ -877,10 +908,89 @@ mod tests {
         );
         assert!(
             matches!(
-                leaf,
-                Some(Intent::ToggleTerminalOverlay { session_id: None })
+                &leaf,
+                Some(Intent::Dynamic(d))
+                    if d.slice == SliceScopeId::new("term", "view")
+                        && d.action == "toggle-overlay"
             ),
-            "hook scope must carry the <M-t> toggle, got {leaf:?}"
+            "input-hook scope must carry the <M-t> toggle, got {leaf:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn global_toggle_never_pierces_key_hook_scopes() {
+        // Given a route table with the term toggle row and a key-hook
+        // scope (terminal capture).
+        let routes = KeyRoutes::new();
+        let key_hook_scope = SliceScopeId::navigation("term", "control");
+        routes.register_key_hook(
+            &key_hook_scope,
+            std::sync::Arc::new(|_: &KeyEvent| None),
+        );
+        routes.attach(term_toggle_row());
+
+        // When generating bindings and pressing <M-t> in the capture
+        // scope.
+        let mut keymap = Keymap::new();
+        bind_route_rows(&routes, &mut keymap);
+        let mut wk = WhichKeyInstance::new(keymap, Scope::Dynamic(key_hook_scope));
+        let intent = wk.handle_key(KeyEvent {
+            key: jinn_domain::Key::Char('t'),
+            modifiers: jinn_domain::Modifiers {
+                ctrl: false,
+                alt: true,
+                shift: false,
+            },
+        });
+
+        // Then nothing resolves (capture hermeticity: no global toggle
+        // pierces the key-hook scope; the hook itself declines the key).
+        assert!(intent.is_none(), "key-hook scope must stay hermetic, got {intent:?}");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn key_hook_catchall_resolves_on_a_navigation_scope() {
+        // Given a key hook registered under a navigation scope (the
+        // regression for the string-roundtrip blocker: the hook must
+        // resolve by its exact scope id, captures_input intact).
+        let routes = KeyRoutes::new();
+        let key_hook_scope = SliceScopeId::navigation("term", "control");
+        let hook_target = key_hook_scope.clone();
+        routes.register_key_hook(
+            &key_hook_scope,
+            std::sync::Arc::new(move |key: &KeyEvent| {
+                (key.key == jinn_domain::Key::Char('x')).then(|| {
+                    jinn_slices::DynamicIntent::new(
+                        hook_target.clone(),
+                        "send-key",
+                        "send key",
+                    )
+                })
+            }),
+        );
+
+        // When generating bindings and pressing an unbound key in the
+        // hook's scope.
+        let mut keymap = Keymap::new();
+        bind_route_rows(&routes, &mut keymap);
+        let mut wk = WhichKeyInstance::new(
+            keymap,
+            Scope::Dynamic(SliceScopeId::navigation("term", "control")),
+        );
+        let intent = wk.handle_key(key("x"));
+
+        // Then the hook fires (the catch-all was synthesized on the
+        // exact scope id).
+        assert!(
+            matches!(
+                &intent,
+                Some(Intent::Dynamic(d))
+                    if d.slice == SliceScopeId::navigation("term", "control")
+                        && d.action == "send-key"
+            ),
+            "key hook must resolve on its navigation scope, got {intent:?}"
         );
     }
 }

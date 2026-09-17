@@ -2982,6 +2982,7 @@ dependencies = [
  "jinn-picker",
  "jinn-sidebar-msg",
  "jinn-slices",
+ "jinn-term-msg",
  "jinn-testutil",
  "jinn-theme",
  "kameo",

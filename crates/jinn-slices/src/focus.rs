@@ -30,12 +30,6 @@ pub enum FocusScope {
     /// `activate()` pushed (or signaled via a route action).
     Dynamic(crate::slice_scope::SliceScopeId),
 
-    /// Terminal tab — viewing an `interactive_term` session (watch only; keys
-    /// are not forwarded to the pty).
-    TerminalView,
-    /// Terminal control — every key forwards to the `interactive_term` pty
-    /// except the handback key (config `[interactive_term] handback_key`).
-    TerminalControl,
 }
 
 impl FocusScope {
@@ -54,9 +48,9 @@ impl FocusScope {
             | Self::ProjectAddInput
             | Self::PrunerAccumulationInput => Mode::Input,
             Self::Picker { .. } => Mode::Picker,
-            // Normal, TerminalView, TerminalControl (capture mode routes
-            // keystrokes to the pty, not the chat input), and
-            // navigation-only dynamic scopes are all non-input modes.
+            // Normal (capture-mode dynamic scopes route keystrokes to
+            // their slice, not the chat input) and navigation-only
+            // dynamic scopes are all non-input modes.
             _ => Mode::Normal,
         }
     }
@@ -66,8 +60,6 @@ impl std::fmt::Display for FocusScope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Normal => write!(f, "Normal"),
-            Self::TerminalView => write!(f, "TerminalView"),
-            Self::TerminalControl => write!(f, "TerminalControl"),
             Self::Input => write!(f, "Input"),
             Self::Picker { kind } => write!(f, "Picker({kind})"),
             Self::ArgInput => write!(f, "ArgInput"),

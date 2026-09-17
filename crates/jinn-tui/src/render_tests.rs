@@ -469,7 +469,7 @@ async fn which_key_help_renders_above_the_terminal_overlay() {
         .state
         .write_test_no_cap()
         .frontend
-        .scope_swap_base(jinn_domain::FocusScope::TerminalView);
+        .scope_swap_base(jinn_domain::FocusScope::Dynamic(jinn_term_msg::view_scope()));
     app.which_key.active = true;
 
     let (mut terminal, _area) = setup_term(80, 24);

@@ -36,13 +36,15 @@ fn alt_t_resolves_in_the_dashboard_dynamic_scope() {
     };
     let intent = wk.handle_key(alt_t);
 
-    // Then the terminal overlay toggle fires.
+    // Then the terminal overlay toggle fires (the term slice's
+    // GlobalToggle row, materialized by composition).
     assert!(
         matches!(
-            intent,
-            Some(Intent::ToggleTerminalOverlay { session_id: None })
+            &intent,
+            Some(Intent::Dynamic(d))
+                if d.slice == jinn_term_msg::view_scope() && d.action == "toggle-overlay"
         ),
-        "dashboard scope: expected ToggleTerminalOverlay, got {intent:?}"
+        "dashboard scope: expected the term toggle-overlay dynamic intent, got {intent:?}"
     );
 }
 

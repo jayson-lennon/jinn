@@ -265,17 +265,14 @@ impl ActorSystemBuilder {
             );
         }
 
-        // Terminal tab mirrors (written by the term coordinator actor,
-        // read by the TUI overlay + tools) — hosted in jinn-slices
-        // vocabulary until the term slice's own activate() owns it
-        // (it arrives with the actor move).
-        {
-            let slices = services.slices.clone();
-            let _ = slices.register(
-                jinn_term_msg::term_tabs_slot(),
-                jinn_term_msg::TerminalTabState::default(),
-            );
-        }
+        // Term slice: registers the terminal tab mirrors cell (written
+        // by the coordinator actor, read by the TUI overlay + tools),
+        // attaches the keybind rows, the capture key hook, and the
+        // overlay geometry + renderer. Composition owns exactly this
+        // call. Does NOT mint the shared control registry — wiring owns
+        // that set-once static so it can hand the same registry to the
+        // coordinator actor spawned below.
+        jinn_term::activate(&mut services, &state);
 
         // Quake bar slice: activation mints the cell, spawns the actor
         // (submit-log writer), attaches rows, and registers the input

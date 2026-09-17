@@ -332,7 +332,5 @@ pub fn scope_for_focus(focus: &jinn_domain::FocusScope) -> Scope {
         FocusScope::Dynamic(id) => Scope::Dynamic(id.clone()),
 
         FocusScope::Normal => Scope::Normal,
-        FocusScope::TerminalView => Scope::TerminalView,
-        FocusScope::TerminalControl => Scope::TerminalControl,
     }
 }

@@ -1,12 +1,12 @@
-//! Terminal intent + config helpers pending the route-row conversion.
+//! Terminal tool-side protocol, prefs, and settle helpers.
 //!
-//! Everything else about this feature lives in the term slice crate
-//! (`jinn-term`) and its vocabulary crate (`jinn-term-msg`).
+//! The interaction surface (keybinds, scopes, overlay rendering, actor
+//! family) lives in the term slice crate (`jinn-term`) and its
+//! vocabulary crate (`jinn-term-msg`); what remains kernel-side is the
+//! spawn/send/kill tool plumbing that predates the slice split.
 
-pub mod overlay_intent;
 pub mod prefs;
 pub mod protocol;
 pub mod pty_session;
 pub mod settle;
-pub mod takeover_intent;
 pub mod terminal_tab_state;

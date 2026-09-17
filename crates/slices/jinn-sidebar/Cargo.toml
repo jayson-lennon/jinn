@@ -7,6 +7,7 @@ edition.workspace = true
 jinn-mcp-msg = { workspace = true }
 jinn-sidebar-msg = { workspace = true }
 jinn-slices = { workspace = true }
+jinn-term-msg = { workspace = true }
 jinn-theme = { workspace = true }
 # Slice → kernel edge (established by jinn-dashboard): the sidebar actor
 # performs state mutations through the kernel's shared `State` handle and

@@ -69,10 +69,6 @@ pub enum Scope {
     /// catch-all handlers in a `BTreeMap<S, _>`), so the derived
     /// ordering is required, not hand-rolled.
     Dynamic(jinn_slices::SliceScopeId),
-    /// Terminal tab — viewing an `interactive_term` session (passive).
-    TerminalView,
-    /// Terminal control — keys forward to the pty; handback key exits.
-    TerminalControl,
     /// Project-add input mode - typing a directory path to register a project.
     ProjectAddInput,
     /// Pruner accumulation threshold input mode - numeric input for the KV-cache gate.
@@ -99,8 +95,6 @@ impl std::fmt::Display for Scope {
             Self::PickerPlugin => write!(f, "Picker(plugin)"),
             Self::Input => write!(f, "Input"),
             Self::Dynamic(id) => write!(f, "dynamic:{id}"),
-            Self::TerminalView => write!(f, "TerminalView"),
-            Self::TerminalControl => write!(f, "TerminalControl"),
             Self::ArgInput => write!(f, "ArgInput"),
             Self::TokenBudgetInput => write!(f, "TokenBudgetInput"),
             Self::RenameSessionInput => write!(f, "RenameSessionInput"),

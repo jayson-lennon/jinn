@@ -244,41 +244,6 @@ pub enum Intent {
     /// Switch between Chat and the registered dynamic tabs.
     SwitchTab,
 
-    // ── Terminal overlay (interactive_term takeover) ──────────────
-    /// Toggle the terminal overlay for a session (global `<M-t>`, or the
-    /// sidebar key for the *selected* session). `None` targets the active
-    /// session. Opens view mode when closed; closes the overlay when open.
-    /// No-op when the target session has no live terminal.
-    ToggleTerminalOverlay {
-        /// The chat session whose terminal to show; `None` = active session.
-        session_id: Option<crate::protocol::SessionId>,
-    },
-    /// Toggle the terminal overlay for the session *selected* in the sidebar
-    /// (sidebar `T` key). Resolves the selection at handling time; no-op when
-    /// the Sessions section is not focused, nothing is selected, or the
-    /// selected session has no live terminal.
-    ToggleTerminalOverlayForSelected,
-    /// Take control of the active `interactive_term` session (overlay open,
-    /// control-toggle key, default `<c-g>`). All subsequent keys forward to
-    /// the pty until the toggle key is pressed again.
-    TerminalTakeControl,
-    /// Toggle control back to view mode (control-toggle key, default
-    /// `<c-g>`). Releases control to the agent without messaging it; the
-    /// status hint advertises `I` for pushing the screen.
-    TerminalHandback,
-    /// Copy the visible terminal screen to the clipboard (view mode `y`).
-    TerminalYank,
-    /// Copy the visible terminal screen to the clipboard and push its text to
-    /// the model (view mode `I`): steered when the session is busy, dispatched
-    /// as a user message when idle.
-    TerminalPushScreen,
-    /// Forward one key event to the pty while the user holds control.
-    TerminalSendKey {
-        /// Encoded bytes for the key (produced by the keymap catch_all).
-        bytes: Vec<u8>,
-        /// Human-readable key description for the hint line.
-        label: String,
-    },
 }
 
 impl std::fmt::Display for Intent {
@@ -389,20 +354,6 @@ impl std::fmt::Display for Intent {
 
             Intent::Dynamic(dynamic) => write!(f, "{dynamic}"),
             Intent::SwitchTab => write!(f, "switch tab"),
-            Intent::ToggleTerminalOverlay { session_id } => match session_id {
-                Some(id) => write!(f, "toggle terminal overlay for session {id}"),
-                None => write!(f, "toggle terminal overlay"),
-            },
-            Intent::ToggleTerminalOverlayForSelected => {
-                write!(f, "toggle terminal overlay for selected session")
-            }
-            Intent::TerminalTakeControl => write!(f, "terminal take control"),
-            Intent::TerminalHandback => write!(f, "terminal control toggle exit"),
-            Intent::TerminalYank => write!(f, "terminal yank screen"),
-            Intent::TerminalPushScreen => write!(f, "terminal push screen"),
-            Intent::TerminalSendKey { label, .. } => {
-                write!(f, "terminal send key ({label})")
-            }
         }
     }
 }

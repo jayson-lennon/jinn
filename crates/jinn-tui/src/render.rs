@@ -7,7 +7,6 @@ pub mod picker;
 pub mod selection_highlight;
 pub mod status_bar;
 pub mod tab_bar;
-pub mod terminal_tab;
 
 pub mod too_small;
 pub mod which_key;
@@ -110,7 +109,7 @@ fn apply_pre_render_mutation(app: &mut TuiApp, area: Rect) {
     // every frame while open; deduped by the mirror, sent through the bridge.
     if matches!(
         wstate.frontend.scope(),
-        jinn_domain::FocusScope::TerminalView | jinn_domain::FocusScope::TerminalControl
+        jinn_domain::FocusScope::Dynamic(id) if jinn_term_msg::is_overlay_scope(&id)
     ) {
         let inner = jinn_term_msg::geometry::terminal_overlay_inner_rect(area);
         let (rows, cols) = (inner.height, inner.width);
@@ -320,11 +319,6 @@ fn render_active_overlay(
                 frame, area, ctx,
             );
             Some(jinn_domain::feat::project_add_input::render::project_add_input_popup_rect(area))
-        }
-        FocusScope::TerminalView | FocusScope::TerminalControl => {
-            let overlay_rect = jinn_term_msg::geometry::terminal_overlay_rect(area);
-            crate::render::terminal_tab::render_terminal_tab(frame, overlay_rect, ctx);
-            Some(overlay_rect)
         }
         FocusScope::Dynamic(id) => {
             // Slice overlays: consult the geometry fn + renderer the
