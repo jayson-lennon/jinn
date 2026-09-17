@@ -18,7 +18,7 @@ A disciplined workflow for implementing multi-phase coding tasks. The task list 
 3.  **No reverse merge.** Never merge your branch onto the project's main line.
 4.  **Continuous execution.** Proceed from one phase to the next without stopping. Only stop when all phases are complete or an unrecoverable error blocks progress.
 5.  **Stay in `.plans/<task>/`.** All execution plans go here. Do not create new directories.
-6.  **Never rewrite the spec.** The spec (`plan.md`) is immutable — annotate only (strikethrough, divergence notes). The task list tracks status, not checkboxes in the spec.
+6.  **Never rewrite the spec.** The spec (`plan.md`) is annotate only (strikethrough, divergence notes). The task list tracks status, not checkboxes in the spec.
 7.  **One task per turn.** Each assistant turn advances exactly one task and ends by flipping that task's status via `todo_set_phase`. If a task grew beyond a single turn of work, you went too deep — split it via `todo_set_phase` (rewrite the current phase with the new sub-task added) and pick up the new sub-task next turn.
 
 ---
@@ -27,7 +27,7 @@ A disciplined workflow for implementing multi-phase coding tasks. The task list 
 
 **Task list** — Live progress tracker, managed via `todo_*` tool calls. Update immediately when state changes: `todo_set_phase` rewrites one phase (including its tasks' statuses), `todo_set_list` replaces the whole list.
 
-**Spec** — The file `plan.md`. Immutable reference; annotate only.
+**Spec** — The file `plan.md`. Annotate only.
 
 **Execution plan** — The file `phase-N.md`. Contains file-by-file implementation details and a verification checklist (acceptance criteria) at the bottom using `[ ]`/`[x]`.
 
@@ -76,10 +76,10 @@ Update the task list **at the moment a decision is made**, never retroactively:
     b. **Do the work** for that one task. Run the build command after each logical group of changes.
 
     c. **Complete the task.** Call `todo_set_phase` for the phase you are working on,
-       resending the entire phase with the finished task declared as
-       `{"description": "...", "status": "completed"}` (unchanged tasks stay in the
-       payload as-is). Marking a task complete and the task's own verification are
-       one action.
+    resending the entire phase with the finished task declared as
+    `{"description": "...", "status": "completed"}` (unchanged tasks stay in the
+    payload as-is). Marking a task complete and the task's own verification are
+    one action.
 
     d. **Read the NEXT block** returned by `todo_set_phase`. It points at the next task (or says "phase complete — proceed to verify", or "all phases complete — stop").
 
