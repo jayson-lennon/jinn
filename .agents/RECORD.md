@@ -376,3 +376,4 @@ Entries are added or amended **only with human approval**.
 - (slices) Persona selection persists in the persona slice's cell as the active persona name plus the scanned entries; the tools registry persists in a shared cell until the tools family migrates.
 - (slices) The term slice is a crate owning the PTY actor family, the per-session terminal tab state cell, and the terminal control registry; the tools ask it through a TermHandle trait and the TUI renders the terminal overlay from jinn-term-msg types.
 - (term) The terminal control toggle is a per-session ownership flip between the user and the agent, resolved through the control registry the term slice mints at spawn.
+- (term) The previous session's terminal control holder is released when the active session changes while the overlay is open.
