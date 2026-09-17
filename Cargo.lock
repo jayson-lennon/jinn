@@ -6709,9 +6709,9 @@ checksum = "1b2cb4fbb9995eeb36ac86fadf24031ccd58f99d6b4b2d7b911db70bddb80d90"
 
 [[package]]
 name = "trouper"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92dc4cce6f14fc55ae7ac73caf5d2447f378e8e5f6fec41ee4864a6849113e42"
+checksum = "c727acf4a6338815c4e6ad5bbd8f6562a7554467f2063538257cc8e1964f0027"
 dependencies = [
  "arc-swap",
  "async-trait",
