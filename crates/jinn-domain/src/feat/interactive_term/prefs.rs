@@ -1,10 +1,10 @@
-//! `[interactive_term]` config validation — the kernel keeps only the
-//! `KeyEvent`-dependent normalization; the prefs struct itself lives in
-//! `jinn-term-msg`.
+//! `[interactive_term]` config validation — the prefs struct and the
+//! `KeyEvent`-dependent normalization live in `jinn-term-msg` (the term
+//! slice's vocabulary crate); this module is a re-export shim.
 
 pub use jinn_term_msg::prefs::{
     DEFAULT_CONTROL_TOGGLE_KEY, DEFAULT_SETTLE_MAX_WAIT_MS, DEFAULT_SETTLE_QUIET_MS,
-    InteractiveTermPrefs,
+    InteractiveTermPrefs, normalize_control_toggle_key,
 };
 
 /// Returns the corrected config to persist/use and whether any correction
@@ -29,29 +29,4 @@ pub fn validated(prefs: &InteractiveTermPrefs) -> (InteractiveTermPrefs, bool) {
         changed = true;
     }
     (corrected, changed)
-}
-
-/// Normalizes the configured control-toggle binding (trimmed), or `None`
-/// when it is unusable (caller should fall back to the default).
-///
-/// Any binding the keybind system accepts is allowed — single keys
-/// (`<c-g>`, `<m-g>`, `<f4>`, `'x'`) and sequences (`gg`) alike: validation
-/// delegates to [`ratatui_which_key::parse_key_sequence`] with the same
-/// [`KeyEvent`](crate::protocol::KeyEvent) the keymap binds through, so a
-/// config value accepted here is guaranteed to bind. Modifier-name case is
-/// irrelevant to parsing, so the raw spelling is returned unchanged.
-#[must_use]
-pub fn normalize_control_toggle_key(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let keys = ratatui_which_key::parse_key_sequence::<crate::protocol::KeyEvent>(
-        trimmed,
-        &<crate::protocol::KeyEvent as ratatui_which_key::Key>::space(),
-    );
-    if keys.is_empty() {
-        return None;
-    }
-    Some(trimmed.to_owned())
 }

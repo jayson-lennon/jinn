@@ -83,6 +83,22 @@ impl<'a> RenderCtx<'a> {
         let session = self.state.active_session();
         let report = prune_report(session.history());
         let mut facts = SliceFacts::new(self.state.frontend.theme.clone(), self.slices);
+        // The term overlay's facts: the mirror key, the capture flag, and
+        // the configured toggle key (the border hint's capture glyph).
+        // Consumed by the term slice's overlay renderer (`term:capture`
+        // styling and hints); absent facts degrade chrome, never panic.
+        let capturing = matches!(
+            self.state.frontend.scope(),
+            crate::common::app_state::FocusScope::Dynamic(id)
+                if id == jinn_term_msg::control_scope()
+        );
+        let toggle_key = self
+            .state
+            .frontend
+            .preferences
+            .interactive_term
+            .control_toggle_key
+            .clone();
         facts.set_facts([
             AppFact {
                 key: "session.prune-pending",
@@ -110,6 +126,18 @@ impl<'a> RenderCtx<'a> {
                         format!("Lifecycle: {name} ({})", session.lifecycle_script_state())
                     }
                 },
+            },
+            AppFact {
+                key: jinn_term_msg::overlay_facts::SESSION_ID,
+                value: session.session_id().to_string(),
+            },
+            AppFact {
+                key: jinn_term_msg::overlay_facts::CAPTURING,
+                value: if capturing { "1" } else { "0" }.to_owned(),
+            },
+            AppFact {
+                key: jinn_term_msg::overlay_facts::TOGGLE_KEY,
+                value: toggle_key,
             },
         ]);
         facts

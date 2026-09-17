@@ -10,6 +10,7 @@ jinn-slices = { workspace = true }
 serde = { workspace = true }
 async-trait = { workspace = true }
 ratatui = { workspace = true }
+ratatui-which-key = { workspace = true }
 wherror = { workspace = true }
 parking_lot = { workspace = true }
 

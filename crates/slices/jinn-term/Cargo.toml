@@ -7,7 +7,10 @@ edition.workspace = true
 jinn-core-types = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-sidebar-msg = { workspace = true }
+jinn-status-bar-msg = { workspace = true }
 jinn-term-msg = { workspace = true }
+jinn-theme = { workspace = true }
+ratatui = { workspace = true }
 # Kernel dep (justified): the coordinator subscribes to the session bus's
 # SessionClosed event, writes app state through the tcaps caps, and its
 # deps carry ActorDeps — the sidebar-actor precedent for in-slice actors.
