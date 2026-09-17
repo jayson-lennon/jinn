@@ -10,8 +10,8 @@
 //!     a live terminal.
 //!
 //! Paths that need the real coordinator are covered by the actor tests in
-//! `feat/interactive_term/interactive_term_actor.rs` (spawn, respawn-kill,
-//! realtime mirror) — this module only checks the tool's own wiring.
+//! `jinn-term::interactive_term_actor` (spawn, respawn-kill, realtime
+//! mirror) — this module only checks the tool's own wiring.
 
 #![allow(
     clippy::expect_used,
@@ -115,7 +115,7 @@ async fn spawn_without_a_command_is_rejected() {
 #[rstest::rstest]
 fn started_result_surfaces_the_kill_notice() {
     // Given a started outcome describing a replaced terminal.
-    let killed = jinn_domain::feat::interactive_term::protocol::command::KilledPrevious {
+    let killed = jinn_term_msg::command::KilledPrevious {
         exited: jinn_term_msg::ExitInfo {
             code: 0,
             signal: None,

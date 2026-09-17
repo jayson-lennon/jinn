@@ -217,7 +217,7 @@ pub struct UserPreferences {
     pub auto_prune: AutoPruneConfig,
     /// Interactive terminal configuration (control-toggle key, settle wait).
     #[serde(default)]
-    pub interactive_term: crate::feat::interactive_term::prefs::InteractiveTermPrefs,
+    pub interactive_term: jinn_term_msg::prefs::InteractiveTermPrefs,
     /// Default execution timeout (seconds) for all tool calls.
     ///
     /// The model can override per-call via the reserved `max_duration_secs` argument
@@ -267,7 +267,7 @@ impl Default for UserPreferences {
             minimap: MinimapConfig::default(),
             auto_prune: AutoPruneConfig::default(),
             interactive_term:
-                crate::feat::interactive_term::prefs::InteractiveTermPrefs::default(),
+                jinn_term_msg::prefs::InteractiveTermPrefs::default(),
             tool_default_timeout_secs: default_tool_default_timeout_secs(),
         }
     }
@@ -789,7 +789,7 @@ pub(crate) mod tests {
             },
             minimap: MinimapConfig { max_tokens: 2900 },
             auto_prune,
-            interactive_term: crate::feat::interactive_term::prefs::InteractiveTermPrefs {
+            interactive_term: jinn_term_msg::prefs::InteractiveTermPrefs {
                 control_toggle_key: "<c-t>".to_owned(),
                 settle_quiet_ms: 410,
                 settle_max_wait_ms: 3100,

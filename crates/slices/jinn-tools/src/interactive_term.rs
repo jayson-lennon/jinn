@@ -15,8 +15,8 @@ use futures::FutureExt;
 
 use crate::tool_types::ToolContext;
 use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
-use jinn_domain::feat::interactive_term::protocol::command::SpawnTermOutcome;
-use jinn_domain::feat::interactive_term::terminal_tab_state::DEFAULT_PTY_SIZE;
+use jinn_term_msg::DEFAULT_PTY_SIZE;
+use jinn_term_msg::command::SpawnTermOutcome;
 use jinn_term_msg::settle::default_max_wait;
 
 use super::BoxedToolFuture;
@@ -269,9 +269,7 @@ pub(crate) fn success_result(
     tool_name: &str,
     screen: &str,
     exited: Option<&jinn_term_msg::ExitInfo>,
-    killed_previous: Option<
-        &jinn_domain::feat::interactive_term::protocol::command::KilledPrevious,
-    >,
+    killed_previous: Option<&jinn_term_msg::command::KilledPrevious>,
 ) -> ToolResult {
     let exit_line = exited
         .map(|info| format!("\n\nThe program has {0}.", info.summary()))

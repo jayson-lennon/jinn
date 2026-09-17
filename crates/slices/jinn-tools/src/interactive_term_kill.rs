@@ -13,7 +13,7 @@ use futures::FutureExt;
 
 use crate::tool_types::ToolContext;
 use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
-use jinn_domain::feat::interactive_term::protocol::command::KillTermOutcome;
+use jinn_term_msg::command::KillTermOutcome;
 
 use super::BoxedToolFuture;
 use super::interactive_term::failure_result;

@@ -20,8 +20,8 @@ use futures::FutureExt;
 use crate::interactive_term::StreamCtx;
 use crate::tool_types::ToolContext;
 use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
-use jinn_domain::feat::interactive_term::protocol::command::{SendTermOutcome, TermScreen};
 use jinn_term_msg::ExitInfo;
+use jinn_term_msg::command::{SendTermOutcome, TermScreen};
 use jinn_term_msg::settle::default_max_wait;
 
 use super::BoxedToolFuture;

@@ -13,7 +13,6 @@ pub mod history_worker;
 pub mod image_convert;
 pub mod install;
 pub mod intent;
-pub mod interactive_term;
 pub mod llm_actor;
 pub mod mcp;
 pub mod navigation;

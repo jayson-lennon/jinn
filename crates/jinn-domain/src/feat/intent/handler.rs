@@ -30,7 +30,7 @@
 )]
 
 use crate::AppState;
-use crate::feat::interactive_term::protocol::command::ControlHolder;
+use jinn_term_msg::command::ControlHolder;
 
 use crate::protocol::{PickerKind, ScopeSignal};
 
@@ -1642,10 +1642,10 @@ mod tests {
     fn active_session_switch_releases_user_control() {
         // Given a state with a linked child session, the overlay open in
         // control mode (user holds the previous session's terminal).
-        use crate::feat::interactive_term::protocol::command::ControlHolder;
         use crate::feat::session::chat_entry::ChatEntryKind;
         use crate::feat::session::chat_session::ChatSessionState;
         use crate::protocol::SessionId;
+        use jinn_term_msg::command::ControlHolder;
         use jinn_tools_msg::TASK_TOOL_NAME;
         let mut state = AppState::default_with_scope_focus();
         let first_id = state.session.active_session_id().clone();

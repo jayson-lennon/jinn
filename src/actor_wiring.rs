@@ -460,6 +460,11 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
         // the session actor (consumes SessionClosed) and before the MCP
         // coordinator (so MCP tool registrations land in a running
         // orchestrator).
+        // Tool orchestrator actor: dispatched batches emit per-call
+        // execution events and a final ToolBatchCompleted. Spawned after
+        // the session actor (consumes SessionClosed) and before the MCP
+        // coordinator (so MCP tool registrations land in a running
+        // orchestrator).
         let _tools = spawn_tracked!(
             &services.bus,
             "tool-orchestrator",
