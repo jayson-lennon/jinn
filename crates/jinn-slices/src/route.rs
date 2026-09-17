@@ -44,6 +44,7 @@ use std::sync::Arc;
 use kameo::prelude::ActorRef;
 use kameo_actors::message_bus::MessageBus;
 
+use crate::key::KeyEvent;
 use crate::slice_scope::SliceScopeId;
 
 /// A closure that publishes a typed message to the kernel's bus.
@@ -134,6 +135,10 @@ pub enum RouteOutcome {
 /// time remain the preferred form (the ctx is for state a cell cannot
 /// carry).
 ///
+/// `key_bytes` carries the dispatching intent's byte payload to
+/// key-hook actions (the terminal capture's PTY encoding); it is empty
+/// for actions dispatched from explicit key bindings.
+///
 /// `state` is the minimal [`SliceActionState`] surface, not the
 /// kernel's full application state: a slice crate must never depend on
 /// the kernel, so it declares only the state it reads.
@@ -142,6 +147,8 @@ pub struct ActionCtx<'a> {
     pub state: &'a mut dyn SliceActionState,
     /// The slice registry, borrowed from the intent handler.
     pub slices: &'a crate::slices::Slices,
+    /// The dispatching dynamic intent's byte payload, if any.
+    pub key_bytes: Vec<u8>,
 }
 
 impl std::fmt::Debug for ActionCtx<'_> {
@@ -149,6 +156,7 @@ impl std::fmt::Debug for ActionCtx<'_> {
         f.debug_struct("ActionCtx")
             .field("state", &"dyn SliceActionState")
             .field("slices", &self.slices)
+            .field("key_bytes", &self.key_bytes.len())
             .finish()
     }
 }
@@ -192,7 +200,10 @@ pub trait SliceActionState {
 /// Carries its identity as data instead of an enum variant, so slices
 /// (built-in or guest) never edit central intent enums. `action` is the
 /// route-table lookup key (scoped by `slice`); `display` is the
-/// human-readable label for which-key popups.
+/// human-readable label for which-key popups. `bytes` is an optional
+/// payload for actions that forward a byte stream (e.g. a key hook
+/// wrapping a terminal's PTY encoding) — empty when the action needs
+/// none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DynamicIntent {
     /// The slice this intent belongs to.
@@ -201,6 +212,8 @@ pub struct DynamicIntent {
     pub action: String,
     /// Human-readable label for key UI (which-key popup).
     pub display: String,
+    /// Optional byte payload carried to the dispatched action.
+    pub bytes: Vec<u8>,
 }
 
 impl DynamicIntent {
@@ -212,6 +225,20 @@ impl DynamicIntent {
             slice,
             action: action.to_owned(),
             display: display.to_owned(),
+            bytes: Vec::new(),
+        }
+    }
+
+    /// Builds a dynamic intent carrying a byte payload — the key-hook
+    /// path, where the encoded key travels with the intent to the
+    /// action that publishes it.
+    #[must_use]
+    pub fn with_bytes(slice: SliceScopeId, action: &str, display: &str, bytes: Vec<u8>) -> Self {
+        Self {
+            slice,
+            action: action.to_owned(),
+            display: display.to_owned(),
+            bytes,
         }
     }
 }
@@ -447,7 +474,17 @@ impl RouteRow {
 /// enum is translated down to it before the hook is consulted.
 pub type InputHook = Arc<dyn Fn(&EditIntent) -> Option<RouteResult> + Send + Sync>;
 
-/// Registry of slice keybind routes and input hooks.
+/// A synchronous per-scope interceptor serving raw key events.
+///
+/// Composition binds the hook as its scope's catch-all: it is consulted
+/// only when no explicit binding matched, so the slice's own rows and
+/// composition's global toggles keep priority. Returning `Some` yields
+/// a dynamic intent dispatched through the route table (e.g. the term
+/// overlay's capture hook wraps the key's terminal bytes for the PTY);
+/// returning `None` drops the key.
+pub type KeyHook = Arc<dyn Fn(&KeyEvent) -> Option<DynamicIntent> + Send + Sync>;
+
+/// Registry of slice keybind routes and hooks.
 ///
 /// Rows attach at slice activation (startup wiring), so the table is
 /// interior-mutable behind a lock — the same shape as
@@ -456,7 +493,8 @@ pub type InputHook = Arc<dyn Fn(&EditIntent) -> Option<RouteResult> + Send + Syn
 #[derive(Clone, Debug, Default)]
 pub struct KeyRoutes {
     rows: row_store::Rows,
-    hooks: row_store::Hooks,
+    input_hooks: row_store::HookStore<InputHook>,
+    key_hooks: row_store::HookStore<KeyHook>,
 }
 
 impl KeyRoutes {
@@ -473,13 +511,24 @@ impl KeyRoutes {
 
     /// Registers the synchronous input hook for a slice's scope.
     pub fn register_input_hook(&self, scope: &SliceScopeId, hook: InputHook) {
-        self.hooks.insert(scope.key(), hook);
+        self.input_hooks.insert(scope.clone(), hook);
     }
 
     /// Returns the input hook registered for `scope`, if any.
     #[must_use]
     pub fn input_hook(&self, scope: &SliceScopeId) -> Option<InputHook> {
-        self.hooks.get(&scope.key())
+        self.input_hooks.get(scope)
+    }
+
+    /// Registers the raw-key hook for a slice's scope.
+    pub fn register_key_hook(&self, scope: &SliceScopeId, hook: KeyHook) {
+        self.key_hooks.insert(scope.clone(), hook);
+    }
+
+    /// Returns the raw-key hook registered for `scope`, if any.
+    #[must_use]
+    pub fn key_hook(&self, scope: &SliceScopeId) -> Option<KeyHook> {
+        self.key_hooks.get(scope)
     }
 
     /// Dispatches a dynamic intent through its registered row.
@@ -510,19 +559,21 @@ impl KeyRoutes {
 
     /// Returns the scope ids of all registered input hooks.
     #[must_use]
-    pub fn hook_scopes(&self) -> Vec<SliceScopeId> {
-        self.hooks
-            .keys()
-            .into_iter()
-            .filter_map(|key| key.parse::<SliceScopeId>().ok())
-            .collect()
+    pub fn input_hook_scopes(&self) -> Vec<SliceScopeId> {
+        self.input_hooks.keys()
+    }
+
+    /// Returns the scope ids of all registered raw-key hooks.
+    #[must_use]
+    pub fn key_hook_scopes(&self) -> Vec<SliceScopeId> {
+        self.key_hooks.keys()
     }
 }
 
 /// Append-only row/hook store shared by all clones of the table.
 mod row_store {
-    use super::InputHook;
     use super::RouteRow;
+    use crate::SliceScopeId;
     use parking_lot::RwLock;
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -551,22 +602,42 @@ mod row_store {
         }
     }
 
-    #[derive(Debug, Default)]
-    pub struct Hooks {
-        inner: Arc<RwLock<HashMap<String, HookEntry>>>,
+    /// Scope-keyed hook store shared by all clones.
+    ///
+    /// Keyed on the [`SliceScopeId`] itself, never a string form: a
+    /// roundtrip through `FromStr` reconstructs ids with
+    /// `captures_input: true`, so navigation scopes would silently miss
+    /// their own lookups.
+    pub struct HookStore<H> {
+        inner: Arc<RwLock<HashMap<SliceScopeId, DebugEntry<H>>>>,
     }
 
     /// A hook wrapped for `Debug` (closures are not `Debug`).
-    #[derive(Clone)]
-    struct HookEntry(InputHook);
+    struct DebugEntry<H>(H);
 
-    impl std::fmt::Debug for HookEntry {
+    impl<H> std::fmt::Debug for DebugEntry<H> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str("InputHook(..)")
+            f.write_str("hook(..)")
         }
     }
 
-    impl Clone for Hooks {
+    impl<H> Default for HookStore<H> {
+        fn default() -> Self {
+            Self {
+                inner: Arc::default(),
+            }
+        }
+    }
+
+    impl<H> std::fmt::Debug for HookStore<H> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("HookStore")
+                .field("scopes", &self.keys())
+                .finish()
+        }
+    }
+
+    impl<H> Clone for HookStore<H> {
         fn clone(&self) -> Self {
             Self {
                 inner: Arc::clone(&self.inner),
@@ -574,16 +645,19 @@ mod row_store {
         }
     }
 
-    impl Hooks {
-        pub fn insert(&self, key: String, hook: InputHook) {
-            self.inner.write().insert(key, HookEntry(hook));
+    impl<H> HookStore<H> {
+        pub fn insert(&self, scope: SliceScopeId, hook: H) {
+            self.inner.write().insert(scope, DebugEntry(hook));
         }
 
-        pub fn get(&self, key: &str) -> Option<InputHook> {
-            self.inner.read().get(key).map(|entry| entry.0.clone())
+        pub fn get(&self, scope: &SliceScopeId) -> Option<H>
+        where
+            H: Clone,
+        {
+            self.inner.read().get(scope).map(|entry| entry.0.clone())
         }
 
-        pub fn keys(&self) -> Vec<String> {
+        pub fn keys(&self) -> Vec<SliceScopeId> {
             self.inner.read().keys().cloned().collect()
         }
     }
@@ -630,7 +704,11 @@ mod tests {
     }
 
     fn ctx<'a>(state: &'a mut dyn SliceActionState, slices: &'a Slices) -> ActionCtx<'a> {
-        ActionCtx { state, slices }
+        ActionCtx {
+            state,
+            slices,
+            key_bytes: Vec::new(),
+        }
     }
 
     /// Minimal state double for action-context tests.
@@ -778,13 +856,73 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn hook_scopes_enumerates_registered_scopes() {
-        // Given a table with one hook registered.
+    fn input_hook_scopes_enumerates_registered_scopes() {
+        // Given a table with one input hook registered.
         let routes = KeyRoutes::new();
         routes.register_input_hook(&scope(), std::sync::Arc::new(|_: &EditIntent| None));
 
-        // When enumerating hook scopes.
-        let scopes = routes.hook_scopes();
+        // When enumerating input hook scopes.
+        let scopes = routes.input_hook_scopes();
+
+        // Then the registered scope is listed.
+        assert_eq!(scopes, vec![scope()]);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn key_hook_resolves_on_navigation_scope() {
+        // Given a navigation (non-input-capturing) scope and a key hook
+        // registered for it — the term overlay's capture shape.
+        let navigation = SliceScopeId::navigation("term", "control");
+        let routes = KeyRoutes::new();
+        let hook: super::KeyHook = {
+            let hook_scope = navigation.clone();
+            std::sync::Arc::new(move |event: &crate::key::KeyEvent| {
+                Some(crate::DynamicIntent::new(
+                    hook_scope.clone(),
+                    "send-key",
+                    "send key",
+                ))
+                .filter(|_| event.key == crate::key::Key::Char('x'))
+            })
+        };
+        routes.register_key_hook(&navigation, hook);
+
+        // When looking the hook up by the same id (no string roundtrip).
+        let hook = routes.key_hook(&navigation);
+
+        // Then the hook resolves for the navigation scope — a FromStr
+        // roundtrip would have reconstructed a captures_input id and
+        // missed this lookup.
+        let hook = hook.expect("key hook registered for navigation scope");
+        // And the hook serves the key it was registered to serve.
+        let event = crate::key::KeyEvent {
+            key: crate::key::Key::Char('x'),
+            modifiers: crate::key::Modifiers::none(),
+        };
+        let served = hook(&event).expect("hook serves the registered key");
+        assert_eq!(served.slice, navigation);
+        assert_eq!(served.action, "send-key");
+        // And it declines other keys.
+        let other = crate::key::KeyEvent {
+            key: crate::key::Key::Char('y'),
+            modifiers: crate::key::Modifiers::none(),
+        };
+        assert!(hook(&other).is_none());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn key_hook_scopes_enumerates_registered_scopes() {
+        // Given a table with one key hook registered.
+        let routes = KeyRoutes::new();
+        routes.register_key_hook(
+            &scope(),
+            std::sync::Arc::new(|_: &crate::key::KeyEvent| None),
+        );
+
+        // When enumerating key hook scopes.
+        let scopes = routes.key_hook_scopes();
 
         // Then the registered scope is listed.
         assert_eq!(scopes, vec![scope()]);

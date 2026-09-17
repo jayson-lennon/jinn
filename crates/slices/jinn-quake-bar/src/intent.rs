@@ -328,6 +328,7 @@ mod tests {
                 jinn_slices::ActionCtx {
                     state: &mut state,
                     slices: &slices,
+                    key_bytes: Vec::new(),
                 },
             )
             .expect("open row attached");
@@ -352,6 +353,7 @@ mod tests {
                 jinn_slices::ActionCtx {
                     state: &mut state,
                     slices: &slices,
+                    key_bytes: Vec::new(),
                 },
             )
             .expect("close row attached");
@@ -378,6 +380,7 @@ mod tests {
             jinn_slices::ActionCtx {
                 state: &mut state,
                 slices: &slices,
+                key_bytes: Vec::new(),
             },
         );
 
@@ -407,6 +410,7 @@ mod tests {
             jinn_slices::ActionCtx {
                 state: &mut state,
                 slices: &slices,
+                key_bytes: Vec::new(),
             },
         );
 
@@ -464,6 +468,7 @@ mod tests {
                 jinn_slices::ActionCtx {
                     state: &mut state,
                     slices: &slices,
+                    key_bytes: Vec::new(),
                 },
             )
             .expect("scroll-up row");
@@ -482,6 +487,7 @@ mod tests {
                 jinn_slices::ActionCtx {
                     state: &mut state,
                     slices: &slices,
+                    key_bytes: Vec::new(),
                 },
             )
             .expect("scroll-down row");

@@ -162,6 +162,7 @@ mod tests {
                 ActionCtx {
                     state: &mut state,
                     slices: &slices,
+                    key_bytes: Vec::new(),
                 },
             )
             .expect("row is attached");
@@ -211,6 +212,7 @@ mod tests {
             ActionCtx {
                 state: &mut state,
                 slices: &slices,
+                key_bytes: Vec::new(),
             },
         );
 

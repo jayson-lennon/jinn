@@ -173,14 +173,19 @@ fn scopes_for_row<'a>(
 }
 
 /// Collects every dynamic scope the route table knows about: row scopes
-/// (tab scopes) plus input-hook scopes (capture scopes). Used to spread
-/// per-scope composition chrome (the `<M-t>` toggle) across slices.
+/// (tab scopes) plus hook scopes (input and key-hook scopes). Used to
+/// spread per-scope composition chrome (the `<M-t>` toggle) across
+/// slices.
 #[must_use]
 pub fn dynamic_scopes(routes: &KeyRoutes) -> Vec<SliceScopeId> {
     let mut scopes: Vec<SliceScopeId> = routes.rows().iter().map(|r| r.scope.clone()).collect();
-    for hook in routes.hook_scopes() {
-        if !scopes.contains(&hook) {
-            scopes.push(hook);
+    for hook in routes
+        .input_hook_scopes()
+        .iter()
+        .chain(routes.key_hook_scopes().iter())
+    {
+        if !scopes.contains(hook) {
+            scopes.push(hook.clone());
         }
     }
     scopes
@@ -264,7 +269,7 @@ pub fn bind_route_rows(
     keymap: &mut Keymap<KeyEvent, Scope, Intent, KeyCategory>,
 ) {
     let rows = routes.rows();
-    let hooks = routes.hook_scopes();
+    let hooks = routes.input_hook_scopes();
     derive_groups_from_rows(&rows, keymap);
     // Row scopes that host other slices' global toggles: every registered
     // scope (rows + hooks) except the row's own, where its OwnScope rows

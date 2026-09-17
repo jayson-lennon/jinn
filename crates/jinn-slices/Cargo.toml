@@ -14,6 +14,7 @@ jinn-core-types = { workspace = true }
 kameo = { workspace = true }
 kameo_actors = { workspace = true }
 ratatui = { workspace = true }
+ratatui-which-key = { workspace = true }
 tokio = { workspace = true }
 trouper = { workspace = true }
 serde = { workspace = true }

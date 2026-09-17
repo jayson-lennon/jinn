@@ -3020,6 +3020,7 @@ dependencies = [
  "kameo_actors",
  "parking_lot",
  "ratatui",
+ "ratatui-which-key",
  "rstest",
  "serde",
  "serde_json",

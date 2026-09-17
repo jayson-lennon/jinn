@@ -193,3 +193,163 @@ fn encode_alt(spec: &str) -> Vec<u8> {
     out.extend_from_slice(&encode_key(base));
     out
 }
+
+/// Encodes a [`KeyEvent`] into the bytes a pty program expects.
+///
+/// The event-path twin of [`encode_key`]: printable characters, C0
+/// controls for ctrl-modified letters, the ESC prefix for alt, and the
+/// same named-key sequences.
+#[must_use]
+pub fn encode_key_event(event: &jinn_slices::KeyEvent) -> Vec<u8> {
+    use jinn_slices::Key;
+
+    let m = event.modifiers;
+    let byte_for_char = |c: char| -> Vec<u8> {
+        let mut bytes = c.to_string().into_bytes();
+        match (m.ctrl, m.shift) {
+            // Ctrl produces C0 controls; letters map A..=Z & 0x1F.
+            (true, _) => {
+                if let Some(b) = bytes.first_mut() {
+                    *b = b.to_ascii_uppercase() & 0x1f;
+                }
+            }
+            (false, true) => {
+                for b in &mut bytes {
+                    *b = b.to_ascii_uppercase();
+                }
+            }
+            (false, false) => {}
+        }
+        if m.alt {
+            let mut out = vec![0x1b];
+            out.extend_from_slice(&bytes);
+            return out;
+        }
+        bytes
+    };
+
+    let plain: &[u8] = match event.key {
+        Key::Char(c) => return byte_for_char(c),
+        Key::Enter => b"\r",
+        Key::Esc => b"\x1b",
+        Key::Tab => b"\t",
+        Key::Backspace => b"\x7f",
+        Key::Delete => b"\x1b[3~",
+        Key::Up => b"\x1b[A",
+        Key::Down => b"\x1b[B",
+        Key::Right => b"\x1b[C",
+        Key::Left => b"\x1b[D",
+        Key::Home => b"\x1b[H",
+        Key::End => b"\x1b[F",
+        Key::PageUp => b"\x1b[5~",
+        Key::PageDown => b"\x1b[6~",
+        Key::F(n) => {
+            // F1–F4 use the short SS3 form; F5+ use `CSI n ~`.
+            return fkey_bytes(n);
+        }
+    };
+    plain.to_vec()
+}
+
+#[cfg(test)]
+mod key_event_tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::indexing_slicing,
+        reason = "test code"
+    )]
+    use super::{encode_input, encode_key, encode_key_event, quiet_deadline, should_settle};
+    use jinn_slices::{Key, KeyEvent, Modifiers};
+    use std::time::Duration;
+
+    /// The user-takeover path and the agent path must agree on f-keys —
+    /// both wrap [`fkey_bytes`].
+    #[rstest::rstest]
+    #[case(1)]
+    #[case(4)]
+    #[case(5)]
+    #[case(12)]
+    fn encode_key_event_matches_encode_key_for_f_keys(#[case] n: u8) {
+        // Given the same function key on both paths.
+        let event = KeyEvent {
+            key: Key::F(n),
+            modifiers: Modifiers::none(),
+        };
+
+        // When encoding via the event path and the name path.
+        let from_event = encode_key_event(&event);
+        let from_name = encode_key(&format!("f{n}"));
+
+        // Then the byte sequences are identical.
+        assert_eq!(from_event, from_name);
+        assert!(!from_event.is_empty());
+    }
+
+    #[rstest::rstest]
+    #[case(Key::Enter, Modifiers::none(), &b"\r"[..])]
+    #[case(Key::Esc, Modifiers::none(), b"\x1b")]
+    #[case(Key::Up, Modifiers::none(), b"\x1b[A")]
+    #[case(Key::F(5), Modifiers::none(), b"\x1b[15~")]
+    #[case(Key::F(1), Modifiers::none(), b"\x1bOP")]
+    fn encodes_plain_keys_from_events(
+        #[case] key: Key,
+        #[case] modifiers: Modifiers,
+        #[case] expected: &[u8],
+    ) {
+        // Given a key event.
+        let event = KeyEvent { key, modifiers };
+
+        // When encoding it for the pty.
+        let bytes = encode_key_event(&event);
+
+        // Then it matches the byte sequence a real terminal sends.
+        assert_eq!(bytes, expected);
+    }
+
+    #[rstest::rstest]
+    fn encodes_ctrl_char_as_c0_control() {
+        // Given Ctrl+C.
+        let event = KeyEvent {
+            key: Key::Char('c'),
+            modifiers: Modifiers::ctrl(),
+        };
+
+        // When encoding it.
+        let bytes = encode_key_event(&event);
+
+        // Then it is the C0 ETX byte.
+        assert_eq!(bytes, vec![0x03]);
+    }
+
+    #[rstest::rstest]
+    fn encodes_alt_char_with_esc_prefix() {
+        // Given Alt+X.
+        let event = KeyEvent {
+            key: Key::Char('x'),
+            modifiers: Modifiers::alt(),
+        };
+
+        // When encoding it.
+        let bytes = encode_key_event(&event);
+
+        // Then it is ESC followed by the key byte.
+        assert_eq!(bytes, vec![0x1b, b'x']);
+    }
+
+    #[rstest::rstest]
+    fn encodes_shift_char_as_uppercase() {
+        // Given Shift+G (already normalized to 'G' by the TUI in practice).
+        let event = KeyEvent {
+            key: Key::Char('g'),
+            modifiers: Modifiers::shift(),
+        };
+
+        // When encoding it.
+        let bytes = encode_key_event(&event);
+
+        // Then the byte is uppercase.
+        assert_eq!(bytes, b"G");
+    }
+}

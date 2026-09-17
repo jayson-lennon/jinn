@@ -246,7 +246,11 @@ impl IntentHandler {
         if let Intent::Dynamic(dynamic) = intent
             && let Some(mut result) = routes.action_for(
                 dynamic,
-                crate::common::slices::key_routes::ActionCtx { state, slices },
+                crate::common::slices::key_routes::ActionCtx {
+                    state,
+                    slices,
+                    key_bytes: dynamic.bytes.clone(),
+                },
             )
         {
             // Scope transitions apply before the messages publish so a

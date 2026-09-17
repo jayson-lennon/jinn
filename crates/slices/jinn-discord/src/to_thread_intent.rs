@@ -38,7 +38,11 @@ use jinn_domain::protocol::IntentResult;
 /// This function never returns `Err` — failures push a `ChatEntry::error`
 /// into the active session and yield an empty `IntentResult`.
 pub fn handle_to_discord_thread(ctx: ActionCtx<'_>) -> IntentResult {
-    let ActionCtx { state, slices } = ctx;
+    let ActionCtx {
+        state,
+        slices,
+        key_bytes: _,
+    } = ctx;
     // Precondition 1: title exists. The session title is `None` until the first
     // user message is sent, so this also gates the "empty session" case.
     let Some(title) = state.active_session_title() else {
@@ -140,7 +144,11 @@ mod tests {
     }
 
     fn ctx<'a>(state: &'a mut AppState, slices: &'a Slices) -> ActionCtx<'a> {
-        ActionCtx { state, slices }
+        ActionCtx {
+            state,
+            slices,
+            key_bytes: Vec::new(),
+        }
     }
 
     fn last_entry_kind(state: &AppState) -> &ChatEntryKind {

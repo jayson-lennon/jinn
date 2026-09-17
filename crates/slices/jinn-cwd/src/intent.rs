@@ -235,7 +235,11 @@ mod tests {
     }
 
     fn ctx<'a>(state: &'a mut FakeState, slices: &'a jinn_slices::Slices) -> ActionCtx<'a> {
-        ActionCtx { state, slices }
+        ActionCtx {
+            state,
+            slices,
+            key_bytes: Vec::new(),
+        }
     }
 
     /// Mints the popup cell in a fresh registry; returns both (the cell is a

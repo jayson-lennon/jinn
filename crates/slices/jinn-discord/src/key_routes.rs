@@ -148,6 +148,7 @@ mod tests {
                 ActionCtx {
                     state: &mut state,
                     slices: &slices,
+                    key_bytes: Vec::new(),
                 },
             )
             .expect("to-thread row attached");
@@ -197,6 +198,7 @@ mod tests {
                 ActionCtx {
                     state: &mut state,
                     slices: &slices,
+                    key_bytes: Vec::new(),
                 },
             )
             .expect("to-thread row attached");
@@ -221,6 +223,7 @@ mod tests {
             ActionCtx {
                 state: &mut jinn_domain::common::app_state::AppState::default(),
                 slices: &jinn_domain::common::slices::Slices::new(),
+                key_bytes: Vec::new(),
             },
         );
 
