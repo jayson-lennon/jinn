@@ -6,13 +6,19 @@
   - `todo_set_list`: rewrites the entire todo list
   - `todo_set_phase`: rewrites a single phase
   - `todo_get_list`: returns the entire todo list
+- Task loop skills reference `todo_*` tools generically instead of by exact name.
+- The `#approve-plan` prompt should produce more detailed todo lists.
 - Added a new `jinn-usage` skill.
   - This enables the agent to answer meta-questions about `jinn` usage and configuration. `jinn` should now be able to edit it's configuration on your behalf.
 - Remove `jinn-plugin` skill. It will need to be manually removed from your `~/.agent/skills` directory.
 - `interactive_*` family of tools and related keybinds now use session IDs instead of relying on current UI state.
   - Fix: now impossible to send keystrokes to the wrong interactive session
   - Fix: agent `interactive_*` invocations now go to the correct sessions even when forked
-- `interactive_term` tool now has guidelines instructing agents not to redirect it's output.
+- Added guidelines to `interactive_term` instructing agents not to redirect it's output.
+- The `#gap-analysis` prompt should produce more concise reports.
+- These plugins were move into the core in preparation for 1.0 release. They are now unused and will remain on-disk unless you manually delete them:
+  - `persona-loader`
+  - `theme-loader`
 
 ## 2026-09-13 v0.118.0
 
