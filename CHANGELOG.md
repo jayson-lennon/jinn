@@ -19,6 +19,8 @@
 - These plugins were move into the core in preparation for 1.0 release. They are now unused and will remain on-disk unless you manually delete them:
   - `persona-loader`
   - `theme-loader`
+- Remove `anchor_shield` context worker.
+- Add `protect_latest` option for the `[auto_prune.todo]` context worker. Setting to `true` (default) will keep the latest `todo_*` tool call in context indefinitely. This should help keep agents on track.
 
 ## 2026-09-13 v0.118.0
 
