@@ -18,7 +18,6 @@ use wherror::Error;
 // homes. They are re-exported here so existing consumer import paths
 // (`crate::feat::preferences_actor::user_preferences::*`) keep resolving.
 pub use crate::feat::auto_prune_worker::AutoPruneConfig;
-pub use crate::feat::auto_prune_worker::anchor_shield::AnchorShieldConfig;
 pub use crate::feat::auto_prune_worker::anchored_assistant::AnchoredAssistantAutoPruneConfig;
 pub use crate::feat::auto_prune_worker::broken_edit::BrokenEditAutoPruneConfig;
 pub use crate::feat::auto_prune_worker::consecutive_reads::ConsecutiveReadsAutoPruneConfig;
@@ -649,6 +648,7 @@ pub(crate) mod tests {
             todo: TodoAutoPruneConfig {
                 enabled: false,
                 min_age: 3,
+                protect_latest: false,
             },
             double_edit: DoubleEditAutoPruneConfig {
                 enabled: false,
@@ -673,10 +673,6 @@ pub(crate) mod tests {
                 enabled: false,
                 radius: 12,
                 min_age: 13,
-            },
-            anchor_shield: AnchorShieldConfig {
-                enabled: false,
-                radius: 14,
             },
             accumulation_threshold_tokens: 17,
         };

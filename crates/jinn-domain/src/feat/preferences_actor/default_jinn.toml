@@ -410,6 +410,10 @@ min_age = 10
 # All todo/task list tool calls return the entire list. This pruner keeps only the most recent todo call.
 [auto_prune.todo]
 enabled = true
+# Force-include the most recent todo call+result (the current task list) so
+# other pruners (e.g. tool_age_window) can never remove it. Superseded pairs
+# are demoted and pruned as usual.
+protect_latest = true
 # Don't trigger until this many messages/tool calls have elapsed.
 # (uncomment below to activate)
 # min_age = 50
@@ -485,30 +489,6 @@ min_age = 100
 enabled = true
 # Candidate message must be at least this old before prune-eligible.
 min_age = 50
-# Deprecated: the radius is now sourced from anchor_shield.radius below.
-# Kept for backward compatibility; uncommenting has no effect.
-# (uncomment below to activate)
-# radius = 100
-
-# ---------------------------------------------------------------------------
-# Protects Assistant, Tool Calls, and Tool Result entries around user messages
-# from being excluded from context by marking them as ForceIncluded.
-#
-# Here's a visual to help explain:
-#
-#  u = user message
-#  A = assistant message
-#  t = tool call
-#  . = outside radius
-#  - = inside radius
-#
-#  anchor                                 user message anchor
-#   v                                      v
-#   uAtttttA.........................AttAttu
-#   --------|     outside radius    |-------
-#  protected                         protected
-[auto_prune.anchor_shield]
-enabled = true
-# Number of entries around a user message that are shielded from exclusion by
-# other workers.
+# Number of entries (raw history distance) around an anchor within which a
+# large assistant entry is protected from pruning.
 radius = 20

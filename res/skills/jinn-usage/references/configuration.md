@@ -118,7 +118,7 @@ min_age = 50
 ```
 Strategies include `edit_read`, `read_edit`, `double_edit`,
 `consecutive_reads`, `tool_age_window`, `trivial_assistant`,
-`anchored_assistant`, `anchor_shield`, `broken_edit`, `todo`, and
+`anchored_assistant`, `broken_edit`, `todo`, and
 `regex` — all documented with comments in the default `jinn.toml`.
 
 **Web fetch / search** (browser-backed; needs Chrome/Chromium):
@@ -213,7 +213,7 @@ authorized_users = []              # deny-by-default; empty authorizes nobody
 [auto_prune.consecutive_reads] keep_last = 5        # reads kept per file
 [auto_prune.regex.rules]       keep_last = 2        # matching calls kept
 [auto_prune.trivial_assistant] max_tokens = 80      # "trivial" size threshold
-[auto_prune.anchor_shield]     radius = 20          # entries shielded around user messages
+[auto_prune.anchored_assistant] radius = 20          # entries near anchors kept
 ```
 
 **Request retries:**

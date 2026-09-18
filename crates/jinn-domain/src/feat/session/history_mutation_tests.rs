@@ -896,11 +896,11 @@ fn shield_include_displaces_buffered_exclude() {
         300,
     );
 
-    // When a shield ForcedInclude arrives for the same entry.
+    // When a worker ForcedInclude arrives for the same entry.
     session.route_override(
         entry_id,
         ContextOverride::ForcedInclude,
-        worker("anchor_shield"),
+        worker("auto-prune-todo"),
         300,
     );
 
@@ -918,14 +918,14 @@ fn shield_include_displaces_buffered_exclude() {
 #[rstest::rstest]
 #[test]
 fn exclude_cannot_displace_buffered_include() {
-    // Given a session with a buffered shield include for one entry.
+    // Given a session with a buffered worker include for one entry.
     let mut session = ChatSessionState::new();
     session.push_entry(ChatEntry::user("hello"));
     let entry_id = session.history()[0].id.clone();
     session.route_override(
         entry_id.clone(),
         ContextOverride::ForcedInclude,
-        worker("anchor_shield"),
+        worker("auto-prune-todo"),
         300,
     );
 
