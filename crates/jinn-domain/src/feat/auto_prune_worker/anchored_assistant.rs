@@ -50,7 +50,7 @@ const DEFAULT_ANCHORED_ASSISTANT_ENABLED: bool = true;
 
 /// Default radius (in raw history entries) within which an Assistant entry is
 /// protected from pruning regardless of token count.
-const DEFAULT_ANCHORED_ASSISTANT_RADIUS: usize = 100;
+const DEFAULT_ANCHORED_ASSISTANT_RADIUS: usize = 20;
 
 /// Default minimum age for anchored-assistant auto-prune.
 const DEFAULT_ANCHORED_ASSISTANT_MIN_AGE: usize = 50;
@@ -64,16 +64,12 @@ pub struct AnchoredAssistantAutoPruneConfig {
     /// Default: `true`.
     #[serde(default = "default_anchored_assistant_enabled")]
     pub enabled: bool,
-    /// **Deprecated:** the radius value is now sourced from `AnchorShieldConfig.radius`.
-    /// This field is kept for backward compatibility with existing `jinn.toml` files
-    /// but its value is ignored at wiring time.
-    ///
     /// Radius (in raw chat entries) within which an `Assistant` entry is
     /// protected from pruning, regardless of distance to any User entry.
     /// Distance strictly greater than this radius marks the entry as a
     /// prune candidate (subject to the `>80` token threshold).
     /// Minimum 1 (clamped at evaluation time).
-    /// Default: `100`.
+    /// Default: `20`.
     #[serde(default = "default_anchored_assistant_radius")]
     pub radius: usize,
     /// Minimum number of entries from the end of history within which
@@ -111,11 +107,11 @@ impl Default for AnchoredAssistantAutoPruneConfig {
 /// See the [module docs](self) for full semantics.
 #[derive(Clone)]
 pub struct AnchoredAssistantAutoPruneWorker {
-    /// Configuration for the anchor-radius strategy.
+    /// Configuration for the anchor-radius strategy. The working
+    /// [`radius`](AnchoredAssistantAutoPruneConfig::radius) is sourced from
+    /// this config's own `radius` field at wiring time.
     pub config: AnchoredAssistantAutoPruneConfig,
-    /// The anchor radius, sourced from [`AnchorShieldConfig::radius`](super::anchor_shield::AnchorShieldConfig::radius)
-    /// at wiring time. Centralized on the shield worker so the shield boundary
-    /// and prune boundary always align.
+    /// The anchor radius applied at evaluation time.
     pub radius: usize,
     /// Minimum token count for an entry to be considered a pruning candidate.
     /// Entries at or below this threshold are owned by
@@ -163,20 +159,6 @@ pub(crate) fn collect_anchor_indices(history: &[ChatEntry]) -> Vec<usize> {
     anchors.dedup();
     anchors
 }
-/// Collect anchor indices from User messages only — no boundary anchors.
-/// Used by the anchor shield worker, which should only shield around user turns,
-/// not around conversation start/end (which would shield nearly everything).
-pub(crate) fn collect_user_anchor_indices(history: &[ChatEntry]) -> Vec<usize> {
-    history
-        .iter()
-        .enumerate()
-        .filter_map(|(i, e)| match e.kind {
-            ChatEntryKind::User { .. } => Some(i),
-            _ => None,
-        })
-        .collect()
-}
-
 /// Compute `(d_back, d_fwd)` — index distances to the nearest preceding and
 /// following anchors.
 ///
@@ -1192,42 +1174,6 @@ mod tests {
         assert_eq!(anchors, vec![0, 1, 2]);
     }
     // ------------------------------------------------------------------
-    // collect_user_anchor_indices
-    // ------------------------------------------------------------------
-
-    #[rstest::rstest]
-    #[test]
-    fn collect_user_anchors_empty_history() {
-        assert!(collect_user_anchor_indices(&[]).is_empty());
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn collect_user_anchors_returns_user_entries_only() {
-        let history = vec![
-            ChatEntry::assistant("a"),
-            ChatEntry::user("first"),
-            ChatEntry::assistant("b"),
-            ChatEntry::user("second"),
-            ChatEntry::assistant("c"),
-        ];
-        let anchors = collect_user_anchor_indices(&history);
-        assert_eq!(anchors, vec![1, 3]);
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn collect_user_anchors_no_user_entries_is_empty() {
-        let history = vec![
-            ChatEntry::assistant("a"),
-            ChatEntry::assistant("b"),
-            ChatEntry::assistant("c"),
-        ];
-        let anchors = collect_user_anchor_indices(&history);
-        assert!(anchors.is_empty());
-    }
-
-    // ------------------------------------------------------------------
     // 21. no_user_entries_first_and_last_still_anchor
     //
     // With no User entries, first and last anchors still apply. A middle
@@ -1354,5 +1300,16 @@ mod tests {
             excluded.contains(&middle_id),
             "age = min_age must NOT be protected (strict less-than)"
         );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn anchored_assistant_radius_defaults_to_twenty() {
+        // Given the default anchored-assistant config.
+        let config = AnchoredAssistantAutoPruneConfig::default();
+
+        // Then the radius defaults to 20 — the same effective value the
+        // wiring sourced from the removed anchor-shield config.
+        assert_eq!(config.radius, 20);
     }
 }

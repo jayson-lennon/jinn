@@ -12,7 +12,6 @@
 //! [`HistoryWorker`]: crate::feat::history_worker::worker_trait::HistoryWorker
 //! [`HistoryWorkerActor`]: crate::feat::history_worker::actor::HistoryWorkerActor
 
-pub mod anchor_shield;
 pub mod anchored_assistant;
 pub mod broken_edit;
 pub mod consecutive_reads;
@@ -27,7 +26,6 @@ pub mod tool_age_window;
 pub mod trivial_assistant;
 pub(crate) use min_age::is_within_min_age;
 
-pub use anchor_shield::AnchorShieldAutoPruneWorker;
 pub use anchored_assistant::AnchoredAssistantAutoPruneWorker;
 pub use broken_edit::BrokenEditAutoPruneWorker;
 pub use consecutive_reads::ConsecutiveReadsAutoPruneWorker;
@@ -67,11 +65,11 @@ use serde::{Deserialize, Serialize};
 // Re-import the child config types from their co-located homes so the
 // aggregate fields below resolve. All of these are `pub` in their own modules.
 use crate::feat::auto_prune_worker::{
-    anchor_shield::AnchorShieldConfig, anchored_assistant::AnchoredAssistantAutoPruneConfig,
-    broken_edit::BrokenEditAutoPruneConfig, consecutive_reads::ConsecutiveReadsAutoPruneConfig,
-    double_edit::DoubleEditAutoPruneConfig, edit_read::EditReadAutoPruneConfig,
-    read_edit::ReadEditAutoPruneConfig, regex::RegexAutoPruneConfig,
-    todo_prune::TodoAutoPruneConfig, tool_age_window::ToolAgeWindowAutoPruneConfig,
+    anchored_assistant::AnchoredAssistantAutoPruneConfig, broken_edit::BrokenEditAutoPruneConfig,
+    consecutive_reads::ConsecutiveReadsAutoPruneConfig, double_edit::DoubleEditAutoPruneConfig,
+    edit_read::EditReadAutoPruneConfig, read_edit::ReadEditAutoPruneConfig,
+    regex::RegexAutoPruneConfig, todo_prune::TodoAutoPruneConfig,
+    tool_age_window::ToolAgeWindowAutoPruneConfig,
     trivial_assistant::TrivialAssistantAutoPruneConfig,
 };
 
@@ -111,9 +109,6 @@ pub struct AutoPruneConfig {
     /// Anchored-assistant auto-prune strategy configuration.
     #[serde(default)]
     pub anchored_assistant: AnchoredAssistantAutoPruneConfig,
-    /// Anchor-shield auto-prune strategy configuration.
-    #[serde(default)]
-    pub anchor_shield: AnchorShieldConfig,
     /// Token threshold at which accumulated pruner context-override mutations flush.
     ///
     /// Pruner `SetContextOverride` mutations are held in a per-session buffer until
@@ -136,7 +131,6 @@ impl Default for AutoPruneConfig {
             tool_age_window: ToolAgeWindowAutoPruneConfig::default(),
             trivial_assistant: TrivialAssistantAutoPruneConfig::default(),
             anchored_assistant: AnchoredAssistantAutoPruneConfig::default(),
-            anchor_shield: AnchorShieldConfig::default(),
             accumulation_threshold_tokens: DEFAULT_ACCUMULATION_THRESHOLD_TOKENS,
         }
     }
@@ -149,8 +143,7 @@ mod tests {
 
     use crate::common::app_info::PREFS_FILE_NAME;
     use crate::feat::auto_prune_worker::{
-        AutoPruneConfig, anchor_shield::AnchorShieldConfig,
-        anchored_assistant::AnchoredAssistantAutoPruneConfig,
+        AutoPruneConfig, anchored_assistant::AnchoredAssistantAutoPruneConfig,
         broken_edit::BrokenEditAutoPruneConfig, consecutive_reads::ConsecutiveReadsAutoPruneConfig,
         double_edit::DoubleEditAutoPruneConfig, edit_read::EditReadAutoPruneConfig,
         read_edit::ReadEditAutoPruneConfig, regex::RegexAutoPruneConfig,
@@ -170,7 +163,7 @@ mod tests {
         let serde_json::Value::Object(fields) = serialized else {
             panic!("AutoPruneConfig must serialize to an object");
         };
-        assert_eq!(fields.len(), 12);
+        assert_eq!(fields.len(), 11);
         // And every section equals its own Default impl.
         assert_eq!(config.edit_read, EditReadAutoPruneConfig::default());
         assert_eq!(config.read_edit, ReadEditAutoPruneConfig::default());
@@ -194,7 +187,6 @@ mod tests {
             config.anchored_assistant,
             AnchoredAssistantAutoPruneConfig::default()
         );
-        assert_eq!(config.anchor_shield, AnchorShieldConfig::default());
         // And the threshold is a nonzero token count.
         assert!(config.accumulation_threshold_tokens > 0);
     }
@@ -299,27 +291,23 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn load_with_anchored_assistant_radius_uses_defaults_for_anchor_shield() {
-        // Given a TOML file with only anchored_assistant radius (no anchor_shield section).
+    fn load_parses_anchored_assistant_radius_config() {
+        // Given a TOML file with anchored_assistant radius set.
         let dir = TempDir::new().expect("temp dir");
         let path = dir.path().join(PREFS_FILE_NAME);
         std::fs::write(
             &path,
-            "[auto_prune.anchored_assistant]\nenabled = true\nradius = 42\nmin_age = 5\n\n[auto_prune.anchor_shield]\nenabled = true\nradius = 20\n",
+            "[auto_prune.anchored_assistant]\nenabled = true\nradius = 42\nmin_age = 5\n",
         )
         .expect("write");
 
         // When loading.
         let prefs = load_preferences_from(&path).expect("load");
 
-        // Then anchored_assistant still reads its own radius.
+        // Then anchored_assistant reads its own radius.
         assert!(prefs.auto_prune.anchored_assistant.enabled);
         assert_eq!(prefs.auto_prune.anchored_assistant.radius, 42);
         assert_eq!(prefs.auto_prune.anchored_assistant.min_age, 5);
-
-        // And anchor_shield uses its own config.
-        assert!(prefs.auto_prune.anchor_shield.enabled);
-        assert_eq!(prefs.auto_prune.anchor_shield.radius, 20);
     }
 
     #[rstest::rstest]
@@ -330,10 +318,51 @@ mod tests {
 
         let prefs = load_preferences_from(&path).expect("load");
         assert!(!prefs.auto_prune.todo.enabled);
+        // protect_latest defaults to true when omitted.
+        assert!(prefs.auto_prune.todo.protect_latest);
         // edit_read should still have defaults
         assert!(prefs.auto_prune.edit_read.enabled);
         // read_edit should still have defaults
         assert!(prefs.auto_prune.read_edit.enabled);
+    }
+
+    #[rstest::rstest]
+    fn load_parses_todo_protect_latest_false() {
+        // Given a TOML file explicitly disabling protect_latest.
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join(PREFS_FILE_NAME);
+        std::fs::write(
+            &path,
+            "[auto_prune.todo]\nenabled = true\nprotect_latest = false\n",
+        )
+        .expect("write");
+
+        // When loading.
+        let prefs = load_preferences_from(&path).expect("load");
+
+        // Then the explicit false parses through.
+        assert!(prefs.auto_prune.todo.enabled);
+        assert!(!prefs.auto_prune.todo.protect_latest);
+    }
+
+    #[rstest::rstest]
+    fn legacy_anchor_shield_section_is_inert() {
+        // Given a jinn.toml written by an older jinn that still carries the
+        // removed `[auto_prune.anchor_shield]` section.
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join(PREFS_FILE_NAME);
+        std::fs::write(
+            &path,
+            "[auto_prune.anchor_shield]\nenabled = true\nradius = 20\n",
+        )
+        .expect("write");
+
+        // When loading.
+        let prefs = load_preferences_from(&path).expect("load");
+
+        // Then the load succeeds and equals the default config — the removed
+        // section is an inert unknown key, not an error.
+        assert_eq!(prefs.auto_prune, AutoPruneConfig::default());
     }
 
     #[rstest::rstest]

@@ -7,15 +7,24 @@
 //!
 //! Pruning is immediate — no threshold or delay.
 //!
+//! # `protect_latest`
+//!
+//! The most recent pair is additionally force-included (worker-sourced, so it
+//! applies immediately and sticks against other workers' excludes). Without
+//! this, a later pruner such as `tool_age_window` can silently drop the
+//! current task list from context once enough history elapses after the last
+//! todo call. When a newer pair arrives, the superseded include is demoted to
+//! `Default` and the old pair excluded in the same batch. User pins and `x`
+//! toggles outrank the protection. Disabling `protect_latest` in config
+//! restores the legacy exclude-only behavior.
+//!
 //! # Example
 //!
 //! ```text
 //! X  [Tool Call]: todo_add_task("Write code")
 //! X  [Tool Result] (OK): <stale task list>
-//! X  [Tool Call]: todo_complete_task("t1")
-//! X  [Tool Result] (OK): <stale task list>
-//!    [Tool Call]: todo_add_phase("Test")
-//!    [Tool Result] (OK): <current task list>
+//!    [Tool Call]: todo_complete_task("t1")
+//! *  [Tool Result] (OK): <current task list>  (force-included)
 //!    [Assistant]: all done
 //! ```
 //!
@@ -25,7 +34,9 @@
 //! Each call's `call_info.index` (raw position in history) is checked against
 //! `min_age`: any pair whose call sits within `min_age` slots of the end of
 //! history is left in place. `min_age = 0` disables the floor and reproduces
-//! the pre-fix behavior (only the last pair is kept).
+//! the pre-fix behavior (only the last pair is kept). The `protect_latest`
+//! include is not gated by `min_age` — the latest pair is protected even
+//! when it is the only pair.
 
 use crate::feat::auto_prune_worker::is_within_min_age;
 use crate::feat::history_worker::worker_trait::HistoryWorker;
@@ -45,6 +56,9 @@ const DEFAULT_TODO_ENABLED: bool = true;
 /// call+result pair.
 const DEFAULT_TODO_MIN_AGE: usize = 50;
 
+/// Default `protect_latest` for todo auto-prune.
+const DEFAULT_TODO_PROTECT_LATEST: bool = true;
+
 /// Todo auto-prune configuration.
 ///
 /// Serialized as `[auto_prune.todo]` in `jinn.toml`.
@@ -62,6 +76,12 @@ pub struct TodoAutoPruneConfig {
     /// Default: 50.
     #[serde(default = "default_todo_min_age")]
     pub min_age: usize,
+    /// Force-include the most recent todo call+result pair so other pruners
+    /// (e.g. `tool_age_window`) can never remove the current task list from
+    /// context. Superseded pairs are demoted to `Default` and pruned as
+    /// usual. Default: `true`.
+    #[serde(default = "default_todo_protect_latest")]
+    pub protect_latest: bool,
 }
 
 fn default_todo_enabled() -> bool {
@@ -72,11 +92,16 @@ fn default_todo_min_age() -> usize {
     DEFAULT_TODO_MIN_AGE
 }
 
+fn default_todo_protect_latest() -> bool {
+    DEFAULT_TODO_PROTECT_LATEST
+}
+
 impl Default for TodoAutoPruneConfig {
     fn default() -> Self {
         Self {
             enabled: DEFAULT_TODO_ENABLED,
             min_age: DEFAULT_TODO_MIN_AGE,
+            protect_latest: DEFAULT_TODO_PROTECT_LATEST,
         }
     }
 }
@@ -147,26 +172,155 @@ fn collect_all_todo_pairs(
     (calls, result_map)
 }
 
-/// Build prune mutations for all-but-the-last call for a given tool name.
+/// Build prune mutations for the todo tool group.
 ///
-/// Calls are in history order (oldest first). All calls except the last
-/// (most recent) are pruned. Only emits mutations for entries not already excluded.
+/// With `protect_latest` on, the most recent pair is force-included (so no
+/// other pruner can remove the current task list from context) and the pair
+/// it supersedes is demoted-then-excluded; all older pairs go through the
+/// legacy exclusion pass. With `protect_latest` off, only the legacy pass
+/// runs (excluding every pair except the most recent) — identical to the
+/// pre-`protect_latest` behavior.
 fn build_prune_mutations(
     history: &[ChatEntry],
     calls: &[CallInfo],
     result_map: &HashMap<String, (usize, crate::feat::session::chat_entry::ChatEntryId)>,
     min_age: usize,
     worker_name: &str,
+    protect_latest: bool,
 ) -> Vec<HistoryMutation> {
-    // Need at least 2 calls to have something to prune.
-    if calls.len() <= 1 {
+    // No todo calls in history — nothing to include or prune.
+    if calls.is_empty() {
         return Vec::new();
     }
 
+    // How many of the trailing calls are claimed by the protect-latest pass
+    // (latest + superseded); the legacy pass only sees the older ones.
+    let claimed = if protect_latest { 2 } else { 1 };
+    let older_count = calls.len().saturating_sub(claimed);
+
+    let mut mutations = Vec::new();
+    if protect_latest {
+        mutations.extend(include_latest_pair(history, calls, result_map, worker_name));
+        if let Some(previous) = calls.len().checked_sub(2).and_then(|i| calls.get(i)) {
+            mutations.extend(prune_superseded_pair(
+                history,
+                previous,
+                result_map,
+                worker_name,
+            ));
+        }
+    }
+    mutations.extend(prune_older_pairs(
+        history,
+        calls,
+        result_map,
+        min_age,
+        worker_name,
+        older_count,
+    ));
+    mutations
+}
+
+/// Force-include the most recent todo call+result pair.
+///
+/// Worker-sourced includes apply immediately (they are never buffered) and
+/// stick against other workers' excludes, so the current task list always
+/// stays in context. Halves that are pinned, user-excluded, or already
+/// forced-included are skipped — user intent outranks the protection. An
+/// orphaned call (no matching result) gets no include; pairs are protected
+/// as a unit.
+fn include_latest_pair(
+    history: &[ChatEntry],
+    calls: &[CallInfo],
+    result_map: &HashMap<String, (usize, crate::feat::session::chat_entry::ChatEntryId)>,
+    worker_name: &str,
+) -> Vec<HistoryMutation> {
+    let Some(latest) = calls.last() else {
+        return Vec::new();
+    };
+
+    let mut mutations = Vec::new();
+    if let Some(call) = history.get(latest.index)
+        && may_force_include(call)
+    {
+        mutations.push(include_mutation(call.id.clone(), worker_name));
+    }
+    if let Some((result_idx, result_entry_id)) = result_map.get(&latest.tool_call_id)
+        && let Some(result) = history.get(*result_idx)
+        && may_force_include(result)
+    {
+        mutations.push(include_mutation(result_entry_id.clone(), worker_name));
+    }
+    mutations
+}
+
+/// Whether a worker include may be emitted for this entry.
+///
+/// Pins and user exclusions always win; an existing `ForcedInclude` (user or
+/// worker) makes the mutation redundant.
+fn may_force_include(entry: &ChatEntry) -> bool {
+    !entry.is_pinned()
+        && !entry.is_user_force_excluded()
+        && entry.context_override() != ContextOverride::ForcedInclude
+}
+
+/// Demote and exclude the pair superseded by the latest one.
+///
+/// The demote must precede the exclude within the same batch: a worker
+/// `ForcedInclude` is sticky against a worker exclude at apply time, so the
+/// superseded include is first dropped to [`ContextOverride::Default`] and
+/// only then excluded. A half the user or another worker included is left
+/// untouched — demoting it would override an intent this worker does not
+/// own, and the apply-time guard would refuse the exclusion anyway.
+fn prune_superseded_pair(
+    history: &[ChatEntry],
+    previous: &CallInfo,
+    result_map: &HashMap<String, (usize, crate::feat::session::chat_entry::ChatEntryId)>,
+    worker_name: &str,
+) -> Vec<HistoryMutation> {
+    let call_half = history
+        .get(previous.index)
+        .map(|entry| (&previous.entry_id, entry));
+    let result_half = result_map
+        .get(&previous.tool_call_id)
+        .and_then(|(idx, id)| history.get(*idx).map(|entry| (id, entry)));
+
+    let mut mutations = Vec::new();
+    for (id, entry) in call_half.into_iter().chain(result_half) {
+        if entry.context_override() == ContextOverride::ForcedInclude {
+            if !todo_worker_include(entry, worker_name) {
+                // User (or foreign worker) include — leave the half alone.
+                continue;
+            }
+            mutations.push(demote_mutation(id.clone(), worker_name));
+        }
+        mutations.push(exclude_mutation(id.clone(), worker_name));
+    }
+    mutations
+}
+
+/// Whether the entry's most recent context change is a `ForcedInclude`
+/// emitted by this todo worker. False for user includes and for includes
+/// from any other worker.
+fn todo_worker_include(entry: &ChatEntry, worker_name: &str) -> bool {
+    matches!(entry.context_history.last(), Some(event)
+        if event.to == ContextOverride::ForcedInclude
+        && matches!(&event.source, ChangeSource::Worker { name } if name.as_str() == worker_name))
+}
+
+/// The legacy exclusion pass: exclude all-but-the-last `count` pairs whose
+/// call is older than `min_age` and not protected from pruning.
+fn prune_older_pairs(
+    history: &[ChatEntry],
+    calls: &[CallInfo],
+    result_map: &HashMap<String, (usize, crate::feat::session::chat_entry::ChatEntryId)>,
+    min_age: usize,
+    worker_name: &str,
+    count: usize,
+) -> Vec<HistoryMutation> {
     let mut mutations = Vec::new();
 
-    // Prune all calls except the last one (most recent).
-    for call_info in calls.iter().take(calls.len() - 1) {
+    for call_info in calls.iter().take(count) {
         // Protection floor: never prune pairs whose call sits within
         // `min_age` slots of the end of history.
         if is_within_min_age(history.len(), call_info.index, min_age) {
@@ -178,13 +332,7 @@ fn build_prune_mutations(
             .get(call_info.index)
             .is_some_and(super::super::session::chat_entry::ChatEntry::is_protected_from_prune)
         {
-            mutations.push(HistoryMutation::SetContextOverride {
-                entry_id: call_info.entry_id.clone(),
-                value: ContextOverride::ForcedExclude,
-                source: ChangeSource::Worker {
-                    name: worker_name.to_owned(),
-                },
-            });
+            mutations.push(exclude_mutation(call_info.entry_id.clone(), worker_name));
         }
 
         // Prune the corresponding ToolResult if it exists and isn't protected.
@@ -193,17 +341,53 @@ fn build_prune_mutations(
                 .get(*result_idx)
                 .is_some_and(super::super::session::chat_entry::ChatEntry::is_protected_from_prune)
         {
-            mutations.push(HistoryMutation::SetContextOverride {
-                entry_id: result_entry_id.clone(),
-                value: ContextOverride::ForcedExclude,
-                source: ChangeSource::Worker {
-                    name: worker_name.to_owned(),
-                },
-            });
+            mutations.push(exclude_mutation(result_entry_id.clone(), worker_name));
         }
     }
 
     mutations
+}
+
+/// A worker-sourced `ForcedInclude` mutation.
+fn include_mutation(
+    entry_id: crate::feat::session::chat_entry::ChatEntryId,
+    worker_name: &str,
+) -> HistoryMutation {
+    HistoryMutation::SetContextOverride {
+        entry_id,
+        value: ContextOverride::ForcedInclude,
+        source: ChangeSource::Worker {
+            name: worker_name.to_owned(),
+        },
+    }
+}
+
+/// A worker-sourced `Default` mutation (demotes an include this worker owns).
+fn demote_mutation(
+    entry_id: crate::feat::session::chat_entry::ChatEntryId,
+    worker_name: &str,
+) -> HistoryMutation {
+    HistoryMutation::SetContextOverride {
+        entry_id,
+        value: ContextOverride::Default,
+        source: ChangeSource::Worker {
+            name: worker_name.to_owned(),
+        },
+    }
+}
+
+/// A worker-sourced `ForcedExclude` mutation.
+fn exclude_mutation(
+    entry_id: crate::feat::session::chat_entry::ChatEntryId,
+    worker_name: &str,
+) -> HistoryMutation {
+    HistoryMutation::SetContextOverride {
+        entry_id,
+        value: ContextOverride::ForcedExclude,
+        source: ChangeSource::Worker {
+            name: worker_name.to_owned(),
+        },
+    }
 }
 
 #[async_trait::async_trait]
@@ -228,6 +412,7 @@ impl HistoryWorker for TodoAutoPruneWorker {
             &result_map,
             self.config.min_age,
             self.name(),
+            self.config.protect_latest,
         )
     }
 }
@@ -243,7 +428,7 @@ mod tests {
     )]
 
     use super::*;
-    use crate::feat::session::chat_entry::ChatEntry;
+    use crate::feat::session::chat_entry::{ChatEntry, ChatEntryId};
     use crate::feat::session::tool_result_status::ToolResultStatus;
     use crate::protocol::SessionId;
 
@@ -299,10 +484,16 @@ mod tests {
     }
 
     fn worker() -> TodoAutoPruneWorker {
+        worker_with_protect_latest(true)
+    }
+
+    /// Build a worker with `min_age = 0` and the given `protect_latest` flag.
+    fn worker_with_protect_latest(protect_latest: bool) -> TodoAutoPruneWorker {
         TodoAutoPruneWorker {
             config: TodoAutoPruneConfig {
                 enabled: true,
                 min_age: 0,
+                protect_latest,
             },
         }
     }
@@ -312,6 +503,67 @@ mod tests {
         let w = worker();
         let rt = tokio::runtime::Runtime::new().expect("runtime");
         rt.block_on(async { w.evaluate(&SessionId::new(), Arc::from(history)).await })
+    }
+
+    /// Evaluate with an explicit `protect_latest` flag.
+    fn evaluate_with_protect_latest(
+        history: Vec<ChatEntry>,
+        protect_latest: bool,
+    ) -> Vec<HistoryMutation> {
+        let w = worker_with_protect_latest(protect_latest);
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async { w.evaluate(&SessionId::new(), Arc::from(history)).await })
+    }
+
+    /// Whether the mutation targets the entry with a `ForcedInclude`.
+    fn targets_include(m: &HistoryMutation, id: &ChatEntryId) -> bool {
+        matches!(
+            m,
+            HistoryMutation::SetContextOverride {
+                entry_id,
+                value: ContextOverride::ForcedInclude,
+                ..
+            } if entry_id == id
+        )
+    }
+
+    /// Whether the mutation targets the entry with a `ForcedExclude`.
+    fn targets_exclude(m: &HistoryMutation, id: &ChatEntryId) -> bool {
+        matches!(
+            m,
+            HistoryMutation::SetContextOverride {
+                entry_id,
+                value: ContextOverride::ForcedExclude,
+                ..
+            } if entry_id == id
+        )
+    }
+
+    /// Whether the mutation targets the entry with a `Default` (demote).
+    fn targets_demote(m: &HistoryMutation, id: &ChatEntryId) -> bool {
+        matches!(
+            m,
+            HistoryMutation::SetContextOverride {
+                entry_id,
+                value: ContextOverride::Default,
+                ..
+            } if entry_id == id
+        )
+    }
+
+    /// Whether any mutation includes the entry.
+    fn any_include(mutations: &[HistoryMutation], id: &ChatEntryId) -> bool {
+        mutations.iter().any(|m| targets_include(m, id))
+    }
+
+    /// Whether any mutation excludes the entry.
+    fn any_exclude(mutations: &[HistoryMutation], id: &ChatEntryId) -> bool {
+        mutations.iter().any(|m| targets_exclude(m, id))
+    }
+
+    /// Whether any mutation demotes the entry.
+    fn any_demote(mutations: &[HistoryMutation], id: &ChatEntryId) -> bool {
+        mutations.iter().any(|m| targets_demote(m, id))
     }
 
     #[rstest::rstest]
@@ -329,20 +581,32 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn single_get_task_list_no_prune() {
+    fn single_get_task_list_is_force_included() {
+        // Given a history with exactly one todo call+result pair.
         let call_result = get_task_list_call_result("tc-1", "task list here");
         let history = vec![call_result[0].clone(), call_result[1].clone()];
+
+        // When evaluating with protect_latest on (the default).
         let mutations = evaluate(history);
-        assert!(mutations.is_empty());
+
+        // Then both halves of the pair are force-included.
+        assert!(any_include(&mutations, &call_result[0].id));
+        assert!(any_include(&mutations, &call_result[1].id));
     }
 
     #[rstest::rstest]
     #[test]
-    fn single_complete_task_no_prune() {
+    fn single_complete_task_is_force_included() {
+        // Given a history with exactly one todo_complete_task pair.
         let call_result = complete_task_call_result("tc-1", "task completed");
         let history = vec![call_result[0].clone(), call_result[1].clone()];
+
+        // When evaluating with protect_latest on (the default).
         let mutations = evaluate(history);
-        assert!(mutations.is_empty());
+
+        // Then both halves of the pair are force-included.
+        assert!(any_include(&mutations, &call_result[0].id));
+        assert!(any_include(&mutations, &call_result[1].id));
     }
 
     #[rstest::rstest]
@@ -359,30 +623,14 @@ mod tests {
         history.push(cr2[1].clone());
 
         let mutations = evaluate(history);
-        // Should prune: tc-1 ToolCall + tc-1 ToolResult = 2 mutations.
-        assert_eq!(mutations.len(), 2);
+        // Should emit: 2 includes for tc-2 (the latest) + 2 excludes for tc-1.
+        assert_eq!(mutations.len(), 4);
 
-        let mutation_ids: Vec<_> = mutations
-            .iter()
-            .filter_map(|m| match m {
-                HistoryMutation::SetContextOverride {
-                    entry_id, value, ..
-                } => {
-                    assert_eq!(*value, ContextOverride::ForcedExclude);
-                    Some(entry_id.clone())
-                }
-                _ => None,
-            })
-            .collect();
-
-        assert!(
-            mutation_ids.contains(&cr1[0].id),
-            "tc-1 ToolCall should be pruned"
-        );
-        assert!(
-            mutation_ids.contains(&cr1[1].id),
-            "tc-1 ToolResult should be pruned"
-        );
+        // tc-1 (superseded) is excluded; tc-2 (latest) is included.
+        assert!(any_exclude(&mutations, &cr1[0].id));
+        assert!(any_exclude(&mutations, &cr1[1].id));
+        assert!(any_include(&mutations, &cr2[0].id));
+        assert!(any_include(&mutations, &cr2[1].id));
     }
 
     #[rstest::rstest]
@@ -397,29 +645,13 @@ mod tests {
         history.push(cr2[1].clone());
 
         let mutations = evaluate(history);
-        assert_eq!(mutations.len(), 2);
+        // 2 includes for tc-2 (latest) + 2 excludes for tc-1.
+        assert_eq!(mutations.len(), 4);
 
-        let mutation_ids: Vec<_> = mutations
-            .iter()
-            .filter_map(|m| match m {
-                HistoryMutation::SetContextOverride {
-                    entry_id, value, ..
-                } => {
-                    assert_eq!(*value, ContextOverride::ForcedExclude);
-                    Some(entry_id.clone())
-                }
-                _ => None,
-            })
-            .collect();
-
-        assert!(
-            mutation_ids.contains(&cr1[0].id),
-            "tc-1 ToolCall should be pruned"
-        );
-        assert!(
-            mutation_ids.contains(&cr1[1].id),
-            "tc-1 ToolResult should be pruned"
-        );
+        assert!(any_exclude(&mutations, &cr1[0].id));
+        assert!(any_exclude(&mutations, &cr1[1].id));
+        assert!(any_include(&mutations, &cr2[0].id));
+        assert!(any_include(&mutations, &cr2[1].id));
     }
 
     #[rstest::rstest]
@@ -444,28 +676,22 @@ mod tests {
         history.push(c2[1].clone());
 
         let mutations = evaluate(history);
-        // Unified pruning: only c-2 survives. g-1, c-1, g-2 are pruned.
-        // 2 mutations each for g-1, c-1, g-2 = 6.
-        assert_eq!(mutations.len(), 6);
+        // Unified pruning: only c-2 survives. g-1, c-1, g-2 are pruned
+        // (6 excludes) and c-2 is force-included (2 includes) = 8.
+        assert_eq!(mutations.len(), 8);
 
-        let mutation_ids: Vec<_> = mutations
-            .iter()
-            .filter_map(|m| match m {
-                HistoryMutation::SetContextOverride { entry_id, .. } => Some(entry_id.clone()),
-                _ => None,
-            })
-            .collect();
-
-        // g-1 and c-1 and g-2 should be pruned.
-        assert!(mutation_ids.contains(&g1[0].id));
-        assert!(mutation_ids.contains(&g1[1].id));
-        assert!(mutation_ids.contains(&c1[0].id));
-        assert!(mutation_ids.contains(&c1[1].id));
-        assert!(mutation_ids.contains(&g2[0].id));
-        assert!(mutation_ids.contains(&g2[1].id));
-        // c-2 (most recent) should NOT be pruned.
-        assert!(!mutation_ids.contains(&c2[0].id));
-        assert!(!mutation_ids.contains(&c2[1].id));
+        // g-1, c-1, and g-2 should be pruned.
+        assert!(any_exclude(&mutations, &g1[0].id));
+        assert!(any_exclude(&mutations, &g1[1].id));
+        assert!(any_exclude(&mutations, &c1[0].id));
+        assert!(any_exclude(&mutations, &c1[1].id));
+        assert!(any_exclude(&mutations, &g2[0].id));
+        assert!(any_exclude(&mutations, &g2[1].id));
+        // c-2 (most recent) should be included, not pruned.
+        assert!(any_include(&mutations, &c2[0].id));
+        assert!(any_include(&mutations, &c2[1].id));
+        assert!(!any_exclude(&mutations, &c2[0].id));
+        assert!(!any_exclude(&mutations, &c2[1].id));
     }
 
     #[rstest::rstest]
@@ -496,49 +722,43 @@ mod tests {
         history.push(cr2[1].clone());
 
         let mutations = evaluate(history);
-        // Both tc-1 entries are already excluded → 0 mutations.
-        assert!(
-            mutations.is_empty(),
-            "should not produce mutations for already-excluded entries"
-        );
+        // tc-1 halves are already excluded → their re-excludes are emitted
+        // but are apply-time no-ops; tc-2 gets its 2 includes.
+        assert_eq!(mutations.len(), 4);
+        assert!(any_include(&mutations, &cr2[0].id));
+        assert!(any_include(&mutations, &cr2[1].id));
+        assert!(any_exclude(&mutations, &cr1[0].id));
+        assert!(any_exclude(&mutations, &cr1[1].id));
     }
 
     #[rstest::rstest]
     #[test]
-    fn forced_included_no_mutation() {
+    fn user_included_previous_pair_is_not_demoted_or_excluded() {
+        // Given an older pair whose halves were force-included by the user.
         let mut history = Vec::new();
         let cr1 = get_task_list_call_result("tc-1", "list v1");
-        // Mark both as force-included.
         let mut call = cr1[0].clone();
-        call.context_override = ContextOverride::ForcedInclude;
+        call.apply_context_override(ContextOverride::ForcedInclude, ChangeSource::User);
         let mut result = cr1[1].clone();
-        result.context_override = ContextOverride::ForcedInclude;
+        result.apply_context_override(ContextOverride::ForcedInclude, ChangeSource::User);
         history.push(call);
-        let result_id = result.id.clone();
-        let call_id = history[0].id.clone();
         history.push(result);
-
+        // A newer pair arrives — tc-1 is now superseded.
         let cr2 = get_task_list_call_result("tc-2", "list v2");
         history.push(cr2[0].clone());
         history.push(cr2[1].clone());
 
+        // When evaluating with protect_latest on.
         let mutations = evaluate(history);
-        // tc-1 is the older pair; both halves are ForcedInclude → no mutations for them.
-        let mutation_ids: Vec<_> = mutations
-            .iter()
-            .filter_map(|m| match m {
-                HistoryMutation::SetContextOverride { entry_id, .. } => Some(entry_id.clone()),
-                _ => None,
-            })
-            .collect();
-        assert!(
-            !mutation_ids.contains(&call_id),
-            "ForcedInclude call must not receive ForcedExclude mutation"
-        );
-        assert!(
-            !mutation_ids.contains(&result_id),
-            "ForcedInclude result must not receive ForcedExclude mutation"
-        );
+
+        // Then the user's include on tc-1 is respected: no demote, no exclude.
+        assert!(!any_demote(&mutations, &cr1[0].id));
+        assert!(!any_demote(&mutations, &cr1[1].id));
+        assert!(!any_exclude(&mutations, &cr1[0].id));
+        assert!(!any_exclude(&mutations, &cr1[1].id));
+        // And the latest pair is still included.
+        assert!(any_include(&mutations, &cr2[0].id));
+        assert!(any_include(&mutations, &cr2[1].id));
     }
 
     #[rstest::rstest]
@@ -558,16 +778,23 @@ mod tests {
         history.push(cr2[1].clone());
 
         let mutations = evaluate(history);
-        // 1 mutation: the orphan ToolCall (no result to prune).
-        assert_eq!(mutations.len(), 1);
-        match &mutations[0] {
-            HistoryMutation::SetContextOverride {
+        // 3 mutations: 2 includes for tc-2 (latest, protected) + the orphan
+        // ToolCall exclude (it has no result half to prune).
+        assert_eq!(mutations.len(), 3);
+        assert!(any_include(&mutations, &cr2[0].id));
+        assert!(any_include(&mutations, &cr2[1].id));
+        let orphan_excludes: Vec<_> = mutations
+            .iter()
+            .filter(|m| targets_exclude(m, &orphan_id))
+            .collect();
+        match orphan_excludes.first() {
+            Some(HistoryMutation::SetContextOverride {
                 entry_id, value, ..
-            } => {
-                assert_eq!(*entry_id, orphan_id);
+            }) => {
+                assert_eq!(entry_id, &orphan_id);
                 assert_eq!(*value, ContextOverride::ForcedExclude);
             }
-            other => panic!("expected SetContextOverride, got {other:?}"),
+            other => panic!("expected orphan exclude mutation, got {other:?}"),
         }
     }
 
@@ -586,25 +813,19 @@ mod tests {
         history.push(cr3[1].clone());
 
         let mutations = evaluate(history);
-        // tc-1 call + result + tc-2 call + result = 4 mutations.
-        assert_eq!(mutations.len(), 4);
-
-        let mutation_ids: Vec<_> = mutations
-            .iter()
-            .filter_map(|m| match m {
-                HistoryMutation::SetContextOverride { entry_id, .. } => Some(entry_id.clone()),
-                _ => None,
-            })
-            .collect();
+        // tc-1 + tc-2 excluded (4) and tc-3 included (2) = 6 mutations.
+        assert_eq!(mutations.len(), 6);
 
         // tc-1 and tc-2 pruned.
-        assert!(mutation_ids.contains(&cr1[0].id));
-        assert!(mutation_ids.contains(&cr1[1].id));
-        assert!(mutation_ids.contains(&cr2[0].id));
-        assert!(mutation_ids.contains(&cr2[1].id));
-        // tc-3 (most recent) NOT pruned.
-        assert!(!mutation_ids.contains(&cr3[0].id));
-        assert!(!mutation_ids.contains(&cr3[1].id));
+        assert!(any_exclude(&mutations, &cr1[0].id));
+        assert!(any_exclude(&mutations, &cr1[1].id));
+        assert!(any_exclude(&mutations, &cr2[0].id));
+        assert!(any_exclude(&mutations, &cr2[1].id));
+        // tc-3 (most recent) included, not pruned.
+        assert!(any_include(&mutations, &cr3[0].id));
+        assert!(any_include(&mutations, &cr3[1].id));
+        assert!(!any_exclude(&mutations, &cr3[0].id));
+        assert!(!any_exclude(&mutations, &cr3[1].id));
     }
 
     #[rstest::rstest]
@@ -629,8 +850,11 @@ mod tests {
         history.push(cr[1].clone());
 
         let mutations = evaluate(history);
-        // Only one todo_get_task_list call → nothing to prune.
-        assert!(mutations.is_empty());
+        // The single todo pair is the latest → 2 includes. Non-todo tools
+        // are untouched.
+        assert_eq!(mutations.len(), 2);
+        assert!(any_include(&mutations, &cr[0].id));
+        assert!(any_include(&mutations, &cr[1].id));
     }
 
     #[rstest::rstest]
@@ -647,33 +871,13 @@ mod tests {
         history.push(a2[1].clone());
 
         let mutations = evaluate(history);
-        // a-1 call + result = 2 mutations.
-        assert_eq!(mutations.len(), 2);
+        // a-1 excluded (2) + a-2 included (2) = 4 mutations.
+        assert_eq!(mutations.len(), 4);
 
-        let mutation_ids: Vec<_> = mutations
-            .iter()
-            .filter_map(|m| match m {
-                HistoryMutation::SetContextOverride { entry_id, .. } => Some(entry_id.clone()),
-                _ => None,
-            })
-            .collect();
-
-        assert!(
-            mutation_ids.contains(&a1[0].id),
-            "a-1 ToolCall should be pruned"
-        );
-        assert!(
-            mutation_ids.contains(&a1[1].id),
-            "a-1 ToolResult should be pruned"
-        );
-        assert!(
-            !mutation_ids.contains(&a2[0].id),
-            "a-2 ToolCall should be kept"
-        );
-        assert!(
-            !mutation_ids.contains(&a2[1].id),
-            "a-2 ToolResult should be kept"
-        );
+        assert!(any_exclude(&mutations, &a1[0].id));
+        assert!(any_exclude(&mutations, &a1[1].id));
+        assert!(any_include(&mutations, &a2[0].id));
+        assert!(any_include(&mutations, &a2[1].id));
     }
 
     #[rstest::rstest]
@@ -694,33 +898,28 @@ mod tests {
         history.push(g1[1].clone());
 
         let mutations = evaluate(history);
-        // a-1 pair + a-2 pair = 4 mutations.
-        assert_eq!(mutations.len(), 4);
-
-        let mutation_ids: Vec<_> = mutations
-            .iter()
-            .filter_map(|m| match m {
-                HistoryMutation::SetContextOverride { entry_id, .. } => Some(entry_id.clone()),
-                _ => None,
-            })
-            .collect();
+        // a-1 + a-2 excluded (4) and g-1 included (2) = 6 mutations.
+        assert_eq!(mutations.len(), 6);
 
         // a-1 and a-2 pruned.
-        assert!(mutation_ids.contains(&a1[0].id));
-        assert!(mutation_ids.contains(&a1[1].id));
-        assert!(mutation_ids.contains(&a2[0].id));
-        assert!(mutation_ids.contains(&a2[1].id));
-        // g-1 (most recent) NOT pruned.
-        assert!(!mutation_ids.contains(&g1[0].id));
-        assert!(!mutation_ids.contains(&g1[1].id));
+        assert!(any_exclude(&mutations, &a1[0].id));
+        assert!(any_exclude(&mutations, &a1[1].id));
+        assert!(any_exclude(&mutations, &a2[0].id));
+        assert!(any_exclude(&mutations, &a2[1].id));
+        // g-1 (most recent) included, not pruned.
+        assert!(any_include(&mutations, &g1[0].id));
+        assert!(any_include(&mutations, &g1[1].id));
+        assert!(!any_exclude(&mutations, &g1[0].id));
+        assert!(!any_exclude(&mutations, &g1[1].id));
     }
 
-    /// Evaluate with explicit min_age.
+    /// Evaluate with explicit min_age (protect_latest on, the default).
     fn evaluate_with_min_age(history: Vec<ChatEntry>, min_age: usize) -> Vec<HistoryMutation> {
         let w = TodoAutoPruneWorker {
             config: TodoAutoPruneConfig {
                 enabled: true,
                 min_age,
+                protect_latest: true,
             },
         };
         let rt = tokio::runtime::Runtime::new().expect("runtime");
@@ -754,53 +953,278 @@ mod tests {
         // When evaluating with min_age=0.
         let mutations = evaluate_with_min_age(history, 0);
 
-        // Then exactly 2 mutations are emitted (call + result of older pair).
+        // Then 4 mutations are emitted: 2 excludes for the older pair
+        // (min_age=0 baseline) + 2 includes for the latest pair.
         assert_eq!(
             mutations.len(),
-            2,
-            "min_age=0 must prune the older todo pair (back-compat baseline)"
+            4,
+            "min_age=0 must prune the older todo pair and include the latest"
         );
     }
 
     #[rstest::rstest]
     #[test]
     fn min_age_protects_recent_todo_pair() {
-        // Given a history with two get_task_list pairs padded to 52 entries,
-        // where the oldest call_idx is 0 (age = 51).
-        // With min_age = 60, age 51 < 60 → the older pair is protected.
-        let history = history_with_two_todo_pairs_and_tail();
+        // Given a history with three get_task_list pairs padded to 52 entries:
+        // call_idx 0 (age 51), call_idx 2 (age 49), call_idx 4 (age 47).
+        // With protect_latest on, the superseded pair (idx 2) bypasses min_age
+        // — only two pairs may ever share context — so the boundary applies
+        // to the oldest pair alone.
+        let mut history = Vec::new();
+        let cr1 = get_task_list_call_result("tc-1", "list v1");
+        history.push(cr1[0].clone());
+        history.push(cr1[1].clone());
+        let cr2 = get_task_list_call_result("tc-2", "list v2");
+        history.push(cr2[0].clone());
+        history.push(cr2[1].clone());
+        let cr3 = get_task_list_call_result("tc-3", "list v3");
+        history.push(cr3[0].clone());
+        history.push(cr3[1].clone());
+        history.extend(std::iter::repeat_n(ChatEntry::assistant("tail"), 46));
 
-        // When evaluating with min_age=60.
+        // When evaluating with min_age=60 (every age < 60).
         let mutations = evaluate_with_min_age(history, 60);
 
-        // Then no mutations are emitted — the pair within min_age is protected.
-        assert!(
-            mutations.is_empty(),
-            "min_age must protect recent todo pair"
-        );
+        // Then tc-1 is protected by min_age, but the superseded pair tc-2
+        // bypasses it (exactly two pairs may share context) and tc-3 gets
+        // its includes: 2 excludes for tc-2 + 2 includes for tc-3 = 4.
+        assert_eq!(mutations.len(), 4);
+        assert!(any_exclude(&mutations, &cr2[0].id));
+        assert!(any_exclude(&mutations, &cr2[1].id));
+        assert!(any_include(&mutations, &cr3[0].id));
+        assert!(any_include(&mutations, &cr3[1].id));
+        assert!(!any_exclude(&mutations, &cr1[0].id));
+        assert!(!any_exclude(&mutations, &cr1[1].id));
     }
 
     #[rstest::rstest]
     #[test]
     fn min_age_boundary_strict_less_than_todo() {
-        // history_len = 52, oldest call_idx = 0, age = 51.
+        // Three pairs padded to 52 entries: oldest call_idx 0 (age 51),
+        // superseded call_idx 2 (age 49), latest call_idx 4 (age 47).
         //
-        // is_within_min_age returns true when age < min_age (strict less-than).
-        //
-        // At min_age = 52: age=51 < 52 → protected.
-        // At min_age = 51: age=51 < 51 is false → NOT protected.
-        let history = history_with_two_todo_pairs_and_tail();
+        // is_within_min_age returns true when age < min_age (strict
+        // less-than). The superseded pair bypasses min_age (protect_latest);
+        // the boundary is observable on the oldest pair:
+        //   min_age = 52: age 51 < 52 → protected (no exclude for tc-1).
+        //   min_age = 51: age 51 < 51 is false → NOT protected (tc-1 excluded).
+        let mut history = Vec::new();
+        let cr1 = get_task_list_call_result("tc-1", "list v1");
+        history.push(cr1[0].clone());
+        history.push(cr1[1].clone());
+        let cr2 = get_task_list_call_result("tc-2", "list v2");
+        history.push(cr2[0].clone());
+        history.push(cr2[1].clone());
+        let cr3 = get_task_list_call_result("tc-3", "list v3");
+        history.push(cr3[0].clone());
+        history.push(cr3[1].clone());
+        history.extend(std::iter::repeat_n(ChatEntry::assistant("tail"), 46));
 
-        // Protected: age = 51 < min_age = 52.
+        // Protected: age = 51 < min_age = 52 → only the 2 latest includes
+        // (the superseded pair's demote+exclude bypasses min_age).
         let mutations = evaluate_with_min_age(history.clone(), 52);
-        assert!(mutations.is_empty(), "age = min_age - 1 must be protected");
+        assert_eq!(
+            mutations.len(),
+            4,
+            "age = min_age - 1 must protect only the oldest pair"
+        );
+        assert!(mutations.iter().all(|m| !targets_exclude(m, &cr1[0].id)));
+        assert!(mutations.iter().all(|m| !targets_exclude(m, &cr1[1].id)));
 
-        // Not protected: age = 51 = min_age.
+        // Not protected: age = 51 = min_age → oldest pair excluded too
+        // (2 excludes for tc-1 + 2 excludes for tc-2 + 2 includes = 6).
         let mutations = evaluate_with_min_age(history, 51);
         assert_eq!(
             mutations.len(),
-            2,
+            6,
             "age = min_age must NOT be protected (strict less-than)"
         );
+        assert!(any_exclude(&mutations, &cr1[0].id));
+        assert!(any_exclude(&mutations, &cr1[1].id));
+    }
+
+    // ------------------------------------------------------------------
+    // protect_latest tests
+    // ------------------------------------------------------------------
+
+    #[rstest::rstest]
+    #[test]
+    fn protect_latest_force_includes_most_recent_todo_pair() {
+        // Given a history with two todo pairs (min_age = 0).
+        let mut history = Vec::new();
+        let cr1 = get_task_list_call_result("tc-1", "list v1");
+        history.push(cr1[0].clone());
+        history.push(cr1[1].clone());
+        let cr2 = get_task_list_call_result("tc-2", "list v2");
+        history.push(cr2[0].clone());
+        history.push(cr2[1].clone());
+
+        // When evaluating.
+        let mutations = evaluate(history);
+
+        // Then the most recent pair carries ForcedInclude mutations.
+        assert!(any_include(&mutations, &cr2[0].id));
+        assert!(any_include(&mutations, &cr2[1].id));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn superseded_pair_is_demoted_then_excluded() {
+        // Given two todo pairs where the older one was previously included
+        // by this worker (the state left by the prior evaluation).
+        let mut history = Vec::new();
+        let cr1 = get_task_list_call_result("tc-1", "list v1");
+        let mut call = cr1[0].clone();
+        call.apply_context_override(
+            ContextOverride::ForcedInclude,
+            ChangeSource::Worker {
+                name: "auto-prune-todo".to_owned(),
+            },
+        );
+        let mut result = cr1[1].clone();
+        result.apply_context_override(
+            ContextOverride::ForcedInclude,
+            ChangeSource::Worker {
+                name: "auto-prune-todo".to_owned(),
+            },
+        );
+        history.push(call);
+        history.push(result);
+        let cr2 = get_task_list_call_result("tc-2", "list v2");
+        history.push(cr2[0].clone());
+        history.push(cr2[1].clone());
+
+        // When evaluating.
+        let mutations = evaluate(history);
+
+        // Then the superseded pair is demoted (Default) and excluded.
+        assert!(any_demote(&mutations, &cr1[0].id));
+        assert!(any_demote(&mutations, &cr1[1].id));
+        assert!(any_exclude(&mutations, &cr1[0].id));
+        assert!(any_exclude(&mutations, &cr1[1].id));
+        // And the demote precedes the exclude within the batch — the
+        // apply-time sticky-include guard would refuse a bare exclude.
+        let positions = |pred: &dyn Fn(&HistoryMutation) -> bool| {
+            mutations
+                .iter()
+                .position(pred)
+                .expect("mutation must exist")
+        };
+        let demote_pos = positions(&|m| targets_demote(m, &cr1[0].id));
+        let exclude_pos = positions(&|m| targets_exclude(m, &cr1[0].id));
+        assert!(demote_pos < exclude_pos, "demote must precede exclude");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn older_pairs_excluded_unchanged() {
+        // Given three todo pairs.
+        let mut history = Vec::new();
+        let cr1 = get_task_list_call_result("tc-1", "v1");
+        history.push(cr1[0].clone());
+        history.push(cr1[1].clone());
+        let cr2 = get_task_list_call_result("tc-2", "v2");
+        history.push(cr2[0].clone());
+        history.push(cr2[1].clone());
+        let cr3 = get_task_list_call_result("tc-3", "v3");
+        history.push(cr3[0].clone());
+        history.push(cr3[1].clone());
+
+        // When evaluating.
+        let mutations = evaluate(history);
+
+        // Then the oldest pair gets exactly the same exclude treatment the
+        // legacy pass always applied: ForcedExclude, worker-sourced.
+        let excludes: Vec<_> = mutations
+            .iter()
+            .filter(|m| targets_exclude(m, &cr1[0].id))
+            .collect();
+        assert_eq!(excludes.len(), 1);
+        match &excludes[0] {
+            HistoryMutation::SetContextOverride {
+                value: ContextOverride::ForcedExclude,
+                source: ChangeSource::Worker { name },
+                ..
+            } => assert_eq!(name, "auto-prune-todo"),
+            other => panic!("expected worker exclude, got {other:?}"),
+        }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn user_excluded_latest_pair_is_not_force_included() {
+        // Given a latest pair whose halves the user excluded with `x`.
+        let mut history = Vec::new();
+        let cr = get_task_list_call_result("tc-1", "list");
+        let mut call = cr[0].clone();
+        call.apply_context_override(ContextOverride::ForcedExclude, ChangeSource::User);
+        let mut result = cr[1].clone();
+        result.apply_context_override(ContextOverride::ForcedExclude, ChangeSource::User);
+        history.push(call);
+        history.push(result);
+
+        // When evaluating.
+        let mutations = evaluate(history);
+
+        // Then no include is emitted — user intent wins.
+        assert!(mutations.is_empty());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn pinned_latest_pair_receives_no_include() {
+        use crate::feat::session::chat_entry::PinPosition;
+        // Given a latest pair whose halves are pinned.
+        let mut history = Vec::new();
+        let cr = get_task_list_call_result("tc-1", "list");
+        let mut call = cr[0].clone();
+        call.pin_position = Some(PinPosition::Top);
+        let mut result = cr[1].clone();
+        result.pin_position = Some(PinPosition::Top);
+        history.push(call);
+        history.push(result);
+
+        // When evaluating.
+        let mutations = evaluate(history);
+
+        // Then the pin already guarantees inclusion — no include emitted.
+        assert!(mutations.is_empty());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn protect_latest_false_preserves_legacy_behavior() {
+        // Given two todo pairs and the protect_latest flag off.
+        let mut history = Vec::new();
+        let cr1 = get_task_list_call_result("tc-1", "list v1");
+        history.push(cr1[0].clone());
+        history.push(cr1[1].clone());
+        let cr2 = get_task_list_call_result("tc-2", "list v2");
+        history.push(cr2[0].clone());
+        history.push(cr2[1].clone());
+
+        // When evaluating.
+        let mutations = evaluate_with_protect_latest(history, false);
+
+        // Then only the legacy excludes exist: 2 mutations, no includes.
+        assert_eq!(mutations.len(), 2);
+        assert!(any_exclude(&mutations, &cr1[0].id));
+        assert!(any_exclude(&mutations, &cr1[1].id));
+        assert!(!any_include(&mutations, &cr2[0].id));
+        assert!(!any_include(&mutations, &cr2[1].id));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn protect_latest_false_keeps_single_pair_untouched() {
+        // Given a single todo pair and the flag off.
+        let call_result = get_task_list_call_result("tc-1", "list");
+        let history = vec![call_result[0].clone(), call_result[1].clone()];
+
+        // When evaluating.
+        let mutations = evaluate_with_protect_latest(history, false);
+
+        // Then nothing happens — exactly the pre-protect_latest behavior.
+        assert!(mutations.is_empty());
     }
 }
