@@ -1521,7 +1521,7 @@ async fn user_entry_with_image_attachment_roundtrips_through_sqlite() {
     // session actor).
     if let ChatEntryKind::User { attachments, .. } = &mut entry.kind {
         attachments.push(jinn_provider::Attachment::image(
-            "image/png",
+            "image/png".to_owned(),
             TINY_PNG.to_vec(),
         ));
     }

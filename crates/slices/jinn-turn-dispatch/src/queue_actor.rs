@@ -57,7 +57,6 @@ use jinn_domain::common::state::State;
 use jinn_domain::common::tcaps::SessionCap;
 use jinn_domain::feat::chat_input::protocol::event::ChatEntrySubmitted;
 use jinn_domain::feat::context::snapshot::{assemble_via_service, build_assembly_inputs};
-use jinn_domain::feat::provider::protocol::command::{SendToLlmProvider, StreamOrigin};
 use jinn_domain::feat::session::phase_machine::PhaseKind;
 use jinn_domain::feat::session::protocol::history_appended::HistoryAppended;
 use jinn_domain::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
@@ -66,6 +65,7 @@ use jinn_domain::feat::session::session_actor::evaluate_attachment_gate;
 use jinn_domain::feat::session::token_stats::TokenRecord;
 use jinn_domain::feat::session_lifecycle::protocol::command::PersistSession;
 use jinn_domain::protocol::{ChatEntry, ChatEntryKind, SessionId};
+use jinn_inference_msg::{SendToLlmProvider, StreamOrigin};
 use jinn_slices::AssembledPrompt;
 use jinn_turn_dispatch_msg::DispatchTurn;
 

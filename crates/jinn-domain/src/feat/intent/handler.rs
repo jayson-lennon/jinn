@@ -672,11 +672,9 @@ fn try_handle_cancel_stream_prompt(intent: &Intent, state: &mut AppState) -> Opt
 
     // Cancel stream.
     state.active_session_mut().cancel_stream_and_drain();
-    let mut result = IntentResult::empty().with_message(
-        crate::feat::provider::protocol::command::CancelStream {
-            session_id: session_id.clone(),
-        },
-    );
+    let mut result = IntentResult::empty().with_message(jinn_inference_msg::CancelStream {
+        session_id: session_id.clone(),
+    });
 
     // Also cancel any running lifecycle command.
     if was_busy {

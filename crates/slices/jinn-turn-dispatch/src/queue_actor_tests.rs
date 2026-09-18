@@ -31,13 +31,13 @@ use jinn_domain::common::services::Services;
 use jinn_domain::common::services::bus_service::BusAudit;
 use jinn_domain::common::state::State;
 use jinn_domain::feat::chat_input::protocol::event::ChatEntrySubmitted;
-use jinn_domain::feat::provider::protocol::command::{SendToLlmProvider, StreamOrigin};
 use jinn_domain::feat::session::chat_entry::ChatEntry;
 use jinn_domain::feat::session::phase_machine::PhaseKind;
 use jinn_domain::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
 use jinn_domain::feat::session::queue_item::QueueItem;
 use jinn_domain::feat::session_lifecycle::protocol::command::PersistSession;
 use jinn_domain::protocol::SessionId;
+use jinn_inference_msg::{SendToLlmProvider, StreamOrigin};
 use jinn_turn_dispatch_msg::DispatchTurn;
 
 async fn create_actor() -> (QueueActor, State, BusAudit) {
@@ -422,7 +422,10 @@ async fn dispatch_user_message_blocks_attachment_to_unknown_model() {
     // Build an entry that already carries an attachment (as if resolved).
     let mut entry = ChatEntry::user("describe this");
     if let jinn_domain::protocol::ChatEntryKind::User { attachments, .. } = &mut entry.kind {
-        attachments.push(jinn_provider::Attachment::image("image/png", vec![1, 2, 3]));
+        attachments.push(jinn_provider::Attachment::image(
+            "image/png".to_owned(),
+            vec![1, 2, 3],
+        ));
     }
 
     // When dispatching (queue drain).

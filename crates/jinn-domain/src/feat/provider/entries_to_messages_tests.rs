@@ -1486,7 +1486,7 @@ fn entries_to_messages_passes_user_attachments_through() {
     // Given a user entry with one image attachment.
     let mut entry = ChatEntry::user("describe this");
     if let crate::protocol::ChatEntryKind::User { attachments, .. } = &mut entry.kind {
-        attachments.push(Attachment::image("image/png", vec![1, 2, 3]));
+        attachments.push(Attachment::image("image/png".to_owned(), vec![1, 2, 3]));
     }
     let entries = vec![entry];
 

@@ -875,7 +875,7 @@ async fn silent_guest_reaches_dead_phase() {
 // ── Mirrored plugin→host requests ────────────────────────────────────────────
 
 use crate::feat::chat_input::protocol::command::PushChatEntry;
-use crate::feat::provider::protocol::command::CancelStream as ProviderCancelStream;
+use jinn_inference_msg::CancelStream as ProviderCancelStream;
 
 /// A mirrored `cancel_stream` line translates to the internal provider
 /// `CancelStream` command on the bus.
@@ -992,8 +992,8 @@ async fn mirror_with_bad_session_id_is_dropped() {
 
 // ── Stream-lifecycle forwarding (Phase 2) ────────────────────────────────────
 
-use crate::feat::provider::protocol::command::SendToLlmProvider;
-use crate::feat::provider::protocol::event::{StreamCompleted, StreamCompletedReason, StreamToken};
+use jinn_inference_msg::SendToLlmProvider;
+use jinn_inference_msg::{StreamCompleted, StreamCompletedReason, StreamToken};
 use jinn_tools_msg::{ToolCallStreaming, ToolUseStarted};
 
 /// Builds a minimal `SendToLlmProvider` via its serde shape (most fields

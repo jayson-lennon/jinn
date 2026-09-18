@@ -9,9 +9,9 @@
 //! entries are discarded and the turn is re-dispatched.
 
 use crate::common::actor_deps::BusPublish;
-use crate::feat::provider::protocol::command::SendToLlmProvider;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::protocol::retry_stalled_session::RetryStalledSession;
+use jinn_inference_msg::SendToLlmProvider;
 use jinn_turn_dispatch_msg::DispatchTurn;
 
 use super::super::SessionPersistenceActor;
@@ -146,7 +146,7 @@ mod tests {
     )]
     use super::super::super::helpers::test_actor_recording;
     use crate::common::services::BusAudit;
-    use crate::feat::provider::protocol::command::SendToLlmProvider;
+    use jinn_inference_msg::SendToLlmProvider;
 
     use crate::feat::session::protocol::retry_stalled_session::RetryStalledSession;
     use crate::feat::session::session_actor::SessionPersistenceActor;

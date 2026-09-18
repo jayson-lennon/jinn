@@ -291,8 +291,8 @@ mod tests {
         let estimator = ByteLenEstimator;
         let mut entry = ChatEntry::user("describe");
         if let crate::protocol::ChatEntryKind::User { attachments, .. } = &mut entry.kind {
-            attachments.push(Attachment::image("image/png", vec![1]));
-            attachments.push(Attachment::image("image/png", vec![2]));
+            attachments.push(Attachment::image("image/png".to_owned(), vec![1]));
+            attachments.push(Attachment::image("image/png".to_owned(), vec![2]));
         }
 
         // When estimating tokens.

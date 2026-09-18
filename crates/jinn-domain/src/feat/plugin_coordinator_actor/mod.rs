@@ -44,11 +44,11 @@ use crate::feat::plugin_actor::{DeliverHostEvent, PluginActor, PluginActorDeps, 
 use crate::feat::plugin_coordinator_actor::protocol::{
     PluginPhase, PluginStatus, PluginSubscriptions, Tick,
 };
-use crate::feat::provider::protocol::command::SendToLlmProvider;
-use crate::feat::provider::protocol::event::{StreamCompleted, StreamCompletedReason, StreamToken};
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::protocol::retry_stalled_session::RetryStalledSession;
 use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
+use jinn_inference_msg::SendToLlmProvider;
+use jinn_inference_msg::{StreamCompleted, StreamCompletedReason, StreamToken};
 use jinn_tools_msg::{ToolCallReceived, ToolCallStreaming, ToolExecutionCompleted, ToolUseStarted};
 
 /// Wall-clock pulse interval pushed to guests subscribed to `"tick"`.
@@ -431,7 +431,7 @@ async fn apply_plugin_cancel_stream(
         session_id = %session_id,
         "plugin requested stream cancel"
     );
-    bus.publish(crate::feat::provider::protocol::command::CancelStream { session_id })
+    bus.publish(jinn_inference_msg::CancelStream { session_id })
         .await;
 }
 

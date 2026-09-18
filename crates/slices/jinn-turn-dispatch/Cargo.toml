@@ -6,6 +6,7 @@ description = "The turn-dispatch slice: the queue actor that owns turn draining 
 
 [dependencies]
 jinn-turn-dispatch-msg = { workspace = true }
+jinn-inference-msg = { workspace = true }
 # The trouper runtime: ServiceActors, topics, schemas.
 trouper = { workspace = true }
 # Kernel dep (token-count precedent): the queue actor writes through

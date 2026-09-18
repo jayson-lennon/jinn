@@ -113,17 +113,22 @@ pub use feat::chat_input::protocol::command::{EnqueueUserMessage, PushChatEntry}
 pub use feat::chat_input::protocol::event::ChatEntrySubmitted;
 pub use feat::context::protocol::command::{PinChatEntry, UnpinChatEntry};
 pub use feat::provider::llm_message::LlmMessage;
+// Stream contracts are owned by the inference slice's msg crate (kernel→msg
+// direction, jinn-session-msg precedent); re-exported here so the long-standing
+// `jinn_domain::X` paths keep resolving.
 pub use feat::provider::protocol::command::{
-    CancelStream, ProviderSwitch, RefreshModels, RescanPromptTemplates, SendMessage,
-    SendToLlmProvider,
+    ProviderSwitch, RefreshModels, RescanPromptTemplates, SendMessage,
 };
 pub use feat::provider::protocol::event::{
-    ModelCacheLoaded, ModelsRefreshed, PromptTemplatesLoaded, ProviderSwitched, StreamCompleted,
-    StreamCompletedReason, StreamToken,
+    ModelCacheLoaded, ModelsRefreshed, PromptTemplatesLoaded, ProviderSwitched,
 };
 pub use feat::session::protocol::session_fork_requested::SessionForkRequested;
 pub use feat::session::protocol::session_id::SessionId;
 pub use feat::session::protocol::session_load_completed::SessionLoadCompleted;
 pub use feat::session::protocol::session_load_requested::SessionLoadRequested;
 pub use feat::session::protocol::session_new::SessionNew;
+pub use jinn_inference_msg::{
+    CancelStream, SendToLlmProvider, StreamCompleted, StreamCompletedReason, StreamOrigin,
+    StreamToken,
+};
 pub use jinn_slices::AssembledPrompt;

@@ -83,7 +83,7 @@ fn estimate_entry_tokens_for_user_with_image_includes_flat_cost() {
     let estimator = CharRatioEstimator;
     let mut entry = ChatEntry::user("hello world");
     if let ChatEntryKind::User { attachments, .. } = &mut entry.kind {
-        attachments.push(Attachment::image("image/png", vec![1, 2, 3]));
+        attachments.push(Attachment::image("image/png".to_owned(), vec![1, 2, 3]));
     }
 
     // When estimating entry tokens.

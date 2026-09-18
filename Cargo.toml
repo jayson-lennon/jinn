@@ -71,6 +71,7 @@ path = "src/lib.rs"
 jinn-persona = { workspace = true }
 jinn-token-count = { workspace = true }
 jinn-turn-dispatch = { workspace = true }
+jinn-inference = { workspace = true }
 jinn-mcp-slice = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
 jinn-chat-log-view-msg = { workspace = true }
@@ -226,6 +227,8 @@ jinn-theme-msg = { path = "crates/slices/jinn-theme-msg" }
 jinn-token-count-msg = { path = "crates/slices/jinn-token-count-msg" }
 jinn-turn-dispatch-msg = { path = "crates/slices/jinn-turn-dispatch-msg" }
 jinn-turn-dispatch = { path = "crates/slices/jinn-turn-dispatch" }
+jinn-inference-msg = { path = "crates/slices/jinn-inference-msg" }
+jinn-inference = { path = "crates/slices/jinn-inference" }
 jinn-mcp-msg = { path = "crates/slices/jinn-mcp-msg" }
 jinn-context-assembly = { path = "crates/slices/jinn-context-assembly" }
 jinn-plugin-api = { path = "crates/jinn-plugin-api" }
@@ -317,6 +320,7 @@ sha2 = "0.10"
 glob = "0.3"
 libc = "0.2"
 rand = "0.9"
+reasoning-parser = "1.2"
 mockito = "1.7"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "form", "json", "stream"] }
 # Pin the rustls crypto provider to `ring`. reqwest's `rustls` feature hard-wires

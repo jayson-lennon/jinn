@@ -118,9 +118,10 @@ fn resolve_one_blocking(
         return Ok(OneOutcome::Degraded);
     };
     match classify_image_bytes(&bytes) {
-        ImageKind::Native { media_type } => {
-            Ok(OneOutcome::Attached(Attachment::image(media_type, bytes)))
-        }
+        ImageKind::Native { media_type } => Ok(OneOutcome::Attached(Attachment::image(
+            media_type.to_owned(),
+            bytes,
+        ))),
         ImageKind::NeedsConversion => {
             convert_via_imagemagick(path, converter).map(OneOutcome::Attached)
         }
@@ -139,7 +140,7 @@ fn convert_via_imagemagick(
         .convert_to_png(path)
         .change_context(ImageResolveError)
         .attach(path.to_string_lossy().to_string())?;
-    Ok(Attachment::image("image/png", png_bytes))
+    Ok(Attachment::image(String::from("image/png"), png_bytes))
 }
 
 /// Renders a resolution-failure [`Report`] into a user-facing message.

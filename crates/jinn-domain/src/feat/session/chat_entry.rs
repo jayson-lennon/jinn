@@ -1514,7 +1514,10 @@ mod tests {
         entry.kind = ChatEntryKind::User {
             display: "describe this".to_owned(),
             expanded: "describe this".to_owned(),
-            attachments: vec![jinn_provider::Attachment::image("image/png", vec![1, 2, 3])],
+            attachments: vec![jinn_provider::Attachment::image(
+                "image/png".to_owned(),
+                vec![1, 2, 3],
+            )],
             outcome: AttachmentOutcome::default(),
         };
 

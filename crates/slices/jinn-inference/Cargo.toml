@@ -1,0 +1,41 @@
+[package]
+name = "jinn-inference"
+version.workspace = true
+edition.workspace = true
+description = "The inference slice: the actor that drives LLM provider streams."
+
+[features]
+test-harness = ["jinn-domain/test-harness"]
+
+[dependencies]
+jinn-inference-msg = { workspace = true }
+# The trouper runtime: ServiceActors, topics, schemas.
+trouper = { workspace = true }
+# Kernel dep (token-count precedent): the inference actor publishes on the
+# kameo bus and resolves LLM factories through Services (llm_service,
+# provider_registry, api_keys, request_dump, user_preferences_storage) —
+# granted at slice activation. The converter fn for retry config lives
+# kernel-side (jinn-preferences-config must not dep jinn-provider).
+jinn-core-types = { workspace = true }
+jinn-domain = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-provider = { workspace = true }
+jinn-tools-msg = { workspace = true }
+jinn-preferences-config = { workspace = true }
+serde_json = { workspace = true }
+error-stack = { workspace = true }
+tracing = { workspace = true }
+futures = { workspace = true }
+jiff = { workspace = true }
+tokio = { workspace = true }
+reasoning-parser = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+kameo = { workspace = true }
+rstest = { workspace = true }
+serde_json = { workspace = true }
+jinn-domain = { workspace = true, features = ["test-harness"] }
+
+[lints]
+workspace = true

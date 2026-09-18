@@ -393,3 +393,6 @@ Entries are added or amended **only with human approval**.
 - (slices) Kernel feature extraction follows the absorb model: each slice family absorbs its feat/ modules, leaving jinn-domain as shared multi-slice vocabulary.
 - (slices) The turn-dispatch slice is a crate owning the queue ServiceActor and the enqueue dispatch path; its wire contracts live in jinn-turn-dispatch-msg.
 - (plugins) The plugin system is in phase-out: first-party plugin behavior is absorbed as native slices/features, after which the plugin host, PluginCoordinatorActor, and plugin CLI are removed; PluginCoordinatorActor is not a trouper migration target.
+- (slices) The inference slice is a crate owning the InferenceActor ServiceActor; its stream contracts (SendToLlmProvider, CancelStream, StreamToken, StreamCompleted, StreamOrigin) live in jinn-inference-msg.
+- (provider) LlmMessage and Attachment live in jinn-core-types; jinn-provider re-exports them.
+- (tools) The stream-phase tool events (ToolUseStarted, ToolCallReceived, ToolCallStreaming) live in jinn-tools-msg even though the inference actor publishes them.

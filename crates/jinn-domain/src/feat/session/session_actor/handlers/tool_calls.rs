@@ -6,11 +6,11 @@
 use crate::common::actor_deps::BusPublish;
 use crate::feat::context::protocol::event::ContextOverrideChanged;
 use crate::feat::context::snapshot::{assemble_via_service, build_assembly_inputs};
-use crate::feat::provider::protocol::command::SendToLlmProvider;
 use crate::feat::session::chat_entry::PinPosition;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::token_stats::TokenRecord;
 use jinn_core_types::model_selection::ModelSelection;
+use jinn_inference_msg::SendToLlmProvider;
 use jinn_tools_msg::{
     ToolBatchCompleted, ToolCallReceived, ToolCallStreaming, ToolExecutionCompleted,
     ToolExecutionOutput, ToolExecutionStarted, ToolUseStarted,
@@ -249,7 +249,7 @@ impl SessionPersistenceActor {
             "emitting SendToLlmProvider"
         );
         self.publish(SendToLlmProvider {
-            origin: crate::feat::provider::protocol::command::StreamOrigin::ToolContinuation,
+            origin: jinn_inference_msg::StreamOrigin::ToolContinuation,
             model_used,
             reasoning_effort,
             endpoint_tag,
@@ -374,12 +374,12 @@ mod tests {
         reason = "test code"
     )]
     use super::super::super::helpers::{test_actor, test_actor_recording};
-    use crate::feat::provider::protocol::event::{StreamCompleted, StreamCompletedReason};
     use crate::feat::session::phase_machine::PhaseKind;
     use crate::feat::session::token_stats::TokenRecord;
     use crate::feat::session::tool_result_status::ToolResultStatus;
     use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind};
     use jinn_core_types::tool_types::{ToolCall, ToolResult};
+    use jinn_inference_msg::{StreamCompleted, StreamCompletedReason};
     use jinn_tools_msg::{
         ToolBatchCompleted, ToolCallReceived, ToolCallStreaming, ToolExecutionOutput,
         ToolExecutionStarted, ToolOutputKind, ToolUseStarted,
@@ -429,11 +429,11 @@ mod tests {
         use crate::common::bus::test_harness::{TestHarness, await_recorded};
         use crate::common::state::State;
         use crate::feat::context::strategy::token_estimator::TiktokenCounter;
-        use crate::feat::provider::protocol::command::SendToLlmProvider;
         use crate::feat::session::session_actor::{
             SessionPersistenceActor, SessionPersistenceActorDeps,
         };
         use crate::feat::session_lifecycle::builtin::BuiltinRegistry;
+        use jinn_inference_msg::SendToLlmProvider;
         use std::time::Duration;
 
         let harness = TestHarness::new().await;
@@ -505,8 +505,6 @@ mod tests {
         use crate::common::bus::test_harness::{TestHarness, await_recorded};
         use crate::common::state::State;
         use crate::feat::context::strategy::token_estimator::TiktokenCounter;
-        use crate::feat::provider::protocol::command::SendToLlmProvider;
-        use crate::feat::provider::protocol::event::{StreamCompleted, StreamCompletedReason};
         use crate::feat::session::phase_machine::PhaseKind;
         use crate::feat::session::session_actor::{
             SessionPersistenceActor, SessionPersistenceActorDeps,
@@ -514,6 +512,8 @@ mod tests {
         use crate::feat::session_lifecycle::builtin::BuiltinRegistry;
         use crate::protocol::ChatEntry;
         use jinn_core_types::tool_types::ToolResult;
+        use jinn_inference_msg::SendToLlmProvider;
+        use jinn_inference_msg::{StreamCompleted, StreamCompletedReason};
         use jinn_tools_msg::ToolBatchCompleted;
         use std::time::Duration;
 
@@ -658,12 +658,12 @@ mod tests {
         use crate::common::bus::test_harness::{TestHarness, await_recorded};
         use crate::common::state::State;
         use crate::feat::context::strategy::token_estimator::TiktokenCounter;
-        use crate::feat::provider::protocol::command::SendToLlmProvider;
-        use crate::feat::provider::protocol::event::StreamToken;
         use crate::feat::session::session_actor::{
             SessionPersistenceActor, SessionPersistenceActorDeps,
         };
         use crate::feat::session_lifecycle::builtin::BuiltinRegistry;
+        use jinn_inference_msg::SendToLlmProvider;
+        use jinn_inference_msg::StreamToken;
         use std::time::Duration;
 
         let harness = TestHarness::new_best_effort().await;

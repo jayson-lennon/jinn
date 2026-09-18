@@ -258,7 +258,7 @@ mod tests {
         // Given a User message with one image attachment and text.
         let msg = LlmMessage::User {
             content: "describe this".into(),
-            attachments: vec![Attachment::image("image/png", vec![1, 2, 3])],
+            attachments: vec![Attachment::image("image/png".to_owned(), vec![1, 2, 3])],
         };
 
         // When converting to Anthropic JSON.

@@ -1,0 +1,19 @@
+[package]
+name = "jinn-inference-msg"
+version.workspace = true
+edition.workspace = true
+description = "The inference slice's stream contracts: dispatch commands and streaming events."
+[dependencies]
+jinn-core-types = { workspace = true }
+jinn-slices = { workspace = true }
+serde = { workspace = true }
+trouper = { workspace = true }
+jiff = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

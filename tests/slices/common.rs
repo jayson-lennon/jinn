@@ -76,6 +76,7 @@ pub async fn launch_for_test(core: AppCore, mut services: jinn_domain::Services)
         activate_persona(&mut services);
         activate_token_count(&mut services, core.state.clone()).await;
         activate_turn_dispatch(&mut services, core.state.clone()).await;
+        activate_inference(&mut services).await;
         jinn_tools::activate(&mut services, &core.state);
         core.state
             .write_test_no_cap()
@@ -412,6 +413,26 @@ pub async fn activate_turn_dispatch(
         panic!("turn-dispatch slice finalize failed: {error}");
     }
     jinn_turn_dispatch::bridge::drain_routes(services).await;
+}
+
+/// Activates the inference slice: spawns the inference actor (trouper
+/// ServiceActor) and stages its crossing routes, then drains them.
+pub async fn activate_inference(services: &mut jinn_domain::Services) {
+    // `Services` is cheap to clone (Arc fields); the clone side-steps
+    // the host's mutable viewport borrow for the activation call.
+    let services_snapshot = services.clone();
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_inference::activate(&mut host, services_snapshot);
+    if let Err(error) = host.finalize(&|_key| None) {
+        panic!("inference slice finalize failed: {error}");
+    }
+    jinn_inference::bridge::drain_routes(services).await;
 }
 
 pub fn activate_persona(services: &mut jinn_domain::Services) {

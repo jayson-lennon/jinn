@@ -25,12 +25,12 @@ use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
 use jinn_domain::common::state::State;
 use jinn_domain::common::tcaps::mint::mint_session_cap;
 use jinn_domain::feat::chat_input::protocol::command::EnqueueUserMessage;
-use jinn_domain::feat::provider::protocol::command::CancelStream;
 use jinn_domain::feat::session::chat_entry::{ChatEntry, ChatEntryKind};
 use jinn_domain::feat::session::phase_machine::PhaseKind;
 use jinn_domain::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
 use jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated;
 use jinn_domain::protocol::SessionId;
+use jinn_inference_msg::CancelStream;
 use jinn_tools_msg::{PhaseInput, TaskStatus};
 use std::collections::BTreeSet;
 

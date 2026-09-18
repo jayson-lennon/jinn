@@ -2378,6 +2378,7 @@ dependencies = [
  "jinn-discord",
  "jinn-discord-msg",
  "jinn-domain",
+ "jinn-inference",
  "jinn-mcp-msg",
  "jinn-mcp-slice",
  "jinn-persona",
@@ -2529,6 +2530,7 @@ dependencies = [
 name = "jinn-core-types"
 version = "0.118.0"
 dependencies = [
+ "base64 0.22.1",
  "rand 0.9.5",
  "rstest",
  "serde",
@@ -2660,6 +2662,7 @@ dependencies = [
  "jinn-context-assembly",
  "jinn-core-types",
  "jinn-cwd-msg",
+ "jinn-inference-msg",
  "jinn-mcp",
  "jinn-mcp-msg",
  "jinn-persona-msg",
@@ -2693,7 +2696,6 @@ dependencies = [
  "ratatui",
  "ratatui-markdown",
  "ratatui-which-key",
- "reasoning-parser",
  "regex",
  "rstest",
  "rusqlite",
@@ -2721,6 +2723,44 @@ dependencies = [
  "wasmparser 0.252.0",
  "wherror",
  "which 7.0.3",
+]
+
+[[package]]
+name = "jinn-inference"
+version = "0.118.0"
+dependencies = [
+ "async-trait",
+ "error-stack",
+ "futures",
+ "jiff",
+ "jinn-core-types",
+ "jinn-domain",
+ "jinn-inference-msg",
+ "jinn-preferences-config",
+ "jinn-provider",
+ "jinn-slices",
+ "jinn-tools-msg",
+ "kameo",
+ "reasoning-parser",
+ "rstest",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "trouper",
+]
+
+[[package]]
+name = "jinn-inference-msg"
+version = "0.118.0"
+dependencies = [
+ "jiff",
+ "jinn-core-types",
+ "jinn-slices",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "trouper",
 ]
 
 [[package]]
@@ -2938,6 +2978,7 @@ dependencies = [
  "error-stack",
  "jiff",
  "jinn-common",
+ "jinn-preferences-config",
  "jinn-provider",
  "parking_lot",
  "rstest",
@@ -3267,6 +3308,7 @@ dependencies = [
  "jinn-common",
  "jinn-core-types",
  "jinn-domain",
+ "jinn-inference-msg",
  "jinn-mcp-msg",
  "jinn-preferences-config",
  "jinn-term-msg",
@@ -3357,6 +3399,7 @@ dependencies = [
  "jinn-context-assembly",
  "jinn-core-types",
  "jinn-domain",
+ "jinn-inference-msg",
  "jinn-provider",
  "jinn-slices",
  "jinn-turn-dispatch-msg",

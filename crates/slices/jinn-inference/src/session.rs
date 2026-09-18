@@ -38,7 +38,7 @@ impl SessionData {
 
     /// Returns the current streaming lifecycle state.
     #[cfg(test)]
-    pub(in crate::feat::llm_actor) fn state(&self) -> &SessionState {
+    pub(crate) fn state(&self) -> &SessionState {
         &self.state
     }
 

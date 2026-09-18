@@ -148,7 +148,7 @@ mod tests {
     fn entry_with_image() -> ChatEntry {
         let mut entry = ChatEntry::user("describe this");
         if let ChatEntryKind::User { attachments, .. } = &mut entry.kind {
-            attachments.push(Attachment::image("image/png", vec![1, 2, 3]));
+            attachments.push(Attachment::image("image/png".to_owned(), vec![1, 2, 3]));
         }
         entry
     }

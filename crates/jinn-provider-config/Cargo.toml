@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 # Internal deps
+jinn-preferences-config = { workspace = true }
 jinn-provider = { workspace = true }
 jinn-common = { workspace = true }
 

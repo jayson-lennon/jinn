@@ -346,24 +346,6 @@ impl ActorSystemBuilder {
         // preferences slice's activation wrapper below.
         // ── Domain actors ──────────────────────────────────────────────────
 
-        // LLM streaming actor.
-        let _llm = spawn_tracked!(
-            &services.bus,
-            "llm",
-            "LlmActor",
-            jinn_domain::feat::llm_actor::LlmActor::supervise(
-                &root,
-                jinn_domain::feat::llm_actor::LlmActorDeps {
-                    factory: llm_service.clone(),
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
-
         // Model discovery actor.
         let _discover = spawn_tracked!(
             &services.bus,
@@ -410,6 +392,15 @@ impl ActorSystemBuilder {
         // is published.
         jinn_turn_dispatch_activate(&mut services, state.clone());
         jinn_turn_dispatch::bridge::drain_routes(&services).await;
+
+        // ── Inference slice ─────────────────────────────────────────
+        // Activation spawns the inference actor (trouper ServiceActor,
+        // the LLM stream driver) and stages its crossing routes. Must
+        // precede the env-init tail and the session-actor spawn: the
+        // forward relays for `SendToLlmProvider`/`CancelStream` must
+        // exist before the first dispatch is published.
+        jinn_inference_activate(&mut services);
+        jinn_inference::bridge::drain_routes(&services).await;
 
         // ── Context-assembly slice ─────────────────────────────────────
         // Install the slice's actors on trouper (the stateless assembly
@@ -1303,6 +1294,31 @@ fn jinn_turn_dispatch_activate(services: &mut Services, state: jinn_domain::comm
     let staged = host.finalize(&|_key| None);
     if let Err(error) = staged {
         panic!("turn-dispatch slice finalize failed: {error}");
+    }
+}
+
+/// Activates the inference slice: spawns the inference actor (trouper
+/// ServiceActor) and stages its crossing routes. The actor holds a
+/// `Services` clone for its bus publishes and factory resolution.
+#[expect(
+    clippy::panic,
+    reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
+)]
+fn jinn_inference_activate(services: &mut Services) {
+    // `Services` is cheap to clone (Arc fields); the clone side-steps
+    // the host's mutable viewport borrow for the activation call.
+    let services_snapshot = services.clone();
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_inference::activate(&mut host, services_snapshot);
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("inference slice finalize failed: {error}");
     }
 }
 

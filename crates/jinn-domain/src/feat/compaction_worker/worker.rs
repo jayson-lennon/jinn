@@ -193,7 +193,7 @@ impl CompactionWorker {
             let config = prefs.compaction.clone();
             let compaction_prompt = self.compaction_prompt.clone();
             let retry_config =
-                crate::feat::llm_actor::request_retry_to_provider_config(&prefs.request_retry);
+                crate::feat::provider_infra::request_retry_to_provider_config(&prefs.request_retry);
             (config, compaction_prompt, retry_config)
         };
 
@@ -263,7 +263,7 @@ impl CompactionWorker {
             let model_name = session.profile().model.clone();
             let compaction_prompt = self.compaction_prompt.clone();
             let retry_config =
-                crate::feat::llm_actor::request_retry_to_provider_config(&prefs.request_retry);
+                crate::feat::provider_infra::request_retry_to_provider_config(&prefs.request_retry);
 
             // Uses the exact same values displayed in the status bar:
             //   - context_size() = tiktoken count from last prompt assembly

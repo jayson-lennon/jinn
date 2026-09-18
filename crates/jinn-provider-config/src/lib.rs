@@ -22,6 +22,7 @@ mod registry_service_tests;
 #[cfg(test)]
 mod registry_tests;
 mod resolved_provider;
+mod retry;
 mod sample;
 mod service;
 mod service_wrapper;
@@ -51,6 +52,7 @@ pub use provider_id::ProviderId;
 pub use registry::ProviderRegistry;
 pub use registry_service::ProviderRegistryService;
 pub use resolved_provider::ResolvedProvider;
+pub use retry::request_retry_to_provider_config;
 pub use sample::SampleLlmServiceFactory;
 pub use service::{ChatStream, LlmService, LlmServiceError, LlmServiceFactory, ToolStream};
 pub use service_wrapper::LlmServiceFactoryService;

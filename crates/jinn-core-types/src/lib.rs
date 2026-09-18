@@ -8,16 +8,20 @@
 //! both foundational and domain-agnostic belong here.
 
 pub mod actor_lifecycle;
+pub mod attachment;
 pub mod chat_entry_id;
 pub mod context_override;
+pub mod llm_message;
 pub mod model_selection;
 pub mod reasoning;
 pub mod session_id;
 pub mod tool_types;
 
 pub use actor_lifecycle::ActorLifecycle;
+pub use attachment::Attachment;
 pub use chat_entry_id::ChatEntryId;
 pub use context_override::ContextOverride;
+pub use llm_message::LlmMessage;
 pub use model_selection::{AlloyData, AlloyStrategy, ModelSelection, NO_PROVIDER_ID};
 pub use reasoning::ReasoningEffort;
 pub use session_id::SessionId;

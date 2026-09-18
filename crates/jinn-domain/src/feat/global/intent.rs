@@ -2,9 +2,9 @@
 
 use crate::common::app_state::AppState;
 use crate::feat::chat_input::ChatInputBoxState;
-use crate::feat::provider::protocol::command::CancelStream;
 use crate::protocol::SessionId;
 use crate::protocol::{Intent, IntentResult};
+use jinn_inference_msg::CancelStream;
 
 use super::validator;
 

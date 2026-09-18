@@ -9,13 +9,13 @@ use std::collections::VecDeque;
 use crate::common::actor_deps::BusPublish;
 use crate::feat::context::protocol::event::ContextOverrideChanged;
 use crate::feat::context::strategy::token_estimator::{TiktokenCounter, TokenCounter};
-use crate::feat::provider::protocol::event::{StreamCompleted, StreamCompletedReason, StreamToken};
 use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::protocol::citations_received::CitationsReceived;
 use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
 use crate::feat::session::queue_item::QueueItem;
 use crate::protocol::{ChatEntry, ChatEntryId, ChatEntryKind, SessionId};
 use jinn_core_types::tool_types::ToolCall;
+use jinn_inference_msg::{StreamCompleted, StreamCompletedReason, StreamToken};
 
 use super::super::SessionPersistenceActor;
 use crate::feat::session::phase_machine::PhaseKind;
@@ -439,14 +439,12 @@ mod tests {
     use super::super::super::helpers::{
         test_actor, test_actor_recording, test_actor_with_store_recording,
     };
-    use crate::feat::provider::protocol::event::{
-        StreamCompleted, StreamCompletedReason, StreamToken,
-    };
     use crate::feat::session::phase_machine::PhaseKind;
     use crate::feat::session::protocol::citations_received::CitationsReceived;
     use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
     use crate::feat::session::token_stats::TokenRecord;
     use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind};
+    use jinn_inference_msg::{StreamCompleted, StreamCompletedReason, StreamToken};
 
     #[rstest::rstest]
     #[tokio::test]

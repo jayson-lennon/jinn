@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 jinn-core-types = { workspace = true }
+jinn-inference-msg = { workspace = true }
 jinn-tools-msg = { workspace = true }
 jinn-common = { workspace = true }
 jinn-mcp-msg = { workspace = true }
