@@ -67,7 +67,8 @@ pub fn attachment_gate(
 /// and runs [`attachment_gate`].
 ///
 /// Shared by both the Idle dispatch path (`SessionPersistenceActor`) and the
-/// queue-drain path (`QueueActor`) so they gate identically. Returns
+/// queue-drain path (the turn-dispatch slice's queue actor) so they gate
+/// identically. Returns
 /// `Some(error_entry)` when the entry carries attachments but the active model
 /// is not confirmed image-capable; `None` when the entry is text-only or the
 /// model is confirmed vision-capable (allowed through).

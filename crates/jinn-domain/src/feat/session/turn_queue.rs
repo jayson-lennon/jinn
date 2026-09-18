@@ -57,16 +57,16 @@ impl TurnQueue {
 
     /// Pop the front item from the queue, if any.
     ///
-    /// Restricted to the session feature module during migration.
-    /// Will be tightened to `queue_actor` once the queue actor is introduced.
+    /// Restricted to the session feature module: the turn-dispatch queue
+    /// actor reaches this through `ChatSessionState::dequeue`.
     pub(in crate::feat::session) fn pop(&mut self) -> Option<QueueItem> {
         self.inner.pop_front()
     }
 
     /// Drain all queued items, returning them in order.
     ///
-    /// Restricted to the session feature module during migration.
-    /// Will be tightened to `queue_actor` once the queue actor is introduced.
+    /// Restricted to the session feature module: the turn-dispatch queue
+    /// actor reaches this through `ChatSessionState::dequeue`.
     pub(in crate::feat::session) fn drain(&mut self) -> VecDeque<QueueItem> {
         std::mem::take(&mut self.inner)
     }

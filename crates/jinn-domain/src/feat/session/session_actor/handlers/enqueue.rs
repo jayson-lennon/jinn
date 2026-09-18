@@ -1,28 +1,34 @@
 //! Message enqueuing handlers - manage user message input, queuing, and dispatch.
 //!
-//! Handles the flow from user input through to prompt assembly: enqueuing messages
-//! (with queueing when session is busy), updating the input buffer, pushing arbitrary
-//! chat entries, and the legacy `SendMessage` compatibility shim.
+//! Handles the flow from user input through to dispatch: enqueuing messages
+//! (with queueing when session is busy), updating the input buffer, pushing
+//! arbitrary chat entries, and the legacy `SendMessage` compatibility shim.
+//!
+//! The dispatch itself lives in the turn-dispatch slice: after this actor
+//! has expanded templates, resolved image attachments, run the vision gate,
+//! and pushed entries / mutated the phase, it publishes
+//! [`DispatchTurn`](jinn_turn_dispatch_msg::DispatchTurn) and the queue
+//! actor (trouper) assembles the prompt and publishes
+//! `SendToLlmProvider`.
 
 use crate::common::actor_deps::BusPublish;
 use crate::feat::chat_input::protocol::command::{
     EnqueueResumeTurn, EnqueueUserMessage, PushChatEntry, SubmitSteeringMessage,
 };
 use crate::feat::chat_input::protocol::event::ChatEntrySubmitted;
-use crate::feat::context::snapshot::{assemble_via_service, build_assembly_inputs};
-use crate::feat::provider::protocol::command::{SendMessage, SendToLlmProvider};
-use crate::feat::session::token_stats::TokenRecord;
+use crate::feat::provider::protocol::command::SendMessage;
 use crate::protocol::{ChatEntry, ChatEntryKind};
 
 use super::super::SessionPersistenceActor;
 use super::image_resolve::ResolveOutcome;
 use crate::feat::context::prompt_template::PendingPath;
 use crate::feat::session::phase_machine::PhaseKind;
-use jinn_core_types::model_selection::ModelSelection;
+use jinn_turn_dispatch_msg::DispatchTurn;
 
 /// Decision returned after inspecting session state in `EnqueueUserMessage`.
 enum EnqueueAction {
-    /// Session is idle - dispatch directly via assemble_prompt().
+    /// Session is idle - the entry is pushed and the turn is dispatched
+    /// via the turn-dispatch slice.
     DispatchDirectly,
     /// Session is busy - message was queued.
     Queued,
@@ -98,111 +104,6 @@ impl SessionPersistenceActor {
         match action {
             EnqueueAction::DispatchDirectly => {
                 super::super::helpers::emit_history_appended(self.bus(), &payload.session_id).await;
-                // Drain any pending steering fragments into history before assembly.
-                self.state.with_session(&self.cap, |view| {
-                    let session = view.session.map().get_or_create(&payload.session_id);
-                    if let Some(entry) = session.steering_buffer_mut().drain_into_entry() {
-                        let entry_id = entry.id.clone();
-                        let index = session.push_entry(entry);
-                        tracing::debug!(
-                            session_id = %payload.session_id,
-                            entry_id = %entry_id,
-                            history_index = index,
-                            "drained steering entry into history at enqueue (Idle dispatch)"
-                        );
-                    }
-                });
-                // Assemble via the service and emit SendToLlmProvider.
-                let assembled = {
-                    let inputs = {
-                        let guard = self.state.read();
-                        build_assembly_inputs(&guard, &payload.session_id)
-                    };
-                    match assemble_via_service(&self.services, inputs).await {
-                        Ok(prompt) => prompt,
-                        Err(error) => {
-                            tracing::error!(
-                                error = ?error,
-                                session_id = %payload.session_id,
-                                "context assembly failed; enqueue dispatch aborted"
-                            );
-                            return;
-                        }
-                    }
-                };
-
-                let (old_phase, new_phase) = {
-                    self.state.with_session(&self.cap, |view| {
-                        let session = view.session.map().get_or_create(&payload.session_id);
-                        let old_phase = session.phase();
-                        session.begin_streaming();
-                        session.push_token_record(TokenRecord {
-                            model_used: None,
-                            timestamp: jiff::Timestamp::now(),
-                            tokens_sent: assembled.estimated_tokens(),
-                            tokens_received: 0,
-                            cost: None,
-                            prompt_tokens: None,
-                            cached_tokens: None,
-                        });
-                        (old_phase, session.phase())
-                    })
-                };
-                super::super::helpers::emit_phase_changed(
-                    self.bus(),
-                    &payload.session_id,
-                    old_phase,
-                    new_phase,
-                )
-                .await;
-
-                let (provider_id, model_used, reasoning_effort, endpoint_tag) = {
-                    self.state.with_session(&self.cap, |view| {
-                        let Some(session) = view.session.map().get_mut(&payload.session_id) else {
-                            return (None, None, crate::resolve_effort(None), None);
-                        };
-                        let reasoning_effort = {
-                            let profile = session.profile();
-                            crate::resolve_effort(profile.reasoning_effort)
-                        };
-                        // Snapshot the endpoint tag immutably before mutating the model.
-                        let endpoint_tag =
-                            match (&session.profile().model, &session.profile().endpoint) {
-                                (ModelSelection::Single(_), Some(ep)) => Some(ep.tag.clone()),
-                                _ => None,
-                            };
-                        let profile = session.profile_mut();
-                        if profile.model.is_no_provider() {
-                            (None, None, reasoning_effort, None)
-                        } else {
-                            let resolved = profile.model.resolve_model();
-                            session.set_last_token_model(resolved.clone());
-                            (
-                                Some(resolved.clone()),
-                                Some(resolved),
-                                reasoning_effort,
-                                endpoint_tag,
-                            )
-                        }
-                    })
-                };
-
-                let estimated_tokens = assembled.estimated_tokens();
-
-                self.publish(SendToLlmProvider {
-                    origin: crate::feat::provider::protocol::command::StreamOrigin::User,
-                    model_used,
-                    reasoning_effort,
-                    endpoint_tag,
-                    session_id: payload.session_id.clone(),
-                    messages: assembled.messages,
-                    system_prompt: assembled.system_prompt,
-                    provider_id,
-                    estimated_tokens,
-                    tool_definitions: assembled.tool_definitions,
-                    dispatched_at: jiff::Timestamp::now(),
-                })
-                .await;
 
                 self.publish(ChatEntrySubmitted {
                     session_id: payload.session_id.clone(),
@@ -211,6 +112,16 @@ impl SessionPersistenceActor {
                 .await;
 
                 self.save_active_session(&payload.session_id).await;
+
+                // Hand the prepared turn to the turn-dispatch slice: it
+                // drains steering, normalizes loop layout, assembles, and
+                // publishes SendToLlmProvider. The Idle→Sending transition
+                // event is published there (from its own push/begin_sending
+                // write); nothing to emit here.
+                self.publish(DispatchTurn {
+                    session_id: payload.session_id.clone(),
+                })
+                .await;
             }
             EnqueueAction::Queued => {}
         }
@@ -380,10 +291,8 @@ impl SessionPersistenceActor {
     /// EnqueueResumeTurn: re-send current history without adding a new user entry.
     ///
     /// - If the session is `Idle`, push a UI-only `System` "↻ session resumed"
-    ///   marker, transition Idle → Streaming, assemble the prompt, emit
-    ///   `SendToLlmProvider`, and persist. Adds no `User` entry. This mirrors
-    ///   `handle_enqueue_user_message`'s inline-dispatch pattern for the Idle
-    ///   branch.
+    ///   marker, transition Idle → Sending, and hand the prepared turn to the
+    ///   turn-dispatch slice. Adds no `User` entry.
     /// - If the session is busy (`Sending`/`Streaming`), silently ignored. We do
     ///   not queue resumes — the existing stream is the source of truth.
     ///
@@ -435,142 +344,15 @@ impl SessionPersistenceActor {
         })
         .await;
 
-        self.drain_steering_into_history(&payload.session_id);
-        self.resolve_model_and_dispatch(&payload.session_id).await;
-    }
+        self.save_active_session(&payload.session_id).await;
 
-    /// Drains any pending steering fragments into session history before assembly.
-    pub(in crate::feat::session::session_actor) fn drain_steering_into_history(
-        &self,
-        session_id: &crate::SessionId,
-    ) {
-        let drained = {
-            self.state.with_session(&self.cap, |view| {
-                let session = view.session.map().get_or_create(session_id);
-                if let Some(entry) = session.steering_buffer_mut().drain_into_entry() {
-                    let entry_id = entry.id.clone();
-                    let index = session.push_entry(entry);
-                    Some((entry_id, index))
-                } else {
-                    None
-                }
-            })
-        };
-        if let Some((entry_id, index)) = drained {
-            tracing::debug!(
-                session_id = %session_id,
-                entry_id = %entry_id,
-                history_index = index,
-                "drained steering entry into history at enqueue (resume turn)"
-            );
-        }
-    }
-
-    /// Assembles the prompt, resolves the model (mutating round-robin index under
-    /// write lock), transitions Sending → Streaming, records the outgoing token count,
-    /// emits `SendToLlmProvider`, and saves.
-    pub(in crate::feat::session::session_actor) async fn resolve_model_and_dispatch(
-        &self,
-        session_id: &crate::SessionId,
-    ) {
-        use crate::feat::session::token_stats::TokenRecord;
-
-        // Assemble prompt via the service. Marker is excluded by default.
-        let assembled = {
-            let inputs = {
-                let guard = self.state.read();
-                build_assembly_inputs(&guard, session_id)
-            };
-            match assemble_via_service(&self.services, inputs).await {
-                Ok(prompt) => prompt,
-                Err(error) => {
-                    tracing::error!(
-                        error = ?error,
-                        session_id = %session_id,
-                        "context assembly failed; resume dispatch aborted"
-                    );
-                    return;
-                }
-            }
-        };
-
-        // Resolve model under write lock (round-robin mutates index).
-        // Sending → Streaming + record outgoing token count.
-        let (
-            provider_id,
-            model_used,
-            reasoning_effort,
-            endpoint_tag,
-            old_phase,
-            new_phase,
-            dispatched_at,
-        ) = {
-            self.state.with_session(&self.cap, |view| {
-                let session = view.session.map().get_or_create(session_id);
-                let reasoning_effort = {
-                    let profile = session.profile();
-                    crate::resolve_effort(profile.reasoning_effort)
-                };
-                // Snapshot the endpoint tag immutably before mutating the model
-                // (alloy round-robin mutates index during resolve_model).
-                let endpoint_tag = match (&session.profile().model, &session.profile().endpoint) {
-                    (ModelSelection::Single(_), Some(ep)) => Some(ep.tag.clone()),
-                    _ => None,
-                };
-                let model = &mut session.profile_mut().model;
-                let (provider_id, model_used) = if model.is_no_provider() {
-                    (None, None)
-                } else {
-                    let resolved = model.resolve_model();
-                    (Some(resolved.clone()), Some(resolved))
-                };
-                let old_phase = session.phase();
-                let dispatched_at = jiff::Timestamp::now();
-                session.begin_streaming();
-                // The in-flight-stream guard is armed by the actor's own
-                // `SendToLlmProvider` subscription (stall_retry.rs) — the
-                // single write point, so this path doesn't set it inline.
-                session.push_token_record(TokenRecord {
-                    model_used: model_used.clone(),
-                    timestamp: dispatched_at,
-                    tokens_sent: assembled.estimated_tokens(),
-                    tokens_received: 0,
-                    cost: None,
-                    prompt_tokens: None,
-                    cached_tokens: None,
-                });
-                (
-                    provider_id,
-                    model_used,
-                    reasoning_effort,
-                    endpoint_tag,
-                    old_phase,
-                    session.phase(),
-                    dispatched_at,
-                )
-            })
-        };
-        let estimated_tokens = assembled.estimated_tokens();
-
-        super::super::helpers::emit_phase_changed(self.bus(), session_id, old_phase, new_phase)
-            .await;
-
-        self.publish(SendToLlmProvider {
-            origin: crate::feat::provider::protocol::command::StreamOrigin::User,
-            model_used,
-            reasoning_effort,
-            endpoint_tag,
-            session_id: session_id.clone(),
-            messages: assembled.messages,
-            system_prompt: assembled.system_prompt,
-            provider_id,
-            estimated_tokens,
-            tool_definitions: assembled.tool_definitions,
-            dispatched_at,
+        // Hand the prepared turn to the turn-dispatch slice: it drains
+        // steering, assembles, resolves the model, transitions → Streaming,
+        // and publishes SendToLlmProvider.
+        self.publish(DispatchTurn {
+            session_id: payload.session_id.clone(),
         })
         .await;
-
-        self.save_active_session(session_id).await;
     }
 
     /// SubmitSteeringMessage: append a fragment to the session's steering buffer.
@@ -656,9 +438,10 @@ mod tests {
     use crate::feat::chat_input::protocol::command::{
         EnqueueResumeTurn, EnqueueUserMessage, PushChatEntry,
     };
-    use crate::feat::provider::protocol::command::{SendMessage, SendToLlmProvider};
+    use crate::feat::provider::protocol::command::SendMessage;
     use crate::feat::session::phase_machine::PhaseKind;
     use crate::protocol::{ChatEntry, ChatEntryKind};
+    use jinn_core_types::model_selection::ModelSelection;
 
     async fn create_actor() -> (
         super::super::super::SessionPersistenceActor,
@@ -676,7 +459,7 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn handle_enqueue_user_message_dispatches_when_idle() {
+    async fn handle_enqueue_user_message_hands_off_for_dispatch_when_idle() {
         // Given an idle session.
         let (actor, state, audit) = create_actor().await;
         let session_id = {
@@ -693,20 +476,25 @@ mod tests {
             })
             .await;
 
-        // Then the message is dispatched (history has the entry, phase is streaming).
+        // Then the entry is in history and the phase moved to Sending (the
+        // turn is prepared; the turn-dispatch slice completes it).
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Streaming);
+        assert_eq!(session.phase(), PhaseKind::Sending);
         assert_eq!(session.history().len(), 1);
         assert!(
             matches!(&session.history()[0].kind, ChatEntryKind::User { display, .. } if display == "hello world"),
             "expected user entry in history"
         );
 
-        // And SendToLlmProvider was emitted.
+        // And the prepared turn was handed to the turn-dispatch slice.
+        let handoffs = audit.of_type::<jinn_turn_dispatch_msg::DispatchTurn>();
+        assert_eq!(handoffs.len(), 1, "expected one DispatchTurn handoff");
+        assert_eq!(handoffs[0].session_id, session_id);
+        // And no dispatch was published kernel-side (the slice owns it).
         assert!(
-            audit.contains_name("SendToLlmProvider"),
-            "expected SendToLlmProvider command"
+            !audit.contains_name("SendToLlmProvider"),
+            "SendToLlmProvider belongs to the turn-dispatch slice"
         );
     }
 
@@ -784,10 +572,13 @@ mod tests {
             })
             .await;
 
-        // Then SendToLlmProvider was emitted (provider_id not checked here, just presence).
-        assert!(
-            audit.contains_name("SendToLlmProvider"),
-            "expected SendToLlmProvider command"
+        // Then the turn was handed off for dispatch (the provider_id
+        // resolution itself lives in the turn-dispatch slice's tests).
+        let handoffs = audit.of_type::<jinn_turn_dispatch_msg::DispatchTurn>();
+        assert_eq!(
+            handoffs.len(),
+            1,
+            "expected one DispatchTurn handoff when idle"
         );
     }
 
@@ -874,10 +665,10 @@ mod tests {
             })
             .await;
 
-        // Then the message dispatches normally.
+        // Then the turn was prepared (history has the entry, phase is Sending).
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Streaming);
+        assert_eq!(session.phase(), PhaseKind::Sending);
     }
 
     // A minimal PNG (8x8) used by the multimodal enqueue tests below.
@@ -895,7 +686,6 @@ mod tests {
         model_id: &str,
         supports_image: bool,
     ) {
-        use jinn_core_types::model_selection::ModelSelection;
         let path = actor.services.paths.models_dev_user_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).expect("create cache dir");
@@ -986,21 +776,21 @@ mod tests {
             })
             .await;
 
-        // Then SendToLlmProvider was emitted and the session is Streaming.
+        // Then the turn was prepared for the vision model and handed off
+        // for dispatch (the slice completes it).
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Streaming);
+        assert_eq!(session.phase(), PhaseKind::Sending);
         drop(guard);
         assert!(
-            audit.contains_name("SendToLlmProvider"),
-            "vision model should receive the dispatch with the image"
+            audit.contains_name("DispatchTurn"),
+            "vision model turn must be handed off for dispatch"
         );
     }
 
     #[rstest::rstest]
     #[tokio::test]
     async fn at_path_image_to_unknown_model_is_blocked_with_error_entry() {
-        use jinn_core_types::model_selection::ModelSelection;
         // Given an idle session whose active model is NOT in models.dev (unknown).
         let (actor, state, audit) = create_actor().await;
         let session_id = {
@@ -1049,7 +839,6 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn text_only_message_to_unknown_model_dispatches_normally() {
-        use jinn_core_types::model_selection::ModelSelection;
         // Given an idle session whose active model is unknown AND a text-only message.
         let (actor, state, audit) = create_actor().await;
         let session_id = {
@@ -1072,14 +861,15 @@ mod tests {
             })
             .await;
 
-        // Then it dispatches normally — the gate only fires for attachments.
+        // Then it was prepared — the gate only fires for attachments, so a
+        // text-only message dispatches even to an unknown model.
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Streaming);
+        assert_eq!(session.phase(), PhaseKind::Sending);
         drop(guard);
         assert!(
-            audit.contains_name("SendToLlmProvider"),
-            "text-only message must dispatch even to an unknown model"
+            audit.contains_name("DispatchTurn"),
+            "text-only message must hand off for dispatch even to an unknown model"
         );
     }
 
@@ -1134,19 +924,21 @@ mod tests {
             })
             .await;
 
-        // Then SendToLlmProvider is emitted directly (inline dispatch on Idle).
+        // Then the turn was handed off for dispatch (the slice owns the
+        // SendToLlmProvider emission on the resume path).
         assert!(
-            audit.contains_name("SendToLlmProvider"),
-            "expected SendToLlmProvider to be emitted directly for resume from Idle"
+            audit.contains_name("DispatchTurn"),
+            "expected a DispatchTurn handoff for resume from Idle"
         );
 
-        // And the session is now in Streaming phase.
+        // And the session is now in Sending phase (prepared; the slice
+        // completes the transition).
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
         assert_eq!(
             session.phase(),
-            PhaseKind::Streaming,
-            "phase should be Streaming after inline resume dispatch"
+            PhaseKind::Sending,
+            "phase should be Sending after the prepared resume handoff"
         );
 
         // And no item was queued (we dispatched inline, not via the queue).
@@ -1162,200 +954,6 @@ mod tests {
             .filter(|e| matches!(e.kind, crate::protocol::ChatEntryKind::System { .. }))
             .collect();
         assert_eq!(markers.len(), 1, "expected one System marker pushed");
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn handle_enqueue_resume_turn_drains_steering_buffer_before_assembly() {
-        // Given an idle session with a non-empty steering buffer.
-        let (actor, state, audit) = create_actor().await;
-        let session_id = {
-            let mut guard = state.write_test_no_cap();
-            let _ = guard.active_session_mut();
-            let id = guard.session.active_session_id().clone();
-            let session = guard.session_mut_or_create(&id);
-            session
-                .ui
-                .steering_buffer
-                .push_fragment("stay at the foo part".to_owned());
-            id
-        };
-
-        // Sanity: buffer is non-empty before dispatch.
-        {
-            let guard = state.read();
-            let session = guard.session.get(&session_id).expect("session");
-            assert_eq!(session.ui.steering_buffer.len(), 1);
-        }
-
-        // When resume is requested.
-        actor
-            .handle_enqueue_resume_turn(&EnqueueResumeTurn {
-                session_id: session_id.clone(),
-            })
-            .await;
-
-        // Then the steering buffer is drained.
-        let guard = state.read();
-        let session = guard.session.get(&session_id).expect("session");
-        assert!(
-            session.ui.steering_buffer.is_empty(),
-            "steering buffer must be drained before assembly"
-        );
-
-        // And the drained entry is now in history.
-        let user_entries: Vec<_> = session
-            .history()
-            .iter()
-            .filter(|e| matches!(e.kind, crate::protocol::ChatEntryKind::User { .. }))
-            .collect();
-        assert!(
-            user_entries
-                .iter()
-                .any(|e| matches!(&e.kind, crate::protocol::ChatEntryKind::User { expanded, .. } if expanded == "stay at the foo part")),
-            "drained steering entry must appear in history; history = {:?}",
-            user_entries
-        );
-
-        // And SendToLlmProvider was emitted (proving dispatch ran through to assembly).
-        assert!(
-            audit.contains_name("SendToLlmProvider"),
-            "SendToLlmProvider must be emitted after drain"
-        );
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn handle_enqueue_user_message_drains_steering_buffer_on_idle_dispatch() {
-        // Given an idle session with a non-empty steering buffer.
-        let (actor, state, audit) = create_actor().await;
-        let session_id = {
-            let mut guard = state.write_test_no_cap();
-            let session = guard.active_session_mut();
-            session
-                .steering_buffer_mut()
-                .push_fragment("steer here".to_owned());
-            guard.session.active_session_id().clone()
-        };
-
-        // When enqueuing a user message from Idle (inline dispatch path).
-        actor
-            .handle_enqueue_user_message(&EnqueueUserMessage {
-                session_id: session_id.clone(),
-                entry: ChatEntry::user("user prompt"),
-            })
-            .await;
-
-        // Then the steering buffer is drained before assembly.
-        let guard = state.read();
-        let session = guard.session.get(&session_id).expect("session");
-        assert!(
-            session.steering_buffer().is_empty(),
-            "steering buffer must be drained during Idle dispatch"
-        );
-
-        // And the drained steering entry appears in history.
-        let has_steering_entry = session.history().iter().any(
-            |e| matches!(&e.kind, ChatEntryKind::User { expanded, .. } if expanded == "steer here"),
-        );
-        assert!(
-            has_steering_entry,
-            "drained steering entry must appear in history after Idle dispatch"
-        );
-
-        // And SendToLlmProvider was emitted (the drain happened before assembly).
-        assert!(
-            audit.contains_name("SendToLlmProvider"),
-            "SendToLlmProvider must be emitted after drain on Idle dispatch"
-        );
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn enqueue_publishes_none_when_session_has_no_effort() {
-        // Given a global default reasoning effort of High but a session with no own effort.
-        // The global is consulted only at session creation, never at request time — so the
-        // published effort is None (let the provider decide).
-        let (actor, state, audit) = create_actor().await;
-        let session_id = {
-            let mut guard = state.write_test_no_cap();
-            let _ = guard.active_session_mut();
-            guard.session.active_session_id().clone()
-        };
-        {
-            let mut app_state = actor.services.app_state_storage.read();
-            app_state.reasoning_effort = Some(crate::ReasoningEffort::High);
-            actor
-                .services
-                .app_state_storage
-                .save(&app_state)
-                .expect("save global default");
-        }
-
-        // When enqueuing a message.
-        actor
-            .handle_enqueue_user_message(&EnqueueUserMessage {
-                session_id: session_id.clone(),
-                entry: ChatEntry::user("think hard"),
-            })
-            .await;
-
-        // Then the published SendToLlmProvider carries no effort — the session owns
-        // None and the global is not consulted at request time.
-        let cmds = audit.of_type::<SendToLlmProvider>();
-        assert_eq!(cmds.len(), 1, "expected one SendToLlmProvider command");
-        assert_eq!(
-            cmds[0].reasoning_effort, None,
-            "session with no own effort resolves to None; global is not consulted"
-        );
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn enqueue_publishes_sessions_own_reasoning_effort() {
-        // Given a session with its own effort of Low (and a stale global of High that
-        // must be ignored at request time).
-        let (actor, state, audit) = create_actor().await;
-        let session_id = {
-            let mut guard = state.write_test_no_cap();
-            let session = guard.active_session_mut();
-            session.profile_mut().reasoning_effort = Some(crate::ReasoningEffort::Low);
-            guard.session.active_session_id().clone()
-        };
-        {
-            let mut app_state = actor.services.app_state_storage.read();
-            app_state.reasoning_effort = Some(crate::ReasoningEffort::High);
-            actor
-                .services
-                .app_state_storage
-                .save(&app_state)
-                .expect("save global default");
-        }
-
-        // When enqueuing a message.
-        actor
-            .handle_enqueue_user_message(&EnqueueUserMessage {
-                session_id: session_id.clone(),
-                entry: ChatEntry::user("think a little"),
-            })
-            .await;
-
-        // Then the published SendToLlmProvider carries the session's own effort (Low);
-        // the global is not consulted at request time.
-        let cmds = audit.of_type::<SendToLlmProvider>();
-        assert_eq!(cmds.len(), 1, "expected one SendToLlmProvider command");
-        assert_eq!(
-            cmds[0].reasoning_effort,
-            Some(crate::ReasoningEffort::Low),
-            "session's own effort is published; global is ignored"
-        );
-        let cmds = audit.of_type::<SendToLlmProvider>();
-        assert_eq!(cmds.len(), 1, "expected one SendToLlmProvider command");
-        assert_eq!(
-            cmds[0].reasoning_effort,
-            Some(crate::ReasoningEffort::Low),
-            "session override should win over global default"
-        );
     }
 
     // Helper: seed a vision-capable model and return the idle session id.
@@ -1399,14 +997,14 @@ mod tests {
             })
             .await;
 
-        // Then the message dispatches normally.
+        // Then the turn was prepared and handed off for dispatch.
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Streaming);
+        assert_eq!(session.phase(), PhaseKind::Sending);
         drop(guard);
         assert!(
-            audit.contains_name("SendToLlmProvider"),
-            "nonexistent @path should dispatch"
+            audit.contains_name("DispatchTurn"),
+            "nonexistent @path turn should be handed off"
         );
     }
 
@@ -1456,14 +1054,14 @@ mod tests {
             })
             .await;
 
-        // Then the message dispatches normally.
+        // Then the turn was prepared and handed off for dispatch.
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Streaming);
+        assert_eq!(session.phase(), PhaseKind::Sending);
         drop(guard);
         assert!(
-            audit.contains_name("SendToLlmProvider"),
-            "non-image @path should dispatch"
+            audit.contains_name("DispatchTurn"),
+            "non-image @path turn should be handed off"
         );
     }
 
@@ -1558,10 +1156,10 @@ mod tests {
             })
             .await;
 
-        // Then it dispatches with exactly one attachment and the nonexistent token stays literal.
+        // Then it prepares with exactly one attachment and the nonexistent token stays literal.
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Streaming);
+        assert_eq!(session.phase(), PhaseKind::Sending);
         let expanded = last_user_expanded(session).expect("user entry");
         assert!(
             expanded.contains("@/nonexistent/x"),
@@ -1578,8 +1176,8 @@ mod tests {
         assert_eq!(attachments, Some(1), "exactly one attachment expected");
         drop(guard);
         assert!(
-            audit.contains_name("SendToLlmProvider"),
-            "mixed message should dispatch"
+            audit.contains_name("DispatchTurn"),
+            "mixed message turn should be handed off"
         );
     }
 
@@ -1607,10 +1205,10 @@ mod tests {
             })
             .await;
 
-        // Then it dispatches with exactly one attachment and the non-image token stays literal.
+        // Then it prepares with exactly one attachment and the non-image token stays literal.
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Streaming);
+        assert_eq!(session.phase(), PhaseKind::Sending);
         let expanded = last_user_expanded(session).expect("user entry");
         assert!(
             expanded.contains(&format!("@{}", notes.to_string_lossy())),
@@ -1627,8 +1225,8 @@ mod tests {
         assert_eq!(attachments, Some(1), "exactly one attachment expected");
         drop(guard);
         assert!(
-            audit.contains_name("SendToLlmProvider"),
-            "mixed message should dispatch"
+            audit.contains_name("DispatchTurn"),
+            "mixed message turn should be handed off"
         );
     }
 

@@ -70,6 +70,7 @@ path = "src/lib.rs"
 [dependencies]
 jinn-persona = { workspace = true }
 jinn-token-count = { workspace = true }
+jinn-turn-dispatch = { workspace = true }
 jinn-mcp-slice = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
 jinn-chat-log-view-msg = { workspace = true }
@@ -150,6 +151,7 @@ jinn-dashboard = { workspace = true }
 jinn-quake-bar = { workspace = true }
 jinn-discord = { workspace = true }
 jinn-session-init = { workspace = true }
+jinn-turn-dispatch = { workspace = true }
 jinn-chat-input = { workspace = true }
 jinn-chat-log-view = { workspace = true }
 jinn-scope-focus = { workspace = true }
@@ -222,6 +224,8 @@ jinn-term-msg = { path = "crates/slices/jinn-term-msg" }
 jinn-tools-msg = { path = "crates/jinn-tools-msg" }
 jinn-theme-msg = { path = "crates/slices/jinn-theme-msg" }
 jinn-token-count-msg = { path = "crates/slices/jinn-token-count-msg" }
+jinn-turn-dispatch-msg = { path = "crates/slices/jinn-turn-dispatch-msg" }
+jinn-turn-dispatch = { path = "crates/slices/jinn-turn-dispatch" }
 jinn-mcp-msg = { path = "crates/slices/jinn-mcp-msg" }
 jinn-context-assembly = { path = "crates/slices/jinn-context-assembly" }
 jinn-plugin-api = { path = "crates/jinn-plugin-api" }

@@ -1,0 +1,17 @@
+[package]
+name = "jinn-turn-dispatch-msg"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+jinn-core-types = { workspace = true }
+jinn-slices = { workspace = true }
+serde = { workspace = true }
+trouper = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,34 @@
+[package]
+name = "jinn-turn-dispatch"
+version.workspace = true
+edition.workspace = true
+description = "The turn-dispatch slice: the queue actor that owns turn draining and dispatch."
+
+[dependencies]
+jinn-turn-dispatch-msg = { workspace = true }
+# The trouper runtime: ServiceActors, topics, schemas.
+trouper = { workspace = true }
+# Kernel dep (token-count precedent): the queue actor writes through
+# tcaps (State + SessionCap), consumes session vocabulary
+# (QueueItem/ChatEntry, phase machine, enqueue protocols), and asks the
+# context-assembly service through Services — granted at slice activation.
+jinn-core-types = { workspace = true }
+jinn-domain = { workspace = true }
+jinn-slices = { workspace = true }
+serde_json = { workspace = true }
+error-stack = { workspace = true }
+tracing = { workspace = true }
+jiff = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+jinn-domain = { workspace = true, features = ["test-harness"] }
+# Test-only: the assembly service must be spawned for dispatch tests, and
+# the attachment-gate test builds a provider `Attachment`.
+jinn-context-assembly = { workspace = true }
+jinn-provider = { workspace = true }
+
+[lints]
+workspace = true

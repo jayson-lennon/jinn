@@ -388,3 +388,5 @@ Entries are added or amended **only with human approval**.
 - (term) The previous session's terminal control holder is released when the active session changes while the overlay is open.
 - (tools) The jinn-tools slice owns the tool orchestrator, the built-in and todo tools, the task subagent machinery, and the tool protocol contracts in jinn-tools-msg; tool nouns (ToolDefinition/ToolCall/ToolResult) live in jinn-core-types.
 - (slices) Kernel feature extraction follows the absorb model: each slice family absorbs its feat/ modules, leaving jinn-domain as shared multi-slice vocabulary.
+- (slices) The turn-dispatch slice is a crate owning the queue ServiceActor and the enqueue dispatch path; its wire contracts live in jinn-turn-dispatch-msg.
+- (plugins) The plugin system is in phase-out: first-party plugin behavior is absorbed as native slices/features, after which the plugin host, PluginCoordinatorActor, and plugin CLI are removed; PluginCoordinatorActor is not a trouper migration target.

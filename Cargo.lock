@@ -2406,6 +2406,7 @@ dependencies = [
  "jinn-tools",
  "jinn-tools-msg",
  "jinn-tui",
+ "jinn-turn-dispatch",
  "kameo",
  "kameo_actors",
  "kanal",
@@ -2680,6 +2681,7 @@ dependencies = [
  "jinn-theme-msg",
  "jinn-token-count-msg",
  "jinn-tools-msg",
+ "jinn-turn-dispatch-msg",
  "kameo",
  "kameo_actors",
  "kanal",
@@ -3344,6 +3346,38 @@ dependencies = [
  "trouper",
  "unicode-segmentation",
  "wherror",
+]
+
+[[package]]
+name = "jinn-turn-dispatch"
+version = "0.118.0"
+dependencies = [
+ "error-stack",
+ "jiff",
+ "jinn-context-assembly",
+ "jinn-core-types",
+ "jinn-domain",
+ "jinn-provider",
+ "jinn-slices",
+ "jinn-turn-dispatch-msg",
+ "rstest",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "trouper",
+]
+
+[[package]]
+name = "jinn-turn-dispatch-msg"
+version = "0.118.0"
+dependencies = [
+ "jinn-core-types",
+ "jinn-slices",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "trouper",
 ]
 
 [[package]]

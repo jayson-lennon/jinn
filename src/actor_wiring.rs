@@ -401,6 +401,16 @@ impl ActorSystemBuilder {
         let entry_token_cache = jinn_token_count_activate(&mut services, state.clone());
         jinn_token_count::bridge::drain_routes(&services).await;
 
+        // ── Turn-dispatch slice ─────────────────────────────────────
+        // Activation spawns the queue actor (trouper ServiceActor, the
+        // turn-queue consumer) and stages its crossing routes. Must
+        // precede the env-init tail and the session-actor spawn: the
+        // queue actor's subscriptions must exist before any dispatch
+        // trigger (an `Idle` phase event or a `DispatchTurn` command)
+        // is published.
+        jinn_turn_dispatch_activate(&mut services, state.clone());
+        jinn_turn_dispatch::bridge::drain_routes(&services).await;
+
         // ── Context-assembly slice ─────────────────────────────────────
         // Install the slice's actors on trouper (the stateless assembly
         // service + the context-size actor) and stage the crossing
@@ -631,24 +641,6 @@ impl ActorSystemBuilder {
                 },
                 &root,
             )
-            .await
-        );
-
-        // Queue actor.
-        let _queue = spawn_tracked!(
-            &services.bus,
-            "queue",
-            "QueueActor",
-            jinn_domain::feat::queue_actor::QueueActor::supervise(
-                &root,
-                jinn_domain::feat::queue_actor::QueueActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                    cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
             .await
         );
 
@@ -1321,6 +1313,31 @@ fn jinn_persona_activate(services: &mut Services) -> jinn_persona_msg::Personas 
         panic!("persona slice finalize failed: {error}");
     }
     scanned
+}
+
+/// Activates the turn-dispatch slice: spawns the queue actor (trouper
+/// ServiceActor) and stages its crossing routes. The queue actor holds a
+/// `Services` clone for its bus publishes and the assembly ask.
+#[expect(
+    clippy::panic,
+    reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
+)]
+fn jinn_turn_dispatch_activate(services: &mut Services, state: jinn_domain::common::state::State) {
+    // `Services` is cheap to clone (Arc fields); the clone side-steps
+    // the host's mutable viewport borrow for the activation call.
+    let services_snapshot = services.clone();
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_turn_dispatch::activate(&mut host, state, services_snapshot);
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("turn-dispatch slice finalize failed: {error}");
+    }
 }
 
 fn jinn_theme_activate(services: &mut Services) {

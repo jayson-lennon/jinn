@@ -12,6 +12,7 @@ use crate::common::actor_deps::BusPublish;
 use crate::feat::provider::protocol::command::SendToLlmProvider;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::protocol::retry_stalled_session::RetryStalledSession;
+use jinn_turn_dispatch_msg::DispatchTurn;
 
 use super::super::SessionPersistenceActor;
 
@@ -121,57 +122,16 @@ impl SessionPersistenceActor {
         // paths, then re-send the assembled history.
         super::super::helpers::emit_history_appended(self.bus(), &payload.session_id).await;
 
-        // Re-dispatch the existing history (no new user entry). This mirrors
-        // `EnqueueResumeTurn`: assemble the prompt, resolve the model, transition
-        // to Streaming, and emit `SendToLlmProvider`.
-        //
-        // The assembled prompt is summarized into the warn so a misretried
-        // turn is decidable from logs alone: what the retry actually sent.
-        let assembled = {
-            let inputs = {
-                let guard = self.state.read();
-                crate::feat::context::snapshot::build_assembly_inputs(&guard, &payload.session_id)
-            };
-            match crate::feat::context::snapshot::assemble_via_service(&self.services, inputs).await
-            {
-                Ok(prompt) => prompt,
-                Err(error) => {
-                    tracing::error!(
-                        error = ?error,
-                        session_id = %payload.session_id,
-                        "context assembly failed; stall retry aborted"
-                    );
-                    return;
-                }
-            }
-        };
-        let tail: Vec<String> = assembled
-            .messages
-            .iter()
-            .rev()
-            .take(4)
-            .rev()
-            .map(|m| match m {
-                crate::feat::provider::llm_message::LlmMessage::User { content, .. } => {
-                    format!("user({} chars)", content.chars().count())
-                }
-                crate::feat::provider::llm_message::LlmMessage::Assistant { content, .. } => {
-                    format!("assistant({} chars)", content.chars().count())
-                }
-                crate::feat::provider::llm_message::LlmMessage::Tool { name, .. } => {
-                    format!("tool({name})")
-                }
-            })
-            .collect();
-        tracing::warn!(
-            session_id = %payload.session_id,
-            attempt = payload.attempt,
-            message_count = assembled.messages.len(),
-            estimated_tokens = assembled.estimated_tokens,
-            tail = ?tail,
-            "stall retry re-dispatching turn"
-        );
-        self.resolve_model_and_dispatch(&payload.session_id).await;
+        // Hand the prepared turn to the turn-dispatch slice: it assembles
+        // the prompt (summarized into the slice's warn so a misretried turn
+        // is decidable from logs), resolves the model, and publishes the
+        // fresh `SendToLlmProvider` — which the session actor's own receipt
+        // arms into the in-flight-stream guard, re-arming the watchdog for
+        // the new generation automatically.
+        self.publish(DispatchTurn {
+            session_id: payload.session_id.clone(),
+        })
+        .await;
     }
 }
 
@@ -263,11 +223,13 @@ mod tests {
                 .any(|e| matches!(e.kind, ChatEntryKind::Assistant(ref t) if t == "partial"));
             assert!(!has_partial, "partial assistant entry must be discarded");
         }
-        // And SendToLlmProvider was emitted to re-dispatch the turn.
-        let sent = audit.of_type::<SendToLlmProvider>();
+        // And the turn was handed to the turn-dispatch slice for
+        // re-dispatch (the queue actor owns the `SendToLlmProvider`
+        // emission; see the slice's DispatchTurn tests).
+        let handed_off = audit.of_type::<jinn_turn_dispatch_msg::DispatchTurn>();
         assert!(
-            sent.iter().any(|s| s.session_id == session_id),
-            "SendToLlmProvider must be re-emitted to re-dispatch the turn"
+            handed_off.iter().any(|s| s.session_id == session_id),
+            "DispatchTurn must be published to re-dispatch the turn"
         );
     }
 
@@ -406,24 +368,19 @@ mod tests {
         let session_id = payload.session_id.clone();
         let first_dispatch = jiff::Timestamp::now();
         actor.on_send_to_llm_provider(&dispatch_payload(&session_id, first_dispatch));
+        let _ = first_dispatch; // guard arming is asserted by `dispatch_command_arms_the_stall_guard`
 
         // When the retry handler runs.
         actor.on_retry_stalled_session(&payload).await;
 
-        // Then a fresh `SendToLlmProvider` re-dispatch was published (the
-        // arming receipt is a direct handler call in this test, so only the
-        // retry's re-dispatch appears in the audit), carrying a newer
-        // timestamp than the original generation's.
-        let re_dispatched = audit.of_type::<SendToLlmProvider>();
+        // Then the turn was handed to the turn-dispatch slice, which owns
+        // the fresh `SendToLlmProvider` emission (it stamps its own fresh
+        // `dispatched_at`; see the slice's DispatchTurn tests).
+        let handed_off = audit.of_type::<jinn_turn_dispatch_msg::DispatchTurn>();
         assert_eq!(
-            re_dispatched.len(),
+            handed_off.len(),
             1,
-            "retry must re-publish exactly one fresh dispatch"
-        );
-        let fresh = &re_dispatched[0];
-        assert!(
-            fresh.dispatched_at > first_dispatch,
-            "the retry's re-dispatch must carry a fresh dispatch timestamp"
+            "retry must hand off exactly one fresh dispatch"
         );
         // And the partial assistant entry was discarded.
         let state = actor.state.read();

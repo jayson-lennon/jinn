@@ -20,6 +20,7 @@ jinn-sidebar-msg = { workspace = true }
 jinn-status-bar-msg = { workspace = true }
 jinn-theme-msg = { workspace = true }
 jinn-token-count-msg = { workspace = true }
+jinn-turn-dispatch-msg = { workspace = true }
 jinn-mcp-msg = { workspace = true }
 # Internal deps
 jinn-provider = { workspace = true }

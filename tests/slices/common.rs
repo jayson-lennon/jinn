@@ -75,6 +75,7 @@ pub async fn launch_for_test(core: AppCore, mut services: jinn_domain::Services)
         activate_theme(&mut services);
         activate_persona(&mut services);
         activate_token_count(&mut services, core.state.clone()).await;
+        activate_turn_dispatch(&mut services, core.state.clone()).await;
         jinn_tools::activate(&mut services, &core.state);
         core.state
             .write_test_no_cap()
@@ -385,6 +386,32 @@ pub async fn activate_token_count(services: &mut jinn_domain::Services, state: j
         panic!("token-count slice finalize failed: {error}");
     }
     jinn_token_count::bridge::drain_routes(services).await;
+}
+
+/// Activates the turn-dispatch slice on the harness services (the queue
+/// actor + its crossing routes). Must run before anything publishes an
+/// `Idle` phase event or a `DispatchTurn` — subscribe is the readiness
+/// point. Async because the drain awaits relay startup on the ambient
+/// tokio runtime.
+pub async fn activate_turn_dispatch(
+    services: &mut jinn_domain::Services,
+    state: jinn_domain::State,
+) {
+    // `Services` is cheap to clone (Arc fields); the clone side-steps
+    // the host's mutable viewport borrow for the activation call.
+    let services_snapshot = services.clone();
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_turn_dispatch::activate(&mut host, state, services_snapshot);
+    if let Err(error) = host.finalize(&|_key| None) {
+        panic!("turn-dispatch slice finalize failed: {error}");
+    }
+    jinn_turn_dispatch::bridge::drain_routes(services).await;
 }
 
 pub fn activate_persona(services: &mut jinn_domain::Services) {

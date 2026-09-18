@@ -1836,9 +1836,10 @@ impl ChatSessionState {
     }
 
     /// Pop the front item from the queue, if any.
-    pub(in crate::feat) fn dequeue(
-        &mut self,
-    ) -> Option<crate::feat::session::queue_item::QueueItem> {
+    ///
+    /// The turn-dispatch slice's queue actor is the production caller; the
+    /// queue lives on the session, so the pop must be reachable there.
+    pub fn dequeue(&mut self) -> Option<crate::feat::session::queue_item::QueueItem> {
         self.core.ephemeral.message_queue.pop()
     }
 
