@@ -26,7 +26,6 @@ use serde_json::Value as JsonValue;
 
 use crate::feat::session::chat_history::ChatHistory;
 use crate::feat::session::history_editor::HistoryEditor;
-use crate::feat::session::model_selection::ModelSelection;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::profile::SessionProfile;
 use crate::feat::session::steering_buffer::SteeringBuffer;
@@ -35,6 +34,7 @@ use crate::feat::ui::chat_log::visual_item::VisualItem;
 use crate::protocol::{
     ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride, PinPosition, SessionId,
 };
+use jinn_core_types::model_selection::ModelSelection;
 
 use crate::feat::context::prompt_template::PromptTemplateStore;
 use crate::feat::context::prompt_template::{PathResolveContext, PendingPath};

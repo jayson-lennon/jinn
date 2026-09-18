@@ -1,0 +1,33 @@
+[package]
+name = "jinn-preferences"
+version.workspace = true
+edition.workspace = true
+description = "The preferences slice: persists jinn.toml and state.toml (PreferencesActor + AppStateActor)."
+
+[dependencies]
+# Kernel dep is deliberate: both actors write AppState inline —
+# `frontend.preferences` / `frontend.app_state` through `FrontendCap`, the
+# theme cell resolution in the app-state sync, and the project-picker
+# reload after a preference save. See AGENTS.md §3 "one boundary = one
+# actor": these are the authoritative writers for those fields.
+jinn-domain = { workspace = true, features = ["test-harness"] }
+jinn-preferences-config = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-core-types = { workspace = true }
+jinn-theme = { workspace = true }
+jinn-theme-msg = { workspace = true }
+jinn-persona-msg = { workspace = true }
+jinn-cwd-msg = { workspace = true }
+kameo = { workspace = true }
+tracing = { workspace = true }
+ratatui = { workspace = true }
+unicode-segmentation = { workspace = true }
+rstest = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+dirs = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

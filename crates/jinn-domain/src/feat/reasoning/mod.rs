@@ -1,7 +1,7 @@
 //! Reasoning effort — how hard a reasoning-capable model thinks before answering.
 //!
 //! This module re-exports the [`ReasoningEffort`] type
-//! (defined in `jinn-provider`, the lowest crate in the dependency chain) and
+//! (defined in `jinn-core-types`, the foundational value-type crate) and
 //! provides [`resolve_effort`], which surfaces a session's own effort.
 //!
 //! Effort is **session-owned**, mirroring model and persona selection: the last-used
@@ -11,10 +11,11 @@
 //! against the live global (which would leak one session's picker choice into every
 //! other override-free session).
 //!
-//! The types live in `jinn-provider` so the OpenAI-compatible request builder
-//! can emit them without `jinn-domain` reaching down into provider internals.
+//! The type lives in `jinn-core-types` so the provider request builder, the
+//! preferences config crate, and the kernel can all reference it without
+//! depending on each other.
 
-pub use jinn_provider::ReasoningEffort;
+pub use jinn_core_types::reasoning::ReasoningEffort;
 
 pub mod picker_entry;
 

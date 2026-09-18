@@ -2385,6 +2385,8 @@ dependencies = [
  "jinn-picker",
  "jinn-plugin",
  "jinn-plugin-api",
+ "jinn-preferences",
+ "jinn-preferences-config",
  "jinn-quake-bar",
  "jinn-scope-focus",
  "jinn-session-init",
@@ -2527,6 +2529,7 @@ dependencies = [
 name = "jinn-core-types"
 version = "0.118.0"
 dependencies = [
+ "rand 0.9.5",
  "rstest",
  "serde",
  "serde_json",
@@ -2598,6 +2601,7 @@ dependencies = [
  "jinn-core-types",
  "jinn-discord-msg",
  "jinn-domain",
+ "jinn-preferences-config",
  "jinn-session-msg",
  "jinn-session-schema",
  "jinn-slices",
@@ -2662,6 +2666,7 @@ dependencies = [
  "jinn-picker",
  "jinn-plugin",
  "jinn-plugin-api",
+ "jinn-preferences-config",
  "jinn-provider",
  "jinn-provider-config",
  "jinn-selection-widget",
@@ -2743,9 +2748,13 @@ name = "jinn-mcp-msg"
 version = "0.118.0"
 dependencies = [
  "async-trait",
+ "error-stack",
  "jinn-core-types",
  "jinn-slices",
+ "rstest",
  "serde",
+ "toml 0.8.23",
+ "wherror",
 ]
 
 [[package]]
@@ -2760,6 +2769,7 @@ dependencies = [
  "jinn-domain",
  "jinn-mcp",
  "jinn-mcp-msg",
+ "jinn-preferences-config",
  "jinn-slices",
  "jinn-tools",
  "jinn-tools-msg",
@@ -2844,6 +2854,51 @@ version = "0.1.0"
 dependencies = [
  "jinn-plugin-api",
  "serde_json",
+]
+
+[[package]]
+name = "jinn-preferences"
+version = "0.118.0"
+dependencies = [
+ "dirs",
+ "jinn-core-types",
+ "jinn-cwd-msg",
+ "jinn-domain",
+ "jinn-persona-msg",
+ "jinn-preferences-config",
+ "jinn-slices",
+ "jinn-theme",
+ "jinn-theme-msg",
+ "kameo",
+ "ratatui",
+ "rstest",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "jinn-preferences-config"
+version = "0.118.0"
+dependencies = [
+ "dirs",
+ "error-stack",
+ "jinn-common",
+ "jinn-core-types",
+ "jinn-mcp-msg",
+ "jinn-slices",
+ "jinn-term-msg",
+ "jinn-tools-msg",
+ "parking_lot",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.23",
+ "toml_edit 0.22.27",
+ "tracing",
+ "wherror",
 ]
 
 [[package]]
@@ -2984,9 +3039,11 @@ version = "0.118.0"
 dependencies = [
  "error-stack",
  "jiff",
+ "jinn-core-types",
  "jinn-domain",
  "jinn-mcp-msg",
  "jinn-picker",
+ "jinn-preferences-config",
  "jinn-sidebar-msg",
  "jinn-slices",
  "jinn-term-msg",
@@ -3049,6 +3106,7 @@ version = "0.118.0"
 dependencies = [
  "dirs",
  "jiff",
+ "jinn-core-types",
  "jinn-domain",
  "jinn-slices",
  "jinn-status-bar-msg",
@@ -3204,6 +3262,7 @@ dependencies = [
  "jinn-core-types",
  "jinn-domain",
  "jinn-mcp-msg",
+ "jinn-preferences-config",
  "jinn-term-msg",
  "jinn-tools-msg",
  "kameo",

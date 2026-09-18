@@ -21,6 +21,8 @@
 //! [`ForcedExclude`]: crate::feat::session::chat_entry::ContextOverride::ForcedExclude
 
 use std::collections::HashMap;
+
+pub use jinn_preferences_config::schemas::auto_prune::DoubleEditAutoPruneConfig;
 use std::sync::Arc;
 
 use crate::feat::auto_prune_worker::is_within_min_age;
@@ -30,68 +32,19 @@ use crate::feat::session::chat_entry::{
 };
 use crate::feat::session::history_mutation::HistoryMutation;
 use crate::protocol::SessionId;
-use serde::{Deserialize, Serialize};
 
 /// Default max file edits for double-edit auto-prune.
-const DEFAULT_DOUBLE_EDIT_MAX_FILE_EDITS: usize = 2;
-
 /// Default enabled state for double-edit auto-prune.
-const DEFAULT_DOUBLE_EDIT_ENABLED: bool = true;
-
 /// Default `min_age` for double-edit auto-prune.
 ///
 /// Number of entries from the end of history within which edit/write
 /// call+result pairs on a file are protected from pruning even when the
 /// per-file cap (`max_file_edits`) would otherwise exclude them.
-const DEFAULT_DOUBLE_EDIT_MIN_AGE: usize = 20;
-
 /// Double-edit auto-prune configuration.
 ///
 /// Serialized as `[auto_prune.double_edit]` in `jinn.toml`.
 /// Controls the auto-prune worker that caps the number of edit/write
 /// tool call+result pairs per file path, keeping only the most recent ones.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DoubleEditAutoPruneConfig {
-    /// Whether the double-edit auto-prune worker is active.
-    /// Default: `true`.
-    #[serde(default = "default_double_edit_enabled")]
-    pub enabled: bool,
-    /// Maximum number of edit/write tool call+result pairs to keep per file path.
-    /// Oldest pairs are pruned when this limit is exceeded.
-    /// Set to 0 to disable pruning (no limit).
-    /// Default: 2.
-    #[serde(default = "default_double_edit_max_file_edits")]
-    pub max_file_edits: usize,
-    /// Minimum number of entries from the end of history that must
-    /// appear after an edit/write call before it may be pruned.
-    /// Counts every entry, regardless of in-context status.
-    /// Set to 0 to disable protection (preserves pre-`min_age` behavior).
-    /// Default: 20.
-    #[serde(default = "default_double_edit_min_age")]
-    pub min_age: usize,
-}
-
-fn default_double_edit_enabled() -> bool {
-    DEFAULT_DOUBLE_EDIT_ENABLED
-}
-
-fn default_double_edit_max_file_edits() -> usize {
-    DEFAULT_DOUBLE_EDIT_MAX_FILE_EDITS
-}
-
-fn default_double_edit_min_age() -> usize {
-    DEFAULT_DOUBLE_EDIT_MIN_AGE
-}
-
-impl Default for DoubleEditAutoPruneConfig {
-    fn default() -> Self {
-        Self {
-            enabled: DEFAULT_DOUBLE_EDIT_ENABLED,
-            max_file_edits: DEFAULT_DOUBLE_EDIT_MAX_FILE_EDITS,
-            min_age: DEFAULT_DOUBLE_EDIT_MIN_AGE,
-        }
-    }
-}
 /// Double-edit auto-prune worker.
 ///
 /// Inspects history for `edit` and `write` tool calls grouped by file path.

@@ -60,7 +60,7 @@ impl Bridge {
     }
 
     /// Creates a minimal bridge for tests that don't need actual bus delivery.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-harness"))]
     #[must_use]
     pub fn new_for_test() -> Self {
         let bus_actor =

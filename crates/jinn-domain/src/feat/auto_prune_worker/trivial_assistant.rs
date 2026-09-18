@@ -64,24 +64,19 @@
 
 use std::sync::Arc;
 
+pub use jinn_preferences_config::schemas::auto_prune::TrivialAssistantAutoPruneConfig;
+
 use crate::feat::auto_prune_worker::{HistoryWorkerChatEntryTokenCache, is_within_min_age};
 use crate::feat::context::strategy::token_estimator::{TiktokenCounter, TokenCounter};
 use crate::feat::history_worker::worker_trait::HistoryWorker;
 use crate::feat::session::chat_entry::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
 use crate::feat::session::history_mutation::HistoryMutation;
 use crate::protocol::SessionId;
-use serde::{Deserialize, Serialize};
 
 /// Default enabled state for trivial-assistant auto-prune.
-const DEFAULT_TRIVIAL_ASSISTANT_ENABLED: bool = true;
-
 /// Default minimum age for trivial-assistant auto-prune.
-const DEFAULT_TRIVIAL_ASSISTANT_MIN_AGE: usize = 100;
-
 /// Default token threshold below which an assistant entry is considered
 /// "trivial" (small enough to prune when it lands outside the window).
-const DEFAULT_TRIVIAL_ASSISTANT_MAX_TOKENS: usize = 80;
-
 /// Trivial-assistant auto-prune configuration.
 ///
 /// Serialized as `[auto_prune.trivial_assistant]` in `jinn.toml`.
@@ -95,51 +90,6 @@ const DEFAULT_TRIVIAL_ASSISTANT_MAX_TOKENS: usize = 80;
 /// has already been `ForcedExclude`d by other workers. Tokens are counted
 /// via the same tiktoken `o200k_base` encoder used by the token-count
 /// actor and minimap.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TrivialAssistantAutoPruneConfig {
-    /// Whether the trivial-assistant auto-prune worker is active.
-    /// Default: `true`.
-    #[serde(default = "default_trivial_assistant_enabled")]
-    pub enabled: bool,
-    /// Minimum number of entries from the end of history within which
-    /// assistant entries are protected from pruning even when they would
-    /// otherwise qualify as trivial. Counts every entry, regardless of
-    /// in-context status. Set to 0 to disable protection.
-    /// Default: `50`.
-    #[serde(
-        default = "default_trivial_assistant_min_age",
-        alias = "max_age_entries"
-    )]
-    pub min_age: usize,
-    /// Maximum number of tokens (tiktoken `o200k_base`) below which an
-    /// `Assistant` entry is considered trivial. Minimum 1 (clamped at
-    /// evaluation time).
-    /// Default: `80`.
-    #[serde(default = "default_trivial_assistant_max_tokens")]
-    pub max_tokens: usize,
-}
-
-fn default_trivial_assistant_enabled() -> bool {
-    DEFAULT_TRIVIAL_ASSISTANT_ENABLED
-}
-
-fn default_trivial_assistant_min_age() -> usize {
-    DEFAULT_TRIVIAL_ASSISTANT_MIN_AGE
-}
-
-fn default_trivial_assistant_max_tokens() -> usize {
-    DEFAULT_TRIVIAL_ASSISTANT_MAX_TOKENS
-}
-
-impl Default for TrivialAssistantAutoPruneConfig {
-    fn default() -> Self {
-        Self {
-            enabled: DEFAULT_TRIVIAL_ASSISTANT_ENABLED,
-            min_age: DEFAULT_TRIVIAL_ASSISTANT_MIN_AGE,
-            max_tokens: DEFAULT_TRIVIAL_ASSISTANT_MAX_TOKENS,
-        }
-    }
-}
 /// Trivial-assistant auto-prune worker.
 ///
 /// See module docs for full semantics. Construct with
@@ -841,7 +791,7 @@ mod tests {
     #[test]
     fn anchored_assistant_worker_reads_external_cache_writes() {
         use crate::feat::auto_prune_worker::anchored_assistant::AnchoredAssistantAutoPruneWorker;
-        use crate::feat::preferences_actor::user_preferences::AnchoredAssistantAutoPruneConfig;
+        use jinn_preferences_config::schemas::AnchoredAssistantAutoPruneConfig;
 
         let shared_cache = HistoryWorkerChatEntryTokenCache::new();
         let session_id = SessionId::new();

@@ -310,26 +310,6 @@ pub fn init() -> Keymap<KeyEvent, Scope, Intent, KeyCategory> {
         });
     });
 
-    // ProjectAddInput scope - clone of CwdInput, specialized for registering
-    // a new project directory from inside the project picker (<c-n>).
-    keymap.scope(Scope::ProjectAddInput, |b| {
-        b.bind("<esc>", Intent::ProjectAddInputLeave, KeyCategory::General)
-            .bind("<enter>", Intent::ProjectAddInputConfirm, KeyCategory::Input)
-            .bind("<left>", Intent::MoveCursorLeft, KeyCategory::Input)
-            .bind("<right>", Intent::MoveCursorRight, KeyCategory::Input)
-            .bind("<backspace>", Intent::DeleteGrapheme, KeyCategory::Input)
-            .bind("<delete>", Intent::DeleteGraphemeForward, KeyCategory::Input)
-            .bind("<c-j>", Intent::InsertChar { ch: '\n' }, KeyCategory::Input)
-            .bind("<c-c>", Intent::CtrlClear, KeyCategory::General)
-            .catch_all(|key: KeyEvent| {
-                if let Key::Char(c) = key.key {
-                    Some(Intent::InsertChar { ch: c })
-                } else {
-                    None
-                }
-            });
-    });
-
     // No global bindings by design: globals survive every scope's catch-all
     // and would pierce slice capture-mode hooks (stranding the control flag
     // on User) and overlay views (popping overlays mid-composition). The

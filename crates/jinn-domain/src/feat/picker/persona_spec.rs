@@ -20,8 +20,8 @@ use crate::feat::context::protocol::command::LoadPersonaPickerEntries;
 use crate::feat::persona::render_persona_row;
 use crate::feat::ui::picker_states::PickerExt;
 
-use crate::feat::preferences_actor::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use crate::feat::session::protocol::mark_session_interacted::MarkSessionInteracted;
+use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 
 /// The kernel entry this picker's items wrap in storage.
 pub use crate::feat::persona::PersonaEntry;

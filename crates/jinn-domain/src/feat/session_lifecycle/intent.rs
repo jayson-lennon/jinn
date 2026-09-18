@@ -8,7 +8,6 @@ use wherror::Error;
 
 use crate::common::app_state::AppState;
 use crate::feat::chat_input::protocol::command::PushChatEntry;
-use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
 use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::chat_session::LifecycleScriptState;
 use crate::feat::session::profile::{DEFAULT_PERSONA_NAME, SessionProfile};
@@ -21,6 +20,7 @@ use crate::feat::session_lifecycle::protocol::command::{
 };
 use crate::feat::session_lifecycle::protocol::event::SessionCreated;
 use crate::protocol::{IntentResult, SessionId};
+use jinn_preferences_config::schemas::SessionLifecycle;
 
 /// Errors that can occur when validating arg input.
 #[derive(Debug, Error)]
@@ -53,10 +53,10 @@ pub fn validate_arg_input(state: &AppState) -> Result<(), ArgInputError> {
         .find(|l| l.name == arg_state.lifecycle_name)
         .and_then(|l| l.setup.as_ref())
         .map_or(0, |cmd| match cmd {
-            crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(s) => {
+            jinn_preferences_config::schemas::LifecycleCommand::Shell(s) => {
                 CommandTemplate::parse(s).param_count()
             }
-            crate::feat::session_lifecycle::builtin::LifecycleCommand::Builtin(_) => 0,
+            jinn_preferences_config::schemas::LifecycleCommand::Builtin(_) => 0,
         });
 
     let arg_count = if arg_state.text.input.trim().is_empty() {
@@ -81,7 +81,6 @@ pub fn validate_arg_input(state: &AppState) -> Result<(), ArgInputError> {
 /// `setup_command`, emits `Command::RunSessionSetup` for async execution.
 /// If no setup command (blank or blank-like lifecycle), creates the session
 /// with the default CWD immediately.
-#[expect(clippy::too_many_lines, reason = "single linear creation sequence")]
 pub fn handle_session_lifecycle_setup(
     state: &mut AppState,
     lifecycle_name: &str,
@@ -181,7 +180,7 @@ pub fn handle_session_lifecycle_setup(
     // If the lifecycle has a setup command, emit it for async execution.
     if let Some(ref setup_cmd) = setup_command {
         let rendered = match setup_cmd {
-            crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(cmd) => {
+            jinn_preferences_config::schemas::LifecycleCommand::Shell(cmd) => {
                 let template = CommandTemplate::parse(cmd);
                 if args.is_empty() {
                     cmd.clone()
@@ -189,9 +188,7 @@ pub fn handle_session_lifecycle_setup(
                     template.render(args)
                 }
             }
-            crate::feat::session_lifecycle::builtin::LifecycleCommand::Builtin(id) => {
-                id.to_string()
-            }
+            jinn_preferences_config::schemas::LifecycleCommand::Builtin(id) => id.to_string(),
         };
 
         let mut result = IntentResult::empty()
@@ -361,7 +358,7 @@ pub fn handle_session_rerun_setup(state: &mut AppState) -> IntentResult {
     };
 
     let rendered = match setup_cmd {
-        crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(cmd) => {
+        jinn_preferences_config::schemas::LifecycleCommand::Shell(cmd) => {
             let template = CommandTemplate::parse(cmd);
             if lifecycle_args.is_empty() {
                 cmd.clone()
@@ -369,7 +366,7 @@ pub fn handle_session_rerun_setup(state: &mut AppState) -> IntentResult {
                 template.render(&lifecycle_args)
             }
         }
-        crate::feat::session_lifecycle::builtin::LifecycleCommand::Builtin(id) => id.to_string(),
+        jinn_preferences_config::schemas::LifecycleCommand::Builtin(id) => id.to_string(),
     };
 
     IntentResult::empty()
@@ -398,7 +395,7 @@ pub fn build_run_session_teardown(
     state: &AppState,
     session_id: &SessionId,
 ) -> Option<RunSessionTeardown> {
-    use crate::feat::session_lifecycle::builtin::LifecycleCommand;
+    use jinn_preferences_config::schemas::LifecycleCommand;
 
     let (teardown_command, lifecycle_args) = {
         let session = state.session.get(session_id)?;
@@ -467,8 +464,8 @@ mod tests {
     )]
     use super::*;
     use crate::common::app_state::AppState;
-    use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
     use crate::protocol::ChatEntry;
+    use jinn_preferences_config::schemas::SessionLifecycle;
 
     #[rstest::rstest]
     fn session_lifecycle_setup_with_blank_creates_session() {
@@ -625,11 +622,9 @@ mod tests {
             .push(SessionLifecycle {
                 name: "fossil branch".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "echo /tmp/workdir".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "echo /tmp/workdir".to_owned(),
+                )),
                 teardown: None,
             });
 
@@ -655,11 +650,9 @@ mod tests {
             .push(SessionLifecycle {
                 name: "fossil branch".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "echo /tmp/workdir".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "echo /tmp/workdir".to_owned(),
+                )),
                 teardown: None,
             });
 
@@ -692,11 +685,9 @@ mod tests {
             .push(SessionLifecycle {
                 name: "fossil branch".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "script.sh $1".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "script.sh $1".to_owned(),
+                )),
                 teardown: None,
             });
 
@@ -767,16 +758,12 @@ mod tests {
             .push(SessionLifecycle {
                 name: "fossil branch".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "echo /tmp/workdir".to_owned(),
-                    ),
-                ),
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "cleanup.sh $1".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "echo /tmp/workdir".to_owned(),
+                )),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "cleanup.sh $1".to_owned(),
+                )),
             });
         let session_id = state.session.active_session_id().clone();
         state
@@ -843,11 +830,9 @@ mod tests {
             .push(SessionLifecycle {
                 name: "fossil branch".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "script.sh $1 $2".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "script.sh $1 $2".to_owned(),
+                )),
                 teardown: None,
             });
         let old_id = state.session.active_session_id().clone();
@@ -882,11 +867,9 @@ mod tests {
             .push(SessionLifecycle {
                 name: "test".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "script.sh $1".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "script.sh $1".to_owned(),
+                )),
                 teardown: None,
             });
         let old_id = state.session.active_session_id().clone();
@@ -1034,11 +1017,9 @@ mod tests {
             .push(SessionLifecycle {
                 name: "test".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "script.sh $1 $2".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "script.sh $1 $2".to_owned(),
+                )),
                 teardown: None,
             });
 
@@ -1062,11 +1043,9 @@ mod tests {
             .push(SessionLifecycle {
                 name: "test".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "script.sh $1 $2".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "script.sh $1 $2".to_owned(),
+                )),
                 teardown: None,
             });
 
@@ -1110,11 +1089,9 @@ mod tests {
             .push(SessionLifecycle {
                 name: "test".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "script.sh $@".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "script.sh $@".to_owned(),
+                )),
                 teardown: None,
             });
 
@@ -1138,11 +1115,9 @@ mod tests {
             .push(SessionLifecycle {
                 name: "test".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "script.sh <branch> <target>".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "script.sh <branch> <target>".to_owned(),
+                )),
                 teardown: None,
             });
 
@@ -1167,11 +1142,9 @@ mod tests {
             .push(SessionLifecycle {
                 name: "test".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "script.sh $1 $2".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "script.sh $1 $2".to_owned(),
+                )),
                 teardown: None,
             });
         let old_id = state.session.active_session_id().clone();
@@ -1206,11 +1179,9 @@ mod tests {
             .push(SessionLifecycle {
                 name: "fossil branch".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "script.sh $1 $2".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "script.sh $1 $2".to_owned(),
+                )),
                 teardown: None,
             });
         let old_id = state.session.active_session_id().clone();
@@ -1331,7 +1302,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state.frontend.preferences.mcp_server = [(
             "excalimate".to_owned(),
-            crate::feat::mcp::McpServerConfig {
+            jinn_mcp_msg::McpServerConfig {
                 command: Some("npx".to_owned()),
                 auto_enable: true,
                 ..Default::default()
@@ -1361,7 +1332,7 @@ mod tests {
         let mut state = AppState::default_with_scope_focus();
         state.frontend.preferences.mcp_server = [(
             "manual".to_owned(),
-            crate::feat::mcp::McpServerConfig {
+            jinn_mcp_msg::McpServerConfig {
                 command: Some("npx".to_owned()),
                 auto_enable: false,
                 ..Default::default()
@@ -1395,16 +1366,14 @@ mod tests {
             .push(SessionLifecycle {
                 name: "fossil branch".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "echo /tmp/workdir".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "echo /tmp/workdir".to_owned(),
+                )),
                 teardown: None,
             });
         state.frontend.preferences.mcp_server = [(
             "excalimate".to_owned(),
-            crate::feat::mcp::McpServerConfig {
+            jinn_mcp_msg::McpServerConfig {
                 command: Some("npx".to_owned()),
                 auto_enable: true,
                 ..Default::default()
@@ -1447,11 +1416,9 @@ mod tests {
             .push(SessionLifecycle {
                 name: "fossil branch".to_owned(),
                 description: None,
-                setup: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "echo /tmp/workdir".to_owned(),
-                    ),
-                ),
+                setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "echo /tmp/workdir".to_owned(),
+                )),
                 teardown: None,
             });
         let result = handle_session_lifecycle_setup(&mut state, "fossil branch", &[], None);
@@ -1592,7 +1559,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     fn setup_rerun_state() -> AppState {
-        use crate::feat::session_lifecycle::builtin::LifecycleCommand;
+        use jinn_preferences_config::schemas::LifecycleCommand;
 
         let mut state = AppState::default_with_scope_focus();
         state
@@ -1758,11 +1725,9 @@ mod tests {
                 name: "fossil branch".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "cleanup.sh $1".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "cleanup.sh $1".to_owned(),
+                )),
             });
         let session_id = state.session.active_session_id().clone();
         state
@@ -1833,11 +1798,9 @@ mod tests {
                 name: "fossil branch".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "cleanup.sh $1".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "cleanup.sh $1".to_owned(),
+                )),
             });
         let session_id = state.session.active_session_id().clone();
         state

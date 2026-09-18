@@ -6,7 +6,7 @@
 
 use super::super::SessionPersistenceActor;
 use crate::common::actor_deps::BusPublish;
-use crate::feat::preferences_actor::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
+use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 
 impl SessionPersistenceActor {
     /// Applies config defaults to the default session profile on startup.
@@ -172,7 +172,7 @@ mod tests {
     )]
     use super::super::super::helpers::test_actor_with_store_recording;
     use crate::feat::session::chat_session::ChatSessionState;
-    use crate::feat::session::model_selection::ModelSelection;
+    use jinn_core_types::model_selection::ModelSelection;
 
     #[rstest::rstest]
     #[tokio::test]
@@ -296,7 +296,7 @@ mod tests {
         let (actor, _store, _audit) = test_actor_with_store_recording(vec![]).await;
 
         // Save state with a last_model.
-        let state_file = crate::feat::preferences_actor::app_state_file::AppStateFile {
+        let state_file = jinn_preferences_config::app_state_file::AppStateFile {
             last_model: Some(ModelSelection::from_single("my-model".to_owned())),
             ..Default::default()
         };
@@ -340,7 +340,7 @@ mod tests {
         }
 
         // Save state with a different last_model.
-        let state_file = crate::feat::preferences_actor::app_state_file::AppStateFile {
+        let state_file = jinn_preferences_config::app_state_file::AppStateFile {
             last_model: Some(ModelSelection::from_single("wrong-model".to_owned())),
             ..Default::default()
         };
@@ -372,7 +372,7 @@ mod tests {
     async fn startup_seeds_persisted_persona_into_frontend_app_state() {
         // Given an actor and saved app state with a persona_name.
         let (actor, _store, _audit) = test_actor_with_store_recording(vec![]).await;
-        let state_file = crate::feat::preferences_actor::app_state_file::AppStateFile {
+        let state_file = jinn_preferences_config::app_state_file::AppStateFile {
             persona_name: Some("general".to_owned()),
             ..Default::default()
         };
@@ -433,7 +433,7 @@ mod tests {
         let (actor, _store, _audit) = test_actor_with_store_recording(vec![]).await;
 
         // Save state with a reasoning_effort.
-        let state_file = crate::feat::preferences_actor::app_state_file::AppStateFile {
+        let state_file = jinn_preferences_config::app_state_file::AppStateFile {
             reasoning_effort: Some(crate::ReasoningEffort::High),
             ..Default::default()
         };
@@ -478,7 +478,7 @@ mod tests {
         }
 
         // Save state with a reasoning_effort.
-        let state_file = crate::feat::preferences_actor::app_state_file::AppStateFile {
+        let state_file = jinn_preferences_config::app_state_file::AppStateFile {
             reasoning_effort: Some(crate::ReasoningEffort::High),
             ..Default::default()
         };
@@ -536,7 +536,7 @@ mod tests {
     async fn startup_seeds_disabled_tools_and_skills_into_welcome_session() {
         // Given an actor whose preferences storage disables a tool and a skill.
         let (actor, _store, _audit) = test_actor_with_store_recording(vec![]).await;
-        let prefs_with_disablement = crate::feat::preferences_actor::UserPreferences {
+        let prefs_with_disablement = jinn_preferences_config::user_preferences::UserPreferences {
             disabled_tools: ["bash"].iter().map(|s| (*s).to_owned()).collect(),
             disabled_skills: ["phased-task-loop"]
                 .iter()
@@ -663,10 +663,12 @@ mod tests {
         actor
             .services
             .user_preferences_storage
-            .save(&crate::feat::preferences_actor::UserPreferences {
-                disabled_tools: ["bash"].iter().map(|s| (*s).to_owned()).collect(),
-                ..Default::default()
-            })
+            .save(
+                &jinn_preferences_config::user_preferences::UserPreferences {
+                    disabled_tools: ["bash"].iter().map(|s| (*s).to_owned()).collect(),
+                    ..Default::default()
+                },
+            )
             .expect("save prefs");
 
         // When handling EnvironmentLoaded.
@@ -692,11 +694,11 @@ mod tests {
     /// Preferences fixture with one `auto_enable`d MCP server.
     fn prefs_with_auto_enabled_server(
         name: &str,
-    ) -> crate::feat::preferences_actor::UserPreferences {
-        crate::feat::preferences_actor::UserPreferences {
+    ) -> jinn_preferences_config::user_preferences::UserPreferences {
+        jinn_preferences_config::user_preferences::UserPreferences {
             mcp_server: [(
                 name.to_owned(),
-                crate::feat::mcp::McpServerConfig {
+                jinn_mcp_msg::McpServerConfig {
                     command: Some("npx".to_owned()),
                     auto_enable: true,
                     ..Default::default()
@@ -711,11 +713,11 @@ mod tests {
     /// Preferences fixture with one server that has `auto_enable` off.
     fn prefs_with_auto_enabled_server_off(
         name: &str,
-    ) -> crate::feat::preferences_actor::UserPreferences {
-        crate::feat::preferences_actor::UserPreferences {
+    ) -> jinn_preferences_config::user_preferences::UserPreferences {
+        jinn_preferences_config::user_preferences::UserPreferences {
             mcp_server: [(
                 name.to_owned(),
-                crate::feat::mcp::McpServerConfig {
+                jinn_mcp_msg::McpServerConfig {
                     command: Some("npx".to_owned()),
                     auto_enable: false,
                     ..Default::default()

@@ -21,13 +21,13 @@ use crate::common::app_state::AppState;
 use crate::common::services::test_services::TestServices;
 use crate::common::state::State;
 use crate::feat::compaction_worker::worker::{CompactionTrigger, CompactionWorker};
-use crate::feat::preferences_actor::user_preferences::CompactionConfig;
 use crate::feat::provider_infra::{FakeLlmServiceFactory, LlmServiceFactoryService};
 use crate::feat::session::chat_entry::{ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::history_mutation::HistoryMutation;
-use crate::feat::session::model_selection::ModelSelection;
 use crate::protocol::SessionId;
+use jinn_core_types::model_selection::ModelSelection;
+use jinn_preferences_config::schemas::CompactionConfig;
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 

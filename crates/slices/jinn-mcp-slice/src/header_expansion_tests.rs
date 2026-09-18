@@ -8,7 +8,7 @@
 //! - The `Stdio` arm ignores configured `headers` entirely: a stdio server
 //!   with a bogus header var still connects (via injected client, which
 //!   bypasses transport; the expansion function itself is covered in
-//!   `feat::mcp::tests` — here we prove `connect_for_transport`'s stdio arm
+//!   the moved config tests — here we prove `connect_for_transport`'s stdio arm
 //!   never calls it).
 
 #![allow(
@@ -26,9 +26,9 @@ use kameo::actor::Spawn;
 
 use crate::connection::{McpActor, McpActorDeps};
 use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
-use jinn_domain::feat::mcp::{McpServerConfig, TransportKind};
 use jinn_domain::protocol::SessionId;
 use jinn_mcp_msg::{McpConnectionStatus, McpServerStatus};
+use jinn_mcp_msg::{McpServerConfig, TransportKind};
 
 /// A RemoteHttp server whose header references an unknown variable publishes
 /// Dead (never Running) — the failure is surfaced through the standard

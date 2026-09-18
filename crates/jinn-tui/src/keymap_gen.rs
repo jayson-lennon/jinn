@@ -137,7 +137,6 @@ fn scopes_for_row<'a>(
                 Scope::ArgInput,
                 Scope::TokenBudgetInput,
                 Scope::RenameSessionInput,
-                Scope::ProjectAddInput,
                 Scope::PrunerAccumulationInput,
                 Scope::PickerProvider,
                 Scope::PickerSession,
@@ -772,7 +771,6 @@ mod tests {
     #[case("ArgInput")]
     #[case("TokenBudgetInput")]
     #[case("RenameSessionInput")]
-    #[case("ProjectAddInput")]
     #[case("PrunerAccumulationInput")]
     #[case("Picker(provider)")]
     #[case("Picker(session)")]
@@ -1169,7 +1167,8 @@ mod real_registry_spec_rows {
     #[test]
     fn project_spec_rows_resolve_in_its_scope() {
         // Given the real domain registry (whose project spec declares
-        // <c-enter>/<c-n>/<c-d> rows) bound into a fresh keymap.
+        // <c-enter>/<c-d> rows; <c-n> belongs to the preferences slice)
+        // bound into a fresh keymap.
         let registry = jinn_domain::feat::picker::registry::build_picker_registry();
         let mut keymap = init();
         bind_picker_spec_rows(&registry, &mut keymap);
@@ -1180,24 +1179,15 @@ mod real_registry_spec_rows {
             key: Key::Enter,
             modifiers: Modifiers::ctrl(),
         };
-        let c_n = KeyEvent {
-            key: Key::Char('n'),
-            modifiers: Modifiers::ctrl(),
-        };
         let c_d = KeyEvent {
             key: Key::Char('d'),
             modifiers: Modifiers::ctrl(),
         };
         let enter_intent = wk.handle_key(c_enter);
-        let n_intent = wk.handle_key(c_n);
         let d_intent = wk.handle_key(c_d);
 
         // Then each resolves to the project spec's action.
-        let expected = [
-            ("<c-enter>", enter_intent),
-            ("<c-n>", n_intent),
-            ("<c-d>", d_intent),
-        ];
+        let expected = [("<c-enter>", enter_intent), ("<c-d>", d_intent)];
         for (notation, intent) in expected {
             assert!(
                 matches!(

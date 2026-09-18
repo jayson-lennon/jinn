@@ -27,6 +27,8 @@
 //! [`ForcedExclude`]: crate::feat::session::chat_entry::ContextOverride::ForcedExclude
 
 use std::collections::HashMap;
+
+pub use jinn_preferences_config::schemas::auto_prune::ConsecutiveReadsAutoPruneConfig;
 use std::sync::Arc;
 
 use crate::feat::auto_prune_worker::is_within_min_age;
@@ -36,64 +38,15 @@ use crate::feat::session::chat_entry::{
 };
 use crate::feat::session::history_mutation::HistoryMutation;
 use crate::protocol::SessionId;
-use serde::{Deserialize, Serialize};
 
 /// Default number of consecutive read pairs to keep per file path.
-const DEFAULT_CONSECUTIVE_READS_KEEP_LAST: usize = 5;
-
 /// Default enabled state for consecutive-reads auto-prune.
-const DEFAULT_CONSECUTIVE_READS_ENABLED: bool = true;
-
 /// Default minimum age for consecutive-reads auto-prune.
-const DEFAULT_CONSECUTIVE_READS_MIN_AGE: usize = 80;
-
 /// Consecutive-reads auto-prune configuration.
 ///
 /// Serialized as `[auto_prune.consecutive_reads]` in `jinn.toml`.
 /// Controls the auto-prune worker that caps the number of `read`
 /// tool call+result pairs per file path, keeping only the most recent ones.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConsecutiveReadsAutoPruneConfig {
-    /// Whether the consecutive-reads auto-prune worker is active.
-    /// Default: `true`.
-    #[serde(default = "default_consecutive_reads_enabled")]
-    pub enabled: bool,
-    /// Number of most recent `read` tool call+result pairs to keep per file path.
-    /// Older pairs are pruned when this limit is exceeded.
-    /// Minimum 1 (clamped during worker construction).
-    /// Default: 3.
-    #[serde(default = "default_consecutive_reads_keep_last")]
-    pub keep_last: usize,
-    /// Minimum number of entries from the end of history within which
-    /// read pairs are protected from pruning even when they would
-    /// otherwise be pruned by `keep_last`. Counts every entry, regardless
-    /// of in-context status. Set to 0 to disable protection.
-    /// Default: `50`.
-    #[serde(default = "default_consecutive_reads_min_age")]
-    pub min_age: usize,
-}
-
-fn default_consecutive_reads_enabled() -> bool {
-    DEFAULT_CONSECUTIVE_READS_ENABLED
-}
-
-fn default_consecutive_reads_keep_last() -> usize {
-    DEFAULT_CONSECUTIVE_READS_KEEP_LAST
-}
-
-fn default_consecutive_reads_min_age() -> usize {
-    DEFAULT_CONSECUTIVE_READS_MIN_AGE
-}
-
-impl Default for ConsecutiveReadsAutoPruneConfig {
-    fn default() -> Self {
-        Self {
-            enabled: DEFAULT_CONSECUTIVE_READS_ENABLED,
-            keep_last: DEFAULT_CONSECUTIVE_READS_KEEP_LAST,
-            min_age: DEFAULT_CONSECUTIVE_READS_MIN_AGE,
-        }
-    }
-}
 /// Consecutive-reads auto-prune worker.
 ///
 /// For each unique file path, keeps only the last `keep_last` `read` tool

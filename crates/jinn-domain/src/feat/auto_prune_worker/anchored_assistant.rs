@@ -37,75 +37,22 @@
 
 use std::sync::Arc;
 
+pub use jinn_preferences_config::schemas::auto_prune::AnchoredAssistantAutoPruneConfig;
+
 use crate::feat::auto_prune_worker::is_within_min_age;
 use crate::feat::context::strategy::token_estimator::{TiktokenCounter, TokenCounter};
 use crate::feat::history_worker::worker_trait::HistoryWorker;
 use crate::feat::session::chat_entry::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
 use crate::feat::session::history_mutation::HistoryMutation;
 use crate::protocol::SessionId;
-use serde::{Deserialize, Serialize};
 
 /// Default enabled state for anchored-assistant auto-prune.
-const DEFAULT_ANCHORED_ASSISTANT_ENABLED: bool = true;
-
 /// Default radius (in raw history entries) within which an Assistant entry is
 /// protected from pruning regardless of token count.
-const DEFAULT_ANCHORED_ASSISTANT_RADIUS: usize = 100;
-
 /// Default minimum age for anchored-assistant auto-prune.
-const DEFAULT_ANCHORED_ASSISTANT_MIN_AGE: usize = 50;
-
 /// Anchored-assistant auto-prune strategy configuration.
 ///
 /// Serialized as `[auto_prune.anchored_assistant]` in `jinn.toml`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AnchoredAssistantAutoPruneConfig {
-    /// Whether the anchored-assistant auto-prune worker is active.
-    /// Default: `true`.
-    #[serde(default = "default_anchored_assistant_enabled")]
-    pub enabled: bool,
-    /// **Deprecated:** the radius value is now sourced from `AnchorShieldConfig.radius`.
-    /// This field is kept for backward compatibility with existing `jinn.toml` files
-    /// but its value is ignored at wiring time.
-    ///
-    /// Radius (in raw chat entries) within which an `Assistant` entry is
-    /// protected from pruning, regardless of distance to any User entry.
-    /// Distance strictly greater than this radius marks the entry as a
-    /// prune candidate (subject to the `>80` token threshold).
-    /// Minimum 1 (clamped at evaluation time).
-    /// Default: `100`.
-    #[serde(default = "default_anchored_assistant_radius")]
-    pub radius: usize,
-    /// Minimum number of entries from the end of history within which
-    /// Assistant entries are protected from pruning even when both anchor
-    /// distances exceed the radius. Counts every entry, regardless of
-    /// in-context status. Set to 0 to disable protection.
-    /// Default: `50`.
-    #[serde(default = "default_anchored_assistant_min_age")]
-    pub min_age: usize,
-}
-
-fn default_anchored_assistant_enabled() -> bool {
-    DEFAULT_ANCHORED_ASSISTANT_ENABLED
-}
-
-fn default_anchored_assistant_radius() -> usize {
-    DEFAULT_ANCHORED_ASSISTANT_RADIUS
-}
-
-fn default_anchored_assistant_min_age() -> usize {
-    DEFAULT_ANCHORED_ASSISTANT_MIN_AGE
-}
-
-impl Default for AnchoredAssistantAutoPruneConfig {
-    fn default() -> Self {
-        Self {
-            enabled: DEFAULT_ANCHORED_ASSISTANT_ENABLED,
-            radius: DEFAULT_ANCHORED_ASSISTANT_RADIUS,
-            min_age: DEFAULT_ANCHORED_ASSISTANT_MIN_AGE,
-        }
-    }
-}
 /// Anchored-assistant auto-prune worker.
 ///
 /// See the [module docs](self) for full semantics.

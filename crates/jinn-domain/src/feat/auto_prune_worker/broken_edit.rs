@@ -25,56 +25,22 @@
 
 use std::sync::Arc;
 
+pub use jinn_preferences_config::schemas::auto_prune::BrokenEditAutoPruneConfig;
+
 use crate::feat::auto_prune_worker::is_within_min_age;
 use crate::feat::history_worker::worker_trait::HistoryWorker;
 use crate::feat::session::chat_entry::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
 use crate::feat::session::history_mutation::HistoryMutation;
 use crate::feat::session::tool_result_status::ToolResultStatus;
 use crate::protocol::SessionId;
-use serde::{Deserialize, Serialize};
 
 /// Default minimum age for broken-edit auto-prune.
-const DEFAULT_BROKEN_EDIT_MIN_AGE: usize = 10;
-
 /// Default enabled state for broken-edit auto-prune.
-const DEFAULT_BROKEN_EDIT_ENABLED: bool = true;
-
 /// Broken-edit auto-prune configuration.
 ///
 /// Serialized as `[auto_prune.broken_edit]` in `jinn.toml`.
 /// Controls the auto-prune worker that excludes failed edit tool call+result pairs
 /// from the LLM context once enough conversation has moved on.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BrokenEditAutoPruneConfig {
-    /// Whether the broken-edit auto-prune worker is active.
-    /// Default: `true`.
-    #[serde(default = "default_broken_edit_enabled")]
-    pub enabled: bool,
-    /// Minimum number of entries from the end of history that must
-    /// appear after the failed edit ToolCall before the call+result
-    /// pair may be pruned. Counts every entry, regardless of in-context
-    /// status. Set to 0 to disable protection.
-    /// Default: 10.
-    #[serde(default = "default_broken_edit_min_age", alias = "min_tail_entries")]
-    pub min_age: usize,
-}
-
-fn default_broken_edit_enabled() -> bool {
-    DEFAULT_BROKEN_EDIT_ENABLED
-}
-
-fn default_broken_edit_min_age() -> usize {
-    DEFAULT_BROKEN_EDIT_MIN_AGE
-}
-
-impl Default for BrokenEditAutoPruneConfig {
-    fn default() -> Self {
-        Self {
-            enabled: DEFAULT_BROKEN_EDIT_ENABLED,
-            min_age: DEFAULT_BROKEN_EDIT_MIN_AGE,
-        }
-    }
-}
 /// Broken-edit auto-prune worker.
 /// Inspects history for `edit` tool calls whose results failed. Once the
 /// failed `ToolCall` is at least `min_age` entries from the end of history,

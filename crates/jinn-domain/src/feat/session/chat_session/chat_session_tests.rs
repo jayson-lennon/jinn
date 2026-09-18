@@ -20,7 +20,7 @@ use crate::protocol::{
 use std::path::PathBuf;
 
 use super::*;
-use crate::feat::session::model_selection::ModelSelection;
+use jinn_core_types::model_selection::ModelSelection;
 
 #[rstest::rstest]
 fn push_entry_adds_to_history() {
@@ -5774,7 +5774,7 @@ fn set_model_to_alloy_clears_endpoint_pin() {
     // When switching the model to an alloy.
     session.set_model(ModelSelection::Alloy {
         models: vec!["openrouter/anthropic/claude".to_owned()],
-        strategy: crate::feat::session::model_selection::AlloyStrategy::RoundRobin { index: 0 },
+        strategy: jinn_core_types::model_selection::AlloyStrategy::RoundRobin { index: 0 },
     });
 
     // Then the endpoint pin is cleared (an endpoint pin is model-specific and

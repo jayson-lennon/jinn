@@ -17,8 +17,8 @@ use crate::protocol::{ChatEntry, ChatEntryKind};
 use super::super::SessionPersistenceActor;
 use super::image_resolve::ResolveOutcome;
 use crate::feat::context::prompt_template::PendingPath;
-use crate::feat::session::model_selection::ModelSelection;
 use crate::feat::session::phase_machine::PhaseKind;
+use jinn_core_types::model_selection::ModelSelection;
 
 /// Decision returned after inspecting session state in `EnqueueUserMessage`.
 enum EnqueueAction {
@@ -895,7 +895,7 @@ mod tests {
         model_id: &str,
         supports_image: bool,
     ) {
-        use crate::feat::session::model_selection::ModelSelection;
+        use jinn_core_types::model_selection::ModelSelection;
         let path = actor.services.paths.models_dev_user_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).expect("create cache dir");
@@ -1000,7 +1000,7 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn at_path_image_to_unknown_model_is_blocked_with_error_entry() {
-        use crate::feat::session::model_selection::ModelSelection;
+        use jinn_core_types::model_selection::ModelSelection;
         // Given an idle session whose active model is NOT in models.dev (unknown).
         let (actor, state, audit) = create_actor().await;
         let session_id = {
@@ -1049,7 +1049,7 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn text_only_message_to_unknown_model_dispatches_normally() {
-        use crate::feat::session::model_selection::ModelSelection;
+        use jinn_core_types::model_selection::ModelSelection;
         // Given an idle session whose active model is unknown AND a text-only message.
         let (actor, state, audit) = create_actor().await;
         let session_id = {

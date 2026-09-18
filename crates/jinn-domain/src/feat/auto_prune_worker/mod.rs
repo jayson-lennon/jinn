@@ -145,16 +145,14 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::common::app_info::PREFS_FILE_NAME;
-    use crate::feat::auto_prune_worker::{
-        AutoPruneConfig, anchor_shield::AnchorShieldConfig,
-        anchored_assistant::AnchoredAssistantAutoPruneConfig,
-        broken_edit::BrokenEditAutoPruneConfig, consecutive_reads::ConsecutiveReadsAutoPruneConfig,
-        double_edit::DoubleEditAutoPruneConfig, edit_read::EditReadAutoPruneConfig,
-        read_edit::ReadEditAutoPruneConfig, regex::RegexAutoPruneConfig,
-        todo_prune::TodoAutoPruneConfig, tool_age_window::ToolAgeWindowAutoPruneConfig,
-        trivial_assistant::TrivialAssistantAutoPruneConfig,
+    use jinn_preferences_config::load_preferences_from;
+    use jinn_preferences_config::schemas::auto_prune::{
+        AnchorShieldConfig, AnchoredAssistantAutoPruneConfig, BrokenEditAutoPruneConfig,
+        ConsecutiveReadsAutoPruneConfig, DoubleEditAutoPruneConfig, EditReadAutoPruneConfig,
+        ReadEditAutoPruneConfig, RegexAutoPruneConfig, TodoAutoPruneConfig,
+        ToolAgeWindowAutoPruneConfig, TrivialAssistantAutoPruneConfig,
     };
-    use crate::feat::preferences_actor::user_preferences::load_preferences_from;
+    use jinn_preferences_config::user_preferences::AutoPruneConfig;
 
     #[rstest::rstest]
     fn default_auto_prune_config_has_defaults_for_every_field() {

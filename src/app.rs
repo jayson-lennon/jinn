@@ -10,19 +10,19 @@ use error_stack::{Report, ResultExt};
 use jinn_cli::Cli;
 use jinn_domain::ApiKeys;
 use jinn_domain::ApiKeysService;
-use jinn_domain::AppStateStorageService;
 use jinn_domain::ConfigStorageService;
-use jinn_domain::FilesystemAppStateStorage;
 use jinn_domain::FilesystemConfigStorage;
-use jinn_domain::FilesystemUserPreferencesStorage;
 use jinn_domain::LlmServiceFactoryService;
 use jinn_domain::NoProvidersAvailableFactory;
 use jinn_domain::ProviderRegistry;
 use jinn_domain::ProviderRegistryService;
 use jinn_domain::SessionStoreService;
 use jinn_domain::SqliteSessionStore;
+use jinn_preferences_config::AppStateStorageService;
+use jinn_preferences_config::FilesystemAppStateStorage;
+use jinn_preferences_config::FilesystemUserPreferencesStorage;
 
-use jinn_domain::UserPreferencesStorageService;
+use jinn_preferences_config::UserPreferencesStorageService;
 use tokio::runtime::Runtime;
 use wherror::Error;
 
@@ -179,7 +179,7 @@ impl App {
         // auto-creates the file on first run) — and it needs no session store.
         if let Some(Commands::Config { subcommand }) = &cli.command {
             use jinn_cli::cli::ConfigCommands;
-            use jinn_domain::{InitOutcome, init_default_config_to, preferences_path};
+            use jinn_preferences_config::{InitOutcome, init_default_config_to, preferences_path};
 
             match subcommand {
                 ConfigCommands::Init { force } => {
@@ -347,9 +347,9 @@ impl App {
                 // no DB and runs before actor wiring, so it dispatches here.
                 PluginCommands::InstallBuiltins => {
                     use jinn_domain::{
-                        AppPaths, BuiltinPluginInstall, FilesystemUserPreferencesStorage,
-                        InstallOutcome, install_builtin_plugins_to,
+                        AppPaths, BuiltinPluginInstall, InstallOutcome, install_builtin_plugins_to,
                     };
+                    use jinn_preferences_config::FilesystemUserPreferencesStorage;
 
                     let app_paths = AppPaths::default();
                     let storage = FilesystemUserPreferencesStorage::default_path();
@@ -394,11 +394,11 @@ impl App {
         // must run before any actor wiring — and it needs no preferences/DB,
         // so it dispatches before the session store is opened.
         if let Some(Commands::Install { force }) = &cli.command {
-            use jinn_domain::feat::preferences_actor::FilesystemUserPreferencesStorage;
             use jinn_domain::{
                 AppPaths, Destinations, InstallOutcome, InstallReport, JinnTomlOutcome,
                 install_defaults_to,
             };
+            use jinn_preferences_config::FilesystemUserPreferencesStorage;
 
             let app_paths = AppPaths::default();
             let storage = FilesystemUserPreferencesStorage::default_path();
@@ -813,7 +813,7 @@ fn run_install(
 ) -> Result<(), Report<AppError>> {
     use jinn_domain::AppPaths;
     use jinn_domain::feat::plugin::install::{PluginInstallOutcome, install};
-    use jinn_domain::feat::preferences_actor::FilesystemUserPreferencesStorage;
+    use jinn_preferences_config::FilesystemUserPreferencesStorage;
 
     let paths = AppPaths::default();
     let storage = FilesystemUserPreferencesStorage::default_path();

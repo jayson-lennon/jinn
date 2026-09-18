@@ -33,7 +33,6 @@ use jinn_domain::Services;
 use jinn_domain::common::actor_deps::{ActorDeps, BusPublish};
 use jinn_domain::common::root_supervisor::RootSupervisorRef;
 use jinn_domain::common::services::bus_service::BusService;
-use jinn_domain::feat::mcp::McpServerConfig;
 use jinn_domain::feat::session::protocol::session_archived::SessionArchived;
 use jinn_domain::feat::session::protocol::session_closed::SessionClosed;
 use jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted;
@@ -41,6 +40,7 @@ use jinn_domain::feat::session_lifecycle::protocol::event::{
     SessionCreated, SessionTeardownFinished,
 };
 use jinn_domain::protocol::SessionId;
+use jinn_mcp_msg::McpServerConfig;
 use jinn_mcp_msg::{McpEnablementChanged, RestartError, RestartMcpServer};
 use jinn_mcp_msg::{McpServerLog, McpServerStatus};
 
@@ -52,10 +52,6 @@ type SpawnKey = (SessionId, String);
 /// Slow-to-boot HTTP/Python servers can legitimately take tens of seconds;
 /// this bounds the tool loop so a wedged server doesn't hang it forever.
 /// On timeout the tool reports failure with the STOP-and-wait instruction.
-#[expect(
-    clippy::duration_suboptimal_units,
-    reason = "60s is the intent, not 1min"
-)]
 const RESTART_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// The MCP lifecycle actor.
@@ -479,11 +475,11 @@ mod lifecycle_tests {
     use jinn_domain::common::actor_deps::ActorDeps;
     use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
     use jinn_domain::common::root_supervisor::RootSupervisor;
-    use jinn_domain::feat::mcp::McpServerConfig;
-    use jinn_domain::feat::preferences_actor::user_preferences::UserPreferences;
     use jinn_domain::protocol::SessionId;
+    use jinn_mcp_msg::McpServerConfig;
     use jinn_mcp_msg::RestartError;
     use jinn_mcp_msg::{McpConnectionStatus, McpServerStatus};
+    use jinn_preferences_config::user_preferences::UserPreferences;
 
     use super::{McpCoordinatorActor, McpCoordinatorActorDeps};
     use jinn_domain::feat::session::protocol::session_closed::SessionClosed;
@@ -887,9 +883,9 @@ mod status_tests {
     use jinn_domain::common::bus::test_harness::TestHarness;
     use jinn_domain::common::root_supervisor::RootSupervisor;
     use jinn_domain::common::state::State;
-    use jinn_domain::feat::preferences_actor::user_preferences::UserPreferences;
     use jinn_domain::protocol::SessionId;
     use jinn_mcp_msg::{McpConnectionStatus, McpServerLog, McpServerStatus};
+    use jinn_preferences_config::user_preferences::UserPreferences;
 
     use super::McpCoordinatorActor;
     use crate::coordinator::McpCoordinatorActorDeps;

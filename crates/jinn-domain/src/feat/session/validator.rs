@@ -65,8 +65,8 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::feat::session::model_selection::ModelSelection;
     use crate::protocol::PickerKind;
+    use jinn_core_types::model_selection::ModelSelection;
 
     #[rstest::rstest]
     fn refresh_models_succeeds_with_provider() {

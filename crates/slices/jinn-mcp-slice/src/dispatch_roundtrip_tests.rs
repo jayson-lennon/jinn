@@ -27,8 +27,8 @@ use crate::connection::{McpActor, McpActorDeps};
 use jinn_core_types::tool_types::ToolCall;
 use jinn_domain::common::actor_deps::ActorDeps;
 use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
-use jinn_domain::feat::mcp::McpServerConfig;
 use jinn_domain::protocol::SessionId;
+use jinn_mcp_msg::McpServerConfig;
 use jinn_mcp_msg::{McpConnectionStatus, McpServerStatus};
 use jinn_tools_msg::ExecuteTool;
 use jinn_tools_msg::ToolExecutionCompleted;
@@ -671,7 +671,7 @@ async fn execute_tool_exceeding_timeout_yields_failed_result() {
     ));
     actor.wait_for_startup().await;
     {
-        let prefs = jinn_domain::feat::preferences_actor::UserPreferences {
+        let prefs = jinn_preferences_config::user_preferences::UserPreferences {
             tool_default_timeout_secs: 1,
             ..Default::default()
         };
@@ -743,7 +743,7 @@ async fn execute_tool_with_disabled_timeout_completes() {
     ));
     actor.wait_for_startup().await;
     {
-        let prefs = jinn_domain::feat::preferences_actor::UserPreferences {
+        let prefs = jinn_preferences_config::user_preferences::UserPreferences {
             tool_default_timeout_secs: 0,
             ..Default::default()
         };

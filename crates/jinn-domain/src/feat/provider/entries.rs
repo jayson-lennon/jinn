@@ -34,7 +34,7 @@ pub fn sorted_entries(
     promote_selected_to_top(&mut available);
 
     // Promote active provider to top when filter is empty.
-    if filter.is_empty() && active_provider != crate::feat::provider_infra::NO_PROVIDER_ID {
+    if filter.is_empty() && active_provider != jinn_core_types::NO_PROVIDER_ID {
         promote_active_to_top(&mut available, |e| e.provider_id == active_provider, filter);
     }
 

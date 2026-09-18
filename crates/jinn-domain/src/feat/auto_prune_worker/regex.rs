@@ -15,115 +15,30 @@
 //! [`ForcedExclude`]: crate::feat::session::chat_entry::ContextOverride::ForcedExclude
 
 use crate::feat::auto_prune_worker::is_within_min_age;
+
 use crate::feat::history_worker::worker_trait::HistoryWorker;
 use crate::feat::session::chat_entry::{
     ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride,
 };
 use crate::feat::session::history_mutation::HistoryMutation;
 use crate::protocol::SessionId;
-use serde::{Deserialize, Serialize};
+pub use jinn_preferences_config::schemas::auto_prune::{RegexAutoPruneConfig, RegexPruneRule};
 
 /// Default regex prune rule tool name.
-const DEFAULT_REGEX_TOOL_NAME: &str = "bash";
-
 /// Default regex prune rule keep_last.
-const DEFAULT_REGEX_KEEP_LAST: usize = 1;
-
 /// Default enabled state for regex auto-prune.
-const DEFAULT_REGEX_ENABLED: bool = true;
-
 /// Default minimum age for regex auto-prune.
-const DEFAULT_REGEX_MIN_AGE: usize = 50;
-
 /// A single regex-based auto-prune rule.
 ///
 /// Serialized as `[[auto_prune.regex]]` in `jinn.toml`.
 /// Each rule matches tool calls by name and content, keeping only the
 /// most recent `keep_last` matching call+result pairs in context.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RegexPruneRule {
-    /// Regex pattern to match against the tool call's text output.
-    /// The regex is tested against `"{name}: {arguments}"`.
-    pub pattern: String,
-    /// Tool name to filter by. Only tool calls with this name are considered.
-    /// Default: `"bash"`.
-    #[serde(default = "default_regex_tool_name")]
-    pub tool_name: String,
-    /// Number of most recent matching pairs to keep in context.
-    /// Minimum 1 (clamped at worker construction).
-    /// Default: 1.
-    #[serde(default = "default_regex_keep_last")]
-    pub keep_last: usize,
-    /// Raw-distance protection floor: matching pairs whose `ToolCall` is within
-    /// `min_age` slots of the end of history are never pruned by this rule.
-    /// With `min_age = 0` no pair is protected (back-compat baseline).
-    /// Default: 50.
-    #[serde(default = "default_regex_min_age")]
-    pub min_age: usize,
-}
-
-fn default_regex_tool_name() -> String {
-    DEFAULT_REGEX_TOOL_NAME.to_owned()
-}
-
-fn default_regex_keep_last() -> usize {
-    DEFAULT_REGEX_KEEP_LAST
-}
-
 /// Regex-based auto-prune configuration.
 ///
 /// Serialized as `[auto_prune.regex]` in `jinn.toml`.
 /// Contains a list of regex rules that identify tool calls to prune.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RegexAutoPruneConfig {
-    /// Whether the regex auto-prune worker is active.
-    /// Default: `true`.
-    #[serde(default = "default_regex_enabled")]
-    pub enabled: bool,
-    /// List of regex prune rules.
-    /// Default: empty (no rules).
-    #[serde(default)]
-    pub rules: Vec<RegexPruneRule>,
-}
-
-pub(crate) fn default_regex_min_age() -> usize {
-    DEFAULT_REGEX_MIN_AGE
-}
-
-impl Default for RegexAutoPruneConfig {
-    fn default() -> Self {
-        Self {
-            enabled: DEFAULT_REGEX_ENABLED,
-            rules: vec![
-                RegexPruneRule {
-                    pattern: "cargo test".to_owned(),
-                    tool_name: DEFAULT_REGEX_TOOL_NAME.to_owned(),
-                    keep_last: 2,
-                    min_age: DEFAULT_REGEX_MIN_AGE,
-                },
-                RegexPruneRule {
-                    pattern: "cargo check".to_owned(),
-                    tool_name: DEFAULT_REGEX_TOOL_NAME.to_owned(),
-                    keep_last: 1,
-                    min_age: DEFAULT_REGEX_MIN_AGE,
-                },
-                RegexPruneRule {
-                    pattern: "cargo clippy".to_owned(),
-                    tool_name: DEFAULT_REGEX_TOOL_NAME.to_owned(),
-                    keep_last: 1,
-                    min_age: DEFAULT_REGEX_MIN_AGE,
-                },
-            ],
-        }
-    }
-}
-
-fn default_regex_enabled() -> bool {
-    DEFAULT_REGEX_ENABLED
-}
-
 ///
-/// Created from [`RegexPruneRule`](crate::feat::preferences_actor::user_preferences::RegexPruneRule)
+/// Created from [`RegexPruneRule`](jinn_preferences_config::schemas::RegexPruneRule)
 /// during worker construction. The regex is compiled exactly once.
 struct CompiledRegexRule {
     /// The compiled regex pattern.
@@ -969,9 +884,11 @@ mod tests {
     }
 
     use crate::common::app_info::PREFS_FILE_NAME;
-    use crate::feat::preferences_actor::user_preferences::{
-        AutoPruneConfig, UserPreferences, load_preferences_from,
+    use jinn_preferences_config::load_preferences_from;
+    use jinn_preferences_config::schemas::auto_prune::{
+        default_regex_keep_last, default_regex_min_age, default_regex_tool_name,
     };
+    use jinn_preferences_config::user_preferences::{AutoPruneConfig, UserPreferences};
     use tempfile::TempDir;
 
     #[rstest::rstest]

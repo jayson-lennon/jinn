@@ -25,10 +25,10 @@ use crate::common::line_input::LineInput;
 use crate::feat::picker::style::active_marker;
 use crate::feat::picker::style::dim_style;
 use crate::feat::picker::style::selected_style;
-use crate::feat::session_lifecycle::builtin::LifecycleCommand;
 use crate::feat::session_lifecycle::command_template::CommandTemplate;
 use crate::feat::session_lifecycle::picker_entry::SessionLifecycleEntry;
 use crate::feat::ui::picker_states::PickerExt;
+use jinn_preferences_config::schemas::LifecycleCommand;
 
 /// Builds the session-lifecycle picker's spec.
 #[must_use]
@@ -227,8 +227,8 @@ mod tests {
     use crate::feat::picker::PickerKind;
     use crate::feat::picker::host_impl::AppStatePickerHost;
     use crate::feat::picker::registry::SESSION_LIFECYCLE_ID;
-    use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
-    use crate::feat::session_lifecycle::builtin::LifecycleCommand;
+    use jinn_preferences_config::schemas::LifecycleCommand;
+    use jinn_preferences_config::schemas::SessionLifecycle;
 
     /// State with an active origin session and the given configured
     /// lifecycles (name, description, setup-with-args).

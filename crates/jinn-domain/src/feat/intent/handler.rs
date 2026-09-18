@@ -350,55 +350,6 @@ impl IntentHandler {
             }
 
 
-            Intent::InsertChar { ch }
-                if matches!(
-                    state.frontend.scope(),
-                    crate::common::app_state::FocusScope::ProjectAddInput
-                ) =>
-            {
-                feat::project_add_input::intent::handle_insert_char(state, *ch)
-            }
-            Intent::DeleteGrapheme
-                if matches!(
-                    state.frontend.scope(),
-                    crate::common::app_state::FocusScope::ProjectAddInput
-                ) =>
-            {
-                feat::project_add_input::intent::handle_delete(state)
-            }
-            Intent::DeleteGraphemeForward
-                if matches!(
-                    state.frontend.scope(),
-                    crate::common::app_state::FocusScope::ProjectAddInput
-                ) =>
-            {
-                feat::project_add_input::intent::handle_delete_forward(state)
-            }
-            Intent::MoveCursorLeft
-                if matches!(
-                    state.frontend.scope(),
-                    crate::common::app_state::FocusScope::ProjectAddInput
-                ) =>
-            {
-                feat::project_add_input::intent::handle_cursor_left(state)
-            }
-            Intent::MoveCursorRight
-                if matches!(
-                    state.frontend.scope(),
-                    crate::common::app_state::FocusScope::ProjectAddInput
-                ) =>
-            {
-                feat::project_add_input::intent::handle_cursor_right(state)
-            }
-            Intent::EnterNormalMode
-                if matches!(
-                    state.frontend.scope(),
-                    crate::common::app_state::FocusScope::ProjectAddInput
-                ) =>
-            {
-                // ESC cancels project-add input - pop scope, clear state.
-                feat::project_add_input::intent::handle_project_add_input_leave(state)
-            }
 
             Intent::InsertChar { ch } => feat::chat_input::intent::handle_insert_char(*ch, state),
             Intent::DeleteGrapheme => feat::chat_input::intent::handle_delete_grapheme(state),
@@ -434,9 +385,6 @@ impl IntentHandler {
                 }
                 crate::common::app_state::FocusScope::ArgInput => {
                     feat::session_lifecycle::intent::handle_arg_input_paste(state, text)
-                }
-                crate::common::app_state::FocusScope::ProjectAddInput => {
-                    feat::project_add_input::intent::handle_paste(state, text)
                 }
                 _ => IntentResult::empty(),
             },
@@ -646,12 +594,6 @@ impl IntentHandler {
             }
 
 
-            Intent::ProjectAddInputConfirm => {
-                feat::project_add_input::intent::handle_project_add_input_confirm(state)
-            }
-            Intent::ProjectAddInputLeave => {
-                feat::project_add_input::intent::handle_project_add_input_leave(state)
-            }
 
             Intent::Dynamic(_) => {
                 // Unregistered dynamic intents are inert by construction:

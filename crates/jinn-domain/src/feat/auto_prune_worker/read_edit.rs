@@ -26,7 +26,7 @@
 
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+pub use jinn_preferences_config::schemas::auto_prune::ReadEditAutoPruneConfig;
 
 use crate::feat::history_worker::worker_trait::HistoryWorker;
 use crate::feat::session::chat_entry::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
@@ -37,65 +37,19 @@ use super::edit_read::{extract_path_from_arguments, find_matching_result, is_mod
 use super::is_within_min_age;
 
 /// Default enabled state for read-edit auto-prune.
-const DEFAULT_READ_EDIT_ENABLED: bool = true;
-
 /// Default `min_age` for read-edit auto-prune.
 ///
 /// Number of entries from the end of history within which
 /// read call+result pairs are protected from pruning.
-const DEFAULT_READ_EDIT_MIN_AGE: usize = 50;
-
 /// Default threshold for read-edit auto-prune.
 ///
 /// Number of edit/write operations on the same file required before
 /// pruning the prior read call+result pair.
-const DEFAULT_READ_EDIT_THRESHOLD: usize = 2;
-
 /// Read-edit auto-prune configuration.
 ///
 /// Serialized as `[auto_prune.read_edit]` in `jinn.toml`.
 /// Controls the auto-prune worker that excludes stale read tool calls
 /// after the file has been edited a configurable number of times.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ReadEditAutoPruneConfig {
-    #[serde(default = "default_read_edit_enabled")]
-    pub enabled: bool,
-    /// Minimum number of entries from the end of history within which
-    /// read call+result pairs are protected from pruning.
-    /// Counts every entry, regardless of in-context status.
-    /// Set to 0 to disable protection.
-    /// Default: 50.
-    #[serde(default = "default_read_edit_min_age")]
-    pub min_age: usize,
-    /// Number of edit/write operations on the same file required before
-    /// pruning the prior read call+result pair.
-    /// Default: 2.
-    #[serde(default = "default_read_edit_threshold")]
-    pub threshold: usize,
-}
-
-fn default_read_edit_enabled() -> bool {
-    DEFAULT_READ_EDIT_ENABLED
-}
-
-fn default_read_edit_min_age() -> usize {
-    DEFAULT_READ_EDIT_MIN_AGE
-}
-
-fn default_read_edit_threshold() -> usize {
-    DEFAULT_READ_EDIT_THRESHOLD
-}
-
-impl Default for ReadEditAutoPruneConfig {
-    fn default() -> Self {
-        Self {
-            enabled: DEFAULT_READ_EDIT_ENABLED,
-            min_age: DEFAULT_READ_EDIT_MIN_AGE,
-            threshold: DEFAULT_READ_EDIT_THRESHOLD,
-        }
-    }
-}
-
 /// Count how many edit/write ToolCalls on the same file path appear after
 /// the given index. Stops early once the count reaches `threshold`.
 ///

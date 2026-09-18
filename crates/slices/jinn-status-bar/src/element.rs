@@ -4,6 +4,7 @@
 //! on line 2: strategy, pinned count, token stats, turn count, and model.
 //! The model shows `({provider})/{model}` when set, or "no model selected" otherwise.
 
+use jinn_core_types::model_selection::ModelSelection;
 use jinn_domain::common::app_state::AppState;
 use jinn_domain::common::path_display::shorten_path;
 use jinn_domain::common::render_ctx::RenderCtx;
@@ -12,7 +13,6 @@ use jinn_domain::feat::provider_infra::InputModalities;
 use jinn_domain::feat::provider_infra::ModelCache;
 use jinn_domain::feat::provider_infra::ModelInfo;
 use jinn_domain::feat::session::aggregate_tree_stats;
-use jinn_domain::feat::session::model_selection::ModelSelection;
 use jinn_domain::feat::session::token_stats::TokenStats;
 use jinn_domain::resolve_effort;
 use jinn_theme::Theme;

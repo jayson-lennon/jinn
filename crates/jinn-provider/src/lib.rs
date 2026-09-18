@@ -23,7 +23,6 @@ mod input_modalities;
 mod llm_message;
 mod no_providers;
 mod openai_compat;
-mod reasoning;
 mod retry;
 mod sample;
 mod service;
@@ -40,6 +39,7 @@ pub use attachment::Attachment;
 pub use backend::{Backend, BackendError};
 pub use fake::{FakeLlmServiceFactory, ScriptedResponse, TOOL_LOOP_TRIGGER};
 pub use input_modalities::{InputModalities, Modality};
+pub use jinn_core_types::reasoning::ReasoningEffort;
 pub use jinn_core_types::tool_types::{ServerToolType, ToolCall, ToolDefinition, ToolResult};
 pub use llm_message::LlmMessage;
 pub use no_providers::{NO_PROVIDER_ID, NoProvidersAvailableFactory};
@@ -47,7 +47,6 @@ pub use openai_compat::{
     EndpointInfo, OpenAiCompatibleFactory, OpenAiCompatibleService, ProviderConfig, list_endpoints,
     list_endpoints_default_client,
 };
-pub use reasoning::ReasoningEffort;
 pub use sample::SampleLlmServiceFactory;
 pub use service::{ChatStream, LlmService, LlmServiceError, LlmServiceFactory, ToolStream};
 pub use stream_event::{StopReason, StreamEvent, StreamUsage, UrlCitation};

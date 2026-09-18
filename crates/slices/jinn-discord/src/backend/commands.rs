@@ -12,10 +12,10 @@ use std::time::Duration;
 
 use crate::authorize;
 use jinn_domain::feat::context::prompt_template::PromptTemplateStore;
-use jinn_domain::feat::preferences_actor::user_preferences::SessionLifecycle;
 use jinn_domain::feat::session::protocol::archive_session::ArchiveSession;
 use jinn_domain::protocol::Intent;
 use jinn_domain::{Bridge, SessionId};
+use jinn_preferences_config::schemas::SessionLifecycle;
 use poise::serenity_prelude as serenity;
 
 use crate::backend::gateway::{BotContext, BotData, BotError};
@@ -543,9 +543,9 @@ fn render_prompts_list(store: &PromptTemplateStore) -> Option<String> {
 mod tests {
     use super::{format_lifecycle_list, render_prompts_list};
     use jinn_domain::feat::context::prompt_template::PromptTemplateStore;
-    use jinn_domain::feat::preferences_actor::user_preferences::SessionLifecycle;
-    use jinn_domain::feat::session_lifecycle::builtin::LifecycleCommand;
     use jinn_domain::protocol::PromptTemplate;
+    use jinn_preferences_config::schemas::LifecycleCommand;
+    use jinn_preferences_config::schemas::SessionLifecycle;
 
     fn lifecycle(name: &str, description: Option<&str>) -> SessionLifecycle {
         SessionLifecycle {

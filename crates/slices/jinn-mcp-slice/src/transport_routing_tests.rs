@@ -24,7 +24,7 @@
 use std::time::Duration;
 
 use crate::connection::connect_for_transport;
-use jinn_domain::feat::mcp::TransportKind;
+use jinn_mcp_msg::TransportKind;
 
 /// `RemoteHttp` to an unreachable URL keeps retrying instead of failing fast.
 ///
@@ -37,7 +37,7 @@ use jinn_domain::feat::mcp::TransportKind;
 async fn remote_http_to_unreachable_url_loops_instead_of_failing() {
     // Given a RemoteHttp config pointing at a port nothing is listening on.
     // Use a port in the dynamic range that's very likely free.
-    let config = jinn_domain::feat::mcp::McpServerConfig {
+    let config = jinn_mcp_msg::McpServerConfig {
         command: None,
         args: vec![],
         transport: TransportKind::RemoteHttp,

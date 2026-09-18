@@ -1,10 +1,8 @@
 //! Sidebar resize intent handlers - enter/expand/contract/leave.
 
 use jinn_domain::common::app_state::{AppState, FocusScope};
-use jinn_domain::feat::preferences_actor::protocol::app_state_command::{
-    AppStateUpdate, UpdateAppState,
-};
 use jinn_domain::protocol::IntentResult;
+use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use jinn_sidebar_msg::SidebarSectionId;
 
 /// The number of columns to change per resize step.

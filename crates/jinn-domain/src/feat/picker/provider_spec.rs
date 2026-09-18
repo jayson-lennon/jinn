@@ -22,15 +22,15 @@ use crate::ChatEntry;
 use crate::common::app_state::AppState;
 use crate::feat::picker::style::selected_style;
 use crate::feat::picker::style::split_match_indices;
-use crate::feat::preferences_actor::protocol::app_state_command::AppStateUpdate;
-use crate::feat::preferences_actor::protocol::app_state_command::UpdateAppState;
 use crate::feat::provider::ProviderState;
 use crate::feat::provider::picker_entry::ProviderPickerEntry;
 use crate::feat::provider::protocol::command::LoadProviderPickerEntries;
 use crate::feat::provider::protocol::command::ProviderSwitch;
 use crate::feat::provider::protocol::command::RefreshModels;
-use crate::feat::session::model_selection::AlloyStrategy;
-use crate::feat::session::model_selection::ModelSelection;
+use jinn_core_types::model_selection::AlloyStrategy;
+use jinn_core_types::model_selection::ModelSelection;
+use jinn_preferences_config::protocol::app_state_command::AppStateUpdate;
+use jinn_preferences_config::protocol::app_state_command::UpdateAppState;
 
 /// Builds the model picker's spec.
 #[must_use]

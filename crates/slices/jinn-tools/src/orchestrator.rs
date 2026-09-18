@@ -12,7 +12,7 @@
 //! (for resolving relative paths) and an optional timeout. The orchestrator
 //! reads CWD from shared [`State`] at dispatch time.
 
-use jinn_domain::feat::preferences_actor::user_preferences::OpenrouterWebSearchConfig;
+use jinn_preferences_config::user_preferences::OpenrouterWebSearchConfig;
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -870,7 +870,7 @@ mod timeout_tests {
     use super::{BoxedToolFuture, ToolContext, run_builtin_with_timeout};
     use jinn_core_types::tool_types::{ToolCall, ToolResult};
     use jinn_domain::common::app_paths::AppPaths;
-    use jinn_domain::feat::preferences_actor::user_preferences::UserPreferences;
+    use jinn_preferences_config::user_preferences::UserPreferences;
 
     fn make_call() -> ToolCall {
         ToolCall {

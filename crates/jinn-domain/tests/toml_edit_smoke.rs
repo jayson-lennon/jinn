@@ -12,7 +12,7 @@
     reason = "test code"
 )]
 
-use jinn_domain::feat::preferences_actor::user_preferences::RegexAutoPruneConfig;
+use jinn_preferences_config::schemas::auto_prune::RegexAutoPruneConfig;
 use serde::Deserialize;
 
 #[rstest::rstest]

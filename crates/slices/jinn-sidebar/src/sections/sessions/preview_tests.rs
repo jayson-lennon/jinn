@@ -9,8 +9,8 @@
 )]
 
 use crate::sections::sessions::preview::{render_session_preview, session_preview_popup_rect};
+use jinn_core_types::model_selection::ModelSelection;
 use jinn_domain::feat::session::chat_session::ChatSessionState;
-use jinn_domain::feat::session::model_selection::ModelSelection;
 use jinn_domain::feat::theme::default_theme;
 use jinn_domain::protocol::ChatEntry;
 use jinn_sidebar_msg::SessionPreviewCache;

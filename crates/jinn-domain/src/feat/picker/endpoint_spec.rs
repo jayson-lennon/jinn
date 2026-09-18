@@ -26,9 +26,9 @@ use crate::feat::endpoint::Endpoint;
 use crate::feat::endpoint::picker_entry::EndpointEntry;
 use crate::feat::provider::protocol::command::LoadEndpointPickerEntries;
 use crate::feat::provider::protocol::command::RefreshEndpointPickerEntries;
-use crate::feat::session::model_selection::ModelSelection;
 use crate::feat::session::protocol::mark_session_interacted::MarkSessionInteracted;
 use crate::feat::ui::picker_states::PickerExt;
+use jinn_core_types::model_selection::ModelSelection;
 
 /// Builds the endpoint picker's spec.
 #[must_use]
@@ -393,7 +393,7 @@ mod tests {
         let mut state = single_model_state();
         state.active_session_mut().set_model(ModelSelection::Alloy {
             models: vec!["ollama/llama3".to_owned(), "ollama/mistral".to_owned()],
-            strategy: crate::feat::session::model_selection::AlloyStrategy::RoundRobin { index: 0 },
+            strategy: jinn_core_types::model_selection::AlloyStrategy::RoundRobin { index: 0 },
         });
 
         // When pressing CTRL+R.

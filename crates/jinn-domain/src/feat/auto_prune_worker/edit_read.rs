@@ -14,57 +14,23 @@
 //! ```
 //!
 //! [`ForcedExclude`]: crate::feat::session::chat_entry::ContextOverride::ForcedExclude
+
+pub use jinn_preferences_config::schemas::auto_prune::EditReadAutoPruneConfig;
 // ── Configuration ─────────────────────────────────────────────────────
 
 /// Default enabled state for edit-read auto-prune.
-const DEFAULT_EDIT_READ_ENABLED: bool = true;
-
 /// Default `min_age` for edit-read auto-prune.
 ///
 /// Number of entries from the end of history within which prior
 /// edit/write call+result pairs are protected from pruning
 /// when a same-file read occurs.
-const DEFAULT_EDIT_READ_MIN_AGE: usize = 50;
-
 /// Edit-read auto-prune configuration.
 ///
 /// Serialized as `[auto_prune.edit_read]` in `jinn.toml`.
 /// Controls the auto-prune worker that excludes stale edit/write tool calls
 /// when a same-file read follows, since the read output represents the
 /// current file state.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct EditReadAutoPruneConfig {
-    #[serde(default = "default_edit_read_enabled")]
-    pub enabled: bool,
-    /// Minimum number of entries from the end of history that must
-    /// appear after an edit/write call before it may be pruned when
-    /// a same-file read follows. Counts every entry, regardless of
-    /// in-context status. Set to 0 to disable protection.
-    /// Default: 50.
-    #[serde(default = "default_edit_read_min_age")]
-    pub min_age: usize,
-}
-
-fn default_edit_read_enabled() -> bool {
-    DEFAULT_EDIT_READ_ENABLED
-}
-
-fn default_edit_read_min_age() -> usize {
-    DEFAULT_EDIT_READ_MIN_AGE
-}
-
-impl Default for EditReadAutoPruneConfig {
-    fn default() -> Self {
-        Self {
-            enabled: DEFAULT_EDIT_READ_ENABLED,
-            min_age: DEFAULT_EDIT_READ_MIN_AGE,
-        }
-    }
-}
-
 use std::sync::Arc;
-
-use serde::{Deserialize, Serialize};
 
 use crate::feat::history_worker::worker_trait::HistoryWorker;
 use crate::feat::session::chat_entry::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};

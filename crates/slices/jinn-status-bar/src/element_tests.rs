@@ -9,10 +9,10 @@
 use jinn_testutil::{buffer_row, setup_term};
 
 use crate::element::StatusBarElement;
+use jinn_core_types::model_selection::{AlloyStrategy, ModelSelection};
 use jinn_domain::AppState;
 use jinn_domain::common::render_ctx::RenderCtx;
 use jinn_domain::common::ui_element::UiElement;
-use jinn_domain::feat::session::model_selection::{AlloyStrategy, ModelSelection};
 use jinn_domain::feat::session::token_stats::TokenRecord;
 
 #[rstest::rstest]

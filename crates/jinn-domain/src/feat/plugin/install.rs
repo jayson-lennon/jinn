@@ -83,7 +83,7 @@ pub fn install(
     plugins_dir: &Path,
     grants: Vec<crate::feat::plugin::PluginPathGrant>,
     http: bool,
-    storage: &dyn crate::feat::preferences_actor::user_preferences_storage::UserPreferencesStorage,
+    storage: &dyn jinn_preferences_config::user_preferences_storage::UserPreferencesStorage,
 ) -> Result<PluginInstallOutcome, Report<PluginInstallError>> {
     if !valid_name(name) {
         return Err(Report::new(PluginInstallError::InvalidName).attach(format!("name: {name}")));
@@ -139,7 +139,7 @@ pub fn install(
 pub fn register_plugin(
     name: &str,
     manifest: &crate::feat::plugin::manifest::PluginManifest,
-    storage: &dyn crate::feat::preferences_actor::user_preferences_storage::UserPreferencesStorage,
+    storage: &dyn jinn_preferences_config::user_preferences_storage::UserPreferencesStorage,
 ) -> Result<bool, Report<PluginInstallError>> {
     register_entry(name, manifest.grants.clone(), manifest.http, storage)
 }
@@ -175,7 +175,7 @@ pub(crate) fn manifest_entry(
 pub fn register_plugin_if_absent(
     name: &str,
     manifest: &crate::feat::plugin::manifest::PluginManifest,
-    storage: &dyn crate::feat::preferences_actor::user_preferences_storage::UserPreferencesStorage,
+    storage: &dyn jinn_preferences_config::user_preferences_storage::UserPreferencesStorage,
 ) -> Result<bool, Report<PluginInstallError>> {
     let mut prefs = storage
         .reload()
@@ -196,7 +196,7 @@ fn register_entry(
     name: &str,
     grants: Vec<crate::feat::plugin::PluginPathGrant>,
     http: bool,
-    storage: &dyn crate::feat::preferences_actor::user_preferences_storage::UserPreferencesStorage,
+    storage: &dyn jinn_preferences_config::user_preferences_storage::UserPreferencesStorage,
 ) -> Result<bool, Report<PluginInstallError>> {
     let entry = PluginConfig {
         wasm: format!("{name}.wasm"),
@@ -229,7 +229,7 @@ mod tests {
     #![expect(clippy::let_underscore_must_use, reason = "none used")]
 
     use super::*;
-    use crate::feat::preferences_actor::user_preferences_storage::{
+    use jinn_preferences_config::user_preferences_storage::{
         InMemoryUserPreferencesStorage, UserPreferencesStorage as _,
     };
 
@@ -442,7 +442,7 @@ mod tests {
     #[test]
     fn register_plugin_if_absent_preserves_existing_entry() {
         // Given storage pre-seeded with a user-customized entry.
-        use crate::feat::preferences_actor::user_preferences::UserPreferences;
+        use jinn_preferences_config::user_preferences::UserPreferences;
         let storage = InMemoryUserPreferencesStorage::default();
         let original = crate::feat::plugin::PluginConfig {
             wasm: "my-plugin.wasm".to_owned(),
@@ -485,7 +485,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn plugin_add_heals_poisoned_config() {
-        use crate::feat::preferences_actor::user_preferences_storage::FilesystemUserPreferencesStorage;
+        use jinn_preferences_config::user_preferences_storage::FilesystemUserPreferencesStorage;
 
         // Given a poisoned jinn.toml in a temp dir.
         let dir = tempfile::TempDir::new().expect("temp dir");

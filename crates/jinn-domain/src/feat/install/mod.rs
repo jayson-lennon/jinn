@@ -419,7 +419,7 @@ pub fn install_defaults_to(
     destinations: &Destinations,
     overwrite: bool,
     prefs_path: &Path,
-    storage: &dyn crate::feat::preferences_actor::user_preferences_storage::UserPreferencesStorage,
+    storage: &dyn jinn_preferences_config::user_preferences_storage::UserPreferencesStorage,
 ) -> Result<InstallReport, Report<InstallError>> {
     // The existence gate MUST run before any storage call:
     // `FilesystemUserPreferencesStorage::reload()` auto-creates `jinn.toml`
@@ -517,7 +517,7 @@ fn install_plugin(
 /// file is written exactly once and entries cannot clobber anything.
 fn register_all_builtins(
     prefs_path: &Path,
-    storage: &dyn crate::feat::preferences_actor::user_preferences_storage::UserPreferencesStorage,
+    storage: &dyn jinn_preferences_config::user_preferences_storage::UserPreferencesStorage,
     installed: &[InstalledPlugin],
 ) -> Result<(), Report<InstallError>> {
     use crate::feat::plugin::install::manifest_entry;
@@ -577,7 +577,7 @@ pub struct BuiltinPluginInstall {
 /// or corrupt, a payload write fails, or entry registration fails.
 pub fn install_builtin_plugins_to(
     plugins_dir: &Path,
-    storage: &dyn crate::feat::preferences_actor::user_preferences_storage::UserPreferencesStorage,
+    storage: &dyn jinn_preferences_config::user_preferences_storage::UserPreferencesStorage,
 ) -> Result<Vec<BuiltinPluginInstall>, Report<InstallError>> {
     // Fail fast before any side effect: a malformed jinn.toml must not
     // leave half-installed payloads on disk.
@@ -599,7 +599,7 @@ pub fn install_builtin_plugins_to(
 /// Installs one builtin plugin: overwrite the payload, add-only register.
 fn install_builtin_plugin(
     plugins_dir: &Path,
-    storage: &dyn crate::feat::preferences_actor::user_preferences_storage::UserPreferencesStorage,
+    storage: &dyn jinn_preferences_config::user_preferences_storage::UserPreferencesStorage,
     resource: &Bundled,
     wasm: &[u8],
 ) -> Result<BuiltinPluginInstall, Report<InstallError>> {
@@ -665,7 +665,7 @@ mod tests {
     )]
 
     use super::*;
-    use crate::feat::preferences_actor::user_preferences_storage::{
+    use jinn_preferences_config::user_preferences_storage::{
         InMemoryUserPreferencesStorage, UserPreferencesStorage as _,
     };
     use tempfile::TempDir;
@@ -696,7 +696,8 @@ mod tests {
     struct TestEnv {
         destinations: Destinations,
         prefs_path: std::path::PathBuf,
-        storage: crate::feat::preferences_actor::user_preferences_storage::FilesystemUserPreferencesStorage,
+        storage:
+            jinn_preferences_config::user_preferences_storage::FilesystemUserPreferencesStorage,
         _temps: Vec<TempDir>,
     }
 
@@ -708,7 +709,7 @@ mod tests {
             temps.push(prefs_dir);
             Self {
                 destinations,
-                storage: crate::feat::preferences_actor::user_preferences_storage::
+                storage: jinn_preferences_config::user_preferences_storage::
                     FilesystemUserPreferencesStorage::new(prefs_path.clone()),
                 prefs_path,
                 _temps: temps,

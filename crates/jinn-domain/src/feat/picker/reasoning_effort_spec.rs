@@ -211,9 +211,9 @@ fn confirm_reasoning(ctx: &mut ActionCtx<'_>) -> PickerOutcome {
             session_id,
         })
         .with_message(
-            crate::feat::preferences_actor::protocol::app_state_command::UpdateAppState {
+            jinn_preferences_config::protocol::app_state_command::UpdateAppState {
                 updates: vec![
-                    crate::feat::preferences_actor::protocol::app_state_command::AppStateUpdate::SetReasoningEffort(
+                    jinn_preferences_config::protocol::app_state_command::AppStateUpdate::SetReasoningEffort(
                         Some(effort),
                     ),
                 ],

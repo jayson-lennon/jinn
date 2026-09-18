@@ -271,8 +271,8 @@ mod tests {
     };
     use jinn_domain::common::app_state::AppState;
     use jinn_domain::common::render_ctx::RenderCtx;
-    use jinn_domain::feat::mcp::McpServerConfig;
     use jinn_mcp_msg::McpConnectionStatus;
+    use jinn_mcp_msg::McpServerConfig;
     use jinn_testutil::setup_term;
 
     fn server(name: &str) -> (String, McpServerConfig) {

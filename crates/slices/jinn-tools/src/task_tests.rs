@@ -78,11 +78,9 @@ fn parent_fixture() -> (State, SessionId) {
     {
         let mut w = state.write_test_no_cap();
         let parent = w.session.get_mut(&parent_id).expect("parent seeded");
-        parent.set_model(
-            jinn_domain::feat::session::model_selection::ModelSelection::Single(
-                "test-provider/test-model".to_owned(),
-            ),
-        );
+        parent.set_model(jinn_core_types::model_selection::ModelSelection::Single(
+            "test-provider/test-model".to_owned(),
+        ));
         parent.set_cwd(std::path::PathBuf::from("/tmp/parent-cwd"));
         parent.set_title("Parent".to_owned());
         parent

@@ -5,10 +5,9 @@ use parking_lot::RwLock;
 
 use crate::common::focus::FocusScope;
 use crate::common::tui_signals::TuiSignals;
-use crate::feat::preferences_actor::UserPreferences;
-use crate::feat::preferences_actor::app_state_file::AppStateFile;
-use crate::feat::project_add_input::state::ProjectAddInputState;
 use crate::feat::pruner_accumulation_input::state::PrunerAccumulationInputState;
+use jinn_preferences_config::UserPreferences;
+use jinn_preferences_config::app_state_file::AppStateFile;
 use jinn_sidebar_msg::SidebarSectionId;
 
 use crate::feat::session_lifecycle::arg_input_state::ArgInputState;
@@ -130,11 +129,6 @@ pub struct FrontendState {
     /// OWNER: IntentHandler (threshold input editing, confirmation).
     pub pruner_accumulation_input: PrunerAccumulationInputState,
 
-    /// Project-add input popup state - active when `FocusScope::ProjectAddInput` is on
-    /// the scope stack.
-    /// OWNER: IntentHandler (project-add input editing, confirmation).
-    pub project_add_input: ProjectAddInputState,
-
     /// Creation stash for the next session from the projects UI.
     ///
     /// Set by the project picker (`<enter>`/`<c-enter>`) so a new session can
@@ -177,7 +171,6 @@ impl Default for FrontendState {
             pickers: PickerStates::default(),
             arg_input: ArgInputState::default(),
             pruner_accumulation_input: PrunerAccumulationInputState::default(),
-            project_add_input: ProjectAddInputState::default(),
             pending_creation: None,
 
             sidebar_width: 30,

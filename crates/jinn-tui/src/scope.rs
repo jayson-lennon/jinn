@@ -69,8 +69,6 @@ pub enum Scope {
     /// catch-all handlers in a `BTreeMap<S, _>`), so the derived
     /// ordering is required, not hand-rolled.
     Dynamic(jinn_slices::SliceScopeId),
-    /// Project-add input mode - typing a directory path to register a project.
-    ProjectAddInput,
     /// Pruner accumulation threshold input mode - numeric input for the KV-cache gate.
     PrunerAccumulationInput,
 }
@@ -98,7 +96,6 @@ impl std::fmt::Display for Scope {
             Self::ArgInput => write!(f, "ArgInput"),
             Self::TokenBudgetInput => write!(f, "TokenBudgetInput"),
             Self::RenameSessionInput => write!(f, "RenameSessionInput"),
-            Self::ProjectAddInput => write!(f, "ProjectAddInput"),
             Self::PrunerAccumulationInput => write!(f, "PrunerAccumulationInput"),
         }
     }
@@ -134,7 +131,6 @@ impl std::str::FromStr for Scope {
             "ArgInput" => Ok(Self::ArgInput),
             "TokenBudgetInput" => Ok(Self::TokenBudgetInput),
             "RenameSessionInput" => Ok(Self::RenameSessionInput),
-            "ProjectAddInput" => Ok(Self::ProjectAddInput),
             "PrunerAccumulationInput" => Ok(Self::PrunerAccumulationInput),
 
             _ => Err(()),

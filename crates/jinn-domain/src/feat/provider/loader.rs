@@ -7,7 +7,7 @@ use crate::common::tcaps::provider::{
 };
 use crate::feat::endpoint::picker_entry::EndpointEntry;
 use crate::feat::provider_infra;
-use crate::feat::session::model_selection::ModelSelection;
+use jinn_core_types::model_selection::ModelSelection;
 
 /// Loads provider entries into the picker state, ready for display.
 ///
@@ -194,7 +194,7 @@ mod tests {
     use crate::common::services::test_services::TestServices;
     use crate::common::tcaps::provider::ProviderView;
     use crate::feat::provider_infra::{ProviderEntry, ProvidersConfig};
-    use crate::feat::session::model_selection::{AlloyStrategy, ModelSelection};
+    use jinn_core_types::model_selection::{AlloyStrategy, ModelSelection};
     use std::collections::BTreeMap;
 
     #[rstest::rstest]

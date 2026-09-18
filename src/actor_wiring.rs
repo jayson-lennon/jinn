@@ -20,7 +20,7 @@ use jinn_domain::LlmServiceFactoryService;
 use jinn_domain::ProviderRegistryService;
 use jinn_domain::Services;
 use jinn_domain::SessionStoreService;
-use jinn_domain::UserPreferencesStorageService;
+use jinn_preferences_config::UserPreferencesStorageService;
 use jinn_quake_bar;
 use jinn_slices;
 
@@ -83,7 +83,7 @@ pub struct ActorSystemBuilderArgs {
     /// User preferences storage service.
     pub user_preferences_storage: UserPreferencesStorageService,
     /// App state storage service.
-    pub app_state_storage: jinn_domain::feat::preferences_actor::AppStateStorageService,
+    pub app_state_storage: jinn_preferences_config::AppStateStorageService,
     /// Application paths.
     pub paths: jinn_domain::AppPaths,
     /// Dump directory for provider request debugging. `None` disables.
@@ -244,6 +244,7 @@ impl ActorSystemBuilder {
         jinn_chat_log_view_activate(&mut services, &state);
         jinn_chat_input_activate(&mut services);
         jinn_cwd_activate(&mut services);
+        jinn_preferences_activate(&mut services);
         jinn_sidebar_activate(&mut services);
         jinn_theme_activate(&mut services);
 
@@ -346,19 +347,21 @@ impl ActorSystemBuilder {
         );
 
         // Preferences: loads and persists user preferences.
-        let _preferences =
-            spawn_tracked!(&services.bus, "preferences", "PreferencesActor",
-jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::supervise(
-                    &root,
-                    jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActorDeps {
-                        deps: actor_deps.clone(),
-                        state: state.clone(),
-                        cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
-                    },
-                )
-                .restart_policy(kameo::supervision::RestartPolicy::Never)
-                .spawn()
-                .await
+        let _preferences = spawn_tracked!(
+            &services.bus,
+            "preferences",
+            "PreferencesActor",
+            jinn_preferences::PreferencesActor::supervise(
+                &root,
+                jinn_preferences::PreferencesActorDeps {
+                    deps: actor_deps.clone(),
+                    state: state.clone(),
+                    cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
+                },
+            )
+            .restart_policy(kameo::supervision::RestartPolicy::Never)
+            .spawn()
+            .await
         );
 
         // App state actor: persists state changes to state.toml.
@@ -366,9 +369,9 @@ jinn_domain::feat::preferences_actor::preferences_actor::PreferencesActor::super
             &services.bus,
             "app-state",
             "AppStateActor",
-            jinn_domain::feat::preferences_actor::app_state_actor::AppStateActor::supervise(
+            jinn_preferences::AppStateActor::supervise(
                 &root,
-                jinn_domain::feat::preferences_actor::app_state_actor::AppStateActorDeps {
+                jinn_preferences::AppStateActorDeps {
                     deps: actor_deps.clone(),
                     state: state.clone(),
                     frontend_cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
@@ -1330,6 +1333,21 @@ fn jinn_cwd_activate(services: &mut Services) {
     let staged = host.finalize(&|_key| None);
     if let Err(error) = staged {
         panic!("cwd slice finalize failed: {error}");
+    }
+}
+
+fn jinn_preferences_activate(services: &mut Services) {
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_preferences::activate(&mut host);
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("preferences slice finalize failed: {error}");
     }
 }
 

@@ -9,7 +9,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::feat::session::model_selection::ModelSelection;
+use jinn_core_types::model_selection::ModelSelection;
 
 /// Default persona name used when none is explicitly set.
 pub(crate) const DEFAULT_PERSONA_NAME: &str = "coding-assistant";
@@ -105,7 +105,7 @@ impl SessionSeed {
     /// names of configured `[mcp_server.<name>]` entries whose
     /// `auto_enable` flag is on.
     #[must_use]
-    pub fn from_preferences(prefs: &crate::feat::preferences_actor::UserPreferences) -> Self {
+    pub fn from_preferences(prefs: &jinn_preferences_config::UserPreferences) -> Self {
         Self {
             disabled_tools: prefs.disabled_tools.iter().cloned().collect(),
             disabled_skills: prefs.disabled_skills.iter().cloned().collect(),
@@ -184,7 +184,7 @@ mod tests {
         clippy::indexing_slicing,
         reason = "test code"
     )]
-    use crate::feat::provider_infra::NO_PROVIDER_ID;
+    use jinn_core_types::NO_PROVIDER_ID;
 
     use super::*;
 
@@ -434,7 +434,7 @@ mod tests {
     #[rstest::rstest]
     fn session_seed_from_default_preferences_is_all_enabled() {
         // Given default (empty) user preferences.
-        let prefs = crate::feat::preferences_actor::UserPreferences::default();
+        let prefs = jinn_preferences_config::UserPreferences::default();
 
         // When deriving the seed.
         let seed = SessionSeed::from_preferences(&prefs);
@@ -449,7 +449,7 @@ mod tests {
     fn session_seed_copies_disablement_sets_from_preferences() {
         // Given preferences listing disabled tools, skills, and an
         // auto-enabled MCP server.
-        let prefs = crate::feat::preferences_actor::UserPreferences {
+        let prefs = jinn_preferences_config::UserPreferences {
             disabled_tools: ["bash", "mcp__excalimate__draw"]
                 .iter()
                 .map(|s| (*s).to_owned())
@@ -460,7 +460,7 @@ mod tests {
                 .collect(),
             mcp_server: [(
                 "excalimate".to_owned(),
-                crate::feat::mcp::McpServerConfig {
+                jinn_mcp_msg::McpServerConfig {
                     command: Some("npx".to_owned()),
                     auto_enable: true,
                     ..Default::default()
@@ -489,11 +489,11 @@ mod tests {
     #[rstest::rstest]
     fn session_seed_excludes_servers_without_auto_enable() {
         // Given preferences with two servers where one has auto_enable off.
-        let prefs = crate::feat::preferences_actor::UserPreferences {
+        let prefs = jinn_preferences_config::UserPreferences {
             mcp_server: [
                 (
                     "on".to_owned(),
-                    crate::feat::mcp::McpServerConfig {
+                    jinn_mcp_msg::McpServerConfig {
                         command: Some("a".to_owned()),
                         auto_enable: true,
                         ..Default::default()
@@ -501,7 +501,7 @@ mod tests {
                 ),
                 (
                     "off".to_owned(),
-                    crate::feat::mcp::McpServerConfig {
+                    jinn_mcp_msg::McpServerConfig {
                         command: Some("b".to_owned()),
                         auto_enable: false,
                         ..Default::default()

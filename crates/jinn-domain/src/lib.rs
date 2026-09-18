@@ -48,7 +48,7 @@ pub use common::state::{State, StateReadGuard, StateWriteGuard};
 pub use common::tui_signals::TuiSignals;
 pub use common::{AppUiRegistry, register_all_ui_elements};
 pub use feat::context::prompt_template::PromptTemplateStore;
-pub use feat::provider_infra::NO_PROVIDER_ID;
+pub use jinn_core_types::NO_PROVIDER_ID;
 
 // Re-export services types
 pub use common::services::Services;
@@ -83,19 +83,6 @@ pub use feat::session::phase_machine::PhaseKind;
 
 // Re-export reasoning types
 pub use feat::reasoning::{ReasoningEffort, resolve_effort};
-// Re-export preferences types
-pub use feat::preferences_actor::AppStateStorageService;
-pub use feat::preferences_actor::FilesystemAppStateStorage;
-pub use feat::preferences_actor::FilesystemUserPreferencesStorage;
-pub use feat::preferences_actor::InMemoryAppStateStorage;
-pub use feat::preferences_actor::InMemoryUserPreferencesStorage;
-pub use feat::preferences_actor::RequestRetryConfig;
-pub use feat::preferences_actor::UserPreferences;
-pub use feat::preferences_actor::UserPreferencesStorageService;
-pub use feat::preferences_actor::protocol::command::{PreferenceUpdate, UpdatePreferences};
-pub use feat::preferences_actor::protocol::event::PreferencesUpdated;
-pub use feat::preferences_actor::{InitOutcome, init_default_config_to, preferences_path};
-
 // Re-export install (default resource seeding + builtin plugin registration).
 pub use feat::install::{
     BuiltinPluginInstall, Destinations, InstallError, InstallOutcome, InstallReport,

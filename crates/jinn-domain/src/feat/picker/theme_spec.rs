@@ -20,10 +20,10 @@ use ratatui::text::Line;
 use ratatui::text::Span;
 
 use crate::common::app_state::AppState;
-use crate::feat::preferences_actor::protocol::app_state_command::AppStateUpdate;
-use crate::feat::preferences_actor::protocol::app_state_command::UpdateAppState;
 use crate::feat::theme::ThemeEntry;
 use crate::feat::ui::picker_states::PickerExt;
+use jinn_preferences_config::protocol::app_state_command::AppStateUpdate;
+use jinn_preferences_config::protocol::app_state_command::UpdateAppState;
 
 /// Builds the theme picker's spec.
 #[must_use]

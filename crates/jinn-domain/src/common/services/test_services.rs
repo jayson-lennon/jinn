@@ -6,10 +6,6 @@ use error_stack::Report;
 use kameo::actor::Spawn;
 use tokio::runtime::{Handle, Runtime};
 
-use crate::feat::preferences_actor::{
-    AppStateStorageService, InMemoryAppStateStorage, InMemoryUserPreferencesStorage,
-    UserPreferencesStorageService,
-};
 use crate::feat::provider_infra::{
     ApiKeys, ApiKeysService, ConfigStorageService, FakeLlmServiceFactory, InMemoryConfigStorage,
     LlmServiceFactoryService, ProviderRegistry, ProviderRegistryService, ProvidersConfig,
@@ -17,6 +13,10 @@ use crate::feat::provider_infra::{
 use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::{SessionStore, SessionStoreError, SessionStoreService, SessionSummary};
 use crate::protocol::SessionId;
+use jinn_preferences_config::{
+    AppStateStorageService, InMemoryAppStateStorage, InMemoryUserPreferencesStorage,
+    UserPreferencesStorageService,
+};
 
 use super::Services;
 /// Single shared tokio runtime for the entire test binary.

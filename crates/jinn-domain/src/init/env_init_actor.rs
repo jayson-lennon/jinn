@@ -156,7 +156,7 @@ impl EnvInitActor {
             .values()
             .flat_map(|server| server.headers.values().map(String::as_str))
             .collect();
-        for name in crate::feat::mcp::referenced_header_variables(&values) {
+        for name in jinn_mcp_msg::referenced_header_variables(&values) {
             if let Ok(value) = std::env::var(&name)
                 && !value.is_empty()
             {
@@ -178,9 +178,9 @@ mod tests {
     use std::time::Duration;
 
     use crate::common::bus::test_harness::{TestHarness, await_recorded};
-    use crate::feat::mcp::McpServerConfig;
-    use crate::feat::preferences_actor::user_preferences::UserPreferences;
     use crate::feat::provider_infra::ProvidersConfig;
+    use jinn_mcp_msg::McpServerConfig;
+    use jinn_preferences_config::user_preferences::UserPreferences;
 
     use super::{EnvInitActor, EnvInitActorDeps, EnvironmentLoaded, GetEnvironmentConfig};
 
@@ -199,7 +199,7 @@ mod tests {
         prefs.mcp_server.insert(
             "header-probe".to_owned(),
             McpServerConfig {
-                transport: crate::feat::mcp::TransportKind::RemoteHttp,
+                transport: jinn_mcp_msg::TransportKind::RemoteHttp,
                 url: Some("http://localhost:3001/mcp".to_owned()),
                 headers,
                 ..McpServerConfig::default()

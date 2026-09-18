@@ -151,7 +151,7 @@ impl SessionPersistenceActor {
 
         match payload.lifecycle_command {
             Some(ref cmd) => match cmd {
-                crate::feat::session_lifecycle::builtin::LifecycleCommand::Builtin(id) => {
+                jinn_preferences_config::schemas::LifecycleCommand::Builtin(id) => {
                     // Builtin: run inline, then complete Working.
                     self.run_builtin_setup(&payload.session_id, id, &payload.args)
                         .await;
@@ -164,7 +164,7 @@ impl SessionPersistenceActor {
                         });
                     }
                 }
-                crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(_) => {
+                jinn_preferences_config::schemas::LifecycleCommand::Shell(_) => {
                     self.spawn_shell_setup(payload).await;
                 }
             },
@@ -365,7 +365,7 @@ impl SessionPersistenceActor {
     async fn run_builtin_setup(
         &self,
         session_id: &crate::protocol::SessionId,
-        id: &crate::feat::session_lifecycle::builtin::BuiltinId,
+        id: &jinn_preferences_config::schemas::BuiltinId,
         args: &[String],
     ) {
         let Some(handler) = self.builtin_registry.get(id) else {
@@ -492,7 +492,7 @@ impl SessionPersistenceActor {
         };
 
         match teardown_cmd {
-            crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(shell_cmd) => {
+            jinn_preferences_config::schemas::LifecycleCommand::Shell(shell_cmd) => {
                 // Mark session as busy.
                 let rendered =
                     {
@@ -578,7 +578,7 @@ impl SessionPersistenceActor {
                     }
                 }
             }
-            crate::feat::session_lifecycle::builtin::LifecycleCommand::Builtin(id) => {
+            jinn_preferences_config::schemas::LifecycleCommand::Builtin(id) => {
                 // Builtin teardown is synchronous - run inline.
                 let success = self
                     .run_builtin_teardown(&payload.session_id, id, &lifecycle_args)
@@ -616,7 +616,7 @@ impl SessionPersistenceActor {
     async fn run_builtin_teardown(
         &self,
         session_id: &crate::protocol::SessionId,
-        id: &crate::feat::session_lifecycle::builtin::BuiltinId,
+        id: &jinn_preferences_config::schemas::BuiltinId,
         args: &[String],
     ) -> bool {
         let Some(handler) = self.builtin_registry.get(id) else {
@@ -699,7 +699,7 @@ impl SessionPersistenceActor {
 
             if let Some(teardown_cmd) = teardown_cmd {
                 match teardown_cmd {
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(shell_cmd) => {
+                    jinn_preferences_config::schemas::LifecycleCommand::Shell(shell_cmd) => {
                         // For shell teardowns: mark busy, spawn tokio task,
                         // then return immediately. The spawned task signals completion
                         // via FinishSessionTeardown with TeardownFollowUp::Close.
@@ -786,7 +786,7 @@ impl SessionPersistenceActor {
 
                         return; // Return immediately - async result handled via FinishSessionTeardown
                     }
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Builtin(id) => {
+                    jinn_preferences_config::schemas::LifecycleCommand::Builtin(id) => {
                         let success = self
                             .run_builtin_teardown(&payload.session_id, &id, &lifecycle_args)
                             .await;
@@ -1172,7 +1172,7 @@ impl SessionPersistenceActor {
         };
 
         match teardown_cmd {
-            crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(shell_cmd) => {
+            jinn_preferences_config::schemas::LifecycleCommand::Shell(shell_cmd) => {
                 // Mark the root busy and render the command in one lock.
                 let rendered = {
                     let rendered = self
@@ -1257,7 +1257,7 @@ impl SessionPersistenceActor {
                 }
                 // Return immediately - async result handled via FinishSessionTeardown.
             }
-            crate::feat::session_lifecycle::builtin::LifecycleCommand::Builtin(id) => {
+            jinn_preferences_config::schemas::LifecycleCommand::Builtin(id) => {
                 // Builtin teardown is synchronous - run inline.
                 let success = self
                     .run_builtin_teardown(&payload.root, &id, &lifecycle_args)
@@ -1607,7 +1607,6 @@ mod tests {
     use crate::feat::session::protocol::teardown_session_tree::TeardownSessionTree;
     use crate::feat::session::session_actor::SessionPersistenceActor;
     use crate::feat::session::session_summary::SessionSummary;
-    use crate::feat::session_lifecycle::builtin::LifecycleCommand;
     use crate::feat::session_lifecycle::protocol::command::{
         CancelLifecycleCommand, FinishSessionSetup, FinishSessionTeardown, RunSessionSetup,
         RunSessionTeardown, SetSessionCwd, TeardownFollowUp,
@@ -1616,6 +1615,7 @@ mod tests {
         SessionCwdChanged, SessionTeardownFinished,
     };
     use crate::protocol::{ChatEntry, ChatEntryKind, SessionId};
+    use jinn_preferences_config::schemas::LifecycleCommand;
     use std::path::Path;
 
     #[rstest::rstest]
@@ -1718,7 +1718,7 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn teardown_failure_does_not_switch_active_session() {
-        use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
+        use jinn_preferences_config::schemas::SessionLifecycle;
 
         let (mut actor, audit) = test_actor_recording().await;
         let (target_id, original_active) = {
@@ -1731,11 +1731,9 @@ mod tests {
                 name: "test".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "exit 1".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "exit 1".to_owned(),
+                )),
             }];
             let session = state.session.get_mut(&second_id).expect("second session");
             session.set_lifecycle_name(Some("test".to_owned()));
@@ -1775,7 +1773,7 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn teardown_failure_does_not_push_input_scope() {
-        use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
+        use jinn_preferences_config::schemas::SessionLifecycle;
 
         let mut actor = test_actor().await;
         let session_id = {
@@ -1788,11 +1786,9 @@ mod tests {
                 name: "test".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "exit 1".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "exit 1".to_owned(),
+                )),
             }];
             state.session.active_session_id().clone()
         };
@@ -1817,7 +1813,7 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn teardown_failure_pushes_error_entry_to_session() {
-        use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
+        use jinn_preferences_config::schemas::SessionLifecycle;
 
         let (mut actor, audit) = test_actor_recording().await;
         let session_id = {
@@ -1829,11 +1825,9 @@ mod tests {
                 name: "test".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "exit 1".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "exit 1".to_owned(),
+                )),
             }];
             state.session.active_session_id().clone()
         };
@@ -1862,7 +1856,7 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn teardown_failure_emits_session_teardown_completed_with_error() {
-        use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
+        use jinn_preferences_config::schemas::SessionLifecycle;
 
         let (mut actor, audit) = test_actor_recording().await;
         let session_id = {
@@ -1874,11 +1868,9 @@ mod tests {
                 name: "test".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "exit 1".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "exit 1".to_owned(),
+                )),
             }];
             state.session.active_session_id().clone()
         };
@@ -2076,7 +2068,7 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn teardown_only_success_emits_session_teardown_completed() {
-        use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
+        use jinn_preferences_config::schemas::SessionLifecycle;
 
         let (mut actor, audit) = test_actor_recording().await;
         let session_id = {
@@ -2089,11 +2081,9 @@ mod tests {
                 name: "test".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "echo test".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "echo test".to_owned(),
+                )),
             }];
             state.session.active_session_id().clone()
         };
@@ -2123,7 +2113,7 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn teardown_only_success_emits_push_chat_entry() {
-        use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
+        use jinn_preferences_config::schemas::SessionLifecycle;
 
         let (mut actor, audit) = test_actor_recording().await;
         let session_id = {
@@ -2136,11 +2126,9 @@ mod tests {
                 name: "test".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "echo test".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "echo test".to_owned(),
+                )),
             }];
             state.session.active_session_id().clone()
         };
@@ -2389,14 +2377,16 @@ mod tests {
         actor
             .services
             .user_preferences_storage
-            .save(&crate::feat::preferences_actor::UserPreferences {
-                disabled_tools: ["bash"].iter().map(|s| (*s).to_owned()).collect(),
-                disabled_skills: ["phased-task-loop"]
-                    .iter()
-                    .map(|s| (*s).to_owned())
-                    .collect(),
-                ..Default::default()
-            })
+            .save(
+                &jinn_preferences_config::user_preferences::UserPreferences {
+                    disabled_tools: ["bash"].iter().map(|s| (*s).to_owned()).collect(),
+                    disabled_skills: ["phased-task-loop"]
+                        .iter()
+                        .map(|s| (*s).to_owned())
+                        .collect(),
+                    ..Default::default()
+                },
+            )
             .expect("save prefs");
         let only_id = actor.state.read().session.active_session_id().clone();
 
@@ -2511,8 +2501,8 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn close_session_leaves_lifecycle_at_setup_ran_when_teardown_fails() {
-        use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
         use crate::feat::session::chat_session::LifecycleScriptState;
+        use jinn_preferences_config::schemas::SessionLifecycle;
 
         let mut actor = test_actor().await;
         let session_id = {
@@ -2525,11 +2515,9 @@ mod tests {
                 name: "test".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "exit 1".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "exit 1".to_owned(),
+                )),
             }];
             state.session.active_session_id().clone()
         };
@@ -2559,7 +2547,7 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn close_session_with_teardown_failure_pushes_error_entry() {
-        use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
+        use jinn_preferences_config::schemas::SessionLifecycle;
 
         let (mut actor, audit) = test_actor_recording().await;
         let session_id = {
@@ -2572,11 +2560,9 @@ mod tests {
                 name: "test".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "exit 1".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "exit 1".to_owned(),
+                )),
             }];
             state.session.active_session_id().clone()
         };
@@ -2604,7 +2590,7 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn close_session_advances_lifecycle_when_teardown_succeeds() {
-        use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
+        use jinn_preferences_config::schemas::SessionLifecycle;
 
         let (mut actor, audit) = test_actor_recording().await;
         let second_session = ChatSessionState::new();
@@ -2619,11 +2605,9 @@ mod tests {
                 name: "test".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "exit 0".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "exit 0".to_owned(),
+                )),
             }];
             state.session.active_session_id().clone()
         };
@@ -2691,8 +2675,8 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn teardown_only_advances_lifecycle_to_teardown_ran() {
-        use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
         use crate::feat::session::chat_session::LifecycleScriptState;
+        use jinn_preferences_config::schemas::SessionLifecycle;
 
         let mut actor = test_actor().await;
         let session_id = {
@@ -2704,11 +2688,9 @@ mod tests {
                 name: "test".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "exit 0".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "exit 0".to_owned(),
+                )),
             }];
             state.session.active_session_id().clone()
         };
@@ -2740,8 +2722,8 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn close_session_with_setup_ran_persists_teardown_ran() {
-        use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
         use crate::feat::session::chat_session::LifecycleScriptState;
+        use jinn_preferences_config::schemas::SessionLifecycle;
 
         let (mut actor, store, _audit) = test_actor_with_store_recording(vec![]).await;
         let second = ChatSessionState::new();
@@ -2756,11 +2738,9 @@ mod tests {
                 name: "test".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "exit 0".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "exit 0".to_owned(),
+                )),
             }];
             state.session.active_session_id().clone()
         };
@@ -3119,7 +3099,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let (mut actor, audit) = test_actor_recording().await;
         let session_id = {
-            use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
+            use jinn_preferences_config::schemas::SessionLifecycle;
             let mut state = actor.state.write_test_no_cap();
             let session_id = state.session.active_session_id().clone();
             // Configure the session (CWD + lifecycle state + name) before touching
@@ -3135,11 +3115,9 @@ mod tests {
                 name: "cwd-probe".to_owned(),
                 description: None,
                 setup: None,
-                teardown: Some(
-                    crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                        "printf x > teardown-marker.log".to_owned(),
-                    ),
-                ),
+                teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                    "printf x > teardown-marker.log".to_owned(),
+                )),
             }];
             session_id
         };
@@ -3180,11 +3158,11 @@ mod tests {
     /// Preferences fixture with one auto-enabled MCP server.
     fn prefs_with_auto_enabled_server(
         name: &str,
-    ) -> crate::feat::preferences_actor::UserPreferences {
-        crate::feat::preferences_actor::UserPreferences {
+    ) -> jinn_preferences_config::user_preferences::UserPreferences {
+        jinn_preferences_config::user_preferences::UserPreferences {
             mcp_server: [(
                 name.to_owned(),
-                crate::feat::mcp::McpServerConfig {
+                jinn_mcp_msg::McpServerConfig {
                     command: Some("npx".to_owned()),
                     auto_enable: true,
                     ..Default::default()
@@ -3197,11 +3175,13 @@ mod tests {
     }
 
     /// Preferences fixture with one server that has auto_enable off.
-    fn prefs_with_auto_enable_off(name: &str) -> crate::feat::preferences_actor::UserPreferences {
-        crate::feat::preferences_actor::UserPreferences {
+    fn prefs_with_auto_enable_off(
+        name: &str,
+    ) -> jinn_preferences_config::user_preferences::UserPreferences {
+        jinn_preferences_config::user_preferences::UserPreferences {
             mcp_server: [(
                 name.to_owned(),
-                crate::feat::mcp::McpServerConfig {
+                jinn_mcp_msg::McpServerConfig {
                     command: Some("npx".to_owned()),
                     auto_enable: false,
                     ..Default::default()
@@ -3494,8 +3474,8 @@ mod tests {
         lifecycle_name: &str,
         teardown: Option<LifecycleCommand>,
     ) -> (SessionId, SessionId, SessionId) {
-        use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
         use crate::feat::session::chat_session::LifecycleScriptState;
+        use jinn_preferences_config::schemas::SessionLifecycle;
 
         let root = ChatSessionState::new();
         let root_id = root.session_id().clone();

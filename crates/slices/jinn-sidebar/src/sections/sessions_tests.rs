@@ -937,7 +937,7 @@ fn close_last_session_with_auto_enable_returns_enablement_message() {
         .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     state.frontend.preferences.mcp_server = [(
         "excalimate".to_owned(),
-        jinn_domain::feat::mcp::McpServerConfig {
+        jinn_mcp_msg::McpServerConfig {
             command: Some("npx".to_owned()),
             auto_enable: true,
             ..Default::default()
@@ -1289,19 +1289,15 @@ fn teardown_only_emits_run_session_teardown() {
     // Given a session with a lifecycle that has a teardown command.
     let mut state = AppState::default_with_scope_focus();
     state.frontend.preferences.session_lifecycles.push(
-        jinn_domain::feat::preferences_actor::user_preferences::SessionLifecycle {
+        jinn_preferences_config::schemas::SessionLifecycle {
             name: "fossil branch".to_owned(),
             description: None,
-            setup: Some(
-                jinn_domain::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                    "echo setup".to_owned(),
-                ),
-            ),
-            teardown: Some(
-                jinn_domain::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                    "cleanup.sh $1".to_owned(),
-                ),
-            ),
+            setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                "echo setup".to_owned(),
+            )),
+            teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                "cleanup.sh $1".to_owned(),
+            )),
         },
     );
     state
@@ -1330,14 +1326,12 @@ fn teardown_only_is_noop_without_lifecycle_teardown() {
     // Given a session with a lifecycle that has NO teardown command.
     let mut state = AppState::default_with_scope_focus();
     state.frontend.preferences.session_lifecycles.push(
-        jinn_domain::feat::preferences_actor::user_preferences::SessionLifecycle {
+        jinn_preferences_config::schemas::SessionLifecycle {
             name: "plain".to_owned(),
             description: None,
-            setup: Some(
-                jinn_domain::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                    "echo setup".to_owned(),
-                ),
-            ),
+            setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                "echo setup".to_owned(),
+            )),
             teardown: None,
         },
     );
@@ -1363,19 +1357,15 @@ fn teardown_only_is_noop_when_session_busy() {
     // Given a session with a teardown command that is currently busy.
     let mut state = AppState::default_with_scope_focus();
     state.frontend.preferences.session_lifecycles.push(
-        jinn_domain::feat::preferences_actor::user_preferences::SessionLifecycle {
+        jinn_preferences_config::schemas::SessionLifecycle {
             name: "fossil branch".to_owned(),
             description: None,
-            setup: Some(
-                jinn_domain::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                    "echo setup".to_owned(),
-                ),
-            ),
-            teardown: Some(
-                jinn_domain::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                    "cleanup.sh $1".to_owned(),
-                ),
-            ),
+            setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                "echo setup".to_owned(),
+            )),
+            teardown: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                "cleanup.sh $1".to_owned(),
+            )),
         },
     );
     state

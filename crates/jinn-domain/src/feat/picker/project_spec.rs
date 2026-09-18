@@ -2,10 +2,11 @@
 //!
 //! Lists curated project directories and turns a selection into a new
 //! session: plain confirm starts the blank lifecycle at the chosen dir,
-//! `<c-enter>` chains into the session-lifecycle picker, `<c-n>` opens the
-//! add-directory input, and `<c-d>` removes the highlighted project (the
-//! picker stays open). Enter carries no close signal — the lifecycle setup
-//! owns the scope transition.
+//! `<c-enter>` chains into the session-lifecycle picker, and `<c-d>`
+//! removes the highlighted project (the picker stays open). Enter carries
+//! no close signal — the lifecycle setup owns the scope transition. The
+//! `<c-n>` add-directory opener belongs to the preferences slice (bound in
+//! this picker's static scope).
 
 use jinn_picker::ActionCtx;
 use jinn_picker::PickerEntry;
@@ -18,12 +19,12 @@ use ratatui::text::Line;
 use crate::common::app_state::AppState;
 use crate::common::focus::FocusScope;
 use crate::feat::picker::PickerKind;
-use crate::feat::preferences_actor::protocol::command::PreferenceUpdate;
-use crate::feat::preferences_actor::protocol::command::UpdatePreferences;
 use crate::feat::project::picker_entry::ProjectEntry;
 use crate::feat::project::picker_entry::render_project_row;
 use crate::feat::ui::frontend_state::PendingSessionCreation;
 use crate::feat::ui::picker_states::PickerExt;
+use jinn_preferences_config::protocol::command::PreferenceUpdate;
+use jinn_preferences_config::protocol::command::UpdatePreferences;
 
 /// The kernel entry this picker's items wrap in storage.
 pub use crate::feat::project::picker_entry::ProjectEntry as SpecEntry;
@@ -50,7 +51,7 @@ where
 
 /// Loads project entries into the picker: one row per curated directory,
 /// display strings precomputed (tilde-compressed) and sorted by display.
-pub(crate) fn load_project_entries(frontend: &mut crate::feat::ui::frontend_state::FrontendState) {
+pub fn load_project_entries(frontend: &mut crate::feat::ui::frontend_state::FrontendState) {
     let theme = frontend.theme.clone();
     let entries: Vec<ProjectEntry> =
         crate::feat::project::picker_entry::project_entries(&frontend.preferences.projects, &theme);
@@ -106,14 +107,6 @@ pub fn project_spec() -> PickerSpec<ProjectEntry> {
                 &registry,
                 crate::feat::picker::action::Hook::Open,
             );
-            PickerOutcome::from_route_result(result)
-        })
-        .bind("<c-n>", "add dir", |ctx| {
-            // Hand off to the add-directory input (the handler owns the
-            // scope push). No close signal — we are handing off, not done.
-            let state = state_of(ctx);
-            let result =
-                crate::feat::project_add_input::intent::handle_project_add_input_enter(state);
             PickerOutcome::from_route_result(result)
         })
         .bind("<c-d>", "remove", |ctx| {
@@ -174,8 +167,6 @@ mod tests {
     use crate::feat::picker::registry::build_picker_registry;
     use crate::feat::session::ChatSessionState;
     use crate::feat::ui::picker_states::PickerExt;
-    use jinn_picker::ActionCtx;
-    use jinn_picker::PickerId;
 
     /// State with an active origin session (cwd distinct from the project
     /// dirs), the project picker open, and the given curated projects.
@@ -202,16 +193,6 @@ mod tests {
         load_project_entries(&mut state.frontend);
         // index 0 is selected by default after set_items + reset.
         state
-    }
-
-    /// Runs a spec action against `state` with a fresh dispatch context.
-    fn run(
-        state: &mut AppState,
-        f: impl FnOnce(&mut ActionCtx<'_>) -> PickerOutcome,
-    ) -> PickerOutcome {
-        let mut host = crate::feat::picker::host_impl::AppStatePickerHost::new(state);
-        let mut ctx = ActionCtx::new(PickerId::new(PROJECT_ID), &mut host);
-        f(&mut ctx)
     }
 
     #[rstest::rstest]
@@ -312,23 +293,6 @@ mod tests {
             .expect("pending creation stashed");
         assert_eq!(pending.project_dir, std::path::Path::new("/tmp/project-a"));
         assert_eq!(pending.starting_cwd, std::path::Path::new("/tmp/project-a"));
-    }
-
-    #[rstest::rstest]
-    fn ctrl_n_opens_the_add_dir_input() {
-        // Given a project picker with an active session.
-        let mut state = state_with_projects(&["/tmp/project-a"]);
-
-        // When pressing <c-n> (add dir).
-        let _result = crate::feat::picker::action::run_action(
-            &mut state,
-            &build_picker_registry(),
-            PROJECT_ID,
-            "<c-n>",
-        );
-
-        // Then the add-input scope was pushed (seeded from the session cwd).
-        assert_eq!(state.frontend.scope(), FocusScope::ProjectAddInput);
     }
 
     #[rstest::rstest]

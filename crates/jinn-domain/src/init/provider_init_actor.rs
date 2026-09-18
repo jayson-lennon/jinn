@@ -169,7 +169,7 @@ mod tests {
     use crate::feat::provider::protocol::command::ProviderSwitch;
     use crate::feat::provider::protocol::event::ModelCacheLoaded;
     use crate::feat::provider_infra::ProviderEntry;
-    use crate::feat::session::model_selection::ModelSelection;
+    use jinn_core_types::model_selection::ModelSelection;
 
     async fn create_actor() -> (ProviderInitActor, BusAudit, Services, State) {
         let (bus, audit) = crate::common::services::BusService::new_recording();
@@ -213,12 +213,10 @@ mod tests {
 
         services
             .app_state_storage
-            .save(
-                &crate::feat::preferences_actor::app_state_file::AppStateFile {
-                    last_model: Some(ModelSelection::from_single("sample/sample".to_owned())),
-                    ..Default::default()
-                },
-            )
+            .save(&jinn_preferences_config::app_state_file::AppStateFile {
+                last_model: Some(ModelSelection::from_single("sample/sample".to_owned())),
+                ..Default::default()
+            })
             .expect("save app state");
 
         let config = sample_config();
@@ -243,17 +241,15 @@ mod tests {
 
         let alloy = ModelSelection::Alloy {
             models: vec!["sample/alpha".to_owned(), "sample/beta".to_owned()],
-            strategy: crate::feat::session::model_selection::AlloyStrategy::RoundRobin { index: 0 },
+            strategy: jinn_core_types::model_selection::AlloyStrategy::RoundRobin { index: 0 },
         };
 
         services
             .app_state_storage
-            .save(
-                &crate::feat::preferences_actor::app_state_file::AppStateFile {
-                    last_model: Some(alloy.clone()),
-                    ..Default::default()
-                },
-            )
+            .save(&jinn_preferences_config::app_state_file::AppStateFile {
+                last_model: Some(alloy.clone()),
+                ..Default::default()
+            })
             .expect("save app state");
 
         let mut config = sample_config();
@@ -373,12 +369,10 @@ mod tests {
 
         services
             .app_state_storage
-            .save(
-                &crate::feat::preferences_actor::app_state_file::AppStateFile {
-                    last_model: Some(ModelSelection::from_single("sample/sample".to_owned())),
-                    ..Default::default()
-                },
-            )
+            .save(&jinn_preferences_config::app_state_file::AppStateFile {
+                last_model: Some(ModelSelection::from_single("sample/sample".to_owned())),
+                ..Default::default()
+            })
             .expect("save app state");
 
         let config = sample_config();

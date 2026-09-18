@@ -6,8 +6,8 @@
 
 use crate::common::app_state::{AppState, FocusScope, PrunerAccumulationInputState};
 use crate::common::line_input::LineInput;
-use crate::feat::preferences_actor::protocol::command::{PreferenceUpdate, UpdatePreferences};
 use crate::protocol::IntentResult;
+use jinn_preferences_config::protocol::command::{PreferenceUpdate, UpdatePreferences};
 
 /// Opens the pruner accumulation threshold input popup.
 ///
@@ -139,7 +139,7 @@ mod tests {
         reason = "test code"
     )]
     use crate::common::app_state::{AppState, FocusScope};
-    use crate::feat::preferences_actor::protocol::command::UpdatePreferences;
+    use jinn_preferences_config::protocol::command::UpdatePreferences;
 
     use super::*;
 

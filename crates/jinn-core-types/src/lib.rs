@@ -10,12 +10,16 @@
 pub mod actor_lifecycle;
 pub mod chat_entry_id;
 pub mod context_override;
+pub mod model_selection;
+pub mod reasoning;
 pub mod session_id;
 pub mod tool_types;
 
 pub use actor_lifecycle::ActorLifecycle;
 pub use chat_entry_id::ChatEntryId;
 pub use context_override::ContextOverride;
+pub use model_selection::{AlloyData, AlloyStrategy, ModelSelection, NO_PROVIDER_ID};
+pub use reasoning::ReasoningEffort;
 pub use session_id::SessionId;
 pub use tool_types::{
     ServerToolType, ToolCall, ToolDefinition, ToolResult, ToolResultPinPosition, TruncatedBy,

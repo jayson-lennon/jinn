@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::feat::provider::llm_message::LlmMessage;
 use jinn_slices::SystemPrompt;
 
-use crate::feat::session::model_selection::ModelSelection;
 use crate::protocol::SessionId;
+use jinn_core_types::model_selection::ModelSelection;
 use jinn_core_types::tool_types::ToolDefinition;
 
 use jiff::Timestamp;

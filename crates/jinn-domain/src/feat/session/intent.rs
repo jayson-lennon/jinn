@@ -51,7 +51,7 @@ mod tests {
     use crate::common::app_state::AppState;
     use crate::protocol::{ChatEntry, ChatEntryKind, PickerKind};
 
-    use crate::feat::session::model_selection::ModelSelection;
+    use jinn_core_types::model_selection::ModelSelection;
 
     use super::*;
 

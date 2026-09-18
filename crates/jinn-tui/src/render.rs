@@ -185,7 +185,7 @@ fn refresh_mcp_inspector_snapshot(state: &mut jinn_domain::AppState) {
             .tool_registry()
             .map(|cell| cell.read().tools_for_session(&session_id))
             .unwrap_or_default();
-        jinn_domain::feat::mcp::picker_entry::refresh_snapshot(
+        jinn_domain::feat::picker::mcp_picker_entry::refresh_snapshot(
             &server_name,
             status,
             &stderr_tail,
@@ -310,12 +310,6 @@ fn render_active_overlay(
                 frame, area, ctx,
             );
             Some(jinn_domain::feat::pruner_accumulation_input::render::pruner_accumulation_popup_rect(area))
-        }
-        FocusScope::ProjectAddInput => {
-            jinn_domain::feat::project_add_input::render::render_project_add_input(
-                frame, area, ctx,
-            );
-            Some(jinn_domain::feat::project_add_input::render::project_add_input_popup_rect(area))
         }
         FocusScope::Dynamic(id) => {
             // Slice overlays: consult the geometry fn + renderer the

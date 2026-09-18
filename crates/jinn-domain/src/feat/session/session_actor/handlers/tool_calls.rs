@@ -8,9 +8,9 @@ use crate::feat::context::protocol::event::ContextOverrideChanged;
 use crate::feat::context::snapshot::{assemble_via_service, build_assembly_inputs};
 use crate::feat::provider::protocol::command::SendToLlmProvider;
 use crate::feat::session::chat_entry::PinPosition;
-use crate::feat::session::model_selection::ModelSelection;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::token_stats::TokenRecord;
+use jinn_core_types::model_selection::ModelSelection;
 use jinn_tools_msg::{
     ToolBatchCompleted, ToolCallReceived, ToolCallStreaming, ToolExecutionCompleted,
     ToolExecutionOutput, ToolExecutionStarted, ToolUseStarted,

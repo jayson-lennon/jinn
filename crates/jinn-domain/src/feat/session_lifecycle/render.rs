@@ -60,8 +60,8 @@ pub fn arg_input_popup_rect(area: Rect, ctx: &RenderCtx) -> Rect {
         .find(|l| l.name == arg_state.lifecycle_name)
         .and_then(|l| l.setup.as_ref())
         .and_then(|cmd| match cmd {
-            crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(s) => Some(s.as_str()),
-            crate::feat::session_lifecycle::builtin::LifecycleCommand::Builtin(_) => None,
+            jinn_preferences_config::schemas::LifecycleCommand::Shell(s) => Some(s.as_str()),
+            jinn_preferences_config::schemas::LifecycleCommand::Builtin(_) => None,
         })
         .map_or(1, |cmd| {
             let template = CommandTemplate::parse(cmd);
@@ -93,8 +93,8 @@ pub fn render_arg_input(frame: &mut Frame<'_>, area: Rect, ctx: &RenderCtx) {
         .find(|l| l.name == arg_state.lifecycle_name)
         .and_then(|l| l.setup.as_ref())
         .and_then(|cmd| match cmd {
-            crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(s) => Some(s.as_str()),
-            crate::feat::session_lifecycle::builtin::LifecycleCommand::Builtin(_) => None,
+            jinn_preferences_config::schemas::LifecycleCommand::Shell(s) => Some(s.as_str()),
+            jinn_preferences_config::schemas::LifecycleCommand::Builtin(_) => None,
         })
         .map(CommandTemplate::parse);
 
@@ -219,7 +219,7 @@ mod tests {
     use super::*;
     use crate::AppState;
     use crate::common::app_state::ArgInputState;
-    use crate::feat::preferences_actor::user_preferences::SessionLifecycle;
+    use jinn_preferences_config::schemas::SessionLifecycle;
     use jinn_testutil::setup_term;
 
     fn make_state_with_args(
@@ -247,11 +247,9 @@ mod tests {
                 .push(SessionLifecycle {
                     name: lifecycle_name.to_owned(),
                     description: None,
-                    setup: Some(
-                        crate::feat::session_lifecycle::builtin::LifecycleCommand::Shell(
-                            cmd.to_owned(),
-                        ),
-                    ),
+                    setup: Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(
+                        cmd.to_owned(),
+                    )),
                     teardown: None,
                 });
         }

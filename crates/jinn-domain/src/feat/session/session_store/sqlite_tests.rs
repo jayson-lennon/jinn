@@ -1237,8 +1237,8 @@ async fn fork_blocking_sets_fork_ordinal() {
     assert_eq!(root.fork_ordinal(), None);
 }
 
-use crate::feat::session::model_selection::ModelSelection;
 use crate::feat::session::session_store::migrator::seed_at_version;
+use jinn_core_types::model_selection::ModelSelection;
 use rusqlite::params;
 
 /// A metadata blob in the 0.65 shape: `profile.model` is a bare string.

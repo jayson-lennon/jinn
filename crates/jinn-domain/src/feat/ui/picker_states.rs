@@ -8,8 +8,8 @@
 use crate::feat::endpoint::picker_entry::EndpointEntry;
 use std::collections::HashSet;
 
-use crate::feat::mcp::picker_entry::McpServerEntry;
 use crate::feat::persona::PersonaEntry;
+use crate::feat::picker::mcp_picker_entry::McpServerEntry;
 use crate::feat::picker::task_list_picker_entry::TaskListTreeEntry;
 use crate::feat::picker::tool_entry::ToolEntry;
 use crate::feat::plugin::PluginPickerEntry;

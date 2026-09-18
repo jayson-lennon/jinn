@@ -45,6 +45,8 @@
 
 use std::sync::Arc;
 
+pub use jinn_preferences_config::schemas::auto_prune::ToolAgeWindowAutoPruneConfig;
+
 use crate::feat::history_worker::worker_trait::HistoryWorker;
 use crate::feat::session::chat_entry::{
     ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride,
@@ -52,17 +54,12 @@ use crate::feat::session::chat_entry::{
 use crate::feat::session::history_mutation::HistoryMutation;
 use crate::feat::session::tool_result_status::ToolResultStatus;
 use crate::protocol::SessionId;
-use serde::{Deserialize, Serialize};
 
 /// Default enabled state for tool-age-window auto-prune.
-const DEFAULT_TOOL_AGE_WINDOW_ENABLED: bool = true;
-
 /// Default `min_age` for tool-age-window auto-prune.
 ///
 /// Number of entries from the end of history within which `ToolCall`/
 /// `ToolResult` pairs are protected from pruning.
-const DEFAULT_TOOL_AGE_WINDOW_MIN_AGE: usize = 150;
-
 /// Tool-age-window auto-prune configuration.
 ///
 /// Serialized as `[auto_prune.tool_age_window]` in `jinn.toml`.
@@ -74,37 +71,6 @@ const DEFAULT_TOOL_AGE_WINDOW_MIN_AGE: usize = 150;
 /// status, so that multiple auto-prune workers compose cleanly: each
 /// worker's prune region is fixed by raw history length alone, not by what
 /// has already been `ForcedExclude`d by other workers.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ToolAgeWindowAutoPruneConfig {
-    /// Whether the tool-age-window auto-prune worker is active.
-    /// Default: `true`.
-    #[serde(default = "default_tool_age_window_enabled")]
-    pub enabled: bool,
-    /// Minimum number of entries from the end of history within which
-    /// `ToolCall`/`ToolResult` pairs are protected from pruning.
-    /// Counts every entry, regardless of in-context status.
-    /// Minimum 1 (clamped at worker construction).
-    /// Default: 100.
-    #[serde(default = "default_tool_age_window_min_age")]
-    pub min_age: usize,
-}
-
-fn default_tool_age_window_enabled() -> bool {
-    DEFAULT_TOOL_AGE_WINDOW_ENABLED
-}
-
-fn default_tool_age_window_min_age() -> usize {
-    DEFAULT_TOOL_AGE_WINDOW_MIN_AGE
-}
-
-impl Default for ToolAgeWindowAutoPruneConfig {
-    fn default() -> Self {
-        Self {
-            enabled: DEFAULT_TOOL_AGE_WINDOW_ENABLED,
-            min_age: DEFAULT_TOOL_AGE_WINDOW_MIN_AGE,
-        }
-    }
-}
 /// Tool-age-window auto-prune worker.
 ///
 /// See module docs for full semantics. Construct with

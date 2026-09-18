@@ -70,6 +70,7 @@ pub async fn launch_for_test(core: AppCore, mut services: jinn_domain::Services)
         activate_scope_focus(&mut services);
         activate_chat_input(&mut services);
         activate_cwd(&mut services);
+        activate_preferences(&mut services);
         activate_sidebar(&mut services);
         activate_theme(&mut services);
         activate_persona(&mut services);
@@ -436,6 +437,21 @@ pub fn activate_cwd(services: &mut jinn_domain::Services) {
     jinn_cwd::activate(&mut host);
     if let Err(error) = host.finalize(&|_key| None) {
         panic!("cwd slice finalize failed: {error}");
+    }
+}
+
+/// Activates the preferences slice on the harness services.
+pub fn activate_preferences(services: &mut jinn_domain::Services) {
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_preferences::activate(&mut host);
+    if let Err(error) = host.finalize(&|_key| None) {
+        panic!("preferences slice finalize failed: {error}");
     }
 }
 

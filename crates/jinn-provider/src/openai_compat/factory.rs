@@ -9,8 +9,8 @@ use reqwest::Client;
 
 use crate::openai_compat::provider_config::ProviderConfig;
 use crate::openai_compat::service::OpenAiCompatibleService;
-use crate::reasoning::ReasoningEffort;
 use crate::service::{LlmService, LlmServiceError, LlmServiceFactory};
+use jinn_core_types::reasoning::ReasoningEffort;
 
 /// Factory for OpenAI-compatible LLM services.
 ///

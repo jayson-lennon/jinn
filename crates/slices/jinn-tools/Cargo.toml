@@ -27,6 +27,7 @@ unicode-segmentation = { workspace = true }
 # project command-policy resolution) are kernel type reads — the discord
 # precedent for a slice consuming kernel vocabulary at execution time.
 jinn-domain = { workspace = true, features = ["test-harness"] }
+jinn-preferences-config = { workspace = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }

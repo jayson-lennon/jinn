@@ -26,12 +26,12 @@ use crate::feat::compaction_worker::serializer::serialize_entries_for_compaction
 use crate::feat::context::strategy::token_estimator::{CharRatioEstimator, TokenEstimator};
 
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::feat::preferences_actor::user_preferences::CompactionConfig;
 use crate::feat::session::chat_entry::{
     ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride,
 };
 use crate::feat::session::history_mutation::HistoryMutation;
 use crate::protocol::SessionId;
+use jinn_preferences_config::schemas::CompactionConfig;
 
 /// Errors during compaction.
 #[derive(Debug, Error)]
@@ -192,7 +192,8 @@ impl CompactionWorker {
         let (config, compaction_prompt, retry_config) = {
             let config = prefs.compaction.clone();
             let compaction_prompt = self.compaction_prompt.clone();
-            let retry_config = prefs.request_retry.to_retry_config();
+            let retry_config =
+                crate::feat::llm_actor::request_retry_to_provider_config(&prefs.request_retry);
             (config, compaction_prompt, retry_config)
         };
 
@@ -261,7 +262,8 @@ impl CompactionWorker {
             };
             let model_name = session.profile().model.clone();
             let compaction_prompt = self.compaction_prompt.clone();
-            let retry_config = prefs.request_retry.to_retry_config();
+            let retry_config =
+                crate::feat::llm_actor::request_retry_to_provider_config(&prefs.request_retry);
 
             // Uses the exact same values displayed in the status bar:
             //   - context_size() = tiktoken count from last prompt assembly

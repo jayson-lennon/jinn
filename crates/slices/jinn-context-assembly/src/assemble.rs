@@ -233,12 +233,12 @@ mod tests {
     )]
     use super::*;
     use jinn_core_types::ServerToolType;
+    use jinn_core_types::model_selection::ModelSelection;
     use jinn_core_types::tool_types::ToolDefinition;
     use jinn_domain::common::app_state::AppState;
     use jinn_domain::common::state::State;
     use jinn_domain::feat::context::env_context::ContextFile;
     use jinn_domain::feat::context::strategy::token_estimator::TiktokenCounter;
-    use jinn_domain::feat::session::model_selection::ModelSelection;
     use jinn_domain::feat::session::tool_result_status::ToolResultStatus;
     use jinn_domain::feat::skills::Skill;
     use jinn_domain::protocol::{ChatEntry, SessionId};

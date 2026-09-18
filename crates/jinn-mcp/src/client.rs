@@ -2,7 +2,7 @@
 //!
 //! This module is transport-level: [`McpClient`] owns one `rmcp` client
 //! connection to one MCP server. It knows nothing about the actor
-//! system or `AppState`. The `jinn-domain::feat::mcp_actor` module drives it.
+//! system or `AppState`. The `jinn-mcp-slice` drives it.
 //!
 //! # Lifecycle
 //!

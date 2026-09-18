@@ -13,7 +13,9 @@ jinn-theme = { workspace = true }
 # performs state mutations through the kernel's shared `State` handle and
 # capability plumbing, and the route actions reuse kernel feature helpers.
 # The kernel never depends back on this crate.
+jinn-core-types = { workspace = true }
 jinn-domain = { workspace = true }
+jinn-preferences-config = { workspace = true }
 jinn-tools-msg = { workspace = true }
 jinn-picker = { workspace = true }
 kameo = { workspace = true }

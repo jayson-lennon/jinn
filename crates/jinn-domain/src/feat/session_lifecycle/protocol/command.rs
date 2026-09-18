@@ -22,7 +22,7 @@ pub struct RunSessionSetup {
     /// The original lifecycle command, used to dispatch builtin vs shell.
     /// `None` for backward compatibility with existing callers.
     #[serde(default)]
-    pub lifecycle_command: Option<crate::feat::session_lifecycle::builtin::LifecycleCommand>,
+    pub lifecycle_command: Option<jinn_preferences_config::schemas::LifecycleCommand>,
 }
 
 impl BusMessage for RunSessionSetup {}

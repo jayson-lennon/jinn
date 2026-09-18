@@ -28,6 +28,7 @@ jinn-core-types = { workspace = true }
 jinn-tools-msg = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-term-msg = { workspace = true }
+jinn-preferences-config = { workspace = true }
 jinn-session-msg = { workspace = true }
 jinn-provider-config = { workspace = true }
 jinn-mcp = { workspace = true }

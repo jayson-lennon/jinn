@@ -34,7 +34,6 @@ pub struct BusService {
 #[derive(Clone)]
 enum BusInner {
     Real(ActorRef<MessageBus>),
-    #[cfg_attr(not(test), expect(dead_code, reason = "test-only recording mode"))]
     Recording(Arc<Mutex<Vec<RecordedMessage>>>),
 }
 

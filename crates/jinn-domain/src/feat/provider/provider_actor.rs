@@ -481,8 +481,8 @@ mod tests {
     use crate::feat::provider::protocol::command::LoadProviderPickerEntries;
     use crate::feat::provider::protocol::command::ProviderSwitch;
     use crate::feat::provider::protocol::event::ProviderSwitched;
-    use crate::feat::session::model_selection::ModelSelection;
     use crate::feat::ui::picker_states::PickerExt;
+    use jinn_core_types::model_selection::ModelSelection;
 
     async fn create_harness() -> (TestHarness, State) {
         let harness = TestHarness::new().await;

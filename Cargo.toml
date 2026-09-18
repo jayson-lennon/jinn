@@ -96,6 +96,8 @@ jinn-plugin = { workspace = true }
 jinn-plugin-api = { workspace = true }
 jinn-tui = { workspace = true }
 jinn-domain = { workspace = true }
+jinn-preferences-config = { workspace = true }
+jinn-preferences = { workspace = true }
 jinn-dashboard = { workspace = true }
 jinn-discord = { workspace = true }
 jinn-discord-msg = { workspace = true }
@@ -180,6 +182,8 @@ jinn-slices = { path = "crates/jinn-slices" }
 jinn-session-msg = { path = "crates/jinn-session-msg" }
 jinn-session-schema = { path = "crates/jinn-session-schema" }
 jinn-provider-config = { path = "crates/jinn-provider-config" }
+jinn-preferences-config = { path = "crates/jinn-preferences-config" }
+jinn-preferences = { path = "crates/slices/jinn-preferences" }
 ratatui-markdown = { path = "vendor/ratatui-markdown", features = [
   "markdown",
   "highlight",

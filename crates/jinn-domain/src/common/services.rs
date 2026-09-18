@@ -17,7 +17,7 @@ use std::sync::Arc;
 use derive_more::Debug;
 use kameo::actor::Spawn;
 
-use crate::feat::preferences_actor::{
+use jinn_preferences_config::{
     AppStateStorageService, InMemoryAppStateStorage, InMemoryUserPreferencesStorage,
     UserPreferencesStorageService,
 };
@@ -246,7 +246,13 @@ impl Services {
     }
 
     /// Construct a fake Services with a pre-built bus (e.g. BusService::new_recording()).
-    #[cfg(test)]
+    ///
+    /// # Panics
+    ///
+    /// Panics if the embedded temp dir, provider registry, or storage
+    /// reloads fail — test infrastructure initialization must abort.
+    #[cfg(any(test, feature = "test-harness"))]
+    #[expect(clippy::expect_used, reason = "test infrastructure initialization")]
     pub async fn new_fake_with_bus(bus: bus_service::BusService) -> Self {
         let handle = test_services::shared_test_handle();
         let tempdir = Arc::new(tempfile::TempDir::new().expect("test temp dir"));

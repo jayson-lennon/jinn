@@ -469,7 +469,7 @@ mod tests {
             Some(jinn_core_types::ServerToolType::OpenrouterWebSearch),
         )]);
         state.active_session_mut().set_model(
-            crate::feat::session::model_selection::ModelSelection::Single("zai/glm-4.6".to_owned()),
+            jinn_core_types::model_selection::ModelSelection::Single("zai/glm-4.6".to_owned()),
         );
 
         // When opening the tool picker.
@@ -496,7 +496,7 @@ mod tests {
             Some(jinn_core_types::ServerToolType::OpenrouterWebSearch),
         )]);
         state.active_session_mut().set_model(
-            crate::feat::session::model_selection::ModelSelection::Single(
+            jinn_core_types::model_selection::ModelSelection::Single(
                 "openrouter/openai/gpt-oss-120b".to_owned(),
             ),
         );

@@ -15,6 +15,7 @@ jinn-discord-msg = { workspace = true }
 # live in jinn-domain. This edge survives the cut (slice → domain is
 # the legal direction).
 jinn-domain = { workspace = true, features = ["test-harness"] }
+jinn-preferences-config = { workspace = true }
 jinn-session-msg = { workspace = true }
 jinn-slices = { workspace = true }
 kanal = { workspace = true }

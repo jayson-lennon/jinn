@@ -20,8 +20,6 @@ pub enum FocusScope {
     ArgInput,
     /// Rename session input popup - editing a session title.
     RenameSessionInput,
-    /// Project-add input popup - typing a directory path to register a new project.
-    ProjectAddInput,
     /// Pruner accumulation threshold popup - numeric input for the KV-cache gate.
     PrunerAccumulationInput,
 
@@ -44,7 +42,6 @@ impl FocusScope {
             Self::Input
             | Self::ArgInput
             | Self::RenameSessionInput
-            | Self::ProjectAddInput
             | Self::PrunerAccumulationInput => Mode::Input,
             Self::Picker { .. } => Mode::Picker,
             // Normal (capture-mode dynamic scopes route keystrokes to
@@ -63,7 +60,6 @@ impl std::fmt::Display for FocusScope {
             Self::Picker { kind } => write!(f, "Picker({kind})"),
             Self::ArgInput => write!(f, "ArgInput"),
             Self::RenameSessionInput => write!(f, "RenameSessionInput"),
-            Self::ProjectAddInput => write!(f, "ProjectAddInput"),
             Self::PrunerAccumulationInput => write!(f, "PrunerAccumulationInput"),
             Self::Dynamic(id) => write!(f, "Dynamic({id})"),
         }

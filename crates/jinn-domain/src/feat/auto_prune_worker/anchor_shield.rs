@@ -40,9 +40,11 @@
 //! [`ContextOverride::ForcedInclude`]: crate::feat::session::chat_entry::ContextOverride::ForcedInclude
 //! [`AnchoredAssistantAutoPruneWorker`]: super::AnchoredAssistantAutoPruneWorker
 //! [`collect_user_anchor_indices`]: super::anchored_assistant::collect_user_anchor_indices
-//! [`AnchorShieldConfig`]: crate::feat::preferences_actor::user_preferences::AnchorShieldConfig
+//! [`AnchorShieldConfig`]: jinn_preferences_config::schemas::AnchorShieldConfig
 
 use std::collections::HashSet;
+
+pub use jinn_preferences_config::schemas::auto_prune::AnchorShieldConfig;
 use std::sync::Arc;
 
 use crate::feat::auto_prune_worker::anchored_assistant::{
@@ -54,14 +56,9 @@ use crate::feat::session::chat_entry::{
 };
 use crate::feat::session::history_mutation::HistoryMutation;
 use crate::protocol::SessionId;
-use serde::{Deserialize, Serialize};
 
 /// Default enabled state for anchor-shield auto-prune.
-const DEFAULT_ANCHOR_SHIELD_ENABLED: bool = true;
-
 /// Default radius (in raw history entries) for the anchor-shield worker.
-const DEFAULT_ANCHOR_SHIELD_RADIUS: usize = 20;
-
 /// Anchor-shield auto-prune strategy configuration.
 ///
 /// Serialized as `[auto_prune.anchor_shield]` in `jinn.toml`.
@@ -73,39 +70,6 @@ const DEFAULT_ANCHOR_SHIELD_RADIUS: usize = 20;
 ///
 /// The `radius` value is also used by the `AnchoredAssistantAutoPruneWorker`
 /// so the shield boundary and prune boundary always align.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AnchorShieldConfig {
-    /// Whether the anchor-shield worker is active.
-    /// Default: `true`.
-    #[serde(default = "default_anchor_shield_enabled")]
-    pub enabled: bool,
-    /// Radius (in raw chat entries) within which in-context entries
-    /// are shielded from exclusion by other workers.
-    /// This value is also used by the `AnchoredAssistantAutoPruneWorker`
-    /// so the shield boundary and prune boundary always align.
-    /// Minimum 1 (clamped at evaluation time).
-    /// Default: `20`.
-    #[serde(default = "default_anchor_shield_radius")]
-    pub radius: usize,
-}
-
-fn default_anchor_shield_enabled() -> bool {
-    DEFAULT_ANCHOR_SHIELD_ENABLED
-}
-
-fn default_anchor_shield_radius() -> usize {
-    DEFAULT_ANCHOR_SHIELD_RADIUS
-}
-
-impl Default for AnchorShieldConfig {
-    fn default() -> Self {
-        Self {
-            enabled: DEFAULT_ANCHOR_SHIELD_ENABLED,
-            radius: DEFAULT_ANCHOR_SHIELD_RADIUS,
-        }
-    }
-}
-
 /// Anchor-shield auto-prune worker.
 ///
 /// See module docs for full semantics. Construct with [`AnchorShieldConfig`].

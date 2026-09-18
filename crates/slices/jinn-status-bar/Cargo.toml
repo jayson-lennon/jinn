@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 jinn-status-bar-msg = { workspace = true }
+jinn-core-types = { workspace = true }
 jinn-domain = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-theme = { workspace = true }

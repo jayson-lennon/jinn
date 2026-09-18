@@ -221,11 +221,6 @@ pub enum Intent {
     /// Delete the grapheme after the cursor in pruner accumulation input.
     PrunerAccumulationDeleteForward,
 
-    /// Confirm the project-add input - resolve, validate, and register.
-    ProjectAddInputConfirm,
-    /// Cancel the project-add input popup.
-    ProjectAddInputLeave,
-
     /// Change the session's working directory via an external picker.
     ChangeCwd {
         /// Where to search from.
@@ -246,11 +241,6 @@ pub enum Intent {
 }
 
 impl std::fmt::Display for Intent {
-    #[expect(
-        clippy::too_many_lines,
-        clippy::match_same_arms,
-        reason = "handler reads best as a single unit"
-    )]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Intent::InsertChar { ch } => write!(f, "insert '{ch}'"),
@@ -346,8 +336,6 @@ impl std::fmt::Display for Intent {
             Intent::PrunerAccumulationDeleteForward => {
                 write!(f, "pruner accumulation forward delete")
             }
-            Intent::ProjectAddInputConfirm => write!(f, "project-add input confirm"),
-            Intent::ProjectAddInputLeave => write!(f, "project-add input leave"),
 
             Intent::ChangeCwd { root } => write!(f, "change cwd from '{root}'"),
 

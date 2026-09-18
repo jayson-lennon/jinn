@@ -3,7 +3,7 @@
 //! Wraps the `rmcp` crate to connect to an MCP server over a stdio child
 //! process, list its tools, and invoke them. This crate is transport-level:
 //! it knows nothing about the actor system or `AppState`. The
-//! `jinn-domain::feat::mcp_actor` module drives it from inside the actor
+//! `jinn-mcp-slice` drives it from inside the actor
 //! system.
 
 pub mod client;

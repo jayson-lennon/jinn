@@ -326,7 +326,6 @@ pub fn scope_for_focus(focus: &jinn_domain::FocusScope) -> Scope {
         FocusScope::Input => Scope::Input,
         FocusScope::ArgInput => Scope::ArgInput,
         FocusScope::RenameSessionInput => Scope::RenameSessionInput,
-        FocusScope::ProjectAddInput => Scope::ProjectAddInput,
         FocusScope::PrunerAccumulationInput => Scope::PrunerAccumulationInput,
         // Dynamic slice scopes pass their identity through unchanged.
         FocusScope::Dynamic(id) => Scope::Dynamic(id.clone()),

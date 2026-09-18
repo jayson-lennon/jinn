@@ -297,7 +297,7 @@ impl QueueActor {
             let reasoning_effort = crate::resolve_effort(profile.reasoning_effort);
             // Endpoint pin applies only to a Single model; alloys rotate.
             let endpoint_tag = match (&profile.model, &profile.endpoint) {
-                (crate::feat::session::model_selection::ModelSelection::Single(_), Some(ep)) => {
+                (jinn_core_types::model_selection::ModelSelection::Single(_), Some(ep)) => {
                     Some(ep.tag.clone())
                 }
                 _ => None,
@@ -669,10 +669,9 @@ mod tests {
         {
             let mut state = actor.state.write_test_no_cap();
             let session = state.session_mut_or_create(&sid);
-            session.profile_mut().model =
-                crate::feat::session::model_selection::ModelSelection::Single(
-                    "my-uncatalogued-llama".to_owned(),
-                );
+            session.profile_mut().model = jinn_core_types::model_selection::ModelSelection::Single(
+                "my-uncatalogued-llama".to_owned(),
+            );
         }
         // Build an entry that already carries an attachment (as if resolved).
         let mut entry = ChatEntry::user("describe this");
@@ -732,10 +731,9 @@ mod tests {
         {
             let mut state = actor.state.write_test_no_cap();
             let session = state.session_mut_or_create(&sid);
-            session.profile_mut().model =
-                crate::feat::session::model_selection::ModelSelection::Single(
-                    "test-provider/test-model".to_owned(),
-                );
+            session.profile_mut().model = jinn_core_types::model_selection::ModelSelection::Single(
+                "test-provider/test-model".to_owned(),
+            );
         }
         let entry = ChatEntry::user("hello");
 

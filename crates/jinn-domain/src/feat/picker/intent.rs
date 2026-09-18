@@ -8,7 +8,7 @@
 
 use crate::common::app_state::AppState;
 use crate::common::app_state::FocusScope;
-use crate::feat::session::model_selection::ModelSelection;
+use jinn_core_types::model_selection::ModelSelection;
 
 use crate::protocol::{Intent, IntentResult, PickerKind};
 
@@ -245,7 +245,7 @@ mod tests {
     }
     use crate::feat::picker::task_list_picker_entry::RowStatus;
     use crate::feat::session::ChatSessionState;
-    use crate::feat::session::model_selection::AlloyStrategy;
+    use jinn_core_types::model_selection::AlloyStrategy;
     use jinn_selection_widget::TreeItem;
     use jinn_tools_msg::TaskStatus;
     #[rstest::rstest]
@@ -335,7 +335,7 @@ mod tests {
     #[rstest::rstest]
     fn open_endpoint_picker_is_noop_for_alloy_model() {
         // Given a session on an alloy of two models.
-        use crate::feat::session::model_selection::ModelSelection;
+        use jinn_core_types::model_selection::ModelSelection;
 
         let mut state = AppState::default_with_scope_focus();
         let origin = ChatSessionState::new();

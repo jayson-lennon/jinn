@@ -13,7 +13,7 @@
 use serde_json::Map;
 
 use crate::openai_compat::provider_config::ProviderConfig;
-use crate::reasoning::ReasoningEffort;
+use jinn_core_types::reasoning::ReasoningEffort;
 
 /// Insert reasoning-effort fields into `extra_body` in the backend's wire shape.
 ///

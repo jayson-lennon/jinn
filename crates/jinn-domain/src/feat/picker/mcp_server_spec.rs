@@ -31,8 +31,8 @@ use ratatui::text::Span;
 
 use crate::PushChatEntry;
 use crate::common::app_state::AppState;
-use crate::feat::mcp::picker_entry::McpPreviewMode;
-use crate::feat::mcp::picker_entry::McpServerEntry;
+use crate::feat::picker::mcp_picker_entry::McpPreviewMode;
+use crate::feat::picker::mcp_picker_entry::McpServerEntry;
 use crate::feat::picker::style::dim_style;
 use crate::feat::picker::style::split_match_indices;
 use crate::feat::ui::picker_states::PickerExt;
@@ -415,11 +415,11 @@ mod tests {
     use jinn_picker::SpecHandle;
 
     /// A configured MCP server: command + args become the picker description.
-    fn server_config(command: &str, args: &[&str]) -> crate::feat::mcp::McpServerConfig {
-        crate::feat::mcp::McpServerConfig {
+    fn server_config(command: &str, args: &[&str]) -> jinn_mcp_msg::McpServerConfig {
+        jinn_mcp_msg::McpServerConfig {
             command: Some(command.to_owned()),
             args: args.iter().map(|s| (*s).to_owned()).collect(),
-            transport: crate::feat::mcp::TransportKind::Stdio,
+            transport: jinn_mcp_msg::TransportKind::Stdio,
             url: None,
             headers: std::collections::BTreeMap::new(),
             auto_enable: false,
