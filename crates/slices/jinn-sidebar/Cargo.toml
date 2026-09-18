@@ -9,17 +9,20 @@ jinn-sidebar-msg = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-term-msg = { workspace = true }
 jinn-theme = { workspace = true }
-# Slice → kernel edge (established by jinn-dashboard): the sidebar actor
-# performs state mutations through the kernel's shared `State` handle and
-# capability plumbing, and the route actions reuse kernel feature helpers.
-# The kernel never depends back on this crate.
+# The trouper runtime: ServiceActors, topics, schemas.
+trouper = { workspace = true }
+# Slice → kernel edge (established by jinn-dashboard): the sidebar's
+# trouper actor folds kernel session events into state through the
+# kernel's shared `State` handle and capability plumbing, and the route
+# actions reuse kernel feature helpers. The kernel never depends back on
+# this crate.
 jinn-core-types = { workspace = true }
 jinn-domain = { workspace = true }
 jinn-preferences-config = { workspace = true }
 jinn-tools-msg = { workspace = true }
 jinn-picker = { workspace = true }
-kameo = { workspace = true }
 error-stack = { workspace = true }
+serde_json = { workspace = true }
 wherror = { workspace = true }
 ratatui = { workspace = true }
 textwrap = { workspace = true }

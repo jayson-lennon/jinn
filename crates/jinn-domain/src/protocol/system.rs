@@ -39,3 +39,8 @@ pub struct ActiveSessionChanged {
 }
 
 impl BusMessage for ActiveSessionChanged {}
+
+jinn_slices::crossing_schema!(ActiveSessionChanged, "ActiveSessionChanged",
+trouper::schema::SchemaKind::Event,
+description: "The active session changed.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);

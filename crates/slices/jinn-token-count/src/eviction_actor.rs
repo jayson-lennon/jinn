@@ -1,15 +1,24 @@
 //! Session-lifecycle eviction for the shared token cache.
 //!
-//! Subscribes to [`SessionClosed`] and removes the closed session's inner
-//! map from the cache. Single instance, spawned once in composition. The
-//! prune workers and the session actor receive clones of the cache; this
-//! actor owns the eviction events.
+//! A trouper [`ServiceActor`] subscribed to the slice's `jinn.token-count`
+//! topic (fed by the kernel bridge's forward routes). It folds
+//! [`SessionClosed`] and removes the closed session's inner map from the
+//! cache. Single instance, spawned once at slice activation. The prune
+//! workers and the session actor receive clones of the cache; this actor
+//! owns the eviction events.
+
+use trouper::actor::ActorPath;
+use trouper::actor::{MsgHandler, ServiceActor};
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
+use trouper::system::ActorSystem;
 
 use jinn_core_types::session_id::SessionId;
-use jinn_domain::common::actor_deps::ActorDeps;
 use jinn_domain::feat::session::protocol::session_closed::SessionClosed;
 use jinn_token_count_msg::HistoryWorkerChatEntryTokenCache;
-use kameo::prelude::{Actor, ActorRef, Context, Message};
+
+/// The eviction actor's static trouper path.
+pub const TOKEN_CACHE_EVICTION_PATH: &str = "token-cache-eviction";
 
 /// Actor that owns session-lifecycle eviction of
 /// [`HistoryWorkerChatEntryTokenCache`].
@@ -17,40 +26,42 @@ pub struct HistoryWorkerChatEntryTokenCacheEvictionActor {
     cache: HistoryWorkerChatEntryTokenCache,
 }
 
-/// Dependencies for spawning a [`HistoryWorkerChatEntryTokenCacheEvictionActor`].
-#[derive(Clone)]
-pub struct HistoryWorkerChatEntryTokenCacheEvictionActorDeps {
-    /// Universal actor dependencies (bus, services, etc.).
-    pub deps: ActorDeps,
-    /// Clone of the shared cache.
-    pub cache: HistoryWorkerChatEntryTokenCache,
-}
-
-impl Actor for HistoryWorkerChatEntryTokenCacheEvictionActor {
-    type Args = HistoryWorkerChatEntryTokenCacheEvictionActorDeps;
-    type Error = kameo::error::Infallible;
-
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        args.deps
-            .subscribe(actor_ref.recipient::<SessionClosed>())
-            .await;
-        Ok(Self { cache: args.cache })
-    }
-}
-
-impl Message<SessionClosed> for HistoryWorkerChatEntryTokenCacheEvictionActor {
-    type Reply = ();
-
-    async fn handle(
-        &mut self,
-        msg: SessionClosed,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.handle_session_closed(&msg.session_id);
+impl ServiceActor for HistoryWorkerChatEntryTokenCacheEvictionActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "trait contract: start is never called (spawn uses start_with)"
+    )]
+    async fn start(_args: &serde_json::Value) -> Result<Self, error_stack::Report<RegistryError>> {
+        // Never called: the spawn helper injects the cache via
+        // `start_with`.
+        Err(
+            error_stack::IntoReport::into_report(RegistryError::InvalidSpec)
+                .attach("HistoryWorkerChatEntryTokenCacheEvictionActor is spawned via start_with"),
+        )
     }
 }
 
 impl HistoryWorkerChatEntryTokenCacheEvictionActor {
+    /// Spawns the actor at its static path. The caller subscribes the
+    /// returned path to the token-count topic (composition's
+    /// `SliceHost::subscribe_service`) — subscribe is the readiness
+    /// point, so it must follow this call before any publish.
+    pub fn spawn(system: &ActorSystem, cache: HistoryWorkerChatEntryTokenCache) -> ActorPath {
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(ActorPath::new(TOKEN_CACHE_EVICTION_PATH))
+            .start_with({
+                move || {
+                    Box::pin(async move {
+                        Ok(Self {
+                            cache: cache.clone(),
+                        })
+                    })
+                }
+            })
+            .handles::<SessionClosed>()
+            .start()
+    }
+
     fn handle_session_closed(&self, session_id: &SessionId) {
         tracing::debug!(
             session_id = %session_id,
@@ -60,11 +71,9 @@ impl HistoryWorkerChatEntryTokenCacheEvictionActor {
     }
 }
 
-#[cfg(test)]
-impl HistoryWorkerChatEntryTokenCacheEvictionActor {
-    /// Construct directly for unit testing.
-    fn new(cache: HistoryWorkerChatEntryTokenCache) -> Self {
-        Self { cache }
+impl MsgHandler<SessionClosed> for HistoryWorkerChatEntryTokenCacheEvictionActor {
+    async fn handle(&mut self, msg: SessionClosed, _ctx: &mut MsgCtx<'_>) {
+        self.handle_session_closed(&msg.session_id);
     }
 }
 
@@ -92,7 +101,9 @@ mod tests {
     }
 
     fn make_actor() -> HistoryWorkerChatEntryTokenCacheEvictionActor {
-        HistoryWorkerChatEntryTokenCacheEvictionActor::new(HistoryWorkerChatEntryTokenCache::new())
+        HistoryWorkerChatEntryTokenCacheEvictionActor {
+            cache: HistoryWorkerChatEntryTokenCache::new(),
+        }
     }
 
     #[rstest::rstest]

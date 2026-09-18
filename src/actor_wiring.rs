@@ -244,8 +244,10 @@ impl ActorSystemBuilder {
         jinn_chat_log_view_activate(&mut services, &state);
         jinn_chat_input_activate(&mut services);
         jinn_cwd_activate(&mut services);
-        jinn_preferences_activate(&mut services);
-        jinn_sidebar_activate(&mut services);
+        jinn_preferences_activate(&mut services, state.clone()).await;
+        jinn_preferences::bridge::drain_routes(&services).await;
+        jinn_sidebar_activate(&mut services, state.clone());
+        jinn_sidebar::bridge::drain_routes(&services).await;
         jinn_theme_activate(&mut services);
 
         // Persona slice: activation scans the persona directories and
@@ -282,12 +284,6 @@ impl ActorSystemBuilder {
         // before the first `EnvironmentLoaded` trigger.
         jinn_session_init_activate(&mut services, state.clone());
         jinn_session_init::bridge::drain_routes(&services).await;
-
-        // ── Context-assembly slice ─────────────────────────────────────
-        // Spawn the stateless assembly service on trouper. Pure: holds
-        // nothing, reads nothing — dispatch paths snapshot their own
-        // inputs and ask.
-        let _path = jinn_context_assembly::service::spawn(&services.trouper_system);
 
         // ── Infrastructure actors ──────────────────────────────────────────
 
@@ -346,42 +342,8 @@ impl ActorSystemBuilder {
             .await
         );
 
-        // Preferences: loads and persists user preferences.
-        let _preferences = spawn_tracked!(
-            &services.bus,
-            "preferences",
-            "PreferencesActor",
-            jinn_preferences::PreferencesActor::supervise(
-                &root,
-                jinn_preferences::PreferencesActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                    cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
-
-        // App state actor: persists state changes to state.toml.
-        let _app_state = spawn_tracked!(
-            &services.bus,
-            "app-state",
-            "AppStateActor",
-            jinn_preferences::AppStateActor::supervise(
-                &root,
-                jinn_preferences::AppStateActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                    frontend_cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
-
+        // Preferences + app-state actors: trouper, installed with the
+        // preferences slice's activation wrapper below.
         // ── Domain actors ──────────────────────────────────────────────────
 
         // LLM streaming actor.
@@ -433,9 +395,32 @@ impl ActorSystemBuilder {
         // capacity (publishers use fire-and-forget tell under BestEffort).
         let token_counter = TiktokenCounter::o200k_base();
         // Token-count slice: activation registers the shared entry-token
-        // cache cell; the returned cache is handed to the session actor
-        // (accumulation gate), the eviction actor, and the prune workers.
-        let entry_token_cache = jinn_token_count_activate(&mut services);
+        // cache cell and spawns the slice's trouper actors; the returned
+        // cache is handed to the session actor (accumulation gate) and
+        // the prune workers.
+        let entry_token_cache = jinn_token_count_activate(&mut services, state.clone());
+        jinn_token_count::bridge::drain_routes(&services).await;
+
+        // ── Context-assembly slice ─────────────────────────────────────
+        // Install the slice's actors on trouper (the stateless assembly
+        // service + the context-size actor) and stage the crossing
+        // routes; the drain below spawns the relays. The size actor
+        // holds `Services` for the assembly ask.
+        jinn_context_assembly::install_actors(&services.trouper_system, state.clone(), &services);
+        {
+            let mut host = jinn_slices::SliceHost::new(
+                &services.slices,
+                &mut services.viewport,
+                &services.overlay_views,
+                &services.key_routes,
+                &services.trouper_system,
+            );
+            jinn_context_assembly::stage_routes(&mut host);
+            if let Err(error) = host.finalize(&|_key| None) {
+                panic!("context-assembly slice finalize failed: {error}");
+            }
+        }
+        jinn_context_assembly::bridge::drain_routes(&services).await;
         let _session =
             jinn_domain::feat::session::session_actor::SessionPersistenceActor::supervise(
                 &root,
@@ -629,23 +614,6 @@ impl ActorSystemBuilder {
             .await
         );
 
-        let _token_count = spawn_tracked!(
-            &services.bus,
-            "token-count",
-            "TokenCountActor",
-            jinn_token_count::count_actor::TokenCountActor::supervise(
-                &root,
-                jinn_token_count::count_actor::TokenCountActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                    session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
-
         // Search index maintenance: message-driven reindex state machine —
         // refreshes its in-memory dirty-session queue when idle and
         // reindexes at most REINDEX_BATCH sessions per heartbeat,
@@ -684,24 +652,8 @@ impl ActorSystemBuilder {
             .await
         );
 
-        // Context size actor.
-        let _context_size = spawn_tracked!(
-            &services.bus,
-            "context-size",
-            "ContextSizeActor",
-            jinn_context_assembly::size_actor::ContextSizeActor::supervise(
-                &root,
-                jinn_context_assembly::size_actor::ContextSizeActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                    counter: token_counter,
-                    session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
+        // Context size actor: trouper, installed with the context-assembly
+        // slice's install_actors call above.
 
         // ── History mutation workers ───────────────────��──────────────────────
         // To add a new history mutation worker:
@@ -999,30 +951,6 @@ impl ActorSystemBuilder {
             }
         }
 
-        // HistoryWorkerChatEntryTokenCache eviction actor.
-
-        // HistoryWorkerChatEntryTokenCache eviction actor.
-        {
-            use jinn_token_count::eviction_actor::HistoryWorkerChatEntryTokenCacheEvictionActor;
-            use jinn_token_count::eviction_actor::HistoryWorkerChatEntryTokenCacheEvictionActorDeps;
-
-            let _eviction = spawn_tracked!(
-                &services.bus,
-                "history-worker-chat-entry-token-cache-eviction",
-                "HistoryWorkerChatEntryTokenCacheEvictionActor",
-                HistoryWorkerChatEntryTokenCacheEvictionActor::supervise(
-                    &root,
-                    HistoryWorkerChatEntryTokenCacheEvictionActorDeps {
-                        deps: actor_deps.clone(),
-                        cache: entry_token_cache.clone(),
-                    },
-                )
-                .restart_policy(kameo::supervision::RestartPolicy::Never)
-                .spawn()
-                .await
-            );
-        }
-
         // Auto-prune worker: tool-age-window context pruning.
         {
             use jinn_domain::feat::auto_prune_worker::ToolAgeWindowAutoPruneWorker;
@@ -1158,25 +1086,6 @@ impl ActorSystemBuilder {
             }
         }
 
-        // Sidebar state actor.
-        let _sidebar = spawn_tracked!(
-            &services.bus,
-            "sidebar-state",
-            "SidebarStateActor",
-            jinn_sidebar::sections::sidebar_state_actor::SidebarStateActor::supervise(
-                &root,
-                jinn_sidebar::sections::sidebar_state_actor::SidebarStateActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                    frontend_cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
-                    session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
-
         // Signal system readiness and trigger init chain.
         {
             let bus_ref = services.bus.actor_ref();
@@ -1306,7 +1215,7 @@ fn jinn_chat_log_view_activate(services: &mut Services, state: &jinn_domain::Sta
 /// Activates the chat-input slice: its state cell only. No routes, no
 /// actors, no view. The session map already carries the attached registry
 /// handle, so every session's input facade resolves the cell.
-fn jinn_sidebar_activate(services: &mut Services) {
+fn jinn_sidebar_activate(services: &mut Services, state: jinn_domain::common::state::State) {
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,
         &mut services.viewport,
@@ -1314,7 +1223,7 @@ fn jinn_sidebar_activate(services: &mut Services) {
         &services.key_routes,
         &services.trouper_system,
     );
-    jinn_sidebar::activate(&mut host);
+    jinn_sidebar::activate(&mut host, state);
     let staged = host.finalize(&|_key| None);
     if let Err(error) = staged {
         panic!("sidebar slice finalize failed: {error}");
@@ -1336,7 +1245,17 @@ fn jinn_cwd_activate(services: &mut Services) {
     }
 }
 
-fn jinn_preferences_activate(services: &mut Services) {
+async fn jinn_preferences_activate(
+    services: &mut Services,
+    state: jinn_domain::common::state::State,
+) {
+    // The two persistence actors spawn here (with the state handle and
+    // their frontend caps) and subscribe synchronously — this must
+    // complete before the env-init tail publishes `EnvironmentLoaded`,
+    // which triggers publishes of `UpdateAppState`/`UpdatePreferences`
+    // on first boot.
+    let system = services.trouper_system.clone();
+    let services_handle = services.clone();
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,
         &mut services.viewport,
@@ -1344,7 +1263,7 @@ fn jinn_preferences_activate(services: &mut Services) {
         &services.key_routes,
         &services.trouper_system,
     );
-    jinn_preferences::activate(&mut host);
+    jinn_preferences::activate(&mut host, &system, services_handle, state);
     let staged = host.finalize(&|_key| None);
     if let Err(error) = staged {
         panic!("preferences slice finalize failed: {error}");
@@ -1371,6 +1290,7 @@ fn jinn_chat_input_activate(services: &mut Services) {
 /// are the theme picker's open hook and the app-state actor's resolution.
 fn jinn_token_count_activate(
     services: &mut Services,
+    state: jinn_domain::common::state::State,
 ) -> jinn_token_count_msg::HistoryWorkerChatEntryTokenCache {
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,
@@ -1379,7 +1299,7 @@ fn jinn_token_count_activate(
         &services.key_routes,
         &services.trouper_system,
     );
-    let cache = jinn_token_count::activate(&mut host);
+    let cache = jinn_token_count::activate(&mut host, state);
     let staged = host.finalize(&|_key| None);
     if let Err(error) = staged {
         panic!("token-count slice finalize failed: {error}");

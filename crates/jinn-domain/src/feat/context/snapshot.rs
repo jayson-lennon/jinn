@@ -99,7 +99,7 @@ mod composition_ask_tests {
         let services = crate::Services::new_fake().await;
         // Composition parity: production wiring spawns this exact service
         // at boot; kernel dispatch tests rely on it for the ask path.
-        jinn_context_assembly::service::spawn(&services.trouper_system);
+        let _ = jinn_context_assembly::service::spawn(&services.trouper_system);
         let state = State::new(AppState::default_with_scope_focus());
         let session_id = state.read().session.active_session_id().clone();
         {

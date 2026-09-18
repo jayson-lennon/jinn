@@ -71,10 +71,10 @@ pub async fn launch_for_test(core: AppCore, mut services: jinn_domain::Services)
         activate_chat_input(&mut services);
         activate_cwd(&mut services);
         activate_preferences(&mut services);
-        activate_sidebar(&mut services);
+        activate_sidebar(&mut services, core.state.clone()).await;
         activate_theme(&mut services);
         activate_persona(&mut services);
-        activate_token_count(&mut services);
+        activate_token_count(&mut services, core.state.clone()).await;
         jinn_tools::activate(&mut services, &core.state);
         core.state
             .write_test_no_cap()
@@ -353,8 +353,9 @@ pub fn plain(ch: char) -> jinn_domain::KeyEvent {
     }
 }
 
-/// Activates the sidebar slice on the harness services.
-pub fn activate_sidebar(services: &mut jinn_domain::Services) {
+/// Activates the sidebar slice on the harness services. Async because
+/// the drain awaits relay startup on the ambient tokio runtime.
+pub async fn activate_sidebar(services: &mut jinn_domain::Services, state: jinn_domain::State) {
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,
         &mut services.viewport,
@@ -362,15 +363,16 @@ pub fn activate_sidebar(services: &mut jinn_domain::Services) {
         &services.key_routes,
         &services.trouper_system,
     );
-    jinn_sidebar::activate(&mut host);
+    jinn_sidebar::activate(&mut host, state);
     if let Err(error) = host.finalize(&|_key| None) {
         panic!("sidebar slice finalize failed: {error}");
     }
+    jinn_sidebar::bridge::drain_routes(services).await;
 }
 
-/// Activates the theme slice on the harness services, scanning the real
-/// user/system theme directories when they exist.
-pub fn activate_token_count(services: &mut jinn_domain::Services) {
+/// Activates the token-count slice on the harness services. Async because
+/// the drain awaits relay startup on the ambient tokio runtime.
+pub async fn activate_token_count(services: &mut jinn_domain::Services, state: jinn_domain::State) {
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,
         &mut services.viewport,
@@ -378,10 +380,11 @@ pub fn activate_token_count(services: &mut jinn_domain::Services) {
         &services.key_routes,
         &services.trouper_system,
     );
-    let _cache = jinn_token_count::activate(&mut host);
+    let _cache = jinn_token_count::activate(&mut host, state);
     if let Err(error) = host.finalize(&|_key| None) {
         panic!("token-count slice finalize failed: {error}");
     }
+    jinn_token_count::bridge::drain_routes(services).await;
 }
 
 pub fn activate_persona(services: &mut jinn_domain::Services) {
@@ -442,6 +445,8 @@ pub fn activate_cwd(services: &mut jinn_domain::Services) {
 
 /// Activates the preferences slice on the harness services.
 pub fn activate_preferences(services: &mut jinn_domain::Services) {
+    let system = services.trouper_system.clone();
+    let services_handle = services.clone();
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,
         &mut services.viewport,
@@ -449,7 +454,14 @@ pub fn activate_preferences(services: &mut jinn_domain::Services) {
         &services.key_routes,
         &services.trouper_system,
     );
-    jinn_preferences::activate(&mut host);
+    jinn_preferences::activate(
+        &mut host,
+        &system,
+        services_handle,
+        jinn_domain::common::state::State::new(
+            jinn_domain::common::app_state::AppState::default_with_scope_focus(),
+        ),
+    );
     if let Err(error) = host.finalize(&|_key| None) {
         panic!("preferences slice finalize failed: {error}");
     }

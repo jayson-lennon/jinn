@@ -38,3 +38,8 @@ pub struct HistoryAppended {
 }
 
 impl crate::common::bus::BusMessage for HistoryAppended {}
+
+jinn_slices::crossing_schema!(HistoryAppended, "HistoryAppended",
+trouper::schema::SchemaKind::Event,
+description: "A new entry was appended to a session's history.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);

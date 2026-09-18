@@ -43,8 +43,8 @@ impl AppStateUpdate {
 /// Command to update one or more app-state fields.
 ///
 /// Carries a batch of [`AppStateUpdate`] diffs. The `AppStateActor`
-/// loads current state, applies all diffs, saves, and emits
-/// [`AppStateUpdated`](super::event::AppStateUpdated) with the full result.
+/// loads current state, applies all diffs, saves, and syncs the
+/// frontend theme/sidebar/persona fields inline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateAppState {
     /// The atomic diffs to apply.
@@ -52,6 +52,11 @@ pub struct UpdateAppState {
 }
 
 impl jinn_slices::BusMessage for UpdateAppState {}
+
+jinn_slices::crossing_schema!(UpdateAppState, "UpdateAppState",
+trouper::schema::SchemaKind::Command,
+description: "Apply a batch of atomic app-state diffs.",
+fields: ["updates" => trouper::schema::FieldTy::List(Box::new(trouper::schema::FieldTy::Json))]);
 
 #[cfg(test)]
 mod tests {

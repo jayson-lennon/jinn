@@ -1,16 +1,23 @@
 //! The token-count actor — computes tiktoken-based counts for chat entries.
 //!
-//! Subscribes to [`HistoryAppended`] and [`SessionLoadCompleted`] to compute
-//! per-entry token counts and fill them into the entries themselves, in
-//! memory. A count is a content-derived fact about the (immutable) entry
-//! text, so only entries whose count is not yet computed are tokenized; the
-//! filled counts persist as a side effect of the regular session-snapshot
-//! persist path (`entries.token_count` column). No separate cache exists —
-//! the field on the entry is the single source of truth.
+//! A trouper [`ServiceActor`] subscribed to the slice's `jinn.token-count`
+//! topic (fed by the kernel bridge's forward routes). It folds
+//! [`HistoryAppended`] and [`SessionLoadCompleted`] to compute per-entry
+//! token counts and fill them into the entries themselves, in memory. A
+//! count is a content-derived fact about the (immutable) entry text, so
+//! only entries whose count is not yet computed are tokenized; the filled
+//! counts persist as a side effect of the regular session-snapshot persist
+//! path (`entries.token_count` column). No separate cache exists — the
+//! field on the entry is the single source of truth.
 
 use std::collections::HashMap;
 
-use jinn_domain::common::actor_deps::ActorDeps;
+use trouper::actor::ActorPath;
+use trouper::actor::{MsgHandler, ServiceActor};
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
+use trouper::system::ActorSystem;
+
 use jinn_domain::common::state::State;
 use jinn_domain::common::tcaps::session::SessionCap;
 use jinn_domain::feat::context::strategy::token_estimator::{
@@ -18,19 +25,9 @@ use jinn_domain::feat::context::strategy::token_estimator::{
 };
 use jinn_domain::feat::session::protocol::history_appended::HistoryAppended;
 use jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted;
-use kameo::actor::ActorRef;
-use kameo::prelude::{Context, Message};
 
-/// Dependencies for [`TokenCountActor`].
-#[derive(Clone)]
-pub struct TokenCountActorDeps {
-    /// Common actor dependencies (services + bus).
-    pub deps: ActorDeps,
-    /// Shared application state.
-    pub state: State,
-    /// Authority to write computed counts into sessions.
-    pub session_cap: SessionCap,
-}
+/// The token count actor's static trouper path.
+pub const TOKEN_COUNT_PATH: &str = "token-count";
 
 /// The token count actor.
 ///
@@ -59,46 +56,49 @@ impl TokenEstimator for TiktokenEstimator {
     }
 }
 
-impl kameo::Actor for TokenCountActor {
-    type Args = TokenCountActorDeps;
-    type Error = kameo::error::Infallible;
-
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        args.deps
-            .subscribe(actor_ref.clone().recipient::<HistoryAppended>())
-            .await;
-        args.deps
-            .subscribe(actor_ref.recipient::<SessionLoadCompleted>())
-            .await;
-
-        Ok(Self {
-            state: args.state,
-            counter: TiktokenCounter::o200k_base(),
-            session_cap: args.session_cap,
-        })
-    }
-}
-
-impl Message<HistoryAppended> for TokenCountActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: HistoryAppended, _ctx: &mut Context<Self, Self::Reply>) {
-        self.handle_history_appended(&msg.session_id);
-    }
-}
-
-impl Message<SessionLoadCompleted> for TokenCountActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: SessionLoadCompleted, _ctx: &mut Context<Self, Self::Reply>) {
-        self.handle_session_load_completed(&msg.session);
+impl ServiceActor for TokenCountActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "trait contract: start is never called (spawn uses start_with)"
+    )]
+    async fn start(_args: &serde_json::Value) -> Result<Self, error_stack::Report<RegistryError>> {
+        // Never called: the spawn helper injects the state handle and
+        // capability via `start_with`.
+        Err(
+            error_stack::IntoReport::into_report(RegistryError::InvalidSpec)
+                .attach("TokenCountActor is spawned via start_with"),
+        )
     }
 }
 
 impl TokenCountActor {
+    /// Spawns the actor at its static path. The caller subscribes the
+    /// returned path to the token-count topic (composition's
+    /// `SliceHost::subscribe_service`) — subscribe is the readiness
+    /// point, so it must follow this call before any publish.
+    pub fn spawn(system: &ActorSystem, state: State) -> ActorPath {
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(ActorPath::new(TOKEN_COUNT_PATH))
+            .start_with({
+                move || {
+                    let state = state.clone();
+                    Box::pin(async move {
+                        Ok(Self {
+                            state,
+                            counter: TiktokenCounter::o200k_base(),
+                            session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
+                        })
+                    })
+                }
+            })
+            .handles::<HistoryAppended>()
+            .handles::<SessionLoadCompleted>()
+            .start()
+    }
+
     /// Handles a [`HistoryAppended`] event by computing counts for the active
     /// session's entries that don't have one yet, filling them in memory.
-    fn handle_history_appended(&self, session_id: &jinn_domain::protocol::SessionId) {
+    pub fn handle_history_appended(&self, session_id: &jinn_domain::protocol::SessionId) {
         let counts = {
             let state = self.state.read();
             let Some(session) = state.try_session(session_id) else {
@@ -117,7 +117,7 @@ impl TokenCountActor {
     /// loaded session's entries that don't have one yet, filling them in
     /// memory. The session was inserted into state before this event was
     /// emitted, so the fill lands on the live session.
-    fn handle_session_load_completed(
+    pub fn handle_session_load_completed(
         &self,
         session: &jinn_domain::feat::session::ChatSessionState,
     ) {
@@ -160,6 +160,18 @@ impl TokenCountActor {
                 session.fill_missing_token_counts(counts);
             }
         });
+    }
+}
+
+impl MsgHandler<HistoryAppended> for TokenCountActor {
+    async fn handle(&mut self, msg: HistoryAppended, _ctx: &mut MsgCtx<'_>) {
+        self.handle_history_appended(&msg.session_id);
+    }
+}
+
+impl MsgHandler<SessionLoadCompleted> for TokenCountActor {
+    async fn handle(&mut self, msg: SessionLoadCompleted, _ctx: &mut MsgCtx<'_>) {
+        self.handle_session_load_completed(&msg.session);
     }
 }
 

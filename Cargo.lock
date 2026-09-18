@@ -2516,7 +2516,6 @@ dependencies = [
  "jinn-provider",
  "jinn-slices",
  "jinn-tools-msg",
- "kameo",
  "rstest",
  "serde",
  "serde_json",
@@ -2861,6 +2860,7 @@ name = "jinn-preferences"
 version = "0.118.0"
 dependencies = [
  "dirs",
+ "error-stack",
  "jinn-core-types",
  "jinn-cwd-msg",
  "jinn-domain",
@@ -2869,12 +2869,13 @@ dependencies = [
  "jinn-slices",
  "jinn-theme",
  "jinn-theme-msg",
- "kameo",
  "ratatui",
  "rstest",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",
+ "trouper",
  "unicode-segmentation",
 ]
 
@@ -2898,6 +2899,7 @@ dependencies = [
  "toml 0.8.23",
  "toml_edit 0.22.27",
  "tracing",
+ "trouper",
  "wherror",
 ]
 
@@ -3050,12 +3052,13 @@ dependencies = [
  "jinn-testutil",
  "jinn-theme",
  "jinn-tools-msg",
- "kameo",
  "ratatui",
  "rstest",
+ "serde_json",
  "textwrap",
  "throbber-widgets-tui",
  "tokio",
+ "trouper",
  "unicode-segmentation",
  "unicode-width 0.2.2",
  "wherror",
@@ -3225,15 +3228,16 @@ dependencies = [
 name = "jinn-token-count"
 version = "0.118.0"
 dependencies = [
+ "error-stack",
  "jinn-core-types",
  "jinn-domain",
  "jinn-slices",
  "jinn-token-count-msg",
- "kameo",
  "rstest",
  "serde_json",
  "tokio",
  "tracing",
+ "trouper",
 ]
 
 [[package]]

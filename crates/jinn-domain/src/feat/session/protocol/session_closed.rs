@@ -18,3 +18,8 @@ pub struct SessionClosed {
 }
 
 impl crate::common::bus::BusMessage for SessionClosed {}
+
+jinn_slices::crossing_schema!(SessionClosed, "SessionClosed",
+trouper::schema::SchemaKind::Event,
+description: "A session was closed and removed from the sessions map.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);

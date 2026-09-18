@@ -12,6 +12,9 @@ jinn-slices = { workspace = true }
 jinn-term-msg = { workspace = true }
 jinn-tools-msg = { workspace = true }
 
+# The trouper runtime: crossing_schema! impls for the two protocol commands.
+trouper = { workspace = true }
+
 # External deps
 serde = { workspace = true }
 serde_json = { workspace = true }

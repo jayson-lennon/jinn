@@ -154,6 +154,26 @@ impl<'a, C: 'static> SliceHost<'a, C> {
             .start()
     }
 
+    /// Subscribes an already-spawned trouper service actor to a topic.
+    /// Subscribe is the readiness point: topic cursors register
+    /// synchronously, so publishes after this call cannot be missed.
+    /// Kept on the host so slices stage their actor wiring (spawn +
+    /// subscribe) through one seam instead of touching the system
+    /// directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`trouper::registry::RegistryError::UnknownPath`] when
+    /// the actor has not been spawned yet — subscribe before
+    /// [`Self::spawn_service`].
+    pub fn subscribe_service(
+        &self,
+        path: &ActorPath,
+        topic: &trouper::topics::Topic,
+    ) -> Result<u64, error_stack::Report<trouper::registry::RegistryError>> {
+        self.system.subscribe(path, topic, None)
+    }
+
     /// Attaches route rows to the key-route table.
     pub fn attach_rows<R>(&self, rows: R)
     where

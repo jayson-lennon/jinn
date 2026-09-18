@@ -6,162 +6,107 @@
     reason = "test code"
 )]
 
-use std::time::Duration;
-
 use super::*;
-use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
-use jinn_preferences_config::protocol::command::{PreferenceUpdate, UpdatePreferences};
-use jinn_preferences_config::protocol::event::PreferencesUpdated;
+use jinn_domain::common::app_state::AppState;
+use jinn_domain::common::state::State;
+use jinn_preferences_config::protocol::command::PreferenceUpdate;
+
+async fn create_actor() -> (PreferencesActor, State) {
+    let services = Services::new_fake().await;
+    let state = State::new(AppState::default_with_scope_focus());
+    let actor = PreferencesActor {
+        services: services.clone(),
+        state: state.clone(),
+        cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
+    };
+    (actor, state)
+}
 
 #[rstest::rstest]
 #[tokio::test]
 async fn set_compaction_model_overwrites_previous() {
     // Given a preferences actor.
-    let harness = TestHarness::new().await;
-    let _actor = harness
-        .spawn_actor::<PreferencesActor>(PreferencesActorDeps {
-            deps: harness.actor_deps().await,
-            state: jinn_domain::common::state::State::new(
-                jinn_domain::common::app_state::AppState::default_with_scope_focus(),
-            ),
-            cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
-        })
-        .await;
-    let recorder = harness.spawn_recorder::<PreferencesUpdated>().await;
+    let (mut actor, _state) = create_actor().await;
 
-    // When sending first UpdatePreferences.
-    harness
-        .publish(UpdatePreferences {
-            updates: vec![PreferenceUpdate::SetCompactionModel(Some(
-                "ollama/llama3".into(),
-            ))],
-        })
-        .await;
-    let messages = await_recorded(&recorder, 1, Duration::from_secs(2)).await;
-    assert!(!messages.is_empty(), "expected first PreferencesUpdated");
-    // When sending a second UpdatePreferences with a different model.
-    harness
-        .publish(UpdatePreferences {
-            updates: vec![PreferenceUpdate::SetCompactionModel(Some(
-                "openrouter/gpt-4".into(),
-            ))],
-        })
-        .await;
-    let messages = await_recorded(&recorder, 1, Duration::from_secs(2)).await;
+    // When applying the first update.
+    actor.handle_update_preferences(&UpdatePreferences {
+        updates: vec![PreferenceUpdate::SetCompactionModel(Some(
+            "ollama/llama3".into(),
+        ))],
+    });
+    // When applying a second update with a different model.
+    actor.handle_update_preferences(&UpdatePreferences {
+        updates: vec![PreferenceUpdate::SetCompactionModel(Some(
+            "openrouter/gpt-4".into(),
+        ))],
+    });
 
-    // Then only the latest model is in the emitted event.
-    let found = messages
-        .iter()
-        .any(|e| e.preferences.compaction.model.as_deref() == Some("openrouter/gpt-4"));
-    assert!(
-        found,
-        "expected PreferencesUpdated with compaction.model=openrouter/gpt-4, got {} events: {messages:?}",
-        messages.len()
+    // Then only the latest model is persisted.
+    let prefs = actor.services.user_preferences_storage.read();
+    assert_eq!(
+        prefs.compaction.model.as_deref(),
+        Some("openrouter/gpt-4"),
+        "expected persisted compaction.model=openrouter/gpt-4"
     );
 }
 
 #[rstest::rstest]
 #[tokio::test]
-async fn emits_preferences_updated_event() {
-    // Given a preferences actor and a recorder.
-    let harness = TestHarness::new().await;
-    let _actor = harness
-        .spawn_actor::<PreferencesActor>(PreferencesActorDeps {
-            deps: harness.actor_deps().await,
-            state: jinn_domain::common::state::State::new(
-                jinn_domain::common::app_state::AppState::default_with_scope_focus(),
-            ),
-            cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
-        })
-        .await;
-    let recorder = harness.spawn_recorder::<PreferencesUpdated>().await;
+async fn update_persists_applied_preferences() {
+    // Given a preferences actor.
+    let (mut actor, _state) = create_actor().await;
 
-    // When sending UpdatePreferences.
-    harness
-        .publish(UpdatePreferences {
-            updates: vec![PreferenceUpdate::SetCompactionModel(Some(
-                "ollama/llama3".into(),
-            ))],
-        })
-        .await;
+    // When applying an update.
+    actor.handle_update_preferences(&UpdatePreferences {
+        updates: vec![PreferenceUpdate::SetCompactionModel(Some(
+            "ollama/llama3".into(),
+        ))],
+    });
 
-    // Then a PreferencesUpdated event was emitted with the full preferences.
-    let messages = await_recorded(&recorder, 1, Duration::from_secs(2)).await;
-    let found = messages
-        .iter()
-        .any(|e| e.preferences.compaction.model.as_deref() == Some("ollama/llama3"));
-    assert!(
-        found,
-        "expected PreferencesUpdated event with compaction.model=ollama/llama3"
+    // Then the full preferences are persisted with the applied model.
+    let prefs = actor.services.user_preferences_storage.read();
+    assert_eq!(
+        prefs.compaction.model.as_deref(),
+        Some("ollama/llama3"),
+        "expected persisted compaction.model=ollama/llama3"
     );
 }
 
 #[rstest::rstest]
 #[tokio::test]
 async fn empty_diffs_does_not_change_storage() {
-    // Given a preferences actor.
-    let harness = TestHarness::new().await;
-    let _actor = harness
-        .spawn_actor::<PreferencesActor>(PreferencesActorDeps {
-            deps: harness.actor_deps().await,
-            state: jinn_domain::common::state::State::new(
-                jinn_domain::common::app_state::AppState::default_with_scope_focus(),
-            ),
-            cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
-        })
-        .await;
-    let recorder = harness.spawn_recorder::<PreferencesUpdated>().await;
+    // Given a preferences actor with a model already set.
+    let (mut actor, _state) = create_actor().await;
+    actor.handle_update_preferences(&UpdatePreferences {
+        updates: vec![PreferenceUpdate::SetCompactionModel(Some(
+            "ollama/llama3".into(),
+        ))],
+    });
 
-    // When setting a compaction model.
-    harness
-        .publish(UpdatePreferences {
-            updates: vec![PreferenceUpdate::SetCompactionModel(Some(
-                "ollama/llama3".into(),
-            ))],
-        })
-        .await;
-    let messages = await_recorded(&recorder, 1, Duration::from_secs(2)).await;
-    assert!(!messages.is_empty(), "expected first PreferencesUpdated");
-
-    // When sending UpdatePreferences with empty diffs.
-    harness.publish(UpdatePreferences { updates: vec![] }).await;
-    let messages = await_recorded(&recorder, 1, Duration::from_secs(2)).await;
-    assert!(!messages.is_empty(), "expected second PreferencesUpdated");
+    // When applying an update with empty diffs.
+    actor.handle_update_preferences(&UpdatePreferences { updates: vec![] });
 
     // Then the existing preferences are preserved.
-    let found = messages
-        .iter()
-        .any(|e| e.preferences.compaction.model.as_deref() == Some("ollama/llama3"));
-    assert!(found, "expected model to be preserved after empty update");
+    let prefs = actor.services.user_preferences_storage.read();
+    assert_eq!(
+        prefs.compaction.model.as_deref(),
+        Some("ollama/llama3"),
+        "expected model to be preserved after empty update"
+    );
 }
 
 #[rstest::rstest]
 #[tokio::test]
 async fn persist_writes_frontend_preferences() {
     // Given a preferences actor.
-    let harness = TestHarness::new().await;
-    let state = jinn_domain::common::state::State::new(
-        jinn_domain::common::app_state::AppState::default_with_scope_focus(),
-    );
-    let _actor = harness
-        .spawn_actor::<PreferencesActor>(PreferencesActorDeps {
-            deps: harness.actor_deps().await,
-            state: state.clone(),
-            cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
-        })
-        .await;
-    let recorder = harness.spawn_recorder::<PreferencesUpdated>().await;
+    let (mut actor, state) = create_actor().await;
 
-    // When sending UpdatePreferences.
-    harness
-        .publish(UpdatePreferences {
-            updates: vec![PreferenceUpdate::SetCompactionModel(Some(
-                "ollama/llama3".into(),
-            ))],
-        })
-        .await;
-    // Wait for the actor to finish processing (event emitted after inline write).
-    let _ = await_recorded(&recorder, 1, Duration::from_secs(2)).await;
+    // When applying an update.
+    actor.handle_update_preferences(&UpdatePreferences {
+        updates: vec![PreferenceUpdate::SetCompactionModel(Some(
+            "ollama/llama3".into(),
+        ))],
+    });
 
     // Then frontend.preferences matches the persisted preferences.
     let guard = state.read();
@@ -181,10 +126,7 @@ async fn persist_reloads_open_project_picker_items() {
     use jinn_domain::feat::ui::picker_states::PickerExt;
 
     // Given a state with the project picker open and zero entries.
-    let harness = TestHarness::new().await;
-    let state = jinn_domain::common::state::State::new(
-        jinn_domain::common::app_state::AppState::default_with_scope_focus(),
-    );
+    let (mut actor, state) = create_actor().await;
     {
         let mut guard = state.write_test_no_cap();
         load_project_picker_entries(&mut guard.frontend);
@@ -197,25 +139,14 @@ async fn persist_reloads_open_project_picker_items() {
             "picker starts empty with default preferences"
         );
     }
-    let _actor = harness
-        .spawn_actor::<PreferencesActor>(PreferencesActorDeps {
-            deps: harness.actor_deps().await,
-            state: state.clone(),
-            cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
-        })
-        .await;
-    let recorder = harness.spawn_recorder::<PreferencesUpdated>().await;
 
     // When preferences update adds two projects.
-    harness
-        .publish(UpdatePreferences {
-            updates: vec![
-                PreferenceUpdate::AddProject(std::path::PathBuf::from("/tmp/alpha")),
-                PreferenceUpdate::AddProject(std::path::PathBuf::from("/tmp/beta")),
-            ],
-        })
-        .await;
-    let _ = await_recorded(&recorder, 1, Duration::from_secs(2)).await;
+    actor.handle_update_preferences(&UpdatePreferences {
+        updates: vec![
+            PreferenceUpdate::AddProject(std::path::PathBuf::from("/tmp/alpha")),
+            PreferenceUpdate::AddProject(std::path::PathBuf::from("/tmp/beta")),
+        ],
+    });
 
     // Then the open project picker's items are reloaded from the new prefs.
     let guard = state.read();

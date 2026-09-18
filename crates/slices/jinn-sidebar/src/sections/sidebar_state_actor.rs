@@ -1,69 +1,89 @@
 //! Sidebar state actor — keeps sidebar cursor in sync after session close.
 //!
-//! Subscribes to [`SessionClosed`] events and clamps the sidebar's
-//! `selected_index` and `scroll_offset` so they never point past the end
-//! of the sessions list.
+//! A trouper [`ServiceActor`] subscribed to the slice's `jinn.sidebar`
+//! topic (fed by the kernel bridge's forward routes). It folds
+//! [`SessionClosed`] into the sidebar cursor: clamps `selected_index`
+//! and `scroll_offset` so they never point past the end of the sessions
+//! list.
 
-use kameo::actor::ActorRef;
-use kameo::prelude::{Context, Message};
+use trouper::actor::ActorPath;
+use trouper::actor::{MsgHandler, ServiceActor};
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
+use trouper::system::ActorSystem;
 
 use crate::sections::sessions;
-use jinn_domain::common::actor_deps::ActorDeps;
 use jinn_domain::common::state::State;
 use jinn_domain::feat::session::protocol::session_closed::SessionClosed;
 
+/// The sidebar state actor's static trouper path.
+pub const SIDEBAR_STATE_PATH: &str = "sidebar-state";
+
+/// The sidebar slice's crossing topic (`jinn.sidebar`): kernel session
+/// events forward onto it for the slice's actors.
+#[must_use]
+pub fn sidebar_topic() -> trouper::topics::Topic {
+    trouper::topics::Topic::new("jinn.sidebar")
+}
+
 /// Actor that adjusts sidebar cursor state in response to session close.
+///
+/// Holds the shared [`State`] handle and the two write capabilities —
+/// injected at spawn via `start_with` (they cannot ride trouper's JSON
+/// args).
 pub struct SidebarStateActor {
     state: State,
     session_cap: jinn_domain::common::tcaps::session::SessionCap,
     frontend_cap: jinn_domain::common::tcaps::frontend::FrontendCap,
 }
 
-/// Dependencies for [`SidebarStateActor`].
-#[derive(Clone)]
-pub struct SidebarStateActorDeps {
-    /// Common actor dependencies (services + bus).
-    pub deps: ActorDeps,
-    /// Shared application state.
-    pub state: State,
-    /// Capability for session writes (active session reconciliation).
-    pub session_cap: jinn_domain::common::tcaps::session::SessionCap,
-    /// Capability for frontend writes (sidebar cursor state).
-    pub frontend_cap: jinn_domain::common::tcaps::frontend::FrontendCap,
-}
-
-impl kameo::Actor for SidebarStateActor {
-    type Args = SidebarStateActorDeps;
-    type Error = kameo::error::Infallible;
-
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        args.deps
-            .subscribe(actor_ref.recipient::<SessionClosed>())
-            .await;
-
-        Ok(Self {
-            state: args.state,
-            session_cap: args.session_cap,
-            frontend_cap: args.frontend_cap,
-        })
-    }
-}
-
-impl Message<SessionClosed> for SidebarStateActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: SessionClosed, _ctx: &mut Context<Self, Self::Reply>) {
-        self.handle_session_closed(&msg);
+impl ServiceActor for SidebarStateActor {
+    async fn start(_args: &serde_json::Value) -> Result<Self, error_stack::Report<RegistryError>> {
+        // Never called: the spawn helper injects the state handle and
+        // capabilities via `start_with`.
+        Err(
+            error_stack::IntoReport::into_report(RegistryError::InvalidSpec)
+                .attach("SidebarStateActor is spawned via start_with"),
+        )
     }
 }
 
 impl SidebarStateActor {
+    /// Spawns the actor at its static path. The caller subscribes the
+    /// returned path to the sidebar topic (composition's
+    /// `SliceHost::subscribe_service`) — subscribe is the readiness
+    /// point, so it must follow this call before any publish.
+    pub fn spawn(system: &ActorSystem, state: State) -> ActorPath {
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(ActorPath::new(SIDEBAR_STATE_PATH))
+            .start_with({
+                move || {
+                    let state = state.clone();
+                    Box::pin(async move {
+                        Ok(Self {
+                            state,
+                            session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
+                            frontend_cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
+                        })
+                    })
+                }
+            })
+            .handles::<SessionClosed>()
+            .start()
+    }
+
     /// Reconcile sidebar cursor and active session after a session is closed.
     fn handle_session_closed(&self, _payload: &SessionClosed) {
         self.state
             .with_session_sidebar(&self.session_cap, &self.frontend_cap, |view| {
                 sessions::reconcile_split(view.session.map(), view.frontend);
             });
+    }
+}
+
+impl MsgHandler<SessionClosed> for SidebarStateActor {
+    async fn handle(&mut self, msg: SessionClosed, _ctx: &mut MsgCtx<'_>) {
+        self.handle_session_closed(&msg);
     }
 }
 

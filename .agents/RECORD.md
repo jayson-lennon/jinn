@@ -33,7 +33,7 @@ Entries are added or amended **only with human approval**.
 
 - (context) Outgoing context assembly converts history entries to messages directly; a final tripwire validator drops any invalid tool loop with a tracing warning instead of sending invalid sequencing.
 
-- (arch) A component/actor system built on `kameo` runs domain logic asynchronously, communicating via command routing and event broadcast — except the slice actors (dashboard, quake-bar, discord's status actor + bridge subscriber), which run on the trouper actor runtime and receive their inputs through the trouper bridge (`common/trouper_bridge`), which translates in both directions between the kameo bus and trouper topics.
+- (arch) Kernel domain logic runs on kameo actors with command routing and event broadcast; slice actors run on the trouper actor runtime, receiving kernel events through trouper bridge routes that translate between the kameo bus and trouper topics. A deferred set of slice actors (mcp, term, tools) still runs on kameo pending the final actor pass; conversions beyond a schema impl and a ServiceActor port are deferred to it.
 - (arch) The trouper `ActorSystem` is a cloneable handle newtype over one shared fabric; the handle lives in `Services`, built at the actor-wiring assembly block, and slice actors spawn onto it inside their slice's `activate()`. Cloning the handle aliases the same fabric; dropping handles never tears it down — `ActorSystem::shutdown()` explicitly stops supervision loops.
 - (bridges) The trouper bridge hosts a runtime route registry (`SliceHost`'s `RouteRegistry`); slices register forward/reverse routes at activation through host verbs (`forward`/`reverse`), and a message crosses fabrics only if registered in its direction, which prevents feedback loops by construction — dual-direction registration panics immediately.
 - (arch) Slice activation runs through a fixed set of host registration verbs (`SliceHost`: cells, route rows, views/tabs/overlays, bridge routes, config sections); in-tree Rust slices activate imperatively via one `activate()` call per slice, called from composition.
@@ -343,6 +343,8 @@ Entries are added or amended **only with human approval**.
 - (todo) `postponed` is not a declarable status and no tool mints it; the status survives only for legacy persisted sessions.
 - (todo) The next-task indicator remains derived from list state and renders after every write and in `todo_get_list`.
 - (slices) The chat-log-view slice is a crate owning the per-session chat log view state in one cell keyed by session id; the IntentHandler and the renderer write through ChatSession's semantic methods.
+- (slices) The sidebar, token-count, context-assembly, and preferences actors are trouper ServiceActors spawned at slice activation.
+- (slices) The preferences actors write through caps and publish no bus events.
 - (slices) SessionUi persists only the steering buffer; the chat input and chat log view fields live in their slices' cells.
 - (slices) The chat-input slice is a crate owning the per-session chat input state in one cell keyed by session id; the IntentHandler and the session actor write through ChatSession's semantic methods.
 - (slices) The chat input box cannot be remotely locked or disabled.

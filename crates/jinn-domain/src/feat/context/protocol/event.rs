@@ -18,6 +18,11 @@ pub struct ChatEntryPinChanged {
 
 impl BusMessage for ChatEntryPinChanged {}
 
+jinn_slices::crossing_schema!(ChatEntryPinChanged, "ChatEntryPinChanged",
+trouper::schema::SchemaKind::Event,
+description: "A chat entry's pin state changed.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
+
 /// Emitted when personas have been scanned and loaded from disk.
 ///
 /// The context actor receives this event and stores the loaded personas
@@ -46,6 +51,12 @@ pub struct ContextOverrideChanged {
 }
 
 impl BusMessage for ContextOverrideChanged {}
+
+jinn_slices::crossing_schema!(ContextOverrideChanged, "ContextOverrideChanged",
+trouper::schema::SchemaKind::Event,
+description: "A chat entry's context override changed.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,
+"entry_id" => trouper::schema::FieldTy::Uuid]);
 
 /// Emitted when project context files (AGENTS.md/CLAUDE.md) have been scanned
 /// and loaded for a session.

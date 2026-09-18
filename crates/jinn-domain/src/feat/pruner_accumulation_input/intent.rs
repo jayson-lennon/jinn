@@ -38,7 +38,7 @@ pub fn handle_enter(state: &mut AppState) -> IntentResult {
 ///
 /// Validates the input (non-empty, numeric), pops the scope, clears the input
 /// state, and emits `UpdatePreferences` with the new threshold so the
-/// `PreferencesActor` persists it and broadcasts `PreferencesUpdated`.
+/// `PreferencesActor` persists it.
 pub fn handle_confirm(state: &mut AppState) -> IntentResult {
     let raw = state
         .frontend

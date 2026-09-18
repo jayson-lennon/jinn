@@ -1,149 +1,104 @@
 //! Context size actor - recalculates active session context size after changes.
 //!
-//! Subscribes to events that affect context size and runs `assemble_prompt()`
-//! to update `cached_context_size` for the active session. Uses eager
-//! recalculation — each event triggers an immediate assembly.
+//! A trouper [`ServiceActor`] subscribed to the slice's
+//! `jinn.context-assembly` topic (fed by the kernel bridge's forward
+//! routes). It folds the events that affect context size and runs
+//! `assemble_prompt()` to update `cached_context_size` for the active
+//! session. Uses eager recalculation — each event triggers an immediate
+//! assembly.
 
-use jinn_domain::common::actor_deps::{ActorDeps, BusPublish};
-use jinn_domain::common::services::bus_service::BusService;
+use trouper::actor::ActorPath;
+use trouper::actor::{MsgHandler, ServiceActor};
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
+use trouper::system::ActorSystem;
+
 use jinn_domain::common::state::State;
 use jinn_domain::feat::context::protocol::event::ChatEntryPinChanged;
 use jinn_domain::feat::context::protocol::event::ContextOverrideChanged;
 use jinn_domain::feat::context::snapshot::{assemble_via_service, build_assembly_inputs};
-use jinn_domain::feat::context::strategy::token_estimator::TiktokenCounter;
 use jinn_domain::feat::session::protocol::history_appended::HistoryAppended;
 use jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted;
 use jinn_domain::protocol::system::ActiveSessionChanged;
-use kameo::actor::ActorRef;
-use kameo::prelude::{Context, Message};
 use tracing::error;
+
+/// The context size actor's static trouper path.
+pub const CONTEXT_SIZE_PATH: &str = "context-size";
 
 /// Recalculates context size for the active session after context-affecting changes.
 ///
-/// Subscribes to events that change what's included in the assembled prompt
+/// Folds the events that change what's included in the assembled prompt
 /// (history additions, context overrides, pin changes, session switches)
 /// and updates `cached_context_size` so the status bar stays accurate.
 pub struct ContextSizeActor {
     /// Shared application state.
     state: State,
-    /// Token counter for prompt assembly.
-    counter: TiktokenCounter,
-    /// Bus for message routing.
-    bus: BusService,
     /// Authority to write assembled context size into sessions.
     session_cap: jinn_domain::common::tcaps::session::SessionCap,
     /// Runtime services (the trouper system for assembly asks).
     services: jinn_domain::common::services::Services,
 }
 
-/// Dependencies for [`ContextSizeActor`].
-#[derive(Clone)]
-pub struct ContextSizeActorDeps {
-    /// Common actor dependencies.
-    pub deps: ActorDeps,
-    /// Shared application state.
-    pub state: State,
-    /// Token counter for prompt assembly.
-    pub counter: TiktokenCounter,
-    /// Authority to write assembled context size into sessions.
-    pub session_cap: jinn_domain::common::tcaps::session::SessionCap,
-}
-
-impl BusPublish for ContextSizeActor {
-    fn bus(&self) -> &BusService {
-        &self.bus
-    }
-}
-
-impl kameo::Actor for ContextSizeActor {
-    type Args = ContextSizeActorDeps;
-    type Error = std::convert::Infallible;
-
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        args.deps
-            .subscribe(actor_ref.clone().recipient::<HistoryAppended>())
-            .await;
-        args.deps
-            .subscribe(actor_ref.clone().recipient::<ContextOverrideChanged>())
-            .await;
-        args.deps
-            .subscribe(actor_ref.clone().recipient::<ActiveSessionChanged>())
-            .await;
-        args.deps
-            .subscribe(actor_ref.clone().recipient::<ChatEntryPinChanged>())
-            .await;
-        args.deps
-            .subscribe(actor_ref.recipient::<SessionLoadCompleted>())
-            .await;
-
-        Ok(Self {
-            state: args.state,
-            counter: args.counter,
-            bus: args.deps.services.bus.clone(),
-            session_cap: args.session_cap,
-            services: args.deps.services.clone(),
-        })
-    }
-}
-
-impl Message<HistoryAppended> for ContextSizeActor {
-    type Reply = ();
-
-    async fn handle(&mut self, _msg: HistoryAppended, _ctx: &mut Context<Self, Self::Reply>) {
-        self.recalculate().await;
-    }
-}
-
-impl Message<ContextOverrideChanged> for ContextSizeActor {
-    type Reply = ();
-
-    async fn handle(
-        &mut self,
-        _msg: ContextOverrideChanged,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) {
-        self.recalculate().await;
-    }
-}
-
-impl Message<ActiveSessionChanged> for ContextSizeActor {
-    type Reply = ();
-
-    async fn handle(&mut self, _msg: ActiveSessionChanged, _ctx: &mut Context<Self, Self::Reply>) {
-        self.recalculate().await;
-    }
-}
-
-impl Message<ChatEntryPinChanged> for ContextSizeActor {
-    type Reply = ();
-
-    async fn handle(&mut self, _msg: ChatEntryPinChanged, _ctx: &mut Context<Self, Self::Reply>) {
-        self.recalculate().await;
-    }
-}
-
-impl Message<SessionLoadCompleted> for ContextSizeActor {
-    type Reply = ();
-
-    async fn handle(&mut self, _msg: SessionLoadCompleted, _ctx: &mut Context<Self, Self::Reply>) {
-        self.recalculate().await;
+impl ServiceActor for ContextSizeActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "trait contract: start is never called (spawn uses start_with)"
+    )]
+    async fn start(_args: &serde_json::Value) -> Result<Self, error_stack::Report<RegistryError>> {
+        // Never called: the spawn helper injects the state handle,
+        // counter, and capability via `start_with`.
+        Err(
+            error_stack::IntoReport::into_report(RegistryError::InvalidSpec)
+                .attach("ContextSizeActor is spawned via start_with"),
+        )
     }
 }
 
 impl ContextSizeActor {
+    /// Spawns the actor at its static path. The caller subscribes the
+    /// returned path to the context-assembly topic (composition's
+    /// `SliceHost::subscribe_service`) — subscribe is the readiness
+    /// point, so it must follow this call before any publish.
+    pub fn spawn(
+        system: &ActorSystem,
+        state: State,
+        services: jinn_domain::common::services::Services,
+    ) -> ActorPath {
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(ActorPath::new(CONTEXT_SIZE_PATH))
+            .start_with({
+                move || {
+                    let state = state.clone();
+                    let services = services.clone();
+                    Box::pin(async move {
+                        Ok(Self {
+                            state,
+                            session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
+                            services,
+                        })
+                    })
+                }
+            })
+            .handles::<HistoryAppended>()
+            .handles::<ContextOverrideChanged>()
+            .handles::<ActiveSessionChanged>()
+            .handles::<ChatEntryPinChanged>()
+            .handles::<SessionLoadCompleted>()
+            .start()
+    }
+
     /// Recalculate context size for the active session.
     ///
     /// The CPU-intensive `assemble_prompt` call is moved into
     /// `tokio::task::spawn_blocking` to avoid consuming the async worker's
     /// coop budget during startup bursts.
-    async fn recalculate(&self) {
+    pub(crate) async fn recalculate(&self) {
         let session_id = {
             let state = self.state.read();
             state.session.active_session_id().clone()
         };
 
         let state_clone = self.state.clone();
-        let _counter = self.counter;
         let id_for_blocking = session_id.clone();
         let result = async {
             let inputs = {
@@ -172,6 +127,36 @@ impl ContextSizeActor {
     }
 }
 
+impl MsgHandler<HistoryAppended> for ContextSizeActor {
+    async fn handle(&mut self, _msg: HistoryAppended, _ctx: &mut MsgCtx<'_>) {
+        self.recalculate().await;
+    }
+}
+
+impl MsgHandler<ContextOverrideChanged> for ContextSizeActor {
+    async fn handle(&mut self, _msg: ContextOverrideChanged, _ctx: &mut MsgCtx<'_>) {
+        self.recalculate().await;
+    }
+}
+
+impl MsgHandler<ActiveSessionChanged> for ContextSizeActor {
+    async fn handle(&mut self, _msg: ActiveSessionChanged, _ctx: &mut MsgCtx<'_>) {
+        self.recalculate().await;
+    }
+}
+
+impl MsgHandler<ChatEntryPinChanged> for ContextSizeActor {
+    async fn handle(&mut self, _msg: ChatEntryPinChanged, _ctx: &mut MsgCtx<'_>) {
+        self.recalculate().await;
+    }
+}
+
+impl MsgHandler<SessionLoadCompleted> for ContextSizeActor {
+    async fn handle(&mut self, _msg: SessionLoadCompleted, _ctx: &mut MsgCtx<'_>) {
+        self.recalculate().await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -188,16 +173,13 @@ mod tests {
     use jinn_domain::protocol::ChatEntry;
 
     async fn test_actor() -> ContextSizeActor {
-        let harness = jinn_domain::common::bus::test_harness::TestHarness::new().await;
         let services = jinn_domain::Services::new_fake().await;
         {
             // Spawn the service directly: this crate IS the slice under test.
-            crate::service::spawn(&services.trouper_system);
+            let _ = crate::service::spawn(&services.trouper_system);
         }
         ContextSizeActor {
             state: State::new(AppState::default()),
-            counter: TiktokenCounter::o200k_base(),
-            bus: harness.bus(),
             session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
             services,
         }

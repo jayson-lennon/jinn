@@ -20,6 +20,10 @@ pub const CONTEXT_ASSEMBLY_PATH: &str = "context-assembly";
 pub struct ContextAssemblyService;
 
 impl ServiceActor for ContextAssemblyService {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "stateless service: start has nothing to await"
+    )]
     async fn start(_args: &serde_json::Value) -> Result<Self, Report<RegistryError>> {
         Ok(Self)
     }
@@ -70,7 +74,7 @@ mod tests {
     #[tokio::test]
     async fn ask_returns_assembled_prompt() {
         let services = jinn_domain::Services::new_fake().await;
-        crate::service::spawn(&services.trouper_system);
+        let _ = crate::service::spawn(&services.trouper_system);
         let state = State::new(AppState::default_with_scope_focus());
         let session_id = state.read().session.active_session_id().clone();
         {

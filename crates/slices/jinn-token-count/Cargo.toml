@@ -6,13 +6,15 @@ description = "The token-count slice: per-entry token counting and the shared to
 
 [dependencies]
 jinn-token-count-msg = { workspace = true }
-# Kernel dep (sidebar precedent): both actors are async kameo actors writing
-# through tcaps (State + SessionCap) and subscribing via ActorDeps — the sync
-# SliceActionState capability pattern does not fit async event handlers.
+# The trouper runtime: ServiceActors, topics, schemas.
+trouper = { workspace = true }
+# Kernel dep (sidebar precedent): both actors write through tcaps
+# (State + SessionCap), granted at slice activation.
 jinn-core-types = { workspace = true }
 jinn-domain = { workspace = true }
 jinn-slices = { workspace = true }
-kameo = { workspace = true }
+serde_json = { workspace = true }
+error-stack = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
