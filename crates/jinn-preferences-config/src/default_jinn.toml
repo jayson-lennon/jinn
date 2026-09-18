@@ -344,6 +344,9 @@ enabled = true
 # Don't trigger until this many messages/tool calls have elapsed.
 # (uncomment below to activate)
 # min_age = 50
+# Force-include the most recent todo call+result pair so other pruners can
+# never remove the current task list from context. Default: true.
+# protect_latest = true
 
 # ---------------------------------------------------------------------------
 # Prunes old edit and write tool calls + tool results.
@@ -416,30 +419,7 @@ min_age = 100
 enabled = true
 # Candidate message must be at least this old before prune-eligible.
 min_age = 50
-# Deprecated: the radius is now sourced from anchor_shield.radius below.
-# Kept for backward compatibility; uncommenting has no effect.
-# (uncomment below to activate)
-# radius = 100
-
-# ---------------------------------------------------------------------------
-# Protects Assistant, Tool Calls, and Tool Result entries around user messages
-# from being excluded from context by marking them as ForceIncluded.
-#
-# Here's a visual to help explain:
-#
-#  u = user message
-#  A = assistant message
-#  t = tool call
-#  . = outside radius
-#  - = inside radius
-#
-#  anchor                                 user message anchor
-#   v                                      v
-#   uAtttttA.........................AttAttu
-#   --------|     outside radius    |-------
-#  protected                         protected
-[auto_prune.anchor_shield]
-enabled = true
-# Number of entries around a user message that are shielded from exclusion by
-# other workers.
+# Radius (in raw chat entries) within which an Assistant entry is protected
+# from pruning. Aligned with the former anchor-shield boundary (20).
 radius = 20
+

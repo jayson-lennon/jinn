@@ -559,6 +559,14 @@ pub fn normalize_legacy_keys(root: &mut toml_edit::Table) -> Option<String> {
     {
         table.insert("min_age", item);
     }
+    if let Some(table) = root
+        .get_mut("auto_prune")
+        .and_then(|item| item.as_table_mut())
+    {
+        // The anchor-shield worker was removed; its section is inert now, but
+        // leaving it in place would collide with future re-use of the key.
+        table.remove("anchor_shield");
+    }
     salvaged
 }
 
@@ -612,7 +620,7 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::schemas::auto_prune::{
-        AnchorShieldConfig, AnchoredAssistantAutoPruneConfig, BrokenEditAutoPruneConfig,
+        AnchoredAssistantAutoPruneConfig, BrokenEditAutoPruneConfig,
         ConsecutiveReadsAutoPruneConfig, DoubleEditAutoPruneConfig, EditReadAutoPruneConfig,
         ReadEditAutoPruneConfig, RegexAutoPruneConfig, RegexPruneRule, TodoAutoPruneConfig,
         ToolAgeWindowAutoPruneConfig, TrivialAssistantAutoPruneConfig,
@@ -672,6 +680,7 @@ pub(crate) mod tests {
             todo: TodoAutoPruneConfig {
                 enabled: false,
                 min_age: 3,
+                protect_latest: false,
             },
             double_edit: DoubleEditAutoPruneConfig {
                 enabled: false,
@@ -696,10 +705,6 @@ pub(crate) mod tests {
                 enabled: false,
                 radius: 12,
                 min_age: 13,
-            },
-            anchor_shield: AnchorShieldConfig {
-                enabled: false,
-                radius: 14,
             },
             accumulation_threshold_tokens: 17,
         };

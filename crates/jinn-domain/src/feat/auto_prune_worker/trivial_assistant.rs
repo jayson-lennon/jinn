@@ -791,7 +791,7 @@ mod tests {
     #[test]
     fn anchored_assistant_worker_reads_external_cache_writes() {
         use crate::feat::auto_prune_worker::anchored_assistant::AnchoredAssistantAutoPruneWorker;
-        use jinn_preferences_config::schemas::AnchoredAssistantAutoPruneConfig;
+        use jinn_preferences_config::schemas::auto_prune::AnchoredAssistantAutoPruneConfig;
 
         let shared_cache = HistoryWorkerChatEntryTokenCache::new();
         let session_id = SessionId::new();

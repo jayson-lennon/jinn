@@ -1004,39 +1004,6 @@ impl ActorSystemBuilder {
             }
         }
 
-        // Auto-prune worker: anchor shield.
-        {
-            use jinn_domain::feat::auto_prune_worker::AnchorShieldAutoPruneWorker;
-            use jinn_domain::feat::history_worker::actor::{
-                HistoryWorkerActor, HistoryWorkerActorDeps,
-            };
-
-            let shield_config = {
-                let prefs = user_preferences_storage.read();
-                prefs.auto_prune.anchor_shield
-            };
-
-            if shield_config.enabled {
-                let _worker = spawn_tracked!(
-                    &services.bus,
-                    "history-anchor-shield",
-                    "HistoryWorker<AnchorShieldAutoPruneWorker>",
-                    HistoryWorkerActor::<AnchorShieldAutoPruneWorker>::supervise(
-                        &root,
-                        HistoryWorkerActorDeps {
-                            deps: actor_deps.clone(),
-                            worker: AnchorShieldAutoPruneWorker {
-                                config: shield_config,
-                            },
-                        },
-                    )
-                    .restart_policy(kameo::supervision::RestartPolicy::Never)
-                    .spawn()
-                    .await
-                );
-            }
-        }
-
         // Auto-prune worker: anchored-assistant context pruning.
         {
             use jinn_domain::feat::auto_prune_worker::AnchoredAssistantAutoPruneWorker;
@@ -1045,12 +1012,11 @@ impl ActorSystemBuilder {
                 HistoryWorkerActor, HistoryWorkerActorDeps,
             };
 
-            let (config, shield_radius, trivial_max_tokens) = {
+            let (config, trivial_max_tokens) = {
                 let prefs = user_preferences_storage.read();
                 let cfg = prefs.auto_prune.anchored_assistant.clone();
-                let radius = prefs.auto_prune.anchor_shield.radius;
                 let max_tokens = prefs.auto_prune.trivial_assistant.max_tokens as u32;
-                (cfg, radius, max_tokens)
+                (cfg, max_tokens)
             };
 
             if config.enabled {
@@ -1063,8 +1029,8 @@ impl ActorSystemBuilder {
                         HistoryWorkerActorDeps {
                             deps: actor_deps.clone(),
                             worker: AnchoredAssistantAutoPruneWorker {
+                                radius: config.radius,
                                 config,
-                                radius: shield_radius,
                                 min_candidate_tokens: trivial_max_tokens + 1,
                                 token_cache: entry_token_cache.clone(),
                                 counter: TiktokenCounter::o200k_base(),

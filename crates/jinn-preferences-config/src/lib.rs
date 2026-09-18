@@ -31,6 +31,10 @@ pub use user_preferences::{
     init_default_config_to, load_preferences, load_preferences_from, normalize_legacy_keys,
     preferences_path, save_preferences, save_preferences_to,
 };
+// The `todo` + `anchored_assistant` auto-prune child configs are schema
+// types re-exported so the kernel's workers and every consumer keep one
+// import home for the `[auto_prune]` table.
+pub use schemas::auto_prune::{AnchoredAssistantAutoPruneConfig, TodoAutoPruneConfig};
 pub use user_preferences_storage::{
     FilesystemUserPreferencesStorage, InMemoryUserPreferencesStorage, UserPreferencesStorage,
     UserPreferencesStorageService,

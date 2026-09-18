@@ -17,10 +17,10 @@ pub mod request_retry;
 pub mod session_lifecycle;
 
 pub use auto_prune::{
-    AnchorShieldConfig, AnchoredAssistantAutoPruneConfig, AutoPruneConfig,
-    BrokenEditAutoPruneConfig, ConsecutiveReadsAutoPruneConfig, DoubleEditAutoPruneConfig,
-    EditReadAutoPruneConfig, ReadEditAutoPruneConfig, RegexAutoPruneConfig, RegexPruneRule,
-    TodoAutoPruneConfig, ToolAgeWindowAutoPruneConfig, TrivialAssistantAutoPruneConfig,
+    AutoPruneConfig, BrokenEditAutoPruneConfig, ConsecutiveReadsAutoPruneConfig,
+    DoubleEditAutoPruneConfig, EditReadAutoPruneConfig, ReadEditAutoPruneConfig,
+    RegexAutoPruneConfig, RegexPruneRule, ToolAgeWindowAutoPruneConfig,
+    TrivialAssistantAutoPruneConfig,
 };
 pub use compaction::CompactionConfig;
 pub use cwd_selector::CwdSelectorConfig;

@@ -7,11 +7,11 @@
 //! tracks the running **deduplicated token total** so the session actor can flush them
 //! as a single batch only once the configured threshold is crossed.
 //!
-//! # Shield dominance
+//! # Include dominance
 //!
 //! The accumulator mirrors the dominance rule enforced at apply time
 //! (`ChatSessionState::apply_mutations`): a buffered [`ContextOverride::ForcedInclude`]
-//! (emitted by the anchor-shield worker) is **sticky** and is never displaced by an
+//! (emitted by a protection worker) is **sticky** and is never displaced by an
 //! incoming [`ContextOverride::ForcedExclude`] from a pruning worker. This makes the
 //! dedup **order-independent** — both `include-then-exclude` and `exclude-then-include`
 //! for the same entry converge to the include.

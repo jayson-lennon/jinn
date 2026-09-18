@@ -85,7 +85,7 @@ Entries are added or amended **only with human approval**.
 - (discovery) The skills, prompt-template, and context-file scans run per session inside the session-init slice's keyed discovery worker; the browser-binary and file-listing scans remain separate kameo actors outside the slice.
 - (history) Auto-prune respects a minimum entry age: entries at or below the age boundary are protected from pruning.
 - (history) Auto-prune skips entries that are already excluded/forced (no duplicate mutations), and a user force-include overrides a worker force-exclude.
-- (history) Auto-prune strategies exclude stale/redundant entries from LLM context; the wired strategies are `anchor_shield`, `anchored_assistant`, `broken_edit`, `consecutive_reads`, `double_edit`, `edit_read`, `read_edit`, `regex`, `todo_prune`, `tool_age_window`, `trivial_assistant`. `min_age` is not a strategy — it is a shared helper (`is_within_min_age`) giving individual workers an age floor.
+- (history) Auto-prune strategies exclude stale/redundant entries from LLM context; the wired strategies are `anchored_assistant`, `broken_edit`, `consecutive_reads`, `double_edit`, `edit_read`, `read_edit`, `regex`, `todo_prune`, `tool_age_window`, `trivial_assistant`. `min_age` is not a strategy — it is a shared helper (`is_within_min_age`) giving individual workers an age floor.
 - (history) History workers are limited to compaction and auto-prune strategies; no auto-steer worker exists.
 - (history) History workers implement a `HistoryWorker` trait and are spawned via `actor_wiring.rs`; adding a new strategy means adding a worker file and wiring it.
 - (history) There is a per-session steering buffer for mid-turn message injection; drained steering entries become normal User entries with the default context override and are never pinned.
@@ -293,6 +293,8 @@ Entries are added or amended **only with human approval**.
 - (prompts) Shipped prompts live in `res/prompts`, are embedded at compile time via the `BUNDLED` install catalogue, and `jinn install` seeds them to the user prompts dir, skipping files that already exist unless `--force`.
 - (ui) The quake bar's session section shows both the currently-applied auto-prune token total and the pending accumulation total; the applied total derives from entry context-history at render time, excluding compaction and user-sourced excludes.
 - (preferences) The canonical projects key in `jinn.toml` is `projects` (keyed by `path`); the legacy `[[project]]` spelling is stripped from user files on load (poisoned files) and before every save, is never written by any code path, and is not a serde alias — legacy entries are ignored, not migrated.
+- (history) The anchored-assistant auto-prune worker sources its prune radius from its own `[auto_prune.anchored_assistant]` config.
+- (preferences) Legacy `[auto_prune.anchor_shield]` sections in user `jinn.toml` files are inert: unknown keys are ignored on load.
 - (tools) `just install-plugins` builds and installs each in-tree plugin via one `jinn plugin add` per plugin (interleaved build+install, aborting at the first failure) rather than building all plugins before installing any; the `build-plugins` recipe remains standalone for artifact-only builds.
 - (tokens) Per-entry token counts are a persisted, content-derived field on chat entries (entries.token_count column), computed once by the token count actor for entries lacking a count and saved by the regular session-snapshot persist path; no separate frontend token cache exists.
 - (search) Sessions are searchable via an FTS5 index over persisted entry prose (user, assistant, tool_call, tool_result, system, error, compaction — never actor/thinking), keyed by (session_id, entry_id).
@@ -348,6 +350,7 @@ Entries are added or amended **only with human approval**.
 - (slices) SessionUi persists only the steering buffer; the chat input and chat log view fields live in their slices' cells.
 - (slices) The chat-input slice is a crate owning the per-session chat input state in one cell keyed by session id; the IntentHandler and the session actor write through ChatSession's semantic methods.
 - (slices) The chat input box cannot be remotely locked or disabled.
+- (todo) The todo auto-prune worker force-includes the most recent `todo_*` tool loop and excludes all older ones, so exactly one current task list stays in context; user pins and `x` toggles supersede it.
 - (pickers) jinn-picker renders Tree-spec pickers through TreePickerWidget over TreePickerState<PickerEntry<T>>, keeping the tree filter's ancestor expansion.
 - (pickers) The plugin picker lists each known plugin's name and lifecycle phase read-only from the coordinator's cache; Enter is a no-op.
 - (pickers) The task-list picker browses phases and tasks as a tree, hides postponed tasks, and Enter is a no-op.

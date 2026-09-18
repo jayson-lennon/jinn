@@ -4,6 +4,10 @@
 //! aggregate. Pure serde data: the pruning *behavior* (the workers that
 //! consume these settings) stays in the kernel's auto-prune feature; only
 //! the shapes moved here so `jinn.toml` can be parsed kernel-free.
+//!
+//! The `todo` child config carries the `protect_latest` include and the
+//! `anchored_assistant` child config the non-deprecated radius; the kernel's
+//! auto-prune workers consume and re-export them.
 
 use serde::{Deserialize, Serialize};
 
@@ -46,6 +50,8 @@ const DEFAULT_BROKEN_EDIT_MIN_AGE: usize = 10;
 const DEFAULT_TODO_ENABLED: bool = true;
 /// Default: todo min-age (50).
 const DEFAULT_TODO_MIN_AGE: usize = 50;
+/// Default: todo protect-latest (true).
+const DEFAULT_TODO_PROTECT_LATEST: bool = true;
 
 /// Default: double-edit max file edits (2).
 const DEFAULT_DOUBLE_EDIT_MAX_FILE_EDITS: usize = 2;
@@ -75,15 +81,11 @@ const DEFAULT_TRIVIAL_ASSISTANT_MAX_TOKENS: usize = 80;
 
 /// Default: anchored-assistant strategy enabled (true).
 const DEFAULT_ANCHORED_ASSISTANT_ENABLED: bool = true;
-/// Default: anchored-assistant radius (100).
-const DEFAULT_ANCHORED_ASSISTANT_RADIUS: usize = 100;
+/// Default: anchored-assistant radius (20) — the anchor-shield boundary, so
+/// the shield and prune boundaries always align.
+const DEFAULT_ANCHORED_ASSISTANT_RADIUS: usize = 20;
 /// Default: anchored-assistant min-age (50).
 const DEFAULT_ANCHORED_ASSISTANT_MIN_AGE: usize = 50;
-
-/// Default: anchor-shield strategy enabled (true).
-const DEFAULT_ANCHOR_SHIELD_ENABLED: bool = true;
-/// Default: anchor-shield radius (20).
-const DEFAULT_ANCHOR_SHIELD_RADIUS: usize = 20;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EditReadAutoPruneConfig {
@@ -266,38 +268,6 @@ impl Default for BrokenEditAutoPruneConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TodoAutoPruneConfig {
-    /// Whether the todo auto-prune worker is active.
-    /// Default: `true`.
-    #[serde(default = "default_todo_enabled")]
-    pub enabled: bool,
-    /// Minimum number of entries from the end of history that must
-    /// appear after a todo tool call before pruning may exclude the
-    /// call+result pair. Counts every entry, regardless of in-context
-    /// status. Set to 0 to disable protection.
-    /// Default: 50.
-    #[serde(default = "default_todo_min_age")]
-    pub min_age: usize,
-}
-
-fn default_todo_enabled() -> bool {
-    DEFAULT_TODO_ENABLED
-}
-
-fn default_todo_min_age() -> usize {
-    DEFAULT_TODO_MIN_AGE
-}
-
-impl Default for TodoAutoPruneConfig {
-    fn default() -> Self {
-        Self {
-            enabled: DEFAULT_TODO_ENABLED,
-            min_age: DEFAULT_TODO_MIN_AGE,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DoubleEditAutoPruneConfig {
     /// Whether the double-edit auto-prune worker is active.
     /// Default: `true`.
@@ -461,22 +431,68 @@ impl Default for TrivialAssistantAutoPruneConfig {
     }
 }
 
+/// Todo auto-prune configuration.
+///
+/// Serialized as `[auto_prune.todo]` in `jinn.toml`.
+/// Pairs, keeping only the most recent one for each tool name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TodoAutoPruneConfig {
+    /// Whether the todo auto-prune worker is active.
+    /// Default: `true`.
+    #[serde(default = "default_todo_enabled")]
+    pub enabled: bool,
+    /// Minimum number of entries from the end of history that must
+    /// appear after a todo tool call before pruning may exclude the
+    /// call+result pair. Counts every entry, regardless of in-context
+    /// status. Set to 0 to disable protection.
+    /// Default: 50.
+    #[serde(default = "default_todo_min_age")]
+    pub min_age: usize,
+    /// Force-include the most recent todo call+result pair so other pruners
+    /// (e.g. `tool_age_window`) can never remove the current task list from
+    /// context. Superseded pairs are demoted to `Default` and pruned as
+    /// usual. Default: `true`.
+    #[serde(default = "default_todo_protect_latest")]
+    pub protect_latest: bool,
+}
+
+fn default_todo_enabled() -> bool {
+    DEFAULT_TODO_ENABLED
+}
+
+fn default_todo_min_age() -> usize {
+    DEFAULT_TODO_MIN_AGE
+}
+
+fn default_todo_protect_latest() -> bool {
+    DEFAULT_TODO_PROTECT_LATEST
+}
+
+impl Default for TodoAutoPruneConfig {
+    fn default() -> Self {
+        Self {
+            enabled: DEFAULT_TODO_ENABLED,
+            min_age: DEFAULT_TODO_MIN_AGE,
+            protect_latest: DEFAULT_TODO_PROTECT_LATEST,
+        }
+    }
+}
+
+/// Anchored-assistant auto-prune strategy configuration.
+///
+/// Serialized as `[auto_prune.anchored_assistant]` in `jinn.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnchoredAssistantAutoPruneConfig {
     /// Whether the anchored-assistant auto-prune worker is active.
     /// Default: `true`.
     #[serde(default = "default_anchored_assistant_enabled")]
     pub enabled: bool,
-    /// **Deprecated:** the radius value is now sourced from `AnchorShieldConfig.radius`.
-    /// This field is kept for backward compatibility with existing `jinn.toml` files
-    /// but its value is ignored at wiring time.
-    ///
     /// Radius (in raw chat entries) within which an `Assistant` entry is
     /// protected from pruning, regardless of distance to any User entry.
     /// Distance strictly greater than this radius marks the entry as a
     /// prune candidate (subject to the `>80` token threshold).
     /// Minimum 1 (clamped at evaluation time).
-    /// Default: `100`.
+    /// Default: `20`.
     #[serde(default = "default_anchored_assistant_radius")]
     pub radius: usize,
     /// Minimum number of entries from the end of history within which
@@ -506,39 +522,6 @@ impl Default for AnchoredAssistantAutoPruneConfig {
             enabled: DEFAULT_ANCHORED_ASSISTANT_ENABLED,
             radius: DEFAULT_ANCHORED_ASSISTANT_RADIUS,
             min_age: DEFAULT_ANCHORED_ASSISTANT_MIN_AGE,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AnchorShieldConfig {
-    /// Whether the anchor-shield worker is active.
-    /// Default: `true`.
-    #[serde(default = "default_anchor_shield_enabled")]
-    pub enabled: bool,
-    /// Radius (in raw chat entries) within which in-context entries
-    /// are shielded from exclusion by other workers.
-    /// This value is also used by the `AnchoredAssistantAutoPruneWorker`
-    /// so the shield boundary and prune boundary always align.
-    /// Minimum 1 (clamped at evaluation time).
-    /// Default: `20`.
-    #[serde(default = "default_anchor_shield_radius")]
-    pub radius: usize,
-}
-
-fn default_anchor_shield_enabled() -> bool {
-    DEFAULT_ANCHOR_SHIELD_ENABLED
-}
-
-fn default_anchor_shield_radius() -> usize {
-    DEFAULT_ANCHOR_SHIELD_RADIUS
-}
-
-impl Default for AnchorShieldConfig {
-    fn default() -> Self {
-        Self {
-            enabled: DEFAULT_ANCHOR_SHIELD_ENABLED,
-            radius: DEFAULT_ANCHOR_SHIELD_RADIUS,
         }
     }
 }
@@ -579,9 +562,6 @@ pub struct AutoPruneConfig {
     /// Anchored-assistant auto-prune strategy configuration.
     #[serde(default)]
     pub anchored_assistant: AnchoredAssistantAutoPruneConfig,
-    /// Anchor-shield auto-prune strategy configuration.
-    #[serde(default)]
-    pub anchor_shield: AnchorShieldConfig,
     /// Token threshold at which accumulated pruner context-override mutations flush.
     ///
     /// Pruner `SetContextOverride` mutations are held in a per-session buffer until
@@ -604,7 +584,6 @@ impl Default for AutoPruneConfig {
             tool_age_window: ToolAgeWindowAutoPruneConfig::default(),
             trivial_assistant: TrivialAssistantAutoPruneConfig::default(),
             anchored_assistant: AnchoredAssistantAutoPruneConfig::default(),
-            anchor_shield: AnchorShieldConfig::default(),
             accumulation_threshold_tokens: DEFAULT_ACCUMULATION_THRESHOLD_TOKENS,
         }
     }

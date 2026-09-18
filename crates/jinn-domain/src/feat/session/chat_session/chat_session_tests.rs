@@ -5271,7 +5271,7 @@ fn apply_mutations_worker_forced_include_blocked_on_user_force_excluded() {
         entry_id: entry_id.clone(),
         value: ContextOverride::ForcedInclude,
         source: ChangeSource::Worker {
-            name: "anchor-shield".into(),
+            name: "auto-prune-todo".into(),
         },
     }]);
 
@@ -5302,7 +5302,7 @@ fn apply_mutations_worker_forced_include_allowed_on_worker_force_excluded() {
         entry_id: entry_id.clone(),
         value: ContextOverride::ForcedInclude,
         source: ChangeSource::Worker {
-            name: "anchor-shield".into(),
+            name: "auto-prune-todo".into(),
         },
     }]);
 
@@ -5361,7 +5361,7 @@ fn apply_mutations_user_toggled_back_to_default_allows_worker_re_include() {
         entry_id: entry_id.clone(),
         value: ContextOverride::ForcedInclude,
         source: ChangeSource::Worker {
-            name: "anchor-shield".into(),
+            name: "auto-prune-todo".into(),
         },
     }]);
 
@@ -5959,5 +5959,93 @@ fn attached_input_reads_do_not_grow_the_cell() {
     assert!(
         !cell.read().contains_key(session.session_id()),
         "reads must not insert map entries"
+    );
+}
+#[rstest::rstest]
+#[test]
+fn worker_include_on_todo_tool_call_covers_whole_tool_loop() {
+    // Given a session with a todo tool loop (Assistant + ToolCall + ToolResult).
+    let mut session = ChatSessionState::new();
+    session.push_entry(ChatEntry::user("check tasks"));
+    session.push_entry(ChatEntry::assistant(""));
+    session.push_entry(ChatEntry::tool_call("tc-1", "todo_get_task_list", "{}"));
+    session.push_entry(ChatEntry::tool_result(
+        "tc-1",
+        "todo_get_task_list",
+        "task list",
+        crate::feat::session::tool_result_status::ToolResultStatus::Success,
+    ));
+    let call_id = session.history()[2].id.clone();
+
+    // When a worker force-includes the ToolCall entry.
+    let changed = session.edit_history().set_context(
+        &call_id,
+        ContextOverride::ForcedInclude,
+        &ChangeSource::Worker {
+            name: "auto-prune-todo".to_owned(),
+        },
+    );
+
+    // Then the whole loop is covered: the Assistant, the ToolCall, and its
+    // ToolResult all become ForcedInclude.
+    let history = session.history();
+    assert_eq!(changed.len(), 3, "the whole tool loop chunk must change");
+    assert_eq!(
+        history[1].context_override(),
+        ContextOverride::ForcedInclude
+    );
+    assert_eq!(
+        history[2].context_override(),
+        ContextOverride::ForcedInclude
+    );
+    assert_eq!(
+        history[3].context_override(),
+        ContextOverride::ForcedInclude
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn tool_age_window_exclude_refused_on_included_todo_pair() {
+    // Given a todo tool loop already force-included by the todo worker.
+    let mut session = ChatSessionState::new();
+    session.push_entry(ChatEntry::user("check tasks"));
+    session.push_entry(ChatEntry::assistant(""));
+    session.push_entry(ChatEntry::tool_call("tc-1", "todo_get_task_list", "{}"));
+    session.push_entry(ChatEntry::tool_result(
+        "tc-1",
+        "todo_get_task_list",
+        "task list",
+        crate::feat::session::tool_result_status::ToolResultStatus::Success,
+    ));
+    let call_id = session.history()[2].id.clone();
+    session.edit_history().set_context(
+        &call_id,
+        ContextOverride::ForcedInclude,
+        &ChangeSource::Worker {
+            name: "auto-prune-todo".to_owned(),
+        },
+    );
+
+    // When another worker (tool_age_window) tries to exclude the pair.
+    let changed = session.edit_history().set_context(
+        &call_id,
+        ContextOverride::ForcedExclude,
+        &ChangeSource::Worker {
+            name: "auto-prune-tool-age-window".to_owned(),
+        },
+    );
+
+    // Then the exclusion is refused — the include is sticky, so the current
+    // task list cannot be dropped by another pruner.
+    assert!(changed.is_empty(), "worker exclude must be refused");
+    let history = session.history();
+    assert_eq!(
+        history[2].context_override(),
+        ContextOverride::ForcedInclude
+    );
+    assert_eq!(
+        history[3].context_override(),
+        ContextOverride::ForcedInclude
     );
 }

@@ -4,41 +4,50 @@ description = "Check for gaps in the implementation versus the acceptance criter
 +++
 
 <instructions>
-Verify the implementation against the approved spec/plan and discussion, then report in the compact contract below. Every verification duty still applies: check **every** acceptance criterion, check the plan's expected features (a missed feature is a gap), and reconcile the Record.
 
-## Report contract
+Verify the implementation against the approved spec/plan and discussion.
 
-The report has exactly two shapes. Never emit tables. Never emit a Recommendations section — the `resolution:` line in each gap is the recommendation. Order gaps most-important-first. Keep each `expected:`, `gap:`, and `resolution:` line to a single sentence.
+## Read the spec
 
-### 1. Per-AC verification line
+Read the plan/spec from the `.plans/` directory. There may be multiple from other sessions; only read those that were just implemented.
 
-One line per acceptance criterion, then nothing else about it:
-
-```
-AC1: met — <one-sentence evidence>
-AC2: unmet — <one-sentence evidence>
-```
-
-A missed expected feature never gets its own line — it becomes a gap block.
-
-### 2. Gap block
-
-```
-**G1 — <title>**
-expected: <what the spec required>
-gap: <what is missing or wrong>
-resolution: <specific action: the file, test, or record entry to change>
-```
-
-Number gaps G1, G2, … in priority order. If there are no gaps, the report is the single line `No gaps.`
+After reading the plan/spec, browse the codebase and use your context history to ensure that the Acceptance Criteria section was actually met. Evaluate each entry in the Acceptance Criteria 1 by 1 to ensure compliance.
 
 ## Record reconciliation
 
 If the spec/plan included "Record Updates", also **confirm accuracy against the actual implementation**. Read `.agents/RECORD.md` if it exists. The implementer writes Record updates at the end of implementation (via the "Update the Record" task), so by the time you check, the Record should already reflect this work.
 
-- For each "Record Updates" entry the approved plan promised, confirm it was written into `.agents/RECORD.md` and that it **matches what was actually implemented**. If it was not written, or if what was written does not match the implementation, flag the omission/mismatch as a gap block.
-- If the implementer surfaced a **divergence** (implementation did not match the planned entries, so it wrote nothing), verify that divergence is genuine, then propose a correct verbatim entry as the gap's `resolution:` line for the user to approve.
-- For any recorded entry the implementation changed, broke, or made stale that was **not** covered by the planned Record Updates, flag it as a gap block and propose the exact amended (or removed) entry verbatim as its `resolution:` line.
-- If the work established a new high-level fact that has no entry yet, propose a verbatim entry as a gap block's `resolution:` line, following the record's format rules.
+- For each "Record Updates" entry the approved plan promised, confirm it was written into `.agents/RECORD.md` and that it **matches what was actually implemented**. If it was not written, or if what was written does not match the implementation, include this information in the "Record reconciliation" section.
+- For any recorded entry the implementation changed, broke, or made stale that was **not** covered by the planned Record Updates, include this information in the "Record reconciliation" section.
+- If the work established a new high-level fact that has no entry yet, propose a verbatim entry in the "Record reconciliation" section.
 - Do not flag cosmetic or unrelated edits; only surface entries whose stated behavior diverged or was newly established.
+
+<example>
+# Gap analysis report
+
+## AC1: Foo the bar
+
+- **Status:** ✅ met
+- **Evidence:** The `foo` method takes a `bar` parameter.
+
+## AC2: Add component adds both negative and positive numbers
+
+- **Status:** ❌ unmet
+- **Evidence:** The `add` component accepts a `u32` datatype which cannot represent negative numbers.
+- **Recommendation:** Change the datatype to `i32` to add negative number support.
+
+## AC3: Docs updated with an easier usage example
+
+- **Status:** ⚠️ partial
+- **Evidence:** The docs were updated, but the usage example still has high cyclomatic complexity.
+- **Recommendation:** Split the usage example into two smaller examples.
+
+## Record reconciliation recommendations
+
+- The implementation changed the display for the calculator.
+  - Add: `(calculator) Display now uses a high-contrast font`
+- The button colors were changed to black and white.
+  - Remove: `(calculator) Number buttons use rainbow colors`
+
+</example>
 </instructions>

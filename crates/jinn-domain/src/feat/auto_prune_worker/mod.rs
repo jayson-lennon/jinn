@@ -12,7 +12,6 @@
 //! [`HistoryWorker`]: crate::feat::history_worker::worker_trait::HistoryWorker
 //! [`HistoryWorkerActor`]: crate::feat::history_worker::actor::HistoryWorkerActor
 
-pub mod anchor_shield;
 pub mod anchored_assistant;
 pub mod broken_edit;
 pub mod consecutive_reads;
@@ -27,18 +26,118 @@ pub mod tool_age_window;
 pub mod trivial_assistant;
 pub(crate) use min_age::is_within_min_age;
 
-pub use anchor_shield::AnchorShieldAutoPruneWorker;
 pub use anchored_assistant::AnchoredAssistantAutoPruneWorker;
+// Child config types are defined in `jinn-preferences-config` (the schema
+// home for `jinn.toml`) and re-exported here for kernel consumers.
 pub use broken_edit::BrokenEditAutoPruneWorker;
 pub use consecutive_reads::ConsecutiveReadsAutoPruneWorker;
 pub use double_edit::DoubleEditAutoPruneWorker;
 pub use edit_read::EditReadAutoPruneWorker;
 pub use entry_token_cache::HistoryWorkerChatEntryTokenCache;
+pub use jinn_preferences_config::schemas::auto_prune::{
+    AnchoredAssistantAutoPruneConfig, TodoAutoPruneConfig,
+};
 pub use read_edit::ReadEditAutoPruneWorker;
 pub use regex::RegexAutoPruneWorker;
 pub use todo_prune::TodoAutoPruneWorker;
 pub use tool_age_window::ToolAgeWindowAutoPruneWorker;
 pub use trivial_assistant::TrivialAssistantAutoPruneWorker;
+
+// ── Aggregate config ────────────────────────────────────────────────────
+//
+// `AutoPruneConfig` groups every worker-specific config into one struct so
+// `UserPreferences` can carry a single `[auto_prune]` table. The child configs
+// live in their respective worker files (co-located with the workers that
+// consume them); this aggregate just re-assembles them for serialization.
+//
+// A top-level scalar (`accumulation_threshold_tokens`) is also carried here:
+// it's a global gate, not per-worker, so it lives on the aggregate.
+
+/// Default accumulation threshold (in tokens) at which buffered pruner
+/// context-override mutations flush.
+const DEFAULT_ACCUMULATION_THRESHOLD_TOKENS: u32 = 150_000;
+
+/// Serde default for [`AutoPruneConfig::accumulation_threshold_tokens`].
+fn default_accumulation_threshold_tokens() -> u32 {
+    DEFAULT_ACCUMULATION_THRESHOLD_TOKENS
+}
+
+use serde::{Deserialize, Serialize};
+
+// Re-import the child config types from their co-located homes so the
+// aggregate fields below resolve. All of these are `pub` in their own modules.
+// (`todo` + `anchored_assistant` resolve through the prefs-config re-export
+// imported above, matching the `jinn.toml` schema home.)
+use crate::feat::auto_prune_worker::{
+    broken_edit::BrokenEditAutoPruneConfig, consecutive_reads::ConsecutiveReadsAutoPruneConfig,
+    double_edit::DoubleEditAutoPruneConfig, edit_read::EditReadAutoPruneConfig,
+    read_edit::ReadEditAutoPruneConfig, regex::RegexAutoPruneConfig,
+    tool_age_window::ToolAgeWindowAutoPruneConfig,
+    trivial_assistant::TrivialAssistantAutoPruneConfig,
+};
+
+/// Auto-prune configuration.
+///
+/// Serialized as `[auto_prune]` in `jinn.toml`.
+/// Groups all auto-prune strategy configurations.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AutoPruneConfig {
+    /// Edit-read auto-prune strategy configuration.
+    #[serde(default)]
+    pub edit_read: EditReadAutoPruneConfig,
+    /// Read-edit auto-prune strategy configuration.
+    #[serde(default)]
+    pub read_edit: ReadEditAutoPruneConfig,
+    /// Regex-based auto-prune strategy configuration.
+    #[serde(default)]
+    pub regex: RegexAutoPruneConfig,
+    /// Broken-edit auto-prune strategy configuration.
+    #[serde(default)]
+    pub broken_edit: BrokenEditAutoPruneConfig,
+    /// Todo auto-prune strategy configuration.
+    #[serde(default)]
+    pub todo: TodoAutoPruneConfig,
+    /// Double-edit auto-prune strategy configuration.
+    #[serde(default)]
+    pub double_edit: DoubleEditAutoPruneConfig,
+    /// Consecutive-reads auto-prune strategy configuration.
+    #[serde(default)]
+    pub consecutive_reads: ConsecutiveReadsAutoPruneConfig,
+    /// Tool-age-window auto-prune strategy configuration.
+    #[serde(default)]
+    pub tool_age_window: ToolAgeWindowAutoPruneConfig,
+    /// Trivial-assistant auto-prune strategy configuration.
+    #[serde(default)]
+    pub trivial_assistant: TrivialAssistantAutoPruneConfig,
+    /// Anchored-assistant auto-prune strategy configuration.
+    #[serde(default)]
+    pub anchored_assistant: AnchoredAssistantAutoPruneConfig,
+    /// Token threshold at which accumulated pruner context-override mutations flush.
+    ///
+    /// Pruner `SetContextOverride` mutations are held in a per-session buffer until
+    /// their deduplicated token total reaches this value, reducing server-side
+    /// KV-cache rebuilds from frequent small prunes. Default: 10 000.
+    #[serde(default = "default_accumulation_threshold_tokens")]
+    pub accumulation_threshold_tokens: u32,
+}
+
+impl Default for AutoPruneConfig {
+    fn default() -> Self {
+        Self {
+            edit_read: EditReadAutoPruneConfig::default(),
+            read_edit: ReadEditAutoPruneConfig::default(),
+            regex: RegexAutoPruneConfig::default(),
+            broken_edit: BrokenEditAutoPruneConfig::default(),
+            todo: TodoAutoPruneConfig::default(),
+            double_edit: DoubleEditAutoPruneConfig::default(),
+            consecutive_reads: ConsecutiveReadsAutoPruneConfig::default(),
+            tool_age_window: ToolAgeWindowAutoPruneConfig::default(),
+            trivial_assistant: TrivialAssistantAutoPruneConfig::default(),
+            anchored_assistant: AnchoredAssistantAutoPruneConfig::default(),
+            accumulation_threshold_tokens: DEFAULT_ACCUMULATION_THRESHOLD_TOKENS,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -46,14 +145,17 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::common::app_info::PREFS_FILE_NAME;
-    use jinn_preferences_config::load_preferences_from;
-    use jinn_preferences_config::schemas::auto_prune::{
-        AnchorShieldConfig, AnchoredAssistantAutoPruneConfig, BrokenEditAutoPruneConfig,
-        ConsecutiveReadsAutoPruneConfig, DoubleEditAutoPruneConfig, EditReadAutoPruneConfig,
-        ReadEditAutoPruneConfig, RegexAutoPruneConfig, TodoAutoPruneConfig,
-        ToolAgeWindowAutoPruneConfig, TrivialAssistantAutoPruneConfig,
+    use crate::feat::auto_prune_worker::{
+        AnchoredAssistantAutoPruneConfig, AutoPruneConfig, TodoAutoPruneConfig,
     };
-    use jinn_preferences_config::user_preferences::AutoPruneConfig;
+    use crate::feat::auto_prune_worker::{
+        broken_edit::BrokenEditAutoPruneConfig, consecutive_reads::ConsecutiveReadsAutoPruneConfig,
+        double_edit::DoubleEditAutoPruneConfig, edit_read::EditReadAutoPruneConfig,
+        read_edit::ReadEditAutoPruneConfig, regex::RegexAutoPruneConfig,
+        tool_age_window::ToolAgeWindowAutoPruneConfig,
+        trivial_assistant::TrivialAssistantAutoPruneConfig,
+    };
+    use jinn_preferences_config::user_preferences::load_preferences_from;
 
     #[rstest::rstest]
     fn default_auto_prune_config_has_defaults_for_every_field() {
@@ -66,7 +168,7 @@ mod tests {
         let serde_json::Value::Object(fields) = serialized else {
             panic!("AutoPruneConfig must serialize to an object");
         };
-        assert_eq!(fields.len(), 12);
+        assert_eq!(fields.len(), 11);
         // And every section equals its own Default impl.
         assert_eq!(config.edit_read, EditReadAutoPruneConfig::default());
         assert_eq!(config.read_edit, ReadEditAutoPruneConfig::default());
@@ -90,7 +192,6 @@ mod tests {
             config.anchored_assistant,
             AnchoredAssistantAutoPruneConfig::default()
         );
-        assert_eq!(config.anchor_shield, AnchorShieldConfig::default());
         // And the threshold is a nonzero token count.
         assert!(config.accumulation_threshold_tokens > 0);
     }
@@ -191,31 +292,30 @@ mod tests {
         std::fs::write(&path, "last_model = 'ollama/llama3'").expect("write");
 
         let prefs = load_preferences_from(&path).expect("load");
-        assert_eq!(prefs.auto_prune, AutoPruneConfig::default());
+        assert_eq!(
+            prefs.auto_prune,
+            jinn_preferences_config::schemas::AutoPruneConfig::default()
+        );
     }
 
     #[rstest::rstest]
-    fn load_with_anchored_assistant_radius_uses_defaults_for_anchor_shield() {
-        // Given a TOML file with only anchored_assistant radius (no anchor_shield section).
+    fn load_parses_anchored_assistant_radius_config() {
+        // Given a TOML file with anchored_assistant radius set.
         let dir = TempDir::new().expect("temp dir");
         let path = dir.path().join(PREFS_FILE_NAME);
         std::fs::write(
             &path,
-            "[auto_prune.anchored_assistant]\nenabled = true\nradius = 42\nmin_age = 5\n\n[auto_prune.anchor_shield]\nenabled = true\nradius = 20\n",
+            "[auto_prune.anchored_assistant]\nenabled = true\nradius = 42\nmin_age = 5\n",
         )
         .expect("write");
 
         // When loading.
         let prefs = load_preferences_from(&path).expect("load");
 
-        // Then anchored_assistant still reads its own radius.
+        // Then anchored_assistant reads its own radius.
         assert!(prefs.auto_prune.anchored_assistant.enabled);
         assert_eq!(prefs.auto_prune.anchored_assistant.radius, 42);
         assert_eq!(prefs.auto_prune.anchored_assistant.min_age, 5);
-
-        // And anchor_shield uses its own config.
-        assert!(prefs.auto_prune.anchor_shield.enabled);
-        assert_eq!(prefs.auto_prune.anchor_shield.radius, 20);
     }
 
     #[rstest::rstest]
@@ -226,10 +326,54 @@ mod tests {
 
         let prefs = load_preferences_from(&path).expect("load");
         assert!(!prefs.auto_prune.todo.enabled);
+        // protect_latest defaults to true when omitted.
+        assert!(prefs.auto_prune.todo.protect_latest);
         // edit_read should still have defaults
         assert!(prefs.auto_prune.edit_read.enabled);
         // read_edit should still have defaults
         assert!(prefs.auto_prune.read_edit.enabled);
+    }
+
+    #[rstest::rstest]
+    fn load_parses_todo_protect_latest_false() {
+        // Given a TOML file explicitly disabling protect_latest.
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join(PREFS_FILE_NAME);
+        std::fs::write(
+            &path,
+            "[auto_prune.todo]\nenabled = true\nprotect_latest = false\n",
+        )
+        .expect("write");
+
+        // When loading.
+        let prefs = load_preferences_from(&path).expect("load");
+
+        // Then the explicit false parses through.
+        assert!(prefs.auto_prune.todo.enabled);
+        assert!(!prefs.auto_prune.todo.protect_latest);
+    }
+
+    #[rstest::rstest]
+    fn legacy_anchor_shield_section_is_inert() {
+        // Given a jinn.toml written by an older jinn that still carries the
+        // removed `[auto_prune.anchor_shield]` section.
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join(PREFS_FILE_NAME);
+        std::fs::write(
+            &path,
+            "[auto_prune.anchor_shield]\nenabled = true\nradius = 20\n",
+        )
+        .expect("write");
+
+        // When loading.
+        let prefs = load_preferences_from(&path).expect("load");
+
+        // Then the load succeeds and equals the default config — the removed
+        // section is an inert unknown key, not an error.
+        assert_eq!(
+            prefs.auto_prune,
+            jinn_preferences_config::schemas::AutoPruneConfig::default()
+        );
     }
 
     #[rstest::rstest]

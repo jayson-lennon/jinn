@@ -893,7 +893,7 @@ mod tests {
         mirror_screen(&mut state, "yank-and-push-marker");
 
         // When handling push-screen.
-        handle_push_screen(&mut state, &slices);
+        let _must_use = handle_push_screen(&mut state, &slices);
 
         // Then the screen text was also staged for the clipboard.
         assert_eq!(
