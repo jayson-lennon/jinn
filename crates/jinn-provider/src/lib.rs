@@ -42,7 +42,7 @@ pub use input_modalities::{InputModalities, Modality};
 pub use jinn_core_types::reasoning::ReasoningEffort;
 pub use jinn_core_types::tool_types::{ServerToolType, ToolCall, ToolDefinition, ToolResult};
 pub use llm_message::LlmMessage;
-pub use no_providers::{NO_PROVIDER_ID, NoProvidersAvailableFactory};
+pub use no_providers::NoProvidersAvailableFactory;
 pub use openai_compat::{
     EndpointInfo, OpenAiCompatibleFactory, OpenAiCompatibleService, ProviderConfig, list_endpoints,
     list_endpoints_default_client,

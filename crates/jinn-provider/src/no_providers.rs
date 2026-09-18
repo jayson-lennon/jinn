@@ -19,9 +19,6 @@ const HELP_MESSAGE: &str = "No LLM provider is configured. To get started:\n\
     \n\
     For local providers like Ollama, no API key is needed - just uncomment and select.";
 
-/// Sentinel provider ID used when no real provider is configured.
-pub const NO_PROVIDER_ID: &str = "__no_provider__";
-
 /// Factory that creates a service which streams the help message.
 #[derive(Debug, Clone)]
 pub struct NoProvidersAvailableFactory;
