@@ -398,4 +398,4 @@ Entries are added or amended **only with human approval**.
 - (tools) The stream-phase tool events (ToolUseStarted, ToolCallReceived, ToolCallStreaming) live in jinn-tools-msg even though the inference actor publishes them.
 - (session) ChatEntry and its history vocabulary (ChatHistory, HistoryMutation, ToolResultStatus) live in jinn-core-types.
 - (slices) The session-history slice owns the HistoryEditor write path and the history contracts in jinn-session-history-msg; it has no actor — the kernel session actor's fold handlers are its sanctioned multi-boundary writes.
-- (skills) The skills slice owns skill vocabulary, parsing, and reload; session-init publishes SkillsLoaded through its reverse relays.
+- (skills) The skills slice owns skill vocabulary and parsing (Skill/SkillSource, frontmatter, scan, prompt formatting, loaded-name labels); the UI-bound trio (picker entry, preview cache, picker reload) stays kernel, and session-init publishes SkillsLoaded through its reverse relays.
