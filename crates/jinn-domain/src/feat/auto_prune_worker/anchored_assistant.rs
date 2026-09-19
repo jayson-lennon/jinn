@@ -40,8 +40,8 @@ use std::sync::Arc;
 use crate::feat::auto_prune_worker::is_within_min_age;
 use crate::feat::context::strategy::token_estimator::{TiktokenCounter, TokenCounter};
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::feat::session::chat_entry::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
-use crate::feat::session::history_mutation::HistoryMutation;
+use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
+use crate::protocol::HistoryMutation;
 use crate::protocol::SessionId;
 pub use jinn_preferences_config::schemas::auto_prune::AnchoredAssistantAutoPruneConfig;
 
@@ -316,8 +316,8 @@ mod tests {
     )]
 
     use super::*;
-    use crate::feat::session::chat_entry::ChatEntry;
-    use crate::feat::session::chat_entry::ChatEntryId;
+    use crate::protocol::ChatEntry;
+    use crate::protocol::ChatEntryId;
 
     /// Tests use 81 as the hard-coded threshold (trivial_assistant default max_tokens=80 + 1).
     const TEST_MIN_CANDIDATE_TOKENS: u32 = 81;
@@ -683,7 +683,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn pinned_entry_is_skipped() {
-        use crate::feat::session::chat_entry::PinPosition;
+        use crate::protocol::PinPosition;
         let w = worker(1);
         let mut history = vec![ChatEntry::user("anchor")];
         let mut asst = large_assistant();
@@ -750,7 +750,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn non_assistant_entries_in_prune_region_not_targeted() {
-        use crate::feat::session::tool_result_status::ToolResultStatus;
+        use crate::protocol::ToolResultStatus;
         let w = worker(1);
         let mut history = vec![ChatEntry::user("start")];
         history.push(ChatEntry::system("sys"));

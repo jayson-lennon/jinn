@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::common::actor_deps::{ActorDeps, BusPublish};
 use crate::common::services::bus_service::BusService;
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::feat::session::chat_entry::ChatEntry;
+use crate::protocol::ChatEntry;
 use crate::feat::session::protocol::history_snapshot_ready::HistorySnapshotReady;
 use crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations;
 use crate::protocol::SessionId;

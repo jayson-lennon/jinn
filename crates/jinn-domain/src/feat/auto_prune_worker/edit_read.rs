@@ -13,7 +13,7 @@
 //!     [Tool Result] (OK): <contents>
 //! ```
 //!
-//! [`ForcedExclude`]: crate::feat::session::chat_entry::ContextOverride::ForcedExclude
+//! [`ForcedExclude`]: crate::protocol::ContextOverride::ForcedExclude
 
 pub use jinn_preferences_config::schemas::auto_prune::EditReadAutoPruneConfig;
 // ── Configuration ─────────────────────────────────────────────────────
@@ -33,8 +33,8 @@ pub use jinn_preferences_config::schemas::auto_prune::EditReadAutoPruneConfig;
 use std::sync::Arc;
 
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::feat::session::chat_entry::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
-use crate::feat::session::history_mutation::HistoryMutation;
+use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
+use crate::protocol::HistoryMutation;
 use crate::protocol::SessionId;
 
 use super::is_within_min_age;
@@ -69,7 +69,7 @@ pub(super) fn find_matching_result(
     history: &[ChatEntry],
     call_idx: usize,
     tool_call_id: &str,
-) -> Option<(crate::feat::session::chat_entry::ChatEntryId, usize)> {
+) -> Option<(crate::protocol::ChatEntryId, usize)> {
     // ToolResults appear after their ToolCall, so scan forward only.
     for (j, entry) in history.iter().enumerate().skip(call_idx + 1) {
         if let ChatEntryKind::ToolResult { id, .. } = &entry.kind
@@ -202,7 +202,7 @@ fn prune_backward(
         let back_result_protected = back_result.as_ref().is_some_and(|(_, k)| {
             history
                 .get(*k)
-                .is_some_and(super::super::session::chat_entry::ChatEntry::is_protected_from_prune)
+                .is_some_and(crate::protocol::ChatEntry::is_protected_from_prune)
         });
 
         // Skip if both call and result are protected — nothing to do.
@@ -243,8 +243,8 @@ mod tests {
     )]
 
     use super::*;
-    use crate::feat::session::chat_entry::ChatEntry;
-    use crate::feat::session::tool_result_status::ToolResultStatus;
+    use crate::protocol::ChatEntry;
+    use crate::protocol::ToolResultStatus;
     use crate::protocol::SessionId;
 
     /// Helper: create a read ToolCall + ToolResult pair.
@@ -299,7 +299,7 @@ mod tests {
     /// Collect mutation entry IDs from a list of mutations.
     fn mutation_ids(
         mutations: &[HistoryMutation],
-    ) -> Vec<crate::feat::session::chat_entry::ChatEntryId> {
+    ) -> Vec<crate::protocol::ChatEntryId> {
         mutations
             .iter()
             .filter_map(|m| match m {

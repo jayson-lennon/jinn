@@ -41,18 +41,18 @@
 //!    [Assistant]             ← index 7 (kept, age 0)
 //! ```
 //!
-//! [`ForcedExclude`]: crate::feat::session::chat_entry::ContextOverride::ForcedExclude
+//! [`ForcedExclude`]: crate::protocol::ContextOverride::ForcedExclude
 
 use std::sync::Arc;
 
 pub use jinn_preferences_config::schemas::auto_prune::ToolAgeWindowAutoPruneConfig;
 
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::feat::session::chat_entry::{
+use crate::protocol::{
     ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride,
 };
-use crate::feat::session::history_mutation::HistoryMutation;
-use crate::feat::session::tool_result_status::ToolResultStatus;
+use crate::protocol::HistoryMutation;
+use crate::protocol::ToolResultStatus;
 use crate::protocol::SessionId;
 
 /// Default enabled state for tool-age-window auto-prune.
@@ -265,8 +265,8 @@ mod tests {
     )]
 
     use super::*;
-    use crate::feat::session::chat_entry::ChatEntry;
-    use crate::feat::session::tool_result_status::ToolResultStatus;
+    use crate::protocol::ChatEntry;
+    use crate::protocol::ToolResultStatus;
     use crate::protocol::SessionId;
 
     /// Build a worker with the given `min_age` (enabled = true).

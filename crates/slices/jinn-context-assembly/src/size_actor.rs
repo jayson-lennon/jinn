@@ -14,10 +14,10 @@ use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
 use jinn_domain::common::state::State;
-use jinn_domain::feat::context::protocol::event::ChatEntryPinChanged;
+use jinn_session_history_msg::ChatEntryPinChanged;
 use jinn_domain::feat::context::protocol::event::ContextOverrideChanged;
 use jinn_domain::feat::context::snapshot::{assemble_via_service, build_assembly_inputs};
-use jinn_domain::feat::session::protocol::history_appended::HistoryAppended;
+use jinn_session_history_msg::HistoryAppended;
 use jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted;
 use jinn_domain::protocol::system::ActiveSessionChanged;
 use tracing::error;

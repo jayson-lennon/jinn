@@ -18,7 +18,7 @@ use jinn_domain::feat::context::env_context::{
 use jinn_domain::feat::context::protocol::inputs::AssemblyInputs;
 use jinn_domain::feat::context::strategy::token_estimator::TokenCounter;
 use jinn_domain::feat::context::tool_prompt::build_tool_context_block;
-use jinn_domain::feat::skills::format::format_skills_for_prompt;
+use jinn_skills::format_skills_for_prompt;
 use jinn_domain::protocol::{ChatEntry, LlmMessage, PinPosition, entries_to_messages};
 use jinn_slices::AssembledPrompt;
 use jinn_slices::SystemPrompt;
@@ -239,8 +239,8 @@ mod tests {
     use jinn_domain::common::state::State;
     use jinn_domain::feat::context::env_context::ContextFile;
     use jinn_domain::feat::context::strategy::token_estimator::TiktokenCounter;
-    use jinn_domain::feat::session::tool_result_status::ToolResultStatus;
-    use jinn_domain::feat::skills::Skill;
+    use jinn_domain::protocol::ToolResultStatus;
+    use jinn_skills::Skill;
     use jinn_domain::protocol::{ChatEntry, SessionId};
     use jinn_tools_msg::TASK_TOOL_NAME;
 
@@ -268,7 +268,7 @@ mod tests {
             body: String::new(),
             file_path: std::path::PathBuf::from(format!("/skills/{name}/SKILL.md")),
             base_dir: std::path::PathBuf::from(format!("/skills/{name}")),
-            source: jinn_domain::feat::skills::SkillSource::Global,
+            source: jinn_skills::SkillSource::Global,
         }
     }
 
@@ -314,7 +314,7 @@ mod tests {
                         "call-1",
                         "bash",
                         "ok",
-                        jinn_domain::feat::session::tool_result_status::ToolResultStatus::Success,
+                        jinn_domain::protocol::ToolResultStatus::Success,
                     ),
                     ChatEntry::user("continue"),
                 ] {
@@ -353,7 +353,7 @@ mod tests {
                 "orphan",
                 "bash",
                 "bad",
-                jinn_domain::feat::session::tool_result_status::ToolResultStatus::Success,
+                jinn_domain::protocol::ToolResultStatus::Success,
             ),
             ChatEntry::user("after"),
         ]);
@@ -504,7 +504,7 @@ mod tests {
                 "orphan",
                 "bash",
                 "stray",
-                jinn_domain::feat::session::tool_result_status::ToolResultStatus::Success,
+                jinn_domain::protocol::ToolResultStatus::Success,
             ),
             ChatEntry::user("after"),
         ];
@@ -644,7 +644,7 @@ mod tests {
             "call-1",
             "bash",
             "ok",
-            jinn_domain::feat::session::tool_result_status::ToolResultStatus::Success,
+            jinn_domain::protocol::ToolResultStatus::Success,
         );
         let steer = ChatEntry::user_expanded("stay at the foo part", "stay at the foo part");
         let (state, session_id) = state_with_history(vec![
@@ -672,7 +672,7 @@ mod tests {
     #[test]
     fn assemble_prompt_steering_and_bottom_pin_coexist_at_respective_positions() {
         // Given a user-pinned entry and a tail steering entry.
-        use jinn_domain::feat::session::chat_entry::PinPosition;
+        use jinn_domain::protocol::PinPosition;
         let pinned = ChatEntry::user("pinned constraint").with_pin(PinPosition::Bottom);
         let middle = ChatEntry::user("middle");
         let assistant = ChatEntry::assistant("response");

@@ -30,12 +30,12 @@ pub async fn drain_routes(services: &Services) {
     .await;
     forward::<jinn_domain::feat::session_lifecycle::protocol::event::SessionCwdChanged>(services)
         .await;
-    forward::<jinn_domain::feat::skills::ScanSkills>(services).await;
+    forward::<jinn_skills_msg::ScanSkills>(services).await;
     forward::<jinn_domain::feat::provider::protocol::command::RescanPromptTemplates>(services)
         .await;
     forward::<jinn_domain::feat::context::protocol::command::ScanContextFiles>(services).await;
 
-    reverse::<jinn_domain::feat::skills::SkillsLoaded>(services).await;
+    reverse::<jinn_skills_msg::SkillsLoaded>(services).await;
     reverse::<jinn_domain::feat::provider::protocol::event::PromptTemplatesLoaded>(services).await;
     reverse::<jinn_domain::feat::context::protocol::event::ContextFilesLoaded>(services).await;
 }

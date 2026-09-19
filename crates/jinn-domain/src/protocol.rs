@@ -36,9 +36,12 @@ pub use crate::feat::session::protocol::session_id::SessionId;
 // Re-export domain types used by the picker and UI
 pub use crate::feat::provider::entries_to_messages::entries_to_messages;
 pub use crate::feat::provider::picker_entry::ProviderPickerEntry;
-pub use crate::feat::session::chat_entry::{
-    ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride, PinPosition,
-};
-pub use crate::feat::session::entry_timing::EntryTiming;
 pub use crate::feat::session::picker_entry::SessionTreeEntry;
-pub use crate::feat::session::tool_result_status::ToolResultStatus;
+// The `ChatEntry` vocabulary is promoted to `jinn-core-types` (serde-only
+// value types); these re-exports keep the long-standing `jinn_domain::…`
+// paths resolving.
+pub use jinn_core_types::{
+    AttachmentOutcome, ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextChangeEvent,
+    ContextOverride, EntryTiming, HistoryMutation, PinPosition, ResolvedToken, ToolResultStatus,
+};
+pub use jinn_core_types::chat_history::ChatHistory;

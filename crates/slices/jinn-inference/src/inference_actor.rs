@@ -9,7 +9,7 @@ use jinn_core_types::tool_types::ToolCall;
 use jinn_domain::common::actor_deps::BusPublish;
 use jinn_domain::common::services::Services;
 use jinn_domain::common::services::bus_service::BusService;
-use jinn_domain::feat::chat_input::protocol::command::PushChatEntry;
+use jinn_session_history_msg::PushChatEntry;
 use jinn_domain::feat::provider_infra::LlmServiceFactoryService;
 use jinn_domain::feat::provider_infra::StopReason;
 use jinn_domain::feat::provider_infra::StreamEvent;
@@ -492,7 +492,7 @@ async fn handle_done_event(
     if !accum.citations.is_empty() {
         let citations = std::mem::take(&mut accum.citations);
         bus.publish(
-            jinn_domain::feat::session::protocol::citations_received::CitationsReceived {
+            jinn_session_history_msg::CitationsReceived {
                 session_id: sid.clone(),
                 citations,
             },

@@ -2,8 +2,8 @@
 
 use std::path::Path;
 
-use super::frontmatter::{parse_frontmatter, strip_frontmatter};
-use super::skill::{Skill, SkillSource};
+use crate::frontmatter::{parse_frontmatter, strip_frontmatter};
+use crate::skill::{Skill, SkillSource};
 
 /// Scans a directory for agent skills.
 ///

@@ -33,7 +33,7 @@ use crate::common::app_state::AppState;
 use crate::common::render_ctx::RenderCtx;
 use crate::common::ui_element::UiElement;
 use crate::feat::session::phase_machine::PhaseKind;
-use crate::feat::session::tool_result_status::ToolResultStatus;
+use crate::protocol::ToolResultStatus;
 use crate::feat::theme::Theme;
 use crate::protocol::{ChatEntry, ChatEntryKind};
 use jinn_tools_msg::TASK_TOOL_NAME;

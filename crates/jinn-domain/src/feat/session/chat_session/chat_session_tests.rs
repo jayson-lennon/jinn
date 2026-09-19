@@ -10,7 +10,7 @@
 use crate::feat::session::profile::SessionProfile;
 
 use crate::feat::session::token_stats::TokenRecord;
-use crate::feat::session::tool_result_status::ToolResultStatus;
+use crate::protocol::ToolResultStatus;
 use crate::feat::ui::chat_log::visual_item::{
     DEFAULT_MIN_COLLAPSE_COUNT, PROXIMITY_COUNT, build_visual_items,
 };
@@ -507,7 +507,7 @@ fn enqueue_message_adds_to_queue() {
     assert_eq!(session.queue_len(), 0);
 
     // When enqueuing a message.
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("hello")),
     ));
 
@@ -515,11 +515,11 @@ fn enqueue_message_adds_to_queue() {
     assert_eq!(session.queue_len(), 1);
     assert!(matches!(
         &session.queue()[0],
-        crate::feat::session::queue_item::QueueItem::UserMessage(e) if e.kind == ChatEntryKind::User {
+        jinn_turn_dispatch_msg::QueueItem::UserMessage(e) if e.kind == ChatEntryKind::User {
             display: "hello".to_owned(),
             expanded: "hello".to_owned(),
             attachments: Vec::new(),
-            outcome: crate::feat::session::chat_entry::AttachmentOutcome::default(),
+            outcome: crate::protocol::AttachmentOutcome::default(),
         }
     ));
 }
@@ -528,10 +528,10 @@ fn enqueue_message_adds_to_queue() {
 fn dequeue_message_returns_first_in_order() {
     // Given a session with two queued messages.
     let mut session = ChatSessionState::new();
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("first")),
     ));
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("second")),
     ));
 
@@ -541,7 +541,7 @@ fn dequeue_message_returns_first_in_order() {
     // Then it returns the first message and the queue has one left.
     assert!(msg.is_some());
     let item = msg.unwrap();
-    let crate::feat::session::queue_item::QueueItem::UserMessage(entry) = item else {
+    let jinn_turn_dispatch_msg::QueueItem::UserMessage(entry) = item else {
         panic!("expected UserMessage")
     };
     assert_eq!(
@@ -550,7 +550,7 @@ fn dequeue_message_returns_first_in_order() {
             display: "first".to_owned(),
             expanded: "first".to_owned(),
             attachments: Vec::new(),
-            outcome: crate::feat::session::chat_entry::AttachmentOutcome::default(),
+            outcome: crate::protocol::AttachmentOutcome::default(),
         }
     );
     assert_eq!(session.queue_len(), 1);
@@ -572,13 +572,13 @@ fn dequeue_message_returns_none_when_empty() {
 fn drain_returns_all_in_order() {
     // Given a session with three queued messages.
     let mut session = ChatSessionState::new();
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("a")),
     ));
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("b")),
     ));
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("c")),
     ));
 
@@ -590,8 +590,8 @@ fn drain_returns_all_in_order() {
     let entries: Vec<ChatEntry> = drained
         .into_iter()
         .map(|item| match item {
-            crate::feat::session::queue_item::QueueItem::UserMessage(e) => *e,
-            crate::feat::session::queue_item::QueueItem::ToolContinuation => {
+            jinn_turn_dispatch_msg::QueueItem::UserMessage(e) => *e,
+            jinn_turn_dispatch_msg::QueueItem::ToolContinuation => {
                 panic!("expected UserMessage")
             }
         })
@@ -603,7 +603,7 @@ fn drain_returns_all_in_order() {
             display: "a".to_owned(),
             expanded: "a".to_owned(),
             attachments: Vec::new(),
-            outcome: crate::feat::session::chat_entry::AttachmentOutcome::default(),
+            outcome: crate::protocol::AttachmentOutcome::default(),
         }
     );
     assert_eq!(
@@ -612,7 +612,7 @@ fn drain_returns_all_in_order() {
             display: "b".to_owned(),
             expanded: "b".to_owned(),
             attachments: Vec::new(),
-            outcome: crate::feat::session::chat_entry::AttachmentOutcome::default(),
+            outcome: crate::protocol::AttachmentOutcome::default(),
         }
     );
     assert_eq!(
@@ -621,7 +621,7 @@ fn drain_returns_all_in_order() {
             display: "c".to_owned(),
             expanded: "c".to_owned(),
             attachments: Vec::new(),
-            outcome: crate::feat::session::chat_entry::AttachmentOutcome::default(),
+            outcome: crate::protocol::AttachmentOutcome::default(),
         }
     );
 }
@@ -630,13 +630,13 @@ fn drain_returns_all_in_order() {
 fn drain_empties_queue() {
     // Given a session with three queued messages.
     let mut session = ChatSessionState::new();
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("a")),
     ));
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("b")),
     ));
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("c")),
     ));
 
@@ -1571,7 +1571,7 @@ fn selected_entry_returns_entry_at_index() {
             display: "b".to_owned(),
             expanded: "b".to_owned(),
             attachments: Vec::new(),
-            outcome: crate::feat::session::chat_entry::AttachmentOutcome::default(),
+            outcome: crate::protocol::AttachmentOutcome::default(),
         }
     );
 }
@@ -3517,7 +3517,7 @@ fn force_exclude_preserves_complete_tool_loop() {
         "tc-1",
         "bash",
         "file.txt",
-        crate::feat::session::tool_result_status::ToolResultStatus::Success,
+        crate::protocol::ToolResultStatus::Success,
     ));
 
     // When force-excluding dangling tool calls.
@@ -3604,7 +3604,7 @@ fn force_exclude_mixed_complete_and_incomplete() {
         "tc-1",
         "bash",
         "file.txt",
-        crate::feat::session::tool_result_status::ToolResultStatus::Success,
+        crate::protocol::ToolResultStatus::Success,
     ));
     session.push_entry(ChatEntry::assistant(""));
     session.push_entry(ChatEntry::tool_call("tc-2", "read", r#"{"file":"a.rs"}"#));
@@ -3651,10 +3651,10 @@ fn cancel_stream_and_drain_puts_user_display_text_in_input() {
     // Given a streaming session with queued user messages.
     let mut session = ChatSessionState::new();
     session.begin_streaming();
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("hello world")),
     ));
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("second message")),
     ));
 
@@ -3671,8 +3671,8 @@ fn cancel_stream_and_drain_discards_non_user_items() {
     // Given a streaming session with mixed queue items.
     let mut session = ChatSessionState::new();
     session.begin_streaming();
-    session.enqueue(crate::feat::session::queue_item::QueueItem::ToolContinuation);
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::ToolContinuation);
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("keep this")),
     ));
 
@@ -3703,7 +3703,7 @@ fn cancel_stream_and_drain_skips_tool_continuation() {
     // Given a streaming session with a tool continuation in the queue.
     let mut session = ChatSessionState::new();
     session.begin_streaming();
-    session.enqueue(crate::feat::session::queue_item::QueueItem::ToolContinuation);
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::ToolContinuation);
 
     // When cancelling and draining.
     session.cancel_stream_and_drain();
@@ -3724,7 +3724,7 @@ fn cancel_stream_and_drain_uses_display_not_expanded() {
     }
     let mut session = ChatSessionState::new();
     session.begin_streaming();
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(entry),
     ));
 
@@ -3799,10 +3799,10 @@ fn cancel_stream_and_drain_flattens_steering_and_queue() {
     session.begin_streaming();
     session.steering_buffer_mut().push_fragment("s1".to_owned());
     session.steering_buffer_mut().push_fragment("s2".to_owned());
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("m1")),
     ));
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("m2")),
     ));
 
@@ -3836,7 +3836,7 @@ fn cancel_stream_and_drain_single_queue_message_no_separator() {
     // Given a streaming session with one queued user message.
     let mut session = ChatSessionState::new();
     session.begin_streaming();
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(ChatEntry::user("keep this")),
     ));
 
@@ -3856,7 +3856,7 @@ fn cancel_stream_and_drain_steering_with_only_tool_continuation() {
     session
         .steering_buffer_mut()
         .push_fragment("frag1".to_owned());
-    session.enqueue(crate::feat::session::queue_item::QueueItem::ToolContinuation);
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::ToolContinuation);
 
     // When cancelling and draining.
     session.cancel_stream_and_drain();
@@ -5057,18 +5057,18 @@ fn enqueue_front_puts_item_at_front_of_queue() {
     let _first_id = session.history()[0].id.clone();
 
     // Enqueue a user message normally (back of queue).
-    session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
         Box::new(session.history()[0].clone()),
     ));
 
     // When enqueuing a ToolContinuation at the front.
-    session.enqueue_front(crate::feat::session::queue_item::QueueItem::ToolContinuation);
+    session.enqueue_front(jinn_turn_dispatch_msg::QueueItem::ToolContinuation);
 
     // Then dequeue returns ToolContinuation first.
     let front = session.dequeue();
     assert!(matches!(
         front,
-        Some(crate::feat::session::queue_item::QueueItem::ToolContinuation)
+        Some(jinn_turn_dispatch_msg::QueueItem::ToolContinuation)
     ));
 }
 
@@ -5231,7 +5231,7 @@ fn loaded_skills_returns_only_valid_pinned_skill_names() {
     );
 }
 
-use crate::feat::session::history_mutation::HistoryMutation;
+use crate::protocol::HistoryMutation;
 
 fn session_with_excluded_entry(
     source: crate::protocol::ChangeSource,
@@ -5973,7 +5973,7 @@ fn worker_include_on_todo_tool_call_covers_whole_tool_loop() {
         "tc-1",
         "todo_get_task_list",
         "task list",
-        crate::feat::session::tool_result_status::ToolResultStatus::Success,
+        crate::protocol::ToolResultStatus::Success,
     ));
     let call_id = session.history()[2].id.clone();
 
@@ -6016,7 +6016,7 @@ fn tool_age_window_exclude_refused_on_included_todo_pair() {
         "tc-1",
         "todo_get_task_list",
         "task list",
-        crate::feat::session::tool_result_status::ToolResultStatus::Success,
+        crate::protocol::ToolResultStatus::Success,
     ));
     let call_id = session.history()[2].id.clone();
     session.edit_history().set_context(

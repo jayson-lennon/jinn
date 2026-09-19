@@ -7,6 +7,8 @@ publish.workspace = true
 [dependencies]
 # Core types: SessionId keys every command and event.
 jinn-core-types = { workspace = true }
+jinn-skills-msg = { workspace = true }
+jinn-skills = { workspace = true }
 # Slice host verbs (`forward`/`reverse` staging, AppSliceHost) and the
 # crossing_schema! macro.
 jinn-slices = { workspace = true }

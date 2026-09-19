@@ -4,8 +4,8 @@
 //! produces a batch of mutations. Workers run outside any lock.
 use std::sync::Arc;
 
-use crate::feat::session::chat_entry::ChatEntry;
-use crate::feat::session::history_mutation::HistoryMutation;
+use crate::protocol::ChatEntry;
+use crate::protocol::HistoryMutation;
 use crate::protocol::SessionId;
 /// A pluggable history mutation heuristic.
 ///

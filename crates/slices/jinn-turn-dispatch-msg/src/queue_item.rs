@@ -4,7 +4,7 @@
 //! Each item type maps to a specific action when processed by the queue
 //! processor in the session actor.
 
-use crate::protocol::ChatEntry;
+use jinn_core_types::ChatEntry;
 use serde::{Deserialize, Serialize};
 
 /// Items in the session turn dispatch queue.

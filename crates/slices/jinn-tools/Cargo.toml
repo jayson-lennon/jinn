@@ -5,6 +5,9 @@ edition.workspace = true
 
 [dependencies]
 jinn-core-types = { workspace = true }
+jinn-skills-msg = { workspace = true }
+jinn-skills = { workspace = true }
+jinn-session-history-msg = { workspace = true }
 jinn-inference-msg = { workspace = true }
 jinn-tools-msg = { workspace = true }
 jinn-common = { workspace = true }

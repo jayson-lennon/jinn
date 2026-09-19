@@ -69,8 +69,8 @@ pub use jinn_preferences_config::schemas::auto_prune::TrivialAssistantAutoPruneC
 use crate::feat::auto_prune_worker::{HistoryWorkerChatEntryTokenCache, is_within_min_age};
 use crate::feat::context::strategy::token_estimator::{TiktokenCounter, TokenCounter};
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::feat::session::chat_entry::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
-use crate::feat::session::history_mutation::HistoryMutation;
+use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
+use crate::protocol::HistoryMutation;
 use crate::protocol::SessionId;
 
 /// Default enabled state for trivial-assistant auto-prune.
@@ -242,7 +242,7 @@ mod tests {
     )]
 
     use super::*;
-    use crate::feat::session::chat_entry::ChatEntry;
+    use crate::protocol::ChatEntry;
     use crate::protocol::SessionId;
 
     /// Build a worker with the given thresholds (enabled = true).
@@ -258,7 +258,7 @@ mod tests {
         }
     }
 
-    use crate::feat::session::chat_entry::ChatEntryId;
+    use crate::protocol::ChatEntryId;
 
     /// Build N plain user entries (all in-context).
     fn users(n: usize) -> Vec<ChatEntry> {
@@ -757,7 +757,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn pinned_trivial_assistant_outside_window_is_not_pruned() {
-        use crate::feat::session::chat_entry::PinPosition;
+        use crate::protocol::PinPosition;
         let w = worker(100, 80);
         let mut asst = trivial_assistant("done");
         asst.pin_position = Some(PinPosition::Top);

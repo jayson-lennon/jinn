@@ -1,6 +1,6 @@
 //! Timing data for chat entries.
 //!
-//! Every [`ChatEntry`](super::ChatEntry) carries an [`EntryTiming`] that records when it was
+//! Every [`ChatEntry`](crate::ChatEntry) carries an [`EntryTiming`] that records when it was
 //! created, and — for entries that go through a streaming lifecycle — how long the LLM took to
 //! dispatch, produce its first token, and finish.
 

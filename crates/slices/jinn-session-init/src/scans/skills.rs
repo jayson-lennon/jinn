@@ -2,8 +2,8 @@
 
 use std::path::Path;
 
-use jinn_domain::feat::skills::frontmatter::{parse_frontmatter, strip_frontmatter};
-use jinn_domain::feat::skills::{Skill, SkillSource};
+use jinn_skills::frontmatter::{parse_frontmatter, strip_frontmatter};
+use jinn_skills::{Skill, SkillSource};
 
 /// Scans a directory for agent skills.
 ///

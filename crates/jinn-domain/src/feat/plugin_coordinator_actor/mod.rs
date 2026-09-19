@@ -494,9 +494,9 @@ async fn apply_plugin_insert_system_entry(
     // the entire stall they exist to report. `PushChatEntry` appends
     // immediately regardless of phase, so the marker lands while the stream
     // is still (stuck) in flight.
-    bus.publish(crate::feat::chat_input::protocol::command::PushChatEntry {
+    bus.publish(jinn_session_history_msg::PushChatEntry {
         session_id,
-        entry: crate::feat::session::chat_entry::ChatEntry::system(msg.text),
+        entry: crate::protocol::ChatEntry::system(msg.text),
     })
     .await;
 }
@@ -656,7 +656,7 @@ fn last_entry_is_assistant(state: &State, session_id: &crate::protocol::SessionI
         .is_some_and(|entry| {
             matches!(
                 entry.kind,
-                crate::feat::session::chat_entry::ChatEntryKind::Assistant(_)
+                crate::protocol::ChatEntryKind::Assistant(_)
             )
         })
 }

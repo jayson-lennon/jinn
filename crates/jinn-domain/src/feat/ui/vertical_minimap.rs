@@ -15,7 +15,7 @@ use ratatui::widgets::Paragraph;
 use unicode_width::UnicodeWidthStr;
 
 use crate::common::app_state::AppState;
-use crate::feat::session::chat_entry::{ChatEntry, ChatEntryKind};
+use crate::protocol::{ChatEntry, ChatEntryKind};
 use crate::feat::ui::chat_log::visual_item::VisualItem;
 
 #[cfg(test)]
@@ -475,7 +475,7 @@ mod tests {
     )]
     use super::*;
     use crate::common::app_state::AppState;
-    use crate::feat::session::chat_entry::ChatEntry;
+    use crate::protocol::ChatEntry;
     use crate::feat::theme::default_theme;
 
     #[rstest::rstest]

@@ -166,7 +166,7 @@ mod tests {
     )]
 
     use super::*;
-    use crate::feat::session::tool_result_status::ToolResultStatus;
+    use crate::protocol::ToolResultStatus;
     use crate::protocol::{ChatEntry, PinPosition};
 
     fn make_entries(count: usize, ignored: bool) -> Vec<ChatEntry> {

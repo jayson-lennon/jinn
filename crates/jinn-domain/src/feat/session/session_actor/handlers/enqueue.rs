@@ -13,8 +13,9 @@
 
 use crate::common::actor_deps::BusPublish;
 use crate::feat::chat_input::protocol::command::{
-    EnqueueResumeTurn, EnqueueUserMessage, PushChatEntry, SubmitSteeringMessage,
+    EnqueueResumeTurn, EnqueueUserMessage, SubmitSteeringMessage,
 };
+use jinn_session_history_msg::PushChatEntry;
 use crate::feat::chat_input::protocol::event::ChatEntrySubmitted;
 use crate::feat::provider::protocol::command::SendMessage;
 use crate::protocol::{ChatEntry, ChatEntryKind};
@@ -92,7 +93,7 @@ impl SessionPersistenceActor {
                         EnqueueAction::DispatchDirectly
                     }
                     PhaseKind::Sending | PhaseKind::Streaming => {
-                        session.enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+                        session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
                             Box::new(entry.clone()),
                         ));
                         EnqueueAction::Queued
@@ -257,7 +258,7 @@ impl SessionPersistenceActor {
                     // (but non-default) marker keeps re-expansion idempotent for
                     // fully-attached messages.
                     *entry_outcome =
-                        crate::feat::session::chat_entry::AttachmentOutcome { attached, degraded };
+                        crate::protocol::AttachmentOutcome { attached, degraded };
                 }
                 true
             }
@@ -435,9 +436,8 @@ mod tests {
     )]
 
     use crate::common::services::BusAudit;
-    use crate::feat::chat_input::protocol::command::{
-        EnqueueResumeTurn, EnqueueUserMessage, PushChatEntry,
-    };
+    use crate::feat::chat_input::protocol::command::{EnqueueResumeTurn, EnqueueUserMessage};
+    use jinn_session_history_msg::PushChatEntry;
     use crate::feat::provider::protocol::command::SendMessage;
     use crate::feat::session::phase_machine::PhaseKind;
     use crate::protocol::{ChatEntry, ChatEntryKind};

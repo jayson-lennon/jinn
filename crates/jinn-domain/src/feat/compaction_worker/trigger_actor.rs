@@ -5,9 +5,9 @@
 //! Pushes system messages for user feedback (queued, skipped, failed).
 
 use crate::common::actor_deps::{ActorDeps, BusPublish};
-use crate::feat::chat_input::protocol::command::PushChatEntry;
+use jinn_session_history_msg::PushChatEntry;
 use crate::feat::compaction_worker::worker::CompactionWorker;
-use crate::feat::session::chat_entry::ChatEntry;
+use crate::protocol::ChatEntry;
 use crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations;
 use crate::feat::session::protocol::trigger_compaction::TriggerCompaction;
 use kameo::prelude::{Actor, ActorRef, Context, Message};

@@ -5,24 +5,17 @@
 //! Also contains the session actor, intent handlers, validators, entry loaders,
 //! and picker rendering.
 
-pub mod chat_history;
 pub mod session_store;
 pub mod session_summary;
 pub mod sessions_list;
 
-pub mod chat_entry;
-pub mod entry_timing;
-
-#[cfg(test)]
-mod chat_entry_tests;
 pub mod chat_session;
 pub mod entries;
 #[cfg(test)]
 mod entries_tests;
-pub mod history_editor;
-pub mod history_mutation;
 #[cfg(test)]
-mod history_mutation_tests;
+#[path = "history_editor_tests.rs"]
+mod history_editor_tests;
 pub mod intent;
 pub mod mutation_accumulator;
 pub mod phase_machine;
@@ -30,7 +23,6 @@ pub mod picker_entry;
 pub mod profile;
 pub mod protocol;
 pub mod prune_report;
-pub mod queue_item;
 pub mod session_actor;
 pub mod steering_buffer;
 pub mod token_stats;
@@ -45,8 +37,6 @@ mod tree_aggregate_tests;
 pub use tree_aggregate::{
     FrozenTreeNode, TreeAggregateStats, aggregate_tree_stats, find_tree_root, snapshot_frozen_node,
 };
-pub mod tool_result_status;
-pub mod turn_queue;
 pub mod validator;
 
 pub use chat_session::{ChatSessionState, SessionCore, SessionUi};

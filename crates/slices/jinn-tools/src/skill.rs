@@ -5,8 +5,8 @@
 
 use crate::tool_types::ToolContext;
 use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult, ToolResultPinPosition};
-use jinn_domain::feat::skills::Skill;
-use jinn_domain::feat::skills::frontmatter::strip_frontmatter;
+use jinn_skills::Skill;
+use jinn_skills::frontmatter::strip_frontmatter;
 
 use super::BoxedToolFuture;
 
@@ -288,7 +288,7 @@ mod tests {
     async fn execute_loads_project_local_skill_from_discovered_file_path() {
         use jinn_domain::common::app_state::AppState;
         use jinn_domain::common::state::State;
-        use jinn_domain::feat::skills::{Skill, SkillSource};
+        use jinn_skills::{Skill, SkillSource};
         use jinn_domain::protocol::SessionId;
 
         // Given a project-local skill whose file_path is NOT under the global
@@ -375,7 +375,7 @@ mod tests {
     async fn execute_result_header_carries_base_dir() {
         use jinn_domain::common::app_state::AppState;
         use jinn_domain::common::state::State;
-        use jinn_domain::feat::skills::{Skill, SkillSource};
+        use jinn_skills::{Skill, SkillSource};
         use jinn_domain::protocol::SessionId;
 
         // Given a project-local skill seeded with a distinct base_dir.
@@ -551,8 +551,8 @@ mod tests {
     async fn execute_returns_already_loaded_for_duplicate_load() {
         use jinn_domain::common::app_state::AppState;
         use jinn_domain::common::state::State;
-        use jinn_domain::feat::session::chat_entry::{ChatEntry, PinPosition};
-        use jinn_domain::feat::session::tool_result_status::ToolResultStatus;
+        use jinn_domain::protocol::{ChatEntry, PinPosition};
+        use jinn_domain::protocol::ToolResultStatus;
         use jinn_domain::protocol::SessionId;
 
         // Given a session that already has a pinned ToolResult from the `skill` tool
@@ -621,8 +621,8 @@ mod tests {
     async fn execute_loads_different_skill_when_other_already_loaded() {
         use jinn_domain::common::app_state::AppState;
         use jinn_domain::common::state::State;
-        use jinn_domain::feat::session::chat_entry::{ChatEntry, PinPosition};
-        use jinn_domain::feat::session::tool_result_status::ToolResultStatus;
+        use jinn_domain::protocol::{ChatEntry, PinPosition};
+        use jinn_domain::protocol::ToolResultStatus;
         use jinn_domain::protocol::SessionId;
 
         // Given a session that already has a pinned ToolResult for "rust-programming".

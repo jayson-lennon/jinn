@@ -9,19 +9,6 @@ use crate::BusMessage;
 use crate::protocol::ChatEntry;
 use crate::protocol::SessionId;
 
-/// Push a chat entry into the conversation history.
-///
-/// Any component or actor can send this to add an entry to the chat log.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PushChatEntry {
-    /// The session this entry belongs to.
-    pub session_id: SessionId,
-    /// The chat entry to add.
-    pub entry: ChatEntry,
-}
-
-impl crate::common::bus::BusMessage for PushChatEntry {}
-
 /// Enqueue a user message for processing by the message queue.
 ///
 /// Submitted instead of directly pushing a chat entry when the queue is active.

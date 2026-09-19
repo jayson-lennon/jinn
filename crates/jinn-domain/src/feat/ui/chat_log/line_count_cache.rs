@@ -207,7 +207,7 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::feat::session::tool_result_status::ToolResultStatus;
+    use crate::protocol::ToolResultStatus;
     use crate::protocol::{ChatEntry, ChatEntryKind};
 
     #[rstest::rstest]

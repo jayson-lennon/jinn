@@ -25,7 +25,7 @@ use crate::common::app_state::AppState;
 use crate::feat::context::protocol::command::ScanContextFiles;
 use crate::feat::provider::protocol::command::RescanPromptTemplates;
 use crate::feat::session::protocol::mark_session_interacted::MarkSessionInteracted;
-use crate::feat::session::tool_result_status::ToolResultStatus;
+use crate::protocol::ToolResultStatus;
 use crate::feat::skills::ScanSkills;
 use crate::feat::skills::SkillSource;
 use crate::feat::ui::picker_states::PickerExt;

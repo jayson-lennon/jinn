@@ -14,6 +14,7 @@ trouper = { workspace = true }
 # (QueueItem/ChatEntry, phase machine, enqueue protocols), and asks the
 # context-assembly service through Services — granted at slice activation.
 jinn-core-types = { workspace = true }
+jinn-session-history-msg = { workspace = true }
 jinn-domain = { workspace = true }
 jinn-slices = { workspace = true }
 serde_json = { workspace = true }

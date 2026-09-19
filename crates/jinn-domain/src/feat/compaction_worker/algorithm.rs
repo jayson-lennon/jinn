@@ -4,7 +4,7 @@
 
 use crate::feat::context::strategy::token_estimator::CharRatioEstimator;
 use crate::feat::context::strategy::token_estimator::estimate_entry_tokens;
-use crate::feat::session::chat_entry::{ChatEntry, ChatEntryKind};
+use crate::protocol::{ChatEntry, ChatEntryKind};
 
 /// Whether a chat entry kind is a self-sufficient opener for the kept
 /// (recent) region after compaction.
@@ -250,7 +250,7 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::feat::session::chat_entry::{
+    use crate::protocol::{
         ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride,
     };
 
@@ -267,7 +267,7 @@ mod tests {
             "tc",
             "bash",
             "out",
-            crate::feat::session::tool_result_status::ToolResultStatus::Success,
+            crate::protocol::ToolResultStatus::Success,
         );
         let actor = ChatEntry::actor("src", "text");
         let thinking = ChatEntry::thinking("reasoning");
@@ -403,7 +403,7 @@ mod tests {
                 "tc1",
                 "bash",
                 "file.txt",
-                crate::feat::session::tool_result_status::ToolResultStatus::Success,
+                crate::protocol::ToolResultStatus::Success,
             ),
             ChatEntry::assistant("here is the result"),
             ChatEntry::tool_call("tc2", "read", r#"{"path":"file.txt"}"#),
@@ -437,7 +437,7 @@ mod tests {
                 "tc1",
                 "bash",
                 "file.txt",
-                crate::feat::session::tool_result_status::ToolResultStatus::Success,
+                crate::protocol::ToolResultStatus::Success,
             ),
             ChatEntry::assistant("done"),
         ];
@@ -467,7 +467,7 @@ mod tests {
                 "tc1",
                 "bash",
                 "out",
-                crate::feat::session::tool_result_status::ToolResultStatus::Success,
+                crate::protocol::ToolResultStatus::Success,
             ),
             ChatEntry::user("next"),
         ];
@@ -494,7 +494,7 @@ mod tests {
                 "tc1",
                 "bash",
                 "out",
-                crate::feat::session::tool_result_status::ToolResultStatus::Success,
+                crate::protocol::ToolResultStatus::Success,
             ), // <- cut lands here (index 3)
             ChatEntry::user("next"),
         ];
@@ -523,7 +523,7 @@ mod tests {
                 "tc1",
                 "bash",
                 "out",
-                crate::feat::session::tool_result_status::ToolResultStatus::Success,
+                crate::protocol::ToolResultStatus::Success,
             ),
             ChatEntry::user("next"),
         ];
@@ -590,7 +590,7 @@ mod tests {
                 "tc1",
                 "bash",
                 "out",
-                crate::feat::session::tool_result_status::ToolResultStatus::Success,
+                crate::protocol::ToolResultStatus::Success,
             ),
         ];
 

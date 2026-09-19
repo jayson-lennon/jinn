@@ -5,9 +5,11 @@ edition.workspace = true
 
 [dependencies]
 base64 = { workspace = true }
+jiff = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+strip-ansi-escapes = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]

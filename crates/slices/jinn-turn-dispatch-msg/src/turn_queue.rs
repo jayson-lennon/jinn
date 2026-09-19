@@ -2,16 +2,15 @@
 //!
 //! The turn queue holds pending operations (user messages, compaction requests,
 //! tool continuations) that should be dispatched when the session transitions
-//! to [`Idle`](super::chat_session::PhaseKind::Idle).
+//! to `Idle` (the phase the queue actor watches for).
 //!
 //! # Visibility
 //!
 //! - **Public:** `enqueue`, `enqueue_front`, `len`, `is_empty` - anyone can add items.
-//! - **Restricted:** `pop`, `drain` - only the queue actor may consume items.
-//!
-//! During the migration (before the queue actor exists), `pop` and `drain` are
-//! visible within the `session` feature module. This will be tightened once the
-//! queue actor is introduced.
+//! - **Consumption:** `pop`, `drain` are public types here, but the sanctioned
+//!   production consumer is the turn-dispatch slice's queue actor, reached
+//!   through `ChatSessionState::dequeue`/`ChatSessionState::drain_queue`
+//!   (the session-field wrappers keep the pop path feature-restricted).
 
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -57,17 +56,17 @@ impl TurnQueue {
 
     /// Pop the front item from the queue, if any.
     ///
-    /// Restricted to the session feature module: the turn-dispatch queue
-    /// actor reaches this through `ChatSessionState::dequeue`.
-    pub(in crate::feat::session) fn pop(&mut self) -> Option<QueueItem> {
+    /// The sanctioned production consumer is the turn-dispatch queue actor,
+    /// reached through `ChatSessionState::dequeue`.
+    pub fn pop(&mut self) -> Option<QueueItem> {
         self.inner.pop_front()
     }
 
     /// Drain all queued items, returning them in order.
     ///
-    /// Restricted to the session feature module: the turn-dispatch queue
-    /// actor reaches this through `ChatSessionState::dequeue`.
-    pub(in crate::feat::session) fn drain(&mut self) -> VecDeque<QueueItem> {
+    /// The sanctioned production consumer is the turn-dispatch queue actor,
+    /// reached through `ChatSessionState::drain_queue`.
+    pub fn drain(&mut self) -> VecDeque<QueueItem> {
         std::mem::take(&mut self.inner)
     }
 }
@@ -84,7 +83,7 @@ mod tests {
     use super::*;
 
     fn user_msg(text: &str) -> QueueItem {
-        QueueItem::UserMessage(Box::new(crate::protocol::ChatEntry::user(text)))
+        QueueItem::UserMessage(Box::new(jinn_core_types::ChatEntry::user(text)))
     }
 
     #[rstest::rstest]

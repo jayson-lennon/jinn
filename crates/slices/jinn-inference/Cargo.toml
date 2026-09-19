@@ -19,6 +19,7 @@ trouper = { workspace = true }
 jinn-core-types = { workspace = true }
 jinn-domain = { workspace = true }
 jinn-slices = { workspace = true }
+jinn-session-history-msg = { workspace = true }
 jinn-provider = { workspace = true }
 jinn-tools-msg = { workspace = true }
 jinn-preferences-config = { workspace = true }

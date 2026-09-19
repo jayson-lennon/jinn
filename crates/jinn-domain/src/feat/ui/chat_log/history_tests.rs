@@ -9,7 +9,7 @@
 use crate::common::app_state::{AppState, FocusScope};
 use crate::common::render_ctx::RenderCtx;
 use crate::common::ui_element::UiElement;
-use crate::feat::session::tool_result_status::ToolResultStatus;
+use crate::protocol::ToolResultStatus;
 use crate::feat::ui::chat_log::history::ChatLogElement;
 use crate::feat::ui::chat_log::shared::GUTTER_WIDTH;
 use crate::protocol::{ChatEntry, PinPosition};
@@ -31,7 +31,7 @@ fn normal_state() -> AppState {
 /// Build a compaction entry with the given summary (struct literal — no
 /// `ChatEntry::compaction(...)` constructor exists).
 fn compaction_entry(summary: &str) -> ChatEntry {
-    use crate::feat::session::chat_entry::{ChatEntryId, ChatEntryKind};
+    use crate::protocol::{ChatEntryId, ChatEntryKind};
     use crate::protocol::{ContextOverride, EntryTiming};
     ChatEntry {
         id: ChatEntryId::new(),
@@ -1256,7 +1256,7 @@ fn render_auto_scrolls_jumped_compaction_into_view() {
     // -> anchor on last entry; the prev jump lands on the only compaction at index 0).
     handle_jump_prev_entry(
         &mut state,
-        crate::feat::session::chat_entry::ChatEntry::is_compaction,
+        crate::protocol::ChatEntry::is_compaction,
     );
     assert_eq!(
         state.active_session().selected_cursor_id(),
@@ -1404,7 +1404,7 @@ fn task_waiting_fixture(
     child_id: Option<crate::protocol::SessionId>,
     child_phase: Option<crate::feat::session::phase_machine::PhaseKind>,
 ) -> AppState {
-    use crate::feat::session::chat_entry::ChatEntryKind;
+    use crate::protocol::ChatEntryKind;
     use jinn_tools_msg::TASK_TOOL_NAME;
 
     let mut state = AppState::default_with_scope_focus();
@@ -1548,7 +1548,7 @@ fn waiting_line_absent_when_child_not_in_memory() {
         let mut s = AppState::default_with_scope_focus();
         let entry = ChatEntry::tool_call("tc_orphan", TASK_TOOL_NAME, "{}");
         let entry = {
-            use crate::feat::session::chat_entry::ChatEntryKind;
+            use crate::protocol::ChatEntryKind;
             let mut e = entry;
             if let ChatEntryKind::ToolCall { child_session, .. } = &mut e.kind {
                 *child_session = Some(crate::protocol::SessionId::new());

@@ -90,7 +90,7 @@ mod tests {
     use jinn_domain::common::slices::key_routes::BindSite;
     use jinn_domain::common::slices::key_routes::KeyRoutes;
     use jinn_domain::common::slices::key_routes::RouteOutcome;
-    use jinn_domain::feat::session::chat_entry::ChatEntryKind;
+    use jinn_domain::protocol::ChatEntryKind;
     use jinn_domain::protocol::Intent;
 
     fn routed() -> KeyRoutes {

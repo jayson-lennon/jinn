@@ -29,7 +29,7 @@ use jinn_discord_msg::{
     DiscordThreadCreated, ForumChannelError, GatewayRequest,
 };
 use jinn_domain::common::state::State;
-use jinn_domain::feat::session::chat_entry::ChatEntry;
+use jinn_domain::protocol::ChatEntry;
 use jinn_session_msg::{
     SessionArchived, SessionPhaseChanged, SessionSetupCompleted, SessionTeardownFinished,
 };
@@ -346,7 +346,7 @@ mod tests {
     #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
     use super::*;
     use jinn_domain::common::app_state::AppState;
-    use jinn_domain::feat::session::chat_entry::ChatEntryKind;
+    use jinn_domain::protocol::ChatEntryKind;
     use jinn_domain::protocol::SessionId;
 
     /// Build a bridge subscriber with one seeded session, plus its session id.

@@ -24,8 +24,10 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use crate::feat::session::chat_history::ChatHistory;
-use crate::feat::session::history_editor::HistoryEditor;
+use crate::protocol::ChatHistory;
+use jinn_session_history::history_editor::{
+    HistoryEditor, Priv, SessionHistoryAccess, SessionHistoryAccessPriv,
+};
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::profile::SessionProfile;
 use crate::feat::session::steering_buffer::SteeringBuffer;
@@ -39,7 +41,7 @@ use jinn_core_types::model_selection::ModelSelection;
 use crate::feat::context::prompt_template::PromptTemplateStore;
 use crate::feat::context::prompt_template::{PathResolveContext, PendingPath};
 use crate::feat::context::prompt_template::{expand_tokens, scan_at_paths_with_degraded};
-use crate::feat::session::entry_timing::EntryTiming;
+use crate::protocol::EntryTiming;
 
 /// Error returned when a streaming operation fails.
 #[derive(Debug, wherror::Error)]
@@ -132,7 +134,7 @@ pub struct SessionCoreEphemeral {
     /// The single source of truth for phase state.
     pub machine: crate::feat::session::phase_machine::SessionPhaseMachine,
     /// Turn dispatch queue - drives all turn transitions through a single processor.
-    pub message_queue: crate::feat::session::turn_queue::TurnQueue,
+    pub message_queue: jinn_turn_dispatch_msg::TurnQueue,
     /// Cached context size in tokens (assembled prompt size).
     /// Updated when context is assembled. Not persisted across restarts.
     /// OWNER: session-actor.
@@ -166,7 +168,7 @@ pub struct SessionCoreEphemeral {
     /// Drained and applied at safe application points (tool batch completion,
     /// stream completion). Not persisted across restarts.
     #[serde(skip)]
-    pub pending_mutations: Vec<Vec<crate::feat::session::history_mutation::HistoryMutation>>,
+    pub pending_mutations: Vec<Vec<crate::protocol::HistoryMutation>>,
 
     /// Discovered resources for THIS session, scoped to its cwd tree.
     /// Populated by the scan actors (skills / prompts / context-files).
@@ -520,7 +522,7 @@ impl ChatSessionState {
     ///
     /// All history mutations go through the returned [`HistoryEditor`]; reads
     /// stay on the session itself.
-    pub fn edit_history(&mut self) -> HistoryEditor<'_> {
+    pub fn edit_history(&mut self) -> HistoryEditor<'_, Self> {
         HistoryEditor::new(self)
     }
 
@@ -712,21 +714,6 @@ impl ChatSessionState {
         self.core.history.get_mut(index)
     }
 
-    /// Runs `f` on the entry with `id`, if it exists. Returns `f`'s output.
-    ///
-    /// Editor-only in-primitive for id-keyed in-place mutation.
-    pub(in crate::feat::session) fn with_history_entry_mut<R>(
-        &mut self,
-        id: &ChatEntryId,
-        f: impl FnOnce(&mut ChatEntry) -> R,
-    ) -> Option<R> {
-        self.core
-            .history
-            .iter_mut()
-            .find(|entry| &entry.id == id)
-            .map(f)
-    }
-
     /// Create a new session with a specific profile (model + strategy).
     #[must_use]
     pub fn new_with_profile(profile: SessionProfile) -> Self {
@@ -841,7 +828,7 @@ impl ChatSessionState {
     /// toggle always lands on an explicit `Forced*` value — it never produces
     /// `Default`. Resetting to `Default` is the job of the `r` reset intent.
     ///
-    /// [`is_in_context`]: crate::feat::session::chat_entry::ChatEntry::is_in_context
+    /// [`is_in_context`]: crate::protocol::ChatEntry::is_in_context
     ///
     /// Returns `Some(entry_id)` if the override was changed, `None` if no-op
     /// (entry was already in the toggled state) or no entry is selected.
@@ -1459,13 +1446,13 @@ impl ChatSessionState {
         steering
             .into_iter()
             .chain(queue.into_iter().filter_map(|item| match item {
-                crate::feat::session::queue_item::QueueItem::UserMessage(entry) => {
+                jinn_turn_dispatch_msg::QueueItem::UserMessage(entry) => {
                     match &entry.kind {
                         ChatEntryKind::User { display, .. } => Some(display.clone()),
                         _ => None,
                     }
                 }
-                crate::feat::session::queue_item::QueueItem::ToolContinuation => None,
+                jinn_turn_dispatch_msg::QueueItem::ToolContinuation => None,
             }))
             .collect()
     }
@@ -1613,7 +1600,7 @@ impl ChatSessionState {
             tool_call_id,
             name,
             "",
-            crate::feat::session::tool_result_status::ToolResultStatus::Pending,
+            crate::protocol::ToolResultStatus::Pending,
         );
         entry.timing = EntryTiming::streamed(dispatched_at);
         entry.timing.set_first_token();
@@ -1684,7 +1671,7 @@ impl ChatSessionState {
         &mut self,
         tool_call_id: &str,
         content: &str,
-        status: crate::feat::session::tool_result_status::ToolResultStatus,
+        status: crate::protocol::ToolResultStatus,
         full_content: Option<String>,
         truncation: Option<jinn_core_types::tool_types::TruncationMeta>,
         pin_position: Option<PinPosition>,
@@ -1751,9 +1738,9 @@ impl ChatSessionState {
         pin_position: Option<PinPosition>,
     ) {
         let status = if success {
-            crate::feat::session::tool_result_status::ToolResultStatus::Success
+            crate::protocol::ToolResultStatus::Success
         } else {
-            crate::feat::session::tool_result_status::ToolResultStatus::Failure
+            crate::protocol::ToolResultStatus::Failure
         };
         let pin_position_result = pin_position;
 
@@ -1816,7 +1803,7 @@ impl ChatSessionState {
     /// Read-only access to the turn dispatch queue items.
     pub fn queue(
         &self,
-    ) -> &std::collections::VecDeque<crate::feat::session::queue_item::QueueItem> {
+    ) -> &std::collections::VecDeque<jinn_turn_dispatch_msg::QueueItem> {
         self.core.ephemeral.message_queue.items()
     }
 
@@ -1826,12 +1813,12 @@ impl ChatSessionState {
     }
 
     /// Push an item onto the back of the queue.
-    pub fn enqueue(&mut self, item: crate::feat::session::queue_item::QueueItem) {
+    pub fn enqueue(&mut self, item: jinn_turn_dispatch_msg::QueueItem) {
         self.core.ephemeral.message_queue.enqueue(item);
     }
 
     /// Push an item onto the front of the queue (for priority items).
-    pub fn enqueue_front(&mut self, item: crate::feat::session::queue_item::QueueItem) {
+    pub fn enqueue_front(&mut self, item: jinn_turn_dispatch_msg::QueueItem) {
         self.core.ephemeral.message_queue.enqueue_front(item);
     }
 
@@ -1839,14 +1826,14 @@ impl ChatSessionState {
     ///
     /// The turn-dispatch slice's queue actor is the production caller; the
     /// queue lives on the session, so the pop must be reachable there.
-    pub fn dequeue(&mut self) -> Option<crate::feat::session::queue_item::QueueItem> {
+    pub fn dequeue(&mut self) -> Option<jinn_turn_dispatch_msg::QueueItem> {
         self.core.ephemeral.message_queue.pop()
     }
 
     /// Drain all queued items, returning them in order.
     pub(in crate::feat) fn drain_queue(
         &mut self,
-    ) -> std::collections::VecDeque<crate::feat::session::queue_item::QueueItem> {
+    ) -> std::collections::VecDeque<jinn_turn_dispatch_msg::QueueItem> {
         self.core.ephemeral.message_queue.drain()
     }
 
@@ -1992,7 +1979,7 @@ impl ChatSessionState {
     /// A skill is considered loaded if its body is present in history as a pinned
     /// ToolResult from the `skill` tool whose content begins with `<skill name="X"`.
     pub fn loaded_skills(&self) -> HashSet<String> {
-        use crate::feat::session::chat_entry::ChatEntryKind;
+        use crate::protocol::ChatEntryKind;
         use crate::feat::skills::parse_loaded_skill_name;
 
         let mut out = HashSet::new();
@@ -2699,7 +2686,7 @@ impl ChatSessionState {
                 .core
                 .history
                 .get(idx)
-                .is_none_or(super::chat_entry::ChatEntry::is_empty_assistant)
+                .is_none_or(crate::protocol::ChatEntry::is_empty_assistant)
         {
             idx = idx.saturating_add(1);
         }
@@ -2730,7 +2717,7 @@ impl ChatSessionState {
                 .core
                 .history
                 .get(idx)
-                .is_none_or(super::chat_entry::ChatEntry::is_empty_assistant)
+                .is_none_or(crate::protocol::ChatEntry::is_empty_assistant)
         {
             idx = idx.saturating_sub(1);
         }
@@ -3334,7 +3321,7 @@ impl ChatSessionState {
     /// Empty batches are silently ignored.
     pub fn queue_mutations(
         &mut self,
-        batch: Vec<crate::feat::session::history_mutation::HistoryMutation>,
+        batch: Vec<crate::protocol::HistoryMutation>,
     ) {
         if !batch.is_empty() {
             self.core.ephemeral.pending_mutations.push(batch);
@@ -3344,7 +3331,7 @@ impl ChatSessionState {
     /// Drain all pending mutation batches.
     pub fn drain_pending_mutations(
         &mut self,
-    ) -> Vec<Vec<crate::feat::session::history_mutation::HistoryMutation>> {
+    ) -> Vec<Vec<crate::protocol::HistoryMutation>> {
         std::mem::take(&mut self.core.ephemeral.pending_mutations)
     }
 
@@ -3355,7 +3342,7 @@ impl ChatSessionState {
     /// are visible to later ones in the same batch.
     pub fn apply_mutations(
         &mut self,
-        batch: Vec<crate::feat::session::history_mutation::HistoryMutation>,
+        batch: Vec<crate::protocol::HistoryMutation>,
     ) -> Vec<ChatEntryId> {
         self.edit_history().apply(batch)
     }
@@ -3399,8 +3386,8 @@ impl ChatSessionState {
     pub fn route_override(
         &mut self,
         entry_id: ChatEntryId,
-        value: crate::feat::session::chat_entry::ContextOverride,
-        source: crate::feat::session::chat_entry::ChangeSource,
+        value: crate::protocol::ContextOverride,
+        source: crate::protocol::ChangeSource,
         token_cost: u32,
     ) {
         self.core
@@ -3571,3 +3558,32 @@ impl ChatSessionState {
 
 #[cfg(test)]
 mod chat_session_tests;
+
+
+impl SessionHistoryAccessPriv for ChatSessionState {
+    fn seal(&self) -> Priv {
+        Priv::construct()
+    }
+}
+
+impl SessionHistoryAccess for ChatSessionState {
+    fn history(&self) -> &[ChatEntry] {
+        &self.core.history
+    }
+
+    fn push_entry_raw(&mut self, entry: &mut ChatEntry) -> usize {
+        self.push_entry_raw(entry)
+    }
+
+    fn history_get_mut(&mut self, index: usize) -> Option<&mut ChatEntry> {
+        self.history_get_mut(index)
+    }
+
+    fn insert_entry_at(&mut self, index: usize, entry: ChatEntry) -> usize {
+        self.insert_entry_at(index, entry)
+    }
+
+    fn remove_history_entry_at(&mut self, index: usize) -> bool {
+        self.remove_history_entry_at(index)
+    }
+}

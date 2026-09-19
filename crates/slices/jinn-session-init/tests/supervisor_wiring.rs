@@ -159,7 +159,7 @@ async fn scan_skills_command_threads_cwd_to_the_worker() {
     wired
         .fabric
         .send_to_topic(
-            &jinn_domain::feat::skills::ScanSkills {
+            &jinn_skills_msg::ScanSkills {
                 session_id: wired.session_id.clone(),
                 cwd: wired.home.clone(),
             },

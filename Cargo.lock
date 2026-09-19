@@ -2516,6 +2516,9 @@ dependencies = [
  "jinn-domain",
  "jinn-persona-msg",
  "jinn-provider",
+ "jinn-session-history-msg",
+ "jinn-skills",
+ "jinn-skills-msg",
  "jinn-slices",
  "jinn-tools-msg",
  "rstest",
@@ -2531,10 +2534,12 @@ name = "jinn-core-types"
 version = "0.118.0"
 dependencies = [
  "base64 0.22.1",
+ "jiff",
  "rand 0.9.5",
  "rstest",
  "serde",
  "serde_json",
+ "strip-ansi-escapes",
  "uuid",
 ]
 
@@ -2673,9 +2678,13 @@ dependencies = [
  "jinn-provider",
  "jinn-provider-config",
  "jinn-selection-widget",
+ "jinn-session-history",
+ "jinn-session-history-msg",
  "jinn-session-msg",
  "jinn-session-schema",
  "jinn-sidebar-msg",
+ "jinn-skills",
+ "jinn-skills-msg",
  "jinn-slices",
  "jinn-status-bar-msg",
  "jinn-term-msg",
@@ -2738,6 +2747,7 @@ dependencies = [
  "jinn-inference-msg",
  "jinn-preferences-config",
  "jinn-provider",
+ "jinn-session-history-msg",
  "jinn-slices",
  "jinn-tools-msg",
  "kameo",
@@ -3032,6 +3042,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "jinn-session-history"
+version = "0.118.0"
+dependencies = [
+ "jinn-core-types",
+ "rstest",
+ "tracing",
+]
+
+[[package]]
+name = "jinn-session-history-msg"
+version = "0.118.0"
+dependencies = [
+ "jinn-core-types",
+ "jinn-slices",
+ "rstest",
+ "serde",
+ "serde_json",
+ "trouper",
+]
+
+[[package]]
 name = "jinn-session-init"
 version = "0.116.1"
 dependencies = [
@@ -3039,6 +3070,8 @@ dependencies = [
  "jinn-core-types",
  "jinn-domain",
  "jinn-session-msg",
+ "jinn-skills",
+ "jinn-skills-msg",
  "jinn-slices",
  "jinn-testutil",
  "rstest",
@@ -3089,7 +3122,10 @@ dependencies = [
  "jinn-mcp-msg",
  "jinn-picker",
  "jinn-preferences-config",
+ "jinn-session-history-msg",
  "jinn-sidebar-msg",
+ "jinn-skills",
+ "jinn-skills-msg",
  "jinn-slices",
  "jinn-term-msg",
  "jinn-testutil",
@@ -3117,6 +3153,28 @@ dependencies = [
  "ratatui",
  "rstest",
  "serde",
+]
+
+[[package]]
+name = "jinn-skills"
+version = "0.118.0"
+dependencies = [
+ "rstest",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
+name = "jinn-skills-msg"
+version = "0.118.0"
+dependencies = [
+ "jinn-core-types",
+ "jinn-skills",
+ "jinn-slices",
+ "rstest",
+ "serde",
+ "serde_json",
+ "trouper",
 ]
 
 [[package]]
@@ -3274,6 +3332,7 @@ dependencies = [
  "error-stack",
  "jinn-core-types",
  "jinn-domain",
+ "jinn-session-history-msg",
  "jinn-slices",
  "jinn-token-count-msg",
  "rstest",
@@ -3311,6 +3370,9 @@ dependencies = [
  "jinn-inference-msg",
  "jinn-mcp-msg",
  "jinn-preferences-config",
+ "jinn-session-history-msg",
+ "jinn-skills",
+ "jinn-skills-msg",
  "jinn-term-msg",
  "jinn-tools-msg",
  "kameo",
@@ -3363,6 +3425,7 @@ dependencies = [
  "jinn-persona-msg",
  "jinn-picker",
  "jinn-selection-widget",
+ "jinn-session-history-msg",
  "jinn-sidebar",
  "jinn-sidebar-msg",
  "jinn-slices",
@@ -3401,6 +3464,7 @@ dependencies = [
  "jinn-domain",
  "jinn-inference-msg",
  "jinn-provider",
+ "jinn-session-history-msg",
  "jinn-slices",
  "jinn-turn-dispatch-msg",
  "rstest",

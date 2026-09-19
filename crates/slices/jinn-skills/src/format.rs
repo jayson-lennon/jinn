@@ -2,7 +2,7 @@
 //!
 //! Uses the Agent Skills standard format. See: <https://agentskills.io/integrate-skills>
 
-use crate::feat::skills::skill::Skill;
+use crate::skill::Skill;
 
 /// Formats the available skills list as an XML block for inclusion in the LLM prompt.
 ///
@@ -98,7 +98,7 @@ mod tests {
             body: String::new(),
             file_path: PathBuf::from(format!("/home/user/.agents/skills/{name}/SKILL.md")),
             base_dir: PathBuf::from(format!("/home/user/.agents/skills/{name}")),
-            source: crate::feat::skills::SkillSource::Global,
+            source: crate::skill::SkillSource::Global,
         }
     }
 
@@ -165,7 +165,7 @@ mod tests {
             body: String::new(),
             file_path: PathBuf::from("/path/to/SKILL.md"),
             base_dir: PathBuf::from("/path/to"),
-            source: crate::feat::skills::SkillSource::Global,
+            source: crate::skill::SkillSource::Global,
         }];
 
         // When formatting.
@@ -186,7 +186,7 @@ mod tests {
             body: String::new(),
             file_path: PathBuf::from("/a&b<c>/SKILL.md"),
             base_dir: PathBuf::from("/a&b<c>"),
-            source: crate::feat::skills::SkillSource::Global,
+            source: crate::skill::SkillSource::Global,
         }];
 
         // When formatting.

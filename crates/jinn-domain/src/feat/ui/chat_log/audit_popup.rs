@@ -7,10 +7,10 @@
 //! Popup geometry and rendering live in the TUI layer; this module owns only
 //! the textual content.
 
-use crate::feat::session::chat_entry::{
+use crate::protocol::{
     ChangeSource, ChatEntry, ContextChangeEvent, ContextOverride,
 };
-use crate::feat::session::entry_timing::EntryTiming;
+use crate::protocol::EntryTiming;
 use crate::feat::theme::Theme;
 
 use ratatui::style::Style;
@@ -286,7 +286,7 @@ mod tests {
     //! fallback.
 
     use super::*;
-    use crate::feat::session::chat_entry::ChatEntry;
+    use crate::protocol::ChatEntry;
     use crate::feat::theme::default_theme;
 
     /// Convenience: format `entry` with the default theme.

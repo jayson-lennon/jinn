@@ -7,7 +7,7 @@ use crate::common::app_state::AppState;
 use wherror::Error;
 
 #[cfg(test)]
-use crate::feat::session::tool_result_status::ToolResultStatus;
+use crate::protocol::ToolResultStatus;
 
 /// Validates the ChatEntrySelectNext intent.
 pub fn validate_chat_entry_select_next(_state: &AppState) {}
@@ -357,7 +357,7 @@ mod new_session_from_entry_tests {
         reason = "test code"
     )]
     use crate::common::app_state::AppState;
-    use crate::feat::session::tool_result_status::ToolResultStatus;
+    use crate::protocol::ToolResultStatus;
     use crate::protocol::ChatEntry;
 
     use super::*;
@@ -932,7 +932,7 @@ mod ignore_selected_tests {
                 "id",
                 "bash",
                 "output",
-                crate::feat::session::tool_result_status::ToolResultStatus::Success,
+                crate::protocol::ToolResultStatus::Success,
             ));
         state.active_session_mut().select_next_entry();
 

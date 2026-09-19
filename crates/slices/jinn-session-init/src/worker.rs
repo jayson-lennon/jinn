@@ -49,7 +49,7 @@ use jinn_domain::common::tcaps::frontend::FrontendCap;
 use jinn_domain::common::tcaps::session::SessionCap;
 use jinn_domain::feat::context::env_context::ContextFile;
 use jinn_domain::feat::context::prompt_template::PromptTemplateStore;
-use jinn_domain::feat::skills::Skill;
+use jinn_skills::Skill;
 
 use crate::commands::{RescanContext, RescanPrompts, RescanSkills, RunDiscovery};
 use crate::contracts::{DiscoverySnapshot, SessionDiscoverySettled};
@@ -316,7 +316,7 @@ impl SessionDiscoveryWorker {
                     write_skills(&state, &session_cap, &frontend_cap, &session_id, &skills);
                     publish(
                         &system,
-                        jinn_domain::feat::skills::SkillsLoaded {
+                        jinn_skills_msg::SkillsLoaded {
                             session_id: session_id.clone(),
                             skills: skills.clone(),
                             error: None,
@@ -330,7 +330,7 @@ impl SessionDiscoveryWorker {
                     let error = format!("skills scan task failed: {join_error}");
                     publish(
                         &system,
-                        jinn_domain::feat::skills::SkillsLoaded {
+                        jinn_skills_msg::SkillsLoaded {
                             session_id: session_id.clone(),
                             skills: vec![],
                             error: Some(error.clone()),

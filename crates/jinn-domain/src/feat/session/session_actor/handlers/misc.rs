@@ -123,7 +123,7 @@ impl SessionPersistenceActor {
                 .mutations
                 .iter()
                 .filter_map(|m| match m {
-                    crate::feat::session::history_mutation::HistoryMutation::SetContextOverride { entry_id, source, .. } => {
+                    crate::protocol::HistoryMutation::SetContextOverride { entry_id, source, .. } => {
                         // Only prune ForcedExclude mutations reach the
                         // accumulator, so only their cost is relevant.
                         // Worker ForcedInclude and compaction overrides
@@ -161,7 +161,7 @@ impl SessionPersistenceActor {
                     if is_prune_override(&mutation) {
                         // Pruner ForcedExclude: route into the accumulation buffer
                         // so it counts toward the batch flush threshold.
-                        if let crate::feat::session::history_mutation::HistoryMutation::SetContextOverride { entry_id, value, source } = &mutation {
+                        if let crate::protocol::HistoryMutation::SetContextOverride { entry_id, value, source } = &mutation {
                             let cost = token_costs.get(entry_id).copied().unwrap_or(0);
                             session.core.ephemeral.accumulated_overrides
                                 .push(entry_id.clone(), *value, source.clone(), cost);
@@ -217,12 +217,12 @@ impl SessionPersistenceActor {
 /// the server-side KV cache isn't invalidated per-entry. Worker
 /// `ForcedInclude` (protection), compaction overrides, and any non-context
 /// mutation apply immediately instead.
-fn is_prune_override(mutation: &crate::feat::session::history_mutation::HistoryMutation) -> bool {
-    use crate::feat::session::history_mutation::HistoryMutation;
+fn is_prune_override(mutation: &crate::protocol::HistoryMutation) -> bool {
+    use crate::protocol::HistoryMutation;
     matches!(
         mutation,
         HistoryMutation::SetContextOverride {
-            value: crate::feat::session::chat_entry::ContextOverride::ForcedExclude,
+            value: crate::protocol::ContextOverride::ForcedExclude,
             source,
             ..
         } if !is_compaction_source(source)
@@ -235,8 +235,8 @@ fn is_prune_override(mutation: &crate::feat::session::history_mutation::HistoryM
 /// itself a context reduction that must apply promptly, and holding back its
 /// excludes would leave the gathered entries and the new summary both in
 /// context simultaneously.
-fn is_compaction_source(source: &crate::feat::session::chat_entry::ChangeSource) -> bool {
-    matches!(source, crate::feat::session::chat_entry::ChangeSource::Worker { name } if name == "compaction")
+fn is_compaction_source(source: &crate::protocol::ChangeSource) -> bool {
+    matches!(source, crate::protocol::ChangeSource::Worker { name } if name == "compaction")
 }
 /// Builds a markdown table string from the models refresh event.
 ///
@@ -461,9 +461,9 @@ mod tests {
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
                     mutations: vec![
-                    crate::feat::session::history_mutation::HistoryMutation::SetContextOverride {
+                    crate::protocol::HistoryMutation::SetContextOverride {
                         entry_id: entry_id.clone(),
-                        value: crate::feat::session::chat_entry::ContextOverride::ForcedExclude,
+                        value: crate::protocol::ContextOverride::ForcedExclude,
                         source: ChangeSource::Internal { label: "test".to_owned() },
                     },
                 ],
@@ -476,7 +476,7 @@ mod tests {
         let session = state.session.get(&session_id).unwrap();
         assert_eq!(
             session.history()[0].context_override(),
-            crate::feat::session::chat_entry::ContextOverride::Default
+            crate::protocol::ContextOverride::Default
         );
         assert!(session.core.ephemeral.pending_mutations.is_empty());
         assert!(
@@ -519,9 +519,9 @@ mod tests {
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: new_session_id.clone(),
                     mutations: vec![
-                    crate::feat::session::history_mutation::HistoryMutation::SetContextOverride {
-                        entry_id: crate::feat::session::chat_entry::ChatEntryId::new(),
-                        value: crate::feat::session::chat_entry::ContextOverride::ForcedExclude,
+                    crate::protocol::HistoryMutation::SetContextOverride {
+                        entry_id: crate::protocol::ChatEntryId::new(),
+                        value: crate::protocol::ContextOverride::ForcedExclude,
                         source: ChangeSource::Internal { label: "test".to_owned() },
                     },
                 ],
@@ -567,9 +567,9 @@ mod tests {
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
                     mutations: vec![
-                    crate::feat::session::history_mutation::HistoryMutation::SetContextOverride {
+                    crate::protocol::HistoryMutation::SetContextOverride {
                         entry_id: entry_id_1,
-                        value: crate::feat::session::chat_entry::ContextOverride::ForcedExclude,
+                        value: crate::protocol::ContextOverride::ForcedExclude,
                         source: ChangeSource::Internal { label: "test".to_owned() },
                     },
                 ],
@@ -581,9 +581,9 @@ mod tests {
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
                     mutations: vec![
-                    crate::feat::session::history_mutation::HistoryMutation::SetContextOverride {
+                    crate::protocol::HistoryMutation::SetContextOverride {
                         entry_id: entry_id_2,
-                        value: crate::feat::session::chat_entry::ContextOverride::ForcedInclude,
+                        value: crate::protocol::ContextOverride::ForcedInclude,
                         source: ChangeSource::Internal { label: "test".to_owned() },
                     },
                 ],
@@ -599,11 +599,11 @@ mod tests {
         assert_eq!(session.core.ephemeral.pending_mutations.len(), 0);
         assert_eq!(
             session.history()[0].context_override(),
-            crate::feat::session::chat_entry::ContextOverride::Default
+            crate::protocol::ContextOverride::Default
         );
         assert_eq!(
             session.history()[1].context_override(),
-            crate::feat::session::chat_entry::ContextOverride::ForcedInclude
+            crate::protocol::ContextOverride::ForcedInclude
         );
         assert_eq!(
             session.core.ephemeral.accumulated_overrides.len(),
@@ -633,9 +633,9 @@ mod tests {
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
                     mutations: vec![
-                    crate::feat::session::history_mutation::HistoryMutation::SetContextOverride {
+                    crate::protocol::HistoryMutation::SetContextOverride {
                         entry_id: entry_id.clone(),
-                        value: crate::feat::session::chat_entry::ContextOverride::ForcedExclude,
+                        value: crate::protocol::ContextOverride::ForcedExclude,
                         source: ChangeSource::Worker { name: "compaction".to_owned() },
                     },
                 ],
@@ -659,7 +659,7 @@ mod tests {
             session.push_entry(ChatEntry::user("hello"));
             let id = session.core.session_id.clone();
             session.core.history[0].apply_context_override(
-                crate::feat::session::chat_entry::ContextOverride::ForcedExclude,
+                crate::protocol::ContextOverride::ForcedExclude,
                 ChangeSource::Internal {
                     label: "setup".to_owned(),
                 },
@@ -678,9 +678,9 @@ mod tests {
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
                     mutations: vec![
-                    crate::feat::session::history_mutation::HistoryMutation::SetContextOverride {
+                    crate::protocol::HistoryMutation::SetContextOverride {
                         entry_id: entry_id.clone(),
-                        value: crate::feat::session::chat_entry::ContextOverride::ForcedExclude,
+                        value: crate::protocol::ContextOverride::ForcedExclude,
                         source: ChangeSource::Worker { name: "test_worker".to_owned() },
                     },
                 ],
@@ -721,9 +721,9 @@ mod tests {
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
                     mutations: vec![
-                        crate::feat::session::history_mutation::HistoryMutation::SetContextOverride {
+                        crate::protocol::HistoryMutation::SetContextOverride {
                             entry_id: entry_id.clone(),
-                            value: crate::feat::session::chat_entry::ContextOverride::ForcedInclude,
+                            value: crate::protocol::ContextOverride::ForcedInclude,
                             source: ChangeSource::Worker { name: "auto-prune-todo".to_owned() },
                         },
                     ],
@@ -737,7 +737,7 @@ mod tests {
         let session = state.session.get(&session_id).unwrap();
         assert_eq!(
             session.history()[0].context_override(),
-            crate::feat::session::chat_entry::ContextOverride::ForcedInclude,
+            crate::protocol::ContextOverride::ForcedInclude,
             "worker ForcedInclude must apply immediately"
         );
         assert!(
@@ -766,9 +766,9 @@ mod tests {
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
                     mutations: vec![
-                        crate::feat::session::history_mutation::HistoryMutation::SetContextOverride {
+                        crate::protocol::HistoryMutation::SetContextOverride {
                             entry_id: entry_id.clone(),
-                            value: crate::feat::session::chat_entry::ContextOverride::ForcedExclude,
+                            value: crate::protocol::ContextOverride::ForcedExclude,
                             source: ChangeSource::Worker { name: "compaction".to_owned() },
                         },
                     ],
@@ -781,7 +781,7 @@ mod tests {
         let session = state.session.get(&session_id).unwrap();
         assert_eq!(
             session.history()[0].context_override(),
-            crate::feat::session::chat_entry::ContextOverride::ForcedExclude,
+            crate::protocol::ContextOverride::ForcedExclude,
             "compaction ForcedExclude must apply immediately"
         );
         assert!(

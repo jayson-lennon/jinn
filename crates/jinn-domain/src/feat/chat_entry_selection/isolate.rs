@@ -14,7 +14,7 @@
 use super::validator;
 use crate::common::app_state::AppState;
 use crate::feat::context::protocol::event::ContextOverrideChanged;
-use crate::feat::session::history_editor::tool_group_end;
+use jinn_session_history::history_editor::tool_group_end;
 use crate::feat::session_lifecycle::protocol::command::PersistSession;
 use crate::protocol::{ChatEntryId, ContextOverride, IntentResult};
 
@@ -128,8 +128,8 @@ mod tests {
         reason = "test code"
     )]
     use crate::common::app_state::AppState;
-    use crate::feat::session::chat_entry::PinPosition;
-    use crate::feat::session::tool_result_status::ToolResultStatus;
+    use crate::protocol::PinPosition;
+    use crate::protocol::ToolResultStatus;
     use crate::protocol::{ChatEntry, ContextOverride};
 
     use super::*;
@@ -157,7 +157,7 @@ mod tests {
             .active_session()
             .history()
             .iter()
-            .map(crate::feat::session::chat_entry::ChatEntry::context_override)
+            .map(crate::protocol::ChatEntry::context_override)
             .collect()
     }
 

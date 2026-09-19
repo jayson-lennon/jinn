@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// A role filter / role label for a searchable entry.
 ///
-/// Mirrors the subset of [`ChatEntryKind`](crate::feat::session::chat_entry::ChatEntryKind)
+/// Mirrors the subset of [`ChatEntryKind`](crate::protocol::ChatEntryKind)
 /// variants that carry prose worth indexing. `Actor`, `Thinking`, `Transient`,
 /// and `Annotation` entries are never indexed and have no role here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

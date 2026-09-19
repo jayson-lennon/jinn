@@ -7,7 +7,7 @@
 //! non-`task` entry, a task without a link — is a no-op.
 
 use crate::common::app_state::AppState;
-use crate::feat::session::chat_entry::ChatEntryKind;
+use crate::protocol::ChatEntryKind;
 use crate::protocol::{IntentResult, SessionId};
 use jinn_tools_msg::TASK_TOOL_NAME;
 use wherror::Error;
@@ -93,7 +93,7 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::feat::session::chat_entry::ChatEntryKind;
+    use crate::protocol::ChatEntryKind;
     use crate::protocol::{ChatEntry, SessionId};
 
     /// Builds a `task` tool-call entry carrying `link` (or none when `None`).
@@ -174,7 +174,7 @@ mod tests {
             call_id,
             TASK_TOOL_NAME,
             "child output",
-            crate::feat::session::tool_result_status::ToolResultStatus::Success,
+            crate::protocol::ToolResultStatus::Success,
         )
     }
 
@@ -207,7 +207,7 @@ mod tests {
                 "tc_read",
                 "read",
                 "out",
-                crate::feat::session::tool_result_status::ToolResultStatus::Success,
+                crate::protocol::ToolResultStatus::Success,
             ));
             s.select_prev_entry();
         }

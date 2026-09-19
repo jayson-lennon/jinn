@@ -388,9 +388,9 @@ fn seed_entry(state: &State, session_id: &SessionId, is_assistant: bool) {
     state.with_session(&mint_session_cap(), |view| {
         let session = view.session.map().get_or_create(session_id);
         let entry = if is_assistant {
-            crate::feat::session::chat_entry::ChatEntry::assistant("done")
+            crate::protocol::ChatEntry::assistant("done")
         } else {
-            crate::feat::session::chat_entry::ChatEntry::error("boom")
+            crate::protocol::ChatEntry::error("boom")
         };
         session.push_entry(entry);
     });
@@ -874,7 +874,7 @@ async fn silent_guest_reaches_dead_phase() {
 
 // ── Mirrored plugin→host requests ────────────────────────────────────────────
 
-use crate::feat::chat_input::protocol::command::PushChatEntry;
+use jinn_session_history_msg::PushChatEntry;
 use jinn_inference_msg::CancelStream as ProviderCancelStream;
 
 /// A mirrored `cancel_stream` line translates to the internal provider
@@ -941,7 +941,7 @@ async fn mirrored_insert_system_entry_pushes_tail_entry() {
     assert!(
         matches!(
             pushes[0].entry.kind,
-            crate::feat::session::chat_entry::ChatEntryKind::System(_)
+            crate::protocol::ChatEntryKind::System(_)
         ),
         "the entry must be system-kind"
     );

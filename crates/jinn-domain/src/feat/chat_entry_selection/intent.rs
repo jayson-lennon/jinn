@@ -3,8 +3,8 @@
 use crate::ChatEntry;
 use crate::ChatEntryKind;
 use crate::common::app_state::AppState;
-use crate::feat::chat_input::protocol::command::PushChatEntry;
-use crate::feat::context::protocol::command::{PinChatEntry, UnpinChatEntry};
+use jinn_session_history_msg::PushChatEntry;
+use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
 use crate::feat::session::ChatSessionState;
 use crate::feat::session::protocol::session_fork_requested::SessionForkRequested;
 use crate::feat::ui::chat_log::visual_item::VisualItem;
@@ -317,7 +317,7 @@ pub fn handle_fork_from_entry(state: &mut AppState) -> IntentResult {
 ///
 /// No auto-dispatch: the new session stays idle, ready for the next user message.
 ///
-/// [`PushChatEntry`]: crate::feat::chat_input::protocol::command::PushChatEntry
+/// [`PushChatEntry`]: jinn_session_history_msg::PushChatEntry
 pub fn handle_new_session_from_entry(state: &mut AppState) -> IntentResult {
     if super::validator::validate_new_session_from_entry(state).is_err() {
         return IntentResult::empty();
@@ -476,7 +476,7 @@ fn handle_fresh_toggle(state: &mut AppState) -> IntentResult {
 /// validation (e.g. collapsed ignored block).
 pub fn handle_reset_selected(state: &mut AppState) -> IntentResult {
     use crate::feat::context::protocol::event::ContextOverrideChanged;
-    use crate::feat::session::chat_entry::ChatEntry;
+    use crate::protocol::ChatEntry;
     use crate::feat::session_lifecycle::protocol::command::PersistSession;
     use crate::protocol::ContextOverride;
 
@@ -535,8 +535,8 @@ mod tests {
         reason = "test code"
     )]
     use crate::common::app_state::AppState;
-    use crate::feat::session::chat_entry::ChangeSource;
-    use crate::feat::session::tool_result_status::ToolResultStatus;
+    use crate::protocol::ChangeSource;
+    use crate::protocol::ToolResultStatus;
     use crate::protocol::{ChatEntry, ContextOverride, PinPosition};
 
     use super::*;
@@ -2438,7 +2438,7 @@ mod jump_compaction_tests {
         reason = "test code"
     )]
     use crate::common::app_state::AppState;
-    use crate::feat::session::chat_entry::{ChatEntry, ChatEntryId, ChatEntryKind};
+    use crate::protocol::{ChatEntry, ChatEntryId, ChatEntryKind};
     use crate::protocol::ContextOverride;
     use crate::protocol::EntryTiming;
 
@@ -2496,7 +2496,7 @@ mod jump_compaction_tests {
         // When handling jump to next compaction.
         let _result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then the cursor moves to compaction B.
@@ -2514,7 +2514,7 @@ mod jump_compaction_tests {
         // When handling jump to previous compaction.
         let _result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then the cursor moves to compaction A.
@@ -2531,7 +2531,7 @@ mod jump_compaction_tests {
         // When handling jump to next compaction.
         let result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
@@ -2549,7 +2549,7 @@ mod jump_compaction_tests {
         // When handling jump to previous compaction.
         let result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
@@ -2568,7 +2568,7 @@ mod jump_compaction_tests {
         // When handling jump to next compaction (anchor = last entry).
         let result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then it is a no-op: nothing newer than the last entry exists.
@@ -2587,7 +2587,7 @@ mod jump_compaction_tests {
         // When handling jump to previous compaction.
         let _result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then the anchor is the last entry, so [c lands on compaction B.
@@ -2608,7 +2608,7 @@ mod jump_compaction_tests {
         // When handling jump to next compaction.
         let result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then it is a no-op.
@@ -2630,7 +2630,7 @@ mod jump_compaction_tests {
         // When handling jump to previous compaction.
         let result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then it is a no-op.
@@ -2646,7 +2646,7 @@ mod jump_compaction_tests {
         // When handling jump to next compaction.
         let result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then it is a no-op without panic.
@@ -2662,7 +2662,7 @@ mod jump_compaction_tests {
         // When handling jump to previous compaction.
         let result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then it is a no-op without panic.
@@ -2700,7 +2700,7 @@ mod jump_compaction_tests {
         // When handling jump to next pinned entry.
         let _result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_pinned,
+            crate::protocol::ChatEntry::is_pinned,
         );
 
         // Then the cursor moves to pinned entry B.
@@ -2718,7 +2718,7 @@ mod jump_compaction_tests {
         // When handling jump to previous pinned entry.
         let _result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_pinned,
+            crate::protocol::ChatEntry::is_pinned,
         );
 
         // Then the cursor moves to pinned entry A.
@@ -2735,7 +2735,7 @@ mod jump_compaction_tests {
         // When handling jump to next pinned entry.
         let result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_pinned,
+            crate::protocol::ChatEntry::is_pinned,
         );
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
@@ -2753,7 +2753,7 @@ mod jump_compaction_tests {
         // When handling jump to previous pinned entry.
         let result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_pinned,
+            crate::protocol::ChatEntry::is_pinned,
         );
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
@@ -2775,7 +2775,7 @@ mod jump_compaction_tests {
         // When handling jump to next pinned entry.
         let result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_pinned,
+            crate::protocol::ChatEntry::is_pinned,
         );
 
         // Then it is a no-op.
@@ -2797,7 +2797,7 @@ mod jump_compaction_tests {
         // When handling jump to previous pinned entry.
         let result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_pinned,
+            crate::protocol::ChatEntry::is_pinned,
         );
 
         // Then it is a no-op.
@@ -2816,7 +2816,7 @@ mod jump_compaction_tests {
         // When handling jump to previous pinned entry.
         let _result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_pinned,
+            crate::protocol::ChatEntry::is_pinned,
         );
 
         // Then the anchor is the last entry, so [p lands on pinned entry B.
@@ -2831,7 +2831,7 @@ mod jump_compaction_tests {
         // When handling jump to next pinned entry.
         let result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_pinned,
+            crate::protocol::ChatEntry::is_pinned,
         );
 
         // Then it is a no-op without panic.
@@ -2887,7 +2887,7 @@ mod jump_compaction_tests {
         // When handling jump to next annotation entry.
         let _result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_annotation,
+            crate::protocol::ChatEntry::is_annotation,
         );
 
         // Then the cursor moves to annotation entry B.
@@ -2905,7 +2905,7 @@ mod jump_compaction_tests {
         // When handling jump to previous annotation entry.
         let _result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_annotation,
+            crate::protocol::ChatEntry::is_annotation,
         );
 
         // Then the cursor moves to annotation entry A.
@@ -2922,7 +2922,7 @@ mod jump_compaction_tests {
         // When handling jump to next annotation entry.
         let result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_annotation,
+            crate::protocol::ChatEntry::is_annotation,
         );
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
@@ -2940,7 +2940,7 @@ mod jump_compaction_tests {
         // When handling jump to previous annotation entry.
         let result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_annotation,
+            crate::protocol::ChatEntry::is_annotation,
         );
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
@@ -2956,7 +2956,7 @@ mod jump_compaction_tests {
         // When handling jump to next annotation entry.
         let result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_annotation,
+            crate::protocol::ChatEntry::is_annotation,
         );
 
         // Then it is a no-op without panic.
@@ -2972,7 +2972,7 @@ mod jump_compaction_tests {
         // When handling jump to previous annotation entry.
         let result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_annotation,
+            crate::protocol::ChatEntry::is_annotation,
         );
 
         // Then it is a no-op without panic.
@@ -2990,7 +2990,7 @@ mod jump_compaction_tests {
         // When handling jump to next compaction.
         let result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then no commands or events are emitted.
@@ -3007,7 +3007,7 @@ mod jump_compaction_tests {
         // When handling jump to previous compaction.
         let result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then no commands or events are emitted.
@@ -3029,7 +3029,7 @@ mod jump_compaction_tests {
     fn build_collapsed_block_between_compactions(
         state: &mut AppState,
     ) -> (ChatEntryId, ChatEntryId, usize) {
-        use crate::feat::session::chat_entry::ChangeSource;
+        use crate::protocol::ChangeSource;
         use crate::feat::ui::chat_log::visual_item::{
             DEFAULT_MIN_COLLAPSE_COUNT, PROXIMITY_COUNT, VisualItem, build_visual_items,
         };
@@ -3101,7 +3101,7 @@ mod jump_compaction_tests {
         // When handling jump to next compaction.
         let _result = handle_jump_next_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then the cursor lands on compaction B (the newer one), not a no-op.
@@ -3128,7 +3128,7 @@ mod jump_compaction_tests {
         // When handling jump to previous compaction.
         let _result = handle_jump_prev_entry(
             &mut state,
-            crate::feat::session::chat_entry::ChatEntry::is_compaction,
+            crate::protocol::ChatEntry::is_compaction,
         );
 
         // Then the cursor lands on compaction A (the older one), NOT compaction B.

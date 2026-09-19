@@ -114,7 +114,7 @@ mod tests {
     //! rect with the expected text and is registered as a selectable region.
     use jinn_domain::FocusScope;
     use jinn_domain::RenderCtx;
-    use jinn_domain::feat::session::chat_entry::{ChangeSource, ChatEntry, ContextOverride};
+    use jinn_domain::protocol::{ChangeSource, ChatEntry, ContextOverride};
     use jinn_domain::feat::ui::chat_log::audit_popup::AUDIT_POPUP_WIDTH;
     use jinn_testutil::setup_term;
     use ratatui::layout::Rect;

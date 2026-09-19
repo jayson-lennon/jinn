@@ -10,7 +10,7 @@
 //! - Multiple submits accumulate FIFO; drain produces one entry.
 //! - Separator between fragments is `\n\n`.
 
-use crate::feat::session::chat_entry::ChatEntry;
+use crate::protocol::ChatEntry;
 
 /// Accumulator for pending steering fragments.
 ///
@@ -84,7 +84,7 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::feat::session::chat_entry::{ChatEntryKind, ContextOverride};
+    use crate::protocol::{ChatEntryKind, ContextOverride};
 
     #[rstest::rstest]
     #[test]

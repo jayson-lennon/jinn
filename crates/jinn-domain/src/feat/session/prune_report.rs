@@ -8,7 +8,7 @@
 //! number always reflects the live history (re-includes drop out
 //! automatically and pending, un-flushed prunes never appear).
 
-use crate::feat::session::chat_entry::{ChangeSource, ChatEntry, ContextOverride};
+use crate::protocol::{ChangeSource, ChatEntry, ContextOverride};
 
 /// The `HistoryWorker::name` of the compaction worker.
 ///

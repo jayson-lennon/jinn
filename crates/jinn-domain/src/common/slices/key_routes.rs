@@ -37,7 +37,7 @@ impl SliceActionState for AppState {
 
     fn push_session_error(&mut self, message: &str) {
         self.active_session_mut()
-            .push_entry(crate::feat::session::chat_entry::ChatEntry::error(message));
+            .push_entry(crate::protocol::ChatEntry::error(message));
     }
 
     fn active_session_cwd(&self) -> std::path::PathBuf {

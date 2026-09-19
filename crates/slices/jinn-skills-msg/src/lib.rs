@@ -1,14 +1,16 @@
-//! Skills crossing contracts — the events and commands other modules
-//! and slices consume. The scanning actor itself lives in the
-//! session-init slice; these types stay kernel-side because kernel
+//! Skills crossing contracts — the events and commands other slices
+//! consume. The scanning actor lives in the session-init slice; kernel
 //! consumers (the session actor, the task settle listener) reference
-//! them and the reverse bridge carries these exact Rust types.
+//! these types and the reverse bridge carries these exact Rust types.
+//! Re-homed from the kernel `feat/skills/protocol.rs` in the
+//! session-history window; the crossing-schema ids ("SkillsLoaded",
+//! "ScanSkills") are unchanged.
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::feat::skills::skill::Skill;
+use jinn_skills::Skill;
 
 /// Emitted when skills have been scanned and loaded.
 ///
@@ -17,7 +19,7 @@ use crate::feat::skills::skill::Skill;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillsLoaded {
     /// The session whose cwd drove the scan.
-    pub session_id: crate::SessionId,
+    pub session_id: jinn_core_types::SessionId,
     /// The discovered agent skills.
     pub skills: Vec<Skill>,
     /// Error message if scanning failed.
@@ -33,13 +35,13 @@ pub struct SkillsLoaded {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanSkills {
     /// The session whose scan this is.
-    pub session_id: crate::SessionId,
+    pub session_id: jinn_core_types::SessionId,
     /// The working directory driving the scan.
     #[serde(default)]
     pub cwd: PathBuf,
 }
 
-impl crate::common::bus::BusMessage for SkillsLoaded {}
+impl jinn_slices::BusMessage for SkillsLoaded {}
 
 jinn_slices::crossing_schema!(SkillsLoaded, "SkillsLoaded",
 trouper::schema::SchemaKind::Event,
@@ -49,7 +51,7 @@ fields: [
     "skills" => trouper::schema::FieldTy::List(Box::new(trouper::schema::FieldTy::Json)),
 ]);
 
-impl crate::common::bus::BusMessage for ScanSkills {}
+impl jinn_slices::BusMessage for ScanSkills {}
 
 jinn_slices::crossing_schema!(ScanSkills, "ScanSkills",
 trouper::schema::SchemaKind::Command,

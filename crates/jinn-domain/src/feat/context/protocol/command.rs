@@ -5,37 +5,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::BusMessage;
-use crate::protocol::ChatEntryId;
-use crate::protocol::PinPosition;
 use crate::protocol::SessionId;
-
-/// Pin a chat entry so it survives context management strategies.
-///
-/// The entry will be positioned according to `position` in the assembled prompt.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PinChatEntry {
-    /// The session containing the entry.
-    pub session_id: SessionId,
-    /// The entry to pin.
-    pub entry_id: ChatEntryId,
-    /// Where the pinned entry should appear in the assembled prompt.
-    pub position: PinPosition,
-}
-
-impl BusMessage for PinChatEntry {}
-
-/// Remove the pin from a chat entry, allowing normal context management.
-///
-/// If the entry is not pinned, this is a no-op.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UnpinChatEntry {
-    /// The session containing the entry.
-    pub session_id: SessionId,
-    /// The entry to unpin.
-    pub entry_id: ChatEntryId,
-}
-
-impl BusMessage for UnpinChatEntry {}
 
 /// Load entries for the persona picker.
 #[derive(Debug, Clone, Serialize, Deserialize)]

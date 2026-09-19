@@ -76,7 +76,7 @@ fn estimate_entry_tokens_for_user() {
 
 #[rstest::rstest]
 fn estimate_entry_tokens_for_user_with_image_includes_flat_cost() {
-    use crate::feat::session::chat_entry::ChatEntryKind;
+    use crate::protocol::ChatEntryKind;
     use jinn_provider::Attachment;
 
     // Given a char ratio estimator and a user entry carrying one image attachment.

@@ -6,7 +6,7 @@
 //! chat entries and formatting command errors.
 
 use crate::common::actor_deps::BusPublish;
-use crate::feat::chat_input::protocol::command::PushChatEntry;
+use jinn_session_history_msg::PushChatEntry;
 use crate::feat::chat_input::protocol::event::ChatEntrySubmitted;
 use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::phase_machine::PhaseKind;
@@ -1597,7 +1597,7 @@ mod tests {
         no_output_info, setup_complete_msg, setup_running_msg, strip_ansi, teardown_running_msg,
     };
 
-    use crate::feat::chat_input::protocol::command::PushChatEntry;
+    use jinn_session_history_msg::PushChatEntry;
     use crate::feat::session::chat_session::ChatSessionState;
     use crate::feat::session::chat_session::LifecycleScriptState;
     use crate::feat::session::protocol::archive_session_tree::ArchiveSessionTree;

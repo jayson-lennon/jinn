@@ -7,10 +7,10 @@
 //! Always recomputes from the active session's chat history so the count
 //! is correct after session switches, reloads, etc.
 
-use crate::feat::session::chat_entry::{ChatEntry, ChatEntryKind};
+use crate::protocol::{ChatEntry, ChatEntryKind};
 
 #[cfg(test)]
-use crate::feat::session::tool_result_status::ToolResultStatus;
+use crate::protocol::ToolResultStatus;
 
 /// Computes the number of conversation turns in the given chat history.
 ///

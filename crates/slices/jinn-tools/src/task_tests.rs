@@ -25,7 +25,7 @@ use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
 use jinn_domain::common::state::State;
 use jinn_domain::common::tcaps::mint::mint_session_cap;
 use jinn_domain::feat::chat_input::protocol::command::EnqueueUserMessage;
-use jinn_domain::feat::session::chat_entry::{ChatEntry, ChatEntryKind};
+use jinn_domain::protocol::{ChatEntry, ChatEntryKind};
 use jinn_domain::feat::session::phase_machine::PhaseKind;
 use jinn_domain::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
 use jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated;
@@ -172,7 +172,7 @@ async fn settle_child_discovery(
         },
     )
     .await;
-    bus.publish(jinn_domain::feat::skills::SkillsLoaded {
+    bus.publish(jinn_skills_msg::SkillsLoaded {
         session_id: child_id.clone(),
         skills: vec![],
         error: None,
@@ -905,7 +905,7 @@ async fn settle_waiter_counts_error_events_as_settled() {
         )
         .await;
     harness
-        .publish(jinn_domain::feat::skills::SkillsLoaded {
+        .publish(jinn_skills_msg::SkillsLoaded {
             session_id: child_id.clone(),
             skills: vec![],
             error: Some("scan failed".to_owned()),
@@ -1039,7 +1039,7 @@ async fn listener_stops_on_channel_close() {
 
     // When a matching discovery event arrives (the abort check fires).
     harness
-        .publish(jinn_domain::feat::skills::SkillsLoaded {
+        .publish(jinn_skills_msg::SkillsLoaded {
             session_id: child_id.clone(),
             skills: vec![],
             error: None,

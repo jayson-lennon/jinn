@@ -13,18 +13,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-//! Chat history wrapper - restricts entry pushing to the session feature module.
+//! Chat history wrapper - the sanctioned write path lives in the kernel.
 //!
 //! [`ChatHistory`] wraps a `Vec<ChatEntry>` and provides read access via
-//! [`Deref<Target = [ChatEntry]>`](std::ops::Deref). The `push` method is
-//! restricted with `pub(in crate::feat::session)` visibility so that only
-//! code within the session feature module can add new entries. External code
-//! must use the `PushChatEntry` command.
+//! [`Deref<Target = [ChatEntry]>`](std::ops::Deref). The mutating methods are
+//! public but not meant for general use: the sanctioned production write
+//! path is the kernel `HistoryEditor` (reachable via
+//! `ChatSessionState::edit_history`), and the history field on the session
+//! state is feature-visibility restricted so only session code can reach
+//! these. External code must use the `PushChatEntry` command.
 
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 
-use crate::protocol::ChatEntry;
+use crate::ChatEntry;
 
 /// Wrapper around chat history that restricts entry pushing to the session feature module.
 ///
@@ -51,9 +53,9 @@ impl ChatHistory {
 
     /// Push an entry onto the history.
     ///
-    /// Restricted to the session feature module - external code must use the
-    /// `PushChatEntry` command to add entries.
-    pub(in crate::feat::session) fn push(&mut self, entry: ChatEntry) {
+    /// Appends an entry. Sanctioned production callers go through the kernel
+    /// `HistoryEditor`; external code must use the `PushChatEntry` command.
+    pub fn push(&mut self, entry: ChatEntry) {
         self.entries.push(entry);
     }
 
@@ -61,12 +63,12 @@ impl ChatHistory {
     ///
     /// Used by compaction to place entries at boundary positions.
     /// Shifts all entries at or after the insertion point.
-    pub(crate) fn insert(&mut self, index: usize, entry: ChatEntry) {
+    pub fn insert(&mut self, index: usize, entry: ChatEntry) {
         self.entries.insert(index, entry);
     }
 
     /// Replace the entire history with a new set of entries.
-    pub(crate) fn replace_all(&mut self, entries: Vec<ChatEntry>) {
+    pub fn replace_all(&mut self, entries: Vec<ChatEntry>) {
         self.entries = entries;
     }
 
@@ -74,7 +76,7 @@ impl ChatHistory {
     ///
     /// Used by the stall-retry path to discard partial streaming entries.
     /// Panics if `index` is out of bounds.
-    pub(in crate::feat::session) fn remove(&mut self, index: usize) -> ChatEntry {
+    pub fn remove(&mut self, index: usize) -> ChatEntry {
         self.entries.remove(index)
     }
 }

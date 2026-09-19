@@ -41,6 +41,7 @@ pub use fake::{FakeLlmServiceFactory, ScriptedResponse, TOOL_LOOP_TRIGGER};
 pub use input_modalities::{InputModalities, Modality};
 pub use jinn_core_types::reasoning::ReasoningEffort;
 pub use jinn_core_types::tool_types::{ServerToolType, ToolCall, ToolDefinition, ToolResult};
+pub use jinn_core_types::url_citation::UrlCitation;
 pub use llm_message::LlmMessage;
 pub use no_providers::NoProvidersAvailableFactory;
 pub use openai_compat::{
@@ -49,7 +50,7 @@ pub use openai_compat::{
 };
 pub use sample::SampleLlmServiceFactory;
 pub use service::{ChatStream, LlmService, LlmServiceError, LlmServiceFactory, ToolStream};
-pub use stream_event::{StopReason, StreamEvent, StreamUsage, UrlCitation};
+pub use stream_event::{StopReason, StreamEvent, StreamUsage};
 
 pub use retry::{NoOpOnRetry, OnRetry, RetryConfig, RetryingLlmService};
 

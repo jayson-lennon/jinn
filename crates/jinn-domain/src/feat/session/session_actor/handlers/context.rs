@@ -9,10 +9,9 @@
 //! mutations of `AppState`, not part of prompt assembly.
 
 use crate::common::actor_deps::BusPublish;
-use crate::feat::context::protocol::command::{
-    LoadPersonaPickerEntries, PinChatEntry, UnpinChatEntry,
-};
-use crate::feat::context::protocol::event::ChatEntryPinChanged;
+use crate::feat::context::protocol::command::LoadPersonaPickerEntries;
+use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
+use jinn_session_history_msg::ChatEntryPinChanged;
 use crate::feat::persona::PersonaEntry;
 use crate::feat::provider::protocol::event::PromptTemplatesLoaded;
 use crate::feat::session::profile::DEFAULT_PERSONA_NAME;
@@ -25,9 +24,9 @@ use super::super::SessionPersistenceActor;
 /// pins handler can run inside a [`SessionPinsView`] without `&AppState`.
 fn sorted_pinned_ids_from_session(
     session: &crate::feat::session::chat_session::ChatSessionState,
-) -> Vec<crate::feat::session::chat_entry::ChatEntryId> {
+) -> Vec<crate::protocol::ChatEntryId> {
     use crate::common::app_state::pin_sort_key;
-    use crate::feat::session::chat_entry::ChatEntryId;
+    use crate::protocol::ChatEntryId;
     let mut pinned = session.pinned_entries();
     pinned.sort_by_key(|entry| pin_sort_key(entry.pin_position));
     pinned

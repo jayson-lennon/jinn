@@ -33,7 +33,7 @@ use kameo::prelude::{Actor, ActorRef, Context, Message};
 use jinn_domain::common::services::bus_service::BusService;
 use jinn_domain::feat::context::protocol::event::ContextFilesLoaded;
 use jinn_domain::feat::provider::protocol::event::PromptTemplatesLoaded;
-use jinn_domain::feat::skills::SkillsLoaded;
+use jinn_skills_msg::SkillsLoaded;
 use jinn_domain::protocol::SessionId;
 use jinn_mcp_msg::{McpConnectionStatus, McpServerStatus};
 

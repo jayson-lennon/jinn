@@ -90,7 +90,7 @@ mod tests {
             "id1",
             "bash",
             &long_content,
-            crate::feat::session::tool_result_status::ToolResultStatus::Success,
+            crate::protocol::ToolResultStatus::Success,
         )];
         let result = serialize_entries_for_compaction(&entries);
         assert!(result.is_empty());
@@ -123,7 +123,7 @@ mod tests {
                 "id1",
                 "bash",
                 "file.rs",
-                crate::feat::session::tool_result_status::ToolResultStatus::Success,
+                crate::protocol::ToolResultStatus::Success,
             ),
             ChatEntry::assistant("done"),
         ];
@@ -148,7 +148,7 @@ mod tests {
             "id1",
             "bash",
             &content,
-            crate::feat::session::tool_result_status::ToolResultStatus::Success,
+            crate::protocol::ToolResultStatus::Success,
         )];
 
         // When serializing for compaction.
@@ -168,7 +168,7 @@ mod tests {
             "id1",
             "bash",
             &content,
-            crate::feat::session::tool_result_status::ToolResultStatus::Success,
+            crate::protocol::ToolResultStatus::Success,
         )];
 
         // When serializing for compaction.
@@ -186,7 +186,7 @@ mod tests {
             "id1",
             "bash",
             "sensitive output that should never reach the LLM",
-            crate::feat::session::tool_result_status::ToolResultStatus::Success,
+            crate::protocol::ToolResultStatus::Success,
         )];
 
         // When serializing.

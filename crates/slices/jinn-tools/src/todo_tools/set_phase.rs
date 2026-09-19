@@ -139,7 +139,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             Ok(content) => {
                 if let Some(bus) = &ctx.bus {
                     bus.publish(
-                        jinn_domain::feat::session::protocol::task_list_updated::TaskListUpdated {
+                        jinn_session_history_msg::TaskListUpdated {
                             session_id: session_id.clone(),
                         },
                     )
@@ -477,7 +477,7 @@ mod tests {
         let harness = jinn_domain::common::bus::test_harness::TestHarness::new().await;
         let (state, session_id) = setup_with_two_phases();
         let recorder = harness
-            .spawn_recorder::<jinn_domain::feat::session::protocol::task_list_updated::TaskListUpdated>()
+            .spawn_recorder::<jinn_session_history_msg::TaskListUpdated>()
             .await;
         let mut ctx = make_context(Some(state), Some(session_id.clone()));
         ctx.bus = Some(harness.bus());

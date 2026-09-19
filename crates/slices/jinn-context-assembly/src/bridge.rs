@@ -25,11 +25,11 @@ pub fn context_assembly_topic() -> trouper::topics::Topic {
 /// register on the bus in their own `on_start`, so drain ordering
 /// relative to publishers is free.
 pub async fn drain_routes(services: &Services) {
-    forward::<jinn_domain::feat::session::protocol::history_appended::HistoryAppended>(services)
+    forward::<jinn_session_history_msg::HistoryAppended>(services)
         .await;
     forward::<jinn_domain::feat::context::protocol::event::ContextOverrideChanged>(services).await;
     forward::<jinn_domain::protocol::system::ActiveSessionChanged>(services).await;
-    forward::<jinn_domain::feat::context::protocol::event::ChatEntryPinChanged>(services).await;
+    forward::<jinn_session_history_msg::ChatEntryPinChanged>(services).await;
     forward::<jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted>(
         services,
     )

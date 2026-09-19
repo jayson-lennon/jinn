@@ -16,7 +16,7 @@ pub const SKILL_CONTENT_PREFIX: &str = "<skill name=\"";
 /// # Examples
 ///
 /// ```
-/// # use jinn_domain::feat::skills::parse_loaded_skill_name;
+/// # use jinn_skills::parse_loaded_skill_name;
 /// let content = "<skill name=\"phased-task-loop\" location=\"/x\">body</skill>";
 /// assert_eq!(parse_loaded_skill_name(content), Some("phased-task-loop"));
 /// ```
@@ -46,7 +46,7 @@ pub const SKILL_ICON: &str = "\u{2756}"; // ❖
 /// # Examples
 ///
 /// ```
-/// # use jinn_domain::feat::skills::loaded_skill_summary_label;
+/// # use jinn_skills::loaded_skill_summary_label;
 /// let content = "<skill name=\"web-coder\" location=\"/x\">body</skill>";
 /// assert!(loaded_skill_summary_label(content).contains("web-coder"));
 /// ```

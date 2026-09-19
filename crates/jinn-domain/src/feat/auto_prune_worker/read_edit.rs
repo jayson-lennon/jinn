@@ -21,7 +21,7 @@
 //! The [`EditReadAutoPruneWorker`] handles the reverse direction (pruning old
 //! edits when a file is re-read).
 //!
-//! [`ForcedExclude`]: crate::feat::session::chat_entry::ContextOverride::ForcedExclude
+//! [`ForcedExclude`]: crate::protocol::ContextOverride::ForcedExclude
 //! [`EditReadAutoPruneWorker`]: super::edit_read::EditReadAutoPruneWorker
 
 use std::sync::Arc;
@@ -29,8 +29,8 @@ use std::sync::Arc;
 pub use jinn_preferences_config::schemas::auto_prune::ReadEditAutoPruneConfig;
 
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::feat::session::chat_entry::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
-use crate::feat::session::history_mutation::HistoryMutation;
+use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
+use crate::protocol::HistoryMutation;
 use crate::protocol::SessionId;
 
 use super::edit_read::{extract_path_from_arguments, find_matching_result, is_modify_tool};
@@ -85,7 +85,7 @@ fn count_subsequent_modifications(
 /// file. Once the count reaches `config.threshold`, the read call+result are marked
 /// [`ForcedExclude`] — the file has changed enough that the read contents are stale.
 ///
-/// [`ForcedExclude`]: crate::feat::session::chat_entry::ContextOverride::ForcedExclude
+/// [`ForcedExclude`]: crate::protocol::ContextOverride::ForcedExclude
 #[derive(Clone)]
 pub struct ReadEditAutoPruneWorker {
     /// Configuration for the read-edit auto-prune strategy.
@@ -145,7 +145,7 @@ impl HistoryWorker for ReadEditAutoPruneWorker {
 
             let result_protected = history
                 .get(result_idx)
-                .is_some_and(super::super::session::chat_entry::ChatEntry::is_protected_from_prune);
+                .is_some_and(crate::protocol::ChatEntry::is_protected_from_prune);
 
             // Count how many edit/write calls to the same file appear after
             // this read. Once the threshold is reached, the read is stale.
@@ -196,8 +196,8 @@ mod tests {
     )]
 
     use super::*;
-    use crate::feat::session::chat_entry::ChatEntry;
-    use crate::feat::session::tool_result_status::ToolResultStatus;
+    use crate::protocol::ChatEntry;
+    use crate::protocol::ToolResultStatus;
     use crate::protocol::SessionId;
 
     /// Helper: create a read ToolCall + ToolResult pair.
@@ -264,7 +264,7 @@ mod tests {
     /// Collect mutation entry IDs from a list of mutations.
     fn mutation_ids(
         mutations: &[HistoryMutation],
-    ) -> Vec<crate::feat::session::chat_entry::ChatEntryId> {
+    ) -> Vec<crate::protocol::ChatEntryId> {
         mutations
             .iter()
             .filter_map(|m| match m {

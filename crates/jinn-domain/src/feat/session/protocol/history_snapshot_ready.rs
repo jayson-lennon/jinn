@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::feat::session::chat_entry::ChatEntry;
+use crate::protocol::ChatEntry;
 use crate::protocol::SessionId;
 
 /// Emitted by `HistorySnapshotActor` after cloning history into a shared `Arc`.

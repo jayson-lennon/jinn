@@ -6,11 +6,22 @@
 //! this crate; the slice's queue actor consumes the command over the
 //! `jinn.turn-dispatch` trouper topic.
 //!
-//! The crate stays narrow: streaming-side vocabulary (`SendToLlmProvider`,
-//! `CancelStream`, `StreamToken`, `StreamCompleted`) stays kernel until the
-//! llm-executor window resolves decision 3B, and session vocabulary
-//! (`QueueItem`, `TurnQueue`) re-homes with the session-history window —
-//! neither crosses into this crate yet.
+//! The queue vocabulary (`QueueItem`, `TurnQueue`) re-homed here from the
+//! kernel session feature (session-history window): their production
+//! consumer is this slice's queue actor, and with `ChatEntry` promoted to
+//! `jinn-core-types` the move closes the turn-dispatch cycle gotcha (no
+//! msg→kernel edge). They are in-memory session payload types, not wire
+//! messages — no `BusMessage` impls.
+//!
+//! The crate stays otherwise narrow: streaming-side vocabulary
+//! (`SendToLlmProvider`, `CancelStream`, `StreamToken`, `StreamCompleted`)
+//! stays kernel until the llm-executor window resolves decision 3B.
+
+pub mod queue_item;
+pub mod turn_queue;
+
+pub use queue_item::QueueItem;
+pub use turn_queue::TurnQueue;
 
 use jinn_core_types::SessionId;
 use serde::{Deserialize, Serialize};

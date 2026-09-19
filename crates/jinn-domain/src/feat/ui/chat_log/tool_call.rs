@@ -23,7 +23,7 @@
 //! Background color is determined by the paired tool result's status:
 //! no background while pending, green on success, red on failure.
 
-use crate::feat::session::tool_result_status::ToolResultStatus;
+use crate::protocol::ToolResultStatus;
 use jinn_tools_msg::TASK_TOOL_NAME;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -282,7 +282,7 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::feat::session::tool_result_status::ToolResultStatus;
+    use crate::protocol::ToolResultStatus;
     use crate::feat::ui::chat_log::shared::RenderContext;
     use jinn_tools_msg::TASK_TOOL_NAME;
 

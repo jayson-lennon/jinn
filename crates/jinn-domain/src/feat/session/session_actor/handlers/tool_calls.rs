@@ -6,7 +6,7 @@
 use crate::common::actor_deps::BusPublish;
 use crate::feat::context::protocol::event::ContextOverrideChanged;
 use crate::feat::context::snapshot::{assemble_via_service, build_assembly_inputs};
-use crate::feat::session::chat_entry::PinPosition;
+use crate::protocol::PinPosition;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::token_stats::TokenRecord;
 use jinn_core_types::model_selection::ModelSelection;
@@ -376,7 +376,7 @@ mod tests {
     use super::super::super::helpers::{test_actor, test_actor_recording};
     use crate::feat::session::phase_machine::PhaseKind;
     use crate::feat::session::token_stats::TokenRecord;
-    use crate::feat::session::tool_result_status::ToolResultStatus;
+    use crate::protocol::ToolResultStatus;
     use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind};
     use jinn_core_types::tool_types::{ToolCall, ToolResult};
     use jinn_inference_msg::{StreamCompleted, StreamCompletedReason};
@@ -1371,7 +1371,7 @@ mod tests {
             session.finish_streaming(true, jiff::Timestamp::now());
             session.begin_sending();
             session.queue_mutations(vec![
-                crate::feat::session::history_mutation::HistoryMutation::SetContextOverride {
+                crate::protocol::HistoryMutation::SetContextOverride {
                     entry_id: entry_id.clone(),
                     value: crate::protocol::ContextOverride::ForcedExclude,
                     source: ChangeSource::Internal {

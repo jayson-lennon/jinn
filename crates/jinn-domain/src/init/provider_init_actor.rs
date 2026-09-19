@@ -10,7 +10,7 @@ use crate::common::actor_deps::{ActorDeps, BusPublish};
 use crate::common::services::bus_service::BusService;
 use crate::common::state::State;
 use crate::common::tcaps::provider::ModelCacheWrite;
-use crate::feat::chat_input::protocol::command::PushChatEntry;
+use jinn_session_history_msg::PushChatEntry;
 use crate::feat::provider::protocol::command::ProviderSwitch;
 use crate::feat::provider::protocol::event::ModelCacheLoaded;
 use crate::feat::provider_infra::{ModelCache, ProviderRegistry};
@@ -165,7 +165,7 @@ mod tests {
     use crate::common::services::Services;
     use crate::common::services::bus_service::BusAudit;
     use crate::common::state::State;
-    use crate::feat::chat_input::protocol::command::PushChatEntry;
+    use jinn_session_history_msg::PushChatEntry;
     use crate::feat::provider::protocol::command::ProviderSwitch;
     use crate::feat::provider::protocol::event::ModelCacheLoaded;
     use crate::feat::provider_infra::ProviderEntry;

@@ -7,7 +7,7 @@
 use wherror::Error;
 
 use crate::common::app_state::AppState;
-use crate::feat::chat_input::protocol::command::PushChatEntry;
+use jinn_session_history_msg::PushChatEntry;
 use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::chat_session::LifecycleScriptState;
 use crate::feat::session::profile::{DEFAULT_PERSONA_NAME, SessionProfile};

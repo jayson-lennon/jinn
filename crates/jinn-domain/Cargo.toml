@@ -27,6 +27,10 @@ jinn-mcp-msg = { workspace = true }
 jinn-provider = { workspace = true }
 jinn-common = { workspace = true }
 jinn-core-types = { workspace = true }
+jinn-session-history = { workspace = true }
+jinn-session-history-msg = { workspace = true }
+jinn-skills = { workspace = true }
+jinn-skills-msg = { workspace = true }
 jinn-tools-msg = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-term-msg = { workspace = true }

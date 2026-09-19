@@ -31,10 +31,10 @@ use jinn_domain::common::services::Services;
 use jinn_domain::common::services::bus_service::BusAudit;
 use jinn_domain::common::state::State;
 use jinn_domain::feat::chat_input::protocol::event::ChatEntrySubmitted;
-use jinn_domain::feat::session::chat_entry::ChatEntry;
+use jinn_domain::protocol::ChatEntry;
 use jinn_domain::feat::session::phase_machine::PhaseKind;
 use jinn_domain::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
-use jinn_domain::feat::session::queue_item::QueueItem;
+use jinn_turn_dispatch_msg::QueueItem;
 use jinn_domain::feat::session_lifecycle::protocol::command::PersistSession;
 use jinn_domain::protocol::SessionId;
 use jinn_inference_msg::{SendToLlmProvider, StreamOrigin};
@@ -373,7 +373,7 @@ async fn dispatch_user_message_keeps_degraded_token_literal_through_re_expand() 
     if let jinn_domain::protocol::ChatEntryKind::User { outcome, .. } = &mut entry.kind {
         outcome
             .degraded
-            .push(jinn_domain::feat::session::chat_entry::ResolvedToken {
+            .push(jinn_domain::protocol::ResolvedToken {
                 raw: "/nonexistent/whatever".to_owned(),
                 abs: std::path::PathBuf::from("/nonexistent/whatever"),
             });

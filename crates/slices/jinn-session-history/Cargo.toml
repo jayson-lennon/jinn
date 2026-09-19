@@ -1,0 +1,15 @@
+[package]
+name = "jinn-session-history"
+version.workspace = true
+edition.workspace = true
+description = "The session-history slice: the HistoryEditor sole write path over session chat history."
+
+[dependencies]
+jinn-core-types = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[lints]
+workspace = true

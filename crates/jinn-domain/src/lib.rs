@@ -109,9 +109,10 @@ pub use common::actor::protocol::command::ProceedWithShutdown;
 pub use common::actor::protocol::event::{
     ActorShutdownCompleted, ActorStarted, ActorStarting, AllActorsSpawned,
 };
-pub use feat::chat_input::protocol::command::{EnqueueUserMessage, PushChatEntry};
+pub use feat::chat_input::protocol::command::EnqueueUserMessage;
+pub use jinn_session_history_msg::PushChatEntry;
 pub use feat::chat_input::protocol::event::ChatEntrySubmitted;
-pub use feat::context::protocol::command::{PinChatEntry, UnpinChatEntry};
+pub use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
 pub use feat::provider::llm_message::LlmMessage;
 // Stream contracts are owned by the inference slice's msg crate (kernel→msg
 // direction, jinn-session-msg precedent); re-exported here so the long-standing

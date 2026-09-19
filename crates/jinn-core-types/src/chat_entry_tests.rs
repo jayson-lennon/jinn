@@ -8,7 +8,9 @@
 
 use super::chat_entry::*;
 use super::tool_result_status::ToolResultStatus;
-use crate::protocol::SessionId;
+use crate::ChatEntryId;
+use crate::ContextOverride;
+use crate::SessionId;
 
 #[rstest::rstest]
 fn chat_entry_id_is_unique() {
@@ -45,7 +47,7 @@ fn user_entry_has_user_kind() {
             display: "hello".to_owned(),
             expanded: "hello".to_owned(),
             attachments: Vec::new(),
-            outcome: crate::feat::session::chat_entry::AttachmentOutcome::default(),
+            outcome: AttachmentOutcome::default(),
         }
     );
 }
@@ -308,16 +310,15 @@ fn thinking_entry_serializes_roundtrip() {
 #[rstest::rstest]
 fn annotation_entry_serializes_roundtrip() {
     // Given an annotation entry with two citations.
-    use jinn_provider::StreamEvent;
-    let citations = vec![
-        jinn_provider::UrlCitation {
+        let citations = vec![
+        crate::url_citation::UrlCitation {
             url: "https://example.com/a".to_owned(),
             title: "Source A".to_owned(),
             content: Some("snippet a".to_owned()),
             start_index: None,
             end_index: None,
         },
-        jinn_provider::UrlCitation {
+        crate::url_citation::UrlCitation {
             url: "https://example.com/b".to_owned(),
             title: "Source B".to_owned(),
             content: None,
@@ -336,7 +337,6 @@ fn annotation_entry_serializes_roundtrip() {
 
     // And the JSON exposes the expected variant tag.
     assert!(json.contains("\"Annotation\""));
-    let _ = StreamEvent::Citations(vec![]); // ensure variant still compiles
 }
 
 #[rstest::rstest]
@@ -534,8 +534,8 @@ fn tool_result_fingerprint_differs_with_truncation() {
         "line1".to_owned(),
         "line1\nline2".to_owned(),
         ToolResultStatus::Success,
-        jinn_core_types::tool_types::TruncationMeta {
-            truncated_by: jinn_core_types::tool_types::TruncatedBy::Lines,
+        crate::tool_types::TruncationMeta {
+            truncated_by: crate::tool_types::TruncatedBy::Lines,
             total_lines: 2,
             total_bytes: 19,
             output_lines: 1,
@@ -1077,7 +1077,7 @@ fn is_user_force_excluded_returns_false_when_user_toggled_back_to_default() {
 #[rstest::rstest]
 fn annotation_produces_no_message() {
     // Given an annotation entry (display-only, excluded from context).
-    let entry = ChatEntry::annotation(vec![jinn_provider::UrlCitation {
+    let entry = ChatEntry::annotation(vec![crate::url_citation::UrlCitation {
         url: "https://example.com".to_owned(),
         title: "Source".to_owned(),
         content: None,
@@ -1085,11 +1085,10 @@ fn annotation_produces_no_message() {
         end_index: None,
     }]);
 
-    // When converting to LLM messages.
-    let messages = crate::feat::provider::entries_to_messages::entries_to_messages(&[entry]);
-
-    // Then no messages are produced.
-    assert!(messages.is_empty());
+    // When checking context eligibility (the gate the LLM-message
+    // conversion applies before producing a message).
+    // Then the entry is excluded from context.
+    assert!(!entry.is_in_context());
 }
 
 #[rstest::rstest]
@@ -1126,8 +1125,8 @@ fn yank_text_tool_result_prefers_full_content_when_truncated() {
         "truncated slice\n[Showing lines 1-2 of 10]".to_owned(),
         "complete output\nwith all lines".to_owned(),
         ToolResultStatus::Success,
-        jinn_core_types::tool_types::TruncationMeta {
-            truncated_by: jinn_core_types::tool_types::TruncatedBy::Lines,
+        crate::tool_types::TruncationMeta {
+            truncated_by: crate::tool_types::TruncatedBy::Lines,
             total_lines: 10,
             total_bytes: 100,
             output_lines: 2,
@@ -1187,7 +1186,7 @@ fn yank_text_strips_ansi_escapes() {
 fn task_tool_call_with_child_session_roundtrips_through_serde() {
     // Given a task ToolCall entry linked to a child session.
     let child = SessionId::new();
-    let mut entry = ChatEntry::tool_call("call_1", jinn_tools_msg::TASK_TOOL_NAME, "{}");
+    let mut entry = ChatEntry::tool_call("call_1", "task", "{}"); // "task" = tools slice TASK_TOOL_NAME
     let ChatEntryKind::ToolCall { child_session, .. } = &mut entry.kind else {
         panic!("expected ToolCall kind");
     };
@@ -1235,7 +1234,7 @@ fn tool_call_without_child_session_key_deserializes_to_none() {
 #[rstest::rstest]
 fn tool_call_without_link_omits_child_session_key() {
     // Given a task ToolCall entry with no link.
-    let entry = ChatEntry::tool_call("call_1", jinn_tools_msg::TASK_TOOL_NAME, "{}");
+    let entry = ChatEntry::tool_call("call_1", "task", "{}"); // "task" = tools slice TASK_TOOL_NAME
 
     // When serializing.
     let json = serde_json::to_string(&entry.kind).expect("serialize");

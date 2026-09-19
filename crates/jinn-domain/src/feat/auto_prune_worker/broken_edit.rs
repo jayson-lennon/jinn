@@ -21,7 +21,7 @@
 //!    [Tool Result] (OK): edit applied
 //!    [Assistant]: I've fixed the bug.
 //!
-//! [`ForcedExclude`]: crate::feat::session::chat_entry::ContextOverride::ForcedExclude
+//! [`ForcedExclude`]: crate::protocol::ContextOverride::ForcedExclude
 
 use std::sync::Arc;
 
@@ -29,9 +29,9 @@ pub use jinn_preferences_config::schemas::auto_prune::BrokenEditAutoPruneConfig;
 
 use crate::feat::auto_prune_worker::is_within_min_age;
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::feat::session::chat_entry::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
-use crate::feat::session::history_mutation::HistoryMutation;
-use crate::feat::session::tool_result_status::ToolResultStatus;
+use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
+use crate::protocol::HistoryMutation;
+use crate::protocol::ToolResultStatus;
 use crate::protocol::SessionId;
 
 /// Default minimum age for broken-edit auto-prune.
@@ -61,7 +61,7 @@ fn find_failed_edit_result(
     call_idx: usize,
     tool_call_id: &str,
 ) -> Option<(
-    crate::feat::session::chat_entry::ChatEntryId,
+    crate::protocol::ChatEntryId,
     ToolResultStatus,
 )> {
     // ToolResults appear after their ToolCall, so scan forward only.
@@ -172,8 +172,8 @@ mod tests {
     )]
 
     use super::*;
-    use crate::feat::session::chat_entry::ChatEntry;
-    use crate::feat::session::tool_result_status::ToolResultStatus;
+    use crate::protocol::ChatEntry;
+    use crate::protocol::ToolResultStatus;
     use crate::protocol::SessionId;
 
     /// Helper: create a failed edit ToolCall + ToolResult pair.

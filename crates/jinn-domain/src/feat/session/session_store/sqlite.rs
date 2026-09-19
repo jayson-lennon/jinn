@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::feat::session::SessionUi;
-use crate::feat::session::chat_entry::{ChatEntry, ChatEntryKind};
-use crate::feat::session::chat_history::ChatHistory;
+use crate::protocol::{ChatEntry, ChatEntryKind};
+use crate::protocol::ChatHistory;
 use crate::feat::session::chat_session::{
     ChatSessionState, LifecycleScriptState, SessionCore, SessionCoreEphemeral, SessionOrigin,
     SessionState,
@@ -1862,7 +1862,7 @@ impl ExclusionRow {
             _ => {
                 // Fall back to the audit trail: a persisted worker/user
                 // ForcedExclude that was never re-included.
-                serde_json::from_str::<Vec<crate::feat::session::chat_entry::ContextChangeEvent>>(
+                serde_json::from_str::<Vec<crate::protocol::ContextChangeEvent>>(
                     &self.context_history,
                 )
                 .is_ok_and(|events| {

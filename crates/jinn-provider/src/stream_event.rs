@@ -1,9 +1,12 @@
 //! Stream events from LLM chat with tool support.
 //!
 //! [`StreamEvent`] is the unified streaming output type for LLM responses,
-//! decoupled from any specific provider's stream format.
+//! decoupled from any specific provider's stream format. [`UrlCitation`] is
+//! defined in `jinn-core-types` (re-exported from `lib.rs` so
+//! `crate::UrlCitation` paths keep resolving).
 
 use jinn_core_types::tool_types::ToolCall;
+use jinn_core_types::url_citation::UrlCitation;
 
 /// Why the stream stopped.
 ///
@@ -57,28 +60,6 @@ pub struct StreamUsage {
     /// OpenAI-compat only (e.g. OpenRouter); `None` for providers that
     /// don't report cache details.
     pub cached_tokens: Option<u64>,
-}
-
-/// A single web-search source citation from OpenRouter.
-///
-/// Carries the fields of a `url_citation` annotation attached to an assistant
-/// message. `content` and the index range are frequently omitted by the
-/// provider, hence `Option` with `#[serde(default)]`.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct UrlCitation {
-    /// The source URL.
-    pub url: String,
-    /// A human-readable title for the source.
-    pub title: String,
-    /// Snippet text, when the provider includes it.
-    #[serde(default)]
-    pub content: Option<String>,
-    /// Start of the cited character span in the assistant text, if reported.
-    #[serde(default)]
-    pub start_index: Option<u32>,
-    /// End of the cited character span in the assistant text, if reported.
-    #[serde(default)]
-    pub end_index: Option<u32>,
 }
 
 /// A streaming event from an LLM chat response.

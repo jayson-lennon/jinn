@@ -7,8 +7,8 @@
 )]
 
 use crate::feat::provider::entries_to_messages::entries_to_messages;
-use crate::feat::session::chat_entry::ChangeSource;
-use crate::feat::session::tool_result_status::ToolResultStatus;
+use crate::protocol::ChangeSource;
+use crate::protocol::ToolResultStatus;
 use crate::protocol::{ChatEntry, LlmMessage, PinPosition};
 
 #[rstest::rstest]
@@ -912,7 +912,7 @@ fn forced_exclude_dangling_tool_call_produces_valid_messages() {
     );
     entries[2].apply_context_override(
         crate::protocol::ContextOverride::ForcedExclude,
-        crate::feat::session::chat_entry::ChangeSource::Internal {
+        crate::protocol::ChangeSource::Internal {
             label: "test".to_owned(),
         },
     );
@@ -955,13 +955,13 @@ fn forced_exclude_preserves_complete_tool_loop_in_messages() {
     // Force-exclude only the dangling entries (tc-2 and its empty Assistant).
     entries[4].apply_context_override(
         crate::protocol::ContextOverride::ForcedExclude,
-        crate::feat::session::chat_entry::ChangeSource::Internal {
+        crate::protocol::ChangeSource::Internal {
             label: "test".to_owned(),
         },
     );
     entries[5].apply_context_override(
         crate::protocol::ContextOverride::ForcedExclude,
-        crate::feat::session::chat_entry::ChangeSource::Internal {
+        crate::protocol::ChangeSource::Internal {
             label: "test".to_owned(),
         },
     );
@@ -1011,19 +1011,19 @@ fn no_dangling_tool_calls_in_messages_after_hard_cancel() {
     // Force-exclude the dangling entries (tc-3, tc-4, and their empty Assistant).
     entries[7].apply_context_override(
         crate::protocol::ContextOverride::ForcedExclude,
-        crate::feat::session::chat_entry::ChangeSource::Internal {
+        crate::protocol::ChangeSource::Internal {
             label: "test".to_owned(),
         },
     );
     entries[8].apply_context_override(
         crate::protocol::ContextOverride::ForcedExclude,
-        crate::feat::session::chat_entry::ChangeSource::Internal {
+        crate::protocol::ChangeSource::Internal {
             label: "test".to_owned(),
         },
     );
     entries[9].apply_context_override(
         crate::protocol::ContextOverride::ForcedExclude,
-        crate::feat::session::chat_entry::ChangeSource::Internal {
+        crate::protocol::ChangeSource::Internal {
             label: "test".to_owned(),
         },
     );
@@ -1435,7 +1435,7 @@ fn excluding_compaction_summary_yields_valid_message_sequence() {
     // whose reserve boundary lands on an Assistant opener.
     //   [User, Assistant(big), ToolCall, ToolResult, Assistant(opener), User(recent)]
     use crate::feat::compaction_worker::algorithm::adjust_cut_to_boundary;
-    use crate::feat::session::chat_entry::ChangeSource;
+    use crate::protocol::ChangeSource;
 
     let big_padding = "w".repeat(600);
     let mut entries = vec![

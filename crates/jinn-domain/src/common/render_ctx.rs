@@ -152,10 +152,10 @@ mod tests {
     use crate::common::app_state::AppState;
     use crate::common::overlay_views::OverlayViews;
     use crate::common::slices::Slices;
-    use crate::feat::session::chat_entry::ChangeSource;
-    use crate::feat::session::chat_entry::ChatEntry;
-    use crate::feat::session::chat_entry::ChatEntryId;
-    use crate::feat::session::chat_entry::ContextOverride;
+    use crate::protocol::ChangeSource;
+    use crate::protocol::ChatEntry;
+    use crate::protocol::ChatEntryId;
+    use crate::protocol::ContextOverride;
 
     fn ctx_for<'a>(
         state: &'a AppState,

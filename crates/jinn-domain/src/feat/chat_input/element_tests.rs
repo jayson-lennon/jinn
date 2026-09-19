@@ -11,7 +11,7 @@ use crate::common::app_state::FocusScope;
 use crate::common::render_ctx::RenderCtx;
 use crate::common::ui_element::UiElement;
 use crate::feat::chat_input::element::ChatInputBoxElement;
-use crate::feat::session::queue_item::QueueItem;
+use jinn_turn_dispatch_msg::QueueItem;
 use crate::feat::theme::default_theme;
 use crate::protocol::ChatEntry;
 

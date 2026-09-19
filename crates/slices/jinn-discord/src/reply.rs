@@ -5,7 +5,7 @@
 //! `Error` (a failed turn). User/System/Tool entries are skipped so the Discord
 //! user only sees the model's final response, never the intermediate scratch.
 
-use jinn_domain::feat::session::chat_entry::{ChatEntry, ChatEntryKind};
+use jinn_domain::protocol::{ChatEntry, ChatEntryKind};
 
 /// The final reply to forward to Discord, or `None` if the history has no
 /// assistant or error entry (e.g. a session that errored before the model ran).
@@ -51,7 +51,7 @@ pub fn read_final_reply(history: &[ChatEntry]) -> Option<FinalReply> {
 #[cfg(test)]
 mod tests {
     use super::{FinalReply, read_final_reply};
-    use jinn_domain::feat::session::chat_entry::ChatEntry;
+    use jinn_domain::protocol::ChatEntry;
 
     #[rstest::rstest]
     #[test]

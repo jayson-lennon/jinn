@@ -59,9 +59,9 @@ pub fn install_actors(
 /// routes after activation (see [`bridge::drain_routes`]).
 pub fn stage_routes(host: &mut SliceHost<'_, jinn_slices::RenderFacts>) {
     let topic = bridge::context_assembly_topic();
-    host.forward::<jinn_domain::feat::session::protocol::history_appended::HistoryAppended, _>(
+    host.forward::<jinn_session_history_msg::HistoryAppended, _>(
         topic.clone(),
-        || jinn_domain::feat::session::protocol::history_appended::HistoryAppended::schema_def(),
+        || jinn_session_history_msg::HistoryAppended::schema_def(),
     );
     host.forward::<jinn_domain::feat::context::protocol::event::ContextOverrideChanged, _>(
         topic.clone(),
@@ -71,9 +71,9 @@ pub fn stage_routes(host: &mut SliceHost<'_, jinn_slices::RenderFacts>) {
         topic.clone(),
         jinn_domain::protocol::system::ActiveSessionChanged::schema_def,
     );
-    host.forward::<jinn_domain::feat::context::protocol::event::ChatEntryPinChanged, _>(
+    host.forward::<jinn_session_history_msg::ChatEntryPinChanged, _>(
         topic.clone(),
-        jinn_domain::feat::context::protocol::event::ChatEntryPinChanged::schema_def,
+        jinn_session_history_msg::ChatEntryPinChanged::schema_def,
     );
     host.forward::<
         jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted,

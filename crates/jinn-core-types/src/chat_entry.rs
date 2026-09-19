@@ -5,13 +5,10 @@
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::feat::session::tool_result_status::ToolResultStatus;
-use crate::protocol::SessionId;
+use super::tool_result_status::ToolResultStatus;
+use crate::SessionId;
 
-// Re-export shim: `ChatEntryId` moved to `jinn-core-types` (a pure value
-// type, needed by `jinn-slices` chat-log view vocabulary); the kernel path
-// stays stable for consumers.
-pub use jinn_core_types::ChatEntryId;
+use super::chat_entry_id::ChatEntryId;
 
 /// Where a pinned entry should appear in the assembled prompt.
 ///
@@ -38,20 +35,17 @@ impl std::fmt::Display for PinPosition {
     }
 }
 
-impl From<jinn_core_types::tool_types::ToolResultPinPosition> for PinPosition {
-    fn from(pos: jinn_core_types::tool_types::ToolResultPinPosition) -> Self {
+impl From<crate::tool_types::ToolResultPinPosition> for PinPosition {
+    fn from(pos: crate::tool_types::ToolResultPinPosition) -> Self {
         match pos {
-            jinn_core_types::tool_types::ToolResultPinPosition::Top => Self::Top,
-            jinn_core_types::tool_types::ToolResultPinPosition::Bottom => Self::Bottom,
-            jinn_core_types::tool_types::ToolResultPinPosition::Relative => Self::Relative,
+            crate::tool_types::ToolResultPinPosition::Top => Self::Top,
+            crate::tool_types::ToolResultPinPosition::Bottom => Self::Bottom,
+            crate::tool_types::ToolResultPinPosition::Relative => Self::Relative,
         }
     }
 }
 
-// Re-export shim: `ContextOverride` moved to `jinn-core-types` (a pure
-// value type, needed by `jinn-slices` chat-log view vocabulary); the
-// kernel path stays stable for consumers.
-pub use jinn_core_types::ContextOverride;
+use super::context_override::ContextOverride;
 
 /// Who initiated a change to a [`ChatEntry`]'s `context_override`.
 ///
@@ -64,10 +58,8 @@ pub enum ChangeSource {
     User,
     /// A background history worker (compaction or one of the auto-prune workers).
     ///
-    /// `name` matches the worker's [`HistoryWorker::name`] so adding a new worker
+    /// `name` matches the worker's `HistoryWorker::name` so adding a new worker
     /// requires zero changes here.
-    ///
-    /// [`HistoryWorker::name`]: crate::feat::history_worker::worker_trait::HistoryWorker::name
     Worker { name: String },
     /// An internal session-actor sweep that isn't a worker (e.g. dangling-tool-call cleanup).
     Internal { label: String },
@@ -138,7 +130,7 @@ pub struct ChatEntry {
     /// Unique identifier for this entry.
     pub id: ChatEntryId,
     /// Timing data for this entry.
-    pub timing: super::entry_timing::EntryTiming,
+    pub timing: crate::entry_timing::EntryTiming,
     /// What kind of entry this is.
     pub kind: ChatEntryKind,
     /// Whether this entry is pinned to the context, and where.
@@ -196,7 +188,7 @@ pub enum ChatEntryKind {
     User {
         display: String,
         expanded: String,
-        attachments: Vec<jinn_provider::Attachment>,
+        attachments: Vec<crate::attachment::Attachment>,
         outcome: AttachmentOutcome,
     },
     /// A system-generated message (status updates, etc.).
@@ -244,7 +236,7 @@ pub enum ChatEntryKind {
         /// Full untruncated content, if truncation occurred.
         full_content: Option<String>,
         /// Truncation metadata, if truncation occurred.
-        truncation: Option<jinn_core_types::tool_types::TruncationMeta>,
+        truncation: Option<crate::tool_types::TruncationMeta>,
         /// Where this entry should appear in the assembled prompt. `None` (default)
         /// means the entry participates in normal history compaction/trimming.
         pin_position: Option<PinPosition>,
@@ -294,7 +286,7 @@ pub enum ChatEntryKind {
     /// so citations survive a reopen.
     Annotation {
         /// The citations captured for this turn (one entry per search).
-        citations: Vec<jinn_provider::UrlCitation>,
+        citations: Vec<crate::url_citation::UrlCitation>,
     },
 }
 
@@ -308,7 +300,7 @@ impl ChatEntry {
         let t = text.into();
         Self {
             id: ChatEntryId::new(),
-            timing: super::entry_timing::EntryTiming::instant_now(),
+            timing: crate::entry_timing::EntryTiming::instant_now(),
             kind: ChatEntryKind::User {
                 display: t.clone(),
                 expanded: t,
@@ -360,7 +352,7 @@ impl ChatEntry {
     {
         Self {
             id: ChatEntryId::new(),
-            timing: super::entry_timing::EntryTiming::instant_now(),
+            timing: crate::entry_timing::EntryTiming::instant_now(),
             kind: ChatEntryKind::User {
                 display: display.into(),
                 expanded: expanded.into(),
@@ -382,7 +374,7 @@ impl ChatEntry {
     {
         Self {
             id: ChatEntryId::new(),
-            timing: super::entry_timing::EntryTiming::instant_now(),
+            timing: crate::entry_timing::EntryTiming::instant_now(),
             kind: ChatEntryKind::System(text.into()),
             pin_position: None,
             context_override: ContextOverride::Default,
@@ -399,7 +391,7 @@ impl ChatEntry {
     {
         Self {
             id: ChatEntryId::new(),
-            timing: super::entry_timing::EntryTiming::instant_now(),
+            timing: crate::entry_timing::EntryTiming::instant_now(),
             kind: ChatEntryKind::Error(text.into()),
             pin_position: None,
             context_override: ContextOverride::Default,
@@ -416,7 +408,7 @@ impl ChatEntry {
     {
         Self {
             id: ChatEntryId::new(),
-            timing: super::entry_timing::EntryTiming::instant_now(),
+            timing: crate::entry_timing::EntryTiming::instant_now(),
             kind: ChatEntryKind::Assistant(text.into()),
             pin_position: None,
             context_override: ContextOverride::Default,
@@ -434,7 +426,7 @@ impl ChatEntry {
     {
         Self {
             id: ChatEntryId::new(),
-            timing: super::entry_timing::EntryTiming::instant_now(),
+            timing: crate::entry_timing::EntryTiming::instant_now(),
             kind: ChatEntryKind::Actor {
                 source: source.into(),
                 text: text.into(),
@@ -454,7 +446,7 @@ impl ChatEntry {
     {
         Self {
             id: ChatEntryId::new(),
-            timing: super::entry_timing::EntryTiming::instant_now(),
+            timing: crate::entry_timing::EntryTiming::instant_now(),
             kind: ChatEntryKind::Thinking(text.into()),
             pin_position: None,
             context_override: ContextOverride::Default,
@@ -473,7 +465,7 @@ impl ChatEntry {
     {
         Self {
             id: ChatEntryId::new(),
-            timing: super::entry_timing::EntryTiming::instant_now(),
+            timing: crate::entry_timing::EntryTiming::instant_now(),
             kind: ChatEntryKind::ToolCall {
                 id: id.into(),
                 name: name.into(),
@@ -497,7 +489,7 @@ impl ChatEntry {
     {
         Self {
             id: ChatEntryId::new(),
-            timing: super::entry_timing::EntryTiming::instant_now(),
+            timing: crate::entry_timing::EntryTiming::instant_now(),
             kind: ChatEntryKind::ToolResult {
                 id: id.into(),
                 name: name.into(),
@@ -520,10 +512,10 @@ impl ChatEntry {
     /// Annotations are display-only: rendered in the chat log but excluded from
     /// LLM context assembly, token estimation, and compaction.
     #[must_use]
-    pub fn annotation(citations: Vec<jinn_provider::UrlCitation>) -> Self {
+    pub fn annotation(citations: Vec<crate::url_citation::UrlCitation>) -> Self {
         Self {
             id: ChatEntryId::new(),
-            timing: super::entry_timing::EntryTiming::instant_now(),
+            timing: crate::entry_timing::EntryTiming::instant_now(),
             kind: ChatEntryKind::Annotation { citations },
             pin_position: None,
             context_override: ContextOverride::Default,
@@ -540,7 +532,7 @@ impl ChatEntry {
         content: String,
         full_content: String,
         status: ToolResultStatus,
-        truncation: jinn_core_types::tool_types::TruncationMeta,
+        truncation: crate::tool_types::TruncationMeta,
     ) -> Self
     where
         S1: Into<String>,
@@ -548,7 +540,7 @@ impl ChatEntry {
     {
         Self {
             id: ChatEntryId::new(),
-            timing: super::entry_timing::EntryTiming::instant_now(),
+            timing: crate::entry_timing::EntryTiming::instant_now(),
             kind: ChatEntryKind::ToolResult {
                 id: id.into(),
                 name: name.into(),
@@ -580,7 +572,7 @@ impl ChatEntry {
     {
         Self {
             id: ChatEntryId::new(),
-            timing: super::entry_timing::EntryTiming::instant_now(),
+            timing: crate::entry_timing::EntryTiming::instant_now(),
             kind: ChatEntryKind::Transient(text.into()),
             pin_position: None,
             context_override: ContextOverride::Default,
@@ -628,9 +620,9 @@ impl ChatEntry {
     /// [`Self::apply_context_override`]. To restore from persistence (no audit), use
     /// [`Self::restore_context_override`].
     #[must_use]
-    pub(crate) fn new_with_kind(
+    pub fn new_with_kind(
         id: ChatEntryId,
-        timing: super::entry_timing::EntryTiming,
+        timing: crate::entry_timing::EntryTiming,
         kind: ChatEntryKind,
         pin_position: Option<PinPosition>,
     ) -> Self {
@@ -684,7 +676,7 @@ impl ChatEntry {
     /// The field is intentionally private to force mutations through the audited
     /// setter (`apply_context_override`). This escape hatch exists solely for
     /// initial construction (compaction summary entries) and DB loading.
-    pub(crate) fn restore_context_override(&mut self, value: ContextOverride) {
+    pub fn restore_context_override(&mut self, value: ContextOverride) {
         // No audit event: this method exists for initial construction and DB
         // loading, where the `context_override` value reflects an already-applied
         // state (not a new transition).
@@ -703,7 +695,7 @@ impl ChatEntry {
     /// The count is derived from entry content, so the only legitimate writers
     /// are the token count actor (compute) and DB loading (restore). Routing
     /// the restore path through a named method keeps those two apart.
-    pub(crate) fn restore_token_count(&mut self, count: Option<u32>) {
+    pub fn restore_token_count(&mut self, count: Option<u32>) {
         // No audit trail: DB-restore-only path, mirroring
         // `restore_context_override`.
         self.token_count = count;
@@ -1018,7 +1010,7 @@ impl Serialize for ChatEntryKind {
                     display: String,
                     expanded: String,
                     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-                    attachments: Vec<jinn_provider::Attachment>,
+                    attachments: Vec<crate::attachment::Attachment>,
                     #[serde(default, skip_serializing_if = "AttachmentOutcome::is_empty")]
                     outcome: AttachmentOutcome,
                 }
@@ -1110,7 +1102,7 @@ impl Serialize for ChatEntryKind {
                     #[serde(skip_serializing_if = "Option::is_none")]
                     full_content: Option<String>,
                     #[serde(skip_serializing_if = "Option::is_none")]
-                    truncation: Option<jinn_core_types::tool_types::TruncationMeta>,
+                    truncation: Option<crate::tool_types::TruncationMeta>,
                     #[serde(default, skip_serializing_if = "Option::is_none")]
                     pin_position: Option<PinPosition>,
                     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -1213,7 +1205,7 @@ impl<'de> Deserialize<'de> for ChatEntryKind {
                             display: String,
                             expanded: String,
                             #[serde(default)]
-                            attachments: Vec<jinn_provider::Attachment>,
+                            attachments: Vec<crate::attachment::Attachment>,
                             #[serde(default)]
                             outcome: AttachmentOutcome,
                         }
@@ -1278,7 +1270,7 @@ impl<'de> Deserialize<'de> for ChatEntryKind {
                             #[serde(default)]
                             full_content: Option<String>,
                             #[serde(default)]
-                            truncation: Option<jinn_core_types::tool_types::TruncationMeta>,
+                            truncation: Option<crate::tool_types::TruncationMeta>,
                             #[serde(default)]
                             pin_position: Option<PinPosition>,
                         }
@@ -1357,7 +1349,7 @@ impl<'de> Deserialize<'de> for ChatEntryKind {
                         })
                     }
                     "Annotation" => {
-                        let citations: Vec<jinn_provider::UrlCitation> = map.next_value()?;
+                        let citations: Vec<crate::url_citation::UrlCitation> = map.next_value()?;
                         Ok(ChatEntryKind::Annotation { citations })
                     }
                     other => Err(de::Error::unknown_variant(
@@ -1514,7 +1506,7 @@ mod tests {
         entry.kind = ChatEntryKind::User {
             display: "describe this".to_owned(),
             expanded: "describe this".to_owned(),
-            attachments: vec![jinn_provider::Attachment::image(
+            attachments: vec![crate::attachment::Attachment::image(
                 "image/png".to_owned(),
                 vec![1, 2, 3],
             )],

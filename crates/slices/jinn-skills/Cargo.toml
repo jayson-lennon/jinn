@@ -1,0 +1,15 @@
+[package]
+name = "jinn-skills"
+version.workspace = true
+edition.workspace = true
+description = "The skills slice: skill data model, frontmatter parsing, scanning, and prompt formatting."
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

@@ -911,12 +911,12 @@ fn enter_normal_mode_does_not_drain_queue() {
     state.active_session_mut().begin_streaming();
     state
         .active_session_mut()
-        .enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+        .enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
             Box::new(ChatEntry::user("msg1")),
         ));
     state
         .active_session_mut()
-        .enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+        .enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
             Box::new(ChatEntry::user("msg2")),
         ));
 
@@ -943,12 +943,12 @@ fn enter_normal_mode_with_queue_emits_no_cancel_stream() {
     state.active_session_mut().begin_streaming();
     state
         .active_session_mut()
-        .enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+        .enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
             Box::new(ChatEntry::user("msg1")),
         ));
     state
         .active_session_mut()
-        .enqueue(crate::feat::session::queue_item::QueueItem::UserMessage(
+        .enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
             Box::new(ChatEntry::user("msg2")),
         ));
 

@@ -19,7 +19,7 @@ use error_stack::{Report, ResultExt};
 
 use crate::feat::context::prompt_template::{ImageKind, PendingPath, classify_image_bytes};
 use crate::feat::image_convert::ImageConverterService;
-use crate::feat::session::chat_entry::ResolvedToken;
+use crate::protocol::ResolvedToken;
 use jinn_provider::Attachment;
 
 /// Errors that can occur while resolving `@path` image attachments.

@@ -18,7 +18,7 @@
 //!
 //! With `max_file_edits = 2`, the oldest edit/write pair is pruned.
 //!
-//! [`ForcedExclude`]: crate::feat::session::chat_entry::ContextOverride::ForcedExclude
+//! [`ForcedExclude`]: crate::protocol::ContextOverride::ForcedExclude
 
 use std::collections::HashMap;
 
@@ -27,10 +27,10 @@ use std::sync::Arc;
 
 use crate::feat::auto_prune_worker::is_within_min_age;
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::feat::session::chat_entry::{
+use crate::protocol::{
     ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride,
 };
-use crate::feat::session::history_mutation::HistoryMutation;
+use crate::protocol::HistoryMutation;
 use crate::protocol::SessionId;
 
 /// Default max file edits for double-edit auto-prune.
@@ -273,8 +273,8 @@ mod tests {
     )]
 
     use super::*;
-    use crate::feat::session::chat_entry::ChatEntry;
-    use crate::feat::session::tool_result_status::ToolResultStatus;
+    use crate::protocol::ChatEntry;
+    use crate::protocol::ToolResultStatus;
     use crate::protocol::SessionId;
 
     /// Helper: create an edit ToolCall + ToolResult pair.

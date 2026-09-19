@@ -1,15 +1,13 @@
 //! History mutation types - declarative mutations for background workers.
 //!
 //! Workers produce [`Vec<HistoryMutation>`] batches. The session actor resolves
-//! [`ChatEntryId`](crate::feat::session::chat_entry::ChatEntryId) → current
+//! [`ChatEntryId`](crate::ChatEntryId) → current
 //! position at application time. Mutations targeting nonexistent entries are
 //! silently skipped.
 
 use serde::{Deserialize, Serialize};
 
-use crate::feat::session::chat_entry::{
-    ChangeSource, ChatEntry, ChatEntryId, ContextOverride, PinPosition,
-};
+use crate::{ChangeSource, ChatEntry, ChatEntryId, ContextOverride, PinPosition};
 
 /// A declarative mutation to apply to a session's history.
 ///

@@ -227,6 +227,10 @@ jinn-theme-msg = { path = "crates/slices/jinn-theme-msg" }
 jinn-token-count-msg = { path = "crates/slices/jinn-token-count-msg" }
 jinn-turn-dispatch-msg = { path = "crates/slices/jinn-turn-dispatch-msg" }
 jinn-turn-dispatch = { path = "crates/slices/jinn-turn-dispatch" }
+jinn-session-history = { path = "crates/slices/jinn-session-history" }
+jinn-session-history-msg = { path = "crates/slices/jinn-session-history-msg" }
+jinn-skills = { path = "crates/slices/jinn-skills" }
+jinn-skills-msg = { path = "crates/slices/jinn-skills-msg" }
 jinn-inference-msg = { path = "crates/slices/jinn-inference-msg" }
 jinn-inference = { path = "crates/slices/jinn-inference" }
 jinn-mcp-msg = { path = "crates/slices/jinn-mcp-msg" }

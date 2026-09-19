@@ -30,12 +30,11 @@ use crate::common::actor_deps::{ActorDeps, BusPublish};
 use crate::common::services::bus_service::BusService;
 use crate::common::state::State;
 use crate::feat::chat_input::protocol::command::{
-    EnqueueResumeTurn, EnqueueUserMessage, PushChatEntry, SubmitSteeringMessage,
+    EnqueueResumeTurn, EnqueueUserMessage, SubmitSteeringMessage,
 };
-use crate::feat::context::protocol::command::{
-    LoadPersonaPickerEntries, PinChatEntry, UnpinChatEntry,
-};
-use crate::feat::context::protocol::event::{ChatEntryPinChanged, PersonasLoaded};
+use crate::feat::context::protocol::command::LoadPersonaPickerEntries;
+use crate::feat::context::protocol::event::PersonasLoaded;
+use jinn_session_history_msg::{ChatEntryPinChanged, PinChatEntry, PushChatEntry, UnpinChatEntry};
 use crate::feat::context::strategy::token_estimator::TiktokenCounter;
 use crate::feat::provider::protocol::command::SendMessage;
 use crate::feat::provider::protocol::event::{ModelsRefreshed, PromptTemplatesLoaded};

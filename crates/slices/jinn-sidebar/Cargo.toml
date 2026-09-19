@@ -7,6 +7,7 @@ edition.workspace = true
 jinn-mcp-msg = { workspace = true }
 jinn-sidebar-msg = { workspace = true }
 jinn-slices = { workspace = true }
+jinn-session-history-msg = { workspace = true }
 jinn-term-msg = { workspace = true }
 jinn-theme = { workspace = true }
 # The trouper runtime: ServiceActors, topics, schemas.
@@ -17,6 +18,8 @@ trouper = { workspace = true }
 # actions reuse kernel feature helpers. The kernel never depends back on
 # this crate.
 jinn-core-types = { workspace = true }
+jinn-skills-msg = { workspace = true }
+jinn-skills = { workspace = true }
 jinn-domain = { workspace = true }
 jinn-preferences-config = { workspace = true }
 jinn-tools-msg = { workspace = true }

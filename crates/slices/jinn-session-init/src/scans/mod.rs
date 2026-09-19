@@ -39,7 +39,7 @@ pub const CONTEXT_FILE_CANDIDATES: &[&str] = &["AGENTS.md", "AGENTS.MD", "CLAUDE
 /// carried in the resource's `Loaded` event, not here.
 pub struct ScanOutputs {
     /// The merged discovered skills.
-    pub skills: Vec<jinn_domain::feat::skills::Skill>,
+    pub skills: Vec<jinn_skills::Skill>,
     /// The merged prompt-template store.
     pub prompts: Result<PromptTemplateStore, String>,
     /// The bounded-walk context files with contents read.

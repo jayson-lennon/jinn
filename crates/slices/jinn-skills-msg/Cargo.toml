@@ -1,0 +1,19 @@
+[package]
+name = "jinn-skills-msg"
+version.workspace = true
+edition.workspace = true
+description = "Skills crossing contracts: SkillsLoaded event and ScanSkills command."
+
+[dependencies]
+jinn-core-types = { workspace = true }
+jinn-skills = { workspace = true }
+jinn-slices = { workspace = true }
+serde = { workspace = true }
+trouper = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

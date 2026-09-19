@@ -265,7 +265,7 @@ mod tests {
             "id-1",
             "read_file",
             "file contents here",
-            crate::feat::session::tool_result_status::ToolResultStatus::Success,
+            crate::protocol::ToolResultStatus::Success,
         );
 
         // When estimating tokens.

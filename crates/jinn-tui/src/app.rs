@@ -91,7 +91,7 @@ impl TuiApp {
                     let mut state = self.core.state.write(&self.intent_handler_cap);
                     state.session.clear_load();
                     let closure = jinn_domain::common::bridge::Bridge::publish_closure(
-                        jinn_domain::feat::chat_input::protocol::command::PushChatEntry {
+                        jinn_session_history_msg::PushChatEntry {
                             session_id,
                             entry: jinn_domain::ChatEntry::system(
                                 "Failed to load session: timed out",

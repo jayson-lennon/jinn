@@ -1516,7 +1516,7 @@ mod tests {
     #[rstest::rstest]
     fn active_session_switch_closes_terminal_overlay() {
         // Given a state with two sessions, the overlay open over the first.
-        use crate::feat::session::chat_entry::ChatEntryKind;
+        use crate::protocol::ChatEntryKind;
         use crate::feat::session::chat_session::ChatSessionState;
         use crate::protocol::SessionId;
         use jinn_tools_msg::TASK_TOOL_NAME;
@@ -1582,7 +1582,7 @@ mod tests {
     fn active_session_switch_releases_user_control() {
         // Given a state with a linked child session, the overlay open in
         // control mode (user holds the previous session's terminal).
-        use crate::feat::session::chat_entry::ChatEntryKind;
+        use crate::protocol::ChatEntryKind;
         use crate::feat::session::chat_session::ChatSessionState;
         use crate::protocol::SessionId;
         use jinn_term_msg::command::ControlHolder;

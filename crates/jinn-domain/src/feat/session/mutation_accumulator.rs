@@ -18,8 +18,8 @@
 
 use std::collections::HashMap;
 
-use crate::feat::session::chat_entry::{ChangeSource, ChatEntryId, ContextOverride};
-use crate::feat::session::history_mutation::HistoryMutation;
+use crate::protocol::{ChangeSource, ChatEntryId, ContextOverride};
+use crate::protocol::HistoryMutation;
 
 /// One buffered override mutation, keyed by its target entry id.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,7 +124,7 @@ impl MutationAccumulator {
 mod tests {
     #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
     use super::*;
-    use crate::feat::session::chat_entry::{ChangeSource, ChatEntryId, ContextOverride};
+    use crate::protocol::{ChangeSource, ChatEntryId, ContextOverride};
 
     fn id(n: u8) -> ChatEntryId {
         // Deterministic, valid (8-4-4-4-12) UUID strings so dedup tests share stable ids.

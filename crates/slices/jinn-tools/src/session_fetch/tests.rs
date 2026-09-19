@@ -305,7 +305,7 @@ async fn excluded_entry_is_flagged() {
             "t1",
             "grep",
             "big output",
-            jinn_domain::feat::session::tool_result_status::ToolResultStatus::Success,
+            jinn_domain::protocol::ToolResultStatus::Success,
         ),
         excluded: false,
     };

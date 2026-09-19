@@ -9,7 +9,7 @@
 use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::session_store::SessionStore;
 use crate::feat::session::session_store::sqlite::SqliteSessionStore;
-use crate::feat::session::tool_result_status::ToolResultStatus;
+use crate::protocol::ToolResultStatus;
 use crate::protocol::{ChatEntry, ChatEntryKind, EntryTiming, SessionId};
 use tempfile::TempDir;
 
@@ -82,7 +82,7 @@ async fn degraded_token_expanded_survives_save_and_reload() {
     if let crate::protocol::ChatEntryKind::User { outcome, .. } = &mut entry.kind {
         outcome
             .degraded
-            .push(crate::feat::session::chat_entry::ResolvedToken {
+            .push(crate::protocol::ResolvedToken {
                 raw: "/nonexistent/whatever".to_owned(),
                 abs: std::path::PathBuf::from("/nonexistent/whatever"),
             });
@@ -129,13 +129,13 @@ async fn attachment_outcome_survives_save_and_reload() {
     if let ChatEntryKind::User { outcome, .. } = &mut entry.kind {
         outcome
             .attached
-            .push(crate::feat::session::chat_entry::ResolvedToken {
+            .push(crate::protocol::ResolvedToken {
                 raw: "real.png".to_owned(),
                 abs: std::path::PathBuf::from("/abs/real.png"),
             });
         outcome
             .degraded
-            .push(crate::feat::session::chat_entry::ResolvedToken {
+            .push(crate::protocol::ResolvedToken {
                 raw: "whatever".to_owned(),
                 abs: std::path::PathBuf::from("/abs/whatever"),
             });

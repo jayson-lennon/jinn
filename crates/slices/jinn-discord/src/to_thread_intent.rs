@@ -116,7 +116,7 @@ mod tests {
     use jinn_domain::common::app_state::AppState;
     use jinn_domain::common::slices::Slices;
     use jinn_domain::common::slices::key_routes::ActionCtx;
-    use jinn_domain::feat::session::chat_entry::ChatEntryKind;
+    use jinn_domain::protocol::ChatEntryKind;
 
     /// Build the state + slices with the happy-path preconditions: a titled
     /// session, discord enabled + connected. (The gateway owns

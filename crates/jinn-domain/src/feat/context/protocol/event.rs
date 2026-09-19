@@ -5,24 +5,6 @@ use serde::{Deserialize, Serialize};
 use crate::BusMessage;
 use crate::protocol::SessionId;
 
-/// Emitted when a chat entry has been pinned or unpinned.
-///
-/// The context actor emits this after mutating pin state in `AppState`.
-/// The session actor subscribes to this event and persists the updated
-/// session to disk.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatEntryPinChanged {
-    /// The session whose pin state changed.
-    pub session_id: SessionId,
-}
-
-impl BusMessage for ChatEntryPinChanged {}
-
-jinn_slices::crossing_schema!(ChatEntryPinChanged, "ChatEntryPinChanged",
-trouper::schema::SchemaKind::Event,
-description: "A chat entry's pin state changed.",
-fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
-
 /// Emitted when personas have been scanned and loaded from disk.
 ///
 /// The context actor receives this event and stores the loaded personas

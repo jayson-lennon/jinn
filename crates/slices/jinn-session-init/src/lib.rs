@@ -99,9 +99,9 @@ fn stage_routes(host: &mut AppSliceHost<'_>) {
         crate::commands::RescanContext::schema_def()
     });
 
-    host.reverse::<jinn_domain::feat::skills::SkillsLoaded, _>(
+    host.reverse::<jinn_skills_msg::SkillsLoaded, _>(
         Topic::new("SkillsLoaded"),
-        jinn_domain::feat::skills::SkillsLoaded::schema_def,
+        jinn_skills_msg::SkillsLoaded::schema_def,
     );
     host.reverse::<jinn_domain::feat::provider::protocol::event::PromptTemplatesLoaded, _>(
         Topic::new("PromptTemplatesLoaded"),
