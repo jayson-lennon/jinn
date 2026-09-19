@@ -6,11 +6,14 @@
 //!
 //! The `EnvironmentLoaded` event is retained for runtime reloads only.
 
-use crate::common::actor_deps::{ActorDeps, BusPublish};
 use crate::common::bus::BusMessage;
 use crate::feat::provider_infra::ProvidersConfig;
-use error_stack::{Report, ResultExt};
-use kameo::prelude::{Actor, ActorRef, Context, Message};
+use error_stack::Report;
+use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
+
+use crate::common::actor_deps::{ActorDeps, BusPublish};
 use wherror::Error;
 
 /// Error type for environment initialization failures.
@@ -29,6 +32,13 @@ pub struct EnvironmentLoaded {
     pub config: ProvidersConfig,
 }
 
+impl BusMessage for EnvironmentConfigReply {}
+
+jinn_slices::crossing_schema!(EnvironmentConfigReply, "EnvironmentConfigReply",
+trouper::schema::SchemaKind::Event,
+description: "Reply payload for the GetEnvironmentConfig ask.",
+fields: ["config" => trouper::schema::FieldTy::Json]);
+
 impl BusMessage for EnvironmentLoaded {}
 
 jinn_slices::crossing_schema!(EnvironmentLoaded, "EnvironmentLoaded",
@@ -40,6 +50,7 @@ fields: ["config" => trouper::schema::FieldTy::Json]);
 ///
 /// Downstream actors use this during their `on_start` to pull config
 /// directly from the EnvInitActor via the actor registry.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GetEnvironmentConfig;
 
 jinn_slices::crossing_schema!(GetEnvironmentConfig, "GetEnvironmentConfig",
@@ -49,9 +60,10 @@ fields: []);
 
 /// The environment initialization actor.
 ///
-/// Runs initialization during `on_start`: loads `providers.toml`,
-/// resolves API keys, populates `ApiKeysService`, and registers
-/// in the actor registry for downstream lookups.
+/// Loads `providers.toml` lazily on the first `GetEnvironmentConfig` ask,
+/// resolves API keys, and populates `ApiKeysService`. The ask is the one
+/// real startup ask path: composition asks it (with a mandatory timeout)
+/// before spawning downstream actors.
 pub struct EnvInitActor {
     deps: ActorDeps,
     config: Option<ProvidersConfig>,
@@ -62,51 +74,68 @@ pub struct EnvInitActor {
 pub struct EnvInitActorDeps {
     /// Universal actor dependencies (bus, services, etc.).
     pub deps: ActorDeps,
-    /// Optional registry name. When `Some`, the actor registers itself in the kameo actor
-    /// registry so downstream actors can look it up via `ask(GetEnvironmentConfig)`. Tests
-    /// should pass `None` to avoid global registry conflicts between parallel test runs.
-    pub registry_name: Option<&'static str>,
 }
 
-impl Actor for EnvInitActor {
-    type Args = EnvInitActorDeps;
-    type Error = Report<EnvInitError>;
+/// The reply payload of the `GetEnvironmentConfig` ask (JSON-friendly twin
+/// of `Option<ProvidersConfig>`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EnvironmentConfigReply {
+    /// The loaded config, or `None` when the file is missing/unreadable.
+    pub config: Option<ProvidersConfig>,
+}
 
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        if let Some(name) = args.registry_name {
-            actor_ref
-                .register(name)
-                .change_context(EnvInitError)
-                .attach("failed to register env-init actor in registry")?;
-        }
-
-        let actor = Self {
-            deps: args.deps,
-            config: None,
-        };
-        Ok(actor)
+impl ServiceActor for EnvInitActor {
+    async fn start(_args: &serde_json::Value) -> Result<Self, Report<RegistryError>> {
+        // Never called: spawned via `spawn`'s start_with (typed deps can't
+        // ride the JSON args).
+        let _ = _args;
+        Err(Report::new(RegistryError::InvalidSpec)
+            .attach("EnvInitActor spawns via start_with"))
     }
 }
 
-impl Message<GetEnvironmentConfig> for EnvInitActor {
-    type Reply = Option<ProvidersConfig>;
+/// Static path the env-init actor spawns at (one instance per process).
+pub const ENV_INIT_PATH: &str = "jinn.init.env";
 
-    async fn handle(
-        &mut self,
-        _msg: GetEnvironmentConfig,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
+impl EnvInitActor {
+    /// Spawns the env-init actor onto the trouper system.
+    pub fn spawn(system: &trouper::system::ActorSystem, deps: EnvInitActorDeps) -> ActorPath {
+        let path = ActorPath::new(ENV_INIT_PATH);
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(path.clone())
+            .start_with({
+                let deps = deps.clone();
+                move || {
+                    let deps = deps.clone();
+                    Box::pin(async move {
+                        Ok(Self {
+                            deps: deps.deps,
+                            config: None,
+                        })
+                    })
+                }
+            })
+            .handles::<GetEnvironmentConfig>()
+            .handles::<EnvironmentLoaded>()
+            .mailbox(64, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        path
+    }
+}
+
+impl MsgHandler<GetEnvironmentConfig> for EnvInitActor {
+    async fn handle(&mut self, _msg: GetEnvironmentConfig, ctx: &mut MsgCtx<'_>) {
         if self.config.is_none() {
             self.config = self.load_config_and_resolve_keys();
         }
-        self.config.clone()
+        ctx.reply(EnvironmentConfigReply {
+            config: self.config.clone(),
+        });
     }
 }
 
-impl Message<EnvironmentLoaded> for EnvInitActor {
-    type Reply = ();
-
-    async fn handle(&mut self, _msg: EnvironmentLoaded, _ctx: &mut Context<Self, ()>) {
+impl MsgHandler<EnvironmentLoaded> for EnvInitActor {
+    async fn handle(&mut self, _msg: EnvironmentLoaded, _ctx: &mut MsgCtx<'_>) {
         // No-op: EnvInitActor doesn't react to EnvironmentLoaded.
     }
 }
@@ -187,7 +216,7 @@ mod tests {
     use jinn_mcp_msg::McpServerConfig;
     use jinn_preferences_config::user_preferences::UserPreferences;
 
-    use super::{EnvInitActor, EnvInitActorDeps, EnvironmentLoaded, GetEnvironmentConfig};
+    use super::{EnvInitActor, EnvInitActorDeps, EnvironmentConfigReply, EnvironmentLoaded, GetEnvironmentConfig};
 
     /// Unique env-var names so parallel test runs never collide.
     const SET_VAR: &str = "JINN_TEST_MCP_HEADER_RESOLVED";
@@ -227,17 +256,17 @@ mod tests {
         let keys = deps.services.api_keys.clone();
 
         // When the env init actor resolves keys for a config request.
-        let actor = harness
-            .spawn_actor::<EnvInitActor>(EnvInitActorDeps {
-                deps,
-                registry_name: None,
-            })
-            .await;
-        let result: Result<Option<ProvidersConfig>, _> = actor.ask(GetEnvironmentConfig).await;
-        let loaded = result.expect("ask succeeds");
+        let services = harness.services().await;
+        let path = EnvInitActor::spawn(&services.trouper_system, EnvInitActorDeps { deps });
+        let reply = services
+            .trouper_system
+            .ask(path, GetEnvironmentConfig, Duration::from_secs(5))
+            .await
+            .expect("ask succeeds");
+        let loaded: EnvironmentConfigReply = serde_json::from_value(reply).expect("decode reply");
 
         // Then startup succeeded and the referenced key landed in the store.
-        assert!(loaded.is_some(), "config should load");
+        assert!(loaded.config.is_some(), "config should load");
         assert_eq!(keys.get(SET_VAR), Some("live-value".to_owned()));
         // SAFETY: removing the test-only var set above; no concurrent readers.
         unsafe {
@@ -261,19 +290,17 @@ mod tests {
         let keys = deps.services.api_keys.clone();
 
         // When the env init actor resolves keys for a config request.
-        let actor = harness
-            .spawn_actor::<EnvInitActor>(EnvInitActorDeps {
-                deps,
-                registry_name: None,
-            })
-            .await;
-        let result: Result<Option<ProvidersConfig>, _> = actor.ask(GetEnvironmentConfig).await;
+        let services = harness.services().await;
+        let path = EnvInitActor::spawn(&services.trouper_system, EnvInitActorDeps { deps });
+        let reply = services
+            .trouper_system
+            .ask(path, GetEnvironmentConfig, Duration::from_secs(5))
+            .await
+            .expect("ask succeeds");
+        let loaded: EnvironmentConfigReply = serde_json::from_value(reply).expect("decode reply");
 
         // Then startup still succeeds (silent skip).
-        assert!(
-            result.expect("ask succeeds").is_some(),
-            "config should load"
-        );
+        assert!(loaded.config.is_some(), "config should load");
         // And nothing was seeded for the missing variable.
         assert!(keys.get(MISSING_VAR).is_none());
     }
@@ -283,18 +310,22 @@ mod tests {
     async fn get_environment_config_returns_none_without_config_file() {
         // Given an env init actor with no config file.
         let harness = TestHarness::new().await;
-        let actor = harness
-            .spawn_actor::<EnvInitActor>(EnvInitActorDeps {
+        let services = harness.services().await;
+        let path = EnvInitActor::spawn(
+            &services.trouper_system,
+            EnvInitActorDeps {
                 deps: harness.actor_deps().await,
-                registry_name: None,
-            })
-            .await;
+            },
+        );
 
         // When asking for config.
-        let config: Result<Option<ProvidersConfig>, _> = actor.ask(GetEnvironmentConfig).await;
+        let reply = services
+            .trouper_system
+            .ask(path, GetEnvironmentConfig, Duration::from_secs(5))
+            .await;
 
         // Then ask succeeds (but config may be None without a config file).
-        assert!(config.is_ok(), "ask should succeed");
+        assert!(reply.is_ok(), "ask should succeed");
     }
 
     #[rstest::rstest]
@@ -302,12 +333,13 @@ mod tests {
     async fn environment_loaded_can_be_published_for_reload() {
         // Given an env init actor and a recorder.
         let harness = TestHarness::new().await;
-        let _actor = harness
-            .spawn_actor::<EnvInitActor>(EnvInitActorDeps {
+        let services = harness.services().await;
+        let _path = EnvInitActor::spawn(
+            &services.trouper_system,
+            EnvInitActorDeps {
                 deps: harness.actor_deps().await,
-                registry_name: None,
-            })
-            .await;
+            },
+        );
         let recorder = harness.spawn_recorder::<EnvironmentLoaded>().await;
 
         // When publishing EnvironmentLoaded manually (runtime reload).

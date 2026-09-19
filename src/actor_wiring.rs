@@ -296,57 +296,33 @@ impl ActorSystemBuilder {
 
         // System-ready actor: signals main thread when all actors started.
         let (ready_tx, ready_rx) = kanal::unbounded::<()>();
-        let _system_ready = spawn_tracked!(
-            &services.bus,
-            "system-ready",
-            "SystemReadyActor",
-            SystemReadyActor::supervise(
-                &root,
-                SystemReadyActorDeps {
-                    deps: actor_deps.clone(),
-                    ready_tx,
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
+        let _system_ready = SystemReadyActor::spawn(
+            &services.trouper_system,
+            SystemReadyActorDeps {
+                deps: actor_deps.clone(),
+                ready_tx,
+            },
         );
 
         // ── Init actors ────────────────────────────────────────────────────
 
-        // Env init: registers in actor registry, defers config loading to GetEnvironmentConfig ask.
-        let env_init = spawn_tracked!(
-            &services.bus,
-            "env-init",
-            "EnvInitActor",
-            EnvInitActor::supervise(
-                &root,
-                EnvInitActorDeps {
-                    deps: actor_deps.clone(),
-                    registry_name: Some("env-init"),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
+        // Env init: config loading is deferred to the GetEnvironmentConfig
+        // ask (the ONE real ask path — composition asks it below, with a
+        // mandatory timeout).
+        let env_init_path = EnvInitActor::spawn(
+            &services.trouper_system,
+            EnvInitActorDeps {
+                deps: actor_deps.clone(),
+            },
         );
-        env_init.wait_for_startup().await;
         // Provider init: on EnvironmentLoaded, builds registry, merges cache, resolves last_model.
-        let _provider_init = spawn_tracked!(
-            &services.bus,
-            "provider-init",
-            "ProviderInitActor",
-            ProviderInitActor::supervise(
-                &root,
-                ProviderInitActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                    provider_cap: jinn_domain::common::tcaps::mint::mint_provider_cap(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
+        let _provider_init = ProviderInitActor::spawn(
+            &services.trouper_system,
+            ProviderInitActorDeps {
+                deps: actor_deps.clone(),
+                state: state.clone(),
+                provider_cap: jinn_domain::common::tcaps::mint::mint_provider_cap(),
+            },
         );
 
         // Preferences + app-state actors: trouper, installed with the
@@ -580,51 +556,56 @@ impl ActorSystemBuilder {
 
         // Signal system readiness and trigger init chain.
         {
-            let bus_ref = services.bus.actor_ref();
-            let env_init = env_init.clone();
+            let bus = services.bus.clone();
 
-            // INVARIANT: the MCP coordinator was spawned and fully awaited
-            // (`wait_for_startup`) above, so it has already subscribed to
-            // `SessionCreated` and `McpEnablementChanged`. Publishing
-            // `EnvironmentLoaded` here triggers the welcome-session seeding,
-            // which may publish `McpEnablementChanged` immediately — the
-            // subscription must already exist. Do not move this publish ahead
-            // of the coordinator spawn.
+            // INVARIANT: the MCP coordinator was spawned above and its
+            // subscriptions are live when `spawn` returns, so it has
+            // already subscribed to `SessionCreated` and
+            // `McpEnablementChanged`. Publishing `EnvironmentLoaded` here
+            // triggers the welcome-session seeding, which may publish
+            // `McpEnablementChanged` immediately — the subscription must
+            // already exist. Do not move this publish ahead of the
+            // coordinator spawn.
 
             // Personas: the persona slice scanned at activation; publish
             // now that every actor (the session actor subscribes to
             // `PersonasLoaded`) is spawned.
             if !persona_entries.entries.is_empty() {
-                let _ = bus_ref
-                    .tell(kameo_actors::message_bus::Publish(
-                        jinn_domain::feat::context::protocol::event::PersonasLoaded {
-                            personas: persona_entries.entries.clone(),
-                            error: None,
-                        },
-                    ))
-                    .await;
+                bus.publish(jinn_domain::feat::context::protocol::event::PersonasLoaded {
+                    personas: persona_entries.entries.clone(),
+                    error: None,
+                })
+                .await;
             }
 
             // Signal all actors spawned.
-            let _ = bus_ref
-                .tell(kameo_actors::message_bus::Publish(
-                    jinn_domain::common::actor::protocol::event::AllActorsSpawned,
-                ))
+            bus.publish(jinn_domain::common::actor::protocol::event::AllActorsSpawned)
                 .await;
 
-            // Ask EnvInitActor for config and publish EnvironmentLoaded to trigger init chain.
+            // Ask EnvInitActor for config and publish EnvironmentLoaded to
+            // trigger the init chain. The trouper ask has a MANDATORY
+            // timeout; this is the one real startup ask path.
             use jinn_domain::init::env_init_actor::GetEnvironmentConfig;
-            match env_init.ask(GetEnvironmentConfig).await {
-                Ok(Some(config)) => {
-                    let _ = bus_ref
-                        .tell(kameo_actors::message_bus::Publish(
-                            jinn_domain::init::env_init_actor::EnvironmentLoaded { config },
-                        ))
-                        .await;
-                }
-                Ok(None) => {
-                    tracing::warn!("no provider config found — skipping EnvironmentLoaded");
-                }
+            const ENV_ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+            match services
+                .trouper_system
+                .ask(env_init_path.clone(), GetEnvironmentConfig, ENV_ASK_TIMEOUT)
+                .await
+            {
+                Ok(value) => match serde_json::from_value::<
+                    jinn_domain::init::env_init_actor::EnvironmentConfigReply,
+                >(value)
+                .expect("env reply decodes")
+                .config
+                {
+                    Some(config) => {
+                        bus.publish(jinn_domain::init::env_init_actor::EnvironmentLoaded { config })
+                            .await;
+                    }
+                    None => {
+                        tracing::warn!("no provider config found — skipping EnvironmentLoaded");
+                    }
+                },
                 Err(e) => {
                     tracing::error!(err = ?e, "failed to get environment config from EnvInitActor");
                 }
@@ -634,14 +615,11 @@ impl ActorSystemBuilder {
             // supervisor routes from payloads, not shared state. This publish
             // triggers the initial session's discovery through the same
             // payload path as every other session.
-            let _ = bus_ref
-                .tell(kameo_actors::message_bus::Publish(
-                    jinn_domain::feat::session_lifecycle::protocol::event::SessionCwdChanged {
-                        session_id: initial_session_id,
-                        cwd: initial_cwd,
-                    },
-                ))
-                .await;
+            bus.publish(jinn_domain::feat::session_lifecycle::protocol::event::SessionCwdChanged {
+                session_id: initial_session_id,
+                cwd: initial_cwd,
+            })
+            .await;
         }
 
         // Wait for SystemReadyActor to confirm readiness.

@@ -15,7 +15,10 @@ use crate::feat::provider::protocol::event::ModelCacheLoaded;
 use crate::feat::provider_infra::{ModelCache, ProviderRegistry};
 use crate::init::EnvironmentLoaded;
 use jinn_session_history_msg::PushChatEntry;
-use kameo::prelude::{Actor, ActorRef, Context, Message};
+use error_stack::Report;
+use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
 
 /// The provider initialization actor.
 ///
@@ -43,33 +46,62 @@ pub struct ProviderInitActorDeps {
     pub provider_cap: crate::common::tcaps::provider::ProviderCap,
 }
 
-impl Actor for ProviderInitActor {
-    type Args = ProviderInitActorDeps;
-    type Error = std::convert::Infallible;
+impl ServiceActor for ProviderInitActor {
+    async fn start(_args: &serde_json::Value) -> Result<Self, Report<RegistryError>> {
+        // Never called: spawned via `spawn`'s start_with (typed deps can't
+        // ride the JSON args).
+        let _ = _args;
+        Err(Report::new(RegistryError::InvalidSpec)
+            .attach("ProviderInitActor spawns via start_with"))
+    }
+}
 
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        args.deps
-            .subscribe(actor_ref.recipient::<EnvironmentLoaded>())
-            .await;
-        Ok(Self {
-            deps: args.deps,
-            state: args.state,
-            provider_cap: args.provider_cap,
-        })
+/// Static path the provider-init actor spawns at (one instance per process).
+pub const PROVIDER_INIT_PATH: &str = "jinn.init.provider";
+
+impl ProviderInitActor {
+    /// Spawns the provider-init actor onto the trouper system; its
+    /// `EnvironmentLoaded` subscription is live when this returns.
+    pub fn spawn(system: &trouper::system::ActorSystem, deps: ProviderInitActorDeps) -> ActorPath {
+        let path = ActorPath::new(PROVIDER_INIT_PATH);
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(path.clone())
+            .start_with({
+                let deps = deps.clone();
+                move || {
+                    let deps = deps.clone();
+                    Box::pin(async move {
+                        Ok(Self {
+                            deps: deps.deps,
+                            state: deps.state,
+                            provider_cap: deps.provider_cap,
+                        })
+                    })
+                }
+            })
+            .handles::<EnvironmentLoaded>()
+            .mailbox(64, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        system
+            .subscribe(
+                &path,
+                &crate::common::services::bus_service::jinn_domain_topic(),
+                None,
+            )
+            .expect("provider-init subscribes the domain topic");
+        path
+    }
+}
+
+impl MsgHandler<EnvironmentLoaded> for ProviderInitActor {
+    async fn handle(&mut self, msg: EnvironmentLoaded, _ctx: &mut MsgCtx<'_>) {
+        self.on_environment_loaded(&msg.config).await;
     }
 }
 
 impl BusPublish for ProviderInitActor {
     fn bus(&self) -> &BusService {
         &self.deps.services.bus
-    }
-}
-
-impl Message<EnvironmentLoaded> for ProviderInitActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: EnvironmentLoaded, _ctx: &mut Context<Self, Self::Reply>) {
-        self.on_environment_loaded(&msg.config).await;
     }
 }
 
