@@ -56,7 +56,8 @@ impl Bridge {
     /// `None` — call sites are expected to have wired a leg in production
     /// until demolition.
     #[must_use]
-    pub fn with_system(bus: &crate::common::services::bus_service::BusService,
+    pub fn with_system(
+        bus: &crate::common::services::bus_service::BusService,
         handle: &tokio::runtime::Handle,
     ) -> Self {
         Self::with_handle(

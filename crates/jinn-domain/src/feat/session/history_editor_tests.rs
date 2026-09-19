@@ -13,9 +13,6 @@ use crate::protocol::{ChangeSource, ChatEntry, ChatEntryId, ContextOverride};
 use crate::protocol::{PinPosition, ToolResultStatus};
 use jinn_core_types::llm_message::LlmMessage;
 use jinn_core_types::{ChatEntryKind, HistoryMutation};
-use jinn_session_history::history_editor::{
-    HistoryEditor, chunk_containing, chunking, is_tool_loop_interstitial, tool_group_end,
-};
 
 /// A complete loop: empty assistant, one call, one result.
 fn simple_loop() -> Vec<ChatEntry> {

@@ -1948,6 +1948,7 @@ dependencies = [
  "jinn-scope-focus",
  "jinn-session-init",
  "jinn-session-msg",
+ "jinn-session-store",
  "jinn-sidebar",
  "jinn-sidebar-msg",
  "jinn-slices",
@@ -2207,6 +2208,7 @@ dependencies = [
  "jinn-preferences-config",
  "jinn-session-msg",
  "jinn-session-schema",
+ "jinn-session-store",
  "jinn-slices",
  "jinn-testutil",
  "kameo",
@@ -2278,6 +2280,7 @@ dependencies = [
  "jinn-session-history-msg",
  "jinn-session-msg",
  "jinn-session-schema",
+ "jinn-session-store",
  "jinn-sidebar-msg",
  "jinn-skills",
  "jinn-skills-msg",
@@ -2669,6 +2672,36 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+ "wherror",
+]
+
+[[package]]
+name = "jinn-session-store"
+version = "0.118.0"
+dependencies = [
+ "async-trait",
+ "daow",
+ "error-stack",
+ "jiff",
+ "jinn-chat-input-msg",
+ "jinn-chat-log-view-msg",
+ "jinn-common",
+ "jinn-core-types",
+ "jinn-domain",
+ "jinn-provider",
+ "jinn-session-schema",
+ "jinn-slices",
+ "jinn-tools-msg",
+ "kameo",
+ "parking_lot",
+ "rstest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "trouper",
  "wherror",
 ]
 

@@ -188,7 +188,7 @@ mod tests {
     )]
 
     use super::DiscordThreadMap;
-    use jinn_domain::feat::session::session_store::SqliteSessionStore;
+    use jinn_session_store::sqlite::SqliteSessionStore;
     use tempfile::TempDir;
 
     async fn make_map() -> (TempDir, DiscordThreadMap) {

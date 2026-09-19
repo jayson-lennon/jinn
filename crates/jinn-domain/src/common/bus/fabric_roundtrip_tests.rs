@@ -6,13 +6,13 @@
 
 use std::time::Duration;
 
-use jinn_core_types::{ChatEntry, SessionId, ToolResult};
 use crate::common::bus::test_harness::{TestHarness, await_recorded};
 use crate::common::services::bus_service::{BusService, JINN_DOMAIN_TOPIC, RouteTestProbe};
-use jinn_session_history_msg::PushChatEntry;
 use crate::feat::chat_input::protocol::event::ChatEntrySubmitted;
 use crate::feat::provider::protocol::event::ProviderSwitched;
 use crate::feat::session::protocol::UserInteracted;
+use jinn_core_types::{ChatEntry, SessionId, ToolResult};
+use jinn_session_history_msg::PushChatEntry;
 use jinn_tools_msg::ToolExecutionCompleted;
 
 // ---------------------------------------------------------------------------
@@ -115,9 +115,8 @@ fn sample_tool_result() -> ToolResult {
     result: sample_tool_result(),
 }))]
 #[tokio::test]
-async fn publish_routed_message_roundtrips_to_subscriber<S: Sampled>(
-    #[case] sample: S,
-) where
+async fn publish_routed_message_roundtrips_to_subscriber<S: Sampled>(#[case] sample: S)
+where
     S::Message: jinn_slices::BusMessage
         + Clone
         + trouper::schema::Schema
@@ -153,8 +152,7 @@ async fn publish_routed_message_roundtrips_to_subscriber<S: Sampled>(
 #[tokio::test]
 async fn publish_without_kameo_leg_still_routes_on_trouper() {
     // Given a trouper-only fabric and a recorder for the message.
-    let system =
-        trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
+    let system = trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
     let bus = BusService::new_trouper(system.clone(), None);
     let probe = RouteTestProbe::attach(&bus);
     let harness = TestHarness::from_parts(bus.clone(), system);
@@ -185,8 +183,7 @@ async fn publish_without_kameo_leg_still_routes_on_trouper() {
 async fn registered_route_moves_publishes_to_override_topic() {
     // Given a trouper-only fabric with a route for UserInteracted onto a
     // slice topic, and a recorder.
-    let system =
-        trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
+    let system = trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
     let bus = BusService::new_trouper(system.clone(), None);
     let probe = RouteTestProbe::attach(&bus);
     bus.route_topic::<UserInteracted>(trouper::topics::Topic::new("session.slice"));

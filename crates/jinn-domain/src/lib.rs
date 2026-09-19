@@ -74,9 +74,9 @@ pub use feat::provider_infra::{
 // Re-export context types
 
 // Re-export session types
-pub use feat::session::PoolConfig;
 pub use feat::session::SessionStoreService;
-pub use feat::session::SqliteSessionStore;
+// The SQLite implementation moved to the jinn-session-store slice crate —
+// import it from there (`jinn_session_store::sqlite::SqliteSessionStore`).
 
 pub use feat::session::no_api_keys_msg;
 pub use feat::session::phase_machine::PhaseKind;

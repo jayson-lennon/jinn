@@ -107,6 +107,7 @@ rusqlite = { workspace = true }
 [dev-dependencies]
 jinn-context-assembly = { workspace = true }
 jinn-context-curation = { workspace = true }
+jinn-session-store = { workspace = true }
 wasm-encoder = { workspace = true }
 indoc = "2"
 rstest = { workspace = true }

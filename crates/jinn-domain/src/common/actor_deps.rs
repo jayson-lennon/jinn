@@ -62,7 +62,9 @@ impl ActorDeps {
     /// ```ignore
     /// self.deps.publish(MyMessage { ... }).await;
     /// ```
-    pub async fn publish<M: crate::common::bus::BusMessage + trouper::schema::Schema + serde::Serialize>(
+    pub async fn publish<
+        M: crate::common::bus::BusMessage + trouper::schema::Schema + serde::Serialize,
+    >(
         &self,
         msg: M,
     ) {

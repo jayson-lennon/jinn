@@ -17,10 +17,10 @@ use jinn_domain::NoProvidersAvailableFactory;
 use jinn_domain::ProviderRegistry;
 use jinn_domain::ProviderRegistryService;
 use jinn_domain::SessionStoreService;
-use jinn_domain::SqliteSessionStore;
 use jinn_preferences_config::AppStateStorageService;
 use jinn_preferences_config::FilesystemAppStateStorage;
 use jinn_preferences_config::FilesystemUserPreferencesStorage;
+use jinn_session_store::sqlite::SqliteSessionStore;
 
 use jinn_preferences_config::UserPreferencesStorageService;
 use tokio::runtime::Runtime;

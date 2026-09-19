@@ -1,0 +1,56 @@
+[package]
+name = "jinn-session-store"
+version.workspace = true
+edition.workspace = true
+description = """
+The session-store slice: the SQLite persistence backend for chat sessions
+and the background FTS search-index maintenance actor.
+
+Kernel dependency (see Cargo.toml): transitional and justified — the crate
+implements the `SessionStore` trait whose seam (`SessionStoreService`)
+lives in `jinn-domain`'s `Services` container, and its reindex work reads
+the session state vocabulary (`ChatSessionState`, entries, token ledger).
+"""
+
+[dependencies]
+jinn-domain = { workspace = true }
+jinn-core-types = { workspace = true }
+jinn-provider = { workspace = true }
+jinn-common = { workspace = true }
+jinn-session-schema = { workspace = true }
+jinn-chat-input-msg = { workspace = true }
+jinn-chat-log-view-msg = { workspace = true }
+jinn-tools-msg = { workspace = true }
+jinn-slices = { workspace = true }
+daow = { workspace = true }
+rusqlite = { workspace = true }
+async-trait = { workspace = true }
+parking_lot = { workspace = true }
+# The search-index actor still runs on the kameo fabric (trouper port is a
+# later phase of the kameo-bigbang plan).
+kameo = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+jiff = { workspace = true }
+error-stack = { workspace = true }
+wherror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+trouper = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+
+# The build script creates the compile-time SQL validation DB (schema-crate
+# pattern; mirrors jinn-domain/build.rs).
+[build-dependencies]
+rusqlite = { workspace = true }
+jinn-session-schema = { workspace = true }
+
+[target.'cfg(windows)'.build-dependencies]
+rusqlite = { workspace = true, features = ["bundled"] }
+
+[lints]
+workspace = true

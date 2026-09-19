@@ -90,6 +90,7 @@ jinn-quake-bar = { workspace = true }
 jinn-status-bar = { workspace = true }
 jinn-session-msg = { workspace = true }
 jinn-session-init = { workspace = true }
+jinn-session-store = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-picker = { workspace = true }
 
@@ -166,6 +167,7 @@ jinn-cwd = { path = "crates/slices/jinn-cwd" }
 jinn-status-bar = { path = "crates/slices/jinn-status-bar" }
 jinn-slices = { path = "crates/jinn-slices" }
 jinn-session-msg = { path = "crates/jinn-session-msg" }
+jinn-session-store = { path = "crates/slices/jinn-session-store" }
 jinn-session-schema = { path = "crates/jinn-session-schema" }
 jinn-provider-config = { path = "crates/jinn-provider-config" }
 jinn-preferences-config = { path = "crates/jinn-preferences-config" }

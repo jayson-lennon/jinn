@@ -41,9 +41,7 @@ pub mod validator;
 
 pub use chat_session::{ChatSessionState, SessionCore, SessionUi};
 pub use profile::SessionProfile;
-pub use session_store::{
-    PoolConfig, SessionStore, SessionStoreError, SessionStoreService, SqliteSessionStore,
-};
+pub use session_store::{SessionStore, SessionStoreError, SessionStoreService};
 pub use session_summary::SessionSummary;
 pub use token_stats::{AggregatedTokenStats, TokenRecord, TokenStats, aggregate_session_stats};
 pub use turn_counter::compute_turn_count;

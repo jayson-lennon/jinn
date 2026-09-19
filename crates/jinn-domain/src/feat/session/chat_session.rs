@@ -379,6 +379,25 @@ pub struct SessionCore {
     pub ephemeral: SessionCoreEphemeral,
 }
 
+impl SessionCore {
+    /// Restore conversation history from a persisted snapshot.
+    ///
+    /// `restore_history` on the live session also updates view cursors and
+    /// scroll; this core-level form is for pre-live reconstruction — the
+    /// store crate builds a `SessionCore` from a persisted snapshot before
+    /// any view exists.
+    pub fn restore_history(&mut self, entries: Vec<ChatEntry>) {
+        self.history.replace_all(entries);
+    }
+
+    /// Restore the token ledger from persisted data (core-level form; see
+    /// [`Self::restore_history`] for why this exists alongside the
+    /// live-session variant).
+    pub fn restore_token_ledger(&mut self, records: Vec<TokenRecord>) {
+        self.token_ledger = records;
+    }
+}
+
 impl Default for SessionCore {
     fn default() -> Self {
         Self {
@@ -1000,6 +1019,25 @@ impl ChatSessionState {
     #[doc(hidden)]
     pub fn set_ignore_sweep_at(&mut self, instant: std::time::Instant, target: ContextOverride) {
         self.update_view(|v| v.ignore_sweep = Some((instant, target)));
+    }
+
+    /// The persistable core of this session, for the persistence layer.
+    ///
+    /// The store crate (`jinn-session-store`) serializes this into the
+    /// session row's metadata blob. Returns a clone so the live session is
+    /// never mutably borrowed by persistence.
+    #[must_use]
+    pub fn persistable_core(&self) -> SessionCore {
+        self.core.clone()
+    }
+
+    /// Replace the core wholesale (load path).
+    ///
+    /// The store crate rebuilds a [`SessionCore`] from a persisted snapshot
+    /// and swaps it into a default-constructed shell. Do not call on a live
+    /// session — in-flight turn state lives in the core's `ephemeral`.
+    pub fn set_core(&mut self, core: SessionCore) {
+        self.core = core;
     }
 
     /// Whether this session has no history entries.
@@ -3199,6 +3237,12 @@ impl ChatSessionState {
     /// Set the session title.
     pub fn set_title(&mut self, title: String) {
         self.core.title = Some(title);
+    }
+
+    /// Mark this session as persistent (`true`) or transient (`false`).
+    /// Transient sessions (e.g. one-shots) are never written to the store.
+    pub fn set_persist(&mut self, persist: bool) {
+        self.core.persist = persist;
     }
 
     /// When this session was last updated.

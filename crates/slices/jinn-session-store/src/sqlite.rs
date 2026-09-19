@@ -19,26 +19,23 @@ use error_stack::{Report, ResultExt as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use crate::feat::session::SessionUi;
-use crate::feat::session::chat_session::{
-    ChatSessionState, LifecycleScriptState, SessionCore, SessionCoreEphemeral, SessionOrigin,
-    SessionState,
+use daow::Param;
+use jinn_core_types::{ChatEntry, ChatEntryKind};
+use jinn_core_types::{ChatEntryId, ContextOverride, EntryTiming, SessionId};
+use jinn_domain::feat::session::chat_session::{
+    ChatSessionState, LifecycleScriptState, SessionCore, SessionOrigin, SessionState,
 };
-use crate::feat::session::profile::SessionProfile;
-use crate::feat::session::session_summary::SessionSummary;
-use crate::feat::session::token_stats::TokenRecord;
-use crate::feat::session_search::{
+use jinn_domain::feat::session::profile::SessionProfile;
+use jinn_domain::feat::session::session_summary::SessionSummary;
+use jinn_domain::feat::session::token_stats::TokenRecord;
+use jinn_domain::feat::session_search::{
     SearchHit, SearchOutcome, SearchParams, SearchableEntry, TranscriptEntry, TranscriptWindow,
     entry_ts_key, extract_searchable,
 };
-use crate::protocol::ChatHistory;
-use crate::protocol::{ChatEntry, ChatEntryKind};
-use crate::protocol::{ChatEntryId, ContextOverride, EntryTiming, SessionId};
-use daow::Param;
 use jinn_provider::Attachment;
 
 use super::migrator;
-use super::{SessionStore, SessionStoreError};
+use jinn_domain::feat::session::{SessionStore, SessionStoreError};
 
 /// Configuration for the SQLite connection pool.
 ///
@@ -91,7 +88,7 @@ impl SqliteSessionStore {
         // (`~/.local/share/jinn` on Linux). An earlier revision appended an
         // extra `sessions` segment here, which silently split sessions across
         // two databases (`.../jinn/sessions.db` vs `.../jinn/sessions/sessions.db`).
-        let dir = crate::common::app_paths::AppPaths::default().sessions_dir();
+        let dir = jinn_common::app_paths::AppPaths::default().sessions_dir();
         Self::new_with_config(&dir, PoolConfig::default()).await
     }
 
@@ -194,7 +191,7 @@ impl SessionStore for SqliteSessionStore {
 
     async fn save(&self, session: &ChatSessionState) -> Result<(), Report<SessionStoreError>> {
         // Non-persistent sessions (e.g. one-shots) never touch the store.
-        if !session.core.persist {
+        if !session.persist() {
             return Ok(());
         }
         let row = NewSessionRow::try_from(session)?;
@@ -565,7 +562,7 @@ pub(crate) struct PersistableCore {
     enabled_mcp_servers: std::collections::BTreeSet<String>,
     /// Whether this session should be persisted to disk.
     /// Defaults to true for blobs written by older versions.
-    #[serde(default = "crate::feat::session::chat_session::default_persist")]
+    #[serde(default = "jinn_domain::feat::session::chat_session::default_persist")]
     persist: bool,
 }
 
@@ -595,35 +592,30 @@ impl From<&SessionCore> for PersistableCore {
 
 impl From<PersistableCore> for SessionCore {
     fn from(core: PersistableCore) -> Self {
-        Self {
-            session_id: core.session_id,
-            title: core.title,
-            updated_at: core.updated_at,
-            created_at: core.created_at,
-            last_history_activity_at: jiff::Timestamp::now(),
-            last_provider_activity_at: jiff::Timestamp::now(),
-            history: ChatHistory::new(),
-            profile: core.profile,
-            cwd: core.cwd,
-            home: std::path::PathBuf::from("."),
-            token_ledger: vec![],
-            parent_session: core.parent_session,
-            fork_ordinal: core.fork_ordinal,
-            origin: core.origin,
-            project: core.project,
-            blobs: core.blobs,
-            lifecycle_name: core.lifecycle_name,
-            lifecycle_args: core.lifecycle_args,
-            session_state: SessionState::Loaded, // overridden by TryFrom<SessionLoadContext> from archived column
-            lifecycle_script_state: core.lifecycle_script_state,
-            ephemeral: SessionCoreEphemeral::default(),
-            has_interacted: false, // restored sessions get mark_interacted() in handle_session_load_completed
-            task_list: core.task_list,
-            enabled_mcp_servers: core.enabled_mcp_servers,
-            mcp_server_status: std::collections::BTreeMap::new(),
-            mcp_server_stderr: std::collections::BTreeMap::new(),
-            persist: core.persist,
-        }
+        // Default provides the correct runtime-only values (fresh history,
+        // activity timestamps, empty MCP maps); persisted fields are then
+        // overlaid from the metadata blob.
+        let mut restored = SessionCore::default();
+        restored.session_id = core.session_id;
+        restored.title = core.title;
+        restored.updated_at = core.updated_at;
+        restored.created_at = core.created_at;
+        restored.profile = core.profile;
+        restored.cwd = core.cwd;
+        restored.parent_session = core.parent_session;
+        restored.fork_ordinal = core.fork_ordinal;
+        restored.origin = core.origin;
+        restored.project = core.project;
+        restored.blobs = core.blobs;
+        restored.lifecycle_name = core.lifecycle_name;
+        restored.lifecycle_args = core.lifecycle_args;
+        restored.lifecycle_script_state = core.lifecycle_script_state;
+        restored.task_list = core.task_list;
+        restored.enabled_mcp_servers = core.enabled_mcp_servers;
+        restored.persist = core.persist;
+        // session_state is overridden by TryFrom<SessionLoadContext> from the
+        // archived column.
+        restored
     }
 }
 
@@ -635,62 +627,31 @@ impl TryFrom<&ChatSessionState> for NewSessionRow {
         // This builds only the 8-column `sessions` ROW. SessionCore has ~24
         // fields, sorted into four persistence buckets:
         //   row     — a real `sessions` column, bound in Ok(Self { .. }) below.
-        //   blob    — serialized from `PersistableCore::from(&session.core)` into
-        //            the `sessions.metadata` TEXT column (the `metadata:` field below).
-        //   table   — written by a sibling INSERT loop in `save_in_transaction`,
-        //            not this row builder.
+        //   blob    — serialized from `PersistableCore::from(session.persistable_core())`
+        //            into the `sessions.metadata` TEXT column (the `metadata:` field below).
+        //   table   — written by a sibling INSERT loop in `save_in_transaction`
+        //            (entries via insert_entry_and_junction, token ledger via
+        //            insert_token_ledger_row), not this row builder.
         //   runtime — never persisted; rebuilt on load.
         //
-        // `#[deny(unused_variables)]` makes adding a SessionCore field a compile
-        // error until it is classified here.
-        let ChatSessionState {
-            core:
-                SessionCore {
-                    session_id,                                            // row
-                    title,                                                 // row
-                    updated_at,                                            // row
-                    created_at,                                            // row
-                    last_history_activity_at: _last_history_activity_at,   // runtime
-                    last_provider_activity_at: _last_provider_activity_at, // runtime
-                    history: _history, // table (entries via insert_entry_and_junction)
-                    profile: _profile, // blob
-                    cwd: _cwd,         // blob
-                    home: _home,       // runtime (services.paths.home_dir())
-                    token_ledger: _ledger, // table (insert_token_ledger_row)
-                    parent_session,    // row
-                    fork_ordinal: _fork_ordinal, // blob
-                    origin: _origin,   // blob
-                    project: _project, // blob
-                    blobs: _blobs,     // blob
-                    lifecycle_name: _lifecycle_name, // blob
-                    lifecycle_args: _lifecycle_args, // blob
-                    ephemeral: _ephemeral, // runtime
-                    session_state,     // row (→ archived column)
-                    lifecycle_script_state: _lifecycle_script_state, // blob
-                    persist: _persist, // blob
-                    has_interacted: _has_interacted, // runtime
-                    task_list: _task_list, // blob
-                    enabled_mcp_servers: _enabled_mcp_servers, // blob
-                    mcp_server_status: _mcp_server_status, // runtime
-                    mcp_server_stderr: _mcp_server_stderr, // runtime
-                },
-            ui: _ui,                         // runtime
-            slices: _slices,                 // runtime (attached at wiring)
-            view_fallback: _view_fallback,   // runtime
-            input_fallback: _input_fallback, // runtime
-        } = session;
+        // The exhaustive classification lives in `PersistableCore::from` (blob
+        // bucket) and `save_in_transaction` (table bucket); the row bucket is
+        // read through the accessors below.
+        let core = session.persistable_core();
+        let session_state = core.session_state;
 
         Ok(Self {
-            id: session_id.to_string(),
-            title: title.clone(),
-            updated_at: updated_at.to_string(),
-            created_at: created_at.to_string(),
-            parent_session: parent_session
+            id: core.session_id.to_string(),
+            title: core.title.clone(),
+            updated_at: core.updated_at.to_string(),
+            created_at: core.created_at.to_string(),
+            parent_session: core
+                .parent_session
                 .as_ref()
                 .map(std::string::ToString::to_string),
-            archived: *session_state == SessionState::Archived,
+            archived: session_state == SessionState::Archived,
             metadata: Some(
-                serde_json::to_string(&PersistableCore::from(&session.core))
+                serde_json::to_string(&PersistableCore::from(&session.persistable_core()))
                     .change_context(SessionStoreError)
                     .attach("failed to serialize metadata")?,
             ),
@@ -740,19 +701,15 @@ impl TryFrom<SessionLoadContext> for ChatSessionState {
         };
 
         // Overlay data from normalized tables (always loaded regardless of path).
-        core.history = ChatHistory::from_vec(ctx.entries);
-        core.token_ledger = ctx.ledger;
+        core.restore_history(ctx.entries);
+        core.restore_token_ledger(ctx.ledger);
 
-        // Build ChatSessionState with all fields explicitly set.
-        Ok(ChatSessionState {
-            core,
-            ui: SessionUi::default(),
-            slices: std::sync::OnceLock::new(),
-            view_fallback: parking_lot::RwLock::new(
-                jinn_chat_log_view_msg::ChatLogViewUi::default(),
-            ),
-            input_fallback: parking_lot::RwLock::new(jinn_chat_input_msg::ChatInputBoxState::new()),
-        })
+        // Build ChatSessionState: Clone gives the correct runtime shell
+        // (fresh slices lock, default view/input fallbacks); the core is
+        // then swapped in wholesale.
+        let mut session = ChatSessionState::default();
+        session.set_core(core);
+        Ok(session)
     }
 }
 
@@ -1327,18 +1284,18 @@ fn entry_from_joined(joined: JoinedEntry, attachments: Vec<Attachment>) -> ChatE
         };
     }
     let pin_position = joined.pin_position.as_deref().and_then(|s| match s {
-        "TOP" => Some(crate::protocol::PinPosition::Top),
-        "BOTTOM" => Some(crate::protocol::PinPosition::Bottom),
-        "RELATIVE" => Some(crate::protocol::PinPosition::Relative),
+        "TOP" => Some(jinn_core_types::PinPosition::Top),
+        "BOTTOM" => Some(jinn_core_types::PinPosition::Bottom),
+        "RELATIVE" => Some(jinn_core_types::PinPosition::Relative),
         _ => None,
     });
 
-    let timing: crate::protocol::EntryTiming =
+    let timing: jinn_core_types::EntryTiming =
         serde_json::from_str(&joined.timing).unwrap_or_else(|_| {
             // Fallback: parse raw timestamp string as Instant (legacy data).
             joined.timing.parse::<jiff::Timestamp>().map_or_else(
-                |_| crate::protocol::EntryTiming::instant_now(),
-                |at| crate::protocol::EntryTiming::Instant { at },
+                |_| jinn_core_types::EntryTiming::instant_now(),
+                |at| jinn_core_types::EntryTiming::Instant { at },
             )
         });
     let mut chat_entry = ChatEntry::new_with_kind(
@@ -1862,7 +1819,7 @@ impl ExclusionRow {
             _ => {
                 // Fall back to the audit trail: a persisted worker/user
                 // ForcedExclude that was never re-included.
-                serde_json::from_str::<Vec<crate::protocol::ContextChangeEvent>>(
+                serde_json::from_str::<Vec<jinn_core_types::ContextChangeEvent>>(
                     &self.context_history,
                 )
                 .is_ok_and(|events| {

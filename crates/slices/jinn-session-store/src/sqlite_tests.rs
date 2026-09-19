@@ -6,11 +6,11 @@
     reason = "test code"
 )]
 
-use crate::feat::session::chat_session::ChatSessionState;
-use crate::feat::session::session_store::SessionStore;
-use crate::feat::session::session_store::sqlite::SqliteSessionStore;
-use crate::protocol::ToolResultStatus;
-use crate::protocol::{ChatEntry, ChatEntryKind, EntryTiming, SessionId};
+use crate::sqlite::SqliteSessionStore;
+use jinn_core_types::ToolResultStatus;
+use jinn_core_types::{ChatEntry, ChatEntryKind, EntryTiming, SessionId};
+use jinn_domain::feat::session::SessionStore;
+use jinn_domain::feat::session::chat_session::ChatSessionState;
 use tempfile::TempDir;
 
 /// Creates a minimal `ChatSessionState` for testing.
@@ -79,8 +79,8 @@ async fn degraded_token_expanded_survives_save_and_reload() {
     session.set_session_id(session_id.clone());
     let mut entry = ChatEntry::user(format!("describe {token}"));
     // Simulate the post-resolution state: outcome set, expanded still containing the literal.
-    if let crate::protocol::ChatEntryKind::User { outcome, .. } = &mut entry.kind {
-        outcome.degraded.push(crate::protocol::ResolvedToken {
+    if let jinn_core_types::ChatEntryKind::User { outcome, .. } = &mut entry.kind {
+        outcome.degraded.push(jinn_core_types::ResolvedToken {
             raw: "/nonexistent/whatever".to_owned(),
             abs: std::path::PathBuf::from("/nonexistent/whatever"),
         });
@@ -125,11 +125,11 @@ async fn attachment_outcome_survives_save_and_reload() {
     session.set_session_id(session_id.clone());
     let mut entry = ChatEntry::user("see @real.png and @whatever");
     if let ChatEntryKind::User { outcome, .. } = &mut entry.kind {
-        outcome.attached.push(crate::protocol::ResolvedToken {
+        outcome.attached.push(jinn_core_types::ResolvedToken {
             raw: "real.png".to_owned(),
             abs: std::path::PathBuf::from("/abs/real.png"),
         });
-        outcome.degraded.push(crate::protocol::ResolvedToken {
+        outcome.degraded.push(jinn_core_types::ResolvedToken {
             raw: "whatever".to_owned(),
             abs: std::path::PathBuf::from("/abs/whatever"),
         });
@@ -465,12 +465,12 @@ async fn pin_position_round_trips() {
     session.set_session_id(session_id.clone());
     session.set_title("Pins".to_owned());
 
-    session.push_entry(ChatEntry::user("pinned top").with_pin(crate::protocol::PinPosition::Top));
+    session.push_entry(ChatEntry::user("pinned top").with_pin(jinn_core_types::PinPosition::Top));
     session.push_entry(
-        ChatEntry::assistant("pinned bottom").with_pin(crate::protocol::PinPosition::Bottom),
+        ChatEntry::assistant("pinned bottom").with_pin(jinn_core_types::PinPosition::Bottom),
     );
     session.push_entry(
-        ChatEntry::user("pinned relative").with_pin(crate::protocol::PinPosition::Relative),
+        ChatEntry::user("pinned relative").with_pin(jinn_core_types::PinPosition::Relative),
     );
     session.push_entry(ChatEntry::user("unpinned"));
 
@@ -485,15 +485,15 @@ async fn pin_position_round_trips() {
     // Then pin positions are preserved.
     assert_eq!(
         loaded.history()[0].pin_position,
-        Some(crate::protocol::PinPosition::Top)
+        Some(jinn_core_types::PinPosition::Top)
     );
     assert_eq!(
         loaded.history()[1].pin_position,
-        Some(crate::protocol::PinPosition::Bottom)
+        Some(jinn_core_types::PinPosition::Bottom)
     );
     assert_eq!(
         loaded.history()[2].pin_position,
-        Some(crate::protocol::PinPosition::Relative)
+        Some(jinn_core_types::PinPosition::Relative)
     );
     assert_eq!(loaded.history()[3].pin_position, None);
 }
@@ -508,7 +508,7 @@ async fn token_ledger_round_trips() {
     session.set_session_id(session_id.clone());
     session.set_title("Tokens".to_owned());
     session.push_entry(ChatEntry::user("hello"));
-    session.push_token_record(crate::feat::session::token_stats::TokenRecord {
+    session.push_token_record(jinn_domain::feat::session::token_stats::TokenRecord {
         model_used: None,
         timestamp: jiff::Timestamp::now(),
         tokens_sent: 100,
@@ -537,7 +537,7 @@ async fn token_ledger_round_trips() {
 async fn token_ledger_round_trips_prompt_and_cached_tokens() {
     // Given a session with token records carrying provider-reported prompt
     // and cached token counts, plus one record with both as None.
-    use crate::feat::session::token_stats::TokenRecord;
+    use jinn_domain::feat::session::token_stats::TokenRecord;
     let (_dir, store) = make_store().await;
     let session_id = SessionId::new();
     let mut session = ChatSessionState::new();
@@ -1018,7 +1018,7 @@ async fn lifecycle_script_state_setup_ran_round_trips() {
     // Then lifecycle_script_state is SetupRan.
     assert_eq!(
         loaded.lifecycle_script_state(),
-        crate::feat::session::chat_session::LifecycleScriptState::SetupRan
+        jinn_domain::feat::session::chat_session::LifecycleScriptState::SetupRan
     );
 }
 
@@ -1041,7 +1041,7 @@ async fn lifecycle_script_state_nothing_ran_round_trips() {
     // Then lifecycle_script_state is NothingRan.
     assert_eq!(
         loaded.lifecycle_script_state(),
-        crate::feat::session::chat_session::LifecycleScriptState::NothingRan
+        jinn_domain::feat::session::chat_session::LifecycleScriptState::NothingRan
     );
 }
 
@@ -1069,7 +1069,7 @@ async fn fork_inherits_lifecycle_script_state() {
     // Then the forked session inherits SetupRan.
     assert_eq!(
         forked.lifecycle_script_state(),
-        crate::feat::session::chat_session::LifecycleScriptState::SetupRan
+        jinn_domain::feat::session::chat_session::LifecycleScriptState::SetupRan
     );
 }
 
@@ -1083,7 +1083,7 @@ async fn non_persistent_session_is_not_written() {
     session.set_session_id(session_id.clone());
     session.set_title("Transient".to_owned());
     session.push_entry(ChatEntry::user("hello"));
-    session.core.persist = false;
+    session.set_persist(false);
 
     // When saving.
     store
@@ -1109,7 +1109,7 @@ async fn persistent_session_is_written() {
     session.set_session_id(session_id.clone());
     session.set_title("Persistent".to_owned());
     session.push_entry(ChatEntry::user("hello"));
-    session.core.persist = true;
+    session.set_persist(true);
 
     // When saving.
     store.save(&session).await.expect("save");
@@ -1122,7 +1122,7 @@ async fn persistent_session_is_written() {
         .expect("should exist");
     assert_eq!(loaded.session_id(), &session_id);
     // And the persist flag round-trips through SQLite.
-    assert!(loaded.core.persist, "persist must survive save/load");
+    assert!(loaded.persist(), "persist must survive save/load");
 }
 
 #[rstest::rstest]
@@ -1132,7 +1132,7 @@ async fn streamed_timing_roundtrips_through_db() {
     let (_dir, store) = make_store().await;
     let session_id = SessionId::new();
     let mut session = make_session(&session_id, "Timing test");
-    session.core.persist = true;
+    session.set_persist(true);
 
     let dispatched = jiff::Timestamp::now();
     let mut timing = EntryTiming::streamed(dispatched);
@@ -1231,7 +1231,7 @@ async fn fork_blocking_sets_fork_ordinal() {
     assert_eq!(root.fork_ordinal(), None);
 }
 
-use crate::feat::session::session_store::migrator::seed_at_version;
+use crate::migrator::seed_at_version;
 use jinn_core_types::model_selection::ModelSelection;
 use rusqlite::params;
 
@@ -1291,7 +1291,7 @@ async fn legacy_automated_row_loads_as_normal_session() {
     );
     assert_eq!(
         loaded.session_state(),
-        crate::feat::session::chat_session::SessionState::Loaded,
+        jinn_domain::feat::session::chat_session::SessionState::Loaded,
     );
 }
 
@@ -1566,9 +1566,9 @@ async fn legacy_blob_without_origin_loads_as_user() {
     let mut session = ChatSessionState::new_child(&parent_id, true);
     let session_id = SessionId::new();
     session.set_session_id(session_id.clone());
-    let blob = serde_json::to_string(
-        &crate::feat::session::session_store::sqlite::PersistableCore::from(&session.core),
-    )
+    let blob = serde_json::to_string(&crate::sqlite::PersistableCore::from(
+        &session.persistable_core(),
+    ))
     .expect("serialize");
 
     // When stripping the `origin` key (simulating a blob written before the
@@ -1579,14 +1579,14 @@ async fn legacy_blob_without_origin_loads_as_user() {
         .expect("blob is an object")
         .remove("origin");
     let stripped = serde_json::to_string(&value).expect("re-serialize");
-    let persistable: crate::feat::session::session_store::sqlite::PersistableCore =
+    let persistable: crate::sqlite::PersistableCore =
         serde_json::from_str(&stripped).expect("deserialize legacy blob");
-    let core = crate::feat::session::chat_session::SessionCore::from(persistable);
+    let core = jinn_domain::feat::session::chat_session::SessionCore::from(persistable);
 
     // Then the legacy blob loads as User.
     assert_eq!(
         core.origin,
-        crate::feat::session::chat_session::SessionOrigin::User
+        jinn_domain::feat::session::chat_session::SessionOrigin::User
     );
 }
 
@@ -1596,9 +1596,9 @@ async fn legacy_blob_without_project_defaults_to_none() {
     // Given a project-stamped session serialized to the persisted blob shape.
     let mut session = ChatSessionState::new();
     session.set_project(Some(std::path::PathBuf::from("/home/user/projects/jinn")));
-    let blob = serde_json::to_string(
-        &crate::feat::session::session_store::sqlite::PersistableCore::from(&session.core),
-    )
+    let blob = serde_json::to_string(&crate::sqlite::PersistableCore::from(
+        &session.persistable_core(),
+    ))
     .expect("serialize");
 
     // When stripping the `project` key (simulating a blob written before the
@@ -1609,9 +1609,9 @@ async fn legacy_blob_without_project_defaults_to_none() {
         .expect("blob is an object")
         .remove("project");
     let stripped = serde_json::to_string(&value).expect("re-serialize");
-    let persistable: crate::feat::session::session_store::sqlite::PersistableCore =
+    let persistable: crate::sqlite::PersistableCore =
         serde_json::from_str(&stripped).expect("deserialize legacy blob");
-    let core = crate::feat::session::chat_session::SessionCore::from(persistable);
+    let core = jinn_domain::feat::session::chat_session::SessionCore::from(persistable);
 
     // Then the legacy blob loads with no project (blank column).
     assert_eq!(core.project, None);
@@ -1640,7 +1640,7 @@ async fn subagent_origin_roundtrips_through_store() {
     // Then the subagent origin survives persistence.
     assert_eq!(
         loaded.origin(),
-        crate::feat::session::chat_session::SessionOrigin::Subagent
+        jinn_domain::feat::session::chat_session::SessionOrigin::Subagent
     );
 }
 
@@ -1670,7 +1670,7 @@ async fn forked_session_persists_fork_origin() {
         .expect("should exist");
     assert_eq!(
         forked.origin(),
-        crate::feat::session::chat_session::SessionOrigin::Fork
+        jinn_domain::feat::session::chat_session::SessionOrigin::Fork
     );
     // And the fork still carries the parent link.
     assert_eq!(forked.parent_session(), &Some(source_id.clone()));
@@ -1702,7 +1702,7 @@ async fn set_archived_many_round_trips_subset() {
             .find(|s| s.session_id == *id)
             .expect("summary")
             .session_state
-            == crate::feat::session::chat_session::SessionState::Archived
+            == jinn_domain::feat::session::chat_session::SessionState::Archived
     };
     assert!(is_archived(&a));
     assert!(!is_archived(&b));
@@ -1727,7 +1727,7 @@ async fn set_archived_many_with_empty_slice_is_noop() {
     let summaries = store.load_summaries().await.expect("summaries");
     assert_eq!(
         summaries[0].session_state,
-        crate::feat::session::chat_session::SessionState::Loaded
+        jinn_domain::feat::session::chat_session::SessionState::Loaded
     );
 }
 
@@ -1753,11 +1753,9 @@ async fn set_archived_many_false_un_archives() {
 
     // Then both sessions are loaded again.
     let summaries = store.load_summaries().await.expect("summaries");
-    assert!(
-        summaries.iter().all(|s| {
-            s.session_state == crate::feat::session::chat_session::SessionState::Loaded
-        })
-    );
+    assert!(summaries.iter().all(|s| {
+        s.session_state == jinn_domain::feat::session::chat_session::SessionState::Loaded
+    }));
 }
 
 #[rstest::rstest]
@@ -1778,7 +1776,7 @@ async fn set_archived_many_ignores_unknown_ids() {
     let summaries = store.load_summaries().await.expect("summaries");
     assert_eq!(
         summaries[0].session_state,
-        crate::feat::session::chat_session::SessionState::Archived
+        jinn_domain::feat::session::chat_session::SessionState::Archived
     );
 }
 
@@ -1860,7 +1858,7 @@ async fn saving_entry_with_uncomputed_count_preserves_persisted_count() {
 
 // ── FTS search index (schema v26) ────────────────────────────────────────
 
-use crate::feat::session_search::SearchableRole;
+use jinn_domain::feat::session_search::SearchableRole;
 
 /// A session with a user entry and an assistant entry, both mentioning the
 /// needle word used across the search tests.
@@ -1882,7 +1880,7 @@ fn make_two_entry_session(id: &SessionId, title: &str) -> ChatSessionState {
 /// reporting belong to the actor and are covered there.
 async fn drain(
     store: &SqliteSessionStore,
-) -> Result<usize, error_stack::Report<crate::feat::session::session_store::SessionStoreError>> {
+) -> Result<usize, error_stack::Report<jinn_domain::feat::session::SessionStoreError>> {
     // Oversized chunks: store tests exercise single-shot rebuilds; chunked
     // resume semantics belong to the actor tests. Repeats while partial
     // chunks remain, counting sessions that reached their final chunk.
@@ -1915,7 +1913,7 @@ async fn save_marks_session_dirty_and_reindex_indexes_it() {
     // When reindexing the dirty set and searching for the needle.
     let reindexed = drain(&store).await.expect("reindex");
     let outcome = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: Vec::new(),
             roles: Vec::new(),
@@ -1953,7 +1951,7 @@ async fn reindex_honors_default_field_visibility_via_roles() {
 
     // When searching without a role filter.
     let all = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: vec![session_id.to_string()],
             roles: Vec::new(),
@@ -1965,7 +1963,7 @@ async fn reindex_honors_default_field_visibility_via_roles() {
         .expect("search");
     drain(&store).await.expect("reindex");
     let tool_only = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: vec![session_id.to_string()],
             roles: vec![SearchableRole::ToolResult],
@@ -2002,7 +2000,7 @@ async fn reindex_clears_rows_of_deleted_sessions() {
     // Then the deletion marked it dirty, and its rows are gone.
     assert_eq!(reindexed, 1);
     let outcome = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: Vec::new(),
             roles: Vec::new(),
@@ -2034,7 +2032,7 @@ async fn search_reports_per_session_rollup() {
 
     // When searching without scope restriction.
     let outcome = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: Vec::new(),
             roles: Vec::new(),
@@ -2068,7 +2066,7 @@ async fn search_limits_hits_but_reports_full_totals() {
 
     // When searching with a limit of 1.
     let outcome = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: Vec::new(),
             roles: Vec::new(),
@@ -2104,7 +2102,7 @@ async fn search_filters_by_session_ids() {
 
     // When searching restricted to session b.
     let outcome = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: vec![b.to_string()],
             roles: Vec::new(),
@@ -2134,7 +2132,7 @@ async fn search_surfaces_fts_syntax_errors_verbatim() {
 
     // When running a syntactically invalid MATCH query.
     let result = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle AND".to_owned(),
             session_ids: Vec::new(),
             roles: Vec::new(),
@@ -2169,7 +2167,7 @@ async fn search_dates_filter_on_entry_timestamps() {
 
     // When searching with an `until` bound in the past.
     let outcome = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: Vec::new(),
             roles: Vec::new(),
@@ -2199,7 +2197,7 @@ async fn search_snippets_are_single_line_with_match_markers() {
 
     // When searching for the needle.
     let outcome = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: Vec::new(),
             roles: Vec::new(),
@@ -2235,14 +2233,14 @@ async fn search_flags_ignored_entries_as_excluded() {
     session.push_entry(ChatEntry::user("in context needle"));
     session.push_entry(
         ChatEntry::user("dropped needle")
-            .with_context_override(crate::protocol::ContextOverride::ForcedExclude),
+            .with_context_override(jinn_core_types::ContextOverride::ForcedExclude),
     );
     store.save(&session).await.expect("save");
     drain(&store).await.expect("reindex");
 
     // When searching.
     let outcome = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: Vec::new(),
             roles: Vec::new(),
@@ -2275,13 +2273,13 @@ async fn search_does_not_flag_pinned_entries_as_excluded() {
     session.set_session_id(session_id.clone());
     session.set_title("pinned".to_owned());
     session
-        .push_entry(ChatEntry::user("pinned needle").with_pin(crate::protocol::PinPosition::Top));
+        .push_entry(ChatEntry::user("pinned needle").with_pin(jinn_core_types::PinPosition::Top));
     store.save(&session).await.expect("save");
     drain(&store).await.expect("reindex");
 
     // When searching.
     let outcome = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: Vec::new(),
             roles: Vec::new(),
@@ -2430,7 +2428,7 @@ async fn fetch_tail_marks_excluded_entries() {
     session.push_entry(ChatEntry::user("kept"));
     session.push_entry(
         ChatEntry::assistant("dropped")
-            .with_context_override(crate::protocol::ContextOverride::ForcedExclude),
+            .with_context_override(jinn_core_types::ContextOverride::ForcedExclude),
     );
     store.save(&session).await.expect("save");
 
@@ -2564,7 +2562,7 @@ async fn partial_chunk_persists_resume_point_and_next_chunk_finishes() {
     assert!(!finished);
     assert_eq!(store.pending_dirty_count().await.expect("count"), 1);
     let first = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: Vec::new(),
             roles: Vec::new(),
@@ -2587,7 +2585,7 @@ async fn partial_chunk_persists_resume_point_and_next_chunk_finishes() {
     assert!(finished);
     assert_eq!(store.pending_dirty_count().await.expect("count"), 0);
     let all = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: Vec::new(),
             roles: Vec::new(),
@@ -2697,7 +2695,7 @@ async fn reindexed_rebuild_replaces_rows_via_rowid_map() {
     assert_eq!(orphan_map_rows, 0, "no map row points at a dead FTS rowid");
     // And search still finds the session after the map-mediated rebuild.
     let outcome = store
-        .search(crate::feat::session_search::SearchParams {
+        .search(jinn_domain::feat::session_search::SearchParams {
             query: "needle".to_owned(),
             session_ids: vec![session_id.to_string()],
             roles: Vec::new(),

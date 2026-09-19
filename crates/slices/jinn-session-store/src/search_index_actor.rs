@@ -1,40 +1,42 @@
-//! Background actor that keeps the FTS search index fresh.
+//! Background actor that keeps the FTS search index fresh (trouper port).
 //!
-//! Owns no `AppState` fields — its writes go to the database (the
-//! `session_fts` index table), not to shared state. Dirty sessions are
-//! recorded by triggers on the `sessions` table (schema v26); this actor is
-//! a message-driven state machine over an in-memory queue of dirty
-//! sessions: each heartbeat refreshes the queue from the durable marker
-//! table when idle, then reindexes at most one batch of sessions,
-//! publishing the remaining count to the `search-index` dashboard row
-//! after every session. Search results may trail the newest saves by one
-//! interval; the agent's own current-turn entries are in its context
-//! regardless.
+//! A trouper [`ServiceActor`] subscribed to the shared `jinn.domain`
+//! topic for its self-addressed heartbeat. Owns no `AppState` fields —
+//! its writes go to the database (the `session_fts` index table), not to
+//! shared state. Dirty sessions are recorded by triggers on the `sessions`
+//! table (schema v26); this actor is a message-driven state machine over
+//! an in-memory queue of dirty sessions: each heartbeat refreshes the
+//! queue from the durable marker table when idle, then reindexes at most
+//! one batch of sessions, publishing the remaining count to the
+//! `search-index` dashboard row after every session. Search results may
+//! trail the newest saves by one interval; the agent's own current-turn
+//! entries are in its context regardless.
 //!
 //! Batching replaces a time budget: one batch per heartbeat keeps the
-//! handler short so the mailbox — and with it the supervised shutdown
-//! handshake — stays responsive between batches, while a large backfill
-//! (e.g. the first launch after the schema upgrade, hundreds of sessions)
-//! drains across heartbeats. The durable `fts_dirty` table remains the
-//! source of truth; the in-memory queue is only a cache, refreshed whenever
-//! the heartbeat finds it empty. A session re-marked while queued is a
-//! no-op (the set dedupes), and one re-marked after processing re-enters
-//! the queue on the next idle refresh.
+//! handler short so the inbox — and with it graceful shutdown — stays
+//! responsive between batches, while a large backfill (e.g. the first
+//! launch after the schema upgrade, hundreds of sessions) drains across
+//! heartbeats. The durable `fts_dirty` table remains the source of truth;
+//! the in-memory queue is only a cache, refreshed whenever the heartbeat
+//! finds it empty. A session re-marked while queued is a no-op (the set
+//! dedupes), and one re-marked after processing re-enters the queue on
+//! the next idle refresh.
 
 use std::collections::{HashSet, VecDeque};
 use std::time::Duration;
 
-use kameo::actor::{ActorRef, Spawn};
-use kameo::prelude::{Context, Message};
+use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
+use trouper::system::ActorSystem;
 
-use crate::common::actor_deps::{ActorDeps, BusPublish};
-use crate::common::services::bus_service::BusService;
-use crate::protocol::SessionId;
+use jinn_core_types::SessionId;
+use jinn_domain::common::actor_deps::ActorDeps;
 
 /// How often the actor beats in production.
 pub const REINDEX_INTERVAL: Duration = Duration::from_secs(5);
 
-/// How many sessions one heartbeat reindexes before yielding to the mailbox.
+/// How many sessions one heartbeat reindexes before yielding to the inbox.
 ///
 /// Bounds the handler's runtime without clock-watching: each heartbeat
 /// processes at most one batch, so the actor stays stoppable and responsive
@@ -51,11 +53,14 @@ pub const REINDEX_BATCH: usize = 10;
 pub const REINDEX_CHUNK: usize = 500;
 
 /// Dashboard row this actor publishes reindex progress under. Must match the
-/// `spawn_tracked!` registration name in `actor_wiring.rs` — a mismatch would
-/// silently publish into a row that doesn't exist. The row's name,
-/// description, and lifecycle columns stay owned by the wiring/lifecycle
-/// events; this actor only fills the status message.
+/// registration name in `actor_wiring.rs` — a mismatch would silently
+/// publish into a row that doesn't exist. The row's name, description, and
+/// lifecycle columns stay owned by the wiring/lifecycle events; this actor
+/// only fills the status message.
 pub const SEARCH_INDEX_ROW_NAME: &str = "search-index";
+
+/// The search index actor's static trouper path.
+pub const SEARCH_INDEX_PATH: &str = "search-index";
 
 /// Dependencies for [`SearchIndexActor`].
 #[derive(Clone)]
@@ -66,63 +71,112 @@ pub struct SearchIndexActorDeps {
     /// inject a small value so convergence assertions don't wait on the
     /// default.
     pub interval: Duration,
-    /// Sessions reindexed per heartbeat. Production uses [`REINDEX_BATCH`];
-    /// tests inject `1` (one session per heartbeat) or a large value (drain
-    /// everything in one heartbeat).
+    /// Batch size. Production uses [`REINDEX_BATCH`]; tests inject
+    /// `usize::MAX` (drain everything) or 1 (one session per heartbeat)
+    /// to exercise the batching contract.
     pub batch: usize,
 }
 
-/// The search-index maintenance actor.
+/// The search index actor.
 ///
-/// The in-memory queue is a cache of the durable `fts_dirty` table, not a
-/// source of truth: a crash or a skipped heartbeat costs freshness only, and
-/// the work is retried on the next heartbeat (or the next startup). The
-/// queue's count drives the dashboard label between refreshes; the durable
-/// table is consulted whenever the queue empties, so the row only reads
-/// "index up to date" when the marker table is genuinely clean.
+/// "index up to date" is published only when the marker table is
+/// genuinely clean — see [`Self::publish_up_to_date`].
 pub struct SearchIndexActor {
     deps: ActorDeps,
+    /// The system this actor runs on — captured at spawn so the
+    /// heartbeat can self-address. (The services container may carry a
+    /// different system in tests, where the harness spawns on its own.)
+    system: ActorSystem,
     interval: Duration,
     batch: usize,
     queue: HashSet<SessionId>,
 }
 
-impl kameo::Actor for SearchIndexActor {
-    type Args = SearchIndexActorDeps;
-    type Error = kameo::error::Infallible;
-
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        // No drain kick here on purpose: a self-tell queued from `on_start`
-        // lands in the mailbox ahead of kameo's StartupFinished signal, so
-        // the supervised spawn handshake — and with it the whole actor
-        // wiring — would block until the first drain completes (a
-        // multi-second freeze on a large pending queue). The spawn helper
-        // kicks the first heartbeat after the handshake instead.
-        let _ = actor_ref; // unused without the kick; keeps the signature stable
-        Ok(Self {
-            deps: args.deps,
-            interval: args.interval,
-            batch: args.batch,
-            queue: HashSet::new(),
-        })
+impl ServiceActor for SearchIndexActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "trait contract: start is never called (spawn uses start_with)"
+    )]
+    async fn start(_args: &serde_json::Value) -> Result<Self, error_stack::Report<RegistryError>> {
+        // Never called: the spawn helper injects the deps via `start_with`
+        // (ActorDeps carries typed handles that cannot ride JSON args).
+        Err(
+            error_stack::IntoReport::into_report(RegistryError::InvalidSpec)
+                .attach("SearchIndexActor is spawned via start_with"),
+        )
     }
 }
 
-impl BusPublish for SearchIndexActor {
-    fn bus(&self) -> &BusService {
-        &self.deps.services.bus
+impl SearchIndexActor {
+    /// Spawns the actor at its static trouper path and returns the path.
+    ///
+    /// The heartbeat self-addresses through the same path, so the first
+    /// tick is kicked by a detached task **after** this call resolves:
+    /// the wiring moves on while the tick processes concurrently.
+    pub fn spawn(system: &ActorSystem, deps: SearchIndexActorDeps) -> ActorPath {
+        let path = ActorPath::new(SEARCH_INDEX_PATH);
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(path.clone())
+            .start_with({
+                let deps = deps.clone();
+                let system = system.clone();
+                move || {
+                    let deps = deps.clone();
+                    let system = system.clone();
+                    Box::pin(async move {
+                        Ok(Self {
+                            deps: deps.deps,
+                            system,
+                            interval: deps.interval,
+                            batch: deps.batch,
+                            queue: HashSet::new(),
+                        })
+                    })
+                }
+            })
+            .handles::<ReindexTick>()
+            .mailbox(64, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        // Kick the first heartbeat. A failed send only means the actor is
+        // already stopping.
+        let kicker = system.clone();
+        let kick_path = path.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+            let _ = kicker.tell(kick_path, ReindexTick).await;
+        });
+        path
+    }
+
+    /// Re-delivers one heartbeat to this actor after `interval`.
+    ///
+    /// The self-addressed tick keeps the "tick processes concurrently"
+    /// semantics the kameo self-tell gave: the next heartbeat is queued
+    /// while the current one may still be running its I/O, and the inbox
+    /// (Block policy) backpressures rather than dropping.
+    fn reschedule(&self) {
+        let system = self.system.clone();
+        let path = ActorPath::new(SEARCH_INDEX_PATH);
+        let interval = self.interval;
+        tokio::spawn(async move {
+            tokio::time::sleep(interval).await;
+            let _ = system.tell(path, ReindexTick).await;
+        });
     }
 }
 
 /// A self-addressed heartbeat: refreshes the queue when idle, reindexes one
 /// batch when work is pending, then schedules the next heartbeat.
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ReindexTick;
 
-impl Message<ReindexTick> for SearchIndexActor {
-    type Reply = ();
+jinn_slices::crossing_schema!(ReindexTick, "ReindexTick",
+    trouper::schema::SchemaKind::Command,
+    description: "Search index heartbeat: refresh the dirty queue when idle, reindex one batch.",
+    fields: []);
 
-    async fn handle(&mut self, _msg: ReindexTick, ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ReindexTick> for SearchIndexActor {
+    async fn handle(&mut self, _msg: ReindexTick, _ctx: &mut MsgCtx<'_>) {
         if self.queue.is_empty() {
             self.refresh_queue().await;
         }
@@ -134,7 +188,7 @@ impl Message<ReindexTick> for SearchIndexActor {
             self.publish_remaining(0).await;
             self.process_batch().await;
         }
-        self.reschedule(ctx);
+        self.reschedule();
     }
 }
 
@@ -270,48 +324,15 @@ impl SearchIndexActor {
     }
 
     async fn publish_status(&self, status: String) {
-        self.publish(jinn_slices::ServiceStatusUpdate {
-            name: SEARCH_INDEX_ROW_NAME.to_owned(),
-            description: None,
-            lifecycle: None,
-            status_message: Some(status),
-        })
-        .await;
+        self.deps
+            .services
+            .bus
+            .publish(jinn_slices::ServiceStatusUpdate {
+                name: SEARCH_INDEX_ROW_NAME.to_owned(),
+                description: None,
+                lifecycle: None,
+                status_message: Some(status),
+            })
+            .await;
     }
-
-    /// Schedules the next heartbeat after this actor's interval. A failed
-    /// send means the actor is stopping.
-    fn reschedule(&self, ctx: &mut Context<SearchIndexActor, ()>) {
-        let interval = self.interval;
-        let actor_ref = ctx.actor_ref().clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(interval).await;
-            let _ = actor_ref.tell(ReindexTick).send().await;
-        });
-    }
-}
-
-/// Spawns the actor as a supervised child of the root and returns its ref.
-///
-/// Kicks the first heartbeat via a detached task **after** the supervised
-/// spawn handshake resolves, so the heartbeat never blocks startup: the
-/// wiring moves on while the tick processes concurrently.
-/// (`spawn_search_index_actor` remains the single registration point the
-/// `spawn_tracked!` macro wraps.)
-pub async fn spawn_search_index_actor(
-    deps: SearchIndexActorDeps,
-    supervisor: &crate::common::root_supervisor::RootSupervisorRef,
-) -> ActorRef<SearchIndexActor> {
-    let actor_ref = SearchIndexActor::supervise(supervisor, deps)
-        .restart_policy(kameo::supervision::RestartPolicy::Never)
-        .spawn()
-        .await;
-    tokio::spawn({
-        let actor_ref = actor_ref.clone();
-        async move {
-            // A failed send only means the actor is already stopping.
-            let _ = actor_ref.tell(ReindexTick).send().await;
-        }
-    });
-    actor_ref
 }

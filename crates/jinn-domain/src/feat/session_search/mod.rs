@@ -13,12 +13,8 @@
 
 mod extract;
 pub mod model;
-pub mod search_index_actor;
-#[cfg(test)]
-mod search_index_actor_tests;
 
 pub use extract::{SearchableEntry, entry_ts_key, extract_searchable};
 pub use model::{
     SearchHit, SearchOutcome, SearchParams, SearchableRole, TranscriptEntry, TranscriptWindow,
 };
-pub use search_index_actor::{SearchIndexActor, SearchIndexActorDeps};

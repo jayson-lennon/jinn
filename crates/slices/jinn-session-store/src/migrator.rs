@@ -17,7 +17,7 @@ use daow::Pool;
 use error_stack::{Report, ResultExt as _};
 use jinn_session_schema::SchemaMigrationError;
 
-use super::SessionStoreError;
+use jinn_domain::feat::session::SessionStoreError;
 
 /// Runs all pending schema migrations.
 ///

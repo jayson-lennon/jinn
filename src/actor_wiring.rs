@@ -155,9 +155,8 @@ impl ActorSystemBuilder {
         // Create the message fabric: the trouper actor system (primary) and
         // the transitional kameo bus leg, plus the closure bridge.
         let (bus, trouper_system) = {
-            let system = trouper::system::ActorSystem::new(
-                trouper::system::SystemConfig::production(),
-            );
+            let system =
+                trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
             let bus_actor = kameo_actors::message_bus::MessageBus::new(
                 kameo_actors::DeliveryStrategy::BestEffort,
             );
@@ -594,20 +593,22 @@ impl ActorSystemBuilder {
         // Search index maintenance: message-driven reindex state machine —
         // refreshes its in-memory dirty-session queue when idle and
         // reindexes at most REINDEX_BATCH sessions per heartbeat,
-        // publishing the remaining count after every session.
+        // publishing the remaining count after every session. Trouper
+        // spawn: the macro tracks the row; the first tick self-kicks.
         let _search_index = spawn_tracked!(
             &services.bus,
-            jinn_domain::feat::session_search::search_index_actor::SEARCH_INDEX_ROW_NAME,
+            jinn_session_store::search_index_actor::SEARCH_INDEX_ROW_NAME,
             "SearchIndexActor",
-            jinn_domain::feat::session_search::search_index_actor::spawn_search_index_actor(
-                jinn_domain::feat::session_search::search_index_actor::SearchIndexActorDeps {
-                    deps: actor_deps.clone(),
-                    interval:
-                        jinn_domain::feat::session_search::search_index_actor::REINDEX_INTERVAL,
-                    batch: jinn_domain::feat::session_search::search_index_actor::REINDEX_BATCH,
-                },
-                &root,
-            )
+            async {
+                jinn_session_store::search_index_actor::SearchIndexActor::spawn(
+                    &services.trouper_system,
+                    jinn_session_store::search_index_actor::SearchIndexActorDeps {
+                        deps: actor_deps.clone(),
+                        interval: jinn_session_store::search_index_actor::REINDEX_INTERVAL,
+                        batch: jinn_session_store::search_index_actor::REINDEX_BATCH,
+                    },
+                )
+            }
             .await
         );
 

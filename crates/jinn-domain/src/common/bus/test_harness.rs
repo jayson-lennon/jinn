@@ -37,8 +37,7 @@ impl TestHarness {
     // API symmetry with other harness methods; spawn requires runtime context.
     pub async fn new() -> Self {
         async {}.await;
-        let system =
-            trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
+        let system = trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
         let bus_actor =
             kameo_actors::message_bus::MessageBus::new(kameo_actors::DeliveryStrategy::Guaranteed);
         let bus_ref = Spawn::spawn(bus_actor);
@@ -58,8 +57,7 @@ impl TestHarness {
         reason = "API symmetry with `new`; spawn requires runtime context"
     )]
     pub async fn new_best_effort() -> Self {
-        let system =
-            trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
+        let system = trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
         let bus_actor =
             kameo_actors::message_bus::MessageBus::new(kameo_actors::DeliveryStrategy::BestEffort);
         let bus_ref = Spawn::spawn(bus_actor);
@@ -156,7 +154,8 @@ impl TestHarness {
         static TAP_SEQ: AtomicU64 = AtomicU64::new(0);
 
         fn recorders()
-        -> &'static parking_lot::Mutex<HashMap<String, Arc<dyn std::any::Any + Send + Sync>>> {
+        -> &'static parking_lot::Mutex<HashMap<String, Arc<dyn std::any::Any + Send + Sync>>>
+        {
             static TAP_RECORDERS: std::sync::OnceLock<
                 parking_lot::Mutex<HashMap<String, Arc<dyn std::any::Any + Send + Sync>>>,
             > = std::sync::OnceLock::new();
@@ -170,7 +169,10 @@ impl TestHarness {
 
         impl<M> TroupeTap<M>
         where
-            M: BusMessage + trouper::schema::Schema + serde::Serialize + serde::de::DeserializeOwned,
+            M: BusMessage
+                + trouper::schema::Schema
+                + serde::Serialize
+                + serde::de::DeserializeOwned,
         {
             fn path_for(seq: u64) -> ActorPath {
                 ActorPath::new(format!(
@@ -183,7 +185,10 @@ impl TestHarness {
 
         impl<M> ServiceActor for TroupeTap<M>
         where
-            M: BusMessage + trouper::schema::Schema + serde::Serialize + serde::de::DeserializeOwned,
+            M: BusMessage
+                + trouper::schema::Schema
+                + serde::Serialize
+                + serde::de::DeserializeOwned,
         {
             async fn start(
                 args: &serde_json::Value,
@@ -200,19 +205,19 @@ impl TestHarness {
 
         impl<M> MsgHandler<M> for TroupeTap<M>
         where
-            M: BusMessage + trouper::schema::Schema + serde::Serialize + serde::de::DeserializeOwned,
+            M: BusMessage
+                + trouper::schema::Schema
+                + serde::Serialize
+                + serde::de::DeserializeOwned,
         {
             async fn handle(&mut self, msg: M, _ctx: &mut trouper::context::MsgCtx<'_>) {
                 let recorder = {
                     let table = recorders().lock();
-                    table
-                        .get(self.path.as_str())
-                        .cloned()
-                        .and_then(|any| {
-                            any.downcast::<ActorRef<Recorder<M>>>()
-                                .ok()
-                                .map(|arc| (*arc).clone())
-                        })
+                    table.get(self.path.as_str()).cloned().and_then(|any| {
+                        any.downcast::<ActorRef<Recorder<M>>>()
+                            .ok()
+                            .map(|arc| (*arc).clone())
+                    })
                 };
                 if let Some(recorder) = recorder {
                     let _ = recorder.tell(msg).await;
@@ -224,16 +229,19 @@ impl TestHarness {
         // a distinct path.
         let seq = TAP_SEQ.fetch_add(1, Ordering::SeqCst);
         let path = TroupeTap::<M>::path_for(seq);
-        recorders().lock().insert(path.as_str().to_owned(), Arc::new(recorder));
+        recorders()
+            .lock()
+            .insert(path.as_str().to_owned(), Arc::new(recorder));
         self.system.register_schema::<M>();
         self.system.spawn_service::<TroupeTap<M>, _>(
             path.clone(),
             &serde_json::json!({ "path": path.as_str() }),
             trouper::system::SpawnOpts::default(),
             || {
-                vec![std::sync::Arc::new(
-                    trouper::actor::TypedServiceAdapter::<TroupeTap<M>, M>::new::<M>(),
-                )]
+                vec![std::sync::Arc::new(trouper::actor::TypedServiceAdapter::<
+                    TroupeTap<M>,
+                    M,
+                >::new::<M>())]
             },
         );
         // The tap follows the schema's current route resolution: normally
@@ -246,10 +254,7 @@ impl TestHarness {
     }
 
     /// Register a custom actor's recipient for type `M` on the kameo leg.
-    pub async fn register<M: Clone + Send + 'static>(
-        &self,
-        recipient: kameo::actor::Recipient<M>,
-    ) {
+    pub async fn register<M: Clone + Send + 'static>(&self, recipient: kameo::actor::Recipient<M>) {
         if let Some(leg) = self.bus.kameo_leg_ref() {
             let _ = leg.ask(Register(recipient)).await;
         }

@@ -174,9 +174,8 @@ impl Services {
         // Create the fabric once; the bus publishes through it and the
         // `Services` container carries it for actor spawns — one system.
         let (bus, trouper_system) = {
-            let system = trouper::system::ActorSystem::new(
-                trouper::system::SystemConfig::production(),
-            );
+            let system =
+                trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
             let bus_actor = kameo_actors::message_bus::MessageBus::new(
                 kameo_actors::DeliveryStrategy::BestEffort,
             );
@@ -266,9 +265,8 @@ impl Services {
 
         let bridge = crate::common::bridge::Bridge::new_for_test();
         let root_supervisor = crate::common::root_supervisor::RootSupervisor::spawn_root().await;
-        let trouper_system = trouper::system::ActorSystem::new(
-            trouper::system::SystemConfig::production(),
-        );
+        let trouper_system =
+            trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
 
         Self {
             paths: crate::common::app_paths::AppPaths::new_in(tempdir.path()),

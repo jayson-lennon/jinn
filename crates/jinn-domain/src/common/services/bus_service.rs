@@ -190,7 +190,10 @@ impl BusService {
                 ..
             } => leg,
             BusInner::Kameo(bus) => bus,
-            BusInner::Troupe { kameo_leg: None, .. } | BusInner::Recording(_) => {
+            BusInner::Troupe {
+                kameo_leg: None, ..
+            }
+            | BusInner::Recording(_) => {
                 panic!("actor_ref() called on a BusService without a kameo leg")
             }
         }
@@ -268,7 +271,10 @@ impl BusService {
 
     /// The topic a message publishes onto: the last-registered route for
     /// its schema id, else the shared `jinn.domain` topic.
-    fn topic_for(routes: &Mutex<Vec<RouteRule>>, schema_id: &trouper::schema::SchemaId) -> trouper::topics::Topic {
+    fn topic_for(
+        routes: &Mutex<Vec<RouteRule>>,
+        schema_id: &trouper::schema::SchemaId,
+    ) -> trouper::topics::Topic {
         let routes = routes.lock();
         routes
             .iter()
@@ -283,7 +289,10 @@ impl BusService {
     /// On the trouper fabric the message is wrapped as a schema-tagged
     /// event and sent onto its routed topic. In recording mode, captures
     /// the message for later assertion.
-    pub async fn publish<M: BusMessage + trouper::schema::Schema + serde::Serialize>(&self, msg: M) {
+    pub async fn publish<M: BusMessage + trouper::schema::Schema + serde::Serialize>(
+        &self,
+        msg: M,
+    ) {
         match &self.inner {
             BusInner::Troupe {
                 system,
@@ -350,7 +359,9 @@ impl RouteTestProbe {
     pub fn topic_for<M: trouper::schema::Schema>(&self) -> Option<String> {
         match &self.bus.inner {
             BusInner::Troupe { routes, .. } => Some(
-                BusService::topic_for(routes, &M::schema_id()).as_str().to_owned(),
+                BusService::topic_for(routes, &M::schema_id())
+                    .as_str()
+                    .to_owned(),
             ),
             _ => None,
         }
@@ -365,9 +376,9 @@ impl fmt::Debug for BusService {
             } => f
                 .debug_struct("BusService<Troupe+kameo-leg>")
                 .finish_non_exhaustive(),
-            BusInner::Troupe { kameo_leg: None, .. } => {
-                f.debug_struct("BusService<Troupe>").finish_non_exhaustive()
-            }
+            BusInner::Troupe {
+                kameo_leg: None, ..
+            } => f.debug_struct("BusService<Troupe>").finish_non_exhaustive(),
             BusInner::Kameo(_) => f.debug_struct("BusService<Kameo>").finish_non_exhaustive(),
             BusInner::Recording(_) => f
                 .debug_struct("BusService<Recording>")

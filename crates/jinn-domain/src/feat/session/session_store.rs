@@ -1,18 +1,14 @@
-//! Session store abstraction and SQLite implementation.
+//! Session store abstraction.
 //!
-//! Defines [`SessionStore`] as the async trait for session persistence and
-//! [`SqliteSessionStore`] as the SQLite-backed implementation. Sessions are
-//! stored in normalized tables with a junction table for entries, enabling
-//! fork support without data duplication.
+//! Defines [`SessionStore`] as the async trait for session persistence.
+//! The SQLite implementation (`SqliteSessionStore`) and the schema
+//! migrator live in the `jinn-session-store` slice crate; this module
+//! owns the seam (`SessionStore` + [`SessionStoreService`]) that the
+//! `Services` container carries.
 
-mod migrator;
 mod service;
-mod sqlite;
-#[cfg(test)]
-mod sqlite_tests;
 
 pub use service::SessionStoreService;
-pub use sqlite::{PoolConfig, SqliteSessionStore};
 
 use async_trait::async_trait;
 use error_stack::Report;
