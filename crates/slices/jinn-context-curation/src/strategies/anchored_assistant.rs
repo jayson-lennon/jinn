@@ -37,12 +37,12 @@
 
 use std::sync::Arc;
 
-use crate::feat::auto_prune_worker::is_within_min_age;
-use crate::feat::context::strategy::token_estimator::{TiktokenCounter, TokenCounter};
-use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::HistoryMutation;
-use crate::protocol::SessionId;
-use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
+use super::min_age::is_within_min_age;
+use crate::worker::HistoryWorker;
+use jinn_core_types::HistoryMutation;
+use jinn_core_types::SessionId;
+use jinn_core_types::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
+use jinn_domain::feat::context::strategy::token_estimator::{TiktokenCounter, TokenCounter};
 pub use jinn_preferences_config::schemas::auto_prune::AnchoredAssistantAutoPruneConfig;
 
 /// Anchored-assistant auto-prune worker.
@@ -63,7 +63,7 @@ pub struct AnchoredAssistantAutoPruneWorker {
     pub min_candidate_tokens: u32,
     /// Shared per-session, per-entry token-count cache. Cheap clone (inner is
     /// `Arc`-shared).
-    pub token_cache: super::HistoryWorkerChatEntryTokenCache,
+    pub token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache,
     /// Long-lived tiktoken counter. Cheap copy (`Copy` type with `&'static`
     /// encoder reference).
     pub counter: TiktokenCounter,
@@ -178,7 +178,7 @@ struct PruneCtx<'a> {
     min_age: usize,
     min_candidate_tokens: u32,
     session_id: &'a SessionId,
-    token_cache: &'a super::HistoryWorkerChatEntryTokenCache,
+    token_cache: &'a jinn_token_count_msg::HistoryWorkerChatEntryTokenCache,
     counter: &'a TiktokenCounter,
     worker_name: &'a str,
 }
@@ -316,13 +316,13 @@ mod tests {
     )]
 
     use super::*;
-    use crate::protocol::ChatEntry;
-    use crate::protocol::ChatEntryId;
+    use jinn_core_types::ChatEntry;
+    use jinn_core_types::ChatEntryId;
 
     /// Tests use 81 as the hard-coded threshold (trivial_assistant default max_tokens=80 + 1).
     const TEST_MIN_CANDIDATE_TOKENS: u32 = 81;
 
-    use crate::protocol::SessionId;
+    use jinn_core_types::SessionId;
 
     // ------------------------------------------------------------------
     // Test helpers
@@ -344,7 +344,7 @@ mod tests {
             },
             radius,
             min_candidate_tokens: 81,
-            token_cache: super::super::HistoryWorkerChatEntryTokenCache::new(),
+            token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::new(),
             counter: TiktokenCounter::o200k_base(),
         }
     }
@@ -683,7 +683,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn pinned_entry_is_skipped() {
-        use crate::protocol::PinPosition;
+        use jinn_core_types::PinPosition;
         let w = worker(1);
         let mut history = vec![ChatEntry::user("anchor")];
         let mut asst = large_assistant();
@@ -750,7 +750,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn non_assistant_entries_in_prune_region_not_targeted() {
-        use crate::protocol::ToolResultStatus;
+        use jinn_core_types::ToolResultStatus;
         let w = worker(1);
         let mut history = vec![ChatEntry::user("start")];
         history.push(ChatEntry::system("sys"));

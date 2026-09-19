@@ -42,8 +42,8 @@ pub(in crate::feat::session::session_actor) async fn emit_history_appended(
 pub(crate) async fn test_actor() -> super::SessionPersistenceActor {
     use crate::common::app_state::AppState;
     use crate::common::state::State;
-    use crate::feat::auto_prune_worker::entry_token_cache::HistoryWorkerChatEntryTokenCache;
     use crate::feat::context::strategy::token_estimator::TiktokenCounter;
+    use jinn_token_count_msg::HistoryWorkerChatEntryTokenCache;
 
     super::SessionPersistenceActor {
         state: State::new(AppState::default_with_scope_focus()),
@@ -67,8 +67,8 @@ pub(crate) async fn test_actor_recording() -> (
 ) {
     use crate::common::app_state::AppState;
     use crate::common::state::State;
-    use crate::feat::auto_prune_worker::entry_token_cache::HistoryWorkerChatEntryTokenCache;
     use crate::feat::context::strategy::token_estimator::TiktokenCounter;
+    use jinn_token_count_msg::HistoryWorkerChatEntryTokenCache;
 
     let (bus, audit) = crate::common::services::BusService::new_recording();
     let services = crate::common::services::Services::new_fake_with_bus(bus).await;
@@ -345,7 +345,7 @@ pub(crate) async fn test_actor_with_store_recording(
             frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
             services,
             counter: crate::feat::context::strategy::token_estimator::TiktokenCounter::o200k_base(),
-            token_cache: crate::feat::auto_prune_worker::entry_token_cache::HistoryWorkerChatEntryTokenCache::default(),
+            token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
             builtin_registry: crate::feat::session_lifecycle::builtin::BuiltinRegistry::new(),
             shell: "/bin/sh".to_owned(),
             lifecycle_child: None,

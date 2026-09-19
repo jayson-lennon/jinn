@@ -4,9 +4,9 @@
 //! produces a batch of mutations. Workers run outside any lock.
 use std::sync::Arc;
 
-use crate::protocol::ChatEntry;
-use crate::protocol::HistoryMutation;
-use crate::protocol::SessionId;
+use jinn_core_types::ChatEntry;
+use jinn_core_types::HistoryMutation;
+use jinn_core_types::SessionId;
 /// A pluggable history mutation heuristic.
 ///
 /// Each worker inspects a snapshot of the session history and optionally

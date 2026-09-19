@@ -38,12 +38,12 @@
 //! include is not gated by `min_age` — the latest pair is protected even
 //! when it is the only pair.
 
-use crate::feat::auto_prune_worker::is_within_min_age;
+use super::min_age::is_within_min_age;
 
-use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::HistoryMutation;
-use crate::protocol::SessionId;
-use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
+use crate::worker::HistoryWorker;
+use jinn_core_types::HistoryMutation;
+use jinn_core_types::SessionId;
+use jinn_core_types::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
 pub use jinn_preferences_config::schemas::auto_prune::TodoAutoPruneConfig;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -58,7 +58,7 @@ struct CallInfo {
     /// Index of the ToolCall in history.
     index: usize,
     /// The entry ID of the ToolCall.
-    entry_id: crate::protocol::ChatEntryId,
+    entry_id: jinn_core_types::ChatEntryId,
     /// The tool_call_id used to match ToolCall → ToolResult.
     tool_call_id: String,
 }
@@ -85,12 +85,12 @@ fn collect_all_todo_pairs(
     history: &[ChatEntry],
 ) -> (
     Vec<CallInfo>,
-    HashMap<String, (usize, crate::protocol::ChatEntryId)>,
+    HashMap<String, (usize, jinn_core_types::ChatEntryId)>,
 ) {
     // ToolCalls in history order — their position determines which are "oldest".
     let mut calls: Vec<CallInfo> = Vec::new();
     // ToolResults keyed by tool_call_id — one result per call.
-    let mut result_map: HashMap<String, (usize, crate::protocol::ChatEntryId)> = HashMap::new();
+    let mut result_map: HashMap<String, (usize, jinn_core_types::ChatEntryId)> = HashMap::new();
 
     for (i, entry) in history.iter().enumerate() {
         match &entry.kind {
@@ -123,7 +123,7 @@ fn collect_all_todo_pairs(
 fn build_prune_mutations(
     history: &[ChatEntry],
     calls: &[CallInfo],
-    result_map: &HashMap<String, (usize, crate::protocol::ChatEntryId)>,
+    result_map: &HashMap<String, (usize, jinn_core_types::ChatEntryId)>,
     min_age: usize,
     worker_name: &str,
     protect_latest: bool,
@@ -172,7 +172,7 @@ fn build_prune_mutations(
 fn include_latest_pair(
     history: &[ChatEntry],
     calls: &[CallInfo],
-    result_map: &HashMap<String, (usize, crate::protocol::ChatEntryId)>,
+    result_map: &HashMap<String, (usize, jinn_core_types::ChatEntryId)>,
     worker_name: &str,
 ) -> Vec<HistoryMutation> {
     let Some(latest) = calls.last() else {
@@ -215,7 +215,7 @@ fn may_force_include(entry: &ChatEntry) -> bool {
 fn prune_superseded_pair(
     history: &[ChatEntry],
     previous: &CallInfo,
-    result_map: &HashMap<String, (usize, crate::protocol::ChatEntryId)>,
+    result_map: &HashMap<String, (usize, jinn_core_types::ChatEntryId)>,
     worker_name: &str,
 ) -> Vec<HistoryMutation> {
     let call_half = history
@@ -253,7 +253,7 @@ fn todo_worker_include(entry: &ChatEntry, worker_name: &str) -> bool {
 fn prune_older_pairs(
     history: &[ChatEntry],
     calls: &[CallInfo],
-    result_map: &HashMap<String, (usize, crate::protocol::ChatEntryId)>,
+    result_map: &HashMap<String, (usize, jinn_core_types::ChatEntryId)>,
     min_age: usize,
     worker_name: &str,
     count: usize,
@@ -270,7 +270,7 @@ fn prune_older_pairs(
         // Prune the ToolCall if not protected from prune.
         if !history
             .get(call_info.index)
-            .is_some_and(crate::protocol::ChatEntry::is_protected_from_prune)
+            .is_some_and(jinn_core_types::ChatEntry::is_protected_from_prune)
         {
             mutations.push(exclude_mutation(call_info.entry_id.clone(), worker_name));
         }
@@ -279,7 +279,7 @@ fn prune_older_pairs(
         if let Some((result_idx, result_entry_id)) = result_map.get(&call_info.tool_call_id)
             && !history
                 .get(*result_idx)
-                .is_some_and(crate::protocol::ChatEntry::is_protected_from_prune)
+                .is_some_and(jinn_core_types::ChatEntry::is_protected_from_prune)
         {
             mutations.push(exclude_mutation(result_entry_id.clone(), worker_name));
         }
@@ -289,7 +289,7 @@ fn prune_older_pairs(
 }
 
 /// A worker-sourced `ForcedInclude` mutation.
-fn include_mutation(entry_id: crate::protocol::ChatEntryId, worker_name: &str) -> HistoryMutation {
+fn include_mutation(entry_id: jinn_core_types::ChatEntryId, worker_name: &str) -> HistoryMutation {
     HistoryMutation::SetContextOverride {
         entry_id,
         value: ContextOverride::ForcedInclude,
@@ -300,7 +300,7 @@ fn include_mutation(entry_id: crate::protocol::ChatEntryId, worker_name: &str) -
 }
 
 /// A worker-sourced `Default` mutation (demotes an include this worker owns).
-fn demote_mutation(entry_id: crate::protocol::ChatEntryId, worker_name: &str) -> HistoryMutation {
+fn demote_mutation(entry_id: jinn_core_types::ChatEntryId, worker_name: &str) -> HistoryMutation {
     HistoryMutation::SetContextOverride {
         entry_id,
         value: ContextOverride::Default,
@@ -311,7 +311,7 @@ fn demote_mutation(entry_id: crate::protocol::ChatEntryId, worker_name: &str) ->
 }
 
 /// A worker-sourced `ForcedExclude` mutation.
-fn exclude_mutation(entry_id: crate::protocol::ChatEntryId, worker_name: &str) -> HistoryMutation {
+fn exclude_mutation(entry_id: jinn_core_types::ChatEntryId, worker_name: &str) -> HistoryMutation {
     HistoryMutation::SetContextOverride {
         entry_id,
         value: ContextOverride::ForcedExclude,
@@ -359,9 +359,9 @@ mod tests {
     )]
 
     use super::*;
-    use crate::protocol::SessionId;
-    use crate::protocol::ToolResultStatus;
-    use crate::protocol::{ChatEntry, ChatEntryId};
+    use jinn_core_types::SessionId;
+    use jinn_core_types::ToolResultStatus;
+    use jinn_core_types::{ChatEntry, ChatEntryId};
 
     /// Helper: create a `todo_get_task_list` ToolCall + ToolResult pair.
     fn get_task_list_call_result(call_id: &str, content: &str) -> [ChatEntry; 2] {
@@ -1104,7 +1104,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn pinned_latest_pair_receives_no_include() {
-        use crate::protocol::PinPosition;
+        use jinn_core_types::PinPosition;
         // Given a latest pair whose halves are pinned.
         let mut history = Vec::new();
         let cr = get_task_list_call_result("tc-1", "list");

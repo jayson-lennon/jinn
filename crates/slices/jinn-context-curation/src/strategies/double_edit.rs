@@ -18,18 +18,18 @@
 //!
 //! With `max_file_edits = 2`, the oldest edit/write pair is pruned.
 //!
-//! [`ForcedExclude`]: crate::protocol::ContextOverride::ForcedExclude
+//! [`ForcedExclude`]: jinn_core_types::ContextOverride::ForcedExclude
 
 use std::collections::HashMap;
 
 pub use jinn_preferences_config::schemas::auto_prune::DoubleEditAutoPruneConfig;
 use std::sync::Arc;
 
-use crate::feat::auto_prune_worker::is_within_min_age;
-use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::HistoryMutation;
-use crate::protocol::SessionId;
-use crate::protocol::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
+use super::min_age::is_within_min_age;
+use crate::worker::HistoryWorker;
+use jinn_core_types::HistoryMutation;
+use jinn_core_types::SessionId;
+use jinn_core_types::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 
 /// Default max file edits for double-edit auto-prune.
 /// Default enabled state for double-edit auto-prune.
@@ -271,9 +271,9 @@ mod tests {
     )]
 
     use super::*;
-    use crate::protocol::ChatEntry;
-    use crate::protocol::SessionId;
-    use crate::protocol::ToolResultStatus;
+    use jinn_core_types::ChatEntry;
+    use jinn_core_types::SessionId;
+    use jinn_core_types::ToolResultStatus;
 
     /// Helper: create an edit ToolCall + ToolResult pair.
     fn edit_call_result(call_id: &str, path: &str, content: &str) -> [ChatEntry; 2] {

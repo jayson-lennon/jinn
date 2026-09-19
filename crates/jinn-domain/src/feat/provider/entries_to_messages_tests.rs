@@ -1327,7 +1327,7 @@ fn excluding_compaction_summary_never_breaks_message_sequencing() {
     // an Assistant opener as the first kept entry:
     //   [User, Assistant(BIG), Assistant(opener), User(recent turn)]
     // After adjust_cut_to_boundary the kept region must open with the final User.
-    use crate::feat::compaction_worker::algorithm::adjust_cut_to_boundary;
+    use jinn_context_curation::compaction_algorithm::adjust_cut_to_boundary;
 
     let mut entries = vec![
         ChatEntry::user("start"),
@@ -1363,7 +1363,7 @@ fn excluding_compaction_summary_never_breaks_message_sequencing() {
 fn including_compaction_summary_produces_valid_sequencing() {
     // Same history as above, but the summary is included (regression: the
     // old code was only valid because the summary masked the broken opener).
-    use crate::feat::compaction_worker::algorithm::adjust_cut_to_boundary;
+    use jinn_context_curation::compaction_algorithm::adjust_cut_to_boundary;
 
     let mut entries = vec![
         ChatEntry::user("start"),
@@ -1434,8 +1434,8 @@ fn excluding_compaction_summary_yields_valid_message_sequence() {
     // summary-compaction would sit between a ToolResult and an Assistant, and
     // whose reserve boundary lands on an Assistant opener.
     //   [User, Assistant(big), ToolCall, ToolResult, Assistant(opener), User(recent)]
-    use crate::feat::compaction_worker::algorithm::adjust_cut_to_boundary;
     use crate::protocol::ChangeSource;
+    use jinn_context_curation::compaction_algorithm::adjust_cut_to_boundary;
 
     let big_padding = "w".repeat(600);
     let mut entries = vec![

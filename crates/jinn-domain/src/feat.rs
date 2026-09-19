@@ -1,14 +1,11 @@
 //! Feature modules - domain-specific logic, actors, and UI elements.
 
-pub mod auto_prune_worker;
 pub mod chat_entry_selection;
 pub mod chat_input;
-pub mod compaction_worker;
 pub mod context;
 pub mod endpoint;
 pub mod file_lister;
 pub mod global;
-pub mod history_worker;
 pub mod image_convert;
 pub mod install;
 pub mod intent;

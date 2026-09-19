@@ -638,402 +638,20 @@ impl ActorSystemBuilder {
         // Context size actor: trouper, installed with the context-assembly
         // slice's install_actors call above.
 
-        // ── History mutation workers ───────────────────��──────────────────────
-        // To add a new history mutation worker:
-        //   1. Implement `HistoryWorker` for your heuristic type
-        //      (see `crates/jinn-domain/src/feat/history_worker/worker_trait.rs`).
-        //   2. Add a spawn call here following the pattern below.
-
-        // History snapshot actor.
-        {
-            use jinn_domain::feat::history_worker::snapshot_actor::{
-                HistorySnapshotActor, HistorySnapshotActorDeps,
-            };
-
-            let _snapshot = spawn_tracked!(
-                &services.bus,
-                "history-snapshot",
-                "HistorySnapshotActor",
-                HistorySnapshotActor::supervise(
-                    &root,
-                    HistorySnapshotActorDeps {
-                        deps: actor_deps.clone(),
-                        state: state.clone(),
-                    },
-                )
-                .restart_policy(kameo::supervision::RestartPolicy::Never)
-                .spawn()
-                .await
-            );
-        }
-
-        // Compaction worker.
-        {
-            use jinn_domain::feat::compaction_worker::CompactionWorker;
-            use jinn_domain::feat::history_worker::actor::{
-                HistoryWorkerActor, HistoryWorkerActorDeps,
-            };
-
-            let _compaction = spawn_tracked!(
-                &services.bus,
-                "history-compaction",
-                "HistoryWorker<CompactionWorker>",
-                HistoryWorkerActor::<CompactionWorker>::supervise(
-                    &root,
-                    HistoryWorkerActorDeps {
-                        deps: actor_deps.clone(),
-                        worker: CompactionWorker::new(
-                            services.clone(),
-                            handle.clone(),
-                            state.clone(),
-                            jinn_domain::common::tcaps::mint::mint_session_cap(),
-                            compaction_prompt.clone(),
-                        ),
-                    },
-                )
-                .restart_policy(kameo::supervision::RestartPolicy::Never)
-                .spawn()
-                .await
-            );
-        }
-
-        // Compaction trigger actor.
-        {
-            use jinn_domain::feat::compaction_worker::{
-                CompactionTriggerActor, CompactionTriggerActorDeps, CompactionWorker,
-            };
-
-            let _trigger = spawn_tracked!(
-                &services.bus,
-                "compaction-trigger",
-                "CompactionTriggerActor",
-                CompactionTriggerActor::supervise(
-                    &root,
-                    CompactionTriggerActorDeps {
-                        deps: actor_deps.clone(),
-                        worker: CompactionWorker::new(
-                            services.clone(),
-                            handle.clone(),
-                            state.clone(),
-                            jinn_domain::common::tcaps::mint::mint_session_cap(),
-                            compaction_prompt,
-                        ),
-                    },
-                )
-                .restart_policy(kameo::supervision::RestartPolicy::Never)
-                .spawn()
-                .await
-            );
-        }
-
-        // Auto-prune worker: read→edit context pruning.
-        {
-            use jinn_domain::feat::auto_prune_worker::ReadEditAutoPruneWorker;
-            use jinn_domain::feat::history_worker::actor::{
-                HistoryWorkerActor, HistoryWorkerActorDeps,
-            };
-
-            let config = user_preferences_storage.read().auto_prune.read_edit;
-
-            if config.enabled {
-                let _worker = spawn_tracked!(
-                    &services.bus,
-                    "history-read-edit",
-                    "HistoryWorker<ReadEditAutoPruneWorker>",
-                    HistoryWorkerActor::<ReadEditAutoPruneWorker>::supervise(
-                        &root,
-                        HistoryWorkerActorDeps {
-                            deps: actor_deps.clone(),
-                            worker: ReadEditAutoPruneWorker { config },
-                        },
-                    )
-                    .restart_policy(kameo::supervision::RestartPolicy::Never)
-                    .spawn()
-                    .await
-                );
-            }
-        }
-
-        // Auto-prune worker: edit→read context pruning.
-        {
-            use jinn_domain::feat::auto_prune_worker::EditReadAutoPruneWorker;
-            use jinn_domain::feat::history_worker::actor::{
-                HistoryWorkerActor, HistoryWorkerActorDeps,
-            };
-
-            let config = user_preferences_storage.read().auto_prune.edit_read;
-
-            if config.enabled {
-                let _worker = spawn_tracked!(
-                    &services.bus,
-                    "history-edit-read",
-                    "HistoryWorker<EditReadAutoPruneWorker>",
-                    HistoryWorkerActor::<EditReadAutoPruneWorker>::supervise(
-                        &root,
-                        HistoryWorkerActorDeps {
-                            deps: actor_deps.clone(),
-                            worker: EditReadAutoPruneWorker { config },
-                        },
-                    )
-                    .restart_policy(kameo::supervision::RestartPolicy::Never)
-                    .spawn()
-                    .await
-                );
-            }
-        }
-
-        // Auto-prune worker: regex-based tool call pruning.
-        {
-            use jinn_domain::feat::auto_prune_worker::RegexAutoPruneWorker;
-            use jinn_domain::feat::history_worker::actor::{
-                HistoryWorkerActor, HistoryWorkerActorDeps,
-            };
-            let regex_config = user_preferences_storage.read().auto_prune.regex.clone();
-
-            if regex_config.enabled && !regex_config.rules.is_empty() {
-                match RegexAutoPruneWorker::from_config(&regex_config) {
-                    Ok(worker) => {
-                        let _worker = spawn_tracked!(
-                            &services.bus,
-                            "history-regex",
-                            "HistoryWorker<RegexAutoPruneWorker>",
-                            HistoryWorkerActor::<RegexAutoPruneWorker>::supervise(
-                                &root,
-                                HistoryWorkerActorDeps {
-                                    deps: actor_deps.clone(),
-                                    worker,
-                                },
-                            )
-                            .restart_policy(kameo::supervision::RestartPolicy::Never)
-                            .spawn()
-                            .await
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(err=?e, "invalid regex in auto_prune config, skipping");
-                    }
-                }
-            } else {
-                tracing::debug!(
-                    enabled = regex_config.enabled,
-                    rules = regex_config.rules.len(),
-                    "regex auto-prune skipped",
-                );
-            }
-        }
-
-        // Auto-prune worker: todo tool call pruning.
-        {
-            use jinn_domain::feat::auto_prune_worker::TodoAutoPruneWorker;
-            use jinn_domain::feat::history_worker::actor::{
-                HistoryWorkerActor, HistoryWorkerActorDeps,
-            };
-
-            let config = user_preferences_storage.read().auto_prune.todo;
-
-            if config.enabled {
-                let _worker = spawn_tracked!(
-                    &services.bus,
-                    "history-todo",
-                    "HistoryWorker<TodoAutoPruneWorker>",
-                    HistoryWorkerActor::<TodoAutoPruneWorker>::supervise(
-                        &root,
-                        HistoryWorkerActorDeps {
-                            deps: actor_deps.clone(),
-                            worker: TodoAutoPruneWorker { config },
-                        },
-                    )
-                    .restart_policy(kameo::supervision::RestartPolicy::Never)
-                    .spawn()
-                    .await
-                );
-            }
-        }
-
-        // Auto-prune worker: broken-edit context pruning.
-        {
-            use jinn_domain::feat::auto_prune_worker::BrokenEditAutoPruneWorker;
-            use jinn_domain::feat::history_worker::actor::{
-                HistoryWorkerActor, HistoryWorkerActorDeps,
-            };
-
-            let config = user_preferences_storage.read().auto_prune.broken_edit;
-
-            if config.enabled {
-                let _worker = spawn_tracked!(
-                    &services.bus,
-                    "history-broken-edit",
-                    "HistoryWorker<BrokenEditAutoPruneWorker>",
-                    HistoryWorkerActor::<BrokenEditAutoPruneWorker>::supervise(
-                        &root,
-                        HistoryWorkerActorDeps {
-                            deps: actor_deps.clone(),
-                            worker: BrokenEditAutoPruneWorker { config },
-                        },
-                    )
-                    .restart_policy(kameo::supervision::RestartPolicy::Never)
-                    .spawn()
-                    .await
-                );
-            }
-        }
-
-        // Auto-prune worker: double-edit context pruning.
-        {
-            use jinn_domain::feat::auto_prune_worker::DoubleEditAutoPruneWorker;
-            use jinn_domain::feat::history_worker::actor::{
-                HistoryWorkerActor, HistoryWorkerActorDeps,
-            };
-
-            let config = user_preferences_storage.read().auto_prune.double_edit;
-
-            if config.enabled {
-                let _worker = spawn_tracked!(
-                    &services.bus,
-                    "history-double-edit",
-                    "HistoryWorker<DoubleEditAutoPruneWorker>",
-                    HistoryWorkerActor::<DoubleEditAutoPruneWorker>::supervise(
-                        &root,
-                        HistoryWorkerActorDeps {
-                            deps: actor_deps.clone(),
-                            worker: DoubleEditAutoPruneWorker { config },
-                        },
-                    )
-                    .restart_policy(kameo::supervision::RestartPolicy::Never)
-                    .spawn()
-                    .await
-                );
-            }
-        }
-
-        // Auto-prune worker: consecutive-reads per-file pruning.
-        {
-            use jinn_domain::feat::auto_prune_worker::ConsecutiveReadsAutoPruneWorker;
-            use jinn_domain::feat::history_worker::actor::{
-                HistoryWorkerActor, HistoryWorkerActorDeps,
-            };
-
-            let config = user_preferences_storage.read().auto_prune.consecutive_reads;
-
-            if config.enabled {
-                let _worker = spawn_tracked!(
-                    &services.bus,
-                    "history-consecutive-reads",
-                    "HistoryWorker<ConsecutiveReadsAutoPruneWorker>",
-                    HistoryWorkerActor::<ConsecutiveReadsAutoPruneWorker>::supervise(
-                        &root,
-                        HistoryWorkerActorDeps {
-                            deps: actor_deps.clone(),
-                            worker: ConsecutiveReadsAutoPruneWorker { config },
-                        },
-                    )
-                    .restart_policy(kameo::supervision::RestartPolicy::Never)
-                    .spawn()
-                    .await
-                );
-            }
-        }
-
-        // Auto-prune worker: tool-age-window context pruning.
-        {
-            use jinn_domain::feat::auto_prune_worker::ToolAgeWindowAutoPruneWorker;
-            use jinn_domain::feat::history_worker::actor::{
-                HistoryWorkerActor, HistoryWorkerActorDeps,
-            };
-
-            let config = user_preferences_storage.read().auto_prune.tool_age_window;
-
-            if config.enabled {
-                let _worker = spawn_tracked!(
-                    &services.bus,
-                    "history-tool-age-window",
-                    "HistoryWorker<ToolAgeWindowAutoPruneWorker>",
-                    HistoryWorkerActor::<ToolAgeWindowAutoPruneWorker>::supervise(
-                        &root,
-                        HistoryWorkerActorDeps {
-                            deps: actor_deps.clone(),
-                            worker: ToolAgeWindowAutoPruneWorker { config },
-                        },
-                    )
-                    .restart_policy(kameo::supervision::RestartPolicy::Never)
-                    .spawn()
-                    .await
-                );
-            }
-        }
-
-        // Auto-prune worker: trivial-assistant context pruning.
-        {
-            use jinn_domain::feat::auto_prune_worker::TrivialAssistantAutoPruneWorker;
-            use jinn_domain::feat::context::strategy::token_estimator::TiktokenCounter;
-            use jinn_domain::feat::history_worker::actor::{
-                HistoryWorkerActor, HistoryWorkerActorDeps,
-            };
-
-            let config = user_preferences_storage.read().auto_prune.trivial_assistant;
-
-            if config.enabled {
-                let _worker = spawn_tracked!(
-                    &services.bus,
-                    "history-trivial-assistant",
-                    "HistoryWorker<TrivialAssistantAutoPruneWorker>",
-                    HistoryWorkerActor::<TrivialAssistantAutoPruneWorker>::supervise(
-                        &root,
-                        HistoryWorkerActorDeps {
-                            deps: actor_deps.clone(),
-                            worker: TrivialAssistantAutoPruneWorker {
-                                config,
-                                token_cache: entry_token_cache.clone(),
-                                counter: TiktokenCounter::o200k_base(),
-                            },
-                        },
-                    )
-                    .restart_policy(kameo::supervision::RestartPolicy::Never)
-                    .spawn()
-                    .await
-                );
-            }
-        }
-
-        // Auto-prune worker: anchored-assistant context pruning.
-        {
-            use jinn_domain::feat::auto_prune_worker::AnchoredAssistantAutoPruneWorker;
-            use jinn_domain::feat::context::strategy::token_estimator::TiktokenCounter;
-            use jinn_domain::feat::history_worker::actor::{
-                HistoryWorkerActor, HistoryWorkerActorDeps,
-            };
-
-            let (config, trivial_max_tokens) = {
-                let prefs = user_preferences_storage.read();
-                let cfg = prefs.auto_prune.anchored_assistant.clone();
-                let max_tokens = prefs.auto_prune.trivial_assistant.max_tokens as u32;
-                (cfg, max_tokens)
-            };
-
-            if config.enabled {
-                let _worker = spawn_tracked!(
-                    &services.bus,
-                    "history-anchored-assistant",
-                    "HistoryWorker<AnchoredAssistantAutoPruneWorker>",
-                    HistoryWorkerActor::<AnchoredAssistantAutoPruneWorker>::supervise(
-                        &root,
-                        HistoryWorkerActorDeps {
-                            deps: actor_deps.clone(),
-                            worker: AnchoredAssistantAutoPruneWorker {
-                                radius: config.radius,
-                                config,
-                                min_candidate_tokens: trivial_max_tokens + 1,
-                                token_cache: entry_token_cache.clone(),
-                                counter: TiktokenCounter::o200k_base(),
-                            },
-                        },
-                    )
-                    .restart_policy(kameo::supervision::RestartPolicy::Never)
-                    .spawn()
-                    .await
-                );
-            }
-        }
+        // ── Context-curation slice ──────────────────────────────────
+        // Activation spawns the two curation troupers (the prune actor
+        // and the compaction actor) and stages their crossing routes.
+        // Must precede the session-actor spawn: the actors' subscriptions
+        // must exist before any `HistoryAppended` / `TriggerCompaction`
+        // publish. Strategy enablement is a construction-time gate — the
+        // disabled strategies never reach the actor.
+        jinn_context_curation_activate(
+            &mut services,
+            state.clone(),
+            &user_preferences_storage,
+            handle.clone(),
+            compaction_prompt,
+        );
 
         // Signal system readiness and trigger init chain.
         {
@@ -1254,6 +872,148 @@ fn jinn_token_count_activate(
         panic!("token-count slice finalize failed: {error}");
     }
     cache
+}
+
+/// Activates the context-curation slice: builds the config-gated prune
+/// strategy list, spawns the two curation troupers (prune + compaction),
+/// stages their crossing routes, and drains them.
+///
+/// Strategy enablement is a construction-time gate (the wiring shape the
+/// kameo spawns used) — a disabled strategy never reaches the prune
+/// actor. The regex strategy additionally skips when its rule list is
+/// empty or any rule fails to compile (warn-and-skip, never a launch
+/// failure).
+#[expect(
+    clippy::panic,
+    reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
+)]
+fn jinn_context_curation_activate(
+    services: &mut Services,
+    state: jinn_domain::common::state::State,
+    user_preferences_storage: &UserPreferencesStorageService,
+    handle: tokio::runtime::Handle,
+    compaction_prompt: String,
+) {
+    use jinn_context_curation::strategies::{
+        AnchoredAssistantAutoPruneWorker, BrokenEditAutoPruneWorker,
+        ConsecutiveReadsAutoPruneWorker, DoubleEditAutoPruneWorker, EditReadAutoPruneWorker,
+        ReadEditAutoPruneWorker, RegexAutoPruneWorker, TodoAutoPruneWorker,
+        ToolAgeWindowAutoPruneWorker, TrivialAssistantAutoPruneWorker,
+    };
+    use jinn_context_curation::worker::HistoryWorker;
+    use jinn_token_count_msg::HistoryWorkerChatEntryTokenCache;
+
+    let prefs = user_preferences_storage.read();
+    let auto_prune = prefs.auto_prune.clone();
+    let entry_token_cache = HistoryWorkerChatEntryTokenCache::default();
+    let counter =
+        jinn_domain::feat::context::strategy::token_estimator::TiktokenCounter::o200k_base();
+
+    let mut workers: Vec<Box<dyn HistoryWorker>> = Vec::new();
+
+    // Auto-prune worker: read→edit context pruning.
+    let config = auto_prune.read_edit.clone();
+    if config.enabled {
+        workers.push(Box::new(ReadEditAutoPruneWorker { config }));
+    }
+
+    // Auto-prune worker: edit→read context pruning.
+    let config = auto_prune.edit_read.clone();
+    if config.enabled {
+        workers.push(Box::new(EditReadAutoPruneWorker { config }));
+    }
+
+    // Auto-prune worker: regex-based tool call pruning.
+    let regex_config = auto_prune.regex.clone();
+    if regex_config.enabled && !regex_config.rules.is_empty() {
+        match RegexAutoPruneWorker::from_config(&regex_config) {
+            Ok(worker) => workers.push(Box::new(worker)),
+            Err(e) => {
+                tracing::warn!(err=?e, "invalid regex in auto_prune config, skipping");
+            }
+        }
+    } else {
+        tracing::debug!(
+            enabled = regex_config.enabled,
+            rules = regex_config.rules.len(),
+            "regex auto-prune skipped",
+        );
+    }
+
+    // Auto-prune worker: todo tool call pruning.
+    let config = auto_prune.todo.clone();
+    if config.enabled {
+        workers.push(Box::new(TodoAutoPruneWorker { config }));
+    }
+
+    // Auto-prune worker: broken-edit context pruning.
+    let config = auto_prune.broken_edit.clone();
+    if config.enabled {
+        workers.push(Box::new(BrokenEditAutoPruneWorker { config }));
+    }
+
+    // Auto-prune worker: double-edit context pruning.
+    let config = auto_prune.double_edit.clone();
+    if config.enabled {
+        workers.push(Box::new(DoubleEditAutoPruneWorker { config }));
+    }
+
+    // Auto-prune worker: consecutive-reads per-file pruning.
+    let config = auto_prune.consecutive_reads.clone();
+    if config.enabled {
+        workers.push(Box::new(ConsecutiveReadsAutoPruneWorker { config }));
+    }
+
+    // Auto-prune worker: tool-age-window context pruning.
+    let config = auto_prune.tool_age_window.clone();
+    if config.enabled {
+        workers.push(Box::new(ToolAgeWindowAutoPruneWorker { config }));
+    }
+
+    // Auto-prune worker: trivial-assistant context pruning.
+    let trivial_config = auto_prune.trivial_assistant.clone();
+    if trivial_config.enabled {
+        workers.push(Box::new(TrivialAssistantAutoPruneWorker {
+            config: trivial_config,
+            token_cache: entry_token_cache.clone(),
+            counter: counter.clone(),
+        }));
+    }
+
+    // Auto-prune worker: anchored-assistant context pruning (its
+    // candidate floor derives from the trivial-assistant max-tokens).
+    let anchored_config = auto_prune.anchored_assistant.clone();
+    let trivial_max_tokens = auto_prune.trivial_assistant.max_tokens as u32;
+    if anchored_config.enabled {
+        workers.push(Box::new(AnchoredAssistantAutoPruneWorker {
+            radius: anchored_config.radius,
+            config: anchored_config,
+            min_candidate_tokens: trivial_max_tokens + 1,
+            token_cache: entry_token_cache.clone(),
+            counter,
+        }));
+    }
+    drop(prefs);
+
+    let compaction_deps = jinn_context_curation::compaction_actor::CompactionActorDeps {
+        services: services.clone(),
+        state: state.clone(),
+        handle,
+        compaction_prompt,
+    };
+
+    let mut host = jinn_slices::SliceHost::new(
+        &services.slices,
+        &mut services.viewport,
+        &services.overlay_views,
+        &services.key_routes,
+        &services.trouper_system,
+    );
+    jinn_context_curation::activate(&mut host, workers, compaction_deps);
+    let staged = host.finalize(&|_key| None);
+    if let Err(error) = staged {
+        panic!("context-curation slice finalize failed: {error}");
+    }
 }
 
 fn jinn_persona_activate(services: &mut Services) -> jinn_persona_msg::Personas {

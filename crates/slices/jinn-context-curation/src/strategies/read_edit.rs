@@ -21,17 +21,17 @@
 //! The [`EditReadAutoPruneWorker`] handles the reverse direction (pruning old
 //! edits when a file is re-read).
 //!
-//! [`ForcedExclude`]: crate::protocol::ContextOverride::ForcedExclude
+//! [`ForcedExclude`]: jinn_core_types::ContextOverride::ForcedExclude
 //! [`EditReadAutoPruneWorker`]: super::edit_read::EditReadAutoPruneWorker
 
 use std::sync::Arc;
 
 pub use jinn_preferences_config::schemas::auto_prune::ReadEditAutoPruneConfig;
 
-use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::HistoryMutation;
-use crate::protocol::SessionId;
-use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
+use crate::worker::HistoryWorker;
+use jinn_core_types::HistoryMutation;
+use jinn_core_types::SessionId;
+use jinn_core_types::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
 
 use super::edit_read::{extract_path_from_arguments, find_matching_result, is_modify_tool};
 use super::is_within_min_age;
@@ -85,7 +85,7 @@ fn count_subsequent_modifications(
 /// file. Once the count reaches `config.threshold`, the read call+result are marked
 /// [`ForcedExclude`] — the file has changed enough that the read contents are stale.
 ///
-/// [`ForcedExclude`]: crate::protocol::ContextOverride::ForcedExclude
+/// [`ForcedExclude`]: jinn_core_types::ContextOverride::ForcedExclude
 #[derive(Clone)]
 pub struct ReadEditAutoPruneWorker {
     /// Configuration for the read-edit auto-prune strategy.
@@ -145,7 +145,7 @@ impl HistoryWorker for ReadEditAutoPruneWorker {
 
             let result_protected = history
                 .get(result_idx)
-                .is_some_and(crate::protocol::ChatEntry::is_protected_from_prune);
+                .is_some_and(jinn_core_types::ChatEntry::is_protected_from_prune);
 
             // Count how many edit/write calls to the same file appear after
             // this read. Once the threshold is reached, the read is stale.
@@ -196,9 +196,9 @@ mod tests {
     )]
 
     use super::*;
-    use crate::protocol::ChatEntry;
-    use crate::protocol::SessionId;
-    use crate::protocol::ToolResultStatus;
+    use jinn_core_types::ChatEntry;
+    use jinn_core_types::SessionId;
+    use jinn_core_types::ToolResultStatus;
 
     /// Helper: create a read ToolCall + ToolResult pair.
     fn read_call_result(call_id: &str, path: &str, content: &str) -> [ChatEntry; 2] {
@@ -262,7 +262,7 @@ mod tests {
     }
 
     /// Collect mutation entry IDs from a list of mutations.
-    fn mutation_ids(mutations: &[HistoryMutation]) -> Vec<crate::protocol::ChatEntryId> {
+    fn mutation_ids(mutations: &[HistoryMutation]) -> Vec<jinn_core_types::ChatEntryId> {
         mutations
             .iter()
             .filter_map(|m| match m {

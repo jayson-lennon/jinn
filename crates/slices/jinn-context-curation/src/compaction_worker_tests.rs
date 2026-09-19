@@ -17,16 +17,16 @@ use std::sync::Arc;
 
 use jinn_provider::RetryConfig;
 
-use crate::common::app_state::AppState;
-use crate::common::services::test_services::TestServices;
-use crate::common::state::State;
-use crate::feat::compaction_worker::worker::{CompactionTrigger, CompactionWorker};
-use crate::feat::provider_infra::{FakeLlmServiceFactory, LlmServiceFactoryService};
-use crate::feat::session::chat_session::ChatSessionState;
-use crate::protocol::HistoryMutation;
-use crate::protocol::SessionId;
-use crate::protocol::{ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
+use crate::compaction_worker::{CompactionTrigger, CompactionWorker};
+use jinn_core_types::HistoryMutation;
+use jinn_core_types::SessionId;
 use jinn_core_types::model_selection::ModelSelection;
+use jinn_core_types::{ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
+use jinn_domain::common::app_state::AppState;
+use jinn_domain::common::services::test_services::TestServices;
+use jinn_domain::common::state::State;
+use jinn_domain::feat::provider_infra::{FakeLlmServiceFactory, LlmServiceFactoryService};
+use jinn_domain::feat::session::chat_session::ChatSessionState;
 use jinn_preferences_config::schemas::CompactionConfig;
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ fn alternating_history(turns: usize) -> Vec<ChatEntry> {
 fn compaction_entry(summary: &str) -> ChatEntry {
     ChatEntry {
         id: ChatEntryId::new(),
-        timing: crate::protocol::EntryTiming::instant_now(),
+        timing: jinn_core_types::EntryTiming::instant_now(),
         kind: ChatEntryKind::Compaction {
             summary: summary.to_owned(),
             tokens_before: 100,
@@ -114,7 +114,7 @@ fn test_worker(summary_text: &str) -> CompactionWorker {
         services,
         handle,
         State::new(AppState::default()),
-        crate::common::tcaps::mint::mint_session_cap(),
+        jinn_domain::common::tcaps::mint::mint_session_cap(),
         String::new(),
     )
 }
@@ -148,7 +148,7 @@ fn test_worker_with_session(
         services,
         handle,
         state,
-        crate::common::tcaps::mint::mint_session_cap(),
+        jinn_domain::common::tcaps::mint::mint_session_cap(),
         String::new(),
     );
 
@@ -234,7 +234,7 @@ fn compaction_passes_prompt_explicitly_not_in_message_array() {
         services,
         handle,
         State::new(AppState::default()),
-        crate::common::tcaps::mint::mint_session_cap(),
+        jinn_domain::common::tcaps::mint::mint_session_cap(),
         String::new(),
     );
     let history = alternating_history(20);
@@ -603,7 +603,7 @@ fn session_continues_after_background_compaction() {
         services,
         handle,
         state,
-        crate::common::tcaps::mint::mint_session_cap(),
+        jinn_domain::common::tcaps::mint::mint_session_cap(),
         String::new(),
     );
 
@@ -630,7 +630,7 @@ fn session_continues_after_background_compaction() {
     let session = guard.session(&session_id);
     assert_eq!(
         session.phase(),
-        crate::feat::session::phase_machine::PhaseKind::Sending,
+        jinn_domain::feat::session::phase_machine::PhaseKind::Sending,
         "session should remain in Sending phase after background compaction"
     );
 }
@@ -672,8 +672,8 @@ fn threshold_uses_fresh_history_not_stale_context_size() {
 // whether to compact. They go through the HistoryWorker trait's evaluate()
 // method which delegates to evaluate_history.
 
-use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::feat::provider_infra::ModelCache;
+use crate::worker::HistoryWorker;
+use jinn_domain::feat::provider_infra::ModelCache;
 use jinn_provider::{InputModalities, ModelInfo};
 
 /// Builder for constructing a test environment with full control over
@@ -746,7 +746,7 @@ impl ThresholdTestEnv {
             services,
             handle,
             self.state.clone(),
-            crate::common::tcaps::mint::mint_session_cap(),
+            jinn_domain::common::tcaps::mint::mint_session_cap(),
             String::new(),
         )
     }
@@ -1267,7 +1267,7 @@ fn gate_passes_but_nothing_to_compact_with_empty_history() {
         services,
         handle,
         state,
-        crate::common::tcaps::mint::mint_session_cap(),
+        jinn_domain::common::tcaps::mint::mint_session_cap(),
         String::new(),
     );
 
@@ -1588,7 +1588,7 @@ fn error_clears_flag_and_allows_retry() {
         services,
         handle,
         state,
-        crate::common::tcaps::mint::mint_session_cap(),
+        jinn_domain::common::tcaps::mint::mint_session_cap(),
         String::new(),
     );
 

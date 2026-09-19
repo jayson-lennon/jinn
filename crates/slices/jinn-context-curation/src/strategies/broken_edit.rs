@@ -21,18 +21,18 @@
 //!    [Tool Result] (OK): edit applied
 //!    [Assistant]: I've fixed the bug.
 //!
-//! [`ForcedExclude`]: crate::protocol::ContextOverride::ForcedExclude
+//! [`ForcedExclude`]: jinn_core_types::ContextOverride::ForcedExclude
 
 use std::sync::Arc;
 
 pub use jinn_preferences_config::schemas::auto_prune::BrokenEditAutoPruneConfig;
 
-use crate::feat::auto_prune_worker::is_within_min_age;
-use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::HistoryMutation;
-use crate::protocol::SessionId;
-use crate::protocol::ToolResultStatus;
-use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
+use super::min_age::is_within_min_age;
+use crate::worker::HistoryWorker;
+use jinn_core_types::HistoryMutation;
+use jinn_core_types::SessionId;
+use jinn_core_types::ToolResultStatus;
+use jinn_core_types::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
 
 /// Default minimum age for broken-edit auto-prune.
 /// Default enabled state for broken-edit auto-prune.
@@ -60,7 +60,7 @@ fn find_failed_edit_result(
     history: &[ChatEntry],
     call_idx: usize,
     tool_call_id: &str,
-) -> Option<(crate::protocol::ChatEntryId, ToolResultStatus)> {
+) -> Option<(jinn_core_types::ChatEntryId, ToolResultStatus)> {
     // ToolResults appear after their ToolCall, so scan forward only.
     for entry in history.iter().skip(call_idx + 1) {
         if let ChatEntryKind::ToolResult { id, status, .. } = &entry.kind
@@ -169,9 +169,9 @@ mod tests {
     )]
 
     use super::*;
-    use crate::protocol::ChatEntry;
-    use crate::protocol::SessionId;
-    use crate::protocol::ToolResultStatus;
+    use jinn_core_types::ChatEntry;
+    use jinn_core_types::SessionId;
+    use jinn_core_types::ToolResultStatus;
 
     /// Helper: create a failed edit ToolCall + ToolResult pair.
     fn failed_edit_call_result(call_id: &str, path: &str, error_msg: &str) -> [ChatEntry; 2] {

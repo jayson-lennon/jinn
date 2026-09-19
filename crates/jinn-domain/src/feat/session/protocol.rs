@@ -3,7 +3,6 @@
 pub mod archive_session;
 pub mod archive_session_tree;
 pub mod close_session;
-pub mod history_snapshot_ready;
 pub mod load_session_picker_entries;
 pub mod mark_session_interacted;
 pub mod retry_stalled_session;
@@ -41,7 +40,6 @@ pub mod session_phase_changed {
     pub use jinn_session_msg::SessionPhaseChanged;
 }
 pub mod teardown_session_tree;
-pub mod trigger_compaction;
 pub mod user_interacted;
 
 pub use archive_session::ArchiveSession;

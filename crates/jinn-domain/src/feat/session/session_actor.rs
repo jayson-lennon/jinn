@@ -79,7 +79,7 @@ pub struct SessionPersistenceActor {
     counter: TiktokenCounter,
     /// Auto-pruner entry token cache, shared with the prune workers. Used by the
     /// accumulation gate's token-cost resolver (cache hit is the common path).
-    token_cache: crate::feat::auto_prune_worker::HistoryWorkerChatEntryTokenCache,
+    token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache,
     /// Registry of builtin lifecycle handlers.
     builtin_registry: crate::feat::session_lifecycle::builtin::BuiltinRegistry,
     /// Shell captured at startup for running lifecycle commands.
@@ -108,7 +108,7 @@ pub struct SessionPersistenceActorDeps {
     pub frontend_cap: crate::common::tcaps::frontend::FrontendCap,
     pub counter: TiktokenCounter,
     /// Auto-pruner entry token cache for the accumulation gate.
-    pub token_cache: crate::feat::auto_prune_worker::HistoryWorkerChatEntryTokenCache,
+    pub token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache,
     pub builtin_registry: crate::feat::session_lifecycle::builtin::BuiltinRegistry,
     pub shell: String,
     pub image_converter: crate::feat::image_convert::ImageConverterService,

@@ -17,18 +17,18 @@ use jinn_provider::{NoOpOnRetry, RetryingLlmService};
 use tokio::runtime::Handle;
 use wherror::Error;
 
-use crate::common::services::Services;
-use crate::common::state::State;
-use crate::feat::compaction_worker::algorithm::{
+use crate::compaction_algorithm::{
     adjust_cut_to_boundary, compute_cut_index, find_start_boundary, gather_compactable_entries,
 };
-use crate::feat::compaction_worker::serializer::serialize_entries_for_compaction;
-use crate::feat::context::strategy::token_estimator::{CharRatioEstimator, TokenEstimator};
+use crate::compaction_serializer::serialize_entries_for_compaction;
+use jinn_domain::common::services::Services;
+use jinn_domain::common::state::State;
+use jinn_domain::feat::context::strategy::token_estimator::{CharRatioEstimator, TokenEstimator};
 
-use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::HistoryMutation;
-use crate::protocol::SessionId;
-use crate::protocol::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
+use crate::worker::HistoryWorker;
+use jinn_core_types::HistoryMutation;
+use jinn_core_types::SessionId;
+use jinn_core_types::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 use jinn_preferences_config::schemas::CompactionConfig;
 
 /// Errors during compaction.
@@ -64,7 +64,7 @@ pub struct CompactionWorker {
     /// Shared application state (for reading session history).
     state: State,
     /// Proof of authority to write session state (model round-robin advance).
-    cap: crate::common::tcaps::SessionCap,
+    cap: jinn_domain::common::tcaps::SessionCap,
     /// The compaction system prompt loaded once at startup.
     compaction_prompt: String,
     /// Sessions with an auto-compaction currently in flight.
@@ -91,7 +91,7 @@ impl CompactionWorker {
         services: Services,
         handle: Handle,
         state: State,
-        cap: crate::common::tcaps::SessionCap,
+        cap: jinn_domain::common::tcaps::SessionCap,
         compaction_prompt: String,
     ) -> Self {
         Self {
@@ -190,8 +190,9 @@ impl CompactionWorker {
         let (config, compaction_prompt, retry_config) = {
             let config = prefs.compaction.clone();
             let compaction_prompt = self.compaction_prompt.clone();
-            let retry_config =
-                crate::feat::provider_infra::request_retry_to_provider_config(&prefs.request_retry);
+            let retry_config = jinn_domain::feat::provider_infra::request_retry_to_provider_config(
+                &prefs.request_retry,
+            );
             (config, compaction_prompt, retry_config)
         };
 
@@ -260,8 +261,9 @@ impl CompactionWorker {
             };
             let model_name = session.profile().model.clone();
             let compaction_prompt = self.compaction_prompt.clone();
-            let retry_config =
-                crate::feat::provider_infra::request_retry_to_provider_config(&prefs.request_retry);
+            let retry_config = jinn_domain::feat::provider_infra::request_retry_to_provider_config(
+                &prefs.request_retry,
+            );
 
             // Uses the exact same values displayed in the status bar:
             //   - context_size() = tiktoken count from last prompt assembly
@@ -456,7 +458,7 @@ impl CompactionWorker {
         let tokens_after = CharRatioEstimator.estimate(&summary);
         let compaction_entry = ChatEntry::new_with_kind(
             compaction_entry_id,
-            crate::protocol::EntryTiming::instant_now(),
+            jinn_core_types::EntryTiming::instant_now(),
             ChatEntryKind::Compaction {
                 summary,
                 tokens_before,
@@ -484,7 +486,7 @@ impl CompactionWorker {
 /// Mirrors the same lookup used by the status bar display so the compaction
 /// threshold gate and the status bar percentage are always consistent.
 fn resolve_context_limit(
-    model_cache: Option<&crate::feat::provider_infra::ModelCache>,
+    model_cache: Option<&jinn_domain::feat::provider_infra::ModelCache>,
     active_model: &str,
 ) -> Option<u32> {
     let cache = model_cache?;
@@ -528,7 +530,7 @@ async fn generate_summary(
     let model_id = config.model.as_deref().unwrap_or(session_model);
 
     // Create LLM service via provider registry.
-    let provider_id = crate::feat::provider_infra::ProviderId::from(model_id.to_owned());
+    let provider_id = jinn_domain::feat::provider_infra::ProviderId::from(model_id.to_owned());
     let service: Box<dyn LlmService> = {
         let api_keys = services.api_keys.read();
         services
@@ -628,4 +630,5 @@ async fn generate_summary(
 }
 
 #[cfg(test)]
+#[path = "compaction_worker_tests.rs"]
 mod worker_tests;

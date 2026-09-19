@@ -29,6 +29,7 @@ jinn-common = { workspace = true }
 jinn-core-types = { workspace = true }
 jinn-session-history = { workspace = true }
 jinn-session-history-msg = { workspace = true }
+jinn-context-curation-msg = { workspace = true }
 jinn-skills = { workspace = true }
 jinn-skills-msg = { workspace = true }
 jinn-tools-msg = { workspace = true }
@@ -107,6 +108,7 @@ trouper = { workspace = true }
 rusqlite = { workspace = true }
 [dev-dependencies]
 jinn-context-assembly = { workspace = true }
+jinn-context-curation = { workspace = true }
 wasm-encoder = { workspace = true }
 indoc = "2"
 rstest = { workspace = true }

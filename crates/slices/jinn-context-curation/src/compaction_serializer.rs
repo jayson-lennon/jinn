@@ -5,7 +5,7 @@
 //! entirely to prevent the model from fixating on invocation noise or code/output
 //! instead of producing narrative summaries.
 
-use crate::protocol::{ChatEntry, ChatEntryKind};
+use jinn_core_types::{ChatEntry, ChatEntryKind};
 /// Serialize a slice of chat entries into labeled text.
 ///
 /// Each entry produces one or more labeled lines:
@@ -90,7 +90,7 @@ mod tests {
             "id1",
             "bash",
             &long_content,
-            crate::protocol::ToolResultStatus::Success,
+            jinn_core_types::ToolResultStatus::Success,
         )];
         let result = serialize_entries_for_compaction(&entries);
         assert!(result.is_empty());
@@ -123,7 +123,7 @@ mod tests {
                 "id1",
                 "bash",
                 "file.rs",
-                crate::protocol::ToolResultStatus::Success,
+                jinn_core_types::ToolResultStatus::Success,
             ),
             ChatEntry::assistant("done"),
         ];
@@ -148,7 +148,7 @@ mod tests {
             "id1",
             "bash",
             &content,
-            crate::protocol::ToolResultStatus::Success,
+            jinn_core_types::ToolResultStatus::Success,
         )];
 
         // When serializing for compaction.
@@ -168,7 +168,7 @@ mod tests {
             "id1",
             "bash",
             &content,
-            crate::protocol::ToolResultStatus::Success,
+            jinn_core_types::ToolResultStatus::Success,
         )];
 
         // When serializing for compaction.
@@ -186,7 +186,7 @@ mod tests {
             "id1",
             "bash",
             "sensitive output that should never reach the LLM",
-            crate::protocol::ToolResultStatus::Success,
+            jinn_core_types::ToolResultStatus::Success,
         )];
 
         // When serializing.

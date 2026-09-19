@@ -41,17 +41,17 @@
 //!    [Assistant]             ← index 7 (kept, age 0)
 //! ```
 //!
-//! [`ForcedExclude`]: crate::protocol::ContextOverride::ForcedExclude
+//! [`ForcedExclude`]: jinn_core_types::ContextOverride::ForcedExclude
 
 use std::sync::Arc;
 
 pub use jinn_preferences_config::schemas::auto_prune::ToolAgeWindowAutoPruneConfig;
 
-use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::HistoryMutation;
-use crate::protocol::SessionId;
-use crate::protocol::ToolResultStatus;
-use crate::protocol::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
+use crate::worker::HistoryWorker;
+use jinn_core_types::HistoryMutation;
+use jinn_core_types::SessionId;
+use jinn_core_types::ToolResultStatus;
+use jinn_core_types::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 
 /// Default enabled state for tool-age-window auto-prune.
 /// Default `min_age` for tool-age-window auto-prune.
@@ -263,9 +263,9 @@ mod tests {
     )]
 
     use super::*;
-    use crate::protocol::ChatEntry;
-    use crate::protocol::SessionId;
-    use crate::protocol::ToolResultStatus;
+    use jinn_core_types::ChatEntry;
+    use jinn_core_types::SessionId;
+    use jinn_core_types::ToolResultStatus;
 
     /// Build a worker with the given `min_age` (enabled = true).
     fn worker(min_age: usize) -> ToolAgeWindowAutoPruneWorker {

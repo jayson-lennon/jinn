@@ -70,6 +70,8 @@ path = "src/lib.rs"
 [dependencies]
 jinn-persona = { workspace = true }
 jinn-token-count = { workspace = true }
+jinn-context-curation = { workspace = true }
+jinn-context-curation-msg = { workspace = true }
 jinn-turn-dispatch = { workspace = true }
 jinn-inference = { workspace = true }
 jinn-mcp-slice = { workspace = true }
@@ -233,6 +235,8 @@ jinn-skills = { path = "crates/slices/jinn-skills" }
 jinn-skills-msg = { path = "crates/slices/jinn-skills-msg" }
 jinn-inference-msg = { path = "crates/slices/jinn-inference-msg" }
 jinn-inference = { path = "crates/slices/jinn-inference" }
+jinn-context-curation-msg = { path = "crates/slices/jinn-context-curation-msg" }
+jinn-context-curation = { path = "crates/slices/jinn-context-curation" }
 jinn-mcp-msg = { path = "crates/slices/jinn-mcp-msg" }
 jinn-context-assembly = { path = "crates/slices/jinn-context-assembly" }
 jinn-plugin-api = { path = "crates/jinn-plugin-api" }

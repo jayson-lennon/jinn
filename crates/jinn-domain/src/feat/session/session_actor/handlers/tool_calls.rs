@@ -463,8 +463,7 @@ mod tests {
                 cap: crate::common::tcaps::mint::mint_session_cap(),
                 frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
                 counter: TiktokenCounter::o200k_base(),
-                token_cache:
-                    crate::feat::auto_prune_worker::HistoryWorkerChatEntryTokenCache::default(),
+                token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
                 builtin_registry: BuiltinRegistry::new(),
                 shell: "/bin/sh".to_owned(),
                 image_converter: crate::feat::image_convert::ImageConverterService::unavailable(),
@@ -546,8 +545,7 @@ mod tests {
                 cap: crate::common::tcaps::mint::mint_session_cap(),
                 frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
                 counter: TiktokenCounter::o200k_base(),
-                token_cache:
-                    crate::feat::auto_prune_worker::HistoryWorkerChatEntryTokenCache::default(),
+                token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
                 builtin_registry: BuiltinRegistry::new(),
                 shell: "/bin/sh".to_owned(),
                 image_converter: crate::feat::image_convert::ImageConverterService::unavailable(),
@@ -702,8 +700,7 @@ mod tests {
                     cap: crate::common::tcaps::mint::mint_session_cap(),
                     frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
                     counter: TiktokenCounter::o200k_base(),
-                    token_cache:
-                        crate::feat::auto_prune_worker::HistoryWorkerChatEntryTokenCache::default(),
+                    token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
                     builtin_registry: BuiltinRegistry::new(),
                     shell: "/bin/sh".to_owned(),
                     image_converter: crate::feat::image_convert::ImageConverterService::unavailable(

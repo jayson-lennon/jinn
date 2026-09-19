@@ -12,14 +12,14 @@
 //! end of history are never pruned. With `min_age = 0` no pair is protected
 //! (back-compat baseline).
 //!
-//! [`ForcedExclude`]: crate::protocol::ContextOverride::ForcedExclude
+//! [`ForcedExclude`]: jinn_core_types::ContextOverride::ForcedExclude
 
-use crate::feat::auto_prune_worker::is_within_min_age;
+use super::min_age::is_within_min_age;
 
-use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::HistoryMutation;
-use crate::protocol::SessionId;
-use crate::protocol::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
+use crate::worker::HistoryWorker;
+use jinn_core_types::HistoryMutation;
+use jinn_core_types::SessionId;
+use jinn_core_types::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 pub use jinn_preferences_config::schemas::auto_prune::{RegexAutoPruneConfig, RegexPruneRule};
 
 /// Default regex prune rule tool name.
@@ -291,9 +291,9 @@ mod tests {
     )]
 
     use super::*;
-    use crate::protocol::SessionId;
-    use crate::protocol::ToolResultStatus;
-    use crate::protocol::{ChangeSource, ChatEntry, ContextOverride};
+    use jinn_core_types::SessionId;
+    use jinn_core_types::ToolResultStatus;
+    use jinn_core_types::{ChangeSource, ChatEntry, ContextOverride};
 
     /// Helper: create a bash ToolCall + ToolResult pair.
     fn bash_call_result(call_id: &str, command: &str, output: &str) -> [ChatEntry; 2] {
@@ -881,7 +881,7 @@ mod tests {
         );
     }
 
-    use crate::common::app_info::PREFS_FILE_NAME;
+    use jinn_domain::common::app_info::PREFS_FILE_NAME;
     use jinn_preferences_config::load_preferences_from;
     use jinn_preferences_config::schemas::auto_prune::{
         default_regex_keep_last, default_regex_min_age, default_regex_tool_name,

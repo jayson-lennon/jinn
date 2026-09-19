@@ -40,7 +40,7 @@
 //! evaluations and concurrent workers (e.g., `AnchoredAssistantAutoPruneWorker`)
 //! hit the cache.
 //!
-//! [`HistoryWorkerChatEntryTokenCache::get_or_insert_with`]: crate::feat::auto_prune_worker::HistoryWorkerChatEntryTokenCache::get_or_insert_with
+//! [`HistoryWorkerChatEntryTokenCache::get_or_insert_with`]: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::get_or_insert_with
 //!
 //! # Safety: pruning `Assistant` is unconditionally safe
 //!
@@ -66,12 +66,13 @@ use std::sync::Arc;
 
 pub use jinn_preferences_config::schemas::auto_prune::TrivialAssistantAutoPruneConfig;
 
-use crate::feat::auto_prune_worker::{HistoryWorkerChatEntryTokenCache, is_within_min_age};
-use crate::feat::context::strategy::token_estimator::{TiktokenCounter, TokenCounter};
-use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::HistoryMutation;
-use crate::protocol::SessionId;
-use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
+use super::min_age::is_within_min_age;
+use crate::worker::HistoryWorker;
+use jinn_core_types::HistoryMutation;
+use jinn_core_types::SessionId;
+use jinn_core_types::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
+use jinn_domain::feat::context::strategy::token_estimator::{TiktokenCounter, TokenCounter};
+use jinn_token_count_msg::HistoryWorkerChatEntryTokenCache;
 
 /// Default enabled state for trivial-assistant auto-prune.
 /// Default minimum age for trivial-assistant auto-prune.
@@ -242,8 +243,8 @@ mod tests {
     )]
 
     use super::*;
-    use crate::protocol::ChatEntry;
-    use crate::protocol::SessionId;
+    use jinn_core_types::ChatEntry;
+    use jinn_core_types::SessionId;
 
     /// Build a worker with the given thresholds (enabled = true).
     fn worker(min_age: usize, max_tokens: usize) -> TrivialAssistantAutoPruneWorker {
@@ -258,7 +259,7 @@ mod tests {
         }
     }
 
-    use crate::protocol::ChatEntryId;
+    use jinn_core_types::ChatEntryId;
 
     /// Build N plain user entries (all in-context).
     fn users(n: usize) -> Vec<ChatEntry> {
@@ -757,7 +758,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn pinned_trivial_assistant_outside_window_is_not_pruned() {
-        use crate::protocol::PinPosition;
+        use jinn_core_types::PinPosition;
         let w = worker(100, 80);
         let mut asst = trivial_assistant("done");
         asst.pin_position = Some(PinPosition::Top);
@@ -790,7 +791,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn anchored_assistant_worker_reads_external_cache_writes() {
-        use crate::feat::auto_prune_worker::anchored_assistant::AnchoredAssistantAutoPruneWorker;
+        use crate::strategies::anchored_assistant::AnchoredAssistantAutoPruneWorker;
         use jinn_preferences_config::schemas::auto_prune::AnchoredAssistantAutoPruneConfig;
 
         let shared_cache = HistoryWorkerChatEntryTokenCache::new();

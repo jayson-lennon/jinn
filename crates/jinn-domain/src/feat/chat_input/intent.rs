@@ -429,12 +429,10 @@ fn execute_slash_command(
         SlashCommand::Compact | SlashCommand::CompactAll => {
             let compact_all = matches!(command, SlashCommand::CompactAll);
             let session_id = state.session.active_session_id().clone();
-            IntentResult::new_message(
-                crate::feat::session::protocol::trigger_compaction::TriggerCompaction {
-                    session_id,
-                    compact_all,
-                },
-            )
+            IntentResult::new_message(jinn_context_curation_msg::TriggerCompaction {
+                session_id,
+                compact_all,
+            })
         }
         SlashCommand::New => crate::feat::session::intent::handle_session_new(state),
     }

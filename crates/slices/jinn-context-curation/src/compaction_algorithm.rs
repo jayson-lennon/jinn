@@ -2,9 +2,9 @@
 //!
 //! Extracted from the old `CompactionActor` for reuse by `CompactionWorker`.
 
-use crate::feat::context::strategy::token_estimator::CharRatioEstimator;
-use crate::feat::context::strategy::token_estimator::estimate_entry_tokens;
-use crate::protocol::{ChatEntry, ChatEntryKind};
+use jinn_core_types::{ChatEntry, ChatEntryKind};
+use jinn_domain::feat::context::strategy::token_estimator::CharRatioEstimator;
+use jinn_domain::feat::context::strategy::token_estimator::estimate_entry_tokens;
 
 /// Whether a chat entry kind is a self-sufficient opener for the kept
 /// (recent) region after compaction.
@@ -250,7 +250,7 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::protocol::{ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
+    use jinn_core_types::{ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 
     #[rstest::rstest]
     #[test]
@@ -265,7 +265,7 @@ mod tests {
             "tc",
             "bash",
             "out",
-            crate::protocol::ToolResultStatus::Success,
+            jinn_core_types::ToolResultStatus::Success,
         );
         let actor = ChatEntry::actor("src", "text");
         let thinking = ChatEntry::thinking("reasoning");
@@ -273,7 +273,7 @@ mod tests {
         let error = ChatEntry::error("boom");
         let compaction = ChatEntry {
             id: ChatEntryId::new(),
-            timing: crate::protocol::EntryTiming::instant_now(),
+            timing: jinn_core_types::EntryTiming::instant_now(),
             kind: ChatEntryKind::Compaction {
                 summary: "summary".to_owned(),
                 tokens_before: 0,
@@ -344,7 +344,7 @@ mod tests {
             ChatEntry::user("hello"),
             ChatEntry {
                 id: ChatEntryId::new(),
-                timing: crate::protocol::EntryTiming::instant_now(),
+                timing: jinn_core_types::EntryTiming::instant_now(),
                 kind: ChatEntryKind::Compaction {
                     summary: "summary1".to_owned(),
                     tokens_before: 0,
@@ -401,7 +401,7 @@ mod tests {
                 "tc1",
                 "bash",
                 "file.txt",
-                crate::protocol::ToolResultStatus::Success,
+                jinn_core_types::ToolResultStatus::Success,
             ),
             ChatEntry::assistant("here is the result"),
             ChatEntry::tool_call("tc2", "read", r#"{"path":"file.txt"}"#),
@@ -435,7 +435,7 @@ mod tests {
                 "tc1",
                 "bash",
                 "file.txt",
-                crate::protocol::ToolResultStatus::Success,
+                jinn_core_types::ToolResultStatus::Success,
             ),
             ChatEntry::assistant("done"),
         ];
@@ -465,7 +465,7 @@ mod tests {
                 "tc1",
                 "bash",
                 "out",
-                crate::protocol::ToolResultStatus::Success,
+                jinn_core_types::ToolResultStatus::Success,
             ),
             ChatEntry::user("next"),
         ];
@@ -492,7 +492,7 @@ mod tests {
                 "tc1",
                 "bash",
                 "out",
-                crate::protocol::ToolResultStatus::Success,
+                jinn_core_types::ToolResultStatus::Success,
             ), // <- cut lands here (index 3)
             ChatEntry::user("next"),
         ];
@@ -521,7 +521,7 @@ mod tests {
                 "tc1",
                 "bash",
                 "out",
-                crate::protocol::ToolResultStatus::Success,
+                jinn_core_types::ToolResultStatus::Success,
             ),
             ChatEntry::user("next"),
         ];
@@ -588,7 +588,7 @@ mod tests {
                 "tc1",
                 "bash",
                 "out",
-                crate::protocol::ToolResultStatus::Success,
+                jinn_core_types::ToolResultStatus::Success,
             ),
         ];
 

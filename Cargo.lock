@@ -2372,6 +2372,8 @@ dependencies = [
  "jinn-chat-log-view-msg",
  "jinn-cli",
  "jinn-context-assembly",
+ "jinn-context-curation",
+ "jinn-context-curation-msg",
  "jinn-cwd",
  "jinn-cwd-msg",
  "jinn-dashboard",
@@ -2530,6 +2532,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "jinn-context-curation"
+version = "0.118.0"
+dependencies = [
+ "async-trait",
+ "error-stack",
+ "futures",
+ "jinn-context-curation-msg",
+ "jinn-core-types",
+ "jinn-domain",
+ "jinn-preferences-config",
+ "jinn-provider",
+ "jinn-session-history-msg",
+ "jinn-slices",
+ "jinn-token-count-msg",
+ "parking_lot",
+ "regex",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+ "trouper",
+ "wherror",
+]
+
+[[package]]
+name = "jinn-context-curation-msg"
+version = "0.118.0"
+dependencies = [
+ "jinn-core-types",
+ "jinn-slices",
+ "rstest",
+ "serde",
+ "serde_json",
+ "trouper",
+]
+
+[[package]]
 name = "jinn-core-types"
 version = "0.118.0"
 dependencies = [
@@ -2665,6 +2707,8 @@ dependencies = [
  "jinn-chat-log-view-msg",
  "jinn-common",
  "jinn-context-assembly",
+ "jinn-context-curation",
+ "jinn-context-curation-msg",
  "jinn-core-types",
  "jinn-cwd-msg",
  "jinn-inference-msg",

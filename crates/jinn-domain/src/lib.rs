@@ -114,6 +114,11 @@ pub use feat::chat_input::protocol::event::ChatEntrySubmitted;
 pub use feat::provider::llm_message::LlmMessage;
 pub use jinn_session_history_msg::PushChatEntry;
 pub use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
+// The curation contracts are owned by the context-curation slice's msg
+// crate (kernel→msg direction, same as the stream contracts); re-exported
+// here so the long-standing `jinn_domain::TriggerCompaction` path keeps
+// resolving.
+pub use jinn_context_curation_msg::TriggerCompaction;
 // Stream contracts are owned by the inference slice's msg crate (kernel→msg
 // direction, jinn-session-msg precedent); re-exported here so the long-standing
 // `jinn_domain::X` paths keep resolving.

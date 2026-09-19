@@ -1,0 +1,41 @@
+[package]
+name = "jinn-context-curation"
+version.workspace = true
+edition.workspace = true
+description = "The context-curation slice: auto-prune strategies and history compaction as two trouper ServiceActors."
+
+[dependencies]
+jinn-context-curation-msg = { workspace = true }
+jinn-session-history-msg = { workspace = true }
+jinn-token-count-msg = { workspace = true }
+jinn-preferences-config = { workspace = true }
+# The trouper runtime: ServiceActors, topics, schemas.
+trouper = { workspace = true }
+# Kernel dep (token-count precedent): the compaction worker reads shared
+# state (session lookups under brief read locks), writes through tcaps
+# (State + SessionCap granted at activation), and consumes the kernel
+# token_estimator (its ToolDefinition inputs are kernel-bound until the
+# session-family migration).
+jinn-domain = { workspace = true }
+jinn-core-types = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-provider = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+error-stack = { workspace = true }
+wherror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+parking_lot = { workspace = true }
+regex = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tempfile = { workspace = true }
+toml = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

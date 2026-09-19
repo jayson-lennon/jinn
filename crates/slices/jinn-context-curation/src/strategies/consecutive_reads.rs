@@ -24,18 +24,18 @@
 //!    [Assistant]: based on the latest read...
 //! ```
 //!
-//! [`ForcedExclude`]: crate::protocol::ContextOverride::ForcedExclude
+//! [`ForcedExclude`]: jinn_core_types::ContextOverride::ForcedExclude
 
 use std::collections::HashMap;
 
 pub use jinn_preferences_config::schemas::auto_prune::ConsecutiveReadsAutoPruneConfig;
 use std::sync::Arc;
 
-use crate::feat::auto_prune_worker::is_within_min_age;
-use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::HistoryMutation;
-use crate::protocol::SessionId;
-use crate::protocol::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
+use super::min_age::is_within_min_age;
+use crate::worker::HistoryWorker;
+use jinn_core_types::HistoryMutation;
+use jinn_core_types::SessionId;
+use jinn_core_types::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 
 /// Default number of consecutive read pairs to keep per file path.
 /// Default enabled state for consecutive-reads auto-prune.
@@ -230,9 +230,9 @@ mod tests {
     )]
 
     use super::*;
-    use crate::protocol::ChatEntry;
-    use crate::protocol::SessionId;
-    use crate::protocol::ToolResultStatus;
+    use jinn_core_types::ChatEntry;
+    use jinn_core_types::SessionId;
+    use jinn_core_types::ToolResultStatus;
 
     /// Helper: create a read ToolCall + ToolResult pair.
     fn read_call_result(call_id: &str, path: &str, content: &str) -> [ChatEntry; 2] {
