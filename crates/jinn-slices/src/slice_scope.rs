@@ -15,7 +15,7 @@
 /// manifests can key on it. The canonical constructors are the slice
 /// features' own consts — there is no registry of ids, and spelling a
 /// new one is exactly the act of creating a slice.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct SliceScopeId {
     /// The slice that owns this scope, e.g. `quake-bar`.
     slice: String,

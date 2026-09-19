@@ -16,8 +16,6 @@
 //! All handlers follow the same pattern: acquire state lock → mutate → release →
 //! then emit. Never hold the lock during emission.
 
-use std::convert::Infallible;
-
 use crate::common::actor_deps::{ActorDeps, BusPublish};
 use crate::common::state::State;
 use crate::common::tcaps::provider::{FrontendProviderPickerWrite, ModelCacheWrite, ProviderCap};
@@ -33,9 +31,10 @@ use super::loader::{
     set_endpoint_picker_items, unavailable_endpoint_entries,
 };
 use crate::feat::endpoint::picker_entry::EndpointEntry;
-use kameo::Actor;
-use kameo::actor::ActorRef;
-use kameo::message::{Context as MsgContext, Message};
+use error_stack::Report;
+use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
 
 /// The provider actor.
 ///
@@ -71,36 +70,62 @@ pub struct ProviderActorDeps {
     pub session_cap: SessionCap,
 }
 
-impl Actor for ProviderActor {
-    type Args = ProviderActorDeps;
-    type Error = Infallible;
-
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        let bus = &args.deps.services.bus;
-        bus.subscribe::<ProviderSwitch, _>(&actor_ref).await;
-        bus.subscribe::<LoadProviderPickerEntries, _>(&actor_ref)
-            .await;
-        bus.subscribe::<LoadEndpointPickerEntries, _>(&actor_ref)
-            .await;
-        bus.subscribe::<RefreshEndpointPickerEntries, _>(&actor_ref)
-            .await;
-        bus.subscribe::<ModelsRefreshed, _>(&actor_ref).await;
-        bus.subscribe::<ModelCacheLoaded, _>(&actor_ref).await;
-
-        Ok(Self {
-            state: args.state,
-            deps: args.deps,
-            cap: args.cap,
-            session_cap: args.session_cap,
-            endpoints_cache: std::collections::HashMap::new(),
-        })
+impl ServiceActor for ProviderActor {
+    async fn start(_args: &serde_json::Value) -> Result<Self, Report<RegistryError>> {
+        // Never called: spawned via `spawn`'s start_with (typed deps can't
+        // ride the JSON args).
+        let _ = _args;
+        Err(Report::new(RegistryError::InvalidSpec)
+            .attach("ProviderActor spawns via start_with"))
     }
 }
 
-impl Message<ProviderSwitch> for ProviderActor {
-    type Reply = ();
+/// Static path the provider actor spawns at (one instance per process).
+pub const PROVIDER_ACTOR_PATH: &str = "jinn.provider.actor";
 
-    async fn handle(&mut self, msg: ProviderSwitch, _ctx: &mut MsgContext<Self, Self::Reply>) {
+impl ProviderActor {
+    /// Spawns the provider actor onto the trouper system; subscriptions
+    /// are live when this returns.
+    pub fn spawn(system: &trouper::system::ActorSystem, deps: ProviderActorDeps) -> ActorPath {
+        let path = ActorPath::new(PROVIDER_ACTOR_PATH);
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(path.clone())
+            .start_with({
+                let deps = deps.clone();
+                move || {
+                    let deps = deps.clone();
+                    Box::pin(async move {
+                        Ok(Self {
+                            state: deps.state,
+                            deps: deps.deps,
+                            cap: deps.cap,
+                            session_cap: deps.session_cap,
+                            endpoints_cache: std::collections::HashMap::new(),
+                        })
+                    })
+                }
+            })
+            .handles::<ProviderSwitch>()
+            .handles::<LoadProviderPickerEntries>()
+            .handles::<LoadEndpointPickerEntries>()
+            .handles::<RefreshEndpointPickerEntries>()
+            .handles::<ModelsRefreshed>()
+            .handles::<ModelCacheLoaded>()
+            .mailbox(64, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        system
+            .subscribe(
+                &path,
+                &crate::common::services::bus_service::jinn_domain_topic(),
+                None,
+            )
+            .expect("provider actor subscribes the domain topic");
+        path
+    }
+}
+
+impl MsgHandler<ProviderSwitch> for ProviderActor {
+    async fn handle(&mut self, msg: ProviderSwitch, _ctx: &mut MsgCtx<'_>) {
         self.handle_provider_switch(&msg);
         self.publish(ProviderSwitched {
             session_id: msg.session_id.clone(),
@@ -110,56 +135,34 @@ impl Message<ProviderSwitch> for ProviderActor {
     }
 }
 
-impl Message<LoadProviderPickerEntries> for ProviderActor {
-    type Reply = ();
-
-    async fn handle(
-        &mut self,
-        _msg: LoadProviderPickerEntries,
-        _ctx: &mut MsgContext<Self, Self::Reply>,
-    ) {
+impl MsgHandler<LoadProviderPickerEntries> for ProviderActor {
+    async fn handle(&mut self, _msg: LoadProviderPickerEntries, _ctx: &mut MsgCtx<'_>) {
         self.state.with_provider(&self.cap, |view| {
             load_provider_picker_items(&self.deps.services, view);
         });
     }
 }
 
-impl Message<LoadEndpointPickerEntries> for ProviderActor {
-    type Reply = ();
-
-    async fn handle(
-        &mut self,
-        _msg: LoadEndpointPickerEntries,
-        _ctx: &mut MsgContext<Self, Self::Reply>,
-    ) {
+impl MsgHandler<LoadEndpointPickerEntries> for ProviderActor {
+    async fn handle(&mut self, _msg: LoadEndpointPickerEntries, _ctx: &mut MsgCtx<'_>) {
         self.handle_load_endpoint_picker_entries(false).await;
     }
 }
 
-impl Message<RefreshEndpointPickerEntries> for ProviderActor {
-    type Reply = ();
-
-    async fn handle(
-        &mut self,
-        _msg: RefreshEndpointPickerEntries,
-        _ctx: &mut MsgContext<Self, Self::Reply>,
-    ) {
+impl MsgHandler<RefreshEndpointPickerEntries> for ProviderActor {
+    async fn handle(&mut self, _msg: RefreshEndpointPickerEntries, _ctx: &mut MsgCtx<'_>) {
         self.handle_load_endpoint_picker_entries(true).await;
     }
 }
 
-impl Message<ModelsRefreshed> for ProviderActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: ModelsRefreshed, _ctx: &mut MsgContext<Self, Self::Reply>) {
+impl MsgHandler<ModelsRefreshed> for ProviderActor {
+    async fn handle(&mut self, msg: ModelsRefreshed, _ctx: &mut MsgCtx<'_>) {
         self.handle_models_refreshed(&msg);
     }
 }
 
-impl Message<ModelCacheLoaded> for ProviderActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: ModelCacheLoaded, _ctx: &mut MsgContext<Self, Self::Reply>) {
+impl MsgHandler<ModelCacheLoaded> for ProviderActor {
+    async fn handle(&mut self, msg: ModelCacheLoaded, _ctx: &mut MsgCtx<'_>) {
         self.handle_model_cache_loaded(&msg.cache);
     }
 }
@@ -491,14 +494,16 @@ mod tests {
     }
 
     async fn spawn_actor(harness: &TestHarness, state: &State, deps: ActorDeps) {
-        harness
-            .spawn_actor::<ProviderActor>(ProviderActorDeps {
+        let services = harness.services().await;
+        ProviderActor::spawn(
+            &services.trouper_system,
+            ProviderActorDeps {
                 deps,
                 state: state.clone(),
                 cap: crate::common::tcaps::mint::mint_provider_cap(),
                 session_cap: crate::common::tcaps::mint::mint_session_cap(),
-            })
-            .await;
+            },
+        );
     }
 
     fn sample_config() -> ProvidersConfig {

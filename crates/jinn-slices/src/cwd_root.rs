@@ -2,7 +2,7 @@
 //! kernel re-exports under `jinn_domain::protocol::CwdRoot`).
 
 /// The search root for the directory picker.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CwdRoot {
     /// Search from the active session's current CWD.
     Session,

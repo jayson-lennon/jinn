@@ -213,6 +213,7 @@ async fn create_harness() -> (TestHarness, State, ActorDeps) {
         .paths(AppPaths::new_in(std::path::Path::new("")))
         .build();
     services.bus = harness.bus();
+    services.trouper_system = harness.system().clone();
     let deps = ActorDeps { services };
     (harness, state, deps)
 }
@@ -244,17 +245,17 @@ async fn wait_for_list_complete(state: &State) {
     }
 }
 
-async fn spawn_actor(
-    deps: &ActorDeps,
-    state: &State,
-) -> kameo::actor::ActorRef<DirectoryListerActor> {
-    let actor = DirectoryListerActor::spawn(DirectoryListerActorDeps {
-        deps: deps.clone(),
-        state: state.clone(),
-        frontend_cap: mint_frontend_cap(),
-    });
-    actor.wait_for_startup().await;
-    actor
+async fn spawn_actor(deps: &ActorDeps, state: &State) -> trouper::actor::ActorPath {
+    // The path is a placeholder; the actor self-subscribes to the domain
+    // topic at its static path. Tests drive it via bus publishes only.
+    DirectoryListerActor::spawn(
+        &deps.services.trouper_system,
+        DirectoryListerActorDeps {
+            deps: deps.clone(),
+            state: state.clone(),
+            frontend_cap: mint_frontend_cap(),
+        },
+    )
 }
 
 #[rstest::rstest]

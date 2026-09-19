@@ -354,20 +354,12 @@ impl ActorSystemBuilder {
         // ── Domain actors ──────────────────────────────────────────────────
 
         // Model discovery actor.
-        let _discover = spawn_tracked!(
-            &services.bus,
-            "discover",
-            "DiscoverActor",
-            jinn_domain::feat::provider::discover_actor::DiscoverActor::supervise(
-                &root,
-                jinn_domain::feat::provider::discover_actor::DiscoverActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
+        let _discover = jinn_domain::feat::provider::discover_actor::DiscoverActor::spawn(
+            &services.trouper_system,
+            jinn_domain::feat::provider::discover_actor::DiscoverActorDeps {
+                deps: actor_deps.clone(),
+                state: state.clone(),
+            },
         );
 
         // Session persistence actor — must spawn before ToolOrchestratorActor so
@@ -487,8 +479,9 @@ impl ActorSystemBuilder {
         // same lifecycle shape as the MCP coordinator; the per-session
         // control registry goes to the terminal tab (takeover UI) wiring.
         let term_controls = jinn_term_msg::TermControls::default();
-        let (term_coordinator, _controls) =
-            jinn_term::interactive_term_actor::spawn_interactive_term_actor(
+        let (term_coordinator_path, _controls) =
+            jinn_term::interactive_term_actor::InteractiveTermActor::spawn(
+                &services.trouper_system,
                 jinn_term::interactive_term_actor::InteractiveTermActorDeps {
                     bus: services.bus.clone(),
                     controls: term_controls.clone(),
@@ -510,52 +503,39 @@ impl ActorSystemBuilder {
                             .settle_max_wait_ms,
                     ),
                 },
-                &root,
             )
             .await;
-        let _ = services
-            .interactive_term
-            .set(std::sync::Arc::new(ActorTermHandle::new(term_coordinator)));
+        let _ = services.interactive_term.set(std::sync::Arc::new(
+            ActorTermHandle::new(
+                services.trouper_system.clone(),
+                term_coordinator_path,
+            ),
+        ));
         // Install the shared registry for the IntentHandler's takeover
         // intents (synchronous flips that in-flight tool calls observe
         // mid-drain).
         let _ = jinn_term_msg::TERM_CONTROLS.set(term_controls);
 
         // Directory lister actor (`@path` file popup).
-        let _directory_lister = spawn_tracked!(
-            &services.bus,
-            "directory-lister",
-            "DirectoryListerActor",
-            jinn_domain::feat::file_lister::DirectoryListerActor::supervise(
-                &root,
+        let _directory_lister =
+            jinn_domain::feat::file_lister::DirectoryListerActor::spawn(
+                &services.trouper_system,
                 jinn_domain::feat::file_lister::DirectoryListerActorDeps {
                     deps: actor_deps.clone(),
                     state: state.clone(),
                     frontend_cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
                 },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
+            );
 
         // Provider actor.
-        let _provider = spawn_tracked!(
-            &services.bus,
-            "provider",
-            "ProviderActor",
-            jinn_domain::feat::provider::provider_actor::ProviderActor::supervise(
-                &root,
-                jinn_domain::feat::provider::provider_actor::ProviderActorDeps {
-                    state: state.clone(),
-                    deps: actor_deps.clone(),
-                    cap: jinn_domain::common::tcaps::mint::mint_provider_cap(),
-                    session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
+        let _provider = jinn_domain::feat::provider::provider_actor::ProviderActor::spawn(
+            &services.trouper_system,
+            jinn_domain::feat::provider::provider_actor::ProviderActorDeps {
+                state: state.clone(),
+                deps: actor_deps.clone(),
+                cap: jinn_domain::common::tcaps::mint::mint_provider_cap(),
+                session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
+            },
         );
 
         // Search index maintenance: message-driven reindex state machine —
@@ -1238,22 +1218,21 @@ fn jinn_session_init_activate(services: &mut Services, state: jinn_domain::commo
     }
 }
 
-/// The `TermHandle` implementation over the coordinator's actor ref.
+/// The `TermHandle` implementation over the coordinator's trouper path.
 ///
-/// Lives with the term slice's wiring; the actor type stays private to
-/// the slice once the feature tree moves.
+/// Asks route through the system at the coordinator's static path with the
+/// mandatory trouper timeout: the settle wait inside the actor already
+/// bounds by `max_wait`, so the outer timeout adds a margin for the round
+/// trip (`ask_timeout + SPAWN_ASK_MARGIN` pattern).
 #[derive(Debug, Clone)]
 pub struct ActorTermHandle {
-    coordinator: kameo::actor::ActorRef<jinn_term::interactive_term_actor::InteractiveTermActor>,
+    system: trouper::system::ActorSystem,
+    path: trouper::actor::ActorPath,
 }
 
 impl ActorTermHandle {
-    pub fn new(
-        coordinator: kameo::actor::ActorRef<
-            jinn_term::interactive_term_actor::InteractiveTermActor,
-        >,
-    ) -> Self {
-        Self { coordinator }
+    pub fn new(system: trouper::system::ActorSystem, path: trouper::actor::ActorPath) -> Self {
+        Self { system, path }
     }
 }
 
@@ -1274,10 +1253,11 @@ impl jinn_term_msg::TermHandle for ActorTermHandle {
             size,
             max_wait,
         };
-        self.coordinator
-            .ask(msg)
-            .await
-            .map_err(|_| jinn_term_msg::TermAskError)
+        let reply = self
+            .system
+            .ask(self.path.clone(), msg, TERM_ASK_TIMEOUT)
+            .await;
+        decode_reply::<jinn_term_msg::SpawnTermOutcome>(reply)
     }
 
     async fn send_input(
@@ -1295,23 +1275,45 @@ impl jinn_term_msg::TermHandle for ActorTermHandle {
             enter,
             max_wait,
         };
-        self.coordinator
-            .ask(msg)
-            .await
-            .map_err(|_| jinn_term_msg::TermAskError)
+        let reply = self
+            .system
+            .ask(self.path.clone(), msg, TERM_ASK_TIMEOUT)
+            .await;
+        decode_reply::<jinn_term_msg::SendTermOutcome>(reply)
     }
 
     async fn kill_term(
         &self,
         chat_session_id: jinn_domain::protocol::SessionId,
     ) -> Result<jinn_term_msg::KillTermOutcome, jinn_term_msg::TermAskError> {
-        self.coordinator
-            .ask(jinn_term_msg::KillTerm { chat_session_id })
-            .await
-            .map_err(|_| jinn_term_msg::TermAskError)
+        let reply = self
+            .system
+            .ask(
+                self.path.clone(),
+                jinn_term_msg::KillTerm { chat_session_id },
+                TERM_ASK_TIMEOUT,
+            )
+            .await;
+        decode_reply::<jinn_term_msg::KillTermOutcome>(reply)
     }
 
     fn name(&self) -> &'static str {
         "term-coordinator"
     }
+}
+
+/// Outer bound for term asks: the settle wait inside the actor bounds by
+/// the message's `max_wait`, so this covers the whole round trip with a
+/// margin (the `ask_timeout + SPAWN_ASK_MARGIN` pattern).
+const TERM_ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(75);
+
+/// Decodes a trouper ask reply into the typed outcome, mapping transport
+/// failure to the domain-level [`jinn_term_msg::TermAskError`].
+fn decode_reply<T: serde::de::DeserializeOwned>(
+    reply: Result<serde_json::Value, error_stack::Report<trouper::context::AskError>>,
+) -> Result<T, jinn_term_msg::TermAskError> {
+    reply
+        .ok()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .ok_or(jinn_term_msg::TermAskError)
 }

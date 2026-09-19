@@ -36,8 +36,10 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use kameo::actor::{ActorRef, Spawn};
-use kameo::prelude::{Context, Message};
+use error_stack::Report;
+use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
 
 use crate::pty_session::{ExitInfo, PtySession};
 use crate::screen_task::{ScreenHandle, ScreenWiring};
@@ -52,6 +54,9 @@ use jinn_term_msg::takeover::TermControls;
 
 /// How many transcript screens the kill result reports.
 const TRANSCRIPT_TAIL_SCREENS: usize = 20;
+
+/// Static path the coordinator spawns at (one instance per process).
+pub const INTERACTIVE_TERM_PATH: &str = "jinn.term.coordinator";
 
 /// Per-chat-session control holders: who may drive each terminal right now.
 ///
@@ -129,50 +134,68 @@ pub struct InteractiveTermActorDeps {
     pub settle_cap: Duration,
 }
 
-impl kameo::Actor for InteractiveTermActor {
-    type Args = InteractiveTermActorDeps;
-    type Error = kameo::error::Infallible;
-
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        args.bus
-            .register(actor_ref.clone().recipient::<SendTermKey>())
-            .await;
-        args.bus
-            .register(actor_ref.clone().recipient::<ResizeTerm>())
-            .await;
-        // Teardown: a closed chat session takes its terminal with it (the
-        // pty drop kills the process group) instead of outliving the session
-        // until app exit.
-        args.bus
-            .subscribe::<jinn_domain::feat::session::protocol::session_closed::SessionClosed, _>(
-                &actor_ref,
-            )
-            .await;
-        Ok(Self {
-            bus: args.bus,
-            controls: args.controls,
-            sessions: HashMap::new(),
-            state: args.state,
-            settle_quiet: args.settle_quiet,
-            settle_cap: args.settle_cap,
-        })
+impl ServiceActor for InteractiveTermActor {
+    async fn start(_args: &serde_json::Value) -> Result<Self, Report<RegistryError>> {
+        // Never called: spawned via `spawn`'s start_with (typed deps can't
+        // ride the JSON args).
+        let _ = _args;
+        Err(Report::new(RegistryError::InvalidSpec).attach(
+            "InteractiveTermActor is spawned via start_with with typed deps",
+        ))
     }
 }
 
-/// Spawns the coordinator actor as a supervised child of the root.
-///
-/// Returns the actor ref and the shared control registry (hand the clone to
-/// the takeover UI wiring).
-pub async fn spawn_interactive_term_actor(
-    deps: InteractiveTermActorDeps,
-    supervisor: &jinn_domain::common::root_supervisor::RootSupervisorRef,
-) -> (ActorRef<InteractiveTermActor>, TermControls) {
-    let controls = deps.controls.clone();
-    let actor = InteractiveTermActor::supervise(supervisor, deps)
-        .restart_policy(kameo::supervision::RestartPolicy::Never)
-        .spawn()
-        .await;
-    (actor, controls)
+impl InteractiveTermActor {
+    /// Spawns the coordinator actor onto the trouper system.
+    ///
+    /// Returns the actor path (asks route through `system.ask` at this
+    /// path) and the shared control registry (hand the clone to the
+    /// takeover UI wiring). Subscriptions are live when this returns: the
+    /// builder's start handshake completes before `subscribe` runs.
+    pub async fn spawn(
+        system: &trouper::system::ActorSystem,
+        deps: InteractiveTermActorDeps,
+    ) -> (ActorPath, TermControls) {
+        let controls = deps.controls.clone();
+        let path = ActorPath::new(INTERACTIVE_TERM_PATH);
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(path.clone())
+            .start_with({
+                let deps = deps.clone();
+                move || {
+                    let deps = deps.clone();
+                    Box::pin(async move {
+                        Ok(Self {
+                            bus: deps.bus,
+                            controls: deps.controls,
+                            sessions: HashMap::new(),
+                            state: deps.state,
+                            settle_quiet: deps.settle_quiet,
+                            settle_cap: deps.settle_cap,
+                        })
+                    })
+                }
+            })
+            .handles::<SpawnTerm>()
+            .handles::<SendTermInput>()
+            .handles::<KillTerm>()
+            .handles::<SendTermKey>()
+            .handles::<ResizeTerm>()
+            .handles::<jinn_domain::feat::session::protocol::session_closed::SessionClosed>()
+            .mailbox(64, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        // Teardown sub: a closed chat session takes its terminal with it
+        // (the pty drop kills the process group) instead of outliving the
+        // session until app exit.
+        system
+            .subscribe(
+                &path,
+                &jinn_domain::common::services::bus_service::jinn_domain_topic(),
+                None,
+            )
+            .expect("term coordinator subscribes the domain topic");
+        (path, controls)
+    }
 }
 
 /// How a settle wait concluded.
@@ -483,46 +506,29 @@ struct RemovedSession {
     exited: Option<ExitInfo>,
 }
 
-impl Message<SpawnTerm> for InteractiveTermActor {
-    type Reply = SpawnTermOutcome;
-
-    async fn handle(
-        &mut self,
-        msg: SpawnTerm,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.handle_spawn(msg).await
+impl MsgHandler<SpawnTerm> for InteractiveTermActor {
+    async fn handle(&mut self, msg: SpawnTerm, _ctx: &mut MsgCtx<'_>) {
+        let reply = self.handle_spawn(msg).await;
+        _ctx.reply(reply);
     }
 }
 
-impl Message<SendTermInput> for InteractiveTermActor {
-    type Reply = SendTermOutcome;
-
-    async fn handle(
-        &mut self,
-        msg: SendTermInput,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.handle_send(msg).await
+impl MsgHandler<SendTermInput> for InteractiveTermActor {
+    async fn handle(&mut self, msg: SendTermInput, _ctx: &mut MsgCtx<'_>) {
+        let reply = self.handle_send(msg).await;
+        _ctx.reply(reply);
     }
 }
 
-impl Message<KillTerm> for InteractiveTermActor {
-    type Reply = KillTermOutcome;
-
-    async fn handle(
-        &mut self,
-        msg: KillTerm,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.handle_kill(msg).await
+impl MsgHandler<KillTerm> for InteractiveTermActor {
+    async fn handle(&mut self, msg: KillTerm, _ctx: &mut MsgCtx<'_>) {
+        let reply = self.handle_kill(msg).await;
+        _ctx.reply(reply);
     }
 }
 
-impl Message<SendTermKey> for InteractiveTermActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: SendTermKey, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SendTermKey> for InteractiveTermActor {
+    async fn handle(&mut self, msg: SendTermKey, _ctx: &mut MsgCtx<'_>) {
         // User keystrokes bypass the settle wait entirely: the user is
         // driving, so there is nothing to report back to an agent.
         if let Some(session) = self.sessions.get_mut(&msg.chat_session_id)
@@ -533,10 +539,8 @@ impl Message<SendTermKey> for InteractiveTermActor {
     }
 }
 
-impl Message<ResizeTerm> for InteractiveTermActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: ResizeTerm, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ResizeTerm> for InteractiveTermActor {
+    async fn handle(&mut self, msg: ResizeTerm, _ctx: &mut MsgCtx<'_>) {
         self.apply_resize(msg).await;
     }
 }
@@ -593,15 +597,13 @@ impl InteractiveTermActor {
     }
 }
 
-impl Message<jinn_domain::feat::session::protocol::session_closed::SessionClosed>
+impl MsgHandler<jinn_domain::feat::session::protocol::session_closed::SessionClosed>
     for InteractiveTermActor
 {
-    type Reply = ();
-
     async fn handle(
         &mut self,
         msg: jinn_domain::feat::session::protocol::session_closed::SessionClosed,
-        _ctx: &mut Context<Self, Self::Reply>,
+        _ctx: &mut MsgCtx<'_>,
     ) {
         // `remove_session` clears the live flag before dropping the session
         // (a screen task killed before observing EOF can't clear it itself),
@@ -671,7 +673,6 @@ mod tests {
             .unwrap_or(false)
     }
     use jinn_domain::common::bus::test_harness::{GetRecorded, TestHarness};
-    use jinn_domain::common::root_supervisor::RootSupervisor;
 
     const QUIET: Duration = Duration::from_millis(150);
     const CAP: Duration = Duration::from_secs(2);
@@ -693,36 +694,62 @@ mod tests {
         (deps, state)
     }
 
-    /// Spawns a coordinator under a fresh root supervisor.
-    ///
-    /// Returns the root alongside the actor: dropping the root ref stops
-    /// supervised children, so callers must hold it for the actor's lifetime.
+    /// A typed ask client over the coordinator's trouper path.
+    #[derive(Clone)]
+    struct TermAskClient {
+        system: trouper::system::ActorSystem,
+        path: ActorPath,
+    }
+
+    impl TermAskClient {
+        async fn ask<M, R>(&self, msg: M) -> R
+        where
+            M: serde::Serialize + trouper::schema::Schema,
+            R: serde::de::DeserializeOwned,
+        {
+            let reply = self
+                .system
+                .ask(self.path.clone(), msg, std::time::Duration::from_secs(30))
+                .await
+                .expect("term ask round trip");
+            serde_json::from_value(reply).expect("term ask reply decodes")
+        }
+
+        /// Fire-and-forget tell (fire-and-forget tests only need delivery,
+        /// not a reply — sleeps after covers the async drain).
+        async fn tell<M: serde::Serialize + trouper::schema::Schema>(&self, msg: M) {
+            let _ = self.system.tell(self.path.clone(), msg).await;
+        }
+    }
+
+    /// Spawns a coordinator onto the harness's trouper system.
     async fn spawn_coordinator(
         harness: &TestHarness,
         controls: TermControls,
-    ) -> (
-        ActorRef<InteractiveTermActor>,
-        jinn_domain::common::root_supervisor::RootSupervisorRef,
-    ) {
-        let root = RootSupervisor::spawn_root().await;
+    ) -> (TermAskClient, trouper::system::ActorSystem) {
+        let services = harness.services().await;
         let (deps, _state) = deps(harness.bus(), controls);
-        let (actor, _controls) = spawn_interactive_term_actor(deps, &root).await;
-        (actor, root)
+        let (path, _controls) = InteractiveTermActor::spawn(&services.trouper_system, deps).await;
+        let client = TermAskClient {
+            system: services.trouper_system.clone(),
+            path,
+        };
+        (client, services.trouper_system)
     }
 
     /// Spawns a coordinator with a readable state handle.
     async fn spawn_coordinator_with_state(
         harness: &TestHarness,
         controls: TermControls,
-    ) -> (
-        ActorRef<InteractiveTermActor>,
-        jinn_domain::common::state::State,
-        jinn_domain::common::root_supervisor::RootSupervisorRef,
-    ) {
-        let root = RootSupervisor::spawn_root().await;
+    ) -> (TermAskClient, jinn_domain::common::state::State) {
+        let services = harness.services().await;
         let (deps, state) = deps(harness.bus(), controls);
-        let (actor, _controls) = spawn_interactive_term_actor(deps, &root).await;
-        (actor, state, root)
+        let (path, _controls) = InteractiveTermActor::spawn(&services.trouper_system, deps).await;
+        let client = TermAskClient {
+            system: services.trouper_system.clone(),
+            path,
+        };
+        (client, state)
     }
 
     fn spawn_msg(chat: jinn_core_types::SessionId, command: &str) -> SpawnTerm {
@@ -756,12 +783,9 @@ mod tests {
     }
 
     /// Spawns `cat` for a chat session (the most common test fixture).
-    async fn spawn_cat(actor: &ActorRef<InteractiveTermActor>, chat: &jinn_core_types::SessionId) {
-        let SpawnTermOutcome::Started { .. } = actor
-            .ask(spawn_msg(chat.clone(), "cat"))
-            .await
-            .expect("spawn reply")
-        else {
+    async fn spawn_cat(client: &TermAskClient, chat: &jinn_core_types::SessionId) {
+        let outcome = client.ask::<_, SpawnTermOutcome>(spawn_msg(chat.clone(), "cat")).await;
+        let SpawnTermOutcome::Started { .. } = outcome else {
             panic!("expected Started");
         };
     }
@@ -775,17 +799,16 @@ mod tests {
     async fn agent_f4_key_reaches_the_program_as_bytes() {
         // Given a coordinator running `cat -v`.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
-        actor
-            .ask(spawn_msg(chat.clone(), "cat -v"))
-            .await
-            .expect("spawn reply");
+        let _: SpawnTermOutcome = actor
+            .ask::<_, SpawnTermOutcome>(spawn_msg(chat.clone(), "cat -v"))
+            .await;
 
         // When sending the named f4 key.
         let mut msg = send_msg(chat);
         msg.keys = vec!["f4".to_owned()];
-        let outcome = actor.ask(msg).await.expect("send reply");
+        let outcome = actor.ask(msg).await;
 
         // Then the program echoed the F4 bytes (`^[` + `OS`).
         match outcome {
@@ -810,14 +833,14 @@ mod tests {
 
         // Given a coordinator and a real scratch directory.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let dir = std::env::temp_dir().join(format!("jinn-term-cwd-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("scratch dir");
 
         // When spawning `pwd` with that directory as cwd.
         let mut msg = spawn_msg(jinn_core_types::SessionId::new(), "pwd");
         msg.cwd = PathBuf::from(&dir);
-        let reply = actor.ask(msg).await.expect("spawn reply");
+        let reply = actor.ask(msg).await;
 
         // Then the screen shows the requested directory.
         match reply {
@@ -838,13 +861,15 @@ mod tests {
     async fn spawn_returns_session_with_screen() {
         // Given a coordinator actor.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
 
         // When spawning `echo`.
         let reply = actor
-            .ask(spawn_msg(jinn_core_types::SessionId::new(), "echo hello"))
-            .await
-            .expect("spawn reply");
+            .ask::<_, SpawnTermOutcome>(spawn_msg(
+                jinn_core_types::SessionId::new(),
+                "echo hello",
+            ))
+            .await;
 
         // Then the outcome is a session with the echoed text on screen.
         match reply {
@@ -860,14 +885,13 @@ mod tests {
     async fn unspawnable_command_reports_failed_outcome() {
         // Given a coordinator actor.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
 
         // When spawning with an empty command (bash exits immediately with a
         // usage error — the observable "spawn went wrong" path).
         let reply = actor
-            .ask(spawn_msg(jinn_core_types::SessionId::new(), ""))
-            .await
-            .expect("spawn reply");
+            .ask::<_, SpawnTermOutcome>(spawn_msg(jinn_core_types::SessionId::new(), ""))
+            .await;
 
         // Then either the session started and exited (shell reported the
         // error) or the outcome carries the failure — both surface the problem
@@ -885,7 +909,7 @@ mod tests {
     async fn send_input_reaches_the_program_across_calls() {
         // Given a coordinator with a running `cat`.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat).await;
 
@@ -893,7 +917,7 @@ mod tests {
         let mut msg = send_msg(chat);
         msg.text = Some("ping-from-agent".to_owned());
         msg.keys = vec!["enter".to_owned()];
-        let SendTermOutcome::Sent(screen) = actor.ask(msg).await.expect("send reply") else {
+        let SendTermOutcome::Sent(screen) = actor.ask::<_, SendTermOutcome>(msg).await else {
             panic!("expected Sent");
         };
 
@@ -906,14 +930,13 @@ mod tests {
     async fn program_state_persists_across_separate_tool_calls() {
         // Given a coordinator with an interactive bash session.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
         {
-            let SpawnTermOutcome::Started { .. } = actor
-                .ask(spawn_msg(chat.clone(), "bash --noprofile --norc"))
-                .await
-                .expect("spawn reply")
-            else {
+            let outcome = actor
+                .ask::<_, SpawnTermOutcome>(spawn_msg(chat.clone(), "bash --noprofile --norc"))
+                .await;
+            let SpawnTermOutcome::Started { .. } = outcome else {
                 panic!("expected Started");
             };
         }
@@ -922,7 +945,7 @@ mod tests {
         let mut msg = send_msg(chat.clone());
         msg.text = Some("TERMVAR=inner-42".to_owned());
         msg.keys = vec!["enter".to_owned()];
-        let SendTermOutcome::Sent(_) = actor.ask(msg).await.expect("send reply") else {
+        let SendTermOutcome::Sent(_) = actor.ask::<_, SendTermOutcome>(msg).await else {
             panic!("expected Sent");
         };
 
@@ -930,7 +953,7 @@ mod tests {
         let mut msg = send_msg(chat);
         msg.text = Some("echo val=$TERMVAR".to_owned());
         msg.keys = vec!["enter".to_owned()];
-        let SendTermOutcome::Sent(screen) = actor.ask(msg).await.expect("send reply") else {
+        let SendTermOutcome::Sent(screen) = actor.ask::<_, SendTermOutcome>(msg).await else {
             panic!("expected Sent");
         };
 
@@ -959,13 +982,12 @@ mod tests {
             "done"
         );
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
         {
             let SpawnTermOutcome::Started { .. } = actor
-                .ask(spawn_msg(chat.clone(), tui))
+                .ask::<_, SpawnTermOutcome>(spawn_msg(chat.clone(), tui))
                 .await
-                .expect("spawn reply")
             else {
                 panic!("expected Started");
             };
@@ -974,7 +996,7 @@ mod tests {
         // When pressing the key that pages forward (printable "B").
         let mut msg = send_msg(chat);
         msg.text = Some("B".to_owned());
-        let SendTermOutcome::Sent(screen) = actor.ask(msg).await.expect("send reply") else {
+        let SendTermOutcome::Sent(screen) = actor.ask::<_, SendTermOutcome>(msg).await else {
             panic!("expected Sent");
         };
 
@@ -992,14 +1014,14 @@ mod tests {
     async fn ctrl_c_key_terminates_a_reading_program() {
         // Given a coordinator with a running `cat` (blocks on input).
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat).await;
 
         // When sending the named key ctrl+c.
         let mut msg = send_msg(chat);
         msg.keys = vec!["ctrl+c".to_owned()];
-        let SendTermOutcome::Sent(screen) = actor.ask(msg).await.expect("send reply") else {
+        let SendTermOutcome::Sent(screen) = actor.ask::<_, SendTermOutcome>(msg).await else {
             panic!("expected Sent");
         };
 
@@ -1012,13 +1034,13 @@ mod tests {
     async fn unknown_session_send_returns_unknown() {
         // Given a coordinator with no sessions.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
 
         // When sending input to a chat session with no terminal.
         let reply = actor
-            .ask(send_msg(jinn_core_types::SessionId::new()))
+            .ask::<_, SendTermOutcome>(send_msg(jinn_core_types::SessionId::new()))
             .await
-            .expect("send reply");
+            ;
 
         // Then the outcome is UnknownSession.
         assert!(matches!(reply, SendTermOutcome::UnknownSession));
@@ -1029,20 +1051,19 @@ mod tests {
     async fn send_to_exited_session_reports_exit_not_unknown() {
         // Given a coordinator with an exited session.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
         {
-            let SpawnTermOutcome::Started { .. } = actor
-                .ask(spawn_msg(chat.clone(), "true"))
-                .await
-                .expect("spawn reply")
-            else {
+            let outcome = actor
+                .ask::<_, SpawnTermOutcome>(spawn_msg(chat.clone(), "true"))
+                .await;
+            let SpawnTermOutcome::Started { .. } = outcome else {
                 panic!("expected Started");
             };
         }
 
         // When sending input after exit.
-        let reply = actor.ask(send_msg(chat)).await.expect("send reply");
+        let reply = actor.ask::<_, SendTermOutcome>(send_msg(chat)).await;
 
         // Then the outcome is Exited with the exit info, not UnknownSession.
         match reply {
@@ -1059,7 +1080,7 @@ mod tests {
         // Given a coordinator with a running `cat` and the user holding control.
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
-        let (actor, _root) = spawn_coordinator(&harness, controls.clone()).await;
+        let (actor, _system) = spawn_coordinator(&harness, controls.clone()).await;
         let chat = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat).await;
 
@@ -1067,7 +1088,7 @@ mod tests {
         controls.set(&chat, ControlHolder::User);
         let mut msg = send_msg(chat);
         msg.text = Some("should-not-appear".to_owned());
-        let reply = actor.ask(msg).await.expect("send reply");
+        let reply = actor.ask::<_, SendTermOutcome>(msg).await;
 
         // Then the outcome is UserHasControl (a refusal, not a screen).
         let SendTermOutcome::UserHasControl = reply else {
@@ -1082,17 +1103,16 @@ mod tests {
         // only after consuming a byte, with the user holding control.
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
-        let (actor, _state, _root) = spawn_coordinator_with_state(&harness, controls.clone()).await;
+        let (actor, _state) = spawn_coordinator_with_state(&harness, controls.clone()).await;
         let chat = jinn_core_types::SessionId::new();
         {
-            let SpawnTermOutcome::Started { .. } = actor
-                .ask(spawn_msg(
+            let outcome = actor
+                .ask::<_, SpawnTermOutcome>(spawn_msg(
                     chat.clone(),
                     "printf waiting; IFS= read -rsn1 k; printf got-input; sleep 30",
                 ))
-                .await
-                .expect("spawn reply")
-            else {
+                .await;
+let SpawnTermOutcome::Started { .. } = outcome else {
                 panic!("expected Started");
             };
         }
@@ -1102,7 +1122,7 @@ mod tests {
         let mut msg = send_msg(chat.clone());
         msg.text = Some("x".to_owned());
         msg.enter = true;
-        let reply = actor.ask(msg).await.expect("send reply");
+        let reply = actor.ask::<_, SendTermOutcome>(msg).await;
 
         // Then the refusal carries no screen (the user's terminal is theirs
         // to read)…
@@ -1116,7 +1136,7 @@ mod tests {
         controls.set(&chat, ControlHolder::Agent);
         let mut sync = send_msg(chat);
         sync.max_wait = Duration::from_millis(600);
-        let SendTermOutcome::Sent(screen) = actor.ask(sync).await.expect("sync reply") else {
+        let SendTermOutcome::Sent(screen) = actor.ask::<_, SendTermOutcome>(sync).await else {
             panic!("expected Sent after release");
         };
         assert!(
@@ -1131,17 +1151,16 @@ mod tests {
         // Given a coordinator with a program that trickles output over a second.
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
-        let (actor, _root) = spawn_coordinator(&harness, controls.clone()).await;
+        let (actor, _system) = spawn_coordinator(&harness, controls.clone()).await;
         let chat = jinn_core_types::SessionId::new();
         {
-            let SpawnTermOutcome::Started { .. } = actor
-                .ask(spawn_msg(
+            let outcome = actor
+                .ask::<_, SpawnTermOutcome>(spawn_msg(
                     chat.clone(),
                     "for i in 1 2 3 4 5 6; do echo tick-$i; sleep 0.25; done",
                 ))
-                .await
-                .expect("spawn reply")
-            else {
+                .await;
+let SpawnTermOutcome::Started { .. } = outcome else {
                 panic!("expected Started");
             };
         }
@@ -1151,7 +1170,7 @@ mod tests {
         let ask = {
             let actor = actor.clone();
             let chat = chat.clone();
-            tokio::spawn(async move { actor.ask(send_msg(chat)).await.expect("send reply") })
+            tokio::spawn(async move { actor.ask::<_, SendTermOutcome>(send_msg(chat)).await })
         };
         tokio::time::sleep(Duration::from_millis(200)).await;
         controls.set(&chat, ControlHolder::User); // already user; flips are re-read each poll
@@ -1178,14 +1197,13 @@ mod tests {
         // Given a coordinator with a program that echoes input forever.
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
-        let (actor, state, _root) = spawn_coordinator_with_state(&harness, controls.clone()).await;
+        let (actor, state) = spawn_coordinator_with_state(&harness, controls.clone()).await;
         let chat = jinn_core_types::SessionId::new();
         {
-            let SpawnTermOutcome::Started { .. } = actor
-                .ask(spawn_msg(chat.clone(), "cat"))
-                .await
-                .expect("spawn reply")
-            else {
+            let outcome = actor
+                .ask::<_, SpawnTermOutcome>(spawn_msg(chat.clone(), "cat"))
+                .await;
+            let SpawnTermOutcome::Started { .. } = outcome else {
                 panic!("expected Started");
             };
         }
@@ -1195,7 +1213,7 @@ mod tests {
         let ask = {
             let actor = actor.clone();
             let chat = chat.clone();
-            tokio::spawn(async move { actor.ask(send_msg(chat)).await.expect("send reply") })
+            tokio::spawn(async move { actor.ask::<_, SendTermOutcome>(send_msg(chat)).await })
         };
 
         // And the user takes control mid-call and types through the bus.
@@ -1248,14 +1266,13 @@ mod tests {
     async fn kill_terminates_process_and_reports_tail() {
         // Given a coordinator with a program that printed before blocking.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
         {
-            let SpawnTermOutcome::Started { .. } = actor
-                .ask(spawn_msg(chat.clone(), "printf before-kill; cat"))
-                .await
-                .expect("spawn reply")
-            else {
+            let outcome = actor
+                .ask::<_, SpawnTermOutcome>(spawn_msg(chat.clone(), "printf before-kill; cat"))
+                .await;
+            let SpawnTermOutcome::Started { .. } = outcome else {
                 panic!("expected Started");
             };
         }
@@ -1265,8 +1282,7 @@ mod tests {
             .ask(KillTerm {
                 chat_session_id: chat.clone(),
             })
-            .await
-            .expect("kill reply");
+            .await;
 
         // Then the kill reports a signal exit.
         let KillTermOutcome::Killed {
@@ -1286,14 +1302,13 @@ mod tests {
     async fn kill_is_idempotent_after_exit() {
         // Given a coordinator whose session exited naturally.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
         {
-            let SpawnTermOutcome::Started { .. } = actor
-                .ask(spawn_msg(chat.clone(), "true"))
-                .await
-                .expect("spawn reply")
-            else {
+            let outcome = actor
+                .ask::<_, SpawnTermOutcome>(spawn_msg(chat.clone(), "true"))
+                .await;
+            let SpawnTermOutcome::Started { .. } = outcome else {
                 panic!("expected Started");
             };
         }
@@ -1303,14 +1318,12 @@ mod tests {
             .ask(KillTerm {
                 chat_session_id: chat.clone(),
             })
-            .await
-            .expect("kill reply");
+            .await;
         let second = actor
             .ask(KillTerm {
                 chat_session_id: chat,
             })
-            .await
-            .expect("kill reply");
+            .await;
 
         // Then both kills succeed with exit info.
         for reply in [first, second] {
@@ -1326,15 +1339,14 @@ mod tests {
     async fn kill_unknown_session_reports_unknown() {
         // Given a coordinator with no sessions.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
 
         // When killing a chat session with no terminal.
         let reply = actor
             .ask(KillTerm {
                 chat_session_id: jinn_core_types::SessionId::new(),
             })
-            .await
-            .expect("kill reply");
+            .await;
 
         // Then the outcome is UnknownSession.
         assert!(matches!(reply, KillTermOutcome::UnknownSession));
@@ -1346,25 +1358,34 @@ mod tests {
         // Given a coordinator actor and a screen-recording subscriber.
         let harness = TestHarness::new().await;
         let recorder = harness.spawn_recorder::<TermScreenUpdated>().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
 
         // When spawning a program whose output arrives in waves; the reply
         // only comes after the settle window, so every delta is already
         // recorded by the time it returns.
-        let _ = actor
-            .ask(spawn_msg(
+        let _: SpawnTermOutcome = actor
+            .ask::<_, SpawnTermOutcome>(spawn_msg(
                 jinn_core_types::SessionId::new(),
                 "echo one; sleep 0.05; echo two",
             ))
-            .await
-            .expect("spawn reply");
+            .await;
 
         // Then each screen change streamed a TermScreenUpdated to the bus.
-        // (`GetRecorded` DRAINS the recorder, so poll exactly once.)
-        let screens = recorder
-            .ask(GetRecorded::new())
-            .await
-            .expect("get recorded");
+        // (`GetRecorded` DRAINS the recorder, so poll until the first wave lands.)
+        let mut collected: Vec<TermScreenUpdated> = Vec::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while collected.iter().all(|s| !s.screen.contains("two")) {
+            let batch = recorder
+                .ask(GetRecorded::new())
+                .await
+                .unwrap_or_default();
+            collected.extend(batch);
+            if tokio::time::Instant::now() >= deadline {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let screens = collected;
         assert!(
             screens.iter().any(|s| s.screen.contains("one")),
             "expected a screen delta containing 'one'"
@@ -1381,14 +1402,13 @@ mod tests {
     async fn natural_exit_is_captured_on_next_call() {
         // Given a coordinator with a short-lived program.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
 
         // When the spawn reply already observed the exit.
         let SpawnTermOutcome::Started { screen, .. } = actor
             .ask(spawn_msg(chat, "sh -c 'echo bye; exit 7'"))
             .await
-            .expect("spawn reply")
         else {
             panic!("expected Started");
         };
@@ -1403,15 +1423,14 @@ mod tests {
     async fn screen_updates_mirror_into_frontend_state() {
         // Given a coordinator actor wired to a readable shared state.
         let harness = TestHarness::new().await;
-        let (actor, state, _root) =
+        let (actor, state) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
 
         // When spawning a program that prints to the screen.
-        actor
+        let _: SpawnTermOutcome = actor
             .ask(spawn_msg(chat.clone(), "echo mirror-me"))
-            .await
-            .expect("spawn reply");
+            .await;
 
         // Then the frontend terminal mirror carries the rendered screen.
         let guard = state.read();
@@ -1432,18 +1451,17 @@ mod tests {
         // Given a coordinator wired to a readable shared state and a program
         // printing an ANSI-colored word.
         let harness = TestHarness::new().await;
-        let (actor, state, _root) =
+        let (actor, state) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
 
         // When spawning a program that emits red text.
         actor
-            .ask(spawn_msg(
+            .ask::<_, SpawnTermOutcome>(spawn_msg(
                 chat.clone(),
                 "printf 'plain \\033[31mred\\033[0m end'",
             ))
-            .await
-            .expect("spawn reply");
+            .await;
 
         // Then the mirror's cell grid marks the colored span red and the
         // surrounding text default-colored.
@@ -1488,19 +1506,18 @@ mod tests {
     async fn send_updates_mirror_with_new_screen() {
         // Given a coordinator with a live `cat` session.
         let harness = TestHarness::new().await;
-        let (actor, state, _root) =
+        let (actor, state) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat).await;
 
         // When sending text through the send path.
-        actor
-            .ask(SendTermInput {
+        let _: SendTermOutcome = actor
+            .ask::<_, SendTermOutcome>(SendTermInput {
                 text: Some("mirrored-after-send".to_owned()),
                 ..send_msg(chat.clone())
             })
-            .await
-            .expect("send reply");
+            .await;
 
         // Then the mirror reflects the echoed output.
         let guard = state.read();
@@ -1513,7 +1530,7 @@ mod tests {
     async fn resize_updates_session_and_mirror() {
         // Given a coordinator with a live `cat` session.
         let harness = TestHarness::new().await;
-        let (actor, state, _root) =
+        let (actor, state) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat).await;
@@ -1524,11 +1541,23 @@ mod tests {
                 chat_session_id: Some(chat.clone()),
                 size: (10, 40),
             })
-            .await
-            .expect("resize tell");
+            .await;
 
         // Then the session's emulator regrided to the requested size.
+        // (The tell is async-dispatched; give the handler a beat, and poll
+        // briefly in case the message lands after the first sleep.)
         tokio::time::sleep(Duration::from_millis(50)).await;
+        for _ in 0..20 {
+            {
+                let guard = state.read();
+                if let Some(m) = test_mirror(&guard, &chat)
+                    && (m.cells.rows, m.cells.cols) == (10, 40)
+                {
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
         let guard = state.read();
         let mirror = test_mirror(&guard, &chat).expect("mirror");
         assert_eq!(
@@ -1544,7 +1573,7 @@ mod tests {
         // Given a coordinator with two live terminals in different chat
         // sessions.
         let harness = TestHarness::new().await;
-        let (actor, state, _root) =
+        let (actor, state) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
         let chat_a = jinn_core_types::SessionId::new();
         let chat_b = jinn_core_types::SessionId::new();
@@ -1557,9 +1586,9 @@ mod tests {
                 chat_session_id: Some(chat_a.clone()),
                 size: (10, 40),
             })
-            .await
-            .expect("resize tell");
+            .await;
         tokio::time::sleep(Duration::from_millis(50)).await;
+        // Allow the async tell delivery to land before reading mirrors.
 
         // Then chat_a regrided and chat_b kept the default grid.
         let guard = state.read();
@@ -1578,19 +1607,20 @@ mod tests {
     async fn resize_without_session_is_noop() {
         // Given a coordinator with no sessions.
         let harness = TestHarness::new().await;
-        let (actor, _state, _root) =
+        let (actor, _state) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
 
         // When sending a resize with no chat session named.
-        let result = actor
+        actor
             .tell(ResizeTerm {
                 chat_session_id: None,
                 size: (10, 40),
             })
             .await;
 
-        // Then it is accepted silently (no arbitrary target).
-        assert!(result.is_ok());
+        // Then it is accepted silently (no arbitrary target): the ask path
+        // (which the tool layer uses) would report; tell can't fail.
+
     }
 
     #[rstest::rstest]
@@ -1598,21 +1628,22 @@ mod tests {
     async fn resize_of_unknown_chat_session_is_noop() {
         // Given a coordinator with a live terminal in another chat session.
         let harness = TestHarness::new().await;
-        let (actor, _state, _root) =
+        let (actor, _state) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
         let live = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &live).await;
 
         // When resizing an unknown chat session.
-        let result = actor
+        actor
             .tell(ResizeTerm {
                 chat_session_id: Some(jinn_core_types::SessionId::new()),
                 size: (10, 40),
             })
             .await;
 
-        // Then it is accepted silently.
-        assert!(result.is_ok());
+        // Then it is accepted silently: an unknown target is a no-op in the
+        // handler, and a tell cannot fail in trouper.
+
     }
 
     // ── v2: one terminal per chat session ──────────────────────────────────
@@ -1623,14 +1654,13 @@ mod tests {
         // Given a coordinator whose chat session runs a long-lived marker
         // program (`sleep 31` — distinctive, so /proc probing finds exactly it).
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
         {
-            let SpawnTermOutcome::Started { .. } = actor
-                .ask(spawn_msg(chat.clone(), "sleep 31"))
-                .await
-                .expect("spawn reply")
-            else {
+            let outcome = actor
+                .ask::<_, SpawnTermOutcome>(spawn_msg(chat.clone(), "sleep 31"))
+                .await;
+            let SpawnTermOutcome::Started { .. } = outcome else {
                 panic!("expected Started");
             };
         }
@@ -1638,8 +1668,7 @@ mod tests {
         // When spawning a second terminal for the same chat session.
         let reply = actor
             .ask(spawn_msg(chat, "printf second-run; sleep 30"))
-            .await
-            .expect("spawn reply");
+            .await;
 
         // Then the outcome reports the kill of the previous terminal.
         let SpawnTermOutcome::Started {
@@ -1711,18 +1740,17 @@ mod tests {
     async fn parallel_chat_sessions_get_independent_terminals() {
         // Given a coordinator with a terminal for session A.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat_a = jinn_core_types::SessionId::new();
         let chat_b = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
 
         // When spawning a terminal for session B.
         {
-            let SpawnTermOutcome::Started { .. } = actor
-                .ask(spawn_msg(chat_b.clone(), "echo from-b"))
-                .await
-                .expect("spawn reply")
-            else {
+            let outcome = actor
+                .ask::<_, SpawnTermOutcome>(spawn_msg(chat_b.clone(), "echo from-b"))
+                .await;
+            let SpawnTermOutcome::Started { .. } = outcome else {
                 panic!("expected Started");
             };
         }
@@ -1730,7 +1758,7 @@ mod tests {
         // Then both terminals stay live: A's program still responds.
         let mut msg = send_msg(chat_a);
         msg.text = Some("still-alive-a".to_owned());
-        let SendTermOutcome::Sent(screen) = actor.ask(msg).await.expect("send reply") else {
+        let SendTermOutcome::Sent(screen) = actor.ask::<_, SendTermOutcome>(msg).await else {
             panic!("expected Sent");
         };
         assert!(plain_screen(&screen.screen).contains("still-alive-a"));
@@ -1739,8 +1767,7 @@ mod tests {
             .ask(KillTerm {
                 chat_session_id: chat_b,
             })
-            .await
-            .expect("kill reply");
+            .await;
         assert!(
             matches!(b_kill, KillTermOutcome::Killed { .. }),
             "session B must have its own live terminal"
@@ -1752,7 +1779,7 @@ mod tests {
     async fn live_flag_mirrors_spawn_and_kill() {
         // Given a coordinator wired to a readable state.
         let harness = TestHarness::new().await;
-        let (actor, state, _root) =
+        let (actor, state) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat).await;
@@ -1764,12 +1791,11 @@ mod tests {
         );
 
         // When killing the terminal.
-        actor
+        let _: KillTermOutcome = actor
             .ask(KillTerm {
                 chat_session_id: chat.clone(),
             })
-            .await
-            .expect("kill reply");
+            .await;
 
         // Then the live flag clears.
         assert!(
@@ -1783,15 +1809,14 @@ mod tests {
     async fn natural_exit_clears_the_live_flag() {
         // Given a coordinator with a short-lived terminal (`true` exits at once).
         let harness = TestHarness::new().await;
-        let (actor, state, _root) =
+        let (actor, state) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
         {
-            let SpawnTermOutcome::Started { .. } = actor
-                .ask(spawn_msg(chat.clone(), "true"))
-                .await
-                .expect("spawn reply")
-            else {
+            let outcome = actor
+                .ask::<_, SpawnTermOutcome>(spawn_msg(chat.clone(), "true"))
+                .await;
+            let SpawnTermOutcome::Started { .. } = outcome else {
                 panic!("expected Started");
             };
         }
@@ -1811,18 +1836,17 @@ mod tests {
     async fn mirror_updates_without_any_tool_call_in_flight() {
         // Given a coordinator with a live terminal printing on a timer.
         let harness = TestHarness::new().await;
-        let (actor, state, _root) =
+        let (actor, state) =
             spawn_coordinator_with_state(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
         {
-            let SpawnTermOutcome::Started { .. } = actor
-                .ask(spawn_msg(
+            let outcome = actor
+                .ask::<_, SpawnTermOutcome>(spawn_msg(
                     chat.clone(),
                     "sleep 0.2; echo realtime-echo; sleep 30",
                 ))
-                .await
-                .expect("spawn reply")
-            else {
+                .await;
+let SpawnTermOutcome::Started { .. } = outcome else {
                 panic!("expected Started");
             };
         }
@@ -1861,7 +1885,7 @@ mod tests {
         // Given a coordinator with live `cat` terminals in two chat sessions.
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
-        let (actor, _root) = spawn_coordinator(&harness, controls.clone()).await;
+        let (actor, _system) = spawn_coordinator(&harness, controls.clone()).await;
         let chat_a = jinn_core_types::SessionId::new();
         let chat_b = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
@@ -1872,7 +1896,7 @@ mod tests {
         let mut b_msg = send_msg(chat_b.clone());
         b_msg.text = Some("b-untouched".to_owned());
         b_msg.keys = vec!["enter".to_owned()];
-        let reply = actor.ask(b_msg).await.expect("send reply");
+        let reply = actor.ask::<_, SendTermOutcome>(b_msg).await;
 
         // Then B's send succeeds — A's takeover must not abort it.
         let SendTermOutcome::Sent(screen) = reply else {
@@ -1889,7 +1913,7 @@ mod tests {
         // Given a coordinator where A holds user control and B runs `cat`.
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
-        let (actor, _root) = spawn_coordinator(&harness, controls.clone()).await;
+        let (actor, _system) = spawn_coordinator(&harness, controls.clone()).await;
         let chat_a = jinn_core_types::SessionId::new();
         let chat_b = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
@@ -1900,7 +1924,7 @@ mod tests {
         controls.set(&chat_a, ControlHolder::Agent);
         let mut b_msg = send_msg(chat_b.clone());
         b_msg.text = Some("after-handback".to_owned());
-        let reply = actor.ask(b_msg).await.expect("send reply");
+        let reply = actor.ask::<_, SendTermOutcome>(b_msg).await;
 
         // Then B's send succeeds while A is unaffected either way.
         let SendTermOutcome::Sent(screen) = reply else {
@@ -1916,7 +1940,7 @@ mod tests {
     async fn send_targets_only_the_calling_session_terminal() {
         // Given a coordinator with `cat` running in session A only.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat_a = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
 
@@ -1924,7 +1948,7 @@ mod tests {
         let mut a_msg = send_msg(chat_a.clone());
         a_msg.text = Some("only-in-a".to_owned());
         a_msg.keys = vec!["enter".to_owned()];
-        let SendTermOutcome::Sent(a_screen) = actor.ask(a_msg).await.expect("send reply") else {
+        let SendTermOutcome::Sent(a_screen) = actor.ask::<_, SendTermOutcome>(a_msg).await else {
             panic!("expected Sent");
         };
         assert!(plain_screen(&a_screen.screen).contains("only-in-a"));
@@ -1932,9 +1956,9 @@ mod tests {
         // Then a send naming a session with no terminal is UnknownSession —
         // there is no cross-session address to reach, not even by accident.
         let reply = actor
-            .ask(send_msg(jinn_core_types::SessionId::new()))
+            .ask::<_, SendTermOutcome>(send_msg(jinn_core_types::SessionId::new()))
             .await
-            .expect("send reply");
+            ;
         assert!(matches!(reply, SendTermOutcome::UnknownSession));
     }
 
@@ -1943,7 +1967,7 @@ mod tests {
     async fn spawn_kill_previous_is_scoped_to_own_session() {
         // Given a coordinator with live terminals in sessions A and B.
         let harness = TestHarness::new().await;
-        let (actor, _root) = spawn_coordinator(&harness, TermControls::default()).await;
+        let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat_a = jinn_core_types::SessionId::new();
         let chat_b = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
@@ -1952,8 +1976,7 @@ mod tests {
         // When respawning B.
         let reply = actor
             .ask(spawn_msg(chat_b, "echo respawn-b"))
-            .await
-            .expect("spawn reply");
+            .await;
 
         // Then B's respawn reports the kill, and A's terminal stays live
         // (A's program still answers input).
@@ -1970,7 +1993,7 @@ mod tests {
         let mut a_msg = send_msg(chat_a);
         a_msg.text = Some("a-still-live".to_owned());
         a_msg.keys = vec!["enter".to_owned()];
-        let SendTermOutcome::Sent(a_screen) = actor.ask(a_msg).await.expect("send reply") else {
+        let SendTermOutcome::Sent(a_screen) = actor.ask::<_, SendTermOutcome>(a_msg).await else {
             panic!("session A's terminal must survive B's respawn");
         };
         assert!(plain_screen(&a_screen.screen).contains("a-still-live"));
@@ -1982,7 +2005,7 @@ mod tests {
         // Given a coordinator with `cat` in sessions A and B.
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
-        let (actor, state, _root) = spawn_coordinator_with_state(&harness, controls.clone()).await;
+        let (actor, state) = spawn_coordinator_with_state(&harness, controls.clone()).await;
         let chat_a = jinn_core_types::SessionId::new();
         let chat_b = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
@@ -2002,9 +2025,8 @@ mod tests {
         // Then A's terminal is gone (send → UnknownSession), its mirror and
         // live flag cleared, and its control entry removed.
         let reply = actor
-            .ask(send_msg(chat_a.clone()))
-            .await
-            .expect("send reply");
+            .ask::<_, SendTermOutcome>(send_msg(chat_a.clone()))
+            .await;
         assert!(matches!(reply, SendTermOutcome::UnknownSession));
         {
             let guard = state.read();
@@ -2015,7 +2037,7 @@ mod tests {
         let mut b_msg = send_msg(chat_b.clone());
         b_msg.text = Some("b-survives".to_owned());
         b_msg.keys = vec!["enter".to_owned()];
-        let SendTermOutcome::Sent(b_screen) = actor.ask(b_msg).await.expect("send reply") else {
+        let SendTermOutcome::Sent(b_screen) = actor.ask::<_, SendTermOutcome>(b_msg).await else {
             panic!("session B's terminal must survive A's close");
         };
         assert!(plain_screen(&b_screen.screen).contains("b-survives"));
@@ -2028,7 +2050,7 @@ mod tests {
         // Given a coordinator with A's terminal under user control.
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
-        let (actor, _root) = spawn_coordinator(&harness, controls.clone()).await;
+        let (actor, _system) = spawn_coordinator(&harness, controls.clone()).await;
         let chat_a = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
         controls.set(&chat_a, ControlHolder::User);
@@ -2054,16 +2076,15 @@ mod tests {
         // Given a coordinator whose A terminal is under user control.
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
-        let (actor, _root) = spawn_coordinator(&harness, controls.clone()).await;
+        let (actor, _system) = spawn_coordinator(&harness, controls.clone()).await;
         let chat_a = jinn_core_types::SessionId::new();
         spawn_cat(&actor, &chat_a).await;
         controls.set(&chat_a, ControlHolder::User);
 
         // When respawning A's terminal.
         let reply = actor
-            .ask(spawn_msg(chat_a.clone(), "echo fresh"))
-            .await
-            .expect("spawn reply");
+            .ask::<_, SpawnTermOutcome>(spawn_msg(chat_a.clone(), "echo fresh"))
+            .await;
         let SpawnTermOutcome::Started { screen, .. } = reply else {
             panic!("expected Started");
         };

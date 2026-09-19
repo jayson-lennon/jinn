@@ -9,7 +9,7 @@ pub use jinn_slices::cwd_root::CwdRoot;
 ///
 /// Every keymap binding and mouse event produces exactly one [`Intent`] variant.
 /// The keymap decides the intent; the `IntentHandler` decides what to do with it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Intent {
     /// Insert a character at the cursor position.
     InsertChar {
@@ -239,6 +239,13 @@ pub enum Intent {
     /// Switch between Chat and the registered dynamic tabs.
     SwitchTab,
 }
+
+impl jinn_slices::BusMessage for Intent {}
+
+jinn_slices::crossing_schema!(Intent, "KernelIntent",
+    trouper::schema::SchemaKind::Command,
+    description: "A user-initiated action produced by the keymap (dispatched dynamically between slices).",
+    fields: []);
 
 impl std::fmt::Display for Intent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

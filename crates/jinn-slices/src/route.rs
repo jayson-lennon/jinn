@@ -220,7 +220,7 @@ pub trait SliceActionState {
 /// payload for actions that forward a byte stream (e.g. a key hook
 /// wrapping a terminal's PTY encoding) — empty when the action needs
 /// none.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DynamicIntent {
     /// The slice this intent belongs to.
     pub slice: SliceScopeId,

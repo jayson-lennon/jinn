@@ -2,7 +2,10 @@
 
 use std::path::PathBuf;
 
-use kameo::prelude::{Actor, ActorRef, Context, Message};
+use error_stack::Report;
+use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
 use serde::{Deserialize, Serialize};
 
 use crate::common::actor_deps::{ActorDeps, BusPublish};
@@ -63,25 +66,55 @@ impl BusPublish for DirectoryListerActor {
     }
 }
 
-impl Actor for DirectoryListerActor {
-    type Args = DirectoryListerActorDeps;
-    type Error = std::convert::Infallible;
-
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        let bus = args.deps.services.bus.clone();
-        bus.subscribe::<ListDirectory, _>(&actor_ref).await;
-        Ok(Self {
-            bus,
-            state: args.state,
-            frontend_cap: args.frontend_cap,
-        })
+impl ServiceActor for DirectoryListerActor {
+    async fn start(_args: &serde_json::Value) -> Result<Self, Report<RegistryError>> {
+        // Never called: spawned via `spawn`'s start_with (typed deps can't
+        // ride the JSON args).
+        let _ = _args;
+        Err(Report::new(RegistryError::InvalidSpec)
+            .attach("DirectoryListerActor spawns via start_with"))
     }
 }
 
-impl Message<ListDirectory> for DirectoryListerActor {
-    type Reply = ();
+/// Static path the lister spawns at (one instance per process).
+pub const DIRECTORY_LISTER_PATH: &str = "jinn.file_lister.actor";
 
-    async fn handle(&mut self, msg: ListDirectory, _ctx: &mut Context<Self, Self::Reply>) {
+impl DirectoryListerActor {
+    /// Spawns the lister onto the trouper system; its subscription is
+    /// live when this returns.
+    pub fn spawn(system: &trouper::system::ActorSystem, deps: DirectoryListerActorDeps) -> ActorPath {
+        let path = ActorPath::new(DIRECTORY_LISTER_PATH);
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(path.clone())
+            .start_with({
+                let deps = deps.clone();
+                move || {
+                    let deps = deps.clone();
+                    Box::pin(async move {
+                        Ok(Self {
+                            bus: deps.deps.services.bus.clone(),
+                            state: deps.state,
+                            frontend_cap: deps.frontend_cap,
+                        })
+                    })
+                }
+            })
+            .handles::<ListDirectory>()
+            .mailbox(64, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        system
+            .subscribe(
+                &path,
+                &crate::common::services::bus_service::jinn_domain_topic(),
+                None,
+            )
+            .expect("directory lister subscribes the domain topic");
+        path
+    }
+}
+
+impl MsgHandler<ListDirectory> for DirectoryListerActor {
+    async fn handle(&mut self, msg: ListDirectory, _ctx: &mut MsgCtx<'_>) {
         let path = msg.path.clone();
         let request_id = msg.request_id;
         let result = tokio::task::spawn_blocking(move || list_dir_blocking(&path)).await;

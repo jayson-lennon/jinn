@@ -40,6 +40,13 @@ pub struct ExitInfo {
     pub signal: Option<String>,
 }
 
+impl jinn_slices::BusMessage for ExitInfo {}
+
+jinn_slices::crossing_schema!(ExitInfo, "TermExitInfo",
+    trouper::schema::SchemaKind::Event,
+    description: "Captured exit info from a terminated terminal child.",
+    fields: ["code" => trouper::schema::FieldTy::Int, "signal" => trouper::schema::FieldTy::Str]);
+
 impl ExitInfo {
     /// One-line human summary, e.g. `exited with code 1` or `killed by SIGTERM`.
     #[must_use]

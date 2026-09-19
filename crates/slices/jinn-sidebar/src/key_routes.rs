@@ -385,7 +385,15 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "T",
         "general",
         "toggle terminal",
-        sync(|_state| IntentResult::empty()),
+        sync(|_state| {
+            IntentResult::new_message(jinn_domain::protocol::intent::Intent::Dynamic(
+                jinn_slices::DynamicIntent::new(
+                    jinn_term_msg::view_scope(),
+                    "toggle-for-selected",
+                    "toggle terminal",
+                ),
+            ))
+        }),
     ));
     routes.attach(row(
         "session-insert",

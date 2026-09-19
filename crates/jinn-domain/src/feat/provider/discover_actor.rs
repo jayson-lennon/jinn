@@ -13,11 +13,13 @@ use crate::feat::provider::protocol::command::RefreshModels;
 use crate::feat::provider::protocol::event::ModelsRefreshed;
 use crate::feat::provider_infra::ModelCache;
 use error_stack::Report;
+use trouper::registry::RegistryError;
 use jinn_provider::{
     Backend, LlmServiceError, ModelInfo, OpenAiCompatibleService, ProviderConfig,
     anthropic::AnthropicService, google::GoogleService,
 };
-use kameo::prelude::{Actor, ActorRef, Context, Message};
+use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
+use trouper::context::MsgCtx;
 
 /// Error type for model discovery failures.
 #[derive(Debug, wherror::Error)]
@@ -43,30 +45,54 @@ pub struct DiscoverActorDeps {
     pub state: State,
 }
 
-impl Actor for DiscoverActor {
-    type Args = DiscoverActorDeps;
-    type Error = kameo::error::Infallible;
-
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        args.deps
-            .subscribe(actor_ref.recipient::<RefreshModels>())
-            .await;
-
-        Ok(Self {
-            deps: args.deps,
-            state: args.state,
-        })
+impl ServiceActor for DiscoverActor {
+    async fn start(_args: &serde_json::Value) -> Result<Self, Report<RegistryError>> {
+        // Never called: spawned via `spawn`'s start_with (typed deps can't
+        // ride the JSON args).
+        let _ = _args;
+        Err(Report::new(RegistryError::InvalidSpec)
+            .attach("DiscoverActor spawns via start_with"))
     }
 }
 
-impl Message<RefreshModels> for DiscoverActor {
-    type Reply = ();
+/// Static path the discover actor spawns at (one instance per process).
+pub const DISCOVER_ACTOR_PATH: &str = "jinn.provider.discover";
 
-    async fn handle(
-        &mut self,
-        _msg: RefreshModels,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
+impl DiscoverActor {
+    /// Spawns the discover actor onto the trouper system; its
+    /// subscription is live when this returns.
+    pub fn spawn(system: &trouper::system::ActorSystem, deps: DiscoverActorDeps) -> ActorPath {
+        let path = ActorPath::new(DISCOVER_ACTOR_PATH);
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(path.clone())
+            .start_with({
+                let deps = deps.clone();
+                move || {
+                    let deps = deps.clone();
+                    Box::pin(async move {
+                        Ok(Self {
+                            deps: deps.deps,
+                            state: deps.state,
+                        })
+                    })
+                }
+            })
+            .handles::<RefreshModels>()
+            .mailbox(64, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        system
+            .subscribe(
+                &path,
+                &crate::common::services::bus_service::jinn_domain_topic(),
+                None,
+            )
+            .expect("discover actor subscribes the domain topic");
+        path
+    }
+}
+
+impl MsgHandler<RefreshModels> for DiscoverActor {
+    async fn handle(&mut self, _msg: RefreshModels, _ctx: &mut MsgCtx<'_>) {
         self.refresh_models().await;
     }
 }
@@ -233,12 +259,14 @@ mod tests {
         // Given a discover actor with no configured providers.
         let harness = TestHarness::new().await;
         let state = State::new(AppState::default());
-        let _actor = harness
-            .spawn_actor::<DiscoverActor>(DiscoverActorDeps {
+        let services = harness.services().await;
+        let _actor = DiscoverActor::spawn(
+            &services.trouper_system,
+            DiscoverActorDeps {
                 deps: harness.actor_deps().await,
                 state: state.clone(),
-            })
-            .await;
+            },
+        );
         let recorder = harness.spawn_recorder::<ModelsRefreshed>().await;
 
         // When publishing RefreshModels.

@@ -18,7 +18,7 @@ pub enum ControlHolder {
 }
 
 /// Outcome of a settle wait for a spawn or send.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TermScreen {
     /// The rendered screen (plain text, trailing blank rows trimmed).
     pub screen: String,
@@ -32,7 +32,7 @@ pub struct TermScreen {
 /// live terminal kills the old one first (reported in the outcome). The
 /// terminal overlay and sidebar symbol are keyed by this chat session id —
 /// it *is* the terminal's identity; there is no separate term id.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpawnTerm {
     /// The chat session that owns this terminal.
     pub chat_session_id: SessionId,
@@ -47,7 +47,7 @@ pub struct SpawnTerm {
 }
 
 /// Outcome of a [`SpawnTerm`] request.
-#[derive(Debug, Clone, kameo::Reply)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SpawnTermOutcome {
     /// Session created; screen captured after the initial settle.
     Started {
@@ -63,14 +63,14 @@ pub enum SpawnTermOutcome {
 
 /// What happened to a chat session's previous terminal when a new one took
 /// its place (one terminal per chat session).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KilledPrevious {
     /// Captured exit info from the kill.
     pub exited: ExitInfo,
 }
 
 /// Send input to a session and wait for the screen to settle.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendTermInput {
     /// The chat session whose terminal receives the input.
     pub chat_session_id: SessionId,
@@ -85,7 +85,7 @@ pub struct SendTermInput {
 }
 
 /// Outcome of a [`SendTermInput`] request.
-#[derive(Debug, Clone, kameo::Reply)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SendTermOutcome {
     /// Input written; screen settled.
     Sent(TermScreen),
@@ -100,14 +100,14 @@ pub enum SendTermOutcome {
 }
 
 /// Kill a session (its whole process group) and collect the final state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KillTerm {
     /// The chat session whose terminal is killed.
     pub chat_session_id: SessionId,
 }
 
 /// Outcome of a [`KillTerm`] request.
-#[derive(Debug, Clone, kameo::Reply)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum KillTermOutcome {
     /// The session was killed (or had already exited — kill is idempotent).
     Killed {
@@ -159,3 +159,60 @@ pub struct SendTermKey {
     /// Encoded key bytes to write.
     pub bytes: Vec<u8>,
 }
+
+
+impl BusMessage for SpawnTerm {}
+
+jinn_slices::crossing_schema!(SpawnTerm, "SpawnTerm",
+trouper::schema::SchemaKind::Command,
+description: "Spawn an interactive pty session for a chat session.",
+fields: ["chat_session_id" => trouper::schema::FieldTy::Uuid, "command" => trouper::schema::FieldTy::Str]);
+
+impl BusMessage for SpawnTermOutcome {}
+
+jinn_slices::crossing_schema!(SpawnTermOutcome, "SpawnTermOutcome",
+trouper::schema::SchemaKind::Event,
+description: "Reply payload for the spawn ask.",
+fields: []);
+
+impl BusMessage for KilledPrevious {}
+
+jinn_slices::crossing_schema!(KilledPrevious, "KilledPrevious",
+trouper::schema::SchemaKind::Event,
+description: "The replaced terminal's exit info.",
+fields: []);
+
+impl BusMessage for SendTermInput {}
+
+jinn_slices::crossing_schema!(SendTermInput, "SendTermInput",
+trouper::schema::SchemaKind::Command,
+description: "Send text/keys to a session's pty and wait for settle.",
+fields: ["chat_session_id" => trouper::schema::FieldTy::Uuid]);
+
+impl BusMessage for SendTermOutcome {}
+
+jinn_slices::crossing_schema!(SendTermOutcome, "SendTermOutcome",
+trouper::schema::SchemaKind::Event,
+description: "Reply payload for the send-input ask.",
+fields: []);
+
+impl BusMessage for KillTerm {}
+
+jinn_slices::crossing_schema!(KillTerm, "KillTerm",
+trouper::schema::SchemaKind::Command,
+description: "Kill a chat session's pty process group.",
+fields: ["chat_session_id" => trouper::schema::FieldTy::Uuid]);
+
+impl BusMessage for KillTermOutcome {}
+
+jinn_slices::crossing_schema!(KillTermOutcome, "KillTermOutcome",
+trouper::schema::SchemaKind::Event,
+description: "Reply payload for the kill ask.",
+fields: []);
+
+impl BusMessage for TermScreen {}
+
+jinn_slices::crossing_schema!(TermScreen, "TermScreen",
+trouper::schema::SchemaKind::Event,
+description: "A settled terminal screen capture.",
+fields: ["screen" => trouper::schema::FieldTy::Str]);
