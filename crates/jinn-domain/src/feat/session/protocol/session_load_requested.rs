@@ -21,3 +21,8 @@ pub struct SessionLoadRequested {
 }
 
 impl BusMessage for SessionLoadRequested {}
+
+jinn_slices::crossing_schema!(SessionLoadRequested, "SessionLoadRequested",
+trouper::schema::SchemaKind::Command,
+description: "Load a session from the store by id.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);

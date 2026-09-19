@@ -35,6 +35,11 @@ pub struct PushChatEntry {
 
 impl jinn_slices::BusMessage for PushChatEntry {}
 
+jinn_slices::crossing_schema!(PushChatEntry, "PushChatEntry",
+trouper::schema::SchemaKind::Command,
+description: "Add a chat entry to a session's history.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
+
 /// Emitted when a new entry is appended to the session history.
 ///
 /// Carries no token count - the compaction actor reads `context_size()`
@@ -70,6 +75,11 @@ pub struct SubmitHistoryMutations {
 
 impl jinn_slices::BusMessage for SubmitHistoryMutations {}
 
+jinn_slices::crossing_schema!(SubmitHistoryMutations, "SubmitHistoryMutations",
+trouper::schema::SchemaKind::Command,
+description: "Queue a batch of history mutations for deferred application.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
+
 /// Pin a chat entry so it survives context management strategies.
 ///
 /// The entry will be positioned according to `position` in the assembled prompt.
@@ -85,6 +95,11 @@ pub struct PinChatEntry {
 
 impl jinn_slices::BusMessage for PinChatEntry {}
 
+jinn_slices::crossing_schema!(PinChatEntry, "PinChatEntry",
+trouper::schema::SchemaKind::Command,
+description: "Pin a chat entry so it survives context management.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
+
 /// Remove the pin from a chat entry, allowing normal context management.
 ///
 /// If the entry is not pinned, this is a no-op.
@@ -97,6 +112,11 @@ pub struct UnpinChatEntry {
 }
 
 impl jinn_slices::BusMessage for UnpinChatEntry {}
+
+jinn_slices::crossing_schema!(UnpinChatEntry, "UnpinChatEntry",
+trouper::schema::SchemaKind::Command,
+description: "Remove a chat entry's pin.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
 
 /// A chat entry's pin state changed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,6 +148,11 @@ pub struct CitationsReceived {
 
 impl jinn_slices::BusMessage for CitationsReceived {}
 
+jinn_slices::crossing_schema!(CitationsReceived, "CitationsReceived",
+trouper::schema::SchemaKind::Event,
+description: "A completed stream accumulated url_citation annotations.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
+
 /// A task list mutation was applied successfully.
 ///
 /// Broadcast after any todo list tool modifies the task list (add phase, add task,
@@ -140,6 +165,11 @@ pub struct TaskListUpdated {
 }
 
 impl jinn_slices::BusMessage for TaskListUpdated {}
+
+jinn_slices::crossing_schema!(TaskListUpdated, "TaskListUpdated",
+trouper::schema::SchemaKind::Event,
+description: "A task list mutation was applied to a session.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
 
 #[cfg(test)]
 mod tests {

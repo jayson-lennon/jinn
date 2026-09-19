@@ -39,6 +39,11 @@ pub struct RestartMcpServer {
 
 impl BusMessage for RestartMcpServer {}
 
+jinn_slices::crossing_schema!(RestartMcpServer, "RestartMcpServer",
+trouper::schema::SchemaKind::Command,
+description: "Restart one MCP server actor for a session.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
+
 /// Outcome of a [`RestartMcpServer`] request, returned by the coordinator.
 ///
 /// `Ok(())` means the newly-spawned actor connected successfully (it holds
@@ -78,6 +83,11 @@ pub struct McpEnablementChanged {
 
 impl BusMessage for McpEnablementChanged {}
 
+jinn_slices::crossing_schema!(McpEnablementChanged, "McpEnablementChanged",
+trouper::schema::SchemaKind::Event,
+description: "A session's enabled MCP server set changed.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
+
 /// Coarse connection state of one connection actor's child process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum McpConnectionStatus {
@@ -109,6 +119,11 @@ pub struct McpServerStatus {
 
 impl BusMessage for McpServerStatus {}
 
+jinn_slices::crossing_schema!(McpServerStatus, "McpServerStatus",
+trouper::schema::SchemaKind::Event,
+description: "An MCP server's connection state changed.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
+
 /// Captured stderr tail for one (session × server) connection actor.
 ///
 /// Published whenever new child-process stderr is drained (debounced while
@@ -126,6 +141,11 @@ pub struct McpServerLog {
 }
 
 impl BusMessage for McpServerLog {}
+
+jinn_slices::crossing_schema!(McpServerLog, "McpServerLog",
+trouper::schema::SchemaKind::Event,
+description: "An MCP server produced stderr log output.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
 
 /// Kernel-side seam to the MCP coordinator actor.
 ///

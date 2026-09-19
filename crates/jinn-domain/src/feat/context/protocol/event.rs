@@ -19,6 +19,11 @@ pub struct PersonasLoaded {
 
 impl BusMessage for PersonasLoaded {}
 
+jinn_slices::crossing_schema!(PersonasLoaded, "PersonasLoaded",
+trouper::schema::SchemaKind::Event,
+description: "Persona directory scan completed.",
+fields: []);
+
 /// Emitted when a chat entry's context override is toggled (e.g. via the `x` keybind).
 ///
 /// The intent handler emits this after toggling an entry's inclusion in

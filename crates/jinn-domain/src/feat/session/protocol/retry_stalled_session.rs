@@ -49,3 +49,8 @@ pub struct RetryStalledSession {
 }
 
 impl crate::common::bus::BusMessage for RetryStalledSession {}
+
+jinn_slices::crossing_schema!(RetryStalledSession, "RetryStalledSession",
+trouper::schema::SchemaKind::Command,
+description: "Re-dispatch a turn whose stream stalled.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);

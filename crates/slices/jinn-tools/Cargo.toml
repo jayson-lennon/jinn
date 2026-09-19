@@ -15,6 +15,7 @@ jinn-mcp-msg = { workspace = true }
 jinn-term-msg = { workspace = true }
 jiff = { workspace = true }
 kameo = { workspace = true }
+trouper = { workspace = true }
 regex = { workspace = true }
 rand = { workspace = true }
 base64 = { workspace = true }

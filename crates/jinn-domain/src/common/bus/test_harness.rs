@@ -14,49 +14,57 @@ use std::time::Duration;
 
 use kameo::actor::{ActorRef, Spawn};
 use kameo::prelude::{Context, Message};
-use kameo_actors::message_bus::{Publish, Register};
+use kameo_actors::message_bus::Register;
 
+use crate::common::bus::BusMessage;
 use crate::common::services::bus_service::BusService;
 
 // ---------------------------------------------------------------------------
 // Test harness
 // ---------------------------------------------------------------------------
 
-/// A test fixture that manages a [`MessageBus`] and provides convenience methods
-/// for spawning actors and recorders in tests.
+/// A test fixture that manages the message fabric and provides convenience
+/// methods for spawning actors and recorders in tests.
 pub struct TestHarness {
     bus: BusService,
-    bus_ref: ActorRef<kameo_actors::message_bus::MessageBus>,
+    system: trouper::system::ActorSystem,
 }
 
 impl TestHarness {
-    /// Create a new harness with a fresh `MessageBus`.
+    /// Create a new harness with a fresh fabric: a trouper `ActorSystem`
+    /// (primary leg) plus a `Guaranteed`-delivery kameo leg feeding the
+    /// not-yet-ported actors.
     // API symmetry with other harness methods; spawn requires runtime context.
     pub async fn new() -> Self {
         async {}.await;
-        let bus =
+        let system =
+            trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
+        let bus_actor =
             kameo_actors::message_bus::MessageBus::new(kameo_actors::DeliveryStrategy::Guaranteed);
-        let bus_ref = Spawn::spawn(bus);
-        let bus = BusService::new(bus_ref.clone());
-        Self { bus, bus_ref }
+        let bus_ref = Spawn::spawn(bus_actor);
+        let bus = BusService::new_trouper(system.clone(), Some(bus_ref));
+        Self { bus, system }
     }
 
-    /// Create a new harness with a `BestEffort` delivery bus.
+    /// Create a new harness with a `BestEffort` kameo leg.
     ///
-    /// Production uses `BestEffort`, which drops messages on `MailboxFull` (the bus
-    /// silently swallows them — it only checks `ActorNotRunning`). Use this variant
-    /// to faithfully reproduce drop-driven wedges that the default `Guaranteed`
-    /// harness cannot trigger.
+    /// Production uses `BestEffort` on the kameo leg, which drops messages on
+    /// `MailboxFull` (the bus silently swallows them — it only checks
+    /// `ActorNotRunning`). Use this variant to faithfully reproduce
+    /// drop-driven wedges that the default `Guaranteed` harness cannot
+    /// trigger. The trouper leg is unaffected (its inboxes backpressure).
     #[expect(
         clippy::unused_async,
         reason = "API symmetry with `new`; spawn requires runtime context"
     )]
     pub async fn new_best_effort() -> Self {
-        let bus =
+        let system =
+            trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
+        let bus_actor =
             kameo_actors::message_bus::MessageBus::new(kameo_actors::DeliveryStrategy::BestEffort);
-        let bus_ref = Spawn::spawn(bus);
-        let bus = BusService::new(bus_ref.clone());
-        Self { bus, bus_ref }
+        let bus_ref = Spawn::spawn(bus_actor);
+        let bus = BusService::new_trouper(system.clone(), Some(bus_ref));
+        Self { bus, system }
     }
 
     /// The wrapped `BusService` — pass to actor deps.
@@ -64,12 +72,25 @@ impl TestHarness {
         self.bus.clone()
     }
 
-    /// Publish a typed message on the bus.
-    pub async fn publish<M: Clone + Send + 'static>(&self, msg: M) {
-        self.bus_ref
-            .tell(Publish(msg))
-            .await
-            .expect("publish should succeed");
+    /// The harness's trouper system — spawn ported actors against it.
+    #[must_use]
+    pub const fn system(&self) -> &trouper::system::ActorSystem {
+        &self.system
+    }
+
+    /// Assembles a harness from pre-built parts (fabric tests that hand-
+    /// construct the `BusService` to control its legs).
+    #[must_use]
+    pub fn from_parts(bus: BusService, system: trouper::system::ActorSystem) -> Self {
+        Self { bus, system }
+    }
+
+    /// Publish a typed message on the fabric (the `BusService`'s legs).
+    pub async fn publish<M: BusMessage + trouper::schema::Schema + serde::Serialize>(
+        &self,
+        msg: M,
+    ) {
+        self.bus.publish(msg).await;
     }
 
     /// Spawn a kameo actor and wait for startup (bus registration complete).
@@ -98,22 +119,140 @@ impl TestHarness {
         actor
     }
 
-    /// Spawn a [`Recorder`] and register it on the bus for type `M`.
-    pub async fn spawn_recorder<M: Clone + Send + 'static>(&self) -> ActorRef<Recorder<M>> {
+    /// Spawn a [`Recorder`] for type `M` on the **trouper leg** only: the
+    /// fabric's primary path. A `harness.publish::<M>()` round-trips through
+    /// `BusService`, its topic routing, and the schema adapter before the
+    /// recorder sees the decoded message — tests validate the real delivery
+    /// path. (Kameo-emitters' direct `tell`s to recorders are legacy kameo
+    /// delivery; during the coexistence window recorders collect from both
+    /// the trouper tap and any kameo `Register` a test performs itself.)
+    pub async fn spawn_recorder<M>(&self) -> ActorRef<Recorder<M>>
+    where
+        M: BusMessage + trouper::schema::Schema + serde::Serialize + serde::de::DeserializeOwned,
+    {
         let recorder = Recorder::<M>::spawn(());
-        self.bus_ref
-            .ask(Register(recorder.clone().recipient::<M>()))
-            .await
-            .expect("register recorder");
+        // Troupe leg: a service actor observing the schema's routed
+        // deliveries, forwarding decoded messages into the same recorder.
+        self.spawn_trouper_recorder::<M>(recorder.clone()).await;
         recorder
     }
 
-    /// Register a custom actor's recipient for type `M` on the bus.
-    pub async fn register<M: Clone + Send + 'static>(&self, recipient: kameo::actor::Recipient<M>) {
-        self.bus_ref
-            .ask(Register(recipient))
-            .await
-            .expect("register recipient");
+    /// Spawns the trouper-side recorder actor subscribed to `M`'s schema
+    /// traffic, forwarding decoded messages into the harness's [`Recorder`].
+    ///
+    /// Each tap gets a unique path (a process-wide counter) so parallel
+    /// tests never share tap state; the recorder handle rides a process-
+    /// wide registry because trouper's typed `start` only carries JSON args.
+    async fn spawn_trouper_recorder<M>(&self, recorder: ActorRef<Recorder<M>>)
+    where
+        M: BusMessage + trouper::schema::Schema + serde::Serialize + serde::de::DeserializeOwned,
+    {
+        use std::collections::HashMap;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
+
+        static TAP_SEQ: AtomicU64 = AtomicU64::new(0);
+
+        fn recorders()
+        -> &'static parking_lot::Mutex<HashMap<String, Arc<dyn std::any::Any + Send + Sync>>> {
+            static TAP_RECORDERS: std::sync::OnceLock<
+                parking_lot::Mutex<HashMap<String, Arc<dyn std::any::Any + Send + Sync>>>,
+            > = std::sync::OnceLock::new();
+            TAP_RECORDERS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+        }
+
+        struct TroupeTap<M> {
+            path: ActorPath,
+            _msg: std::marker::PhantomData<fn() -> M>,
+        }
+
+        impl<M> TroupeTap<M>
+        where
+            M: BusMessage + trouper::schema::Schema + serde::Serialize + serde::de::DeserializeOwned,
+        {
+            fn path_for(seq: u64) -> ActorPath {
+                ActorPath::new(format!(
+                    "test.tap.{}.{}",
+                    M::schema_id().name().replace("::", "."),
+                    seq
+                ))
+            }
+        }
+
+        impl<M> ServiceActor for TroupeTap<M>
+        where
+            M: BusMessage + trouper::schema::Schema + serde::Serialize + serde::de::DeserializeOwned,
+        {
+            async fn start(
+                args: &serde_json::Value,
+            ) -> Result<Self, error_stack::Report<trouper::registry::RegistryError>> {
+                // The spawner passes the tap's own path through the args so
+                // `start` never has to recompute (or race on) it.
+                let path = args["path"].as_str().expect("tap path arg").to_owned();
+                Ok(Self {
+                    path: ActorPath::new(path),
+                    _msg: std::marker::PhantomData,
+                })
+            }
+        }
+
+        impl<M> MsgHandler<M> for TroupeTap<M>
+        where
+            M: BusMessage + trouper::schema::Schema + serde::Serialize + serde::de::DeserializeOwned,
+        {
+            async fn handle(&mut self, msg: M, _ctx: &mut trouper::context::MsgCtx<'_>) {
+                let recorder = {
+                    let table = recorders().lock();
+                    table
+                        .get(self.path.as_str())
+                        .cloned()
+                        .and_then(|any| {
+                            any.downcast::<ActorRef<Recorder<M>>>()
+                                .ok()
+                                .map(|arc| (*arc).clone())
+                        })
+                };
+                if let Some(recorder) = recorder {
+                    let _ = recorder.tell(msg).await;
+                }
+            }
+        }
+
+        // Reserve the sequence slot first so each parallel test's tap gets
+        // a distinct path.
+        let seq = TAP_SEQ.fetch_add(1, Ordering::SeqCst);
+        let path = TroupeTap::<M>::path_for(seq);
+        recorders().lock().insert(path.as_str().to_owned(), Arc::new(recorder));
+        self.system.register_schema::<M>();
+        self.system.spawn_service::<TroupeTap<M>, _>(
+            path.clone(),
+            &serde_json::json!({ "path": path.as_str() }),
+            trouper::system::SpawnOpts::default(),
+            || {
+                vec![std::sync::Arc::new(
+                    trouper::actor::TypedServiceAdapter::<TroupeTap<M>, M>::new::<M>(),
+                )]
+            },
+        );
+        // The tap follows the schema's current route resolution: normally
+        // the shared domain topic, or the override a test/slice route
+        // registered for `M`.
+        let topic = self.bus.routed_topic::<M>();
+        self.system
+            .subscribe(&path, &topic, None)
+            .expect("tap subscribes the schema's routed topic");
+    }
+
+    /// Register a custom actor's recipient for type `M` on the kameo leg.
+    pub async fn register<M: Clone + Send + 'static>(
+        &self,
+        recipient: kameo::actor::Recipient<M>,
+    ) {
+        if let Some(leg) = self.bus.kameo_leg_ref() {
+            let _ = leg.ask(Register(recipient)).await;
+        }
     }
     /// Build a [`Services`] with the harness bus wired into a test instance.
     ///

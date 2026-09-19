@@ -157,11 +157,56 @@ pub struct ToolExecutionOutput {
 }
 
 impl jinn_slices::BusMessage for ToolBatchCompleted {}
+
+jinn_slices::crossing_schema!(ToolBatchCompleted, "ToolBatchCompleted",
+trouper::schema::SchemaKind::Event,
+description: "A batch of tool calls finished executing.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
 impl jinn_slices::BusMessage for ToolExecutionCompleted {}
+
+jinn_slices::crossing_schema!(ToolExecutionCompleted, "ToolExecutionCompleted",
+trouper::schema::SchemaKind::Event,
+description: "A single tool execution completed.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
 impl jinn_slices::BusMessage for ToolsRegistered {}
+
+jinn_slices::crossing_schema!(ToolsRegistered, "ToolsRegistered",
+trouper::schema::SchemaKind::Event,
+description: "An actor registered tool definitions.",
+fields: []);
 impl jinn_slices::BusMessage for ToolsUnregistered {}
+
+jinn_slices::crossing_schema!(ToolsUnregistered, "ToolsUnregistered",
+trouper::schema::SchemaKind::Event,
+description: "A provider's session-scoped tools were removed.",
+fields: []);
 impl jinn_slices::BusMessage for ToolUseStarted {}
+
+jinn_slices::crossing_schema!(ToolUseStarted, "ToolUseStarted",
+trouper::schema::SchemaKind::Event,
+description: "A tool call started in the LLM stream.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
 impl jinn_slices::BusMessage for ToolCallReceived {}
+
+jinn_slices::crossing_schema!(ToolCallReceived, "ToolCallReceived",
+trouper::schema::SchemaKind::Event,
+description: "A complete tool call was received from the stream.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
 impl jinn_slices::BusMessage for ToolCallStreaming {}
+
+jinn_slices::crossing_schema!(ToolCallStreaming, "ToolCallStreaming",
+trouper::schema::SchemaKind::Event,
+description: "Tool call arguments streamed in as a partial JSON delta.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
 impl jinn_slices::BusMessage for ToolExecutionStarted {}
+
+jinn_slices::crossing_schema!(ToolExecutionStarted, "ToolExecutionStarted",
+trouper::schema::SchemaKind::Event,
+description: "A streaming tool began executing.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
 impl jinn_slices::BusMessage for ToolExecutionOutput {}
+
+jinn_slices::crossing_schema!(ToolExecutionOutput, "ToolExecutionOutput",
+trouper::schema::SchemaKind::Event,
+description: "A streamed tool produced incremental output.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);

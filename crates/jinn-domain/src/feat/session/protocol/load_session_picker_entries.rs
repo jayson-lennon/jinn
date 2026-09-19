@@ -12,3 +12,8 @@ use crate::BusMessage;
 pub struct LoadSessionPickerEntries;
 
 impl BusMessage for LoadSessionPickerEntries {}
+
+jinn_slices::crossing_schema!(LoadSessionPickerEntries, "LoadSessionPickerEntries",
+trouper::schema::SchemaKind::Command,
+description: "Load session picker entries from the session store.",
+fields: []);

@@ -152,15 +152,25 @@ impl ActorSystemBuilder {
             (guard.active_session().session_id().clone(), cwd)
         };
 
-        // Create the kameo message bus and closure bridge.
-        let bus = {
+        // Create the message fabric: the trouper actor system (primary) and
+        // the transitional kameo bus leg, plus the closure bridge.
+        let (bus, trouper_system) = {
+            let system = trouper::system::ActorSystem::new(
+                trouper::system::SystemConfig::production(),
+            );
             let bus_actor = kameo_actors::message_bus::MessageBus::new(
                 kameo_actors::DeliveryStrategy::BestEffort,
             );
             let bus_ref = kameo_actors::message_bus::MessageBus::spawn(bus_actor);
-            jinn_domain::common::services::bus_service::BusService::new(bus_ref)
+            (
+                jinn_domain::common::services::bus_service::BusService::new_trouper(
+                    system.clone(),
+                    Some(bus_ref.clone()),
+                ),
+                system,
+            )
         };
-        let bridge = jinn_domain::common::bridge::Bridge::new(bus.actor_ref().clone());
+        let bridge = jinn_domain::common::bridge::Bridge::with_system(&bus, &handle);
 
         let root = jinn_domain::common::root_supervisor::RootSupervisor::spawn_root().await;
 
@@ -177,6 +187,7 @@ impl ActorSystemBuilder {
             tempdir: None,
             bus,
             bridge: bridge.clone(),
+            trouper_system,
             root_supervisor: root.clone(),
             mcp_coordinator: std::sync::Arc::new(std::sync::OnceLock::new()),
             interactive_term: std::sync::Arc::new(std::sync::OnceLock::new()),
@@ -186,9 +197,6 @@ impl ActorSystemBuilder {
             key_routes: jinn_domain::common::slices::key_routes::KeyRoutes::new(),
             viewport: jinn_domain::common::slices::view::Viewport::new(),
             overlay_views: jinn_domain::common::overlay_views::OverlayViews::new(),
-            trouper_system: trouper::system::ActorSystem::new(
-                trouper::system::SystemConfig::production(),
-            ),
             picker_registry: jinn_domain::feat::picker::registry::build_picker_registry(),
         };
 

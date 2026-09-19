@@ -22,6 +22,11 @@ pub struct ProviderSwitch {
 
 impl BusMessage for ProviderSwitch {}
 
+jinn_slices::crossing_schema!(ProviderSwitch, "ProviderSwitch",
+trouper::schema::SchemaKind::Command,
+description: "Switch a session's model selection.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
+
 /// Send a message to the AI provider.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendMessage {
@@ -31,10 +36,22 @@ pub struct SendMessage {
     pub text: String,
 }
 
+impl BusMessage for SendMessage {}
+
+jinn_slices::crossing_schema!(SendMessage, "SendMessage",
+trouper::schema::SchemaKind::Command,
+description: "Backward-compat send: republished as EnqueueUserMessage.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
+
 /// Refresh the model list from all providers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RefreshModels;
 impl BusMessage for RefreshModels {}
+
+jinn_slices::crossing_schema!(RefreshModels, "RefreshModels",
+trouper::schema::SchemaKind::Command,
+description: "Refresh the model list from all providers.",
+fields: []);
 
 /// Rescan prompt templates for a specific session.
 ///
@@ -67,6 +84,11 @@ pub struct LoadProviderPickerEntries;
 
 impl BusMessage for LoadProviderPickerEntries {}
 
+jinn_slices::crossing_schema!(LoadProviderPickerEntries, "LoadProviderPickerEntries",
+trouper::schema::SchemaKind::Command,
+description: "Load provider picker entries from the registry.",
+fields: []);
+
 /// The provider actor receives this, resolves the active session's model
 /// backend, and either fetches the model's OpenRouter routing endpoints via
 /// `list_endpoints` or — for a non-OpenRouter backend — populates a single
@@ -77,9 +99,19 @@ pub struct LoadEndpointPickerEntries;
 
 impl BusMessage for LoadEndpointPickerEntries {}
 
+jinn_slices::crossing_schema!(LoadEndpointPickerEntries, "LoadEndpointPickerEntries",
+trouper::schema::SchemaKind::Command,
+description: "Load endpoint picker entries for the active model.",
+fields: []);
+
 /// Force-refresh the OpenRouter endpoint picker entries for the active model,
 /// bypassing the in-memory cache (used by the `<c-r>` keybind).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RefreshEndpointPickerEntries;
 
 impl BusMessage for RefreshEndpointPickerEntries {}
+
+jinn_slices::crossing_schema!(RefreshEndpointPickerEntries, "RefreshEndpointPickerEntries",
+trouper::schema::SchemaKind::Command,
+description: "Force-refresh endpoint picker entries, bypassing the cache.",
+fields: []);

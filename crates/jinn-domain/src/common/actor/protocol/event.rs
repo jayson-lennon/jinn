@@ -22,3 +22,8 @@ use serde::{Deserialize, Serialize};
 pub struct AllActorsSpawned;
 
 impl crate::common::bus::BusMessage for AllActorsSpawned {}
+
+jinn_slices::crossing_schema!(AllActorsSpawned, "AllActorsSpawned",
+trouper::schema::SchemaKind::Event,
+description: "All actors have been spawned; the system is ready.",
+fields: []);

@@ -15,3 +15,8 @@ pub struct ChatEntrySubmitted {
 }
 
 impl crate::common::bus::BusMessage for ChatEntrySubmitted {}
+
+jinn_slices::crossing_schema!(ChatEntrySubmitted, "ChatEntrySubmitted",
+trouper::schema::SchemaKind::Event,
+description: "A chat entry was added to the conversation history.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);

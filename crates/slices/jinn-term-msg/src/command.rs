@@ -124,6 +124,11 @@ pub enum KillTermOutcome {
 
 impl BusMessage for SendTermKey {}
 
+jinn_slices::crossing_schema!(SendTermKey, "SendTermKey",
+trouper::schema::SchemaKind::Command,
+description: "Forward one key event's bytes to a session's pty.",
+fields: ["chat_session_id" => trouper::schema::FieldTy::Uuid]);
+
 /// Resize a session's pty + emulator to the terminal overlay's inner rect.
 ///
 /// Published by the render layer when the terminal overlay's inner rect
@@ -139,10 +144,15 @@ pub struct ResizeTerm {
 
 impl BusMessage for ResizeTerm {}
 
+jinn_slices::crossing_schema!(ResizeTerm, "ResizeTerm",
+trouper::schema::SchemaKind::Command,
+description: "Resize a session's pty and emulator.",
+fields: ["chat_session_id" => trouper::schema::FieldTy::Uuid]);
+
 /// Forward one key event's bytes to a chat session's pty (user control mode).
 ///
 /// Fire-and-forget: keystrokes must not queue behind screen settle waits.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendTermKey {
     /// The chat session whose terminal receives the bytes.
     pub chat_session_id: SessionId,

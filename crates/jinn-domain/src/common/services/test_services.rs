@@ -284,7 +284,10 @@ impl TestServices {
                 TEST_RUNTIME
                     .block_on(async { kameo_actors::message_bus::MessageBus::spawn(bus_actor) })
             };
-            super::bus_service::BusService::new(bus_ref)
+            super::bus_service::BusService::new_trouper(
+                trouper::system::ActorSystem::new(trouper::system::SystemConfig::production()),
+                Some(bus_ref),
+            )
         };
         let bridge = if bus.is_recording() {
             // Recording mode — no real bus, no bridge needed.

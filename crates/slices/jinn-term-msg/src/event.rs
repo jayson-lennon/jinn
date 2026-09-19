@@ -27,3 +27,8 @@ pub struct TermScreenUpdated {
 }
 
 impl BusMessage for TermScreenUpdated {}
+
+jinn_slices::crossing_schema!(TermScreenUpdated, "TermScreenUpdated",
+trouper::schema::SchemaKind::Event,
+description: "A chat session's terminal screen changed.",
+fields: ["chat_session_id" => trouper::schema::FieldTy::Uuid]);

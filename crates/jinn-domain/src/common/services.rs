@@ -171,12 +171,20 @@ impl Services {
 
         let tempdir = Arc::new(tempfile::TempDir::new().expect("test temp dir"));
 
-        let bus = {
+        // Create the fabric once; the bus publishes through it and the
+        // `Services` container carries it for actor spawns — one system.
+        let (bus, trouper_system) = {
+            let system = trouper::system::ActorSystem::new(
+                trouper::system::SystemConfig::production(),
+            );
             let bus_actor = kameo_actors::message_bus::MessageBus::new(
                 kameo_actors::DeliveryStrategy::BestEffort,
             );
             let bus_ref = kameo_actors::message_bus::MessageBus::spawn(bus_actor);
-            bus_service::BusService::new(bus_ref)
+            (
+                bus_service::BusService::new_trouper(system.clone(), Some(bus_ref)),
+                system,
+            )
         };
         let bridge = crate::common::bridge::Bridge::new(bus.actor_ref().clone());
         let root_supervisor = crate::common::root_supervisor::RootSupervisor::spawn_root().await;
@@ -238,15 +246,14 @@ impl Services {
             viewport: crate::common::slices::view::Viewport::new(),
             overlay_views:
                 crate::common::overlay_views::OverlayViews::<jinn_slices::RenderFacts>::new(),
-            trouper_system: trouper::system::ActorSystem::new(
-                trouper::system::SystemConfig::production(),
-            ),
+            // The same fabric the bus publishes through: one `Services`,
+            // one trouper system.
+            trouper_system,
             picker_registry: jinn_picker::PickerRegistry::new(),
         }
     }
 
     /// Construct a fake Services with a pre-built bus (e.g. BusService::new_recording()).
-    ///
     /// # Panics
     ///
     /// Panics if the embedded temp dir, provider registry, or storage
@@ -259,6 +266,9 @@ impl Services {
 
         let bridge = crate::common::bridge::Bridge::new_for_test();
         let root_supervisor = crate::common::root_supervisor::RootSupervisor::spawn_root().await;
+        let trouper_system = trouper::system::ActorSystem::new(
+            trouper::system::SystemConfig::production(),
+        );
 
         Self {
             paths: crate::common::app_paths::AppPaths::new_in(tempdir.path()),
@@ -317,9 +327,9 @@ impl Services {
             viewport: crate::common::slices::view::Viewport::new(),
             overlay_views:
                 crate::common::overlay_views::OverlayViews::<jinn_slices::RenderFacts>::new(),
-            trouper_system: trouper::system::ActorSystem::new(
-                trouper::system::SystemConfig::production(),
-            ),
+            // The same fabric the bus publishes through: one `Services`,
+            // one trouper system.
+            trouper_system,
             picker_registry: jinn_picker::PickerRegistry::new(),
         }
     }

@@ -2849,6 +2849,7 @@ dependencies = [
  "rstest",
  "serde",
  "toml 0.8.23",
+ "trouper",
  "wherror",
 ]
 
@@ -3313,6 +3314,7 @@ dependencies = [
  "ratatui-which-key",
  "rstest",
  "serde",
+ "trouper",
  "wherror",
 ]
 
@@ -3428,6 +3430,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "trouper",
  "unicode-segmentation",
  "wherror",
 ]
@@ -3446,6 +3449,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+ "trouper",
 ]
 
 [[package]]

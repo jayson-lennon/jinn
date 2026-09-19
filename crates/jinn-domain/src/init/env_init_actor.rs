@@ -42,6 +42,11 @@ fields: ["config" => trouper::schema::FieldTy::Json]);
 /// directly from the EnvInitActor via the actor registry.
 pub struct GetEnvironmentConfig;
 
+jinn_slices::crossing_schema!(GetEnvironmentConfig, "GetEnvironmentConfig",
+trouper::schema::SchemaKind::Command,
+description: "Ask the env-init actor for the parsed provider configuration.",
+fields: []);
+
 /// The environment initialization actor.
 ///
 /// Runs initialization during `on_start`: loads `providers.toml`,

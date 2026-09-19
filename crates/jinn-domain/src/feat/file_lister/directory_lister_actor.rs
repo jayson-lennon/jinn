@@ -29,6 +29,12 @@ pub struct ListDirectory {
 
 impl crate::common::bus::BusMessage for ListDirectory {}
 
+jinn_slices::crossing_schema!(ListDirectory, "ListDirectory",
+trouper::schema::SchemaKind::Command,
+description: "List a directory for the file picker popup.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,
+"request_id" => trouper::schema::FieldTy::Int,]);
+
 /// Dependencies for [`DirectoryListerActor`].
 #[derive(Clone)]
 pub struct DirectoryListerActorDeps {

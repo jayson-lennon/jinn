@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 jinn-core-types = { workspace = true }
 kameo = { workspace = true }
+trouper = { workspace = true }
 jinn-slices = { workspace = true }
 serde = { workspace = true }
 async-trait = { workspace = true }

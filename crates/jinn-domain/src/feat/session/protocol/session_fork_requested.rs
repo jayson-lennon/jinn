@@ -25,3 +25,8 @@ pub struct SessionForkRequested {
 }
 
 impl BusMessage for SessionForkRequested {}
+
+jinn_slices::crossing_schema!(SessionForkRequested, "SessionForkRequested",
+trouper::schema::SchemaKind::Command,
+description: "Fork a session at an entry ordinal.",
+fields: ["source_session_id" => trouper::schema::FieldTy::Uuid,]);

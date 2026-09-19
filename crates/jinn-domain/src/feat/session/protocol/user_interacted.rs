@@ -20,3 +20,8 @@ pub struct UserInteracted {
 }
 
 impl crate::common::bus::BusMessage for UserInteracted {}
+
+jinn_slices::crossing_schema!(UserInteracted, "UserInteracted",
+trouper::schema::SchemaKind::Event,
+description: "A session recorded its first user interaction.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);

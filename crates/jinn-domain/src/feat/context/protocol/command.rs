@@ -13,6 +13,11 @@ pub struct LoadPersonaPickerEntries;
 
 impl BusMessage for LoadPersonaPickerEntries {}
 
+jinn_slices::crossing_schema!(LoadPersonaPickerEntries, "LoadPersonaPickerEntries",
+trouper::schema::SchemaKind::Command,
+description: "Load persona picker entries from the persona catalog.",
+fields: []);
+
 /// Scan project context files (AGENTS.md/CLAUDE.md) for a specific session.
 ///
 /// Carries the session's cwd: the worker walks the bounded ancestor chain

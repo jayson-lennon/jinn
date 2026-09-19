@@ -1,17 +1,19 @@
-//! Kanal closure bridge — connects the sync TUI thread to the async kameo bus.
+//! Kanal closure bridge — connects the sync TUI thread to the message fabric.
 //!
 //! The TUI's intent handler is synchronous and cannot `.await`. This bridge
 //! accepts typed message closures through a kanal channel (sync send), then
 //! an async drain task calls each closure with a reference to the
-//! [`MessageBus`](kameo_actors::message_bus::MessageBus) actor ref.
+//! [`MessageBus`](kameo_actors::message_bus::MessageBus) actor ref — the
+//! transitional kameo leg of the fabric. Every closure this module mints
+//! publishes the same typed message both fabrics understand.
 
 use kameo::prelude::ActorRef;
 use kameo_actors::message_bus::MessageBus;
 
-/// A closure that publishes a typed message to the bus.
+/// A closure that publishes a typed message to the fabric's kameo leg.
 pub type BridgeClosure = Box<dyn FnOnce(&ActorRef<MessageBus>) + Send + 'static>;
 
-/// Bridge between the sync TUI thread and the async kameo message bus.
+/// Bridge between the sync TUI thread and the message fabric.
 ///
 /// The TUI sends [`BridgeClosure`]s via the sync [`kanal::Sender`].
 /// A background async task drains them and calls each closure with the bus ref.
@@ -44,6 +46,25 @@ impl Bridge {
         });
 
         Self { sender }
+    }
+
+    /// Creates a new bridge over a `BusService`'s kameo leg.
+    ///
+    /// The fabric's primary leg is trouper; the closure minted by
+    /// [`Bridge::publish_closure`](Self::publish_closure) publishes through
+    /// the leg the service carries. A service without a kameo leg yields
+    /// `None` — call sites are expected to have wired a leg in production
+    /// until demolition.
+    #[must_use]
+    pub fn with_system(bus: &crate::common::services::bus_service::BusService,
+        handle: &tokio::runtime::Handle,
+    ) -> Self {
+        Self::with_handle(
+            bus.kameo_leg_ref()
+                .expect("bridge requires a kameo leg (transitional)")
+                .clone(),
+            handle,
+        )
     }
 
     /// Creates a dummy bridge that discards all messages.

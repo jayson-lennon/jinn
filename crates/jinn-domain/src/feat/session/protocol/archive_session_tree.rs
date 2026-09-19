@@ -22,3 +22,8 @@ pub struct ArchiveSessionTree {
 }
 
 impl BusMessage for ArchiveSessionTree {}
+
+jinn_slices::crossing_schema!(ArchiveSessionTree, "ArchiveSessionTree",
+trouper::schema::SchemaKind::Command,
+description: "Archive a session and its whole subtree.",
+fields: ["root" => trouper::schema::FieldTy::Uuid,]);

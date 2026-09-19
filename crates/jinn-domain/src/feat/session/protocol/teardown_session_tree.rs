@@ -24,3 +24,8 @@ pub struct TeardownSessionTree {
 }
 
 impl BusMessage for TeardownSessionTree {}
+
+jinn_slices::crossing_schema!(TeardownSessionTree, "TeardownSessionTree",
+trouper::schema::SchemaKind::Command,
+description: "Tear down a subtree root and archive its members.",
+fields: ["root" => trouper::schema::FieldTy::Uuid,]);

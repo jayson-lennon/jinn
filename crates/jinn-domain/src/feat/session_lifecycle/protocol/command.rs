@@ -27,6 +27,11 @@ pub struct RunSessionSetup {
 
 impl BusMessage for RunSessionSetup {}
 
+jinn_slices::crossing_schema!(RunSessionSetup, "RunSessionSetup",
+trouper::schema::SchemaKind::Command,
+description: "Run a session's setup lifecycle command.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
+
 /// Request to run a lifecycle teardown command asynchronously.
 ///
 /// Sent by the sidebar teardown handler when the user triggers teardown-only
@@ -45,6 +50,11 @@ pub struct RunSessionTeardown {
 
 impl BusMessage for RunSessionTeardown {}
 
+jinn_slices::crossing_schema!(RunSessionTeardown, "RunSessionTeardown",
+trouper::schema::SchemaKind::Command,
+description: "Run a session's teardown lifecycle command.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
+
 /// Request to persist a session to SQLite immediately.
 ///
 /// Emitted by the `IntentHandler` alongside `RunSessionSetup` so the session
@@ -58,6 +68,11 @@ pub struct PersistSession {
 }
 
 impl crate::common::bus::BusMessage for PersistSession {}
+
+jinn_slices::crossing_schema!(PersistSession, "PersistSession",
+trouper::schema::SchemaKind::Command,
+description: "Persist a session snapshot to the store.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
 
 /// Request to set a session's working directory.
 ///
@@ -74,6 +89,11 @@ pub struct SetSessionCwd {
 }
 
 impl crate::common::bus::BusMessage for SetSessionCwd {}
+
+jinn_slices::crossing_schema!(SetSessionCwd, "SetSessionCwd",
+trouper::schema::SchemaKind::Command,
+description: "Set a session's working directory.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
 
 /// What the session actor does after a teardown finishes successfully.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -106,6 +126,11 @@ pub struct FinishSessionTeardown {
 
 impl BusMessage for FinishSessionTeardown {}
 
+jinn_slices::crossing_schema!(FinishSessionTeardown, "FinishSessionTeardown",
+trouper::schema::SchemaKind::Event,
+description: "A teardown lifecycle command finished.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
+
 /// Result of an async setup shell command, sent back to the session actor.
 ///
 /// Emitted by the tokio task spawned during `handle_run_session_setup`.
@@ -123,6 +148,11 @@ pub struct FinishSessionSetup {
 
 impl BusMessage for FinishSessionSetup {}
 
+jinn_slices::crossing_schema!(FinishSessionSetup, "FinishSessionSetup",
+trouper::schema::SchemaKind::Event,
+description: "A setup lifecycle command finished.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
+
 /// Request to cancel a running lifecycle command (setup or teardown).
 ///
 /// Kills the spawned shell process if one is running, transitions
@@ -134,3 +164,8 @@ pub struct CancelLifecycleCommand {
 }
 
 impl crate::common::bus::BusMessage for CancelLifecycleCommand {}
+
+jinn_slices::crossing_schema!(CancelLifecycleCommand, "CancelLifecycleCommand",
+trouper::schema::SchemaKind::Command,
+description: "Cancel a running lifecycle shell command.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);

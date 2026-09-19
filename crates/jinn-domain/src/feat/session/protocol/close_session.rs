@@ -19,3 +19,8 @@ pub struct CloseSession {
 }
 
 impl BusMessage for CloseSession {}
+
+jinn_slices::crossing_schema!(CloseSession, "CloseSession",
+trouper::schema::SchemaKind::Command,
+description: "Close a session (running teardown when due).",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);

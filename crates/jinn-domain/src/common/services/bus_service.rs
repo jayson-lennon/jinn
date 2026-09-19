@@ -1,8 +1,15 @@
-//! Service wrapper for the kameo [`MessageBus`](kameo_actors::message_bus::MessageBus).
+//! Service wrapper for the message fabric.
 //!
-//! In production, delegates to a real kameo `MessageBus`. In tests, can operate
-//! in **recording mode** via [`BusService::new_recording()`], which captures all
-//! `publish()` calls for assertion with [`BusAudit`].
+//! Production publishes onto the **trouper actor system**: every message is
+//! wrapped as a schema-tagged [`trouper::envelope::Event`] and sent onto a
+//! topic — the `jinn.domain` topic for kernel-domain traffic, or a slice's
+//! own topic when a route registers one. Converted (trouper-native) actors
+//! subscribe their topic directly; kameo actors still on the old bus are
+//! fed by the transitional relay leg.
+//!
+//! In tests, [`BusService`] can operate in **recording mode** via
+//! [`BusService::new_recording()`], which captures all `publish()` calls
+//! for assertion with [`BusAudit`].
 
 use std::any::{Any, TypeId};
 use std::fmt;
@@ -15,11 +22,25 @@ use kameo_actors::message_bus::{MessageBus, Publish, Register};
 
 use crate::common::bus::BusMessage;
 
+/// The trouper topic kernel-domain messages publish onto.
+///
+/// One shared topic suffices during the fabric swap: trouper dispatches by
+/// schema id at the typed adapter, so distinct messages never collide even
+/// on one topic. Slices that already own a topic keep it — a route entry
+/// overrides the default for its message.
+pub const JINN_DOMAIN_TOPIC: &str = "jinn.domain";
+
+/// The kernel-domain topic as a [`Topic`](trouper::topics::Topic).
+#[must_use]
+pub fn jinn_domain_topic() -> trouper::topics::Topic {
+    trouper::topics::Topic::new(JINN_DOMAIN_TOPIC)
+}
+
 // ---------------------------------------------------------------------------
 // BusService
 // ---------------------------------------------------------------------------
 
-/// Shared, cloneable wrapper around the message bus.
+/// Shared, cloneable wrapper around the message fabric.
 ///
 /// Injected into [`Services`](super::Services) during startup.
 /// All bus operations go through this wrapper.
@@ -33,16 +54,75 @@ pub struct BusService {
 
 #[derive(Clone)]
 enum BusInner {
-    Real(ActorRef<MessageBus>),
+    /// Trouper-native fabric (production direction) with an optional
+    /// transitional kameo leg: publishes go onto schema-routed trouper
+    /// topics; the kameo leg, when present, still receives every publish
+    /// so un-ported bus actors keep working until they convert.
+    Troupe {
+        system: trouper::system::ActorSystem,
+        routes: Arc<Mutex<Vec<RouteRule>>>,
+        kameo_leg: Option<ActorRef<MessageBus>>,
+    },
+    /// Legacy kameo-only bus: the transitional shape for test code that
+    /// spawns kameo actors against the harness without a trouper fabric.
+    Kameo(ActorRef<MessageBus>),
     Recording(Arc<Mutex<Vec<RecordedMessage>>>),
 }
 
+/// One schema→topic routing rule.
+struct RouteRule {
+    schema_id: trouper::schema::SchemaId,
+    topic: trouper::topics::Topic,
+}
+
+impl RouteRule {
+    fn matches(&self, schema_id: &trouper::schema::SchemaId) -> bool {
+        &self.schema_id == schema_id
+    }
+}
+
 impl BusService {
-    /// Creates a new bus service wrapping the given actor ref.
+    /// Creates a bus service backed by the trouper fabric.
+    ///
+    /// `kameo_leg` wires the transitional relay: when present, every
+    /// publish is also told to the kameo bus so not-yet-ported actors keep
+    /// receiving messages until they convert. Pass `None` once the kameo
+    /// population is gone.
+    #[must_use]
+    pub fn new_trouper(
+        system: trouper::system::ActorSystem,
+        kameo_leg: Option<ActorRef<MessageBus>>,
+    ) -> Self {
+        Self {
+            inner: BusInner::Troupe {
+                system,
+                routes: Arc::new(Mutex::new(Vec::new())),
+                kameo_leg,
+            },
+        }
+    }
+
+    /// Creates a bus service wrapping the given kameo actor ref.
+    ///
+    /// Transitional: used by test code and the legacy harness while the
+    /// kameo population is being ported.
     #[must_use]
     pub fn new(bus: ActorRef<MessageBus>) -> Self {
         Self {
-            inner: BusInner::Real(bus),
+            inner: BusInner::Kameo(bus),
+        }
+    }
+
+    /// The transitional kameo bus leg, when this service carries one.
+    ///
+    /// Un-ported kameo actors receive publishes through this leg; it dies
+    /// with the demolition phase.
+    #[must_use]
+    pub fn kameo_leg_ref(&self) -> Option<&ActorRef<MessageBus>> {
+        match &self.inner {
+            BusInner::Troupe { kameo_leg, .. } => kameo_leg.as_ref(),
+            BusInner::Kameo(bus) => Some(bus),
+            BusInner::Recording(_) => None,
         }
     }
 
@@ -74,7 +154,14 @@ impl BusService {
         M: crate::common::bus::BusMessage,
     {
         match &self.inner {
-            BusInner::Real(bus) => {
+            BusInner::Troupe { kameo_leg, .. } => {
+                if let Some(leg) = kameo_leg
+                    && let Err(err) = leg.ask(Register(recipient)).await
+                {
+                    tracing::warn!(?err, "bus recipient registration returned an error");
+                }
+            }
+            BusInner::Kameo(bus) => {
                 if let Err(err) = bus.ask(Register(recipient)).await {
                     tracing::warn!(?err, "bus recipient registration returned an error");
                 }
@@ -98,8 +185,14 @@ impl BusService {
     #[must_use]
     pub fn actor_ref(&self) -> &ActorRef<MessageBus> {
         match &self.inner {
-            BusInner::Real(bus) => bus,
-            BusInner::Recording(_) => panic!("actor_ref() called on recording BusService"),
+            BusInner::Troupe {
+                kameo_leg: Some(leg),
+                ..
+            } => leg,
+            BusInner::Kameo(bus) => bus,
+            BusInner::Troupe { kameo_leg: None, .. } | BusInner::Recording(_) => {
+                panic!("actor_ref() called on a BusService without a kameo leg")
+            }
         }
     }
 
@@ -114,7 +207,17 @@ impl BusService {
     /// No-op in recording mode.
     pub async fn register<M: Clone + Send + 'static>(&self, recipient: kameo::actor::Recipient<M>) {
         match &self.inner {
-            BusInner::Real(bus) => {
+            BusInner::Troupe { kameo_leg, .. } => {
+                if let Some(leg) = kameo_leg {
+                    if let Err(e) = leg.ask(Register(recipient)).await {
+                        tracing::warn!(
+                            error = ?e,
+                            "failed to register on bus; likely during shutdown"
+                        );
+                    }
+                }
+            }
+            BusInner::Kameo(bus) => {
                 if let Err(e) = bus.ask(Register(recipient)).await {
                     tracing::warn!(error = ?e, "failed to register on bus; likely during shutdown");
                 }
@@ -137,13 +240,67 @@ impl BusService {
         self.register(actor_ref.clone().recipient::<M>()).await;
     }
 
-    /// Publishes a typed message to all registered recipients on the bus.
+    /// Routes one message schema onto `topic`: every future publish of a
+    /// message with this schema id lands on the topic instead of the
+    /// default `jinn.domain` topic.
     ///
-    /// In recording mode, captures the message for later assertion.
-    ///
-    pub async fn publish<M: BusMessage>(&self, msg: M) {
+    /// Registered by slice drains for messages whose slice already owns a
+    /// trouper topic (the message is a `ForwardMessage` there).
+    pub fn route_topic<M: trouper::schema::Schema>(&self, topic: trouper::topics::Topic) {
+        if let BusInner::Troupe { routes, .. } = &self.inner {
+            routes.lock().push(RouteRule {
+                schema_id: M::schema_id(),
+                topic,
+            });
+        }
+    }
+
+    /// The topic a publish of `M` currently rides (the route resolution
+    /// `publish` uses) — inspection for test harnesses.
+    #[cfg(any(test, feature = "test-harness"))]
+    #[must_use]
+    pub fn routed_topic<M: trouper::schema::Schema>(&self) -> trouper::topics::Topic {
         match &self.inner {
-            BusInner::Real(bus) => {
+            BusInner::Troupe { routes, .. } => Self::topic_for(routes, &M::schema_id()),
+            _ => jinn_domain_topic(),
+        }
+    }
+
+    /// The topic a message publishes onto: the last-registered route for
+    /// its schema id, else the shared `jinn.domain` topic.
+    fn topic_for(routes: &Mutex<Vec<RouteRule>>, schema_id: &trouper::schema::SchemaId) -> trouper::topics::Topic {
+        let routes = routes.lock();
+        routes
+            .iter()
+            .rev()
+            .find(|rule| rule.matches(schema_id))
+            .map(|rule| rule.topic.clone())
+            .unwrap_or_else(jinn_domain_topic)
+    }
+
+    /// Publishes a typed message onto the fabric.
+    ///
+    /// On the trouper fabric the message is wrapped as a schema-tagged
+    /// event and sent onto its routed topic. In recording mode, captures
+    /// the message for later assertion.
+    pub async fn publish<M: BusMessage + trouper::schema::Schema + serde::Serialize>(&self, msg: M) {
+        match &self.inner {
+            BusInner::Troupe {
+                system,
+                routes,
+                kameo_leg,
+            } => {
+                let topic = Self::topic_for(routes, &M::schema_id());
+                let name = message_name::<M>();
+                tracing::debug!(message = name, topic = %topic, "trouper: {name} published");
+                let payload = serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null);
+                let event = trouper::envelope::Event::new(M::schema_id(), payload);
+                let _ = system.send(system.envelope_to_topic(event, topic)).await;
+                if let Some(leg) = kameo_leg {
+                    let _ = leg.tell(Publish(msg)).await;
+                }
+            }
+            BusInner::Kameo(bus) => {
                 let name = message_name::<M>();
                 tracing::debug!(message = name, "kameo: {name} sent");
                 if let Err(e) = bus.tell(Publish(msg)).await {
@@ -170,10 +327,48 @@ fn message_name<M: BusMessage>() -> &'static str {
         .unwrap_or(std::any::type_name::<M>())
 }
 
+/// Test-only probe of the fabric's routing decisions.
+///
+/// Asks the bus directly which topic a schema currently routes onto — the
+/// same resolution `publish` performs — so fabric tests can assert
+/// schema→topic routing without inspecting the trouper system.
+#[cfg(any(test, feature = "test-harness"))]
+pub struct RouteTestProbe {
+    bus: BusService,
+}
+
+#[cfg(any(test, feature = "test-harness"))]
+impl RouteTestProbe {
+    /// Attaches a probe to the given bus.
+    #[must_use]
+    pub fn attach(bus: &BusService) -> Self {
+        Self { bus: bus.clone() }
+    }
+
+    /// The topic a publish of `M` currently rides.
+    #[must_use]
+    pub fn topic_for<M: trouper::schema::Schema>(&self) -> Option<String> {
+        match &self.bus.inner {
+            BusInner::Troupe { routes, .. } => Some(
+                BusService::topic_for(routes, &M::schema_id()).as_str().to_owned(),
+            ),
+            _ => None,
+        }
+    }
+}
+
 impl fmt::Debug for BusService {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.inner {
-            BusInner::Real(_) => f.debug_struct("BusService").finish_non_exhaustive(),
+            BusInner::Troupe {
+                kameo_leg: Some(_), ..
+            } => f
+                .debug_struct("BusService<Troupe+kameo-leg>")
+                .finish_non_exhaustive(),
+            BusInner::Troupe { kameo_leg: None, .. } => {
+                f.debug_struct("BusService<Troupe>").finish_non_exhaustive()
+            }
+            BusInner::Kameo(_) => f.debug_struct("BusService<Kameo>").finish_non_exhaustive(),
             BusInner::Recording(_) => f
                 .debug_struct("BusService<Recording>")
                 .finish_non_exhaustive(),
@@ -283,17 +478,27 @@ mod tests {
     #![allow(clippy::expect_used, clippy::indexing_slicing, reason = "test code")]
     use super::*;
 
-    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     struct Alpha {
         val: u32,
     }
     impl crate::common::bus::BusMessage for Alpha {}
 
-    #[derive(Debug, Clone, PartialEq, Eq)]
+    jinn_slices::crossing_schema!(Alpha, "Alpha",
+    trouper::schema::SchemaKind::Event,
+    description: "Bus test message alpha.",
+    fields: ["val" => trouper::schema::FieldTy::Int]);
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     struct Beta {
         text: String,
     }
     impl crate::common::bus::BusMessage for Beta {}
+
+    jinn_slices::crossing_schema!(Beta, "Beta",
+    trouper::schema::SchemaKind::Event,
+    description: "Bus test message beta.",
+    fields: ["text" => trouper::schema::FieldTy::Str]);
 
     #[rstest::rstest]
     #[tokio::test]

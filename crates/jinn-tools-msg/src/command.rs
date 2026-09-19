@@ -72,6 +72,26 @@ pub struct CancelToolBatch {
 }
 
 impl jinn_slices::BusMessage for RegisterTools {}
+
+jinn_slices::crossing_schema!(RegisterTools, "RegisterTools",
+trouper::schema::SchemaKind::Command,
+description: "Register tool definitions globally or for one session.",
+fields: []);
 impl jinn_slices::BusMessage for ExecuteToolBatch {}
+
+jinn_slices::crossing_schema!(ExecuteToolBatch, "ExecuteToolBatch",
+trouper::schema::SchemaKind::Command,
+description: "Execute a batch of tool calls for a session.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
 impl jinn_slices::BusMessage for ExecuteTool {}
+
+jinn_slices::crossing_schema!(ExecuteTool, "ExecuteTool",
+trouper::schema::SchemaKind::Command,
+description: "Execute one tool call for a session.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid]);
 impl jinn_slices::BusMessage for CancelToolBatch {}
+
+jinn_slices::crossing_schema!(CancelToolBatch, "CancelToolBatch",
+trouper::schema::SchemaKind::Command,
+description: "Cancel a session's in-flight tool batch.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);

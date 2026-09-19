@@ -18,6 +18,12 @@ pub struct ProviderSwitched {
 
 impl crate::common::bus::BusMessage for ProviderSwitched {}
 
+jinn_slices::crossing_schema!(ProviderSwitched, "ProviderSwitched",
+trouper::schema::SchemaKind::Event,
+description: "A session switched to a new provider.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,
+"provider_name" => trouper::schema::FieldTy::Str]);
+
 /// Models refresh completed with results and errors.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelsRefreshed {
@@ -31,6 +37,11 @@ pub struct ModelsRefreshed {
 
 impl crate::common::bus::BusMessage for ModelsRefreshed {}
 
+jinn_slices::crossing_schema!(ModelsRefreshed, "ModelsRefreshed",
+trouper::schema::SchemaKind::Event,
+description: "Model discovery finished across providers.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
+
 /// Model cache loaded from disk at startup.
 ///
 /// Emitted by `ProviderInitActor` after loading the cache from disk.
@@ -43,6 +54,11 @@ pub struct ModelCacheLoaded {
 }
 
 impl crate::common::bus::BusMessage for ModelCacheLoaded {}
+
+jinn_slices::crossing_schema!(ModelCacheLoaded, "ModelCacheLoaded",
+trouper::schema::SchemaKind::Event,
+description: "Model cache was loaded from disk.",
+fields: []);
 
 /// Prompt templates loaded after a rescan.
 ///

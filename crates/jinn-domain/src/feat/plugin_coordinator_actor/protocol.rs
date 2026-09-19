@@ -39,6 +39,11 @@ pub struct PluginStatus {
 
 impl crate::common::bus::BusMessage for PluginStatus {}
 
+jinn_slices::crossing_schema!(PluginStatus, "PluginStatus",
+trouper::schema::SchemaKind::Event,
+description: "A lifecycle transition for one configured plugin.",
+fields: ["name" => trouper::schema::FieldTy::Str]);
+
 /// The validated subscription set a running plugin's guest declared in its
 /// `Hello`.
 ///
@@ -55,6 +60,11 @@ pub struct PluginSubscriptions {
 }
 
 impl crate::common::bus::BusMessage for PluginSubscriptions {}
+
+jinn_slices::crossing_schema!(PluginSubscriptions, "PluginSubscriptions",
+trouper::schema::SchemaKind::Event,
+description: "A running plugin guest's declared event subscriptions.",
+fields: ["name" => trouper::schema::FieldTy::Str]);
 
 /// Internal self-addressed timer pulse for the plugin coordinator.
 ///

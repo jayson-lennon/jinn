@@ -5,6 +5,7 @@ edition.workspace = true
 [dependencies]
 jinn-core-types = { workspace = true }
 jinn-slices = { workspace = true }
+trouper = { workspace = true }
 serde = { workspace = true }
 async-trait = { workspace = true }
 error-stack = { workspace = true }

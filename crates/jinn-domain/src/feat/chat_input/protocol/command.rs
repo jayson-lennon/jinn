@@ -22,6 +22,11 @@ pub struct EnqueueUserMessage {
 
 impl BusMessage for EnqueueUserMessage {}
 
+jinn_slices::crossing_schema!(EnqueueUserMessage, "EnqueueUserMessage",
+trouper::schema::SchemaKind::Command,
+description: "Enqueue a fully built user entry for dispatch.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
+
 /// Enqueue a manual resume for a session: re-assemble current history and
 /// re-send to the provider. Adds no user message.
 ///
@@ -34,6 +39,11 @@ pub struct EnqueueResumeTurn {
 }
 
 impl BusMessage for EnqueueResumeTurn {}
+
+jinn_slices::crossing_schema!(EnqueueResumeTurn, "EnqueueResumeTurn",
+trouper::schema::SchemaKind::Command,
+description: "Resume dispatching turns for an idle session.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
 
 /// Append a fragment to a session's steering buffer.
 ///
@@ -54,3 +64,8 @@ pub struct SubmitSteeringMessage {
 }
 
 impl crate::common::bus::BusMessage for SubmitSteeringMessage {}
+
+jinn_slices::crossing_schema!(SubmitSteeringMessage, "SubmitSteeringMessage",
+trouper::schema::SchemaKind::Command,
+description: "Append a steering fragment to a busy session.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);

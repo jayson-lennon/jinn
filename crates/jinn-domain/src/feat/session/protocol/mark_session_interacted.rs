@@ -22,3 +22,8 @@ pub struct MarkSessionInteracted {
 }
 
 impl crate::common::bus::BusMessage for MarkSessionInteracted {}
+
+jinn_slices::crossing_schema!(MarkSessionInteracted, "MarkSessionInteracted",
+trouper::schema::SchemaKind::Command,
+description: "Mark a session as interacted by the user.",
+fields: ["session_id" => trouper::schema::FieldTy::Uuid,]);
