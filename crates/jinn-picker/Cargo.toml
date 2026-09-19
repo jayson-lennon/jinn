@@ -12,6 +12,8 @@ ratatui = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 jinn-testutil = { workspace = true }
+serde = { workspace = true }
+trouper = { workspace = true }
 
 [lints]
 workspace = true

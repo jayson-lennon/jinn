@@ -113,6 +113,27 @@ impl BusService {
         }
     }
 
+    /// The trouper system this service publishes onto, when the fabric is
+    /// trouper-backed. The seam the bridge drains closures against.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called on a recording-mode bus (test-only): there is no
+    /// system to return.
+    #[expect(
+        clippy::panic,
+        reason = "invariant: recording variant is test-only; calling system_ref on it is programmer misuse"
+    )]
+    #[must_use]
+    pub fn system_ref(&self) -> &trouper::system::ActorSystem {
+        match &self.inner {
+            BusInner::Troupe { system, .. } => system,
+            BusInner::Kameo(_) | BusInner::Recording(_) => {
+                panic!("system_ref() called on a BusService without a trouper fabric")
+            }
+        }
+    }
+
     /// The transitional kameo bus leg, when this service carries one.
     ///
     /// Un-ported kameo actors receive publishes through this leg; it dies
@@ -324,6 +345,32 @@ impl BusService {
                     payload: Box::new(msg) as Box<dyn Any + Send>,
                 });
             }
+        }
+    }
+
+    /// Publishes a pre-built schema-tagged event onto the fabric.
+    ///
+    /// The closure bridge's erased publish path: the message arrives as a
+    /// schema id + JSON payload (the schema table supplies the routed
+    /// topic), so the delivery matches [`Self::publish`] exactly. Not
+    /// recorded — recording-mode tests publish typed messages directly.
+    pub async fn publish_event(&self, event: trouper::envelope::Event) {
+        if let BusInner::Troupe {
+            system, kameo_leg, ..
+        } = &self.inner
+        {
+            let topic = {
+                let schema_id = event.schema.clone();
+                match &self.inner {
+                    BusInner::Troupe { routes, .. } => Self::topic_for(routes, &schema_id),
+                    _ => jinn_domain_topic(),
+                }
+            };
+            tracing::debug!(schema = %event.schema, topic = %topic, "trouper: event published");
+            let _ = system.send(system.envelope_to_topic(event, topic)).await;
+            // The kameo leg cannot receive an erased event (it dispatches
+            // typed `Publish(msg)`s); erased traffic is trouper-native.
+            let _ = kameo_leg;
         }
     }
 }

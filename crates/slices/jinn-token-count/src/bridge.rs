@@ -33,6 +33,10 @@ async fn forward<M>(services: &Services)
 where
     M: BusMessage + jinn_slices::host::ForwardMessage,
 {
+    // Erased publishes (bridge closures) route natively on trouper: the
+    // schema→topic rule mirrors the relay below.
+    services.bus.route_topic::<M>(token_count_topic());
+
     jinn_domain::common::trouper_bridge::spawn_one::<M>(
         services,
         &RouteEntry {

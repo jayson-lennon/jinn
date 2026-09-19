@@ -450,8 +450,9 @@ mod tests {
         }
         let session_id = state.read().session.active_session_id().clone();
 
-        let actor_ref = harness
-            .spawn_actor::<SessionPersistenceActor>(SessionPersistenceActorDeps {
+        SessionPersistenceActor::spawn(
+            harness.system(),
+            SessionPersistenceActorDeps {
                 deps: {
                     let deps = harness.actor_deps().await;
                     let _ = jinn_context_assembly::service::ensure_spawned(
@@ -467,9 +468,8 @@ mod tests {
                 builtin_registry: BuiltinRegistry::new(),
                 shell: "/bin/sh".to_owned(),
                 image_converter: crate::feat::image_convert::ImageConverterService::unavailable(),
-            })
-            .await;
-        actor_ref.wait_for_startup().await;
+            },
+        );
 
         // When ToolBatchCompleted is published to the bus.
         let event = ToolBatchCompleted {
@@ -487,10 +487,10 @@ mod tests {
         harness.publish(event).await;
         let sent = await_recorded::<SendToLlmProvider>(&recorder, 1, Duration::from_secs(2)).await;
 
-        // Then the actor published SendToLlmProvider via the Message handler.
+        // Then the actor published SendToLlmProvider via the MsgHandler.
         assert!(
             sent.iter().any(|m| m.session_id == session_id),
-            "expected SendToLlmProvider to reach the bus via the Message handler"
+            "expected SendToLlmProvider to reach the bus via the MsgHandler"
         );
     }
 
@@ -532,8 +532,9 @@ mod tests {
         }
         let session_id = state.read().session.active_session_id().clone();
 
-        let actor_ref = harness
-            .spawn_actor::<SessionPersistenceActor>(SessionPersistenceActorDeps {
+        SessionPersistenceActor::spawn(
+            harness.system(),
+            SessionPersistenceActorDeps {
                 deps: {
                     let deps = harness.actor_deps().await;
                     let _ = jinn_context_assembly::service::ensure_spawned(
@@ -549,9 +550,8 @@ mod tests {
                 builtin_registry: BuiltinRegistry::new(),
                 shell: "/bin/sh".to_owned(),
                 image_converter: crate::feat::image_convert::ImageConverterService::unavailable(),
-            })
-            .await;
-        actor_ref.wait_for_startup().await;
+            },
+        );
 
         // When the tool batch lands while the session is still Streaming — the
         // tool-call-watchdog race shape: the batch is buffered, then the aborted
@@ -686,29 +686,29 @@ mod tests {
             }]);
         }
 
-        let actor_ref = harness
-            .spawn_actor_with_mailbox::<SessionPersistenceActor>(
-                SessionPersistenceActorDeps {
-                    deps: {
-                        let deps = harness.actor_deps().await;
-                        let _ = jinn_context_assembly::service::ensure_spawned(
-                            &deps.services.trouper_system,
-                        );
-                        deps
-                    },
-                    state,
-                    cap: crate::common::tcaps::mint::mint_session_cap(),
-                    frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
-                    counter: TiktokenCounter::o200k_base(),
-                    token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
-                    builtin_registry: BuiltinRegistry::new(),
-                    shell: "/bin/sh".to_owned(),
-                    image_converter: crate::feat::image_convert::ImageConverterService::unavailable(
-                    ),
+        // The trouper spawn carries the deep mailbox (65_536, Block) the
+        // production wiring uses — the successor of the kameo unbounded
+        // mailbox this test used to spawn with.
+        SessionPersistenceActor::spawn(
+            harness.system(),
+            SessionPersistenceActorDeps {
+                deps: {
+                    let deps = harness.actor_deps().await;
+                    let _ = jinn_context_assembly::service::ensure_spawned(
+                        &deps.services.trouper_system,
+                    );
+                    deps
                 },
-                kameo::mailbox::unbounded(),
-            )
-            .await;
+                state,
+                cap: crate::common::tcaps::mint::mint_session_cap(),
+                frontend_cap: crate::common::tcaps::mint::mint_frontend_cap(),
+                counter: TiktokenCounter::o200k_base(),
+                token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
+                builtin_registry: BuiltinRegistry::new(),
+                shell: "/bin/sh".to_owned(),
+                image_converter: crate::feat::image_convert::ImageConverterService::unavailable(),
+            },
+        );
 
         // When a >64-token burst is published, immediately followed by the
         // terminal StreamCompleted(ToolUse).
@@ -745,9 +745,8 @@ mod tests {
         let sent = await_recorded::<SendToLlmProvider>(&recorder, 1, Duration::from_secs(2)).await;
         assert!(
             sent.iter().any(|m| m.session_id == session_id),
-            "StreamCompleted(ToolUse) must survive a >64 token burst on an unbounded mailbox"
+            "StreamCompleted(ToolUse) must survive a >64 token burst on the deep mailbox"
         );
-        drop(actor_ref);
     }
 
     #[rstest::rstest]

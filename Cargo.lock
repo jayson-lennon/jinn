@@ -2469,6 +2469,8 @@ dependencies = [
  "jinn-testutil",
  "ratatui",
  "rstest",
+ "serde",
+ "trouper",
 ]
 
 [[package]]

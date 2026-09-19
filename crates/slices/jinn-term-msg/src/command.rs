@@ -133,7 +133,7 @@ fields: ["chat_session_id" => trouper::schema::FieldTy::Uuid]);
 ///
 /// Published by the render layer when the terminal overlay's inner rect
 /// changes. Fire-and-forget; the actor clamps to sane bounds.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResizeTerm {
     /// The chat session whose terminal resizes. `None` is a no-op (the
     /// render layer always names the active session; it never broadcasts).

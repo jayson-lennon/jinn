@@ -378,31 +378,30 @@ mod tests {
     use super::*;
     use jinn_domain::common::bridge::Bridge;
     use jinn_domain::feat::session_lifecycle::protocol::command::SetSessionCwd;
-    use kameo::prelude::*;
-    use kameo_actors::DeliveryStrategy;
-    use kameo_actors::message_bus::{MessageBus, Register};
     use std::sync::{Arc, Mutex};
 
-    /// Records messages of type `T` delivered to it via the message bus.
-    ///
-    /// Mirrors the recorder in `jinn-domain::common::bridge` tests so that
-    /// bridge-driven publishes are observable in a unit test.
-    #[derive(Actor)]
-    struct RecorderActor<T: Send + 'static> {
-        received: Arc<Mutex<Vec<T>>>,
+    /// A trouper service actor that records decoded `SetSessionCwd`
+    /// deliveries into a shared buffer, so bridge-driven publishes are
+    /// observable in a unit test.
+    struct CwdRecorder {
+        buffer: Arc<Mutex<Vec<SetSessionCwd>>>,
     }
 
-    impl<T: Send + 'static> RecorderActor<T> {
-        fn new(buffer: Arc<Mutex<Vec<T>>>) -> Self {
-            Self { received: buffer }
+    impl trouper::actor::ServiceActor for CwdRecorder {
+        async fn start(
+            _args: &serde_json::Value,
+        ) -> Result<Self, error_stack::Report<trouper::registry::RegistryError>> {
+            unreachable!("spawned via start_with");
         }
     }
 
-    impl<T: Clone + Send + 'static> Message<T> for RecorderActor<T> {
-        type Reply = ();
-
-        async fn handle(&mut self, msg: T, _ctx: &mut Context<Self, Self::Reply>) {
-            self.received.lock().unwrap().push(msg);
+    impl trouper::actor::MsgHandler<SetSessionCwd> for CwdRecorder {
+        async fn handle(
+            &mut self,
+            msg: SetSessionCwd,
+            _ctx: &mut trouper::context::MsgCtx<'_>,
+        ) {
+            self.buffer.lock().unwrap().push(msg);
         }
     }
 
@@ -414,15 +413,49 @@ mod tests {
             .unwrap()
     }
 
-    fn spawn_bus() -> ActorRef<MessageBus> {
-        MessageBus::spawn(MessageBus::new(DeliveryStrategy::BestEffort))
-    }
-
-    fn spawn_recorder<T: Clone + Send + 'static>()
-    -> (ActorRef<RecorderActor<T>>, Arc<Mutex<Vec<T>>>) {
+    /// Spawns a trouper-backed bus with a subscribed `CwdRecorder` at a
+    /// unique path, plus a `Bridge` draining to that bus. Returns everything
+    /// the cwd tests need.
+    fn spawn_system_with_recorder(
+        handle: &tokio::runtime::Handle,
+    ) -> (
+        jinn_domain::common::services::bus_service::BusService,
+        Bridge,
+        Arc<Mutex<Vec<SetSessionCwd>>>,
+    ) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let system = trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
+        let bus = jinn_domain::common::services::bus_service::BusService::new_trouper(
+            system.clone(),
+            None,
+        );
         let buffer = Arc::new(Mutex::new(Vec::new()));
-        let actor = RecorderActor::spawn(RecorderActor::new(buffer.clone()));
-        (actor, buffer)
+        let path = trouper::actor::ActorPath::new(format!(
+            "test.cwd-recorder.{}",
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
+        trouper::builder::spawn_service_builder::<CwdRecorder>(&system)
+            .at(path.clone())
+            .start_with({
+                let buffer = buffer.clone();
+                move || {
+                    let buffer = buffer.clone();
+                    Box::pin(async move { Ok(CwdRecorder { buffer }) })
+                }
+            })
+            .handles::<SetSessionCwd>()
+            .mailbox(64, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        system
+            .subscribe(
+                &path,
+                &jinn_domain::common::services::bus_service::jinn_domain_topic(),
+                None,
+            )
+            .expect("recorder subscribes the domain topic");
+        let bridge = Bridge::with_handle(bus.clone(), handle);
+        (bus, bridge, buffer)
     }
 
     #[rstest::rstest]
@@ -456,14 +489,10 @@ mod tests {
     fn apply_selected_cwd_publishes_set_session_cwd_for_valid_dir() {
         let rt = test_runtime();
         rt.block_on(async {
-            // Given a bus with a registered SetSessionCwd recorder, and a
-            // bridge draining to that bus.
-            let bus = spawn_bus();
-            let (recorder, buffer) = spawn_recorder::<SetSessionCwd>();
-            bus.tell(Register(recorder.recipient::<SetSessionCwd>()))
-                .await
-                .unwrap();
-            let bridge = Bridge::new(bus.clone());
+            // Given a trouper system with a subscribed SetSessionCwd
+            // recorder, and a bridge draining to that system.
+            let (_system, bridge, buffer) =
+                spawn_system_with_recorder(&tokio::runtime::Handle::current());
 
             let dir = tempfile::tempdir().expect("temp dir");
             let expected = std::fs::canonicalize(dir.path()).expect("canonicalize");
@@ -487,14 +516,10 @@ mod tests {
     fn apply_selected_cwd_rejects_non_directory_path() {
         let rt = test_runtime();
         rt.block_on(async {
-            // Given a bus with a registered SetSessionCwd recorder and a
-            // bridge draining to it.
-            let bus = spawn_bus();
-            let (recorder, buffer) = spawn_recorder::<SetSessionCwd>();
-            bus.tell(Register(recorder.recipient::<SetSessionCwd>()))
-                .await
-                .unwrap();
-            let bridge = Bridge::new(bus.clone());
+            // Given a trouper system with a subscribed SetSessionCwd
+            // recorder and a bridge draining to it.
+            let (_system, bridge, buffer) =
+                spawn_system_with_recorder(&tokio::runtime::Handle::current());
 
             // And a real file (not a directory) inside a temp dir.
             let dir = tempfile::tempdir().expect("temp dir");
@@ -516,14 +541,10 @@ mod tests {
     fn apply_selected_cwd_rejects_nonexistent_path() {
         let rt = test_runtime();
         rt.block_on(async {
-            // Given a bus with a registered SetSessionCwd recorder and a
-            // bridge draining to it.
-            let bus = spawn_bus();
-            let (recorder, buffer) = spawn_recorder::<SetSessionCwd>();
-            bus.tell(Register(recorder.recipient::<SetSessionCwd>()))
-                .await
-                .unwrap();
-            let bridge = Bridge::new(bus.clone());
+            // Given a trouper system with a subscribed SetSessionCwd
+            // recorder and a bridge draining to it.
+            let (_system, bridge, buffer) =
+                spawn_system_with_recorder(&tokio::runtime::Handle::current());
 
             // And a path that does not exist on disk.
             let missing_path = std::env::temp_dir()

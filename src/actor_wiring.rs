@@ -372,16 +372,13 @@ impl ActorSystemBuilder {
 
         // Session persistence actor — must spawn before ToolOrchestratorActor so
         // ToolsRegistered subscription is ready when tools register builtins in on_start.
-        // Unbounded mailbox: the session actor is the single sink for every streaming
-        // event (StreamToken, StreamCompleted, ToolBatchCompleted, …) from a provider
-        // burst. The default bounded(64) mailbox can momentarily fill at the [DONE]
-        // peak of a large reasoning turn, and because the bus uses BestEffort
-        // (try_send) delivery, the terminal `StreamCompleted(ToolUse)` gets silently
-        // dropped on `MailboxFull` — permanently wedging the session (the phase never
-        // advances out of Streaming). An unbounded mailbox means try_send always
-        // succeeds, so the critical control message can never be dropped. There is no
-        // deadlock risk: nothing downstream awaits the session actor's mailbox
-        // capacity (publishers use fire-and-forget tell under BestEffort).
+        // Deep mailbox (65_536, Block): the session actor is the single sink for
+        // every streaming event (StreamToken, StreamCompleted, ToolBatchCompleted, …)
+        // from a provider burst. A small mailbox could fill at the [DONE] peak of a
+        // large reasoning turn; the Block policy backpressures publishers rather
+        // than dropping, so the terminal `StreamCompleted` can never be lost and
+        // the session can never wedge mid-stream. There is no deadlock risk:
+        // publishers use fire-and-forget sends (no publisher awaits capacity).
         let token_counter = TiktokenCounter::o200k_base();
         // Token-count slice: activation registers the shared entry-token
         // cache cell and spawns the slice's trouper actors; the returned
@@ -429,27 +426,20 @@ impl ActorSystemBuilder {
             }
         }
         jinn_context_assembly::bridge::drain_routes(&services).await;
-        let _session =
-            jinn_domain::feat::session::session_actor::SessionPersistenceActor::supervise(
-                &root,
-                jinn_domain::feat::session::session_actor::SessionPersistenceActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                    cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-                    frontend_cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
-                    counter: token_counter,
-                    token_cache: entry_token_cache.clone(),
-                    builtin_registry:
-                        jinn_domain::feat::session_lifecycle::builtin::BuiltinRegistry::new(),
-                    shell: std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned()),
-                    image_converter:
-                        jinn_domain::feat::image_convert::ImageConverterService::system(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn_with_mailbox(kameo::mailbox::unbounded())
-            .await;
-        _session.wait_for_startup().await;
+        let _session = jinn_domain::feat::session::session_actor::SessionPersistenceActor::spawn(
+            &services.trouper_system,
+            jinn_domain::feat::session::session_actor::SessionPersistenceActorDeps {
+                deps: actor_deps.clone(),
+                state: state.clone(),
+                cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
+                frontend_cap: jinn_domain::common::tcaps::mint::mint_frontend_cap(),
+                counter: token_counter,
+                token_cache: entry_token_cache.clone(),
+                builtin_registry: jinn_domain::feat::session_lifecycle::builtin::BuiltinRegistry::new(),
+                shell: std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned()),
+                image_converter: jinn_domain::feat::image_convert::ImageConverterService::system(),
+            },
+        );
 
         // Tool orchestrator actor: dispatched batches emit per-call
         // execution events and a final ToolBatchCompleted. Spawned after
@@ -1113,6 +1103,11 @@ fn jinn_quake_bar_activate(services: &mut Services) {
 /// Drains the quake-bar slice's staged forward routes into per-route
 /// relays. Kernel-side: the relays are kameo actors.
 async fn jinn_quake_bar_drain(services: &Services) {
+    // Erased publishes (bridge closures) route natively on trouper: the
+    // schema→topic rule mirrors the relay below.
+    services
+        .bus
+        .route_topic::<jinn_quake_bar::SubmitQuakeBarCommand>(jinn_quake_bar::command::quake_bar_topic());
     jinn_domain::common::trouper_bridge::spawn_one::<jinn_quake_bar::SubmitQuakeBarCommand>(
         services,
         &jinn_slices::host::RouteEntry {
@@ -1138,6 +1133,23 @@ async fn jinn_discord_drain(services: &Services) {
     };
 
     let topic = session_topic();
+    // Erased publishes (bridge closures) route natively on trouper: the
+    // schema→topic rules mirror the relays below.
+    services.bus.route_topic::<SessionPhaseChanged>(topic.clone());
+    services.bus.route_topic::<SessionSetupCompleted>(topic.clone());
+    services
+        .bus
+        .route_topic::<SessionTeardownFinished>(topic.clone());
+    services.bus.route_topic::<SessionArchived>(topic.clone());
+    services
+        .bus
+        .route_topic::<CreateThreadForSession>(topic.clone());
+    services
+        .bus
+        .route_topic::<DiscordThreadCreated>(topic.clone());
+    services
+        .bus
+        .route_topic::<DiscordThreadCreateFailed>(topic.clone());
     let route = |schema_id| jinn_slices::host::RouteEntry {
         schema_id,
         name: "discord",

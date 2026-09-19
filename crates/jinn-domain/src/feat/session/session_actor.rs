@@ -1,4 +1,4 @@
-//! Session lifecycle and persistence actor - owns session state from input to streaming.
+//! Session lifecycle and persistence actor (trouper port) - owns session state from input to streaming.
 //!
 //! This actor is the **sole owner** of session-related state: chat history, input
 //! buffers, session phase transitions, tool call state, and streaming tokens. It
@@ -24,10 +24,13 @@ pub use handlers::lifecycle::setup_running_msg;
 
 pub use handlers::multimodal_gate::evaluate_attachment_gate;
 
-use kameo::prelude::{Actor, ActorRef, Context, Message};
+use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
+use trouper::system::ActorSystem;
 
 use crate::common::actor_deps::{ActorDeps, BusPublish};
-use crate::common::services::bus_service::BusService;
+use crate::common::services::bus_service::{BusService, jinn_domain_topic};
 use crate::common::state::State;
 use crate::feat::chat_input::protocol::command::{
     EnqueueResumeTurn, EnqueueUserMessage, SubmitSteeringMessage,
@@ -64,9 +67,21 @@ use jinn_tools_msg::{
     ToolExecutionOutput, ToolExecutionStarted, ToolUseStarted, ToolsRegistered, ToolsUnregistered,
 };
 
+/// The session actor's static trouper path.
+pub const SESSION_PATH: &str = "session";
+
+/// The session actor's mailbox capacity.
+///
+/// The session actor is the single sink for every streaming event
+/// (`StreamToken`, `StreamCompleted`, tool events) from a provider burst.
+/// A small mailbox could fill at the `[DONE]` peak of a large reasoning
+/// turn and stall the pipeline; Block policy backpressures publishers
+/// rather than dropping, so the terminal `StreamCompleted` is never lost.
+pub const SESSION_MAILBOX_CAPACITY: usize = 65_536;
+
 /// Session lifecycle and persistence actor.
 ///
-/// Subscribes to session-related commands and events, mutates [`State`],
+/// Handles session-related commands and events, mutates [`State`],
 /// and emits new commands and events via the message bus.
 /// Also persists session snapshots to disk when session state changes.
 pub struct SessionPersistenceActor {
@@ -114,88 +129,121 @@ pub struct SessionPersistenceActorDeps {
     pub image_converter: crate::feat::image_convert::ImageConverterService,
 }
 
-impl Actor for SessionPersistenceActor {
-    type Args = SessionPersistenceActorDeps;
-    type Error = std::convert::Infallible;
+impl ServiceActor for SessionPersistenceActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "trait contract: start is never called (spawn uses start_with)"
+    )]
+    async fn start(_args: &serde_json::Value) -> Result<Self, error_stack::Report<RegistryError>> {
+        // Never called: the spawn helper injects the deps via `start_with`
+        // (Deps carries typed handles that cannot ride JSON args).
+        Err(
+            error_stack::IntoReport::into_report(RegistryError::InvalidSpec)
+                .attach("SessionPersistenceActor is spawned via start_with"),
+        )
+    }
+}
 
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        let bus = &args.deps.services.bus;
-
-        // Persistence subscriptions.
-        bus.subscribe::<SessionLoadRequested, _>(&actor_ref).await;
-        bus.subscribe::<LoadSessionPickerEntries, _>(&actor_ref)
-            .await;
-        bus.subscribe::<SessionForkRequested, _>(&actor_ref).await;
-
-        // Session lifecycle subscriptions.
-        bus.subscribe::<EnqueueUserMessage, _>(&actor_ref).await;
-        bus.subscribe::<SubmitSteeringMessage, _>(&actor_ref).await;
-        bus.subscribe::<EnqueueResumeTurn, _>(&actor_ref).await;
-        bus.subscribe::<PushChatEntry, _>(&actor_ref).await;
-        bus.subscribe::<SendMessage, _>(&actor_ref).await;
-
-        // Lifecycle command subscriptions.
-        bus.subscribe::<RunSessionSetup, _>(&actor_ref).await;
-        bus.subscribe::<RunSessionTeardown, _>(&actor_ref).await;
-        bus.subscribe::<FinishSessionTeardown, _>(&actor_ref).await;
-        bus.subscribe::<FinishSessionSetup, _>(&actor_ref).await;
-        bus.subscribe::<CancelLifecycleCommand, _>(&actor_ref).await;
-        bus.subscribe::<SetSessionCwd, _>(&actor_ref).await;
-
-        bus.subscribe::<PersistSession, _>(&actor_ref).await;
-        bus.subscribe::<CloseSession, _>(&actor_ref).await;
-        bus.subscribe::<ArchiveSession, _>(&actor_ref).await;
-        bus.subscribe::<ArchiveSessionTree, _>(&actor_ref).await;
-        bus.subscribe::<TeardownSessionTree, _>(&actor_ref).await;
-        bus.subscribe::<SubmitHistoryMutations, _>(&actor_ref).await;
-        bus.subscribe::<MarkSessionInteracted, _>(&actor_ref).await;
-        bus.subscribe::<RetryStalledSession, _>(&actor_ref).await;
-
-        // The actor arms the in-flight-stream guard on dispatch receipt —
-        // the single write point covering every `SendToLlmProvider`
-        // publisher (user, queued/steered, direct, tool-loop, stall-retry).
-        bus.subscribe::<SendToLlmProvider, _>(&actor_ref).await;
-
-        // Context-related subscriptions.
-        bus.subscribe::<PinChatEntry, _>(&actor_ref).await;
-        bus.subscribe::<UnpinChatEntry, _>(&actor_ref).await;
-        bus.subscribe::<LoadPersonaPickerEntries, _>(&actor_ref)
-            .await;
-
-        // Event subscriptions.
-        bus.subscribe::<StreamToken, _>(&actor_ref).await;
-        bus.subscribe::<StreamCompleted, _>(&actor_ref).await;
-        bus.subscribe::<ToolUseStarted, _>(&actor_ref).await;
-        bus.subscribe::<ToolCallReceived, _>(&actor_ref).await;
-        bus.subscribe::<ToolCallStreaming, _>(&actor_ref).await;
-        bus.subscribe::<ToolExecutionCompleted, _>(&actor_ref).await;
-        bus.subscribe::<ToolBatchCompleted, _>(&actor_ref).await;
-        bus.subscribe::<ToolExecutionStarted, _>(&actor_ref).await;
-        bus.subscribe::<ToolExecutionOutput, _>(&actor_ref).await;
-        bus.subscribe::<CitationsReceived, _>(&actor_ref).await;
-        bus.subscribe::<ChatEntryPinChanged, _>(&actor_ref).await;
-        bus.subscribe::<TaskListUpdated, _>(&actor_ref).await;
-        bus.subscribe::<ModelsRefreshed, _>(&actor_ref).await;
-        bus.subscribe::<SkillsLoaded, _>(&actor_ref).await;
-        bus.subscribe::<EnvironmentLoaded, _>(&actor_ref).await;
-        bus.subscribe::<ToolsRegistered, _>(&actor_ref).await;
-        bus.subscribe::<ToolsUnregistered, _>(&actor_ref).await;
-        bus.subscribe::<SessionClosed, _>(&actor_ref).await;
-        bus.subscribe::<PromptTemplatesLoaded, _>(&actor_ref).await;
-        bus.subscribe::<PersonasLoaded, _>(&actor_ref).await;
-
-        Ok(Self {
-            state: args.state,
-            cap: args.cap,
-            frontend_cap: args.frontend_cap,
-            services: args.deps.services,
-            counter: args.counter,
-            token_cache: args.token_cache,
-            builtin_registry: args.builtin_registry,
-            shell: args.shell,
-            lifecycle_child: None,
-            image_converter: args.image_converter,
-        })
+impl SessionPersistenceActor {
+    /// Spawns the actor at its static trouper path and subscribes it to the
+    /// shared `jinn.domain` topic. Live on return: the subscription is the
+    /// readiness point, so publishes after this call resolves cannot be
+    /// missed (B4: the orchestrator's builtin registration in its own
+    /// `start` lands in a running session actor).
+    #[expect(
+        clippy::expect_used,
+        reason = "a failed topic subscription is a wiring bug that must abort launch"
+    )]
+    pub fn spawn(system: &ActorSystem, deps: SessionPersistenceActorDeps) -> ActorPath {
+        let path = ActorPath::new(SESSION_PATH);
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(path.clone())
+            .start_with({
+                let deps = deps.clone();
+                move || {
+                    let deps = deps.clone();
+                    Box::pin(async move {
+                        Ok(Self {
+                            state: deps.state,
+                            cap: deps.cap,
+                            frontend_cap: deps.frontend_cap,
+                            services: deps.deps.services,
+                            counter: deps.counter,
+                            token_cache: deps.token_cache,
+                            builtin_registry: deps.builtin_registry,
+                            shell: deps.shell,
+                            lifecycle_child: None,
+                            image_converter: deps.image_converter,
+                        })
+                    })
+                }
+            })
+            // Persistence + picker.
+            .handles::<SessionLoadRequested>()
+            .handles::<LoadSessionPickerEntries>()
+            .handles::<SessionForkRequested>()
+            // Input & dispatch.
+            .handles::<EnqueueUserMessage>()
+            .handles::<SubmitSteeringMessage>()
+            .handles::<EnqueueResumeTurn>()
+            .handles::<PushChatEntry>()
+            .handles::<SendMessage>()
+            // Lifecycle commands.
+            .handles::<RunSessionSetup>()
+            .handles::<RunSessionTeardown>()
+            .handles::<FinishSessionTeardown>()
+            .handles::<FinishSessionSetup>()
+            .handles::<CancelLifecycleCommand>()
+            .handles::<SetSessionCwd>()
+            .handles::<PersistSession>()
+            .handles::<CloseSession>()
+            .handles::<ArchiveSession>()
+            .handles::<ArchiveSessionTree>()
+            .handles::<TeardownSessionTree>()
+            .handles::<SubmitHistoryMutations>()
+            .handles::<MarkSessionInteracted>()
+            .handles::<RetryStalledSession>()
+            // The actor arms the in-flight-stream guard on dispatch receipt —
+            // the single write point covering every `SendToLlmProvider`
+            // publisher (user, queued/steered, direct, tool-loop, stall-retry).
+            .handles::<SendToLlmProvider>()
+            // Context-related.
+            .handles::<PinChatEntry>()
+            .handles::<UnpinChatEntry>()
+            .handles::<LoadPersonaPickerEntries>()
+            // Events.
+            .handles::<StreamToken>()
+            .handles::<StreamCompleted>()
+            .handles::<ToolUseStarted>()
+            .handles::<ToolCallReceived>()
+            .handles::<ToolCallStreaming>()
+            .handles::<ToolExecutionCompleted>()
+            .handles::<ToolBatchCompleted>()
+            .handles::<ToolExecutionStarted>()
+            .handles::<ToolExecutionOutput>()
+            .handles::<CitationsReceived>()
+            .handles::<ChatEntryPinChanged>()
+            .handles::<TaskListUpdated>()
+            .handles::<ModelsRefreshed>()
+            .handles::<SkillsLoaded>()
+            .handles::<EnvironmentLoaded>()
+            .handles::<ToolsRegistered>()
+            .handles::<ToolsUnregistered>()
+            .handles::<SessionClosed>()
+            .handles::<PromptTemplatesLoaded>()
+            .handles::<PersonasLoaded>()
+            // Deep mailbox with Block: this actor is the single sink for
+            // every streaming token burst. Block backpressures rather than
+            // drops, so the terminal `StreamCompleted` can never be lost.
+            .mailbox(SESSION_MAILBOX_CAPACITY, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        // One topic suffices: trouper dispatches by schema id at the typed
+        // adapter, and every publisher reaches this actor through the
+        // `jinn.domain` default (BusService publishes and bridge closures).
+        system
+            .subscribe(&path, &jinn_domain_topic(), None)
+            .expect("session actor subscribes the jinn.domain topic");
+        path
     }
 }
 
@@ -203,313 +251,262 @@ impl Actor for SessionPersistenceActor {
 // Message handlers — direct handler calls
 // ---------------------------------------------------------------------------
 
-impl Message<SessionLoadRequested> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: SessionLoadRequested, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SessionLoadRequested> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: SessionLoadRequested, _ctx: &mut MsgCtx<'_>) {
         self.on_load_requested(&msg).await;
     }
 }
 
-impl Message<LoadSessionPickerEntries> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(
-        &mut self,
-        msg: LoadSessionPickerEntries,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) {
+impl MsgHandler<LoadSessionPickerEntries> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: LoadSessionPickerEntries, _ctx: &mut MsgCtx<'_>) {
         self.handle_load_session_picker_entries(&msg).await;
     }
 }
 
-impl Message<SessionForkRequested> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: SessionForkRequested, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SessionForkRequested> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: SessionForkRequested, _ctx: &mut MsgCtx<'_>) {
         self.on_session_fork_requested(&msg).await;
     }
 }
 
-impl Message<EnqueueUserMessage> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: EnqueueUserMessage, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<EnqueueUserMessage> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: EnqueueUserMessage, _ctx: &mut MsgCtx<'_>) {
         self.handle_enqueue_user_message(&msg).await;
     }
 }
 
-impl Message<SubmitSteeringMessage> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: SubmitSteeringMessage, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SubmitSteeringMessage> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: SubmitSteeringMessage, _ctx: &mut MsgCtx<'_>) {
         self.handle_submit_steering_message(&msg);
     }
 }
 
-impl Message<EnqueueResumeTurn> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: EnqueueResumeTurn, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<EnqueueResumeTurn> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: EnqueueResumeTurn, _ctx: &mut MsgCtx<'_>) {
         self.handle_enqueue_resume_turn(&msg).await;
     }
 }
 
-impl Message<PushChatEntry> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: PushChatEntry, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<PushChatEntry> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: PushChatEntry, _ctx: &mut MsgCtx<'_>) {
         self.handle_push_chat_entry(&msg).await;
     }
 }
 
-impl Message<SendMessage> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: SendMessage, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SendMessage> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: SendMessage, _ctx: &mut MsgCtx<'_>) {
         self.handle_send_message(&msg).await;
     }
 }
 
-impl Message<RunSessionSetup> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: RunSessionSetup, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<RunSessionSetup> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: RunSessionSetup, _ctx: &mut MsgCtx<'_>) {
         self.handle_run_session_setup(&msg).await;
     }
 }
 
-impl Message<RunSessionTeardown> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: RunSessionTeardown, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<RunSessionTeardown> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: RunSessionTeardown, _ctx: &mut MsgCtx<'_>) {
         self.handle_run_session_teardown(&msg).await;
     }
 }
 
-impl Message<FinishSessionTeardown> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: FinishSessionTeardown, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<FinishSessionTeardown> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: FinishSessionTeardown, _ctx: &mut MsgCtx<'_>) {
         self.handle_finish_session_teardown(&msg).await;
     }
 }
 
-impl Message<FinishSessionSetup> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: FinishSessionSetup, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<FinishSessionSetup> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: FinishSessionSetup, _ctx: &mut MsgCtx<'_>) {
         self.handle_finish_session_setup(&msg).await;
     }
 }
 
-impl Message<CancelLifecycleCommand> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: CancelLifecycleCommand, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<CancelLifecycleCommand> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: CancelLifecycleCommand, _ctx: &mut MsgCtx<'_>) {
         self.handle_cancel_lifecycle_command(&msg);
     }
 }
 
-impl Message<SetSessionCwd> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: SetSessionCwd, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SetSessionCwd> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: SetSessionCwd, _ctx: &mut MsgCtx<'_>) {
         self.handle_set_session_cwd(&msg).await;
     }
 }
 
-impl Message<PersistSession> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: PersistSession, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<PersistSession> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: PersistSession, _ctx: &mut MsgCtx<'_>) {
         self.handle_persist_session(&msg).await;
     }
 }
 
-impl Message<CloseSession> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: CloseSession, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<CloseSession> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: CloseSession, _ctx: &mut MsgCtx<'_>) {
         self.handle_close_session(&msg).await;
     }
 }
 
-impl Message<ArchiveSession> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: ArchiveSession, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ArchiveSession> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: ArchiveSession, _ctx: &mut MsgCtx<'_>) {
         self.handle_archive_session(&msg).await;
     }
 }
 
-impl Message<ArchiveSessionTree> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: ArchiveSessionTree, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ArchiveSessionTree> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: ArchiveSessionTree, _ctx: &mut MsgCtx<'_>) {
         self.handle_archive_session_tree(&msg).await;
     }
 }
 
-impl Message<TeardownSessionTree> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: TeardownSessionTree, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<TeardownSessionTree> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: TeardownSessionTree, _ctx: &mut MsgCtx<'_>) {
         self.handle_teardown_session_tree(&msg).await;
     }
 }
 
-impl Message<PinChatEntry> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: PinChatEntry, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<PinChatEntry> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: PinChatEntry, _ctx: &mut MsgCtx<'_>) {
         self.handle_pin_chat_entry(&msg).await;
     }
 }
 
-impl Message<UnpinChatEntry> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: UnpinChatEntry, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<UnpinChatEntry> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: UnpinChatEntry, _ctx: &mut MsgCtx<'_>) {
         self.handle_unpin_chat_entry(&msg).await;
     }
 }
 
-impl Message<LoadPersonaPickerEntries> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(
-        &mut self,
-        msg: LoadPersonaPickerEntries,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) {
+impl MsgHandler<LoadPersonaPickerEntries> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: LoadPersonaPickerEntries, _ctx: &mut MsgCtx<'_>) {
         self.handle_load_persona_picker_entries(&msg);
     }
 }
 
-impl Message<MarkSessionInteracted> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: MarkSessionInteracted, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<MarkSessionInteracted> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: MarkSessionInteracted, _ctx: &mut MsgCtx<'_>) {
         self.handle_mark_session_interacted(&msg).await;
     }
 }
 
-impl Message<SubmitHistoryMutations> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: SubmitHistoryMutations, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SubmitHistoryMutations> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: SubmitHistoryMutations, _ctx: &mut MsgCtx<'_>) {
         self.handle_submit_history_mutations(&msg).await;
     }
 }
 
-impl Message<RetryStalledSession> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: RetryStalledSession, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<RetryStalledSession> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: RetryStalledSession, _ctx: &mut MsgCtx<'_>) {
         self.on_retry_stalled_session(&msg).await;
     }
 }
 
-impl Message<SendToLlmProvider> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: SendToLlmProvider, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SendToLlmProvider> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: SendToLlmProvider, _ctx: &mut MsgCtx<'_>) {
         self.on_send_to_llm_provider(&msg);
     }
 }
 
 // Event handlers
 
-impl Message<StreamToken> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: StreamToken, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<StreamToken> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: StreamToken, _ctx: &mut MsgCtx<'_>) {
         self.on_stream_token(&msg);
     }
 }
 
-impl Message<StreamCompleted> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: StreamCompleted, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<StreamCompleted> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: StreamCompleted, _ctx: &mut MsgCtx<'_>) {
         self.on_stream_completed(&msg).await;
     }
 }
 
-impl Message<ToolUseStarted> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: ToolUseStarted, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ToolUseStarted> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: ToolUseStarted, _ctx: &mut MsgCtx<'_>) {
         self.on_tool_use_started(&msg);
     }
 }
 
-impl Message<ToolCallReceived> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: ToolCallReceived, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ToolCallReceived> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: ToolCallReceived, _ctx: &mut MsgCtx<'_>) {
         self.on_tool_call_received(&msg);
     }
 }
 
-impl Message<ToolCallStreaming> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: ToolCallStreaming, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ToolCallStreaming> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: ToolCallStreaming, _ctx: &mut MsgCtx<'_>) {
         self.on_tool_call_streaming(&msg);
     }
 }
 
-impl Message<ToolExecutionCompleted> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: ToolExecutionCompleted, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ToolExecutionCompleted> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: ToolExecutionCompleted, _ctx: &mut MsgCtx<'_>) {
         self.on_tool_execution_completed(&msg).await;
     }
 }
 
-impl Message<ToolBatchCompleted> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: ToolBatchCompleted, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ToolBatchCompleted> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: ToolBatchCompleted, _ctx: &mut MsgCtx<'_>) {
         self.on_tool_batch_completed(&msg).await;
     }
 }
 
-impl Message<ToolExecutionStarted> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: ToolExecutionStarted, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ToolExecutionStarted> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: ToolExecutionStarted, _ctx: &mut MsgCtx<'_>) {
         self.on_tool_execution_started(&msg);
     }
 }
 
-impl Message<ToolExecutionOutput> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: ToolExecutionOutput, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ToolExecutionOutput> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: ToolExecutionOutput, _ctx: &mut MsgCtx<'_>) {
         self.on_tool_execution_output(&msg);
     }
 }
 
-impl Message<CitationsReceived> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: CitationsReceived, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<CitationsReceived> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: CitationsReceived, _ctx: &mut MsgCtx<'_>) {
         self.on_citations_received(&msg).await;
     }
 }
 
-impl Message<ModelsRefreshed> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: ModelsRefreshed, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ModelsRefreshed> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: ModelsRefreshed, _ctx: &mut MsgCtx<'_>) {
         self.on_models_refreshed(&msg);
     }
 }
 
-impl Message<SkillsLoaded> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: SkillsLoaded, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SkillsLoaded> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: SkillsLoaded, _ctx: &mut MsgCtx<'_>) {
         self.on_skills_loaded(&msg);
     }
 }
 
-impl Message<EnvironmentLoaded> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: EnvironmentLoaded, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<EnvironmentLoaded> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: EnvironmentLoaded, _ctx: &mut MsgCtx<'_>) {
         self.on_environment_loaded(&msg.config).await;
     }
 }
 
-impl Message<ChatEntryPinChanged> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: ChatEntryPinChanged, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ChatEntryPinChanged> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: ChatEntryPinChanged, _ctx: &mut MsgCtx<'_>) {
         self.save_active_session(&msg.session_id).await;
     }
 }
 
-impl Message<TaskListUpdated> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: TaskListUpdated, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<TaskListUpdated> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: TaskListUpdated, _ctx: &mut MsgCtx<'_>) {
         self.save_active_session(&msg.session_id).await;
     }
 }
 
-impl Message<ToolsRegistered> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: ToolsRegistered, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ToolsRegistered> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: ToolsRegistered, _ctx: &mut MsgCtx<'_>) {
         self.on_tools_registered(&msg);
     }
 }
 
-impl Message<ToolsUnregistered> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: ToolsUnregistered, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ToolsUnregistered> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: ToolsUnregistered, _ctx: &mut MsgCtx<'_>) {
         self.on_tools_unregistered(&msg);
     }
 }
@@ -517,23 +514,20 @@ impl Message<ToolsUnregistered> for SessionPersistenceActor {
 /// Cleans the closed session's entry from the context tool cache — the map
 /// the orchestrator's own cleanup does not reach (it prunes its routing map,
 /// not the LLM-facing definitions cache).
-impl Message<SessionClosed> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: SessionClosed, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SessionClosed> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: SessionClosed, _ctx: &mut MsgCtx<'_>) {
         self.on_session_closed_cleanup(&msg.session_id);
     }
 }
 
-impl Message<PromptTemplatesLoaded> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: PromptTemplatesLoaded, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<PromptTemplatesLoaded> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: PromptTemplatesLoaded, _ctx: &mut MsgCtx<'_>) {
         self.on_prompt_templates_loaded(&msg);
     }
 }
 
-impl Message<PersonasLoaded> for SessionPersistenceActor {
-    type Reply = ();
-    async fn handle(&mut self, msg: PersonasLoaded, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<PersonasLoaded> for SessionPersistenceActor {
+    async fn handle(&mut self, msg: PersonasLoaded, _ctx: &mut MsgCtx<'_>) {
         self.on_personas_loaded(&msg);
     }
 }

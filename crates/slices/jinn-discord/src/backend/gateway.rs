@@ -621,7 +621,7 @@ async fn handle_inbound_message(
 /// Publish a typed bus message via a bridge closure.
 pub(crate) fn publish<M>(bridge: &Bridge, msg: M)
 where
-    M: Clone + Send + 'static,
+    M: jinn_slices::PublishableMessage,
 {
     if let Err(e) = bridge.send(Bridge::publish_closure(msg)) {
         tracing::error!(error = %e, "bridge send failed");

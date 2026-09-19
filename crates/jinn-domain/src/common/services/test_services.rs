@@ -293,7 +293,7 @@ impl TestServices {
             // Recording mode — no real bus, no bridge needed.
             crate::common::bridge::Bridge::new_dummy(&handle)
         } else {
-            crate::common::bridge::Bridge::with_handle(bus.actor_ref().clone(), &handle)
+            crate::common::bridge::Bridge::with_handle(bus.clone(), &handle)
         };
 
         // RootSupervisor::spawn calls tokio::spawn internally — same runtime

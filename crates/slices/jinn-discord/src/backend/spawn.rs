@@ -94,12 +94,9 @@ mod tests {
         // Given a disabled slice activation output (the gate decided at
         // activation).
         let services = jinn_domain::Services::new_fake().await;
-        let bus_actor =
-            kameo_actors::message_bus::MessageBus::new(kameo_actors::DeliveryStrategy::BestEffort);
-        let bus_ref = kameo::prelude::Spawn::spawn(bus_actor);
         let core = jinn_domain::AppCore {
             state: State::new(jinn_domain::common::app_state::AppState::default()),
-            bridge: Bridge::new(bus_ref),
+            bridge: Bridge::new(services.bus.clone()),
         };
         let activated = crate::ActivatedDiscord {
             parked: crate::DiscordGatewayChannels::detached(),

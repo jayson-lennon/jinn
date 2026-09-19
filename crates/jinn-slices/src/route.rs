@@ -42,25 +42,40 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use kameo::prelude::ActorRef;
-use kameo_actors::message_bus::MessageBus;
-
 use crate::key::KeyEvent;
 use crate::slice_scope::SliceScopeId;
 
-/// A closure that publishes a typed message to the kernel's bus.
-///
-/// The kernel's drain task calls each closure with the bus ref; the
-/// closure spawns the publish so the synchronous intent handler never
-/// awaits.
-pub type PublishClosure = Box<dyn FnOnce(&ActorRef<MessageBus>) + Send + 'static>;
+pub use crate::route_publish::PublishSink;
 
-/// A message that may travel the kernel's kameo message bus.
+/// A closure that publishes a typed message onto the trouper fabric.
+///
+/// The kernel's drain task calls each closure with the publish sink (the
+/// kernel's bus wrapper); the closure publishes through it so schema-id
+/// routing, recording mode, and delivery semantics all match a direct
+/// `publish` — the synchronous intent handler never awaits.
+pub type PublishClosure = Box<dyn FnOnce(&dyn PublishSink) + Send + 'static>;
+
+/// A message that may travel the kernel's message fabric.
 ///
 /// Marker trait owned here (the slice vocabulary crate) so slice
-/// crates publish without depending on the kernel. The kernel's bus
-/// implements `Publish<M>` for every `M: BusMessage`.
+/// crates publish without depending on the kernel. The kernel's fabric
+/// publishes any `BusMessage` as a schema-tagged event on its routed topic.
 pub trait BusMessage: Clone + Send + 'static {}
+
+/// A message that can be wrapped into a publish closure.
+///
+/// The fabric dispatches by trouper schema id and decodes JSON payloads,
+/// so a publishable message must serialize, deserialize, and declare its
+/// schema. `BusMessage` types gain this via the blanket impl.
+pub trait PublishableMessage:
+    Clone + Send + 'static + trouper::schema::Schema + serde::Serialize + serde::de::DeserializeOwned
+{
+}
+
+impl<M> PublishableMessage for M where
+    M: Clone + Send + 'static + trouper::schema::Schema + serde::Serialize + serde::de::DeserializeOwned
+{
+}
 
 /// Composition-side identifier for a route's intent resolution.
 ///
@@ -330,13 +345,13 @@ impl RouteResult {
 
     /// A result with a single typed message to publish to the bus.
     ///
-    /// The message is wrapped in a closure that spawns
-    /// `bus.tell(Publish(msg))` when the kernel's drain task processes
-    /// it — the same publish shape the kernel's bridge uses.
+    /// The message is wrapped in a closure that spawns the schema-tagged
+    /// send when the kernel's drain task processes it — the same publish
+    /// shape the kernel's bridge uses.
     #[must_use]
     pub fn new_message<M>(msg: M) -> Self
     where
-        M: Clone + Send + 'static,
+        M: PublishableMessage,
     {
         let mut result = Self::empty();
         result.push_message(msg);
@@ -353,7 +368,7 @@ impl RouteResult {
 
     /// Append a typed message and return self for chaining.
     #[must_use]
-    pub fn with_message<M: Clone + Send + 'static>(mut self, msg: M) -> Self {
+    pub fn with_message<M: PublishableMessage>(mut self, msg: M) -> Self {
         self.push_message(msg);
         self
     }
@@ -362,7 +377,7 @@ impl RouteResult {
     #[must_use]
     pub fn with_messages<I, M>(mut self, msgs: I) -> Self
     where
-        M: Clone + Send + 'static,
+        M: PublishableMessage,
         I: IntoIterator<Item = M>,
     {
         for msg in msgs {
@@ -382,14 +397,12 @@ impl RouteResult {
     /// Wraps the message into a publish closure and records its type.
     fn push_message<M>(&mut self, msg: M)
     where
-        M: Clone + Send + 'static,
+        M: PublishableMessage,
     {
         self.messages
-            .push(Box::new(move |bus: &ActorRef<MessageBus>| {
-                let bus = bus.clone();
-                tokio::spawn(async move {
-                    let _ = bus.tell(kameo_actors::message_bus::Publish(msg)).await;
-                });
+            .push(Box::new(move |sink: &dyn PublishSink| {
+                let payload = serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null);
+                sink.publish_schema(M::schema_id(), payload, std::any::type_name::<M>());
             }));
         self.message_names.push(std::any::type_name::<M>());
     }
@@ -975,7 +988,7 @@ mod tests {
     fn new_message_records_type_name_and_closure() {
         // Given an empty route result.
         // When building it from one typed message.
-        let result = RouteResult::new_message("hello".to_owned());
+        let result = RouteResult::new_message(RecordedTestMessage);
 
         // Then the message name is recorded for inspection.
         assert_eq!(result.message_names.len(), 1);
@@ -984,4 +997,15 @@ mod tests {
         // And no scope transition was requested.
         assert!(result.scope_signal.is_none());
     }
+
+    /// A schema'd stand-in message for closure-recording assertions.
+    #[derive(Clone, serde::Serialize, serde::Deserialize)]
+    struct RecordedTestMessage;
+
+    impl crate::route::BusMessage for RecordedTestMessage {}
+
+    crate::crossing_schema!(RecordedTestMessage, "RouteResultTestMessage",
+        trouper::schema::SchemaKind::Event,
+        description: "Route result closure test message.",
+        fields: []);
 }

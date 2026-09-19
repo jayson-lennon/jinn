@@ -307,7 +307,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "n",
         "general",
         "new session",
-        sync(|_state| IntentResult::new_message(jinn_domain::Intent::SessionNew)),
+        sync(|_state| IntentResult::empty()),
     ));
     routes.attach(row(
         "session-new-lifecycle",
@@ -315,7 +315,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "N",
         "general",
         "new session (setup)",
-        sync(|_state| IntentResult::new_message(jinn_domain::Intent::SessionNewWithLifecycle)),
+        sync(|_state| IntentResult::empty()),
     ));
     routes.attach(row(
         "session-rename",
@@ -385,15 +385,7 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "T",
         "general",
         "toggle terminal",
-        sync(|_state| {
-            IntentResult::new_message(jinn_domain::Intent::Dynamic(
-                jinn_slices::DynamicIntent::new(
-                    jinn_term_msg::view_scope(),
-                    "toggle-for-selected",
-                    "toggle terminal",
-                ),
-            ))
-        }),
+        sync(|_state| IntentResult::empty()),
     ));
     routes.attach(row(
         "session-insert",

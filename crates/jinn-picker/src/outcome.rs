@@ -1,6 +1,7 @@
 //! What a hook's run produces — messages to publish plus an optional close.
 
 use jinn_slices::PublishClosure;
+use jinn_slices::PublishableMessage;
 use jinn_slices::RouteResult;
 
 /// The outcome of a picker lifecycle hook or bind action.
@@ -40,7 +41,7 @@ impl PickerOutcome {
     #[must_use]
     pub fn new_message<M>(msg: M) -> Self
     where
-        M: Clone + Send + 'static,
+        M: PublishableMessage,
     {
         Self::from_route_result(RouteResult::new_message(msg))
     }
@@ -58,7 +59,7 @@ impl PickerOutcome {
 
     /// Appends a typed message, returning self for chaining.
     #[must_use]
-    pub fn with_message<M: Clone + Send + 'static>(mut self, msg: M) -> Self {
+    pub fn with_message<M: PublishableMessage>(mut self, msg: M) -> Self {
         let extra = Self::new_message(msg);
         self.messages.extend(extra.messages);
         self.message_names.extend(extra.message_names);
@@ -87,15 +88,24 @@ impl PickerOutcome {
 mod tests {
     use super::*;
 
+    /// A schema'd stand-in message for closure-recording assertions.
+    #[derive(Clone, serde::Serialize, serde::Deserialize)]
+    struct Recorded;
+
+    jinn_slices::crossing_schema!(Recorded, "PickerOutcomeRecorded",
+        trouper::schema::SchemaKind::Event,
+        description: "Picker outcome closure test message.",
+        fields: []);
+
     #[rstest::rstest]
     #[test]
     fn new_message_records_the_message_type() {
         // Given a message outcome.
-        let outcome = PickerOutcome::new_message(String::from("hello"));
+        let outcome = PickerOutcome::new_message(Recorded);
 
         // When inspecting the recorded names.
         // Then the message type name is recorded for test inspection.
-        assert_eq!(outcome.message_names, ["alloc::string::String"]);
+        assert_eq!(outcome.message_names, ["Recorded"]);
         assert_eq!(outcome.messages.len(), 1);
         assert!(!outcome.close);
     }
@@ -104,7 +114,7 @@ mod tests {
     #[test]
     fn merge_combines_messages_and_close_wins() {
         // Given an open outcome and a closing outcome.
-        let open = PickerOutcome::new_message(String::from("a"));
+        let open = PickerOutcome::new_message(Recorded);
         let closing = PickerOutcome::empty().close();
 
         // When merging them.

@@ -455,6 +455,15 @@ mod tests {
         reason = "test module, panics are acceptable"
     )]
 
+    /// A schema'd stand-in message for action-closure assertions.
+    #[derive(Clone, serde::Serialize, serde::Deserialize)]
+    pub(super) struct RecordedToggle;
+
+    jinn_slices::crossing_schema!(RecordedToggle, "PickerRecordedToggle",
+        trouper::schema::SchemaKind::Event,
+        description: "Picker registry action test message.",
+        fields: []);
+
     use super::*;
     use crate::builder::PickerSpec;
     use crate::ctx::LoadCtx;
@@ -537,7 +546,7 @@ mod tests {
         registry.register(PickerSpec::<Entry>::new(PickerId::new("dispatch")).bind(
             "<tab>",
             "toggle",
-            |_ctx: &mut ActionCtx<'_>| PickerOutcome::new_message(String::from("toggled")),
+            |_ctx: &mut ActionCtx<'_>| PickerOutcome::new_message(RecordedToggle),
         ));
         let spec = registry.get("dispatch").expect("registered");
 

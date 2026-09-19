@@ -73,6 +73,22 @@ impl RouteStagingDescriptor {
 /// crate (not the kernel's bridge module) because it names dashboard
 /// types — the kernel must not depend on slice crates.
 pub async fn drain_routes(services: &jinn_domain::Services) {
+    // Erased publishes (bridge closures) route natively on trouper: the
+    // schema→topic rules mirror the relays below.
+    services
+        .bus
+        .route_topic::<ActorStarting>(fabric_topic());
+    services
+        .bus
+        .route_topic::<ActorStarted>(fabric_topic());
+    services
+        .bus
+        .route_topic::<ActorShutdownCompleted>(fabric_topic());
+    services
+        .bus
+        .route_topic::<ServiceStatusUpdate>(fabric_topic());
+    services.bus.route_topic::<DashboardNav>(dashboard_topic());
+
     jinn_domain::common::trouper_bridge::spawn_one::<ActorStarting>(
         services,
         &entry(

@@ -185,7 +185,7 @@ impl Services {
                 system,
             )
         };
-        let bridge = crate::common::bridge::Bridge::new(bus.actor_ref().clone());
+        let bridge = crate::common::bridge::Bridge::new(bus.clone());
         let root_supervisor = crate::common::root_supervisor::RootSupervisor::spawn_root().await;
 
         Self {
