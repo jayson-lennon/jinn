@@ -28,13 +28,9 @@ A TUI agent harness with multi-session support and Vim-style keybinds.
   - Subagents/tasks are regular sessions that are linked together in a tree, so you can steer an in-progress subagent or fork a new session from it.
   - Stats are all tracked and displayed per-session. When a session is part of a tree, aggregated information is shown as a secondary display so you'll have totals for the entire tree.
 
-![jinn-full](doc/jinn-full.png)
-![Model Selection](doc/model-selection.png)
 ![WhichKey](doc/whichkey.png)
 ![Skill Picker](doc/skill-picker.png)
-![Forked Sessions](doc/forked-sessions.png)
 ![Task Preview](doc/task-preview.png)
-![Tool Picker](doc/tool-picker.png)
 
 ## Usage
 
