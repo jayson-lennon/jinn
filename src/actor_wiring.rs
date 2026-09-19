@@ -554,38 +554,6 @@ impl ActorSystemBuilder {
         // mid-drain).
         let _ = jinn_term_msg::TERM_CONTROLS.set(term_controls);
 
-        // Plugin lifecycle actor: reads `[[plugin]]` entries from jinn.toml and spawns one in-process
-        // WASM guest per entry. Guests are hosted directly by jinn via the
-        // shared wasmtime engine — no child processes. Spawned after MCP so
-        // contributions land once the bus is fully populated.
-        let _plugin_coordinator = spawn_tracked!(
-            &services.bus,
-            "plugin-coordinator",
-            "PluginCoordinatorActor",
-            jinn_domain::feat::plugin_coordinator_actor::PluginCoordinatorActor::supervise(
-                &root,
-                jinn_domain::feat::plugin_coordinator_actor::PluginCoordinatorActorDeps {
-                    deps: actor_deps.clone(),
-                    root: root.clone(),
-                    state: state.clone(),
-                    cap: jinn_domain::common::tcaps::mint::mint_plugins_cap(),
-                    dirs: jinn_domain::feat::plugin_coordinator_actor::PluginDirs {
-                        config_dir: services.paths.app_config_dir(),
-                        data_dir: services.paths.app_data_dir(),
-                        engine: std::sync::Arc::new(
-                            jinn_plugin::PluginEngine::new()
-                                .expect("wasmtime engine construction cannot fail"),
-                        ),
-                    },
-                    tick_override: None,
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
-        _plugin_coordinator.wait_for_startup().await;
-
         // Directory lister actor (`@path` file popup).
         let _directory_lister = spawn_tracked!(
             &services.bus,

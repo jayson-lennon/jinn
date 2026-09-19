@@ -24,7 +24,10 @@ disabled-strategies = ["quick-install", "compile"]
 [workspace]
 # `crates/jinn-*` (not `crates/*`) so the glob never matches the `crates/slices/`
 # container directory, which holds the slice crates matched by `crates/slices/*`.
-members = ["crates/jinn-*", "crates/slices/*", "plugins/*", "vendor/*"]
+# The plugin crates are excluded (infrastructure torn down; directories kept for
+# re-integration).
+members = ["crates/jinn-*", "crates/slices/*", "vendor/*"]
+exclude = ["crates/jinn-plugin", "crates/jinn-plugin-api", "crates/jinn-plugin-sdk", "plugins/*"]
 
 
 [workspace.package]
@@ -40,26 +43,6 @@ codegen-units = 1
 
 [profile.dev]
 debug = 0
-
-# wasmtime's JIT-compile step dominates debug-build plugin startup (~10x
-# slower unoptimized). Optimize wasmtime's compiler/runtime crates in dev
-# builds so plugin compilation is close to release speed; the cache (see
-# PluginEngine) then makes later launches skip compilation entirely.
-# (Cargo rejects globs in profile package tables, so enumerate the family.)
-[profile.dev.package.wasmtime]
-opt-level = 2
-[profile.dev.package.wasmtime-internal-cranelift]
-opt-level = 2
-[profile.dev.package.wasmtime-internal-jit-debug]
-opt-level = 2
-[profile.dev.package.wasmtime-internal-unwinder]
-opt-level = 2
-[profile.dev.package.cranelift-codegen]
-opt-level = 2
-[profile.dev.package.cranelift-assembler-x64]
-opt-level = 2
-[profile.dev.package.wasmparser]
-opt-level = 2
 
 [patch.crates-io]
 tiktoken = { path = "vendor/tiktoken" }
@@ -96,8 +79,6 @@ jinn-chat-log-view = { workspace = true }
 jinn-scope-focus = { workspace = true }
 jinn-sidebar = { workspace = true }
 jinn-cwd = { workspace = true }
-jinn-plugin = { workspace = true }
-jinn-plugin-api = { workspace = true }
 jinn-tui = { workspace = true }
 jinn-domain = { workspace = true }
 jinn-preferences-config = { workspace = true }
@@ -239,8 +220,6 @@ jinn-context-curation-msg = { path = "crates/slices/jinn-context-curation-msg" }
 jinn-context-curation = { path = "crates/slices/jinn-context-curation" }
 jinn-mcp-msg = { path = "crates/slices/jinn-mcp-msg" }
 jinn-context-assembly = { path = "crates/slices/jinn-context-assembly" }
-jinn-plugin-api = { path = "crates/jinn-plugin-api" }
-jinn-plugin = { path = "crates/jinn-plugin" }
 wasm-encoder = "=0.252.0"
 wasmparser = "=0.252.0"
 wasmtime = { version = "47", features = ["component-model-async", "cache"] }

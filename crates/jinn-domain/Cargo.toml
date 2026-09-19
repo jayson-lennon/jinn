@@ -39,8 +39,6 @@ jinn-preferences-config = { workspace = true }
 jinn-session-msg = { workspace = true }
 jinn-provider-config = { workspace = true }
 jinn-mcp = { workspace = true }
-jinn-plugin = { workspace = true }
-jinn-plugin-api = { workspace = true }
 form_urlencoded = { workspace = true }
 jinn-selection-widget = { workspace = true }
 jinn-picker = { workspace = true }

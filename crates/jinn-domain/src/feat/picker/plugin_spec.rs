@@ -15,7 +15,7 @@ use ratatui::text::Span;
 
 use crate::common::app_state::AppState;
 use crate::feat::plugin::PluginPickerEntry;
-use crate::feat::plugin_coordinator_actor::protocol::PluginPhase;
+use crate::feat::plugin::PluginPhase;
 use crate::feat::ui::picker_states::PickerExt;
 
 /// Builds the plugin picker's spec.

@@ -13,8 +13,6 @@ pub mod navigation;
 pub mod persona;
 pub mod picker;
 pub mod plugin;
-pub mod plugin_actor;
-pub mod plugin_coordinator_actor;
 pub mod project;
 pub mod provider;
 pub use jinn_provider_config as provider_infra;

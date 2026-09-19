@@ -2,19 +2,21 @@
 //!
 //! Plugins are declared in `jinn.toml` under `[[plugin]]`. Each entry names
 //! a `.wasm` file (path relative to jinn's plugin dir or absolute) plus the
-//! capability grants the plugin receives. The coordinator actor spawns one
-//! in-process guest per entry at app start; see `feat/plugin_coordinator_actor`.
+//! capability grants the plugin receives. The hosting infrastructure is
+//! currently torn down (re-integration pending): the state types below stay
+//! so the frontend surfaces and install flows keep their shape.
 
 pub use jinn_preferences_config::schemas::plugin::grant_serde;
 pub use jinn_preferences_config::schemas::plugin::{PluginConfig, PluginPathGrant, default_true};
 
 pub mod install;
 pub mod manifest;
+pub mod phase;
+
+pub use phase::PluginPhase;
 
 use jinn_theme::Theme;
 use std::collections::BTreeMap;
-
-use crate::feat::plugin_coordinator_actor::protocol::PluginPhase;
 
 /// The plugin contribution cache — data pushed by plugins, held for
 /// synchronous consumers (pickers, renderer).
