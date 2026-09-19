@@ -15,10 +15,10 @@ use crate::common::actor_deps::BusPublish;
 use crate::feat::chat_input::protocol::command::{
     EnqueueResumeTurn, EnqueueUserMessage, SubmitSteeringMessage,
 };
-use jinn_session_history_msg::PushChatEntry;
 use crate::feat::chat_input::protocol::event::ChatEntrySubmitted;
 use crate::feat::provider::protocol::command::SendMessage;
 use crate::protocol::{ChatEntry, ChatEntryKind};
+use jinn_session_history_msg::PushChatEntry;
 
 use super::super::SessionPersistenceActor;
 use super::image_resolve::ResolveOutcome;
@@ -93,9 +93,9 @@ impl SessionPersistenceActor {
                         EnqueueAction::DispatchDirectly
                     }
                     PhaseKind::Sending | PhaseKind::Streaming => {
-                        session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-                            Box::new(entry.clone()),
-                        ));
+                        session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+                            entry.clone(),
+                        )));
                         EnqueueAction::Queued
                     }
                 }
@@ -257,8 +257,7 @@ impl SessionPersistenceActor {
                     // degraded `@path` tokens. Set unconditionally — an empty
                     // (but non-default) marker keeps re-expansion idempotent for
                     // fully-attached messages.
-                    *entry_outcome =
-                        crate::protocol::AttachmentOutcome { attached, degraded };
+                    *entry_outcome = crate::protocol::AttachmentOutcome { attached, degraded };
                 }
                 true
             }
@@ -437,11 +436,11 @@ mod tests {
 
     use crate::common::services::BusAudit;
     use crate::feat::chat_input::protocol::command::{EnqueueResumeTurn, EnqueueUserMessage};
-    use jinn_session_history_msg::PushChatEntry;
     use crate::feat::provider::protocol::command::SendMessage;
     use crate::feat::session::phase_machine::PhaseKind;
     use crate::protocol::{ChatEntry, ChatEntryKind};
     use jinn_core_types::model_selection::ModelSelection;
+    use jinn_session_history_msg::PushChatEntry;
 
     async fn create_actor() -> (
         super::super::super::SessionPersistenceActor,

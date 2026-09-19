@@ -40,8 +40,8 @@ pub use crate::feat::session::picker_entry::SessionTreeEntry;
 // The `ChatEntry` vocabulary is promoted to `jinn-core-types` (serde-only
 // value types); these re-exports keep the long-standing `jinn_domain::…`
 // paths resolving.
+pub use jinn_core_types::chat_history::ChatHistory;
 pub use jinn_core_types::{
     AttachmentOutcome, ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextChangeEvent,
     ContextOverride, EntryTiming, HistoryMutation, PinPosition, ResolvedToken, ToolResultStatus,
 };
-pub use jinn_core_types::chat_history::ChatHistory;

@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 use crate::common::actor_deps::{ActorDeps, BusPublish};
 use crate::common::state::State;
-use crate::protocol::ChatEntry;
 use crate::feat::session::protocol::history_appended::HistoryAppended;
 use crate::feat::session::protocol::history_snapshot_ready::HistorySnapshotReady;
+use crate::protocol::ChatEntry;
 use kameo::prelude::{Actor, ActorRef, Context, Message};
 
 /// Actor that creates shared history snapshots for workers.
@@ -110,9 +110,9 @@ mod tests {
     use crate::common::app_state::AppState;
     use crate::common::bus::test_harness::{TestHarness, await_recorded};
     use crate::common::state::State;
-    use crate::protocol::ChatEntry;
     use crate::feat::session::protocol::history_appended::HistoryAppended;
     use crate::feat::session::protocol::history_snapshot_ready::HistorySnapshotReady;
+    use crate::protocol::ChatEntry;
     use crate::protocol::SessionId;
 
     use super::{HistorySnapshotActor, HistorySnapshotActorDeps};

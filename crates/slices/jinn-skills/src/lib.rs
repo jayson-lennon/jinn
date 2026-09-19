@@ -17,10 +17,10 @@ pub mod scan;
 pub mod skill;
 
 pub use format::format_skills_for_prompt;
-pub use loaded_name::loaded_skill_summary_label;
-pub use loaded_name::parse_loaded_skill_name;
+pub use frontmatter::SkillFrontmatter;
 pub use loaded_name::SKILL_CONTENT_PREFIX;
 pub use loaded_name::SKILL_ICON;
-pub use frontmatter::SkillFrontmatter;
+pub use loaded_name::loaded_skill_summary_label;
+pub use loaded_name::parse_loaded_skill_name;
 pub use scan::scan_skills;
 pub use skill::{Skill, SkillSource};

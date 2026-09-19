@@ -10,10 +10,10 @@
 use crate::feat::session::profile::SessionProfile;
 
 use crate::feat::session::token_stats::TokenRecord;
-use crate::protocol::ToolResultStatus;
 use crate::feat::ui::chat_log::visual_item::{
     DEFAULT_MIN_COLLAPSE_COUNT, PROXIMITY_COUNT, build_visual_items,
 };
+use crate::protocol::ToolResultStatus;
 use crate::protocol::{
     ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride, EntryTiming, PinPosition, SessionId,
 };
@@ -507,9 +507,9 @@ fn enqueue_message_adds_to_queue() {
     assert_eq!(session.queue_len(), 0);
 
     // When enqueuing a message.
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("hello")),
-    ));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("hello"),
+    )));
 
     // Then the queue has one message.
     assert_eq!(session.queue_len(), 1);
@@ -528,12 +528,12 @@ fn enqueue_message_adds_to_queue() {
 fn dequeue_message_returns_first_in_order() {
     // Given a session with two queued messages.
     let mut session = ChatSessionState::new();
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("first")),
-    ));
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("second")),
-    ));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("first"),
+    )));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("second"),
+    )));
 
     // When dequeuing a message.
     let msg = session.dequeue();
@@ -572,15 +572,15 @@ fn dequeue_message_returns_none_when_empty() {
 fn drain_returns_all_in_order() {
     // Given a session with three queued messages.
     let mut session = ChatSessionState::new();
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("a")),
-    ));
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("b")),
-    ));
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("c")),
-    ));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("a"),
+    )));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("b"),
+    )));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("c"),
+    )));
 
     // When draining the queue.
     let drained = session.drain_queue();
@@ -630,15 +630,15 @@ fn drain_returns_all_in_order() {
 fn drain_empties_queue() {
     // Given a session with three queued messages.
     let mut session = ChatSessionState::new();
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("a")),
-    ));
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("b")),
-    ));
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("c")),
-    ));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("a"),
+    )));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("b"),
+    )));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("c"),
+    )));
 
     // When draining the queue.
     let _ = session.drain_queue();
@@ -3651,12 +3651,12 @@ fn cancel_stream_and_drain_puts_user_display_text_in_input() {
     // Given a streaming session with queued user messages.
     let mut session = ChatSessionState::new();
     session.begin_streaming();
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("hello world")),
-    ));
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("second message")),
-    ));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("hello world"),
+    )));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("second message"),
+    )));
 
     // When cancelling and draining.
     session.cancel_stream_and_drain();
@@ -3672,9 +3672,9 @@ fn cancel_stream_and_drain_discards_non_user_items() {
     let mut session = ChatSessionState::new();
     session.begin_streaming();
     session.enqueue(jinn_turn_dispatch_msg::QueueItem::ToolContinuation);
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("keep this")),
-    ));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("keep this"),
+    )));
 
     // When cancelling and draining.
     session.cancel_stream_and_drain();
@@ -3724,9 +3724,9 @@ fn cancel_stream_and_drain_uses_display_not_expanded() {
     }
     let mut session = ChatSessionState::new();
     session.begin_streaming();
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(entry),
-    ));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        entry,
+    )));
 
     // When cancelling and draining.
     session.cancel_stream_and_drain();
@@ -3799,12 +3799,12 @@ fn cancel_stream_and_drain_flattens_steering_and_queue() {
     session.begin_streaming();
     session.steering_buffer_mut().push_fragment("s1".to_owned());
     session.steering_buffer_mut().push_fragment("s2".to_owned());
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("m1")),
-    ));
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("m2")),
-    ));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("m1"),
+    )));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("m2"),
+    )));
 
     // When cancelling and draining.
     session.cancel_stream_and_drain();
@@ -3836,9 +3836,9 @@ fn cancel_stream_and_drain_single_queue_message_no_separator() {
     // Given a streaming session with one queued user message.
     let mut session = ChatSessionState::new();
     session.begin_streaming();
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(ChatEntry::user("keep this")),
-    ));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        ChatEntry::user("keep this"),
+    )));
 
     // When cancelling and draining.
     session.cancel_stream_and_drain();
@@ -5057,9 +5057,9 @@ fn enqueue_front_puts_item_at_front_of_queue() {
     let _first_id = session.history()[0].id.clone();
 
     // Enqueue a user message normally (back of queue).
-    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-        Box::new(session.history()[0].clone()),
-    ));
+    session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+        session.history()[0].clone(),
+    )));
 
     // When enqueuing a ToolContinuation at the front.
     session.enqueue_front(jinn_turn_dispatch_msg::QueueItem::ToolContinuation);

@@ -48,12 +48,10 @@ use std::sync::Arc;
 pub use jinn_preferences_config::schemas::auto_prune::ToolAgeWindowAutoPruneConfig;
 
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::{
-    ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride,
-};
 use crate::protocol::HistoryMutation;
-use crate::protocol::ToolResultStatus;
 use crate::protocol::SessionId;
+use crate::protocol::ToolResultStatus;
+use crate::protocol::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 
 /// Default enabled state for tool-age-window auto-prune.
 /// Default `min_age` for tool-age-window auto-prune.
@@ -266,8 +264,8 @@ mod tests {
 
     use super::*;
     use crate::protocol::ChatEntry;
-    use crate::protocol::ToolResultStatus;
     use crate::protocol::SessionId;
+    use crate::protocol::ToolResultStatus;
 
     /// Build a worker with the given `min_age` (enabled = true).
     fn worker(min_age: usize) -> ToolAgeWindowAutoPruneWorker {

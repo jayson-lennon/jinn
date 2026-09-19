@@ -59,10 +59,9 @@ pub fn install_actors(
 /// routes after activation (see [`bridge::drain_routes`]).
 pub fn stage_routes(host: &mut SliceHost<'_, jinn_slices::RenderFacts>) {
     let topic = bridge::context_assembly_topic();
-    host.forward::<jinn_session_history_msg::HistoryAppended, _>(
-        topic.clone(),
-        || jinn_session_history_msg::HistoryAppended::schema_def(),
-    );
+    host.forward::<jinn_session_history_msg::HistoryAppended, _>(topic.clone(), || {
+        jinn_session_history_msg::HistoryAppended::schema_def()
+    });
     host.forward::<jinn_domain::feat::context::protocol::event::ContextOverrideChanged, _>(
         topic.clone(),
         || jinn_domain::feat::context::protocol::event::ContextOverrideChanged::schema_def(),

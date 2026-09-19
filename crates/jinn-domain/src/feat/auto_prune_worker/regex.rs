@@ -17,11 +17,9 @@
 use crate::feat::auto_prune_worker::is_within_min_age;
 
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::{
-    ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride,
-};
 use crate::protocol::HistoryMutation;
 use crate::protocol::SessionId;
+use crate::protocol::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 pub use jinn_preferences_config::schemas::auto_prune::{RegexAutoPruneConfig, RegexPruneRule};
 
 /// Default regex prune rule tool name.
@@ -293,9 +291,9 @@ mod tests {
     )]
 
     use super::*;
-    use crate::protocol::{ChangeSource, ChatEntry, ContextOverride};
-    use crate::protocol::ToolResultStatus;
     use crate::protocol::SessionId;
+    use crate::protocol::ToolResultStatus;
+    use crate::protocol::{ChangeSource, ChatEntry, ContextOverride};
 
     /// Helper: create a bash ToolCall + ToolResult pair.
     fn bash_call_result(call_id: &str, command: &str, output: &str) -> [ChatEntry; 2] {

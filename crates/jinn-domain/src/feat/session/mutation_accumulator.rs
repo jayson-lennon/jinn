@@ -18,8 +18,8 @@
 
 use std::collections::HashMap;
 
-use crate::protocol::{ChangeSource, ChatEntryId, ContextOverride};
 use crate::protocol::HistoryMutation;
+use crate::protocol::{ChangeSource, ChatEntryId, ContextOverride};
 
 /// One buffered override mutation, keyed by its target entry id.
 #[derive(Debug, Clone, PartialEq, Eq)]

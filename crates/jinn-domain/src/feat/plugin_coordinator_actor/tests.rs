@@ -874,8 +874,8 @@ async fn silent_guest_reaches_dead_phase() {
 
 // ── Mirrored plugin→host requests ────────────────────────────────────────────
 
-use jinn_session_history_msg::PushChatEntry;
 use jinn_inference_msg::CancelStream as ProviderCancelStream;
+use jinn_session_history_msg::PushChatEntry;
 
 /// A mirrored `cancel_stream` line translates to the internal provider
 /// `CancelStream` command on the bus.

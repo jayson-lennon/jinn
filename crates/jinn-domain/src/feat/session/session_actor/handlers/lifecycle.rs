@@ -6,7 +6,6 @@
 //! chat entries and formatting command errors.
 
 use crate::common::actor_deps::BusPublish;
-use jinn_session_history_msg::PushChatEntry;
 use crate::feat::chat_input::protocol::event::ChatEntrySubmitted;
 use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::phase_machine::PhaseKind;
@@ -18,6 +17,7 @@ use crate::feat::session::protocol::session_closed::SessionClosed;
 use crate::feat::session::protocol::teardown_session_tree::TeardownSessionTree;
 use crate::feat::session_lifecycle::command_runner::LifecycleCommandError;
 use crate::protocol::SessionId;
+use jinn_session_history_msg::PushChatEntry;
 
 use crate::feat::session_lifecycle::protocol::FinishSessionSetup;
 use crate::feat::session_lifecycle::protocol::command::{
@@ -1597,7 +1597,6 @@ mod tests {
         no_output_info, setup_complete_msg, setup_running_msg, strip_ansi, teardown_running_msg,
     };
 
-    use jinn_session_history_msg::PushChatEntry;
     use crate::feat::session::chat_session::ChatSessionState;
     use crate::feat::session::chat_session::LifecycleScriptState;
     use crate::feat::session::protocol::archive_session_tree::ArchiveSessionTree;
@@ -1616,6 +1615,7 @@ mod tests {
     };
     use crate::protocol::{ChatEntry, ChatEntryKind, SessionId};
     use jinn_preferences_config::schemas::LifecycleCommand;
+    use jinn_session_history_msg::PushChatEntry;
     use std::path::Path;
 
     #[rstest::rstest]

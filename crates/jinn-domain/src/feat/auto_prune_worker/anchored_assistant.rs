@@ -40,9 +40,9 @@ use std::sync::Arc;
 use crate::feat::auto_prune_worker::is_within_min_age;
 use crate::feat::context::strategy::token_estimator::{TiktokenCounter, TokenCounter};
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
 use crate::protocol::HistoryMutation;
 use crate::protocol::SessionId;
+use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
 pub use jinn_preferences_config::schemas::auto_prune::AnchoredAssistantAutoPruneConfig;
 
 /// Anchored-assistant auto-prune worker.

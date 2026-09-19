@@ -5,8 +5,8 @@
 //! index. Kinds with no prose worth searching (`Actor`, `Thinking`,
 //! `Transient`, `Annotation`) yield `None` and never get an FTS row.
 
-use crate::protocol::ChatEntryKind;
 use crate::feat::session_search::model::SearchableRole;
+use crate::protocol::ChatEntryKind;
 
 /// A flattened, searchable view of one persisted entry.
 #[derive(Debug, Clone)]

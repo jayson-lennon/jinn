@@ -23,8 +23,8 @@ use jinn_domain::common::tcaps::session::SessionCap;
 use jinn_domain::feat::context::strategy::token_estimator::{
     TiktokenCounter, TokenCounter, TokenEstimator, estimate_entry_content_tokens,
 };
-use jinn_session_history_msg::HistoryAppended;
 use jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted;
+use jinn_session_history_msg::HistoryAppended;
 
 /// The token count actor's static trouper path.
 pub const TOKEN_COUNT_PATH: &str = "token-count";
@@ -189,8 +189,8 @@ mod tests {
     use jinn_domain::common::tcaps::mint::mint_session_cap;
     use jinn_domain::feat::context::strategy::token_estimator::estimate_entry_tokens;
     use jinn_domain::feat::session::ChatSessionState;
-    use jinn_domain::protocol::ChatEntry;
     use jinn_domain::protocol::ChangeSource;
+    use jinn_domain::protocol::ChatEntry;
     use jinn_domain::protocol::ContextOverride;
 
     fn actor_for(state: &State) -> TokenCountActor {

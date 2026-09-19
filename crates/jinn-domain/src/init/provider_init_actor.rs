@@ -10,11 +10,11 @@ use crate::common::actor_deps::{ActorDeps, BusPublish};
 use crate::common::services::bus_service::BusService;
 use crate::common::state::State;
 use crate::common::tcaps::provider::ModelCacheWrite;
-use jinn_session_history_msg::PushChatEntry;
 use crate::feat::provider::protocol::command::ProviderSwitch;
 use crate::feat::provider::protocol::event::ModelCacheLoaded;
 use crate::feat::provider_infra::{ModelCache, ProviderRegistry};
 use crate::init::EnvironmentLoaded;
+use jinn_session_history_msg::PushChatEntry;
 use kameo::prelude::{Actor, ActorRef, Context, Message};
 
 /// The provider initialization actor.
@@ -165,11 +165,11 @@ mod tests {
     use crate::common::services::Services;
     use crate::common::services::bus_service::BusAudit;
     use crate::common::state::State;
-    use jinn_session_history_msg::PushChatEntry;
     use crate::feat::provider::protocol::command::ProviderSwitch;
     use crate::feat::provider::protocol::event::ModelCacheLoaded;
     use crate::feat::provider_infra::ProviderEntry;
     use jinn_core_types::model_selection::ModelSelection;
+    use jinn_session_history_msg::PushChatEntry;
 
     async fn create_actor() -> (ProviderInitActor, BusAudit, Services, State) {
         let (bus, audit) = crate::common::services::BusService::new_recording();

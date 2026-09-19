@@ -7,11 +7,9 @@
 //! Popup geometry and rendering live in the TUI layer; this module owns only
 //! the textual content.
 
-use crate::protocol::{
-    ChangeSource, ChatEntry, ContextChangeEvent, ContextOverride,
-};
-use crate::protocol::EntryTiming;
 use crate::feat::theme::Theme;
+use crate::protocol::EntryTiming;
+use crate::protocol::{ChangeSource, ChatEntry, ContextChangeEvent, ContextOverride};
 
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -286,8 +284,8 @@ mod tests {
     //! fallback.
 
     use super::*;
-    use crate::protocol::ChatEntry;
     use crate::feat::theme::default_theme;
+    use crate::protocol::ChatEntry;
 
     /// Convenience: format `entry` with the default theme.
     fn format(entry: &ChatEntry) -> Vec<Line<'static>> {

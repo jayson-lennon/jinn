@@ -310,7 +310,7 @@ fn thinking_entry_serializes_roundtrip() {
 #[rstest::rstest]
 fn annotation_entry_serializes_roundtrip() {
     // Given an annotation entry with two citations.
-        let citations = vec![
+    let citations = vec![
         crate::url_citation::UrlCitation {
             url: "https://example.com/a".to_owned(),
             title: "Source A".to_owned(),

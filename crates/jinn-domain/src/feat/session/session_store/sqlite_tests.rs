@@ -80,12 +80,10 @@ async fn degraded_token_expanded_survives_save_and_reload() {
     let mut entry = ChatEntry::user(format!("describe {token}"));
     // Simulate the post-resolution state: outcome set, expanded still containing the literal.
     if let crate::protocol::ChatEntryKind::User { outcome, .. } = &mut entry.kind {
-        outcome
-            .degraded
-            .push(crate::protocol::ResolvedToken {
-                raw: "/nonexistent/whatever".to_owned(),
-                abs: std::path::PathBuf::from("/nonexistent/whatever"),
-            });
+        outcome.degraded.push(crate::protocol::ResolvedToken {
+            raw: "/nonexistent/whatever".to_owned(),
+            abs: std::path::PathBuf::from("/nonexistent/whatever"),
+        });
     }
     session.push_entry(entry);
 
@@ -127,18 +125,14 @@ async fn attachment_outcome_survives_save_and_reload() {
     session.set_session_id(session_id.clone());
     let mut entry = ChatEntry::user("see @real.png and @whatever");
     if let ChatEntryKind::User { outcome, .. } = &mut entry.kind {
-        outcome
-            .attached
-            .push(crate::protocol::ResolvedToken {
-                raw: "real.png".to_owned(),
-                abs: std::path::PathBuf::from("/abs/real.png"),
-            });
-        outcome
-            .degraded
-            .push(crate::protocol::ResolvedToken {
-                raw: "whatever".to_owned(),
-                abs: std::path::PathBuf::from("/abs/whatever"),
-            });
+        outcome.attached.push(crate::protocol::ResolvedToken {
+            raw: "real.png".to_owned(),
+            abs: std::path::PathBuf::from("/abs/real.png"),
+        });
+        outcome.degraded.push(crate::protocol::ResolvedToken {
+            raw: "whatever".to_owned(),
+            abs: std::path::PathBuf::from("/abs/whatever"),
+        });
     }
     session.push_entry(entry);
 

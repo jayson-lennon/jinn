@@ -653,12 +653,7 @@ fn last_entry_is_assistant(state: &State, session_id: &crate::protocol::SessionI
         .read()
         .try_session(session_id)
         .and_then(|session| session.history().last())
-        .is_some_and(|entry| {
-            matches!(
-                entry.kind,
-                crate::protocol::ChatEntryKind::Assistant(_)
-            )
-        })
+        .is_some_and(|entry| matches!(entry.kind, crate::protocol::ChatEntryKind::Assistant(_)))
 }
 
 /// The tool output a plugin must see: always the complete original.

@@ -22,8 +22,8 @@
 //! ⚠ Output truncated (X of Y)
 //! ```
 
-use crate::protocol::ToolResultStatus;
 use crate::feat::skills::loaded_skill_summary_label;
+use crate::protocol::ToolResultStatus;
 use jinn_core_types::tool_types::TruncationMeta;
 use jinn_tools_msg::TASK_TOOL_NAME;
 use jinn_tools_msg::truncation::format_size;
@@ -342,8 +342,8 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::protocol::ToolResultStatus;
     use crate::feat::ui::chat_log::shared::RenderContext;
+    use crate::protocol::ToolResultStatus;
 
     fn render_context(max_lines: u16, is_expanded: bool) -> RenderContext {
         RenderContext {

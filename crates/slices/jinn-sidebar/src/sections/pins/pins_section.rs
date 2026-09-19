@@ -10,14 +10,14 @@ use crate::sections::section_trait::{
 use jinn_domain::common::app_state::AppState;
 use jinn_domain::common::app_state::pin_sort_key;
 use jinn_domain::common::render_ctx::RenderCtx;
-use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
-use jinn_skills::loaded_skill_summary_label;
 use jinn_domain::feat::theme::Theme;
 use jinn_domain::feat::ui::chat_log::strip_ansi;
 use jinn_domain::protocol::ToolResultStatus;
 use jinn_domain::protocol::{
     ChatEntryId, ChatEntryKind, IntentResult, PickerKind, PinPosition, SessionId,
 };
+use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
+use jinn_skills::loaded_skill_summary_label;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};

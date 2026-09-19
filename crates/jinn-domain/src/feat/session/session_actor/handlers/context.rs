@@ -10,11 +10,11 @@
 
 use crate::common::actor_deps::BusPublish;
 use crate::feat::context::protocol::command::LoadPersonaPickerEntries;
-use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
-use jinn_session_history_msg::ChatEntryPinChanged;
 use crate::feat::persona::PersonaEntry;
 use crate::feat::provider::protocol::event::PromptTemplatesLoaded;
 use crate::feat::session::profile::DEFAULT_PERSONA_NAME;
+use jinn_session_history_msg::ChatEntryPinChanged;
+use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
 use jinn_tools_msg::{ToolsRegistered, ToolsUnregistered};
 
 use super::super::SessionPersistenceActor;

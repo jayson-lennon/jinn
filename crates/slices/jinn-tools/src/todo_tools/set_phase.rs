@@ -138,11 +138,9 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
         match result {
             Ok(content) => {
                 if let Some(bus) = &ctx.bus {
-                    bus.publish(
-                        jinn_session_history_msg::TaskListUpdated {
-                            session_id: session_id.clone(),
-                        },
-                    )
+                    bus.publish(jinn_session_history_msg::TaskListUpdated {
+                        session_id: session_id.clone(),
+                    })
                     .await;
                 }
                 ToolResult {

@@ -735,8 +735,8 @@ async fn process_stream_events_publishes_citations_on_done_when_accumulated() {
     use jinn_provider::{StopReason, StreamEvent, UrlCitation};
     let harness = TestHarness::new().await;
     let recorder = harness
-            .spawn_recorder::<jinn_session_history_msg::CitationsReceived>()
-            .await;
+        .spawn_recorder::<jinn_session_history_msg::CitationsReceived>()
+        .await;
     let stream = scripted_stream(vec![
         StreamEvent::Citations(vec![UrlCitation {
             url: "https://example.com/a".to_owned(),

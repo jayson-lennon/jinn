@@ -15,8 +15,8 @@ use ratatui::widgets::Paragraph;
 use unicode_width::UnicodeWidthStr;
 
 use crate::common::app_state::AppState;
-use crate::protocol::{ChatEntry, ChatEntryKind};
 use crate::feat::ui::chat_log::visual_item::VisualItem;
+use crate::protocol::{ChatEntry, ChatEntryKind};
 
 #[cfg(test)]
 use crate::feat::ui::chat_log::visual_item::{
@@ -475,8 +475,8 @@ mod tests {
     )]
     use super::*;
     use crate::common::app_state::AppState;
-    use crate::protocol::ChatEntry;
     use crate::feat::theme::default_theme;
+    use crate::protocol::ChatEntry;
 
     #[rstest::rstest]
     fn find_block_index_returns_position_for_existing_entry() {

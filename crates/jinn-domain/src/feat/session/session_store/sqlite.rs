@@ -20,8 +20,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::feat::session::SessionUi;
-use crate::protocol::{ChatEntry, ChatEntryKind};
-use crate::protocol::ChatHistory;
 use crate::feat::session::chat_session::{
     ChatSessionState, LifecycleScriptState, SessionCore, SessionCoreEphemeral, SessionOrigin,
     SessionState,
@@ -33,6 +31,8 @@ use crate::feat::session_search::{
     SearchHit, SearchOutcome, SearchParams, SearchableEntry, TranscriptEntry, TranscriptWindow,
     entry_ts_key, extract_searchable,
 };
+use crate::protocol::ChatHistory;
+use crate::protocol::{ChatEntry, ChatEntryKind};
 use crate::protocol::{ChatEntryId, ContextOverride, EntryTiming, SessionId};
 use daow::Param;
 use jinn_provider::Attachment;

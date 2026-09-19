@@ -18,8 +18,8 @@ use jinn_domain::feat::context::env_context::{
 use jinn_domain::feat::context::protocol::inputs::AssemblyInputs;
 use jinn_domain::feat::context::strategy::token_estimator::TokenCounter;
 use jinn_domain::feat::context::tool_prompt::build_tool_context_block;
-use jinn_skills::format_skills_for_prompt;
 use jinn_domain::protocol::{ChatEntry, LlmMessage, PinPosition, entries_to_messages};
+use jinn_skills::format_skills_for_prompt;
 use jinn_slices::AssembledPrompt;
 use jinn_slices::SystemPrompt;
 
@@ -240,8 +240,8 @@ mod tests {
     use jinn_domain::feat::context::env_context::ContextFile;
     use jinn_domain::feat::context::strategy::token_estimator::TiktokenCounter;
     use jinn_domain::protocol::ToolResultStatus;
-    use jinn_skills::Skill;
     use jinn_domain::protocol::{ChatEntry, SessionId};
+    use jinn_skills::Skill;
     use jinn_tools_msg::TASK_TOOL_NAME;
 
     /// Test bridge: build inputs from an AppState the way production

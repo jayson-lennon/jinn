@@ -26,11 +26,9 @@ use crate::feat::compaction_worker::serializer::serialize_entries_for_compaction
 use crate::feat::context::strategy::token_estimator::{CharRatioEstimator, TokenEstimator};
 
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::{
-    ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride,
-};
 use crate::protocol::HistoryMutation;
 use crate::protocol::SessionId;
+use crate::protocol::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 use jinn_preferences_config::schemas::CompactionConfig;
 
 /// Errors during compaction.

@@ -12,10 +12,10 @@ use crate::feat::context::strategy::token_estimator::{TiktokenCounter, TokenCoun
 use crate::feat::session::chat_session::ChatSessionState;
 use crate::feat::session::protocol::citations_received::CitationsReceived;
 use crate::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
-use jinn_turn_dispatch_msg::QueueItem;
 use crate::protocol::{ChatEntry, ChatEntryId, ChatEntryKind, SessionId};
 use jinn_core_types::tool_types::ToolCall;
 use jinn_inference_msg::{StreamCompleted, StreamCompletedReason, StreamToken};
+use jinn_turn_dispatch_msg::QueueItem;
 
 use super::super::SessionPersistenceActor;
 use crate::feat::session::phase_machine::PhaseKind;
@@ -485,9 +485,9 @@ mod tests {
             let mut state = actor.state.write_test_no_cap();
             let session = state.active_session_mut();
             session.begin_streaming();
-            session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-                Box::new(ChatEntry::user("queued message")),
-            ));
+            session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+                ChatEntry::user("queued message"),
+            )));
             state.session.active_session_id().clone()
         };
 
@@ -523,12 +523,12 @@ mod tests {
             let mut state = actor.state.write_test_no_cap();
             let session = state.active_session_mut();
             session.begin_streaming();
-            session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-                Box::new(ChatEntry::user("first message")),
-            ));
-            session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-                Box::new(ChatEntry::user("second message")),
-            ));
+            session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+                ChatEntry::user("first message"),
+            )));
+            session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+                ChatEntry::user("second message"),
+            )));
             state.session.active_session_id().clone()
         };
 
@@ -564,9 +564,9 @@ mod tests {
             let mut state = actor.state.write_test_no_cap();
             let session = state.active_session_mut();
             session.begin_streaming();
-            session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-                Box::new(ChatEntry::user("queued message")),
-            ));
+            session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+                ChatEntry::user("queued message"),
+            )));
             state.session.active_session_id().clone()
         };
 
@@ -1282,15 +1282,13 @@ mod tests {
             let entry_id = entry.id.clone();
             session.push_entry(entry);
             session.begin_streaming();
-            session.queue_mutations(vec![
-                crate::protocol::HistoryMutation::SetContextOverride {
-                    entry_id: entry_id.clone(),
-                    value: crate::protocol::ContextOverride::ForcedExclude,
-                    source: ChangeSource::Internal {
-                        label: "test".into(),
-                    },
+            session.queue_mutations(vec![crate::protocol::HistoryMutation::SetContextOverride {
+                entry_id: entry_id.clone(),
+                value: crate::protocol::ContextOverride::ForcedExclude,
+                source: ChangeSource::Internal {
+                    label: "test".into(),
                 },
-            ]);
+            }]);
             (entry_id, state.session.active_session_id().clone())
         };
 
@@ -1334,15 +1332,13 @@ mod tests {
             let entry_id = entry.id.clone();
             session.push_entry(entry);
             session.begin_streaming();
-            session.queue_mutations(vec![
-                crate::protocol::HistoryMutation::SetContextOverride {
-                    entry_id: entry_id.clone(),
-                    value: crate::protocol::ContextOverride::ForcedExclude,
-                    source: ChangeSource::Internal {
-                        label: "test".into(),
-                    },
+            session.queue_mutations(vec![crate::protocol::HistoryMutation::SetContextOverride {
+                entry_id: entry_id.clone(),
+                value: crate::protocol::ContextOverride::ForcedExclude,
+                source: ChangeSource::Internal {
+                    label: "test".into(),
                 },
-            ]);
+            }]);
             (entry_id, state.session.active_session_id().clone())
         };
 
@@ -1390,15 +1386,13 @@ mod tests {
             let entry_id = entry.id.clone();
             session.push_entry(entry);
             session.begin_streaming();
-            session.queue_mutations(vec![
-                crate::protocol::HistoryMutation::SetContextOverride {
-                    entry_id: entry_id.clone(),
-                    value: crate::protocol::ContextOverride::ForcedExclude,
-                    source: ChangeSource::Internal {
-                        label: "test".into(),
-                    },
+            session.queue_mutations(vec![crate::protocol::HistoryMutation::SetContextOverride {
+                entry_id: entry_id.clone(),
+                value: crate::protocol::ContextOverride::ForcedExclude,
+                source: ChangeSource::Internal {
+                    label: "test".into(),
                 },
-            ]);
+            }]);
             (entry_id, state.session.active_session_id().clone())
         };
 
@@ -1443,15 +1437,13 @@ mod tests {
             let entry_id = entry.id.clone();
             session.push_entry(entry);
             session.begin_streaming();
-            session.queue_mutations(vec![
-                crate::protocol::HistoryMutation::SetContextOverride {
-                    entry_id: entry_id.clone(),
-                    value: crate::protocol::ContextOverride::ForcedExclude,
-                    source: ChangeSource::Internal {
-                        label: "test".into(),
-                    },
+            session.queue_mutations(vec![crate::protocol::HistoryMutation::SetContextOverride {
+                entry_id: entry_id.clone(),
+                value: crate::protocol::ContextOverride::ForcedExclude,
+                source: ChangeSource::Internal {
+                    label: "test".into(),
                 },
-            ]);
+            }]);
             (entry_id, state.session.active_session_id().clone())
         };
 
@@ -2309,9 +2301,9 @@ mod tests {
     fn drained_queue_to_text_returns_text_for_single_user_message() {
         // Given a queue with one user message.
         let mut queue = std::collections::VecDeque::new();
-        queue.push_back(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-            Box::new(ChatEntry::user("hello world")),
-        ));
+        queue.push_back(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+            ChatEntry::user("hello world"),
+        )));
 
         // When converting to text.
         let text = super::drained_queue_to_text(&queue);
@@ -2325,12 +2317,12 @@ mod tests {
     fn drained_queue_to_text_joins_multiple_user_messages_with_newline() {
         // Given a queue with two user messages.
         let mut queue = std::collections::VecDeque::new();
-        queue.push_back(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-            Box::new(ChatEntry::user("first")),
-        ));
-        queue.push_back(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-            Box::new(ChatEntry::user("second")),
-        ));
+        queue.push_back(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+            ChatEntry::user("first"),
+        )));
+        queue.push_back(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+            ChatEntry::user("second"),
+        )));
 
         // When converting to text.
         let text = super::drained_queue_to_text(&queue);
@@ -2344,9 +2336,9 @@ mod tests {
     fn drained_queue_to_text_skips_tool_continuation_when_mixed() {
         // Given a queue with a user message and a tool continuation.
         let mut queue = std::collections::VecDeque::new();
-        queue.push_back(jinn_turn_dispatch_msg::QueueItem::UserMessage(
-            Box::new(ChatEntry::user("only user")),
-        ));
+        queue.push_back(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+            ChatEntry::user("only user"),
+        )));
         queue.push_back(jinn_turn_dispatch_msg::QueueItem::ToolContinuation);
 
         // When converting to text.

@@ -41,9 +41,9 @@
 use crate::feat::auto_prune_worker::is_within_min_age;
 
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
 use crate::protocol::HistoryMutation;
 use crate::protocol::SessionId;
+use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
 pub use jinn_preferences_config::schemas::auto_prune::TodoAutoPruneConfig;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -90,8 +90,7 @@ fn collect_all_todo_pairs(
     // ToolCalls in history order — their position determines which are "oldest".
     let mut calls: Vec<CallInfo> = Vec::new();
     // ToolResults keyed by tool_call_id — one result per call.
-    let mut result_map: HashMap<String, (usize, crate::protocol::ChatEntryId)> =
-        HashMap::new();
+    let mut result_map: HashMap<String, (usize, crate::protocol::ChatEntryId)> = HashMap::new();
 
     for (i, entry) in history.iter().enumerate() {
         match &entry.kind {
@@ -290,10 +289,7 @@ fn prune_older_pairs(
 }
 
 /// A worker-sourced `ForcedInclude` mutation.
-fn include_mutation(
-    entry_id: crate::protocol::ChatEntryId,
-    worker_name: &str,
-) -> HistoryMutation {
+fn include_mutation(entry_id: crate::protocol::ChatEntryId, worker_name: &str) -> HistoryMutation {
     HistoryMutation::SetContextOverride {
         entry_id,
         value: ContextOverride::ForcedInclude,
@@ -304,10 +300,7 @@ fn include_mutation(
 }
 
 /// A worker-sourced `Default` mutation (demotes an include this worker owns).
-fn demote_mutation(
-    entry_id: crate::protocol::ChatEntryId,
-    worker_name: &str,
-) -> HistoryMutation {
+fn demote_mutation(entry_id: crate::protocol::ChatEntryId, worker_name: &str) -> HistoryMutation {
     HistoryMutation::SetContextOverride {
         entry_id,
         value: ContextOverride::Default,
@@ -318,10 +311,7 @@ fn demote_mutation(
 }
 
 /// A worker-sourced `ForcedExclude` mutation.
-fn exclude_mutation(
-    entry_id: crate::protocol::ChatEntryId,
-    worker_name: &str,
-) -> HistoryMutation {
+fn exclude_mutation(entry_id: crate::protocol::ChatEntryId, worker_name: &str) -> HistoryMutation {
     HistoryMutation::SetContextOverride {
         entry_id,
         value: ContextOverride::ForcedExclude,
@@ -369,9 +359,9 @@ mod tests {
     )]
 
     use super::*;
-    use crate::protocol::{ChatEntry, ChatEntryId};
-    use crate::protocol::ToolResultStatus;
     use crate::protocol::SessionId;
+    use crate::protocol::ToolResultStatus;
+    use crate::protocol::{ChatEntry, ChatEntryId};
 
     /// Helper: create a `todo_get_task_list` ToolCall + ToolResult pair.
     fn get_task_list_call_result(call_id: &str, content: &str) -> [ChatEntry; 2] {

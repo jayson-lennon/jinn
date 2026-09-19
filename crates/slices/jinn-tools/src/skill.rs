@@ -288,8 +288,8 @@ mod tests {
     async fn execute_loads_project_local_skill_from_discovered_file_path() {
         use jinn_domain::common::app_state::AppState;
         use jinn_domain::common::state::State;
-        use jinn_skills::{Skill, SkillSource};
         use jinn_domain::protocol::SessionId;
+        use jinn_skills::{Skill, SkillSource};
 
         // Given a project-local skill whose file_path is NOT under the global
         // skills dir. Pre-fix, execute() would re-derive the path from the global
@@ -375,8 +375,8 @@ mod tests {
     async fn execute_result_header_carries_base_dir() {
         use jinn_domain::common::app_state::AppState;
         use jinn_domain::common::state::State;
-        use jinn_skills::{Skill, SkillSource};
         use jinn_domain::protocol::SessionId;
+        use jinn_skills::{Skill, SkillSource};
 
         // Given a project-local skill seeded with a distinct base_dir.
         let tmp = tempfile::tempdir().expect("create temp dir");
@@ -551,9 +551,9 @@ mod tests {
     async fn execute_returns_already_loaded_for_duplicate_load() {
         use jinn_domain::common::app_state::AppState;
         use jinn_domain::common::state::State;
-        use jinn_domain::protocol::{ChatEntry, PinPosition};
-        use jinn_domain::protocol::ToolResultStatus;
         use jinn_domain::protocol::SessionId;
+        use jinn_domain::protocol::ToolResultStatus;
+        use jinn_domain::protocol::{ChatEntry, PinPosition};
 
         // Given a session that already has a pinned ToolResult from the `skill` tool
         // for "phased-task-loop" (matches the body-in-ToolResult shape).
@@ -621,9 +621,9 @@ mod tests {
     async fn execute_loads_different_skill_when_other_already_loaded() {
         use jinn_domain::common::app_state::AppState;
         use jinn_domain::common::state::State;
-        use jinn_domain::protocol::{ChatEntry, PinPosition};
-        use jinn_domain::protocol::ToolResultStatus;
         use jinn_domain::protocol::SessionId;
+        use jinn_domain::protocol::ToolResultStatus;
+        use jinn_domain::protocol::{ChatEntry, PinPosition};
 
         // Given a session that already has a pinned ToolResult for "rust-programming".
         let state = State::new(AppState::default());

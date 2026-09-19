@@ -35,8 +35,8 @@ use jinn_domain::feat::context::protocol::command::ScanContextFiles;
 use jinn_domain::feat::provider::protocol::command::RescanPromptTemplates;
 use jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted;
 use jinn_domain::feat::session_lifecycle::protocol::event::{SessionCreated, SessionCwdChanged};
-use jinn_skills_msg::ScanSkills;
 use jinn_session_msg::SessionSetupCompleted;
+use jinn_skills_msg::ScanSkills;
 
 use crate::commands::{RescanContext, RescanPrompts, RescanSkills, RunDiscovery};
 

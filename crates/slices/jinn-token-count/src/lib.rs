@@ -65,10 +65,9 @@ pub fn activate(
     host.subscribe_service(&eviction_path, &token_count_topic())
         .expect("token cache eviction actor subscribes to the token-count topic");
 
-    host.forward::<jinn_session_history_msg::HistoryAppended, _>(
-        token_count_topic(),
-        || jinn_session_history_msg::HistoryAppended::schema_def(),
-    );
+    host.forward::<jinn_session_history_msg::HistoryAppended, _>(token_count_topic(), || {
+        jinn_session_history_msg::HistoryAppended::schema_def()
+    });
     host.forward::<
         jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted,
         _,

@@ -6,9 +6,9 @@
 use crate::common::actor_deps::BusPublish;
 use crate::feat::context::protocol::event::ContextOverrideChanged;
 use crate::feat::context::snapshot::{assemble_via_service, build_assembly_inputs};
-use crate::protocol::PinPosition;
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::token_stats::TokenRecord;
+use crate::protocol::PinPosition;
 use jinn_core_types::model_selection::ModelSelection;
 use jinn_inference_msg::SendToLlmProvider;
 use jinn_tools_msg::{
@@ -1370,15 +1370,13 @@ mod tests {
             session.begin_streaming();
             session.finish_streaming(true, jiff::Timestamp::now());
             session.begin_sending();
-            session.queue_mutations(vec![
-                crate::protocol::HistoryMutation::SetContextOverride {
-                    entry_id: entry_id.clone(),
-                    value: crate::protocol::ContextOverride::ForcedExclude,
-                    source: ChangeSource::Internal {
-                        label: "test".into(),
-                    },
+            session.queue_mutations(vec![crate::protocol::HistoryMutation::SetContextOverride {
+                entry_id: entry_id.clone(),
+                value: crate::protocol::ContextOverride::ForcedExclude,
+                source: ChangeSource::Internal {
+                    label: "test".into(),
                 },
-            ]);
+            }]);
             (entry_id, state.session.active_session_id().clone())
         };
 

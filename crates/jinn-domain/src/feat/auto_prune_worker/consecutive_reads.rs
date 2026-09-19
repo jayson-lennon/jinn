@@ -33,11 +33,9 @@ use std::sync::Arc;
 
 use crate::feat::auto_prune_worker::is_within_min_age;
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::{
-    ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride,
-};
 use crate::protocol::HistoryMutation;
 use crate::protocol::SessionId;
+use crate::protocol::{ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 
 /// Default number of consecutive read pairs to keep per file path.
 /// Default enabled state for consecutive-reads auto-prune.
@@ -233,8 +231,8 @@ mod tests {
 
     use super::*;
     use crate::protocol::ChatEntry;
-    use crate::protocol::ToolResultStatus;
     use crate::protocol::SessionId;
+    use crate::protocol::ToolResultStatus;
 
     /// Helper: create a read ToolCall + ToolResult pair.
     fn read_call_result(call_id: &str, path: &str, content: &str) -> [ChatEntry; 2] {

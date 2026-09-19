@@ -22,10 +22,10 @@ use crate::common::services::test_services::TestServices;
 use crate::common::state::State;
 use crate::feat::compaction_worker::worker::{CompactionTrigger, CompactionWorker};
 use crate::feat::provider_infra::{FakeLlmServiceFactory, LlmServiceFactoryService};
-use crate::protocol::{ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 use crate::feat::session::chat_session::ChatSessionState;
 use crate::protocol::HistoryMutation;
 use crate::protocol::SessionId;
+use crate::protocol::{ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 use jinn_core_types::model_selection::ModelSelection;
 use jinn_preferences_config::schemas::CompactionConfig;
 

@@ -9,9 +9,9 @@
 use crate::common::app_state::{AppState, FocusScope};
 use crate::common::render_ctx::RenderCtx;
 use crate::common::ui_element::UiElement;
-use crate::protocol::ToolResultStatus;
 use crate::feat::ui::chat_log::history::ChatLogElement;
 use crate::feat::ui::chat_log::shared::GUTTER_WIDTH;
+use crate::protocol::ToolResultStatus;
 use crate::protocol::{ChatEntry, PinPosition};
 use jinn_testutil::setup_term;
 use ratatui::style::Color;
@@ -1254,10 +1254,7 @@ fn render_auto_scrolls_jumped_compaction_into_view() {
 
     // When jumping to the previous compaction from the last entry (no selection
     // -> anchor on last entry; the prev jump lands on the only compaction at index 0).
-    handle_jump_prev_entry(
-        &mut state,
-        crate::protocol::ChatEntry::is_compaction,
-    );
+    handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
     assert_eq!(
         state.active_session().selected_cursor_id(),
         Some(compaction_id),

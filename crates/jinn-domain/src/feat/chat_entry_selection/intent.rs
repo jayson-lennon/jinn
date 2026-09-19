@@ -3,12 +3,12 @@
 use crate::ChatEntry;
 use crate::ChatEntryKind;
 use crate::common::app_state::AppState;
-use jinn_session_history_msg::PushChatEntry;
-use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
 use crate::feat::session::ChatSessionState;
 use crate::feat::session::protocol::session_fork_requested::SessionForkRequested;
 use crate::feat::ui::chat_log::visual_item::VisualItem;
 use crate::protocol::{IntentResult, PinPosition};
+use jinn_session_history_msg::PushChatEntry;
+use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
 
 use super::validator;
 
@@ -476,8 +476,8 @@ fn handle_fresh_toggle(state: &mut AppState) -> IntentResult {
 /// validation (e.g. collapsed ignored block).
 pub fn handle_reset_selected(state: &mut AppState) -> IntentResult {
     use crate::feat::context::protocol::event::ContextOverrideChanged;
-    use crate::protocol::ChatEntry;
     use crate::feat::session_lifecycle::protocol::command::PersistSession;
+    use crate::protocol::ChatEntry;
     use crate::protocol::ContextOverride;
 
     // Skip past obstacles before validation, mirroring the x-sweep
@@ -2438,9 +2438,9 @@ mod jump_compaction_tests {
         reason = "test code"
     )]
     use crate::common::app_state::AppState;
-    use crate::protocol::{ChatEntry, ChatEntryId, ChatEntryKind};
     use crate::protocol::ContextOverride;
     use crate::protocol::EntryTiming;
+    use crate::protocol::{ChatEntry, ChatEntryId, ChatEntryKind};
 
     use super::*;
 
@@ -2494,10 +2494,7 @@ mod jump_compaction_tests {
         assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
 
         // When handling jump to next compaction.
-        let _result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let _result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then the cursor moves to compaction B.
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
@@ -2512,10 +2509,7 @@ mod jump_compaction_tests {
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
 
         // When handling jump to previous compaction.
-        let _result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let _result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then the cursor moves to compaction A.
         assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
@@ -2529,10 +2523,7 @@ mod jump_compaction_tests {
         select_at(&mut state, 3);
 
         // When handling jump to next compaction.
-        let result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
@@ -2547,10 +2538,7 @@ mod jump_compaction_tests {
         select_at(&mut state, 1);
 
         // When handling jump to previous compaction.
-        let result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
         assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
@@ -2566,10 +2554,7 @@ mod jump_compaction_tests {
         assert!(state.active_session().selected_cursor_id().is_none());
 
         // When handling jump to next compaction (anchor = last entry).
-        let result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then it is a no-op: nothing newer than the last entry exists.
         assert!(state.active_session().selected_cursor_id().is_none());
@@ -2585,10 +2570,7 @@ mod jump_compaction_tests {
         assert!(state.active_session().selected_cursor_id().is_none());
 
         // When handling jump to previous compaction.
-        let _result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let _result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then the anchor is the last entry, so [c lands on compaction B.
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
@@ -2606,10 +2588,7 @@ mod jump_compaction_tests {
         let before = state.active_session().selected_cursor_id();
 
         // When handling jump to next compaction.
-        let result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then it is a no-op.
         assert_eq!(state.active_session().selected_cursor_id(), before);
@@ -2628,10 +2607,7 @@ mod jump_compaction_tests {
         let before = state.active_session().selected_cursor_id();
 
         // When handling jump to previous compaction.
-        let result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then it is a no-op.
         assert_eq!(state.active_session().selected_cursor_id(), before);
@@ -2644,10 +2620,7 @@ mod jump_compaction_tests {
         let mut state = AppState::default_with_scope_focus();
 
         // When handling jump to next compaction.
-        let result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then it is a no-op without panic.
         assert!(state.active_session().selected_cursor_id().is_none());
@@ -2660,10 +2633,7 @@ mod jump_compaction_tests {
         let mut state = AppState::default_with_scope_focus();
 
         // When handling jump to previous compaction.
-        let result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then it is a no-op without panic.
         assert!(state.active_session().selected_cursor_id().is_none());
@@ -2698,10 +2668,7 @@ mod jump_compaction_tests {
         assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
 
         // When handling jump to next pinned entry.
-        let _result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_pinned,
-        );
+        let _result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_pinned);
 
         // Then the cursor moves to pinned entry B.
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
@@ -2716,10 +2683,7 @@ mod jump_compaction_tests {
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
 
         // When handling jump to previous pinned entry.
-        let _result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_pinned,
-        );
+        let _result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_pinned);
 
         // Then the cursor moves to pinned entry A.
         assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
@@ -2733,10 +2697,7 @@ mod jump_compaction_tests {
         select_at(&mut state, 3);
 
         // When handling jump to next pinned entry.
-        let result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_pinned,
-        );
+        let result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_pinned);
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
@@ -2751,10 +2712,7 @@ mod jump_compaction_tests {
         select_at(&mut state, 1);
 
         // When handling jump to previous pinned entry.
-        let result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_pinned,
-        );
+        let result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_pinned);
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
         assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
@@ -2773,10 +2731,7 @@ mod jump_compaction_tests {
         let before = state.active_session().selected_cursor_id();
 
         // When handling jump to next pinned entry.
-        let result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_pinned,
-        );
+        let result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_pinned);
 
         // Then it is a no-op.
         assert_eq!(state.active_session().selected_cursor_id(), before);
@@ -2795,10 +2750,7 @@ mod jump_compaction_tests {
         let before = state.active_session().selected_cursor_id();
 
         // When handling jump to previous pinned entry.
-        let result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_pinned,
-        );
+        let result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_pinned);
 
         // Then it is a no-op.
         assert_eq!(state.active_session().selected_cursor_id(), before);
@@ -2814,10 +2766,7 @@ mod jump_compaction_tests {
         assert!(state.active_session().selected_cursor_id().is_none());
 
         // When handling jump to previous pinned entry.
-        let _result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_pinned,
-        );
+        let _result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_pinned);
 
         // Then the anchor is the last entry, so [p lands on pinned entry B.
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
@@ -2829,10 +2778,7 @@ mod jump_compaction_tests {
         let mut state = AppState::default_with_scope_focus();
 
         // When handling jump to next pinned entry.
-        let result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_pinned,
-        );
+        let result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_pinned);
 
         // Then it is a no-op without panic.
         assert!(state.active_session().selected_cursor_id().is_none());
@@ -2885,10 +2831,7 @@ mod jump_compaction_tests {
         assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
 
         // When handling jump to next annotation entry.
-        let _result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_annotation,
-        );
+        let _result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_annotation);
 
         // Then the cursor moves to annotation entry B.
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
@@ -2903,10 +2846,7 @@ mod jump_compaction_tests {
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
 
         // When handling jump to previous annotation entry.
-        let _result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_annotation,
-        );
+        let _result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_annotation);
 
         // Then the cursor moves to annotation entry A.
         assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
@@ -2920,10 +2860,7 @@ mod jump_compaction_tests {
         select_at(&mut state, 3);
 
         // When handling jump to next annotation entry.
-        let result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_annotation,
-        );
+        let result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_annotation);
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
@@ -2938,10 +2875,7 @@ mod jump_compaction_tests {
         select_at(&mut state, 1);
 
         // When handling jump to previous annotation entry.
-        let result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_annotation,
-        );
+        let result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_annotation);
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
         assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
@@ -2954,10 +2888,7 @@ mod jump_compaction_tests {
         let mut state = AppState::default_with_scope_focus();
 
         // When handling jump to next annotation entry.
-        let result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_annotation,
-        );
+        let result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_annotation);
 
         // Then it is a no-op without panic.
         assert!(state.active_session().selected_cursor_id().is_none());
@@ -2970,10 +2901,7 @@ mod jump_compaction_tests {
         let mut state = AppState::default_with_scope_focus();
 
         // When handling jump to previous annotation entry.
-        let result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_annotation,
-        );
+        let result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_annotation);
 
         // Then it is a no-op without panic.
         assert!(state.active_session().selected_cursor_id().is_none());
@@ -2988,10 +2916,7 @@ mod jump_compaction_tests {
         select_at(&mut state, 1);
 
         // When handling jump to next compaction.
-        let result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then no commands or events are emitted.
         assert!(result.message_names.is_empty());
@@ -3005,10 +2930,7 @@ mod jump_compaction_tests {
         select_at(&mut state, 3);
 
         // When handling jump to previous compaction.
-        let result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then no commands or events are emitted.
         assert!(result.message_names.is_empty());
@@ -3029,10 +2951,10 @@ mod jump_compaction_tests {
     fn build_collapsed_block_between_compactions(
         state: &mut AppState,
     ) -> (ChatEntryId, ChatEntryId, usize) {
-        use crate::protocol::ChangeSource;
         use crate::feat::ui::chat_log::visual_item::{
             DEFAULT_MIN_COLLAPSE_COUNT, PROXIMITY_COUNT, VisualItem, build_visual_items,
         };
+        use crate::protocol::ChangeSource;
 
         state
             .active_session_mut()
@@ -3099,10 +3021,7 @@ mod jump_compaction_tests {
         );
 
         // When handling jump to next compaction.
-        let _result = handle_jump_next_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let _result = handle_jump_next_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then the cursor lands on compaction B (the newer one), not a no-op.
         assert_eq!(
@@ -3126,10 +3045,7 @@ mod jump_compaction_tests {
         );
 
         // When handling jump to previous compaction.
-        let _result = handle_jump_prev_entry(
-            &mut state,
-            crate::protocol::ChatEntry::is_compaction,
-        );
+        let _result = handle_jump_prev_entry(&mut state, crate::protocol::ChatEntry::is_compaction);
 
         // Then the cursor lands on compaction A (the older one), NOT compaction B.
         assert_eq!(

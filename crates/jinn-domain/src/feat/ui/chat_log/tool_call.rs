@@ -282,8 +282,8 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::protocol::ToolResultStatus;
     use crate::feat::ui::chat_log::shared::RenderContext;
+    use crate::protocol::ToolResultStatus;
     use jinn_tools_msg::TASK_TOOL_NAME;
 
     fn render_context(max_lines: u16, is_expanded: bool) -> RenderContext {

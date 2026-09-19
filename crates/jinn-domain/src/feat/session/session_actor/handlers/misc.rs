@@ -123,7 +123,11 @@ impl SessionPersistenceActor {
                 .mutations
                 .iter()
                 .filter_map(|m| match m {
-                    crate::protocol::HistoryMutation::SetContextOverride { entry_id, source, .. } => {
+                    crate::protocol::HistoryMutation::SetContextOverride {
+                        entry_id,
+                        source,
+                        ..
+                    } => {
                         // Only prune ForcedExclude mutations reach the
                         // accumulator, so only their cost is relevant.
                         // Worker ForcedInclude and compaction overrides
@@ -161,10 +165,19 @@ impl SessionPersistenceActor {
                     if is_prune_override(&mutation) {
                         // Pruner ForcedExclude: route into the accumulation buffer
                         // so it counts toward the batch flush threshold.
-                        if let crate::protocol::HistoryMutation::SetContextOverride { entry_id, value, source } = &mutation {
+                        if let crate::protocol::HistoryMutation::SetContextOverride {
+                            entry_id,
+                            value,
+                            source,
+                        } = &mutation
+                        {
                             let cost = token_costs.get(entry_id).copied().unwrap_or(0);
-                            session.core.ephemeral.accumulated_overrides
-                                .push(entry_id.clone(), *value, source.clone(), cost);
+                            session.core.ephemeral.accumulated_overrides.push(
+                                entry_id.clone(),
+                                *value,
+                                source.clone(),
+                                cost,
+                            );
                         }
                     } else {
                         // All other mutations apply immediately:
@@ -460,13 +473,13 @@ mod tests {
             .handle_submit_history_mutations(
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
-                    mutations: vec![
-                    crate::protocol::HistoryMutation::SetContextOverride {
+                    mutations: vec![crate::protocol::HistoryMutation::SetContextOverride {
                         entry_id: entry_id.clone(),
                         value: crate::protocol::ContextOverride::ForcedExclude,
-                        source: ChangeSource::Internal { label: "test".to_owned() },
-                    },
-                ],
+                        source: ChangeSource::Internal {
+                            label: "test".to_owned(),
+                        },
+                    }],
                 },
             )
             .await;
@@ -518,13 +531,13 @@ mod tests {
             .handle_submit_history_mutations(
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: new_session_id.clone(),
-                    mutations: vec![
-                    crate::protocol::HistoryMutation::SetContextOverride {
+                    mutations: vec![crate::protocol::HistoryMutation::SetContextOverride {
                         entry_id: crate::protocol::ChatEntryId::new(),
                         value: crate::protocol::ContextOverride::ForcedExclude,
-                        source: ChangeSource::Internal { label: "test".to_owned() },
-                    },
-                ],
+                        source: ChangeSource::Internal {
+                            label: "test".to_owned(),
+                        },
+                    }],
                 },
             )
             .await;
@@ -566,13 +579,13 @@ mod tests {
             .handle_submit_history_mutations(
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
-                    mutations: vec![
-                    crate::protocol::HistoryMutation::SetContextOverride {
+                    mutations: vec![crate::protocol::HistoryMutation::SetContextOverride {
                         entry_id: entry_id_1,
                         value: crate::protocol::ContextOverride::ForcedExclude,
-                        source: ChangeSource::Internal { label: "test".to_owned() },
-                    },
-                ],
+                        source: ChangeSource::Internal {
+                            label: "test".to_owned(),
+                        },
+                    }],
                 },
             )
             .await;
@@ -580,13 +593,13 @@ mod tests {
             .handle_submit_history_mutations(
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
-                    mutations: vec![
-                    crate::protocol::HistoryMutation::SetContextOverride {
+                    mutations: vec![crate::protocol::HistoryMutation::SetContextOverride {
                         entry_id: entry_id_2,
                         value: crate::protocol::ContextOverride::ForcedInclude,
-                        source: ChangeSource::Internal { label: "test".to_owned() },
-                    },
-                ],
+                        source: ChangeSource::Internal {
+                            label: "test".to_owned(),
+                        },
+                    }],
                 },
             )
             .await;
@@ -632,13 +645,13 @@ mod tests {
             .handle_submit_history_mutations(
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
-                    mutations: vec![
-                    crate::protocol::HistoryMutation::SetContextOverride {
+                    mutations: vec![crate::protocol::HistoryMutation::SetContextOverride {
                         entry_id: entry_id.clone(),
                         value: crate::protocol::ContextOverride::ForcedExclude,
-                        source: ChangeSource::Worker { name: "compaction".to_owned() },
-                    },
-                ],
+                        source: ChangeSource::Worker {
+                            name: "compaction".to_owned(),
+                        },
+                    }],
                 },
             )
             .await;
@@ -677,13 +690,13 @@ mod tests {
             .handle_submit_history_mutations(
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
-                    mutations: vec![
-                    crate::protocol::HistoryMutation::SetContextOverride {
+                    mutations: vec![crate::protocol::HistoryMutation::SetContextOverride {
                         entry_id: entry_id.clone(),
                         value: crate::protocol::ContextOverride::ForcedExclude,
-                        source: ChangeSource::Worker { name: "test_worker".to_owned() },
-                    },
-                ],
+                        source: ChangeSource::Worker {
+                            name: "test_worker".to_owned(),
+                        },
+                    }],
                 },
             )
             .await;
@@ -720,13 +733,13 @@ mod tests {
             .handle_submit_history_mutations(
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
-                    mutations: vec![
-                        crate::protocol::HistoryMutation::SetContextOverride {
-                            entry_id: entry_id.clone(),
-                            value: crate::protocol::ContextOverride::ForcedInclude,
-                            source: ChangeSource::Worker { name: "auto-prune-todo".to_owned() },
+                    mutations: vec![crate::protocol::HistoryMutation::SetContextOverride {
+                        entry_id: entry_id.clone(),
+                        value: crate::protocol::ContextOverride::ForcedInclude,
+                        source: ChangeSource::Worker {
+                            name: "auto-prune-todo".to_owned(),
                         },
-                    ],
+                    }],
                 },
             )
             .await;
@@ -765,13 +778,13 @@ mod tests {
             .handle_submit_history_mutations(
                 &crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations {
                     session_id: session_id.clone(),
-                    mutations: vec![
-                        crate::protocol::HistoryMutation::SetContextOverride {
-                            entry_id: entry_id.clone(),
-                            value: crate::protocol::ContextOverride::ForcedExclude,
-                            source: ChangeSource::Worker { name: "compaction".to_owned() },
+                    mutations: vec![crate::protocol::HistoryMutation::SetContextOverride {
+                        entry_id: entry_id.clone(),
+                        value: crate::protocol::ContextOverride::ForcedExclude,
+                        source: ChangeSource::Worker {
+                            name: "compaction".to_owned(),
                         },
-                    ],
+                    }],
                 },
             )
             .await;

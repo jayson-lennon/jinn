@@ -6,8 +6,8 @@
 
 use super::render::*;
 use jinn_domain::FocusScope;
-use jinn_domain::protocol::ChatEntry;
 use jinn_domain::feat::ui::chat_log::GUTTER_WIDTH;
+use jinn_domain::protocol::ChatEntry;
 use jinn_selection_widget::compute_popup_rect;
 use jinn_testutil::setup_term;
 use ratatui::layout::Rect;

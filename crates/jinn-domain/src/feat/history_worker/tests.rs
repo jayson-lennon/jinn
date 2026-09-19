@@ -16,11 +16,11 @@ use std::sync::Arc;
 use crate::common::bus::test_harness::TestHarness;
 use crate::feat::history_worker::actor::{HistoryWorkerActor, HistoryWorkerActorDeps};
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::{ChatEntry, ChatEntryKind, ContextOverride};
-use crate::protocol::HistoryMutation;
 use crate::feat::session::protocol::history_snapshot_ready::HistorySnapshotReady;
 use crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations;
+use crate::protocol::HistoryMutation;
 use crate::protocol::{ChangeSource, SessionId};
+use crate::protocol::{ChatEntry, ChatEntryKind, ContextOverride};
 use kameo::prelude::Spawn;
 // ── Test workers ───────────────────────────────────────────────────
 

@@ -31,14 +31,14 @@ use jinn_domain::common::services::Services;
 use jinn_domain::common::services::bus_service::BusAudit;
 use jinn_domain::common::state::State;
 use jinn_domain::feat::chat_input::protocol::event::ChatEntrySubmitted;
-use jinn_domain::protocol::ChatEntry;
 use jinn_domain::feat::session::phase_machine::PhaseKind;
 use jinn_domain::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
-use jinn_turn_dispatch_msg::QueueItem;
 use jinn_domain::feat::session_lifecycle::protocol::command::PersistSession;
+use jinn_domain::protocol::ChatEntry;
 use jinn_domain::protocol::SessionId;
 use jinn_inference_msg::{SendToLlmProvider, StreamOrigin};
 use jinn_turn_dispatch_msg::DispatchTurn;
+use jinn_turn_dispatch_msg::QueueItem;
 
 async fn create_actor() -> (QueueActor, State, BusAudit) {
     let (bus, audit) = jinn_domain::BusService::new_recording();
@@ -371,12 +371,10 @@ async fn dispatch_user_message_keeps_degraded_token_literal_through_re_expand() 
     let mut entry = ChatEntry::user(format!("describe {token}"));
     // Simulate the post-resolution state: outcome set, expanded still containing the literal.
     if let jinn_domain::protocol::ChatEntryKind::User { outcome, .. } = &mut entry.kind {
-        outcome
-            .degraded
-            .push(jinn_domain::protocol::ResolvedToken {
-                raw: "/nonexistent/whatever".to_owned(),
-                abs: std::path::PathBuf::from("/nonexistent/whatever"),
-            });
+        outcome.degraded.push(jinn_domain::protocol::ResolvedToken {
+            raw: "/nonexistent/whatever".to_owned(),
+            abs: std::path::PathBuf::from("/nonexistent/whatever"),
+        });
     }
 
     // When dispatching (which calls push_entry -> expand_user_entry, re-running the scan).

@@ -180,8 +180,8 @@ mod tests {
 
         // Then the roundtrip preserves the mutation.
         assert!(matches!(
-            back.mutations[0],
-            HistoryMutation::UnpinEntry { .. }
+            back.mutations.first(),
+            Some(HistoryMutation::UnpinEntry { .. })
         ));
     }
 
@@ -231,10 +231,9 @@ mod tests {
         };
 
         // When serializing and deserializing both.
-        let citations_back: CitationsReceived = serde_json::from_str(
-            &serde_json::to_string(&citations).expect("citations serialize"),
-        )
-        .expect("citations deserialize");
+        let citations_back: CitationsReceived =
+            serde_json::from_str(&serde_json::to_string(&citations).expect("citations serialize"))
+                .expect("citations deserialize");
         let tasks_back: TaskListUpdated =
             serde_json::from_str(&serde_json::to_string(&tasks).expect("tasks serialize"))
                 .expect("tasks deserialize");
@@ -255,10 +254,9 @@ mod tests {
         };
 
         // When serializing and deserializing both.
-        let appended_back: HistoryAppended = serde_json::from_str(
-            &serde_json::to_string(&appended).expect("appended serialize"),
-        )
-        .expect("appended deserialize");
+        let appended_back: HistoryAppended =
+            serde_json::from_str(&serde_json::to_string(&appended).expect("appended serialize"))
+                .expect("appended deserialize");
         let pin_back: ChatEntryPinChanged = serde_json::from_str(
             &serde_json::to_string(&pin_changed).expect("pin-changed serialize"),
         )

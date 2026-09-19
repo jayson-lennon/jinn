@@ -9,7 +9,6 @@ use jinn_core_types::tool_types::ToolCall;
 use jinn_domain::common::actor_deps::BusPublish;
 use jinn_domain::common::services::Services;
 use jinn_domain::common::services::bus_service::BusService;
-use jinn_session_history_msg::PushChatEntry;
 use jinn_domain::feat::provider_infra::LlmServiceFactoryService;
 use jinn_domain::feat::provider_infra::StopReason;
 use jinn_domain::feat::provider_infra::StreamEvent;
@@ -22,6 +21,7 @@ use jinn_preferences_config::schemas::RequestRetryConfig;
 use jinn_provider::{
     LlmMessage, LlmService, LlmServiceError, OnRetry, RetryingLlmService, ToolDefinition,
 };
+use jinn_session_history_msg::PushChatEntry;
 use jinn_slices::SystemPrompt;
 use jinn_tools_msg::CancelToolBatch;
 use jinn_tools_msg::ExecuteToolBatch;
@@ -491,12 +491,10 @@ async fn handle_done_event(
     );
     if !accum.citations.is_empty() {
         let citations = std::mem::take(&mut accum.citations);
-        bus.publish(
-            jinn_session_history_msg::CitationsReceived {
-                session_id: sid.clone(),
-                citations,
-            },
-        )
+        bus.publish(jinn_session_history_msg::CitationsReceived {
+            session_id: sid.clone(),
+            citations,
+        })
         .await;
     }
     let cost = usage.as_ref().and_then(|u| u.cost);

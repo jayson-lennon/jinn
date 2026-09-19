@@ -25,13 +25,13 @@ use crate::common::app_state::AppState;
 use crate::feat::context::protocol::command::ScanContextFiles;
 use crate::feat::provider::protocol::command::RescanPromptTemplates;
 use crate::feat::session::protocol::mark_session_interacted::MarkSessionInteracted;
-use crate::protocol::ToolResultStatus;
 use crate::feat::skills::ScanSkills;
 use crate::feat::skills::SkillSource;
 use crate::feat::ui::picker_states::PickerExt;
 use crate::protocol::ChatEntry;
 use crate::protocol::ChatEntryId;
 use crate::protocol::PinPosition;
+use crate::protocol::ToolResultStatus;
 
 /// The kernel entry this picker's items wrap in storage.
 pub use crate::feat::skills::SkillEntry;

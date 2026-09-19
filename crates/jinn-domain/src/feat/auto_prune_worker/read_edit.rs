@@ -29,9 +29,9 @@ use std::sync::Arc;
 pub use jinn_preferences_config::schemas::auto_prune::ReadEditAutoPruneConfig;
 
 use crate::feat::history_worker::worker_trait::HistoryWorker;
-use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
 use crate::protocol::HistoryMutation;
 use crate::protocol::SessionId;
+use crate::protocol::{ChangeSource, ChatEntry, ChatEntryKind, ContextOverride};
 
 use super::edit_read::{extract_path_from_arguments, find_matching_result, is_modify_tool};
 use super::is_within_min_age;
@@ -197,8 +197,8 @@ mod tests {
 
     use super::*;
     use crate::protocol::ChatEntry;
-    use crate::protocol::ToolResultStatus;
     use crate::protocol::SessionId;
+    use crate::protocol::ToolResultStatus;
 
     /// Helper: create a read ToolCall + ToolResult pair.
     fn read_call_result(call_id: &str, path: &str, content: &str) -> [ChatEntry; 2] {
@@ -262,9 +262,7 @@ mod tests {
     }
 
     /// Collect mutation entry IDs from a list of mutations.
-    fn mutation_ids(
-        mutations: &[HistoryMutation],
-    ) -> Vec<crate::protocol::ChatEntryId> {
+    fn mutation_ids(mutations: &[HistoryMutation]) -> Vec<crate::protocol::ChatEntryId> {
         mutations
             .iter()
             .filter_map(|m| match m {

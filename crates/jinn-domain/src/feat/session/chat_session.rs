@@ -24,19 +24,19 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use crate::protocol::ChatHistory;
-use jinn_session_history::history_editor::{
-    HistoryEditor, Priv, SessionHistoryAccess, SessionHistoryAccessPriv,
-};
 use crate::feat::session::phase_machine::PhaseKind;
 use crate::feat::session::profile::SessionProfile;
 use crate::feat::session::steering_buffer::SteeringBuffer;
 use crate::feat::session::token_stats::TokenRecord;
 use crate::feat::ui::chat_log::visual_item::VisualItem;
+use crate::protocol::ChatHistory;
 use crate::protocol::{
     ChangeSource, ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride, PinPosition, SessionId,
 };
 use jinn_core_types::model_selection::ModelSelection;
+use jinn_session_history::history_editor::{
+    HistoryEditor, Priv, SessionHistoryAccess, SessionHistoryAccessPriv,
+};
 
 use crate::feat::context::prompt_template::PromptTemplateStore;
 use crate::feat::context::prompt_template::{PathResolveContext, PendingPath};
@@ -1446,12 +1446,10 @@ impl ChatSessionState {
         steering
             .into_iter()
             .chain(queue.into_iter().filter_map(|item| match item {
-                jinn_turn_dispatch_msg::QueueItem::UserMessage(entry) => {
-                    match &entry.kind {
-                        ChatEntryKind::User { display, .. } => Some(display.clone()),
-                        _ => None,
-                    }
-                }
+                jinn_turn_dispatch_msg::QueueItem::UserMessage(entry) => match &entry.kind {
+                    ChatEntryKind::User { display, .. } => Some(display.clone()),
+                    _ => None,
+                },
                 jinn_turn_dispatch_msg::QueueItem::ToolContinuation => None,
             }))
             .collect()
@@ -1801,9 +1799,7 @@ impl ChatSessionState {
     }
 
     /// Read-only access to the turn dispatch queue items.
-    pub fn queue(
-        &self,
-    ) -> &std::collections::VecDeque<jinn_turn_dispatch_msg::QueueItem> {
+    pub fn queue(&self) -> &std::collections::VecDeque<jinn_turn_dispatch_msg::QueueItem> {
         self.core.ephemeral.message_queue.items()
     }
 
@@ -1979,8 +1975,8 @@ impl ChatSessionState {
     /// A skill is considered loaded if its body is present in history as a pinned
     /// ToolResult from the `skill` tool whose content begins with `<skill name="X"`.
     pub fn loaded_skills(&self) -> HashSet<String> {
-        use crate::protocol::ChatEntryKind;
         use crate::feat::skills::parse_loaded_skill_name;
+        use crate::protocol::ChatEntryKind;
 
         let mut out = HashSet::new();
         for entry in self.history() {
@@ -3319,19 +3315,14 @@ impl ChatSessionState {
     /// Queue a batch of mutations for deferred application.
     ///
     /// Empty batches are silently ignored.
-    pub fn queue_mutations(
-        &mut self,
-        batch: Vec<crate::protocol::HistoryMutation>,
-    ) {
+    pub fn queue_mutations(&mut self, batch: Vec<crate::protocol::HistoryMutation>) {
         if !batch.is_empty() {
             self.core.ephemeral.pending_mutations.push(batch);
         }
     }
 
     /// Drain all pending mutation batches.
-    pub fn drain_pending_mutations(
-        &mut self,
-    ) -> Vec<Vec<crate::protocol::HistoryMutation>> {
+    pub fn drain_pending_mutations(&mut self) -> Vec<Vec<crate::protocol::HistoryMutation>> {
         std::mem::take(&mut self.core.ephemeral.pending_mutations)
     }
 
@@ -3558,7 +3549,6 @@ impl ChatSessionState {
 
 #[cfg(test)]
 mod chat_session_tests;
-
 
 impl SessionHistoryAccessPriv for ChatSessionState {
     fn seal(&self) -> Priv {

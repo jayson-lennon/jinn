@@ -357,8 +357,8 @@ mod new_session_from_entry_tests {
         reason = "test code"
     )]
     use crate::common::app_state::AppState;
-    use crate::protocol::ToolResultStatus;
     use crate::protocol::ChatEntry;
+    use crate::protocol::ToolResultStatus;
 
     use super::*;
 

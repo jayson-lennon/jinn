@@ -129,8 +129,8 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::protocol::{AttachmentOutcome, ResolvedToken};
     use crate::feat::ui::chat_log::shared::RenderContext;
+    use crate::protocol::{AttachmentOutcome, ResolvedToken};
 
     fn ctx() -> RenderContext {
         RenderContext {

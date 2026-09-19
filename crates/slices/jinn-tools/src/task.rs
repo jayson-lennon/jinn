@@ -48,10 +48,10 @@ use crate::tool_types::ToolContext;
 use jinn_core_types::model_selection::ModelSelection;
 use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
 use jinn_domain::feat::chat_input::protocol::command::EnqueueUserMessage;
-use jinn_domain::protocol::{ChatEntry, ChatEntryKind};
 use jinn_domain::feat::session::chat_session::ChatSessionState;
 use jinn_domain::feat::session_lifecycle::protocol::event::SessionCreated;
 use jinn_domain::protocol::SessionId;
+use jinn_domain::protocol::{ChatEntry, ChatEntryKind};
 use jinn_inference_msg::CancelStream;
 
 /// The `task` tool's registration name, shared by the registry and the

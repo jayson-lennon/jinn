@@ -20,8 +20,7 @@ use crate::token_count_topic;
 /// register on the bus in their own `on_start`, so drain ordering
 /// relative to publishers is free.
 pub async fn drain_routes(services: &Services) {
-    forward::<jinn_session_history_msg::HistoryAppended>(services)
-        .await;
+    forward::<jinn_session_history_msg::HistoryAppended>(services).await;
     forward::<jinn_domain::feat::session::protocol::session_load_completed::SessionLoadCompleted>(
         services,
     )

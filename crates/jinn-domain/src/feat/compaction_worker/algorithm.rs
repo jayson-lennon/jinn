@@ -250,9 +250,7 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::protocol::{
-        ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride,
-    };
+    use crate::protocol::{ChatEntry, ChatEntryId, ChatEntryKind, ContextOverride};
 
     #[rstest::rstest]
     #[test]

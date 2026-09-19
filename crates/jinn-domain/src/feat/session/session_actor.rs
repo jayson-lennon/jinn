@@ -34,7 +34,6 @@ use crate::feat::chat_input::protocol::command::{
 };
 use crate::feat::context::protocol::command::LoadPersonaPickerEntries;
 use crate::feat::context::protocol::event::PersonasLoaded;
-use jinn_session_history_msg::{ChatEntryPinChanged, PinChatEntry, PushChatEntry, UnpinChatEntry};
 use crate::feat::context::strategy::token_estimator::TiktokenCounter;
 use crate::feat::provider::protocol::command::SendMessage;
 use crate::feat::provider::protocol::event::{ModelsRefreshed, PromptTemplatesLoaded};
@@ -59,6 +58,7 @@ use crate::feat::session_lifecycle::protocol::command::{
 use crate::feat::skills::SkillsLoaded;
 use crate::init::EnvironmentLoaded;
 use jinn_inference_msg::{SendToLlmProvider, StreamCompleted, StreamToken};
+use jinn_session_history_msg::{ChatEntryPinChanged, PinChatEntry, PushChatEntry, UnpinChatEntry};
 use jinn_tools_msg::{
     ToolBatchCompleted, ToolCallReceived, ToolCallStreaming, ToolExecutionCompleted,
     ToolExecutionOutput, ToolExecutionStarted, ToolUseStarted, ToolsRegistered, ToolsUnregistered,

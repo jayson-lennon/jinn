@@ -5,11 +5,11 @@
 //! Pushes system messages for user feedback (queued, skipped, failed).
 
 use crate::common::actor_deps::{ActorDeps, BusPublish};
-use jinn_session_history_msg::PushChatEntry;
 use crate::feat::compaction_worker::worker::CompactionWorker;
-use crate::protocol::ChatEntry;
 use crate::feat::session::protocol::submit_history_mutations::SubmitHistoryMutations;
 use crate::feat::session::protocol::trigger_compaction::TriggerCompaction;
+use crate::protocol::ChatEntry;
+use jinn_session_history_msg::PushChatEntry;
 use kameo::prelude::{Actor, ActorRef, Context, Message};
 
 /// Actor that handles manual compaction triggers.
