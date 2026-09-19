@@ -69,6 +69,11 @@ pub struct ToolContext {
     /// from `services.session_store` at dispatch time. `None` in tests that
     /// build a bare `ToolContext`.
     pub session_store: Option<jinn_domain::feat::session::session_store::SessionStoreService>,
+    /// The trouper fabric — `Some` only for the `task` tool, which spawns
+    /// its phase/settle listeners onto it. Resolved from
+    /// `services.trouper_system` at dispatch time. `None` in tests that
+    /// build a bare `ToolContext` (the `task` tool fails fast then).
+    pub trouper_system: Option<trouper::system::ActorSystem>,
 }
 
 impl fmt::Debug for ToolContext {
@@ -114,6 +119,7 @@ mod tests {
             interactive_term: None,
             task_spawns: None,
             session_store: None,
+            trouper_system: None,
         };
 
         // When debugging.

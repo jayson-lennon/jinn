@@ -325,6 +325,7 @@ mod tests {
             interactive_term: None,
             task_spawns: None,
             session_store: None,
+            trouper_system: None,
         }
     }
 
@@ -346,6 +347,7 @@ mod tests {
             interactive_term: None,
             task_spawns: None,
             session_store: None,
+            trouper_system: None,
         }
     }
 

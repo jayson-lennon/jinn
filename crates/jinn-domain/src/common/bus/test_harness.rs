@@ -261,21 +261,25 @@ impl TestHarness {
     }
     /// Build a [`Services`] with the harness bus wired into a test instance.
     ///
-    /// This creates a `Services::new_fake()` and replaces its bus with the harness bus,
-    /// so actors use the same bus the test is publishing to.
+    /// This creates a `Services::new_fake()` and replaces its bus and trouper
+    /// system with the harness ones, so actors use the same bus AND the same
+    /// fabric the test is publishing on.
     pub async fn services(&self) -> crate::Services {
         let mut services = crate::Services::new_fake().await;
         services.bus = self.bus.clone();
+        services.trouper_system = self.system.clone();
         services
     }
 
     /// Build an [`ActorDeps`] with the harness bus wired into a test [`Services`].
     ///
-    /// This creates a `Services::new()` and replaces its bus with the harness bus,
-    /// so actors use the same bus the test is publishing to.
+    /// This creates a `Services::new()` and replaces its bus and trouper system
+    /// with the harness ones, so actors use the same bus AND the same fabric
+    /// the test is publishing on.
     pub async fn actor_deps(&self) -> crate::common::actor_deps::ActorDeps {
         let mut services = crate::Services::new_fake().await;
         services.bus = self.bus.clone();
+        services.trouper_system = self.system.clone();
         crate::common::actor_deps::ActorDeps { services }
     }
 }

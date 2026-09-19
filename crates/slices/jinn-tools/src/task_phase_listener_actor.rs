@@ -20,9 +20,14 @@
 //! so no completion event can slip past the subscription. Forwards the first
 //! `Idle` signal for its child session and then stops itself.
 
-use kameo::prelude::{Actor, ActorRef, Context, Message};
+use trouper::actor::ActorPath;
+use trouper::context::MsgCtx;
+use trouper::actor::MsgHandler;
+use trouper::actor::ServiceActor;
+use trouper::registry::RegistryError;
 
 use jinn_domain::common::services::bus_service::BusService;
+use jinn_domain::common::services::bus_service::jinn_domain_topic;
 use jinn_domain::feat::session::phase_machine::PhaseKind;
 use jinn_domain::feat::session::protocol::session_phase_changed::SessionPhaseChanged;
 use jinn_domain::protocol::SessionId;
@@ -30,7 +35,9 @@ use jinn_domain::protocol::SessionId;
 /// Dependencies for spawning a [`TaskPhaseListenerActor`].
 #[derive(Debug)]
 pub struct TaskPhaseListenerDeps {
-    /// The bus to subscribe to for `SessionPhaseChanged` events.
+    /// The system to spawn onto (the same fabric `bus` publishes through).
+    pub system: trouper::system::ActorSystem,
+    /// The bus to subscribe with (topic + routed-topic resolution).
     pub bus: BusService,
     /// The child session whose `Idle` transition is awaited.
     pub child_id: SessionId,
@@ -47,28 +54,57 @@ pub struct TaskPhaseListenerActor {
     completion: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
-impl Actor for TaskPhaseListenerActor {
-    type Args = TaskPhaseListenerDeps;
-    type Error = kameo::error::Infallible;
-
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        // Subscribe before returning: the spawn's `wait_for_startup` in the
-        // `task` tool guarantees the subscription exists before
-        // `SessionCreated` is published, closing the event-ordering race.
-        args.bus
-            .subscribe::<SessionPhaseChanged, _>(&actor_ref)
-            .await;
-        Ok(Self {
-            child_id: args.child_id,
-            completion: Some(args.completion),
-        })
+impl ServiceActor for TaskPhaseListenerActor {
+    async fn start(_args: &serde_json::Value) -> Result<Self, error_stack::Report<RegistryError>> {
+        // Never called: spawned via `start_with` (typed deps cannot ride
+        // JSON args).
+        Err(error_stack::Report::new(RegistryError::InvalidSpec)
+            .attach("TaskPhaseListenerActor spawns via start_with"))
     }
 }
 
-impl Message<SessionPhaseChanged> for TaskPhaseListenerActor {
-    type Reply = ();
+impl TaskPhaseListenerActor {
+    /// Spawns the listener onto the trouper system.
+    ///
+    /// Returns only after the subscription is live: the `task` tool
+    /// guarantees `SessionCreated` is published after this call, closing
+    /// the event-ordering race.
+    pub async fn spawn(deps: TaskPhaseListenerDeps) -> ActorPath {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let path = ActorPath::new(format!(
+            "jinn.tools.task-phase-listener.{}",
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
+        let bus = deps.bus.clone();
+        let child_id = deps.child_id.clone();
+        let completion = deps.completion;
+        trouper::builder::spawn_service_builder::<Self>(&deps.system)
+            .at(path.clone())
+            .start_with(move || {
+                let child_id = child_id.clone();
+                let completion = completion;
+                Box::pin(async move {
+                    Ok(Self {
+                        child_id,
+                        completion: Some(completion),
+                    })
+                })
+            })
+            .handles::<SessionPhaseChanged>()
+            .mailbox(64, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        // Subscribe via the bus so routed topics stay the single source of
+        // truth. The `task` tool publishes `SessionCreated` only after this
+        // subscribe returns.
+        bus.subscribe_topic::<SessionPhaseChanged>(&path, &jinn_domain_topic())
+            .await;
+        path
+    }
+}
 
-    async fn handle(&mut self, msg: SessionPhaseChanged, ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SessionPhaseChanged> for TaskPhaseListenerActor {
+    async fn handle(&mut self, msg: SessionPhaseChanged, ctx: &mut MsgCtx<'_>) {
         // Abort path: the awaiting `task` future was dropped (parent tool
         // batch cancelled), closing the channel. There is nothing left to
         // signal — stop listening. Bus traffic gives us the chance to notice.
@@ -77,7 +113,7 @@ impl Message<SessionPhaseChanged> for TaskPhaseListenerActor {
             .as_ref()
             .is_none_or(tokio::sync::oneshot::Sender::is_closed)
         {
-            ctx.stop();
+            ctx.stop_self();
             return;
         }
 
@@ -88,7 +124,7 @@ impl Message<SessionPhaseChanged> for TaskPhaseListenerActor {
             if let Some(completion) = self.completion.take() {
                 let _ = completion.send(());
             }
-            ctx.stop();
+            ctx.stop_self();
         }
     }
 }

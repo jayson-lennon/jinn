@@ -21,7 +21,6 @@
 use std::time::Duration;
 
 use jinn_mcp::server_testkit::{spawn_stub_client, spawn_stub_client_with_killer};
-use kameo::actor::Spawn;
 
 use crate::connection::{McpActor, McpActorDeps};
 use jinn_core_types::tool_types::ToolCall;
@@ -60,16 +59,20 @@ async fn execute_tool_for_namespaced_echo_returns_server_response() {
     let session_id = SessionId::new();
 
     let client = spawn_stub_client().await;
-    let actor = McpActor::spawn(McpActorDeps::with_client(
-        ActorDeps {
-            services: harness.services().await,
-        },
-        session_id.clone(),
-        SERVER_NAME.to_owned(),
-        stub_config(),
-        client,
-    ));
-    actor.wait_for_startup().await;
+    let services = harness.services().await;
+    let _actor_path = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::with_client(
+            ActorDeps {
+                services: services.clone(),
+            },
+            session_id.clone(),
+            SERVER_NAME.to_owned(),
+            stub_config(),
+            client,
+        ),
+    )
+    .await;
 
     // When publishing an ExecuteTool for the namespaced echo tool.
     let tool_call = ToolCall {
@@ -123,16 +126,20 @@ async fn execute_tool_when_client_disconnected_yields_failed_result() {
     let session_id = SessionId::new();
 
     let client = spawn_stub_client().await;
-    let actor = McpActor::spawn(McpActorDeps::with_client(
-        ActorDeps {
-            services: harness.services().await,
-        },
-        session_id.clone(),
-        SERVER_NAME.to_owned(),
-        stub_config(),
-        client,
-    ));
-    actor.wait_for_startup().await;
+    let services = harness.services().await;
+    let _actor_path = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::with_client(
+            ActorDeps {
+                services: services.clone(),
+            },
+            session_id.clone(),
+            SERVER_NAME.to_owned(),
+            stub_config(),
+            client,
+        ),
+    )
+    .await;
 
     // When publishing an ExecuteTool for a tool the stub does not advertise.
     let tool_call = ToolCall {
@@ -171,16 +178,20 @@ async fn execute_tool_truncates_large_response_to_orchestrator_limits() {
     let session_id = SessionId::new();
 
     let client = spawn_stub_client().await;
-    let actor = McpActor::spawn(McpActorDeps::with_client(
-        ActorDeps {
-            services: harness.services().await,
-        },
-        session_id.clone(),
-        SERVER_NAME.to_owned(),
-        stub_config(),
-        client,
-    ));
-    actor.wait_for_startup().await;
+    let services = harness.services().await;
+    let _actor_path = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::with_client(
+            ActorDeps {
+                services: services.clone(),
+            },
+            session_id.clone(),
+            SERVER_NAME.to_owned(),
+            stub_config(),
+            client,
+        ),
+    )
+    .await;
 
     // And a large message payload (well over the byte limit we will send).
     let big_message = "x".repeat(500);
@@ -234,16 +245,20 @@ async fn transport_close_publishes_dead_status() {
     let session_id = SessionId::new();
 
     let (client, killer) = spawn_stub_client_with_killer().await;
-    let actor = McpActor::spawn(McpActorDeps::with_client(
-        ActorDeps {
-            services: harness.services().await,
-        },
-        session_id.clone(),
-        SERVER_NAME.to_owned(),
-        stub_config(),
-        client,
-    ));
-    actor.wait_for_startup().await;
+    let services = harness.services().await;
+    let _actor_path = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::with_client(
+            ActorDeps {
+                services: services.clone(),
+            },
+            session_id.clone(),
+            SERVER_NAME.to_owned(),
+            stub_config(),
+            client,
+        ),
+    )
+    .await;
 
     // Then the actor publishes Starting and Running during startup.
     let startup = await_recorded(&status_recorder, 2, Duration::from_secs(3)).await;
@@ -294,16 +309,20 @@ async fn normal_teardown_publishes_exactly_one_dead() {
     let session_id = SessionId::new();
 
     let client = spawn_stub_client().await;
-    let actor = McpActor::spawn(McpActorDeps::with_client(
-        ActorDeps {
-            services: harness.services().await,
-        },
-        session_id.clone(),
-        SERVER_NAME.to_owned(),
-        stub_config(),
-        client,
-    ));
-    actor.wait_for_startup().await;
+    let services = harness.services().await;
+    let actor_path = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::with_client(
+            ActorDeps {
+                services: services.clone(),
+            },
+            session_id.clone(),
+            SERVER_NAME.to_owned(),
+            stub_config(),
+            client,
+        ),
+    )
+    .await;
 
     // Wait for startup to publish Starting + Running.
     let startup = await_recorded(&status_recorder, 2, Duration::from_secs(3)).await;
@@ -314,7 +333,7 @@ async fn normal_teardown_publishes_exactly_one_dead() {
     );
 
     // When the actor is stopped normally (the coordinator's teardown path).
-    let _ = actor.stop_gracefully().await;
+    services.trouper_system.stop(&actor_path).await;
     // Then exactly one Dead is published by teardown. The startup await already
     // drained Starting + Running, so a single new message is the on_stop Dead.
     // A grace window then catches any racing watcher publish that would make two.
@@ -345,34 +364,42 @@ async fn restarted_actor_has_no_zombie_watcher_from_the_previous_one() {
     let session_id = SessionId::new();
 
     let client = spawn_stub_client().await;
-    let first = McpActor::spawn(McpActorDeps::with_client(
-        ActorDeps {
-            services: harness.services().await,
-        },
-        session_id.clone(),
-        SERVER_NAME.to_owned(),
-        stub_config(),
-        client,
-    ));
-    first.wait_for_startup().await;
+    let services = harness.services().await;
+    let first = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::with_client(
+            ActorDeps {
+                services: services.clone(),
+            },
+            session_id.clone(),
+            SERVER_NAME.to_owned(),
+            stub_config(),
+            client,
+        ),
+    )
+    .await;
     let _ = await_recorded(&status_recorder, 2, Duration::from_secs(3)).await;
     // Stop the first actor — its on_stop kills its watcher.
-    let _ = first.stop_gracefully().await;
+    services.trouper_system.stop(&first).await;
     // Consume the first actor's on_stop Dead so it isn't counted later.
     let _ = await_recorded(&status_recorder, 1, Duration::from_secs(3)).await;
 
     // When spawning a fresh actor in its place (the spawn-half of restart).
     let client2 = spawn_stub_client().await;
-    let second = McpActor::spawn(McpActorDeps::with_client(
-        ActorDeps {
-            services: harness.services().await,
-        },
-        session_id.clone(),
-        SERVER_NAME.to_owned(),
-        stub_config(),
-        client2,
-    ));
-    second.wait_for_startup().await;
+    let services = harness.services().await;
+    let _second = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::with_client(
+            ActorDeps {
+                services: services.clone(),
+            },
+            session_id.clone(),
+            SERVER_NAME.to_owned(),
+            stub_config(),
+            client2,
+        ),
+    )
+    .await;
     // Drain the second actor's startup statuses.
     let _ = await_recorded(&status_recorder, 2, Duration::from_secs(3)).await;
 
@@ -400,19 +427,23 @@ async fn normal_teardown_publishes_tools_unregistered() {
     let session_id = SessionId::new();
 
     let client = spawn_stub_client().await;
-    let actor = McpActor::spawn(McpActorDeps::with_client(
-        ActorDeps {
-            services: harness.services().await,
-        },
-        session_id.clone(),
-        SERVER_NAME.to_owned(),
-        stub_config(),
-        client,
-    ));
-    actor.wait_for_startup().await;
+    let services = harness.services().await;
+    let actor_path = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::with_client(
+            ActorDeps {
+                services: services.clone(),
+            },
+            session_id.clone(),
+            SERVER_NAME.to_owned(),
+            stub_config(),
+            client,
+        ),
+    )
+    .await;
 
     // When the actor is stopped normally (the coordinator's teardown path).
-    let _ = actor.stop_gracefully().await;
+    services.trouper_system.stop(&actor_path).await;
 
     // Then a ToolsUnregistered arrives naming this session × provider.
     let messages = await_recorded(&recorder, 1, Duration::from_secs(3)).await;
@@ -458,14 +489,19 @@ async fn disable_cycle_calls_fail_fast_after_teardown() {
         .set_mcp_server_status("stub", McpConnectionStatus::Running);
 
     let client = spawn_stub_client().await;
-    let actor = McpActor::spawn(McpActorDeps::with_client(
-        ActorDeps { services },
-        session_id.clone(),
-        SERVER_NAME.to_owned(),
-        stub_config(),
-        client,
-    ));
-    actor.wait_for_startup().await;
+    let actor = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::with_client(
+            ActorDeps {
+                services: services.clone(),
+            },
+            session_id.clone(),
+            SERVER_NAME.to_owned(),
+            stub_config(),
+            client,
+        ),
+    )
+    .await;
 
     // When calling the echo tool while the server is live.
     let live_call = ToolCall {
@@ -493,7 +529,7 @@ async fn disable_cycle_calls_fail_fast_after_teardown() {
 
     // When the server is disabled (teardown: actor stops, registry pruned,
     // session enablement flipped off — the confirm_mcp ordering).
-    let _ = actor.stop_gracefully().await;
+    services.trouper_system.stop(&actor).await;
     state
         .write_test_no_cap()
         .session
@@ -660,16 +696,19 @@ async fn execute_tool_exceeding_timeout_yields_failed_result() {
     let services = harness.services().await;
 
     let client = spawn_stub_client().await;
-    let actor = McpActor::spawn(McpActorDeps::with_client(
-        ActorDeps {
-            services: services.clone(),
-        },
-        session_id.clone(),
-        SERVER_NAME.to_owned(),
-        stub_config(),
-        client,
-    ));
-    actor.wait_for_startup().await;
+    let _actor = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::with_client(
+            ActorDeps {
+                services: services.clone(),
+            },
+            session_id.clone(),
+            SERVER_NAME.to_owned(),
+            stub_config(),
+            client,
+        ),
+    )
+    .await;
     {
         let prefs = jinn_preferences_config::user_preferences::UserPreferences {
             tool_default_timeout_secs: 1,
@@ -732,16 +771,19 @@ async fn execute_tool_with_disabled_timeout_completes() {
     let services = harness.services().await;
 
     let client = spawn_stub_client().await;
-    let actor = McpActor::spawn(McpActorDeps::with_client(
-        ActorDeps {
-            services: services.clone(),
-        },
-        session_id.clone(),
-        SERVER_NAME.to_owned(),
-        stub_config(),
-        client,
-    ));
-    actor.wait_for_startup().await;
+    let _actor = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::with_client(
+            ActorDeps {
+                services: services.clone(),
+            },
+            session_id.clone(),
+            SERVER_NAME.to_owned(),
+            stub_config(),
+            client,
+        ),
+    )
+    .await;
     {
         let prefs = jinn_preferences_config::user_preferences::UserPreferences {
             tool_default_timeout_secs: 0,

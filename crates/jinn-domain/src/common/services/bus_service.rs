@@ -279,6 +279,24 @@ impl BusService {
         }
     }
 
+    /// Subscribes a trouper actor path to `topic` for message type `M`.
+    ///
+    /// Runtime-spawned actors (task listeners, MCP servers) use this to
+    /// join the fabric with the routed topic resolved from the schema —
+    /// the same path composition's `system.subscribe` calls take, exposed
+    /// through the bus so the topic constant lives in one place.
+    pub async fn subscribe_topic<M: trouper::schema::Schema>(
+        &self,
+        path: &trouper::actor::ActorPath,
+        topic: &trouper::topics::Topic,
+    ) {
+        if let BusInner::Troupe { system, .. } = &self.inner {
+            system
+                .subscribe(path, topic, None)
+                .expect("runtime actor subscribes its topic");
+        }
+    }
+
     /// The topic a publish of `M` currently rides (the route resolution
     /// `publish` uses) — inspection for test harnesses.
     #[cfg(any(test, feature = "test-harness"))]

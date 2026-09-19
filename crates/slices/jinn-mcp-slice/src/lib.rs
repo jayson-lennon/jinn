@@ -49,16 +49,22 @@ pub const HANDLE_NAME: &str = "mcp-coordinator";
 /// Outer bound on the restart ask (matches the old tool-side `ASK_TIMEOUT`).
 const RESTART_ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(75);
 
+/// The mandatory trouper ask timeout for the restart round trip. The outer
+/// [`RESTART_ASK_TIMEOUT`] remains authoritative; this inner bound is the
+/// runtime's own lease deadline.
+const RESTART_INNER_ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(75);
+
 /// Mint the kernel-side handle from the spawned coordinator actor.
 ///
-/// Composition calls this after `wait_for_startup()` and stores the result in
-/// `Services.mcp_coordinator`; an unset handle keeps the `restart_mcp`
-/// tool's graceful-error path.
+/// Composition calls this after the coordinator spawn handshake and stores
+/// the result in `Services.mcp_coordinator`; an unset handle keeps the
+/// `restart_mcp` tool's graceful-error path.
 #[must_use]
 pub fn mcp_coordinator_handle(
-    actor: kameo::actor::ActorRef<coordinator::McpCoordinatorActor>,
+    system: trouper::system::ActorSystem,
+    actor_path: trouper::actor::ActorPath,
 ) -> Arc<dyn McpCoordinatorHandle> {
-    struct Impl(kameo::actor::ActorRef<coordinator::McpCoordinatorActor>);
+    struct Impl(trouper::system::ActorSystem, trouper::actor::ActorPath);
 
     #[async_trait::async_trait]
     impl McpCoordinatorHandle for Impl {
@@ -67,22 +73,36 @@ pub fn mcp_coordinator_handle(
             session_id: jinn_core_types::SessionId,
             server: String,
         ) -> Result<(), jinn_mcp_msg::RestartError> {
-            // Outer bound so a hung coordinator yields Timeout/Mailbox
-            // instead of hanging the tool caller (the old tool-side
-            // ASK_TIMEOUT semantics, moved into the seam).
+            // Outer bound so a hung coordinator yields Timeout instead of
+            // hanging the tool caller (the old tool-side ASK_TIMEOUT
+            // semantics, moved into the seam). The trouper ask has its own
+            // MANDATORY timeout — this outer timeout wraps the whole round
+            // trip and stays the authoritative bound.
             match tokio::time::timeout(
                 RESTART_ASK_TIMEOUT,
-                self.0
-                    .ask(jinn_mcp_msg::RestartMcpServer { session_id, server }),
+                self.0.ask(
+                    self.1.clone(),
+                    jinn_mcp_msg::RestartMcpServer { session_id, server },
+                    RESTART_INNER_ASK_TIMEOUT,
+                ),
             )
             .await
             {
-                // kameo flattens the actor's Result<(), RestartError> reply:
-                // awaiting yields Result<(), SendError<M, RestartError>> where
-                // SendError::HandlerError(e) carries the domain variants.
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(kameo::error::SendError::HandlerError(e))) => Err(e),
-                Ok(Err(_)) => Err(jinn_mcp_msg::RestartError::Mailbox),
+                Ok(Ok(value)) => {
+                    let outcome = serde_json::from_value::<coordinator::RestartOutcome>(value)
+                        .unwrap_or(coordinator::RestartOutcome {
+                            ok: false,
+                            error: Some("Mailbox".to_owned()),
+                        });
+                    match (outcome.ok, outcome.error.as_deref()) {
+                        (true, _) => Ok(()),
+                        (false, Some("UnknownServer")) => Err(jinn_mcp_msg::RestartError::UnknownServer),
+                        (false, Some("ConnectFailed")) => Err(jinn_mcp_msg::RestartError::ConnectFailed),
+                        (false, Some("Timeout")) => Err(jinn_mcp_msg::RestartError::Timeout),
+                        _ => Err(jinn_mcp_msg::RestartError::Mailbox),
+                    }
+                }
+                Ok(Err(_report)) => Err(jinn_mcp_msg::RestartError::Mailbox),
                 Err(_) => Err(jinn_mcp_msg::RestartError::Timeout),
             }
         }
@@ -92,5 +112,5 @@ pub fn mcp_coordinator_handle(
         }
     }
 
-    Arc::new(Impl(actor))
+    Arc::new(Impl(system, actor_path))
 }

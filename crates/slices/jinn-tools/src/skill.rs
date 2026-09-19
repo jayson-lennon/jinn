@@ -203,6 +203,7 @@ mod tests {
             interactive_term: None,
             task_spawns: None,
             session_store: None,
+            trouper_system: None,
         }
     }
 
@@ -264,6 +265,7 @@ mod tests {
             interactive_term: None,
             task_spawns: None,
             session_store: None,
+            trouper_system: None,
         };
         let result = execute(
             ToolCall {
@@ -344,6 +346,7 @@ mod tests {
             interactive_term: None,
             task_spawns: None,
             session_store: None,
+            trouper_system: None,
         };
 
         // When executing.
@@ -427,6 +430,7 @@ mod tests {
             interactive_term: None,
             task_spawns: None,
             session_store: None,
+            trouper_system: None,
         };
 
         // When executing.
@@ -517,6 +521,7 @@ mod tests {
             interactive_term: None,
             task_spawns: None,
             session_store: None,
+            trouper_system: None,
         };
 
         // When executing.
@@ -596,6 +601,7 @@ mod tests {
             interactive_term: None,
             task_spawns: None,
             session_store: None,
+            trouper_system: None,
         };
         let result = execute(call, ctx).await;
 
@@ -665,6 +671,7 @@ mod tests {
             interactive_term: None,
             task_spawns: None,
             session_store: None,
+            trouper_system: None,
         };
         let result = execute(call, ctx).await;
 
@@ -727,6 +734,7 @@ mod tests {
             interactive_term: None,
             task_spawns: None,
             session_store: None,
+            trouper_system: None,
         };
 
         // When executing.

@@ -34,7 +34,9 @@ use jinn_tools_msg::{CancelToolBatch, ExecuteTool, ExecuteToolBatch, RegisterToo
 use jinn_tools_msg::{
     ToolBatchCompleted, ToolExecutionCompleted, ToolsRegistered, ToolsUnregistered,
 };
-use kameo::prelude::{Actor, ActorRef, Context, Message};
+use trouper::actor::{ActorPath, MsgHandler, ServiceActor};
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
 
 /// Prefix for all MCP-provided tool `provider` values. A provider like
 /// `mcp__excalimate` namespaces that server's tools (`mcp__excalimate__<tool>`)
@@ -194,21 +196,58 @@ fn build_openrouter_web_search_definition(config: &OpenrouterWebSearchConfig) ->
     }
 }
 
-impl Actor for ToolOrchestratorActor {
-    type Args = ToolOrchestratorActorDeps;
-    type Error = std::convert::Infallible;
+/// Static path the orchestrator spawns at (one instance per process).
+pub const ORCHESTRATOR_PATH: &str = "jinn.tools.orchestrator";
 
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        let bus = &args.deps.services.bus;
-        bus.subscribe::<RegisterTools, _>(&actor_ref).await;
-        bus.subscribe::<ExecuteToolBatch, _>(&actor_ref).await;
-        bus.subscribe::<CancelToolBatch, _>(&actor_ref).await;
-        bus.subscribe::<ToolExecutionCompleted, _>(&actor_ref).await;
-        bus.subscribe::<SessionClosed, _>(&actor_ref).await;
-        bus.subscribe::<ToolsUnregistered, _>(&actor_ref).await;
+impl ServiceActor for ToolOrchestratorActor {
+    async fn start(_args: &serde_json::Value) -> Result<Self, error_stack::Report<RegistryError>> {
+        // Never called: spawned via `start_with` (typed deps cannot ride
+        // JSON args).
+        Err(error_stack::Report::new(RegistryError::InvalidSpec)
+            .attach("ToolOrchestratorActor spawns via start_with"))
+    }
+}
 
+impl ToolOrchestratorActor {
+    /// Spawns the orchestrator onto the trouper system.
+    ///
+    /// Registration of builtins happens in
+    /// [`initialize`](Self::initialize); the spawn returns once the actor
+    /// is subscribed, so composition can order MCP-after-orchestrator.
+    pub fn spawn(system: &trouper::system::ActorSystem, deps: ToolOrchestratorActorDeps) {
+        let path = ActorPath::new(ORCHESTRATOR_PATH);
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(path.clone())
+            .start_with({
+                let deps = deps.clone();
+                move || {
+                    let deps = deps.clone();
+                    Box::pin(async move { Ok(Self::initialize(deps)) })
+                }
+            })
+            .handles::<RegisterTools>()
+            .handles::<ExecuteToolBatch>()
+            .handles::<CancelToolBatch>()
+            .handles::<ToolExecutionCompleted>()
+            .handles::<SessionClosed>()
+            .handles::<ToolsUnregistered>()
+            .mailbox(64, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        system
+            .subscribe(
+                &path,
+                &jinn_domain::common::services::bus_service::jinn_domain_topic(),
+                None,
+            )
+            .expect("orchestrator subscribes the domain topic");
+    }
+
+    /// Constructs the actor and registers builtins (the old `on_start`
+    /// body, minus bus subscriptions — trouper handles deliver the
+    /// subscribed messages).
+    fn initialize(deps: ToolOrchestratorActorDeps) -> Self {
         // Read web search config from preferences storage.
-        let web_search_config = args
+        let web_search_config = deps
             .deps
             .services
             .user_preferences_storage
@@ -216,7 +255,7 @@ impl Actor for ToolOrchestratorActor {
             .openrouter_web_search
             .clone();
 
-        let default_timeout_secs = args
+        let default_timeout_secs = deps
             .deps
             .services
             .user_preferences_storage
@@ -224,16 +263,16 @@ impl Actor for ToolOrchestratorActor {
             .tool_default_timeout_secs;
 
         let mut actor = Self {
-            deps: args.deps,
+            deps: deps.deps,
             tools: HashMap::new(),
             session_tools: HashMap::new(),
             pending: HashMap::new(),
-            state: args.state,
-            session_cap: args.session_cap,
-            services: args.services,
+            state: deps.state,
+            session_cap: deps.session_cap,
+            services: deps.services,
         };
         let all_builtins = crate::registry::builtin_tools(default_timeout_secs);
-        let builtins: Vec<_> = if let Some(ref filter) = args.builtin_filter {
+        let builtins: Vec<_> = if let Some(ref filter) = deps.builtin_filter {
             all_builtins
                 .into_iter()
                 .filter(|(def, _, _)| filter.contains(&def.name))
@@ -281,15 +320,21 @@ impl Actor for ToolOrchestratorActor {
         builtin_definitions.push(web_search_def);
 
         // Announce built-in tools so downstream actors can cache them.
-        actor
-            .publish(ToolsRegistered {
+        // NOTE: fired inline during construction — by the time this
+        // returns, the actor is already subscribed (the builder
+        // handshake completes first), so the announcement cannot race
+        // its own subscription.
+        let bus = actor.deps.services.bus.clone();
+        tokio::spawn(async move {
+            bus.publish(ToolsRegistered {
                 provider: "builtin".to_owned(),
                 definitions: builtin_definitions,
                 session_id: None,
             })
             .await;
+        });
 
-        Ok(actor)
+        actor
     }
 }
 
@@ -299,45 +344,35 @@ impl Actor for ToolOrchestratorActor {
 // Message handlers — direct handler calls (no bridge)
 // ---------------------------------------------------------------------------
 
-impl Message<RegisterTools> for ToolOrchestratorActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: RegisterTools, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<RegisterTools> for ToolOrchestratorActor {
+    async fn handle(&mut self, msg: RegisterTools, _ctx: &mut MsgCtx<'_>) {
         self.handle_register_tools(&msg.provider, &msg.definitions, msg.session_id)
             .await;
     }
 }
 
-impl Message<ExecuteToolBatch> for ToolOrchestratorActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: ExecuteToolBatch, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ExecuteToolBatch> for ToolOrchestratorActor {
+    async fn handle(&mut self, msg: ExecuteToolBatch, _ctx: &mut MsgCtx<'_>) {
         self.handle_execute_tool_batch(msg.session_id, msg.tool_calls, msg.dispatched_at)
             .await;
     }
 }
 
-impl Message<CancelToolBatch> for ToolOrchestratorActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: CancelToolBatch, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<CancelToolBatch> for ToolOrchestratorActor {
+    async fn handle(&mut self, msg: CancelToolBatch, _ctx: &mut MsgCtx<'_>) {
         self.handle_cancel_tool_batch(&msg.session_id);
     }
 }
 
-impl Message<ToolExecutionCompleted> for ToolOrchestratorActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: ToolExecutionCompleted, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ToolExecutionCompleted> for ToolOrchestratorActor {
+    async fn handle(&mut self, msg: ToolExecutionCompleted, _ctx: &mut MsgCtx<'_>) {
         self.handle_tool_execution_completed(msg.session_id, msg.result)
             .await;
     }
 }
 
-impl Message<SessionClosed> for ToolOrchestratorActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: SessionClosed, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SessionClosed> for ToolOrchestratorActor {
+    async fn handle(&mut self, msg: SessionClosed, _ctx: &mut MsgCtx<'_>) {
         // Drop per-session tool registrations so the map does not leak.
         if self.session_tools.remove(&msg.session_id).is_some() {
             tracing::debug!(
@@ -348,10 +383,8 @@ impl Message<SessionClosed> for ToolOrchestratorActor {
     }
 }
 
-impl Message<ToolsUnregistered> for ToolOrchestratorActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: ToolsUnregistered, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ToolsUnregistered> for ToolOrchestratorActor {
+    async fn handle(&mut self, msg: ToolsUnregistered, _ctx: &mut MsgCtx<'_>) {
         // Given a provider tearing down its session-scoped registrations.
         // When pruning the routing map.
         let Some(session_map) = self.session_tools.get_mut(&msg.session_id) else {
@@ -517,6 +550,7 @@ impl ToolOrchestratorActor {
             interactive_term: self.services.interactive_term.get().cloned(),
             task_spawns: Some(self.services.task_spawns.clone()),
             session_store: Some(self.services.session_store.clone()),
+            trouper_system: Some(self.services.trouper_system.clone()),
         }
     }
 
@@ -897,6 +931,7 @@ mod timeout_tests {
             interactive_term: None,
             task_spawns: None,
             session_store: None,
+            trouper_system: None,
         }
     }
 
@@ -1153,6 +1188,7 @@ mod panic_safety_tests {
                 interactive_term: None,
                 task_spawns: None,
                 session_store: None,
+            trouper_system: None,
             },
         ))
         .catch_unwind()
@@ -1307,8 +1343,6 @@ mod mcp_dispatch_gate_tests {
     )]
     use std::time::Duration;
 
-    use kameo::actor::Spawn;
-
     use jinn_core_types::tool_types::{ToolCall, ToolDefinition};
     use jinn_domain::common::app_state::AppState;
     use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
@@ -1324,20 +1358,22 @@ mod mcp_dispatch_gate_tests {
 
     async fn spawn_orchestrator(
         state: &State,
-    ) -> (TestHarness, kameo::actor::ActorRef<ToolOrchestratorActor>) {
+    ) -> (TestHarness, ()) {
         let harness = TestHarness::new().await;
         let services = harness.services().await;
-        let actor = ToolOrchestratorActor::spawn(ToolOrchestratorActorDeps {
-            deps: jinn_domain::common::actor_deps::ActorDeps {
-                services: services.clone(),
+        ToolOrchestratorActor::spawn(
+            &services.trouper_system.clone(),
+            ToolOrchestratorActorDeps {
+                deps: jinn_domain::common::actor_deps::ActorDeps {
+                    services: services.clone(),
+                },
+                state: state.clone(),
+                services,
+                session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
+                builtin_filter: None,
             },
-            state: state.clone(),
-            services,
-            session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-            builtin_filter: None,
-        });
-        actor.wait_for_startup().await;
-        (harness, actor)
+        );
+        (harness, ())
     }
 
     fn mcp_tool_def() -> ToolDefinition {

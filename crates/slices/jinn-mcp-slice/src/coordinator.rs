@@ -23,15 +23,17 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use kameo::actor::{ActorRef, Spawn};
-use kameo::prelude::{Context, Message};
-use kameo::supervision::RestartPolicy;
 use parking_lot::Mutex;
+use trouper::actor::ActorPath;
+use trouper::actor::MsgHandler;
+use trouper::actor::ServiceActor;
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
 
-use crate::connection::{ConnectionState, McpActor, McpActorDeps};
+use crate::connection::{ConnectionState, ConnectionStateReply, McpActor, McpActorDeps};
 use jinn_domain::Services;
 use jinn_domain::common::actor_deps::{ActorDeps, BusPublish};
-use jinn_domain::common::root_supervisor::RootSupervisorRef;
+use jinn_domain::common::services::bus_service::jinn_domain_topic;
 use jinn_domain::common::services::bus_service::BusService;
 use jinn_domain::feat::session::protocol::session_archived::SessionArchived;
 use jinn_domain::feat::session::protocol::session_closed::SessionClosed;
@@ -54,16 +56,19 @@ type SpawnKey = (SessionId, String);
 /// On timeout the tool reports failure with the STOP-and-wait instruction.
 const RESTART_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// Static path the coordinator spawns at (one instance per process).
+pub const MCP_COORDINATOR_PATH: &str = "jinn.mcp.coordinator";
+
 /// The MCP lifecycle actor.
 pub struct McpCoordinatorActor {
     deps: ActorDeps,
-    root: RootSupervisorRef,
+    system: trouper::system::ActorSystem,
     state: jinn_domain::common::state::State,
     cap: jinn_domain::common::tcaps::SessionCap,
     /// Tracks every live `McpActor` by (session_id, server_name).
     /// Guarded by a mutex so spawn/kill helpers can borrow `self` while
     /// mutating the map without fighting the borrow checker.
-    spawned: Mutex<HashMap<SpawnKey, ActorRef<McpActor>>>,
+    spawned: Mutex<HashMap<SpawnKey, ActorPath>>,
 }
 
 /// Dependencies for [`McpCoordinatorActor`].
@@ -71,8 +76,6 @@ pub struct McpCoordinatorActor {
 pub struct McpCoordinatorActorDeps {
     /// Common actor dependencies (services + bus).
     pub deps: ActorDeps,
-    /// Root supervisor — `McpActor`s are supervised children of it.
-    pub root: RootSupervisorRef,
     /// Shared application state — the per-session MCP server status map is
     /// written here.
     pub state: jinn_domain::common::state::State,
@@ -80,46 +83,64 @@ pub struct McpCoordinatorActorDeps {
     pub cap: jinn_domain::common::tcaps::SessionCap,
 }
 
-impl kameo::Actor for McpCoordinatorActor {
-    type Args = McpCoordinatorActorDeps;
-    type Error = kameo::error::Infallible;
+impl ServiceActor for McpCoordinatorActor {
+    async fn start(_args: &serde_json::Value) -> Result<Self, error_stack::Report<RegistryError>> {
+        // Never called: spawned via `start_with` (typed deps cannot ride
+        // JSON args).
+        Err(error_stack::Report::new(RegistryError::InvalidSpec)
+            .attach("McpCoordinatorActor spawns via start_with"))
+    }
+}
 
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        args.deps
-            .subscribe(actor_ref.clone().recipient::<SessionLoadCompleted>())
-            .await;
-        args.deps
-            .subscribe(actor_ref.clone().recipient::<SessionCreated>())
-            .await;
-        args.deps
-            .subscribe(actor_ref.clone().recipient::<McpEnablementChanged>())
-            .await;
-        args.deps
-            .subscribe(actor_ref.clone().recipient::<SessionClosed>())
-            .await;
-        args.deps
-            .subscribe(actor_ref.clone().recipient::<SessionArchived>())
-            .await;
-        args.deps
-            .subscribe(actor_ref.clone().recipient::<SessionTeardownFinished>())
-            .await;
-        args.deps
-            .subscribe(actor_ref.clone().recipient::<RestartMcpServer>())
-            .await;
-        args.deps
-            .subscribe(actor_ref.clone().recipient::<McpServerStatus>())
-            .await;
-        args.deps
-            .subscribe(actor_ref.recipient::<McpServerLog>())
-            .await;
-
-        Ok(Self {
-            deps: args.deps,
-            root: args.root,
-            state: args.state,
-            cap: args.cap,
-            spawned: Mutex::new(HashMap::new()),
-        })
+impl McpCoordinatorActor {
+    /// Spawns the coordinator onto the trouper system.
+    ///
+    /// Returns only after all subscriptions are live, so composition's
+    /// orchestrator-before-coordinator and coordinator-before-EnvironmentLoaded
+    /// contracts hold by construction.
+    pub async fn spawn(system: &trouper::system::ActorSystem, deps: McpCoordinatorActorDeps) -> ActorPath {
+        let path = ActorPath::new(MCP_COORDINATOR_PATH);
+        let bus = deps.deps.services.bus.clone();
+        let system_for_start = system.clone();
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(path.clone())
+            .start_with({
+                move || {
+                    let deps = deps.clone();
+                    let system = system_for_start.clone();
+                    Box::pin(async move {
+                        Ok(Self {
+                            deps: deps.deps,
+                            system,
+                            state: deps.state,
+                            cap: deps.cap,
+                            spawned: Mutex::new(HashMap::new()),
+                        })
+                    })
+                }
+            })
+            .handles::<SessionLoadCompleted>()
+            .handles::<SessionCreated>()
+            .handles::<McpEnablementChanged>()
+            .handles::<SessionClosed>()
+            .handles::<SessionArchived>()
+            .handles::<SessionTeardownFinished>()
+            .handles::<RestartMcpServer>()
+            .handles::<McpServerStatus>()
+            .handles::<McpServerLog>()
+            .mailbox(64, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        let topic = jinn_domain_topic();
+        bus.subscribe_topic::<SessionLoadCompleted>(&path, &topic).await;
+        bus.subscribe_topic::<SessionCreated>(&path, &topic).await;
+        bus.subscribe_topic::<McpEnablementChanged>(&path, &topic).await;
+        bus.subscribe_topic::<SessionClosed>(&path, &topic).await;
+        bus.subscribe_topic::<SessionArchived>(&path, &topic).await;
+        bus.subscribe_topic::<SessionTeardownFinished>(&path, &topic).await;
+        bus.subscribe_topic::<RestartMcpServer>(&path, &topic).await;
+        bus.subscribe_topic::<McpServerStatus>(&path, &topic).await;
+        bus.subscribe_topic::<McpServerLog>(&path, &topic).await;
+        path
     }
 }
 
@@ -189,7 +210,7 @@ impl McpCoordinatorActor {
         session_id: &SessionId,
         name: &str,
         config: &McpServerConfig,
-    ) -> Option<ActorRef<McpActor>> {
+    ) -> Option<ActorPath> {
         let key = (session_id.clone(), name.to_owned());
         // Duplicate-spawn guard: another in-flight reconcile may have inserted
         // this key between the snapshot and now.
@@ -197,8 +218,8 @@ impl McpCoordinatorActor {
             return None;
         }
 
-        let actor_ref = McpActor::supervise(
-            &self.root,
+        let path = McpActor::spawn(
+            &self.system,
             McpActorDeps::new(
                 self.deps.clone(),
                 session_id.clone(),
@@ -206,17 +227,15 @@ impl McpCoordinatorActor {
                 config.clone(),
             ),
         )
-        .restart_policy(RestartPolicy::Never)
-        .spawn()
         .await;
 
-        self.spawned.lock().insert(key, actor_ref.clone());
+        self.spawned.lock().insert(key, path.clone());
         tracing::info!(
             server = %name,
             %session_id,
             "MCP lifecycle: spawned McpActor"
         );
-        Some(actor_ref)
+        Some(path)
     }
 
     /// Stops a single tracked `McpActor` and removes it from the map.
@@ -224,9 +243,9 @@ impl McpCoordinatorActor {
     /// `stop_gracefully` triggers `McpActor::on_stop`, which shuts the child
     /// process down.
     async fn kill_one(&self, key: &SpawnKey) {
-        let actor_ref = self.spawned.lock().remove(key);
-        if let Some(actor_ref) = actor_ref {
-            let _ = actor_ref.stop_gracefully().await;
+        let path = self.spawned.lock().remove(key);
+        if let Some(path) = path {
+            self.system.stop(&path).await;
             tracing::info!(
                 server = %key.1,
                 session_id = %key.0,
@@ -278,24 +297,22 @@ impl McpCoordinatorActor {
             .find(|(n, _)| n == server)
             .ok_or(RestartError::UnknownServer)?;
 
-        let actor_ref = self.spawn_one(session_id, &config.0, &config.1).await;
+        let actor_path = self.spawn_one(session_id, &config.0, &config.1).await;
 
-        let actor_ref = actor_ref.ok_or(RestartError::UnknownServer)?;
+        let actor_path = actor_path.ok_or(RestartError::UnknownServer)?;
 
         // `on_start` blocks on acquire_client (connect + tools/list); we wait
         // for it to complete, bounded by the restart timeout so a slow-boot
-        // server can't hang the tool loop forever.
-        let connected = match tokio::time::timeout(timeout, async {
-            actor_ref.wait_for_startup().await;
-            actor_ref
-                .ask(ConnectionState)
-                .await
-                .map_err(|_send_err| RestartError::Mailbox)
-        })
-        .await
-        {
-            Ok(Ok(connected)) => connected,
-            Ok(Err(e)) => return Err(e),
+        // server can't hang the tool loop forever. The trouper ask carries
+        // its own MANDATORY timeout — the outer bound covers startup too.
+        let reply = self
+            .system
+            .ask(actor_path, ConnectionState, timeout)
+            .await;
+        let connected = match reply {
+            Ok(value) => serde_json::from_value::<ConnectionStateReply>(value)
+                .map(|r| r.connected)
+                .unwrap_or(false),
             Err(_) => return Err(RestartError::Timeout),
         };
 
@@ -319,10 +336,8 @@ fn configured_servers(services: &Services) -> Vec<(String, McpServerConfig)> {
 
 // ── Message handlers ─────────────────────────────────────────────────────
 
-impl Message<SessionLoadCompleted> for McpCoordinatorActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: SessionLoadCompleted, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SessionLoadCompleted> for McpCoordinatorActor {
+    async fn handle(&mut self, msg: SessionLoadCompleted, _ctx: &mut MsgCtx<'_>) {
         // Given a session restored from disk.
         let session_id = msg.session.session_id().clone();
         let enabled = msg.session.enabled_mcp_servers().clone();
@@ -332,10 +347,8 @@ impl Message<SessionLoadCompleted> for McpCoordinatorActor {
     }
 }
 
-impl Message<SessionCreated> for McpCoordinatorActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: SessionCreated, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SessionCreated> for McpCoordinatorActor {
+    async fn handle(&mut self, msg: SessionCreated, _ctx: &mut MsgCtx<'_>) {
         // Given a freshly created session.
         // Sessions may carry config-seeded enablement (`auto_enable` in
         // jinn.toml); reconcile against the session's actual set rather than
@@ -354,59 +367,69 @@ impl Message<SessionCreated> for McpCoordinatorActor {
     }
 }
 
-impl Message<McpEnablementChanged> for McpCoordinatorActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: McpEnablementChanged, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<McpEnablementChanged> for McpCoordinatorActor {
+    async fn handle(&mut self, msg: McpEnablementChanged, _ctx: &mut MsgCtx<'_>) {
         // Given a new desired enablement set for a session.
         // When reconciling.
         self.reconcile(&msg.session_id, &msg.enabled).await;
     }
 }
 
-impl Message<SessionClosed> for McpCoordinatorActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: SessionClosed, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SessionClosed> for McpCoordinatorActor {
+    async fn handle(&mut self, msg: SessionClosed, _ctx: &mut MsgCtx<'_>) {
         self.kill_all_for_session(&msg.session_id).await;
     }
 }
 
-impl Message<SessionArchived> for McpCoordinatorActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: SessionArchived, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SessionArchived> for McpCoordinatorActor {
+    async fn handle(&mut self, msg: SessionArchived, _ctx: &mut MsgCtx<'_>) {
         self.kill_all_for_session(&msg.session_id).await;
     }
 }
 
-impl Message<SessionTeardownFinished> for McpCoordinatorActor {
-    type Reply = ();
-
-    async fn handle(
-        &mut self,
-        msg: SessionTeardownFinished,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) {
+impl MsgHandler<SessionTeardownFinished> for McpCoordinatorActor {
+    async fn handle(&mut self, msg: SessionTeardownFinished, _ctx: &mut MsgCtx<'_>) {
         self.kill_all_for_session(&msg.session_id).await;
     }
 }
 
-impl Message<RestartMcpServer> for McpCoordinatorActor {
-    type Reply = Result<(), RestartError>;
-
-    async fn handle(
-        &mut self,
-        msg: RestartMcpServer,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.restart_one(&msg.session_id, &msg.server).await
+impl MsgHandler<RestartMcpServer> for McpCoordinatorActor {
+    async fn handle(&mut self, msg: RestartMcpServer, ctx: &mut MsgCtx<'_>) {
+        let outcome = self.restart_one(&msg.session_id, &msg.server).await;
+        ctx.reply(RestartOutcome {
+            ok: outcome.is_ok(),
+            error: outcome
+                .err()
+                .map(|e| match e {
+                    RestartError::UnknownServer => "UnknownServer",
+                    RestartError::ConnectFailed => "ConnectFailed",
+                    RestartError::Timeout => "Timeout",
+                    RestartError::Mailbox => "Mailbox",
+                }
+                .to_owned()),
+        });
     }
 }
+
+/// Wire payload for the restart ask's reply (JSON-friendly twin of the
+/// kameo-era `Result<(), RestartError>`).
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
+pub struct RestartOutcome {
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
+impl jinn_slices::BusMessage for RestartOutcome {}
+
+jinn_slices::crossing_schema!(RestartOutcome, "McpRestartOutcome",
+    trouper::schema::SchemaKind::Event,
+    description: "Reply payload for the restart ask.",
+    fields: ["ok" => trouper::schema::FieldTy::Bool, "error" => trouper::schema::FieldTy::Str]);
 
 #[cfg(test)]
 /// Test-only message: restart with an injectable timeout so tests can
 /// exercise the `Err(Timeout)` path without a 60s wait.
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
 pub struct RestartForTest {
     pub session_id: SessionId,
     pub server: String,
@@ -414,16 +437,29 @@ pub struct RestartForTest {
 }
 
 #[cfg(test)]
-impl Message<RestartForTest> for McpCoordinatorActor {
-    type Reply = Result<(), RestartError>;
+jinn_slices::crossing_schema!(RestartForTest, "McpRestartForTest",
+    trouper::schema::SchemaKind::Command,
+    description: "Test-only restart ask with an injectable timeout.",
+    fields: []);
 
-    async fn handle(
-        &mut self,
-        msg: RestartForTest,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.restart_one_with_timeout(&msg.session_id, &msg.server, msg.timeout)
-            .await
+#[cfg(test)]
+impl MsgHandler<RestartForTest> for McpCoordinatorActor {
+    async fn handle(&mut self, msg: RestartForTest, ctx: &mut MsgCtx<'_>) {
+        let outcome = self
+            .restart_one_with_timeout(&msg.session_id, &msg.server, msg.timeout)
+            .await;
+        ctx.reply(RestartOutcome {
+            ok: outcome.is_ok(),
+            error: outcome
+                .err()
+                .map(|e| match e {
+                    RestartError::UnknownServer => "UnknownServer",
+                    RestartError::ConnectFailed => "ConnectFailed",
+                    RestartError::Timeout => "Timeout",
+                    RestartError::Mailbox => "Mailbox",
+                }
+                .to_owned()),
+        });
     }
 }
 
@@ -432,10 +468,8 @@ impl Message<RestartForTest> for McpCoordinatorActor {
 /// This is the single owner of each session's `mcp_server_status` field.
 /// There is no sync-sibling actor — the coordinator owns the full MCP
 /// lifecycle domain, so it writes the status inline.
-impl Message<McpServerStatus> for McpCoordinatorActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: McpServerStatus, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<McpServerStatus> for McpCoordinatorActor {
+    async fn handle(&mut self, msg: McpServerStatus, _ctx: &mut MsgCtx<'_>) {
         self.state.with_session(&self.cap, |view| {
             if let Some(session) = view.session.map().get_mut(&msg.session_id) {
                 session.set_mcp_server_status(&msg.server, msg.status);
@@ -447,10 +481,8 @@ impl Message<McpServerStatus> for McpCoordinatorActor {
 /// Writes a captured stderr tail into the owning session's stderr map.
 ///
 /// Like the status handler, the coordinator owns this field inline.
-impl Message<McpServerLog> for McpCoordinatorActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: McpServerLog, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<McpServerLog> for McpCoordinatorActor {
+    async fn handle(&mut self, msg: McpServerLog, _ctx: &mut MsgCtx<'_>) {
         self.state.with_session(&self.cap, |view| {
             if let Some(session) = view.session.map().get_mut(&msg.session_id) {
                 session.set_mcp_server_stderr(&msg.server, msg.tail);
@@ -470,14 +502,11 @@ mod lifecycle_tests {
 
     use std::collections::BTreeSet;
 
-    use kameo::actor::Spawn;
 
     use jinn_domain::common::actor_deps::ActorDeps;
     use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
-    use jinn_domain::common::root_supervisor::RootSupervisor;
     use jinn_domain::protocol::SessionId;
     use jinn_mcp_msg::McpServerConfig;
-    use jinn_mcp_msg::RestartError;
     use jinn_mcp_msg::{McpConnectionStatus, McpServerStatus};
     use jinn_preferences_config::user_preferences::UserPreferences;
 
@@ -510,7 +539,7 @@ mod lifecycle_tests {
         harness: &TestHarness,
         servers: &[(&str, McpServerConfig)],
     ) -> (
-        kameo::actor::ActorRef<McpCoordinatorActor>,
+        trouper::actor::ActorPath,
         jinn_domain::Services,
         jinn_domain::common::state::State,
     ) {
@@ -526,20 +555,21 @@ mod lifecycle_tests {
                 ..UserPreferences::default()
             })
             .expect("seed prefs");
-        let root = RootSupervisor::spawn_root().await;
         let state = jinn_domain::common::state::State::new(
             jinn_domain::common::app_state::AppState::default(),
         );
-        let actor = McpCoordinatorActor::spawn(McpCoordinatorActorDeps {
-            deps: ActorDeps {
-                services: services.clone(),
+        let path = McpCoordinatorActor::spawn(
+            &services.trouper_system,
+            McpCoordinatorActorDeps {
+                deps: ActorDeps {
+                    services: services.clone(),
+                },
+                state: state.clone(),
+                cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
             },
-            root,
-            state: state.clone(),
-            cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-        });
-        actor.wait_for_startup().await;
-        (actor, services, state)
+        )
+        .await;
+        (path, services, state)
     }
 
     fn single_enabled(server: &str) -> BTreeSet<String> {
@@ -698,26 +728,38 @@ mod lifecycle_tests {
     async fn restart_one_times_out_when_startup_exceeds_the_timeout() {
         // Given a coordinator with a server that hangs forever on the MCP handshake.
         let harness = TestHarness::new().await;
-        let (actor, _services, _state) =
+        let (actor, services, _state) =
             spawn_lifecycle(&harness, &[("hanging", hanging_server())]).await;
         let session_id = SessionId::new();
 
-        // When restarting with a 1ms timeout.
-        let result = actor
-            .ask(super::RestartForTest {
-                session_id,
-                server: "hanging".to_owned(),
-                timeout: std::time::Duration::from_millis(1),
-            })
+        // When restarting with a 1ms timeout (a direct system ask — the
+        // seam route does not expose the injectable-timeout variant).
+        let reply = services
+            .trouper_system
+            .ask(
+                actor,
+                super::RestartForTest {
+                    session_id,
+                    server: "hanging".to_owned(),
+                    timeout: std::time::Duration::from_millis(1),
+                },
+                std::time::Duration::from_secs(10),
+            )
             .await;
+        // The handler replies with RestartOutcome even on failure.
+        let timed_out: bool = match &reply {
+            Ok(value) => {
+                let outcome: super::RestartOutcome =
+                    serde_json::from_value(value.clone()).unwrap();
+                !outcome.ok && outcome.error.as_deref() == Some("Timeout")
+            }
+            Err(_) => false,
+        };
 
         // Then it returns Timeout (startup couldn't complete in 1ms).
         assert!(
-            matches!(
-                result,
-                Err(kameo::error::SendError::HandlerError(RestartError::Timeout))
-            ),
-            "startup exceeding the timeout should yield Timeout; got: {result:?}"
+            timed_out,
+            "startup exceeding the timeout should yield Timeout; got: {reply:?}"
         );
     }
 
@@ -876,12 +918,10 @@ mod lifecycle_tests {
 mod status_tests {
     #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
 
-    use kameo::actor::Spawn;
 
     use jinn_domain::common::actor_deps::ActorDeps;
     use jinn_domain::common::app_state::AppState;
     use jinn_domain::common::bus::test_harness::TestHarness;
-    use jinn_domain::common::root_supervisor::RootSupervisor;
     use jinn_domain::common::state::State;
     use jinn_domain::protocol::SessionId;
     use jinn_mcp_msg::{McpConnectionStatus, McpServerLog, McpServerStatus};
@@ -898,20 +938,21 @@ mod status_tests {
             .user_preferences_storage
             .save(&UserPreferences::default())
             .expect("seed prefs");
-        let root = RootSupervisor::spawn_root().await;
         let state = State::new(AppState::default());
         let session_id = SessionId::new();
         // Insert an active session so the coordinator has a target to write to.
         state.write_test_no_cap().session.get_or_create(&session_id);
-        let actor = McpCoordinatorActor::spawn(McpCoordinatorActorDeps {
-            deps: ActorDeps {
-                services: services.clone(),
+        let _path = McpCoordinatorActor::spawn(
+            &services.trouper_system,
+            McpCoordinatorActorDeps {
+                deps: ActorDeps {
+                    services: services.clone(),
+                },
+                state: state.clone(),
+                cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
             },
-            root,
-            state: state.clone(),
-            cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-        });
-        actor.wait_for_startup().await;
+        )
+        .await;
         (state, session_id)
     }
 

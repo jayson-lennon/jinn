@@ -446,30 +446,16 @@ impl ActorSystemBuilder {
         // the session actor (consumes SessionClosed) and before the MCP
         // coordinator (so MCP tool registrations land in a running
         // orchestrator).
-        // Tool orchestrator actor: dispatched batches emit per-call
-        // execution events and a final ToolBatchCompleted. Spawned after
-        // the session actor (consumes SessionClosed) and before the MCP
-        // coordinator (so MCP tool registrations land in a running
-        // orchestrator).
-        let _tools = spawn_tracked!(
-            &services.bus,
-            "tool-orchestrator",
-            "ToolOrchestratorActor",
-            jinn_tools::ToolOrchestratorActor::supervise(
-                &root,
-                jinn_tools::ToolOrchestratorActorDeps {
-                    deps: actor_deps.clone(),
-                    state: state.clone(),
-                    services: services.clone(),
-                    session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-                    builtin_filter: None,
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
+        jinn_tools::ToolOrchestratorActor::spawn(
+            &services.trouper_system,
+            jinn_tools::ToolOrchestratorActorDeps {
+                deps: actor_deps.clone(),
+                state: state.clone(),
+                services: services.clone(),
+                session_cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
+                builtin_filter: None,
+            },
         );
-        _tools.wait_for_startup().await;
 
         // MCP lifecycle actor: subscribes to session lifecycle events +
         // McpEnablementChanged, spawning/killing one McpActor per
@@ -477,31 +463,23 @@ impl ActorSystemBuilder {
         // tool registrations from McpActor land in an already-running
         // orchestrator. Restored sessions are picked up via SessionLoadCompleted;
         // no startup scan is needed here.
-        let _mcp_coordinator = spawn_tracked!(
-            &services.bus,
-            "mcp-coordinator",
-            "McpCoordinatorActor",
-            jinn_mcp_slice::coordinator::McpCoordinatorActor::supervise(
-                &root,
-                jinn_mcp_slice::coordinator::McpCoordinatorActorDeps {
-                    deps: actor_deps.clone(),
-                    root: root.clone(),
-                    state: state.clone(),
-                    cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-                },
-            )
-            .restart_policy(kameo::supervision::RestartPolicy::Never)
-            .spawn()
-            .await
-        );
-        _mcp_coordinator.wait_for_startup().await;
+        let mcp_coordinator_path = jinn_mcp_slice::coordinator::McpCoordinatorActor::spawn(
+            &services.trouper_system,
+            jinn_mcp_slice::coordinator::McpCoordinatorActorDeps {
+                deps: actor_deps.clone(),
+                state: state.clone(),
+                cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
+            },
+        )
+        .await;
         // Expose a handle to the tool layer (restart_mcp_server). Minted from
-        // the actor ref by the slice; `OnceLock::set` returns Err if already
+        // the spawned path by the slice; `OnceLock::set` returns Err if already
         // set — ignore (e.g. test re-seed).
         let _ = services
             .mcp_coordinator
             .set(jinn_mcp_slice::mcp_coordinator_handle(
-                _mcp_coordinator.clone(),
+                services.trouper_system.clone(),
+                mcp_coordinator_path,
             ));
 
         // Interactive-term coordinator: owns PTY sessions across tool calls

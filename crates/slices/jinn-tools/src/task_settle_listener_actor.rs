@@ -28,9 +28,14 @@
 
 use std::collections::BTreeSet;
 
-use kameo::prelude::{Actor, ActorRef, Context, Message};
+use trouper::actor::ActorPath;
+use trouper::context::MsgCtx;
+use trouper::actor::MsgHandler;
+use trouper::actor::ServiceActor;
+use trouper::registry::RegistryError;
 
 use jinn_domain::common::services::bus_service::BusService;
+use jinn_domain::common::services::bus_service::jinn_domain_topic;
 use jinn_domain::feat::context::protocol::event::ContextFilesLoaded;
 use jinn_domain::feat::provider::protocol::event::PromptTemplatesLoaded;
 use jinn_domain::protocol::SessionId;
@@ -40,7 +45,9 @@ use jinn_skills_msg::SkillsLoaded;
 /// Dependencies for spawning a [`TaskSettleListenerActor`].
 #[derive(Debug)]
 pub struct TaskSettleListenerDeps {
-    /// The bus to subscribe to for discovery events.
+    /// The system to spawn onto (the same fabric `bus` publishes through).
+    pub system: trouper::system::ActorSystem,
+    /// The bus to subscribe with (topic + routed-topic resolution).
     pub bus: BusService,
     /// The child session whose discovery is awaited.
     pub child_id: SessionId,
@@ -65,37 +72,73 @@ pub struct TaskSettleListenerActor {
     prompt_templates_done: bool,
 }
 
-impl Actor for TaskSettleListenerActor {
-    type Args = TaskSettleListenerDeps;
-    type Error = kameo::error::Infallible;
-
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        // Subscribe before returning: the spawn's `wait_for_startup` in the
-        // `task` tool guarantees the subscriptions exist before
-        // `SessionCreated` is published, closing the event-ordering race.
-        args.bus
-            .subscribe::<ContextFilesLoaded, _>(&actor_ref)
-            .await;
-        args.bus.subscribe::<SkillsLoaded, _>(&actor_ref).await;
-        args.bus
-            .subscribe::<PromptTemplatesLoaded, _>(&actor_ref)
-            .await;
-        args.bus.subscribe::<McpServerStatus, _>(&actor_ref).await;
-        Ok(Self {
-            child_id: args.child_id,
-            pending_servers: args.expected_servers,
-            settled: Some(args.settled),
-            context_files_done: false,
-            skills_done: false,
-            prompt_templates_done: false,
-        })
+impl ServiceActor for TaskSettleListenerActor {
+    async fn start(_args: &serde_json::Value) -> Result<Self, error_stack::Report<RegistryError>> {
+        // Never called: spawned via `start_with` (typed deps cannot ride
+        // JSON args).
+        Err(error_stack::Report::new(RegistryError::InvalidSpec)
+            .attach("TaskSettleListenerActor spawns via start_with"))
     }
 }
 
-impl Message<ContextFilesLoaded> for TaskSettleListenerActor {
-    type Reply = ();
+impl TaskSettleListenerActor {
+    /// Spawns the listener onto the trouper system.
+    ///
+    /// Returns only after all four subscriptions are live: the `task` tool
+    /// guarantees `SessionCreated` is published after this call, closing
+    /// the event-ordering race.
+    pub async fn spawn(deps: TaskSettleListenerDeps) -> ActorPath {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let path = ActorPath::new(format!(
+            "jinn.tools.task-settle-listener.{}",
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
+        let bus = deps.bus.clone();
+        trouper::builder::spawn_service_builder::<Self>(&deps.system)
+            .at(path.clone())
+            .start_with({
+                let child_id = deps.child_id.clone();
+                let expected_servers = deps.expected_servers.clone();
+                let settled = deps.settled;
+                move || {
+                    let child_id = child_id.clone();
+                    let expected_servers = expected_servers.clone();
+                    Box::pin(async move {
+                        Ok(Self {
+                            child_id,
+                            pending_servers: expected_servers,
+                            settled: Some(settled),
+                            context_files_done: false,
+                            skills_done: false,
+                            prompt_templates_done: false,
+                        })
+                    })
+                }
+            })
+            .handles::<ContextFilesLoaded>()
+            .handles::<SkillsLoaded>()
+            .handles::<PromptTemplatesLoaded>()
+            .handles::<McpServerStatus>()
+            .mailbox(64, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        // Subscribe via the bus so routed topics stay the single source of
+        // truth. The `task` tool publishes `SessionCreated` only after this
+        // subscribe returns.
+        bus.subscribe_topic::<ContextFilesLoaded>(&path, &jinn_domain_topic())
+            .await;
+        bus.subscribe_topic::<SkillsLoaded>(&path, &jinn_domain_topic())
+            .await;
+        bus.subscribe_topic::<PromptTemplatesLoaded>(&path, &jinn_domain_topic())
+            .await;
+        bus.subscribe_topic::<McpServerStatus>(&path, &jinn_domain_topic())
+            .await;
+        path
+    }
+}
 
-    async fn handle(&mut self, msg: ContextFilesLoaded, ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ContextFilesLoaded> for TaskSettleListenerActor {
+    async fn handle(&mut self, msg: ContextFilesLoaded, ctx: &mut MsgCtx<'_>) {
         if self.aborted(ctx) || msg.session_id != self.child_id {
             return;
         }
@@ -104,10 +147,8 @@ impl Message<ContextFilesLoaded> for TaskSettleListenerActor {
     }
 }
 
-impl Message<SkillsLoaded> for TaskSettleListenerActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: SkillsLoaded, ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<SkillsLoaded> for TaskSettleListenerActor {
+    async fn handle(&mut self, msg: SkillsLoaded, ctx: &mut MsgCtx<'_>) {
         if self.aborted(ctx) || msg.session_id != self.child_id {
             return;
         }
@@ -116,10 +157,8 @@ impl Message<SkillsLoaded> for TaskSettleListenerActor {
     }
 }
 
-impl Message<PromptTemplatesLoaded> for TaskSettleListenerActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: PromptTemplatesLoaded, ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<PromptTemplatesLoaded> for TaskSettleListenerActor {
+    async fn handle(&mut self, msg: PromptTemplatesLoaded, ctx: &mut MsgCtx<'_>) {
         if self.aborted(ctx) || msg.session_id != self.child_id {
             return;
         }
@@ -128,10 +167,8 @@ impl Message<PromptTemplatesLoaded> for TaskSettleListenerActor {
     }
 }
 
-impl Message<McpServerStatus> for TaskSettleListenerActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: McpServerStatus, ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<McpServerStatus> for TaskSettleListenerActor {
+    async fn handle(&mut self, msg: McpServerStatus, ctx: &mut MsgCtx<'_>) {
         if self.aborted(ctx) || msg.session_id != self.child_id {
             return;
         }
@@ -153,20 +190,20 @@ impl TaskSettleListenerActor {
     /// Abort path: the awaiting `task` future was dropped (parent tool batch
     /// cancelled), closing the channel. There is nothing left to signal —
     /// stop listening. Bus traffic gives us the chance to notice.
-    fn aborted(&self, ctx: &mut Context<Self, ()>) -> bool {
+    fn aborted(&self, ctx: &mut MsgCtx<'_>) -> bool {
         let closed = self
             .settled
             .as_ref()
             .is_none_or(tokio::sync::oneshot::Sender::is_closed);
         if closed {
-            ctx.stop();
+            ctx.stop_self();
         }
         closed
     }
 
     /// Settles when every ledger entry is resolved: all three scans arrived
     /// and no server is still pending.
-    fn check(&mut self, ctx: &mut Context<Self, ()>) {
+    fn check(&mut self, ctx: &mut MsgCtx<'_>) {
         let quorum_met = self.context_files_done
             && self.skills_done
             && self.prompt_templates_done
@@ -175,7 +212,7 @@ impl TaskSettleListenerActor {
             if let Some(settled) = self.settled.take() {
                 let _ = settled.send(());
             }
-            ctx.stop();
+            ctx.stop_self();
         }
     }
 }

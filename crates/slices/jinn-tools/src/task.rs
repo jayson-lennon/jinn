@@ -39,8 +39,6 @@
 
 use std::time::Duration;
 
-use kameo::actor::Spawn;
-
 use crate::BoxedToolFuture;
 use crate::task_phase_listener_actor::{TaskPhaseListenerActor, TaskPhaseListenerDeps};
 use crate::task_settle_listener_actor::{TaskSettleListenerActor, TaskSettleListenerDeps};
@@ -273,6 +271,7 @@ const SETTLE_BUDGET: Duration = Duration::from_secs(15);
 /// races its oneshot against the budget. Must be called *after* the actor's
 /// subscriptions are live but *before* `EnqueueUserMessage` is published.
 pub(crate) async fn await_discovery_settlement(
+    system: &trouper::system::ActorSystem,
     bus: &jinn_domain::common::services::bus_service::BusService,
     child_id: &SessionId,
     expected_servers: &std::collections::BTreeSet<String>,
@@ -280,19 +279,20 @@ pub(crate) async fn await_discovery_settlement(
 ) {
     let (settled_tx, settled_rx) = tokio::sync::oneshot::channel();
     let listener = TaskSettleListenerActor::spawn(TaskSettleListenerDeps {
+        system: system.clone(),
         bus: bus.clone(),
         child_id: child_id.clone(),
         expected_servers: expected_servers.clone(),
         settled: settled_tx,
-    });
-    listener.wait_for_startup().await;
+    })
+    .await;
     // Ok(quorum met) or Err(budget elapsed): both proceed. On expiry the
     // receiver drops with this future and the listener notices the closed
     // channel on its next event.
     let _ = tokio::time::timeout(budget, settled_rx).await;
     // Stop a listener that lingered past the budget. Idempotent: it already
-    // self-stopped on quorum, which surfaces as a send error — ignore.
-    let _ = listener.stop_gracefully().await;
+    // self-stopped on quorum, which surfaces as a stop of a stopped path.
+    system.stop(&listener).await;
 }
 
 /// Result of the await step.
@@ -405,12 +405,16 @@ async fn run(call: ToolCall, ctx: ToolContext) -> ToolResult {
     // Listener before publication: guarantees the Idle subscription exists
     // before SessionCreated/EnqueueUserMessage can trigger any phase change.
     let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();
-    let listener = TaskPhaseListenerActor::spawn(TaskPhaseListenerDeps {
+    let Some(system) = ctx.trouper_system.clone() else {
+        return tool_error(call, "no actor system available");
+    };
+    let _phase_listener = TaskPhaseListenerActor::spawn(TaskPhaseListenerDeps {
+        system: system.clone(),
         bus: bus.clone(),
         child_id: child_id.clone(),
         completion: completion_tx,
-    });
-    listener.wait_for_startup().await;
+    })
+    .await;
 
     // Publish: lifecycle actors react to SessionCreated (MCP reconcile,
     // scans, persistence); the session actor turns EnqueueUserMessage into
@@ -424,7 +428,14 @@ async fn run(call: ToolCall, ctx: ToolContext) -> ToolResult {
     // Settle gate: give the discovery actors (context files, skills, prompt
     // templates, MCP servers) a bounded chance to land so the child's first
     // prompt is complete. Only delays — never fails the spawn.
-    await_discovery_settlement(&bus, &child_id, &expected_servers, SETTLE_BUDGET).await;
+    await_discovery_settlement(
+        &system,
+        &bus,
+        &child_id,
+        &expected_servers,
+        SETTLE_BUDGET,
+    )
+    .await;
 
     bus.publish(EnqueueUserMessage {
         session_id: child_id.clone(),

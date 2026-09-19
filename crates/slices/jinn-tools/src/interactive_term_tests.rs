@@ -54,6 +54,7 @@ fn ctx_with(session_id: Option<SessionId>, cwd: &str) -> ToolContext {
         interactive_term: None,
         task_spawns: None,
         session_store: None,
+            trouper_system: None,
     }
 }
 

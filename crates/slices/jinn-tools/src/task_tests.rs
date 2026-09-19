@@ -66,6 +66,7 @@ async fn task_ctx(harness: &TestHarness, state: &State, session_id: SessionId) -
         interactive_term: None,
         task_spawns: Some(services.task_spawns.clone()),
         session_store: Some(services.session_store.clone()),
+        trouper_system: Some(harness.system().clone()),
     }
 }
 
@@ -773,15 +774,15 @@ async fn listener_signals_on_idle_to_idle_transition() {
     let harness = TestHarness::new().await;
     let (tx, rx) = tokio::sync::oneshot::channel();
     let child_id = SessionId::new();
-    let _listener = harness
-        .spawn_actor::<crate::task_phase_listener_actor::TaskPhaseListenerActor>(
-            crate::task_phase_listener_actor::TaskPhaseListenerDeps {
-                bus: harness.bus(),
-                child_id: child_id.clone(),
-                completion: tx,
-            },
-        )
-        .await;
+    let _listener = crate::task_phase_listener_actor::TaskPhaseListenerActor::spawn(
+        crate::task_phase_listener_actor::TaskPhaseListenerDeps {
+            system: harness.system().clone(),
+            bus: harness.bus(),
+            child_id: child_id.clone(),
+            completion: tx,
+        },
+    )
+    .await;
 
     // When a force-published Idle→Idle transition arrives (the cancel path).
     harness
@@ -813,11 +814,12 @@ async fn spawned_settle_wait(
     servers: &BTreeSet<String>,
     budget: Duration,
 ) -> tokio::task::JoinHandle<()> {
+    let system = harness.system().clone();
     let bus = harness.bus();
     let child_id = child_id.clone();
     let servers = servers.clone();
     let wait = tokio::spawn(async move {
-        crate::task::await_discovery_settlement(&bus, &child_id, &servers, budget).await;
+        crate::task::await_discovery_settlement(&system, &bus, &child_id, &servers, budget).await;
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
     wait
@@ -1002,7 +1004,14 @@ async fn settle_waiter_budget_expiry_proceeds() {
     let started = tokio::time::Instant::now();
 
     // When the budget expires with no events at all.
-    crate::task::await_discovery_settlement(&harness.bus(), &child_id, &servers, tiny).await;
+    crate::task::await_discovery_settlement(
+        &harness.system().clone(),
+        &harness.bus(),
+        &child_id,
+        &servers,
+        tiny,
+    )
+    .await;
     let elapsed = started.elapsed();
 
     // Then the call proceeded at the budget without error.
@@ -1026,16 +1035,16 @@ async fn listener_stops_on_channel_close() {
     let servers = BTreeSet::from(["stub".to_owned()]);
     let (settled_tx, settled_rx) = tokio::sync::oneshot::channel::<()>();
     drop(settled_rx);
-    let listener = harness
-        .spawn_actor::<crate::task_settle_listener_actor::TaskSettleListenerActor>(
-            crate::task_settle_listener_actor::TaskSettleListenerDeps {
-                bus: harness.bus(),
-                child_id: child_id.clone(),
-                expected_servers: servers,
-                settled: settled_tx,
-            },
-        )
-        .await;
+    let listener = crate::task_settle_listener_actor::TaskSettleListenerActor::spawn(
+        crate::task_settle_listener_actor::TaskSettleListenerDeps {
+            system: harness.system().clone(),
+            bus: harness.bus(),
+            child_id: child_id.clone(),
+            expected_servers: servers,
+            settled: settled_tx,
+        },
+    )
+    .await;
 
     // When a matching discovery event arrives (the abort check fires).
     harness
@@ -1046,8 +1055,21 @@ async fn listener_stops_on_channel_close() {
         })
         .await;
 
-    // Then the listener stops instead of signalling a dead channel.
-    tokio::time::timeout(Duration::from_secs(2), listener.wait_for_shutdown())
-        .await
-        .expect("listener must notice the closed channel and stop");
+    // Then the listener stops instead of signalling a dead channel: poll
+    // the system export until the listener's slot is gone.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    let mut stopped = false;
+    while tokio::time::Instant::now() < deadline {
+        let export = harness.system().export().await;
+        let alive = export
+            .actors
+            .iter()
+            .any(|a| a.path == listener);
+        if !alive {
+            stopped = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(stopped, "listener must notice the closed channel and stop");
 }

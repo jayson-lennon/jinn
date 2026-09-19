@@ -22,7 +22,6 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use kameo::actor::Spawn;
 
 use crate::connection::{McpActor, McpActorDeps};
 use jinn_domain::common::bus::test_harness::{TestHarness, await_recorded};
@@ -56,15 +55,18 @@ async fn remote_http_server_with_unresolved_header_variable_lands_dead() {
 
     // When spawning the actor (no injected client — real connect path).
     let services = harness.services().await;
-    let actor = McpActor::spawn(McpActorDeps::new(
-        jinn_domain::common::actor_deps::ActorDeps {
-            services: services.clone(),
-        },
-        session_id,
-        "gated-remote".to_owned(),
-        server,
-    ));
-    actor.wait_for_startup().await;
+    let _actor = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::new(
+            jinn_domain::common::actor_deps::ActorDeps {
+                services: services.clone(),
+            },
+            session_id,
+            "gated-remote".to_owned(),
+            server,
+        ),
+    )
+    .await;
 
     // Then startup completes in the Dead state.
     let statuses = await_recorded(&status_recorder, 1, Duration::from_secs(3)).await;
@@ -117,17 +119,21 @@ async fn remote_http_server_with_resolvable_headers_enters_retry_loop() {
         .api_keys
         .insert(VAR.to_owned(), "seeded".to_owned());
 
-    // When spawning the actor on the unreachable URL. `wait_for_startup` is
-    // intentionally NOT awaited: on_start parks in the retry loop forever by
-    // design. Spawning alone is enough for Starting to publish.
-    let _actor = McpActor::spawn(McpActorDeps::new(
-        jinn_domain::common::actor_deps::ActorDeps {
-            services: services.clone(),
-        },
-        session_id,
-        "ok-remote".to_owned(),
-        server,
-    ));
+    // When spawning the actor on the unreachable URL. The connect future is
+    // awaited (it returns after subscribing): on_start parks in the retry
+    // loop forever by design, so Starting publishes during construction.
+    let _actor = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::new(
+            jinn_domain::common::actor_deps::ActorDeps {
+                services: services.clone(),
+            },
+            session_id,
+            "ok-remote".to_owned(),
+            server,
+        ),
+    )
+    .await;
 
     // Then within a window where an expansion failure would long since have
     // published Dead, resolvable headers show only Starting — no Dead.
@@ -219,14 +225,19 @@ async fn stdio_server_with_bogus_header_variable_still_connects() {
     // When spawning the actor with an injected stub connection.
     let services = harness.services().await;
     let client = jinn_mcp::server_testkit::spawn_stub_client().await;
-    let actor = McpActor::spawn(McpActorDeps::with_client(
-        jinn_domain::common::actor_deps::ActorDeps { services },
-        session_id.clone(),
-        "stdio-ignores-headers".to_owned(),
-        server,
-        client,
-    ));
-    actor.wait_for_startup().await;
+    let _actor = McpActor::spawn(
+        &services.trouper_system,
+        McpActorDeps::with_client(
+            jinn_domain::common::actor_deps::ActorDeps {
+                services: services.clone(),
+            },
+            session_id.clone(),
+            "stdio-ignores-headers".to_owned(),
+            server,
+            client,
+        ),
+    )
+    .await;
 
     // Then startup reaches Running — headers were never consulted.
     let statuses = await_recorded(&status_recorder, 1, Duration::from_secs(3)).await;

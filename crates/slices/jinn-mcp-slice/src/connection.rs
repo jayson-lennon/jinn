@@ -28,13 +28,17 @@ use jinn_mcp::{
     CallToolResult, ContentBlock, JsonObject, McpClient, McpClientError, ServerCommand,
     tool_mapping::{map_tool, provider_name, strip_namespace},
 };
-use kameo::actor::ActorRef;
-use kameo::prelude::{Context, Message};
 use parking_lot::Mutex;
+use trouper::actor::ActorPath;
+use trouper::actor::MsgHandler;
+use trouper::actor::ServiceActor;
+use trouper::context::MsgCtx;
+use trouper::registry::RegistryError;
 
 use error_stack::{Report, ResultExt as _};
 use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
 use jinn_domain::common::actor_deps::{ActorDeps, BusPublish};
+use jinn_domain::common::services::bus_service::jinn_domain_topic;
 use jinn_domain::protocol::SessionId;
 use jinn_mcp_msg::{McpConnectionStatus, McpServerLog, McpServerStatus};
 use jinn_mcp_msg::{McpServerConfig, TransportKind};
@@ -300,22 +304,69 @@ fn format_result_content(result: &CallToolResult) -> String {
     parts.join("\n")
 }
 
-impl kameo::Actor for McpActor {
-    type Args = McpActorDeps;
-    type Error = kameo::error::Infallible;
+impl ServiceActor for McpActor {
+    async fn start(_args: &serde_json::Value) -> Result<Self, error_stack::Report<RegistryError>> {
+        // Never called: spawned via `start_with` (typed deps cannot ride
+        // JSON args).
+        Err(error_stack::Report::new(RegistryError::InvalidSpec)
+            .attach("McpActor spawns via start_with"))
+    }
 
-    async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        let McpActorDeps {
-            deps,
-            session_id,
-            name,
-            server,
-            client_override,
-        } = args;
+    async fn on_stop(&mut self, _ctx: &mut MsgCtx<'_>) {
+        // Signal the liveness-watch task first so it cannot publish a `Dead`
+        // that races this teardown's own `Dead` publish below.
+        self.liveness_task_shutdown.store(true, Ordering::SeqCst);
+        // Then signal the stderr-debounce task to exit before we tear down.
+        self.stderr_task_shutdown.store(true, Ordering::SeqCst);
+        // Then signal the HTTP child-exit watcher (if any) to exit; on exit it
+        // drops the `Child`, and `kill_on_drop` terminates a still-alive process.
+        if let Some(flag) = self.child_task_shutdown.as_ref() {
+            flag.store(true, Ordering::SeqCst);
+        }
 
-        deps.subscribe(actor_ref.recipient::<ExecuteTool>()).await;
+        let tail = self
+            .client
+            .as_ref()
+            .map(jinn_mcp::McpClient::stderr_tail)
+            .unwrap_or_default();
+        if let Some(client) = self.client.as_mut() {
+            client.shutdown().await;
+        }
+        publish_status(
+            &self.deps,
+            &self.session_id,
+            &self.name,
+            McpConnectionStatus::Dead,
+        )
+        .await;
+        publish_log(&self.deps, &self.session_id, &self.name, &tail).await;
+        // Teardown removes this server's session-scoped tool registrations
+        // everywhere they were cached. Harmless no-op when startup failed
+        // before any `RegisterTools` fired (subscribers prune by key).
+        let () = self
+            .deps
+            .services
+            .bus
+            .publish(ToolsUnregistered {
+                provider: provider_name(&self.name),
+                session_id: self.session_id.clone(),
+            })
+            .await;
+    }
+}
 
-        publish_status(&deps, &session_id, &name, McpConnectionStatus::Starting).await;
+/// Constructs the actor and connects (the old `on_start` body minus the
+/// `ExecuteTool` subscription — trouper `handles` delivers it).
+async fn start_mcp(args: McpActorDeps) -> Result<McpActor, std::convert::Infallible> {
+    let McpActorDeps {
+        deps,
+        session_id,
+        name,
+        server,
+        client_override,
+    } = args;
+
+    publish_status(&deps, &session_id, &name, McpConnectionStatus::Starting).await;
 
         // Drain any test-injected client from the shared slot. Production is
         // always `None` here, so the actor spawns the server process. Tests
@@ -334,7 +385,7 @@ impl kameo::Actor for McpActor {
                         half_open.shutdown().await;
                     }
                     publish_status(&deps, &session_id, &name, McpConnectionStatus::Dead).await;
-                    return Ok(Self {
+                    return Ok(McpActor {
                         deps,
                         session_id,
                         name,
@@ -414,7 +465,7 @@ impl kameo::Actor for McpActor {
         };
         let child_task_shutdown = child_watch_spawned.then_some(child_task_shutdown);
 
-        Ok(Self {
+        Ok(McpActor {
             deps,
             session_id,
             name,
@@ -424,54 +475,6 @@ impl kameo::Actor for McpActor {
             child_task_shutdown,
         })
     }
-
-    async fn on_stop(
-        &mut self,
-        _actor_ref: kameo::actor::WeakActorRef<Self>,
-        _reason: kameo::error::ActorStopReason,
-    ) -> Result<(), Self::Error> {
-        // Signal the liveness-watch task first so it cannot publish a `Dead`
-        // that races this teardown's own `Dead` publish below.
-        self.liveness_task_shutdown.store(true, Ordering::SeqCst);
-        // Then signal the stderr-debounce task to exit before we tear down.
-        self.stderr_task_shutdown.store(true, Ordering::SeqCst);
-        // Then signal the HTTP child-exit watcher (if any) to exit; on exit it
-        // drops the `Child`, and `kill_on_drop` terminates a still-alive process.
-        if let Some(flag) = self.child_task_shutdown.as_ref() {
-            flag.store(true, Ordering::SeqCst);
-        }
-
-        let tail = self
-            .client
-            .as_ref()
-            .map(jinn_mcp::McpClient::stderr_tail)
-            .unwrap_or_default();
-        if let Some(client) = self.client.as_mut() {
-            client.shutdown().await;
-        }
-        publish_status(
-            &self.deps,
-            &self.session_id,
-            &self.name,
-            McpConnectionStatus::Dead,
-        )
-        .await;
-        publish_log(&self.deps, &self.session_id, &self.name, &tail).await;
-        // Teardown removes this server's session-scoped tool registrations
-        // everywhere they were cached. Harmless no-op when startup failed
-        // before any `RegisterTools` fired (subscribers prune by key).
-        let () = self
-            .deps
-            .services
-            .bus
-            .publish(ToolsUnregistered {
-                provider: provider_name(&self.name),
-                session_id: self.session_id.clone(),
-            })
-            .await;
-        Ok(())
-    }
-}
 
 /// Publishes a connection-status transition for this (session × server).
 async fn publish_status(
@@ -633,16 +636,49 @@ fn next_tail(current: &str, last_published: &str) -> Option<String> {
     (current != last_published).then(|| current.to_owned())
 }
 
+/// Static-path prefix for spawned McpActors; the (session × server) key
+/// is appended (one instance per pair).
+pub const MCP_ACTOR_PATH_PREFIX: &str = "jinn.mcp.connection.";
+
+impl McpActor {
+    /// Spawns one connection actor onto the trouper system.
+    ///
+    /// Returns only after the `ExecuteTool` subscription is live, so an
+    /// early tool dispatch cannot race the spawn.
+    pub async fn spawn(system: &trouper::system::ActorSystem, deps: McpActorDeps) -> ActorPath {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let path = ActorPath::new(format!(
+            "{MCP_ACTOR_PATH_PREFIX}{}.{}",
+            deps.session_id,
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
+        let bus = deps.deps.services.bus.clone();
+        let deps_for_start = deps.clone();
+        trouper::builder::spawn_service_builder::<Self>(system)
+            .at(path.clone())
+            .start_with(move || {
+                let deps = deps_for_start.clone();
+                Box::pin(async move { start_mcp(deps).await.map_err(|e| match e {}) })
+            })
+            .handles::<ExecuteTool>()
+            .handles::<ConnectionState>()
+            .mailbox(64, trouper::inbox::OverloadPolicy::Block)
+            .start();
+        bus.subscribe_topic::<ExecuteTool>(&path, &jinn_domain_topic())
+            .await;
+        path
+    }
+}
+
 impl BusPublish for McpActor {
     fn bus(&self) -> &jinn_domain::common::services::bus_service::BusService {
         &self.deps.services.bus
     }
 }
 
-impl Message<ExecuteTool> for McpActor {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: ExecuteTool, _ctx: &mut Context<Self, Self::Reply>) {
+impl MsgHandler<ExecuteTool> for McpActor {
+    async fn handle(&mut self, msg: ExecuteTool, _ctx: &mut MsgCtx<'_>) {
         // Only handle calls for this session whose tool name carries this
         // server's namespace prefix.
         if msg.session_id != self.session_id {
@@ -736,17 +772,34 @@ impl Message<ExecuteTool> for McpActor {
 /// Used by `McpCoordinatorActor::restart_one` after `wait_for_startup` to learn
 /// whether the newly-spawned actor connected successfully, *without* relying on
 /// bus-event ordering (the old status-event approach was race-prone).
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
 pub struct ConnectionState;
 
-impl Message<ConnectionState> for McpActor {
-    type Reply = bool;
+impl jinn_slices::BusMessage for ConnectionState {}
 
-    async fn handle(
-        &mut self,
-        _msg: ConnectionState,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) -> bool {
-        self.client.is_some()
+jinn_slices::crossing_schema!(ConnectionState, "McpConnectionStateProbe",
+    trouper::schema::SchemaKind::Command,
+    description: "Post-startup probe: is the server's client still connected?",
+    fields: []);
+
+/// Boolean probe reply payload (JSON-friendly twin of `bool`).
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
+pub struct ConnectionStateReply {
+    pub connected: bool,
+}
+
+impl jinn_slices::BusMessage for ConnectionStateReply {}
+
+jinn_slices::crossing_schema!(ConnectionStateReply, "McpConnectionStateReply",
+    trouper::schema::SchemaKind::Event,
+    description: "Reply payload for the connection-state probe.",
+    fields: ["connected" => trouper::schema::FieldTy::Bool]);
+
+impl MsgHandler<ConnectionState> for McpActor {
+    async fn handle(&mut self, _msg: ConnectionState, ctx: &mut MsgCtx<'_>) {
+        ctx.reply(ConnectionStateReply {
+            connected: self.client.is_some(),
+        });
     }
 }
 

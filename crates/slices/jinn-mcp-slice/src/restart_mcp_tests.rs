@@ -28,15 +28,13 @@ use jinn_domain::common::actor_deps::ActorDeps;
 use jinn_domain::common::app_paths::AppPaths;
 use jinn_domain::common::app_state::AppState;
 use jinn_domain::common::bus::test_harness::TestHarness;
-use jinn_domain::common::root_supervisor::RootSupervisor;
 use jinn_domain::common::state::State;
 use jinn_domain::protocol::SessionId;
 use jinn_mcp_msg::McpServerConfig;
-use jinn_mcp_msg::{RestartError, RestartMcpServer};
+use jinn_mcp_msg::RestartError;
 use jinn_preferences_config::user_preferences::UserPreferences;
 use jinn_tools::restart_mcp::execute;
 use jinn_tools::tool_types::ToolContext;
-use kameo::actor::Spawn;
 
 /// A configured MCP server whose command will never spawn successfully, so the
 /// spawned `McpActor` fails to connect and goes Dead.
@@ -53,7 +51,7 @@ async fn spawn_coordinator(
     harness: &TestHarness,
     servers: &[(&str, McpServerConfig)],
 ) -> (
-    kameo::actor::ActorRef<McpCoordinatorActor>,
+    std::sync::Arc<dyn jinn_mcp_msg::McpCoordinatorHandle>,
     jinn_domain::Services,
     jinn_domain::common::state::State,
 ) {
@@ -68,18 +66,20 @@ async fn spawn_coordinator(
             ..UserPreferences::default()
         })
         .expect("seed prefs");
-    let root = RootSupervisor::spawn_root().await;
     let state = State::new(AppState::default());
-    let actor = McpCoordinatorActor::spawn(McpCoordinatorActorDeps {
-        deps: ActorDeps {
-            services: services.clone(),
+    let path = McpCoordinatorActor::spawn(
+        &services.trouper_system,
+        McpCoordinatorActorDeps {
+            deps: ActorDeps {
+                services: services.clone(),
+            },
+            state: state.clone(),
+            cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
         },
-        root,
-        state: state.clone(),
-        cap: jinn_domain::common::tcaps::mint::mint_session_cap(),
-    });
-    actor.wait_for_startup().await;
-    (actor, services, state)
+    )
+    .await;
+    let handle = crate::mcp_coordinator_handle(services.trouper_system.clone(), path);
+    (handle, services, state)
 }
 
 /// Builds a tool call targeting the given server.
@@ -94,7 +94,7 @@ fn call(server: &str) -> ToolCall {
 /// Builds a ToolContext wired to the given coordinator ref + state seeded with
 /// `excalimate`.
 fn ctx_with_coordinator(
-    coordinator: kameo::actor::ActorRef<McpCoordinatorActor>,
+    coordinator: std::sync::Arc<dyn jinn_mcp_msg::McpCoordinatorHandle>,
     session_id: SessionId,
 ) -> ToolContext {
     let config = McpServerConfig {
@@ -121,10 +121,11 @@ fn ctx_with_coordinator(
         max_output_bytes: None,
         dispatched_at: jiff::Timestamp::now(),
         session_cap: None,
-        mcp_coordinator: Some(crate::mcp_coordinator_handle(coordinator)),
+        mcp_coordinator: Some(coordinator),
         interactive_term: None,
         task_spawns: None,
         session_store: None,
+            trouper_system: None,
     }
 }
 
@@ -142,22 +143,12 @@ async fn restart_one_returns_connect_failed_for_unrunnable_command() {
         spawn_coordinator(&harness, &[("unrunnable", unrunnable_server())]).await;
     let session_id = SessionId::new();
 
-    // When asking the coordinator to restart that server.
-    let reply = coordinator
-        .ask(RestartMcpServer {
-            session_id,
-            server: "unrunnable".to_owned(),
-        })
-        .await;
+    // When asking the coordinator to restart that server (via the seam).
+    let reply = coordinator.restart(session_id, "unrunnable".to_owned()).await;
 
-    // Then the reply is a domain-level ConnectFailed (wrapped in SendError).
+    // Then the reply is a domain-level ConnectFailed.
     assert!(
-        matches!(
-            reply,
-            Err(kameo::error::SendError::HandlerError(
-                RestartError::ConnectFailed
-            ))
-        ),
+        matches!(reply, Err(RestartError::ConnectFailed)),
         "unrunnable command should yield ConnectFailed; got: {reply:?}"
     );
 }
@@ -172,22 +163,12 @@ async fn restart_one_returns_unknown_server_for_unconfigured_server() {
         spawn_coordinator(&harness, &[("unrunnable", unrunnable_server())]).await;
     let session_id = SessionId::new();
 
-    // When asking to restart a different (unconfigured) server.
-    let reply = coordinator
-        .ask(RestartMcpServer {
-            session_id,
-            server: "ghost".to_owned(),
-        })
-        .await;
+    // When asking to restart a different (unconfigured) server (via the seam).
+    let reply = coordinator.restart(session_id, "ghost".to_owned()).await;
 
     // Then the reply is a domain-level UnknownServer.
     assert!(
-        matches!(
-            reply,
-            Err(kameo::error::SendError::HandlerError(
-                RestartError::UnknownServer
-            ))
-        ),
+        matches!(reply, Err(RestartError::UnknownServer)),
         "unconfigured server should yield UnknownServer; got: {reply:?}"
     );
 }
@@ -218,6 +199,7 @@ async fn execute_fails_when_coordinator_ref_is_none() {
         interactive_term: None,
         task_spawns: None,
         session_store: None,
+            trouper_system: None,
     };
 
     // When executing.
