@@ -399,3 +399,5 @@ Entries are added or amended **only with human approval**.
 - (session) ChatEntry and its history vocabulary (ChatHistory, HistoryMutation, ToolResultStatus) live in jinn-core-types.
 - (slices) The session-history slice owns the HistoryEditor write path and the history contracts in jinn-session-history-msg; it has no actor — the kernel session actor's fold handlers are its sanctioned multi-boundary writes.
 - (skills) The skills slice owns skill vocabulary and parsing (Skill/SkillSource, frontmatter, scan, prompt formatting, loaded-name labels); the UI-bound trio (picker entry, preview cache, picker reload) stays kernel, and session-init publishes SkillsLoaded through its reverse relays.
+- (curation) Prune and compaction run as two trouper ServiceActors in jinn-context-curation; the prune actor snapshots history internally on HistoryAppended and HistorySnapshotReady no longer exists.
+- (curation) Compaction trigger and prune workers publish SubmitHistoryMutations; the kernel session actor's accumulation gate batches only prune ForcedExclude mutations and applies everything else immediately.
