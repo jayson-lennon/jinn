@@ -23,6 +23,8 @@ use jinn_provider_config::LlmServiceFactoryService;
 use jinn_provider_config::StopReason;
 use jinn_provider_config::StreamEvent;
 use jinn_session_history_msg::PushChatEntry;
+use jinn_slices::StreamContext;
+use jinn_slices::StreamRuleSession;
 use jinn_slices::SystemPrompt;
 use jinn_tools_msg::CancelToolBatch;
 use jinn_tools_msg::ExecuteToolBatch;
@@ -226,6 +228,7 @@ async fn process_stream_events(
     sid: &SessionId,
     model_id: &str,
     dispatched_at: jiff::Timestamp,
+    mut rules: Option<&mut (dyn StreamRuleSession + '_)>,
 ) {
     let mut accum = StreamAccumulator::new(model_id);
     let mut events_seen = 0usize;
@@ -236,14 +239,35 @@ async fn process_stream_events(
             Ok(event) => match event {
                 StreamEvent::Text(token) => {
                     publish_activity(bus, sid).await;
-                    handle_text_event(bus, sid, dispatched_at, &mut accum, token).await;
+                    handle_text_event(
+                        bus,
+                        sid,
+                        dispatched_at,
+                        &mut accum,
+                        token,
+                        rules.as_deref_mut(),
+                        StreamContext::text(),
+                    )
+                    .await;
                 }
                 StreamEvent::Reasoning(token) => {
                     publish_activity(bus, sid).await;
-                    handle_reasoning_event(bus, sid, dispatched_at, &mut accum, token).await;
+                    handle_reasoning_event(
+                        bus,
+                        sid,
+                        dispatched_at,
+                        &mut accum,
+                        token,
+                        rules.as_deref_mut(),
+                        StreamContext::thinking(),
+                    )
+                    .await;
                 }
                 StreamEvent::ToolUseStart { index, id, name } => {
                     publish_activity(bus, sid).await;
+                    // The name arrives only here, so it is recorded against
+                    // the index the argument deltas will carry.
+                    accum.tool_names.insert(index, name.clone());
                     bus.publish(ToolUseStarted {
                         session_id: sid.clone(),
                         index,
@@ -258,6 +282,13 @@ async fn process_stream_events(
                     partial_json,
                 } => {
                     publish_activity(bus, sid).await;
+                    // A rule scoped to a tool call is tested against the
+                    // arguments as they accumulate, so the tool name the
+                    // start event recorded is what names the stream.
+                    if let Some(session) = rules.as_deref_mut() {
+                        let name = accum.tool_names.get(&index).map_or("", String::as_str);
+                        session.check(&partial_json, StreamContext::tool(index, name));
+                    }
                     bus.publish(ToolCallStreaming {
                         session_id: sid.clone(),
                         index,
@@ -361,6 +392,13 @@ struct StreamAccumulator {
     token_index: usize,
     model_id: String,
     parser: Box<dyn reasoning_parser::ReasoningParser>,
+    /// The name of each in-flight tool call, keyed by its index.
+    ///
+    /// Recorded from `ToolUseStart`, which is the only event that names the
+    /// tool: the argument deltas that follow carry an index and a partial
+    /// JSON fragment and nothing else. A `tool:<name>(<glob>)` scope needs
+    /// the name, and the provider will not repeat it.
+    tool_names: HashMap<usize, String>,
 }
 
 impl StreamAccumulator {
@@ -374,6 +412,7 @@ impl StreamAccumulator {
             token_index: 0,
             model_id: model_id.to_owned(),
             parser,
+            tool_names: HashMap::new(),
         }
     }
 
@@ -456,12 +495,18 @@ async fn publish_stream_completed(
 }
 
 /// Handles a `StreamEvent::Text`: parses reasoning/normal split, publishes both.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the stream handlers share one shape: bus, session, time, accumulator, payload, rules"
+)]
 async fn handle_text_event(
     bus: &BusService,
     sid: &SessionId,
     dispatched_at: jiff::Timestamp,
     accum: &mut StreamAccumulator,
     token: String,
+    mut rules: Option<&mut (dyn StreamRuleSession + '_)>,
+    ctx: StreamContext<'_>,
 ) {
     tracing::info!(
         session_id = ?sid,
@@ -469,6 +514,13 @@ async fn handle_text_event(
         token_preview = %token.get(..token.len().min(50)).unwrap_or_default(),
         "LLM ACTOR StreamEvent::Text"
     );
+    // Asked before any publish, so a delta that trips a rule has not yet
+    // reached the chat log.
+    if let Some(session) = rules.as_mut()
+        && session.check(&token, ctx).is_some()
+    {
+        return;
+    }
     accum.text.push_str(&token);
     let parsed = match accum.parser.parse_reasoning_streaming_incremental(&token) {
         Ok(r) => r,
@@ -490,12 +542,18 @@ async fn handle_text_event(
 }
 
 /// Handles a `StreamEvent::Reasoning`: accumulates and publishes thinking text.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the stream handlers share one shape: bus, session, time, accumulator, payload, rules"
+)]
 async fn handle_reasoning_event(
     bus: &BusService,
     sid: &SessionId,
     dispatched_at: jiff::Timestamp,
     accum: &mut StreamAccumulator,
     token: String,
+    mut rules: Option<&mut (dyn StreamRuleSession + '_)>,
+    ctx: StreamContext<'_>,
 ) {
     tracing::info!(
         session_id = ?sid,
@@ -503,6 +561,11 @@ async fn handle_reasoning_event(
         token_preview = %token.get(..token.len().min(50)).unwrap_or_default(),
         "LLM ACTOR StreamEvent::Reasoning"
     );
+    if let Some(session) = rules.as_mut()
+        && session.check(&token, ctx).is_some()
+    {
+        return;
+    }
     accum.publish_thinking(bus, sid, token, dispatched_at).await;
 }
 
@@ -653,6 +716,20 @@ impl InferenceActor {
         // Dump the complete assembled request payload (one file per dispatch).
         self.services.request_dump.dump(payload);
 
+        // Resolved once per stream, not per delta: with no rules configured
+        // this is `None` and the stream path is byte-for-byte what it was.
+        let rules = self
+            .services
+            .slices
+            .reader::<jinn_slices::StreamRules>(&jinn_slices::stream_rules_slot())
+            .and_then(|cell| {
+                // The cell handle is cloned out first: the session borrows
+                // the installed set, so the handle must outlive the local
+                // `reader` binding above.
+                let cell = cell.clone();
+                cell.read().new_session(&session_id)
+            });
+
         let handle = tokio::spawn(run_stream(
             factory,
             bus,
@@ -663,6 +740,7 @@ impl InferenceActor {
             tools,
             dispatched_at,
             retry_config,
+            rules,
         ));
 
         // Update session state.
@@ -789,6 +867,10 @@ impl InferenceActor {
 /// detection — silence on an in-flight provider stream — lives in the
 /// `jinn-watchdog` slice's stall-watchdog actor, which treats a stall like
 /// a hard server error and re-dispatches the turn.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per part of the provider request, plus the rules cell"
+)]
 async fn run_stream(
     factory: LlmServiceFactoryService,
     bus: BusService,
@@ -799,6 +881,7 @@ async fn run_stream(
     tools: Vec<ToolDefinition>,
     dispatched_at: jiff::Timestamp,
     retry_config: RequestRetryConfig,
+    rules: Option<Box<dyn StreamRuleSession + '_>>,
 ) {
     let service = match build_streaming_service(&factory, &retry_config, &bus, &sid) {
         Ok(s) => s,
@@ -826,7 +909,18 @@ async fn run_stream(
         }
     };
 
-    process_stream_events(stream, &bus, &sid, &model_id, dispatched_at).await;
+    let mut rules = rules;
+    process_stream_events(
+        stream,
+        &bus,
+        &sid,
+        &model_id,
+        dispatched_at,
+        rules
+            .as_mut()
+            .map(|boxed| boxed.as_mut() as &mut (dyn StreamRuleSession + '_)),
+    )
+    .await;
 }
 
 /// Constructs a fresh retrying service for one streaming attempt.

@@ -2018,6 +2018,7 @@ dependencies = [
  "jinn-slices",
  "jinn-status-bar",
  "jinn-status-bar-msg",
+ "jinn-stream-rules",
  "jinn-term",
  "jinn-term-msg",
  "jinn-testutil",
@@ -3648,6 +3649,21 @@ dependencies = [
  "jinn-core-types",
  "jinn-slices",
  "serde",
+]
+
+[[package]]
+name = "jinn-stream-rules"
+version = "1.4.0"
+dependencies = [
+ "globset",
+ "jinn-config",
+ "jinn-core-types",
+ "jinn-preferences-config",
+ "jinn-slices",
+ "regex",
+ "rstest",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]

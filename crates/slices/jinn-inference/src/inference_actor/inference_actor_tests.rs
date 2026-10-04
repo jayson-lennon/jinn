@@ -716,6 +716,9 @@ async fn process_stream_events_completes_on_done_event() {
         &sid,
         "test-model",
         jiff::Timestamp::now(),
+        // No rule matcher: these cases are about the stream path itself, and
+        // `None` is exactly what a configuration with no rules resolves to.
+        None,
     )
     .await;
 
@@ -777,6 +780,9 @@ async fn process_stream_events_publishes_activity_for_a_tool_call_with_no_text()
         &sid,
         "test-model",
         jiff::Timestamp::now(),
+        // No rule matcher: these cases are about the stream path itself, and
+        // `None` is exactly what a configuration with no rules resolves to.
+        None,
     )
     .await;
 
@@ -809,6 +815,9 @@ async fn tool_only_stream_publishes_no_stream_tokens() {
         &sid,
         "test-model",
         jiff::Timestamp::now(),
+        // No rule matcher: these cases are about the stream path itself, and
+        // `None` is exactly what a configuration with no rules resolves to.
+        None,
     )
     .await;
 
@@ -844,6 +853,9 @@ async fn process_stream_events_publishes_no_activity_for_the_terminal_done_event
         &sid,
         "test-model",
         jiff::Timestamp::now(),
+        // No rule matcher: these cases are about the stream path itself, and
+        // `None` is exactly what a configuration with no rules resolves to.
+        None,
     )
     .await;
 
@@ -888,6 +900,9 @@ async fn process_stream_events_publishes_citations_on_done_when_accumulated() {
         &sid,
         "test-model",
         jiff::Timestamp::now(),
+        // No rule matcher: these cases are about the stream path itself, and
+        // `None` is exactly what a configuration with no rules resolves to.
+        None,
     )
     .await;
 

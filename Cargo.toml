@@ -65,6 +65,7 @@ jinn-context-curation = { workspace = true }
 jinn-context-curation-msg = { workspace = true }
 jinn-turn-dispatch = { workspace = true }
 jinn-inference = { workspace = true }
+jinn-stream-rules = { workspace = true }
 jinn-watchdog = { workspace = true }
 jinn-citations = { workspace = true }
 jinn-export = { workspace = true }
@@ -206,6 +207,7 @@ jinn-chat-input = { path = "crates/slices/jinn-chat-input" }
 jinn-chat-log-view = { path = "crates/slices/jinn-chat-log-view" }
 jinn-scope-focus = { path = "crates/slices/jinn-scope-focus" }
 jinn-sidebar = { path = "crates/slices/jinn-sidebar" }
+jinn-stream-rules = { path = "crates/slices/jinn-stream-rules" }
 jinn-cwd = { path = "crates/slices/jinn-cwd" }
 jinn-status-bar = { path = "crates/slices/jinn-status-bar" }
 jinn-slices = { path = "crates/jinn-slices" }
