@@ -198,7 +198,8 @@ impl MsgHandler<AbortStream> for InferenceActor {
         reason = "the MsgHandler signature is async; the teardown awaits its own publishes"
     )]
     async fn handle(&mut self, msg: &AbortStream, _ctx: &mut MsgCtx<'_>) {
-        self.abort_stream(&msg.session_id).await;
+        self.abort_stream(&msg.session_id, Some(msg.dispatched_at))
+            .await;
     }
 }
 
@@ -424,11 +425,6 @@ async fn intercept_and_resume(
         "stream rule matched; interrupting the turn before publishing"
     );
 
-    bus.publish(CancelStream {
-        session_id: sid.clone(),
-    })
-    .await;
-
     bus.publish(jinn_session_history_msg::PushChatEntry {
         session_id: sid.clone(),
         entry: ChatEntry::user(render_rule_interrupt(&fired.name, &fired.body)),
@@ -452,6 +448,17 @@ async fn intercept_and_resume(
         provider_prompt_tokens: None,
         cached_tokens: None,
         thinking_content: None,
+        dispatched_at,
+    })
+    .await;
+
+    // Published after the guidance and the completion, and stamped with this
+    // generation so the actor tears down the generation that just ended rather
+    // than the one this intercept resumes into. Sending it last also keeps it
+    // from cutting off the publishes above: the abort cancels the very task
+    // that issued it.
+    bus.publish(AbortStream {
+        session_id: sid.clone(),
         dispatched_at,
     })
     .await;
@@ -927,9 +934,35 @@ impl InferenceActor {
     /// history entry that every consumer reads as a user cancel — so the
     /// teardown is called directly instead.
     ///
+    /// A rule intercept carries the dispatch it is aborting, and a mismatch
+    /// means the abort is stale: the turn already resumed on a newer
+    /// generation and this one would tear down the resumed stream, leaving the
+    /// session with neither the original nor its replacement. A cancel is
+    /// always undated, so it applies to whatever generation is current.
+    ///
     /// Returns the dispatch time of the aborted generation and whether there
     /// was one to abort.
-    async fn abort_stream(&mut self, session_id: &SessionId) -> (Option<jiff::Timestamp>, bool) {
+    async fn abort_stream(
+        &mut self,
+        session_id: &SessionId,
+        only_dispatched_at: Option<jiff::Timestamp>,
+    ) -> (Option<jiff::Timestamp>, bool) {
+        let current = self
+            .sessions
+            .get(session_id)
+            .and_then(SessionData::dispatched_at);
+        if let Some(wanted) = only_dispatched_at
+            && current != Some(wanted)
+        {
+            tracing::warn!(
+                session_id = %session_id,
+                aborted = ?wanted,
+                current = ?current,
+                "dropping a stream-rule abort for a superseded generation"
+            );
+            return (current, false);
+        }
+
         // Arm the tombstone before anything else so any tool-loop continuation
         // already in flight is rejected when it arrives. Cleared by the next
         // user-originated send.
@@ -956,7 +989,7 @@ impl InferenceActor {
 
     /// Cancels the active stream for a session and emits a completion event.
     async fn cancel_stream(&mut self, session_id: &SessionId) {
-        let (dispatched_at, had_session) = self.abort_stream(session_id).await;
+        let (dispatched_at, had_session) = self.abort_stream(session_id, None).await;
 
         // Only emit StreamCompleted if there was actually an active session
         // to cancel. Avoids pushing a spurious "Cancelled" error entry when

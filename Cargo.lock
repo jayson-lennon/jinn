@@ -2659,6 +2659,7 @@ dependencies = [
  "error-stack",
  "futures",
  "jiff",
+ "jinn-cell-catalog",
  "jinn-core-types",
  "jinn-inference-msg",
  "jinn-kernel",

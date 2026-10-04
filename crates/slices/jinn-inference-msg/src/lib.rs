@@ -56,6 +56,15 @@ impl jinn_slices::BusMessage for CancelStream {}
 pub struct AbortStream {
     /// The session whose stream should be torn down.
     pub session_id: SessionId,
+    /// The dispatch being aborted, so a stale abort cannot tear down the
+    /// stream that resumed after it.
+    ///
+    /// The stream task that publishes this has already returned by the time
+    /// the actor handles it, and the resumed turn's own dispatch is armed by
+    /// the time the bus delivers it — so without this stamp an abort that
+    /// arrives late would abort the resumed stream instead of the finished
+    /// one, and the session would lose both.
+    pub dispatched_at: jiff::Timestamp,
 }
 impl jinn_slices::BusMessage for AbortStream {}
 

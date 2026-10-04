@@ -1209,3 +1209,209 @@ async fn a_rule_that_matches_nothing_leaves_the_stream_untouched() {
     let recorded = await_recorded(&completed, 1, std::time::Duration::from_secs(5)).await;
     assert_eq!(recorded[0].reason, StreamCompletedReason::Finished);
 }
+
+// ------------------------------------------------------------------
+// Regression: the intercept's abort reaches the actor as AbortStream
+// ------------------------------------------------------------------
+
+/// Spawns the real actor on `harness`'s bus, with `rules` installed in the
+/// stream-rules cell, and returns the harness for observation.
+///
+/// The interception tests below deliberately go through `spawn` rather than
+/// calling the loop directly: the abort is a message to the actor, and only
+/// the spawned actor can show which command the intercept actually sends.
+async fn spawn_actor_with_rules(
+    harness: &TestHarness,
+    factory: FakeLlmServiceFactory,
+    rules: Option<Arc<dyn jinn_slices::StreamRuleSet>>,
+) {
+    let mut services = crate::inference_actor::test_services_with_bus(harness.bus()).await;
+    services.llm_service = jinn_provider_config::LlmServiceFactoryService::new(Arc::new(factory));
+
+    jinn_cell_catalog::register_all_cells(&services.slices);
+    if let Some(rules) = rules {
+        let Some(cell) = services
+            .slices
+            .reader::<jinn_slices::StreamRules>(&jinn_slices::stream_rules_slot())
+        else {
+            panic!("the stream-rules cell must be minted by the catalog");
+        };
+        cell.update(|payload| payload.install(rules));
+    }
+
+    InferenceActor::spawn(harness.system(), services);
+}
+
+/// A dispatch that streams `tokens` as one response.
+fn dispatch_for(session_id: &SessionId) -> SendToLlmProvider {
+    SendToLlmProvider {
+        origin: StreamOrigin::User,
+        model_used: None,
+        reasoning_effort: None,
+        endpoint_tag: None,
+        session_id: session_id.clone(),
+        messages: vec![],
+        system_prompt: Default::default(),
+        provider_id: None,
+        tool_definitions: vec![],
+        estimated_tokens: 0,
+        dispatched_at: jiff::Timestamp::now(),
+    }
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_intercept_aborts_the_stream_without_cancelling_the_turn() {
+    // Given the actor spawned with a rule that trips on the response text.
+    let harness = TestHarness::new().await;
+    spawn_actor_with_rules(
+        &harness,
+        FakeLlmServiceFactory::new(vec!["FORBIDDEN tail".to_owned()]),
+        Some(rule_set("FORBIDDEN")),
+    )
+    .await;
+    let completed = harness.spawn_recorder::<StreamCompleted>().await;
+    let aborts = harness.spawn_recorder::<AbortStream>().await;
+    let cancels = harness.spawn_recorder::<CancelStream>().await;
+
+    // When a turn streams output that trips the rule.
+    harness.bus().publish(dispatch_for(&SessionId::new())).await;
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+
+    // Then the turn was aborted, not cancelled: a cancel would emit a second
+    // completion pushing the literal `Cancelled` entry every consumer reads
+    // as a user cancel.
+    let aborts = await_recorded(&aborts, 1, std::time::Duration::from_millis(200)).await;
+    assert_eq!(
+        aborts.len(),
+        1,
+        "the intercept must abort the generation it stopped"
+    );
+    let cancels = await_recorded(&cancels, 1, std::time::Duration::from_millis(100)).await;
+    assert!(
+        cancels.is_empty(),
+        "the intercept must never publish a cancel: that races a second, \
+         cancelling completion against the intercept's own"
+    );
+
+    // And the only completion is the intercept's.
+    let completed = await_recorded(&completed, 1, std::time::Duration::from_millis(200)).await;
+    assert_eq!(
+        completed.len(),
+        1,
+        "an intercepted response must complete exactly once, got {:?}",
+        completed.iter().map(|c| c.reason).collect::<Vec<_>>()
+    );
+    assert_eq!(completed[0].reason, StreamCompletedReason::RuleIntercept);
+    assert_ne!(completed[0].reason, StreamCompletedReason::Canceled);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_intercept_publishes_the_guidance_and_the_abort_before_completing() {
+    // Given the actor spawned with a rule that trips.
+    let harness = TestHarness::new().await;
+    spawn_actor_with_rules(
+        &harness,
+        FakeLlmServiceFactory::new(vec!["FORBIDDEN".to_owned()]),
+        Some(rule_set("FORBIDDEN")),
+    )
+    .await;
+    let aborts = harness.spawn_recorder::<AbortStream>().await;
+    let completed = harness.spawn_recorder::<StreamCompleted>().await;
+
+    // When a turn trips the rule.
+    harness.bus().publish(dispatch_for(&SessionId::new())).await;
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+
+    // Then the abort carried the dispatch it stopped, so the actor can tell a
+    // live abort from one the resume has already superseded.
+    let aborts = await_recorded(&aborts, 1, std::time::Duration::from_millis(200)).await;
+    assert_eq!(aborts.len(), 1);
+    let completed = await_recorded(&completed, 1, std::time::Duration::from_millis(200)).await;
+    assert_eq!(completed.len(), 1);
+    assert_eq!(
+        aborts[0].dispatched_at, completed[0].dispatched_at,
+        "the abort must name the same generation the completion reports"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_stale_abort_does_not_tear_down_the_resumed_generation() {
+    // Given an actor with a live generation whose dispatch is `live`.
+    let mut actor = test_llm_actor_standalone().await;
+    let sid = SessionId::new();
+    let live = jiff::Timestamp::now();
+    actor.sessions.insert(sid.clone(), SessionData::new());
+    actor
+        .sessions
+        .get_mut(&sid)
+        .expect("session inserted")
+        .begin_streaming(live);
+
+    // When an abort for a superseded generation arrives.
+    let superseded = live - jiff::Span::new().nanoseconds(1_000);
+    let (_, acted) = actor.abort_stream(&sid, Some(superseded)).await;
+
+    // Then it is dropped: the live generation is untouched.
+    assert!(
+        !acted,
+        "a stale abort must not tear down the live generation"
+    );
+    assert!(
+        actor.sessions.contains_key(&sid),
+        "the live generation must survive a stale abort"
+    );
+    assert!(
+        !actor.cancelled_sessions.contains(&sid),
+        "a dropped abort must not arm the tombstone for a live stream"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_abort_for_the_live_generation_tears_it_down() {
+    // Given an actor with a live generation whose dispatch is `live`.
+    let mut actor = test_llm_actor_standalone().await;
+    let sid = SessionId::new();
+    let live = jiff::Timestamp::now();
+    actor.sessions.insert(sid.clone(), SessionData::new());
+    actor
+        .sessions
+        .get_mut(&sid)
+        .expect("session inserted")
+        .begin_streaming(live);
+
+    // When an abort stamped with that dispatch arrives.
+    let (dispatched_at, acted) = actor.abort_stream(&sid, Some(live)).await;
+
+    // Then the generation is torn down and the tombstone armed, so a
+    // continuation in flight cannot resurrect the dead generation.
+    assert!(acted);
+    assert_eq!(dispatched_at, Some(live));
+    assert!(!actor.sessions.contains_key(&sid));
+    assert!(actor.cancelled_sessions.contains(&sid));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_undated_cancel_applies_to_whichever_generation_is_current() {
+    // Given an actor whose live generation is stamped.
+    let mut actor = test_llm_actor_standalone().await;
+    let sid = SessionId::new();
+    actor.sessions.insert(sid.clone(), SessionData::new());
+    actor
+        .sessions
+        .get_mut(&sid)
+        .expect("session inserted")
+        .begin_streaming(jiff::Timestamp::now());
+
+    // When a cancel arrives, which carries no generation stamp.
+    let (_, acted) = actor.abort_stream(&sid, None).await;
+
+    // Then it acts — the user pressing Escape means the current generation,
+    // whichever it is.
+    assert!(acted, "a cancel must always abort the current generation");
+    assert!(!actor.sessions.contains_key(&sid));
+}
