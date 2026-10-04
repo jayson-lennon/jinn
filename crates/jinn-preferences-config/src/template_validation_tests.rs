@@ -156,6 +156,7 @@ const OWNED_KEYS: &[&str] = &[
     "session_lifecycle",
     "project",
     "attendant",
+    "stream_rules",
 ];
 
 #[rstest::rstest]

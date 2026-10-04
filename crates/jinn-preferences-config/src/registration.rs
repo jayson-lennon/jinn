@@ -30,11 +30,12 @@ use crate::schemas::{
 /// [`jinn_config::ConfigList`] sections are deliberately absent.
 /// `ConfigLayer::register` is bound to `Configurable`, which supplies
 /// `from_table`; `ConfigList` has no equivalent and an absent list has
-/// no `Default` for a check to layer over. So these three sections are
+/// no `Default` for a check to layer over. So these four sections are
 /// read on demand and are *not* fail-fast validated:
 ///
 /// - `project` — [`crate::schemas::ProjectConfig`]
 /// - `session_lifecycle` — [`crate::schemas::SessionLifecycle`]
+/// - `stream_rules.entry` — [`crate::schemas::StreamRuleConfig`]
 /// - `tools.bash_command_policy` — [`crate::schemas::CommandPolicyRule`]
 ///
 /// Closing that gap means changing the `ConfigList` trait in

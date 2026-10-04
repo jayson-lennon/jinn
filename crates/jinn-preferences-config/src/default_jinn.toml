@@ -641,6 +641,52 @@ radius = 20
 min_age = 50
 
 # ###########################################################################
+# Stream rules
+# ###########################################################################
+#
+# > Unlike every other rule in this file, a stream rule is tested against the
+# > model output as it streams. When a `conditions` regex matches the output
+# > so far, jinn interrupts the turn before that output reaches the chat log
+# > and resumes it with `body` injected as guidance. The model course-corrects
+# > itself instead of the user having to type at it.
+#
+# > A rule fires at most once per session turn.
+#
+# > `scopes` decides which streams the rule is tested against:
+# >
+# >   text                      assistant prose (the default)
+# >   thinking                  reasoning output
+# >   tool                      serialized tool-call arguments
+# >   tool:edit(*.ts)           `edit` calls touching a TypeScript file
+# >
+# > Leave `scopes` out (or empty) to test prose, reasoning, and tool arguments
+# > alike. Prefer a narrow scope when the rule is about one medium — a rule
+# > about TypeScript types belongs on tool arguments, where the offending
+# > source actually appears.
+#
+# > `body` is the guidance the model resumes under. Write it as an instruction
+# > to the agent, not as an explanation to the user. A rule with an empty
+# > `body`, no usable `conditions`, or no usable `scopes` is skipped with a
+# > warning rather than interrupting a turn with nothing to say.
+#
+# > Use single-quoted strings for `conditions` so regex metacharacters survive
+# > without escape processing. A pattern the engine cannot compile is dropped
+# > with a warning; the rule's remaining patterns still apply.
+#
+# > The example below interrupts before a `: any` assertion reaches a
+# > TypeScript file. Uncomment the whole block to enable it.
+#
+# [[stream_rules.entry]]
+# name = "ts-no-any"
+# description = "Never widen a type to `any`"
+# conditions = [': any', '\bas any\b']
+# scopes = ["tool:edit(*.ts)", "tool:write(*.tsx)", "tool:multi_edit(*.ts)"]
+# body = """
+# Use `unknown`, a domain type, a generic parameter, or a type guard instead.
+# Never widen a type to `any` to make an error go away.
+# """
+
+# ###########################################################################
 # Discord integration
 # ###########################################################################
 #

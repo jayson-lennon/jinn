@@ -36,6 +36,7 @@ pub mod request_retry;
 pub mod session_lifecycle;
 pub mod skills;
 pub mod stall_watchdog;
+pub mod stream_rules;
 pub mod term;
 pub mod tool_call_watchdog;
 pub mod tools;
@@ -63,6 +64,7 @@ pub use request_retry::RequestRetryConfig;
 pub use session_lifecycle::{BuiltinId, LifecycleCommand, SessionLifecycle};
 pub use skills::SkillsConfig;
 pub use stall_watchdog::StallWatchdogConfig;
+pub use stream_rules::{STREAM_RULES_KEY, StreamRuleConfig};
 pub use term::{
     DEFAULT_CONTROL_TOGGLE_KEY, DEFAULT_SETTLE_MAX_WAIT_MS, DEFAULT_SETTLE_QUIET_MS,
     InteractiveTermPrefs,
