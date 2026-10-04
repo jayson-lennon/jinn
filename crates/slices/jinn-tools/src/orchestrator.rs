@@ -143,7 +143,80 @@ pub struct ToolOrchestratorActor {
     state: State,
     /// Runtime services.
     services: Services,
+    /// Session ID -> the stream-rule set resolved for that session's project.
+    ///
+    /// A rule's `project` glob is bound to a session rather than to the
+    /// process, because a session's working directory is what selects the
+    /// project and it does not move under a running turn. Resolved once on
+    /// the session's first tool call and reused after, so a `project`-scoped
+    /// rule costs one glob test per call instead of a rebuild.
+    project_rules: HashMap<SessionId, std::sync::Arc<dyn jinn_slices::StreamRuleSet>>,
 }
+
+/// The rule set that denies nothing, cached for sessions with no rules.
+///
+/// A real `StreamRuleSet` rather than an `Option`, so the per-session map can
+/// record "resolved, empty" and stop re-reading the cell per tool call. Every
+/// match on it returns `None`, which is the no-rules-configured path.
+struct DenyNothing;
+
+impl std::fmt::Debug for DenyNothing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DenyNothing")
+    }
+}
+
+impl jinn_slices::StreamRuleSet for DenyNothing {
+    fn name(&self) -> &'static str {
+        "deny-nothing"
+    }
+
+    fn is_empty(&self) -> bool {
+        true
+    }
+
+    fn new_session(&self, _session: &SessionId) -> Box<dyn jinn_slices::StreamRuleSession> {
+        Box::new(NoRules)
+    }
+
+    fn end_turn(&self, _session: &SessionId) {}
+
+    fn deny_tool_call(
+        &self,
+        _tool_name: &str,
+        _arguments: &str,
+    ) -> Option<jinn_slices::RuleFired> {
+        None
+    }
+
+    fn for_project(&self, _project: &std::path::Path) -> std::sync::Arc<dyn jinn_slices::StreamRuleSet> {
+        DENY_NOTHING.clone()
+    }
+}
+
+/// A session that fires nothing, for when no rule is configured.
+#[derive(Debug)]
+struct NoRules;
+
+impl jinn_slices::StreamRuleSession for NoRules {
+    fn check(
+        &mut self,
+        _delta: &str,
+        _ctx: jinn_slices::StreamContext<'_>,
+    ) -> Option<jinn_slices::RuleFired> {
+        None
+    }
+
+    fn buffers(&self) -> &std::collections::HashMap<String, String> {
+        static EMPTY: std::sync::OnceLock<std::collections::HashMap<String, String>> =
+            std::sync::OnceLock::new();
+        EMPTY.get_or_init(std::collections::HashMap::new)
+    }
+}
+
+/// The shared "denies nothing" set.
+static DENY_NOTHING: std::sync::LazyLock<std::sync::Arc<dyn jinn_slices::StreamRuleSet>> =
+    std::sync::LazyLock::new(|| std::sync::Arc::new(DenyNothing));
 
 /// Dependencies for [`ToolOrchestratorActor`].
 #[derive(Clone)]
@@ -257,6 +330,7 @@ impl ToolOrchestratorActor {
             pending: HashMap::new(),
             state: deps.state,
             services: deps.services,
+            project_rules: HashMap::new(),
         };
         let all_builtins = crate::registry::builtin_tools(
             actor
@@ -703,6 +777,19 @@ impl ToolOrchestratorActor {
             return self.reject_withheld_tool(session_id, tool_call).await;
         }
 
+        // A `fail_tool` stream rule, consulted here against the call's complete
+        // arguments. Placed beside the filter gate rather than inside a tool
+        // because the rule's subject is the call, not any one tool's internals,
+        // and a denial that happened inside `bash` could not stop a rule
+        // scoped to a different tool. Everything after this point has not
+        // spawned yet, so a denied call emits no execution event and leaves
+        // no process behind.
+        if let Some(denied) = self.rule_denies_tool_call(&session_id, &tool_call) {
+            return self
+                .reject_denied_tool_call(session_id, tool_call, denied)
+                .await;
+        }
+
         match self.find_registration(&session_id, &tool_call.name) {
             Some(ToolRegistration::Builtin {
                 execute,
@@ -767,6 +854,90 @@ impl ToolOrchestratorActor {
             pin_position: None,
         };
 
+        self.publish(ToolExecutionCompleted { session_id, result })
+            .await;
+        None
+    }
+
+    /// The `fail_tool` rule denying this call, if one matches.
+    ///
+    /// The call's `arguments` are the complete serialized arguments the model
+    /// produced, so the outcome does not depend on how the provider streamed
+    /// them: one chunk and a thousand arrive here as the same string.
+    fn rule_denies_tool_call(
+        &mut self,
+        session_id: &SessionId,
+        tool_call: &ToolCall,
+    ) -> Option<jinn_slices::RuleFired> {
+        let set = self.project_rule_set(session_id);
+        set.deny_tool_call(&tool_call.name, &tool_call.arguments)
+    }
+
+    /// The rule set resolved for `session_id`'s project, building it once.
+    ///
+    /// Falls back to a set that denies nothing when the stream-rules cell is
+    /// absent or empty: the common configuration is no rules at all, and a
+    /// missing cell must not read as "every call is denied".
+    fn project_rule_set(
+        &mut self,
+        session_id: &SessionId,
+    ) -> std::sync::Arc<dyn jinn_slices::StreamRuleSet> {
+        if let Some(set) = self.project_rules.get(session_id) {
+            return std::sync::Arc::clone(set);
+        }
+
+        let cwd = {
+            let guard = self.state.read();
+            guard.session.get(session_id).map_or_else(
+                || guard.session.default_cwd().clone(),
+                |session| session.cwd().to_owned(),
+            )
+        };
+
+        let set = self
+            .services
+            .slices
+            .reader::<jinn_slices::StreamRules>(&jinn_slices::stream_rules_slot())
+            .and_then(|cell| cell.read().for_project(&cwd));
+        if let Some(set) = set {
+            self.project_rules
+                .insert(session_id.clone(), std::sync::Arc::clone(&set));
+            set
+        } else {
+            // No matcher installed. Cache the absence too, so a session without
+            // rules does not re-resolve the cell on every call, and never
+            // reads as "everything is denied".
+            self.project_rules.insert(session_id.clone(), DENY_NOTHING.clone());
+            DENY_NOTHING.clone()
+        }
+    }
+
+    /// Publishes a failure for a tool call a stream rule denied.
+    ///
+    /// Reports the rule's guidance as the failure content, because that is the
+    /// text written to explain the block, and names the rule so the model can
+    /// tell a policy denial from a broken call.
+    async fn reject_denied_tool_call(
+        &self,
+        session_id: SessionId,
+        tool_call: ToolCall,
+        denied: jinn_slices::RuleFired,
+    ) -> Option<tokio::task::JoinHandle<()>> {
+        tracing::warn!(
+            session_id = %session_id,
+            tool = %tool_call.name,
+            rule = %denied.name,
+            "stream rule denied the tool call before it ran"
+        );
+        let result = ToolResult {
+            tool_call_id: tool_call.id.clone(),
+            name: tool_call.name.clone(),
+            content: format!("Denied by rule `{}`: {}", denied.name, denied.body),
+            success: false,
+            full_content: None,
+            truncation: None,
+            pin_position: None,
+        };
         self.publish(ToolExecutionCompleted { session_id, result })
             .await;
         None
@@ -1800,5 +1971,136 @@ mod mcp_dispatch_gate_tests {
         // rejection short-circuits the dispatch).
         let messages = await_recorded(&dispatched, 1, Duration::from_secs(3)).await;
         assert_eq!(messages[0].tool_call.name, "mcp__stub__echo");
+    }
+
+    /// Installs a `fail_tool` rule denying `condition` on the `bash` tool.
+    fn install_denial_rule(services: &jinn_kernel::common::services::Services, condition: &str) {
+        let cell = services
+            .slices
+            .reader::<jinn_slices::StreamRules>(&jinn_slices::stream_rules_slot())
+            .expect("the catalog registers the stream-rules cell");
+        cell.update(|payload| {
+            payload.install(std::sync::Arc::new(
+                jinn_stream_rules::matcher::CompiledSet::build(&[
+                    jinn_preferences_config::schemas::StreamRuleConfig {
+                        name: "no-rm".to_owned(),
+                        description: "denies rm".to_owned(),
+                        conditions: vec![condition.to_owned()],
+                        scopes: vec!["tool:bash".to_owned()],
+                        body: "Use a narrower delete.".to_owned(),
+                        on_trigger: Some(
+                            jinn_preferences_config::schemas::FAIL_TOOL_TRIGGER.to_owned(),
+                        ),
+                        project: None,
+                    },
+                ]),
+            ));
+        });
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_denied_call_returns_a_failed_result() {
+        // Given a rule denying a command, and a session.
+        let state = State::new(AppState::default());
+        let session_id = SessionId::new();
+        state.write().session.get_or_create(&session_id);
+        let (harness, services) = spawn_orchestrator(&state).await;
+        install_denial_rule(&services, "rm -rf");
+        let results = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+
+        // When dispatching a call the rule denies.
+        harness
+            .publish(ExecuteToolBatch {
+                session_id: session_id.clone(),
+                tool_calls: vec![ToolCall {
+                    id: "tc_deny".to_owned(),
+                    name: "bash".to_owned(),
+                    arguments: r#"{"command":"rm -rf /"}"#.to_owned(),
+                }],
+                dispatched_at: jiff::Timestamp::now(),
+            })
+            .await;
+
+        // Then the result is a failure naming the rule.
+        let messages = await_recorded(&results, 1, Duration::from_secs(3)).await;
+        let first = messages.first().expect("a result is published");
+        assert!(!first.result.success);
+        assert!(
+            first.result.content.contains("no-rm"),
+            "the failure must name the rule, got: {}",
+            first.result.content
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_denied_call_never_reaches_the_tool() {
+        // Given a rule denying a command, and a session.
+        let state = State::new(AppState::default());
+        let session_id = SessionId::new();
+        state.write().session.get_or_create(&session_id);
+        let (harness, services) = spawn_orchestrator(&state).await;
+        install_denial_rule(&services, "rm -rf");
+        let started = harness
+            .spawn_recorder::<jinn_tools_msg::ToolExecutionStarted>()
+            .await;
+        let results = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+
+        // When dispatching a call the rule denies.
+        harness
+            .publish(ExecuteToolBatch {
+                session_id: session_id.clone(),
+                tool_calls: vec![ToolCall {
+                    id: "tc_deny".to_owned(),
+                    name: "bash".to_owned(),
+                    arguments: r#"{"command":"rm -rf /"}"#.to_owned(),
+                }],
+                dispatched_at: jiff::Timestamp::now(),
+            })
+            .await;
+
+        // Then nothing was ever started for it: no execution event, which is
+        // the observable that a denial happened before any child could spawn.
+        await_recorded(&results, 1, Duration::from_secs(3)).await;
+        assert!(
+            started.is_empty(),
+            "a denied call must emit no ToolExecutionStarted, so no child process can exist"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_call_the_rule_does_not_match_is_dispatched_normally() {
+        // Given a rule denying a command, and a session.
+        let state = State::new(AppState::default());
+        let session_id = SessionId::new();
+        state.write().session.get_or_create(&session_id);
+        let (harness, services) = spawn_orchestrator(&state).await;
+        install_denial_rule(&services, "rm -rf");
+
+        // When dispatching a builtin call the rule does not match.
+        let started = harness
+            .spawn_recorder::<jinn_tools_msg::ToolExecutionStarted>()
+            .await;
+        harness
+            .publish(ExecuteToolBatch {
+                session_id: session_id.clone(),
+                tool_calls: vec![ToolCall {
+                    id: "tc_ok".to_owned(),
+                    name: "bash".to_owned(),
+                    arguments: r#"{"command":"ls -la"}"#.to_owned(),
+                }],
+                dispatched_at: jiff::Timestamp::now(),
+            })
+            .await;
+
+        // Then it actually starts -- the gate let it through, which is the
+        // whole point: a rule must not deny what it does not match.
+        let messages = await_recorded(&started, 1, Duration::from_secs(3)).await;
+        assert_eq!(
+            messages.first().map(|m| m.tool_call_id.as_str()),
+            Some("tc_ok")
+        );
     }
 }

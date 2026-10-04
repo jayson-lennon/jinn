@@ -92,7 +92,10 @@ impl RuleTrigger {
 }
 
 /// One compiled rule: its name, the regexes, where it may fire, and what it does.
-#[derive(Debug)]
+///
+/// `Clone` shares the compiled `Regex` and `GlobMatcher` values rather than
+/// rebuilding them, which is what makes narrowing a set to a project cheap.
+#[derive(Debug, Clone)]
 struct CompiledRule {
     /// The rule's `name`, used as the fire key and reported in the log.
     name: String,
@@ -518,24 +521,6 @@ impl CompiledSet {
         Self::from_rules(Self::compile_all(configs))
     }
 
-    /// Builds the rule set resolved for a session rooted at `project`.
-    ///
-    /// The project is bound here, at session construction, rather than carried
-    /// through every match: a session's working directory does not change
-    /// under it, and resolving the applicable rules once means a scoped-out
-    /// rule costs nothing per delta instead of being tested and discarded each
-    /// time.
-    pub fn build_for_project(configs: &[StreamRuleConfig], project: &std::path::Path) -> Self {
-        let rules: Vec<CompiledRule> = Self::compile_all(configs)
-            .into_iter()
-            .filter(|rule| match &rule.project {
-                Some(glob) => project_matches(glob, project),
-                None => true,
-            })
-            .collect();
-        Self::from_rules(rules)
-    }
-
     /// Compiles and dedupes every configured rule, dropping the unusable ones.
     fn compile_all(configs: &[StreamRuleConfig]) -> Vec<CompiledRule> {
         let mut rules: Vec<CompiledRule> = Vec::new();
@@ -624,6 +609,23 @@ impl StreamRuleSet for CompiledSet {
 
     fn deny_tool_call(&self, tool_name: &str, arguments: &str) -> Option<RuleFired> {
         self.deny(tool_name, arguments)
+    }
+
+    fn for_project(&self, project: &std::path::Path) -> std::sync::Arc<dyn StreamRuleSet> {
+        // Rules are cloned rather than recompiled: the regexes and globs are
+        // already built, and only the project test is new. A rule with no
+        // `project` is cloned as-is, so the common configuration -- every rule
+        // global -- costs one clone per session and nothing per match.
+        let narrowed: Vec<CompiledRule> = self
+            .rules
+            .iter()
+            .filter(|rule| match &rule.project {
+                Some(glob) => project_matches(glob, project),
+                None => true,
+            })
+            .cloned()
+            .collect();
+        std::sync::Arc::new(Self::from_rules(narrowed))
     }
 }
 
@@ -1275,7 +1277,7 @@ mod tests {
         let configs = [rule("global", "rm -rf")];
 
         // When the set is built for a project it names nothing about.
-        let set = CompiledSet::build_for_project(&configs, std::path::Path::new("/anywhere/at/all"));
+        let set = CompiledSet::build(&configs).for_project(std::path::Path::new("/anywhere/at/all"));
 
         // Then the rule is live there.
         assert!(!set.is_empty());
@@ -1291,7 +1293,7 @@ mod tests {
         }];
 
         // When the set is built for that project.
-        let set = CompiledSet::build_for_project(&configs, std::path::Path::new("/home/dev/code/myapp"));
+        let set = CompiledSet::build(&configs).for_project(std::path::Path::new("/home/dev/code/myapp"));
 
         // Then the rule is live.
         assert!(!set.is_empty());
@@ -1307,7 +1309,7 @@ mod tests {
         }];
 
         // When the set is built for a different project.
-        let set = CompiledSet::build_for_project(&configs, std::path::Path::new("/home/dev/code/other"));
+        let set = CompiledSet::build(&configs).for_project(std::path::Path::new("/home/dev/code/other"));
 
         // Then the rule is not there at all.
         assert!(set.is_empty());
@@ -1326,7 +1328,7 @@ mod tests {
         ];
 
         // When the set is built for the project the scoped rule excludes.
-        let set = CompiledSet::build_for_project(&configs, std::path::Path::new("/home/dev/other"));
+        let set = CompiledSet::build(&configs).for_project(std::path::Path::new("/home/dev/other"));
 
         // Then the global rule still fires there and the scoped one does not.
         let mut session = set.new_session(&SessionId::new());
@@ -1353,7 +1355,7 @@ mod tests {
         }];
 
         // When the set is built for an unrelated project.
-        let set = CompiledSet::build_for_project(&configs, std::path::Path::new("/home/dev/other"));
+        let set = CompiledSet::build(&configs).for_project(std::path::Path::new("/home/dev/other"));
 
         // Then the rule applies over-broad rather than being disarmed.
         assert!(!set.is_empty());

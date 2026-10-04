@@ -3855,6 +3855,7 @@ dependencies = [
  "jinn-skills",
  "jinn-skills-msg",
  "jinn-slices",
+ "jinn-stream-rules",
  "jinn-term-msg",
  "jinn-testutil",
  "jinn-theme",

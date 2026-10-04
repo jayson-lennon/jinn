@@ -222,6 +222,15 @@ pub trait StreamRuleSet: fmt::Debug + Send + Sync {
     /// piece or a thousand. Returns `None` when no such rule matches, which
     /// is every rule set with no `fail_tool` rule in it.
     fn deny_tool_call(&self, tool_name: &str, arguments: &str) -> Option<RuleFired>;
+
+    /// This set with every rule whose `project` glob excludes `project`
+    /// removed.
+    ///
+    /// A rule is configured against the projects it applies in, but a set is
+    /// installed once and consulted by every session, so the project is bound
+    /// here rather than carried into each match. A consumer holding a set
+    /// derived this way needs no knowledge of globs.
+    fn for_project(&self, project: &std::path::Path) -> std::sync::Arc<dyn StreamRuleSet>;
 }
 
 /// The cell payload: the installed matcher, or the absence of one.
@@ -288,6 +297,16 @@ impl StreamRules {
             return None;
         }
         set.deny_tool_call(tool_name, arguments)
+    }
+
+    /// The installed set narrowed to the rules that apply in `project`.
+    ///
+    /// Returns `None` when no matcher is installed, so a consumer can hold the
+    /// result as an `Option` and treat absence as "no rules apply" — the same
+    /// reading it gives an uninstalled cell.
+    pub fn for_project(&self, project: &std::path::Path) -> Option<std::sync::Arc<dyn StreamRuleSet>> {
+        let set = self.0.as_ref()?;
+        Some(set.for_project(project))
     }
 }
 
@@ -369,6 +388,10 @@ mod tests {
             _arguments: &str,
         ) -> Option<RuleFired> {
             None
+        }
+
+        fn for_project(&self, _project: &std::path::Path) -> std::sync::Arc<dyn StreamRuleSet> {
+            std::sync::Arc::new(AlwaysSet::new(self.empty))
         }
     }
 
