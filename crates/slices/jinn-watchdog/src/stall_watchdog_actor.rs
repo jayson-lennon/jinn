@@ -365,7 +365,13 @@ impl StallWatchdogActor {
                     stall.restarts = 0;
                 }
             }
-            StreamCompletedReason::Canceled | StreamCompletedReason::Error => {
+            // An intercept ends this generation but not the turn: the
+            // session actor re-dispatches immediately, so the watchdog must
+            // stand down rather than count the silence between them as a
+            // stall. The resumed dispatch re-arms it.
+            StreamCompletedReason::Canceled
+            | StreamCompletedReason::Error
+            | StreamCompletedReason::RuleIntercept => {
                 if let Some(stall) = self.sessions.get_mut(session_id) {
                     stall.armed = false;
                 }

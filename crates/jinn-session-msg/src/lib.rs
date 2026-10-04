@@ -152,6 +152,15 @@ pub enum TurnOutcome {
     Error,
     /// The turn was cancelled by the user.
     Canceled,
+    /// A stream rule interrupted the turn and it resumed with the rule's
+    /// body.
+    ///
+    /// Distinct from [`TurnOutcome::Canceled`] and
+    /// [`TurnOutcome::Error`]: the turn did not fail and the user did not end
+    /// it. A consumer that reads an intercept as a cancel would end a turn
+    /// that is still running; one that reads it as an error would suppress a
+    /// re-run that is about to happen.
+    RuleIntercepted,
 }
 
 /// Session archived in persistent storage.

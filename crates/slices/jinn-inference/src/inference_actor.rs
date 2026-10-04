@@ -8,8 +8,8 @@ use jiff::Timestamp;
 use jinn_core_types::SessionId;
 use jinn_core_types::tool_types::ToolCall;
 use jinn_inference_msg::{
-    CancelStream, SendToLlmProvider, StreamActivity, StreamCompleted, StreamCompletedReason,
-    StreamOrigin, StreamToken,
+    AbortStream, CancelStream, SendToLlmProvider, StreamActivity, StreamCompleted,
+    StreamCompletedReason, StreamOrigin, StreamToken,
 };
 use jinn_kernel::common::actor_deps::BusPublish;
 use jinn_kernel::common::services::Services;
@@ -23,9 +23,11 @@ use jinn_provider_config::LlmServiceFactoryService;
 use jinn_provider_config::StopReason;
 use jinn_provider_config::StreamEvent;
 use jinn_session_history_msg::PushChatEntry;
+use jinn_slices::RuleFired;
 use jinn_slices::StreamContext;
 use jinn_slices::StreamRuleSession;
 use jinn_slices::SystemPrompt;
+use jinn_slices::render_rule_interrupt;
 use jinn_tools_msg::CancelToolBatch;
 use jinn_tools_msg::ExecuteToolBatch;
 use jinn_tools_msg::{ToolCallReceived, ToolCallStreaming, ToolUseStarted};
@@ -172,6 +174,7 @@ impl InferenceActor {
             })
             .handles::<SendToLlmProvider>()
             .handles::<CancelStream>()
+            .handles::<AbortStream>()
             .handles::<StreamCompleted>()
             .start()
     }
@@ -180,6 +183,22 @@ impl InferenceActor {
 impl MsgHandler<SendToLlmProvider> for InferenceActor {
     async fn handle(&mut self, msg: &SendToLlmProvider, _ctx: &mut MsgCtx<'_>) {
         self.start_stream(msg).await;
+    }
+}
+
+impl MsgHandler<AbortStream> for InferenceActor {
+    /// Tears the stream down without ending the turn.
+    ///
+    /// The stream task that published this publishes its own
+    /// `StreamCompleted(RuleIntercept)` when it returns, so this handler
+    /// completes no stream of its own — emitting one here would race a
+    /// `Canceled` completion against it.
+    #[expect(
+        clippy::unused_async,
+        reason = "the MsgHandler signature is async; the teardown awaits its own publishes"
+    )]
+    async fn handle(&mut self, msg: &AbortStream, _ctx: &mut MsgCtx<'_>) {
+        self.abort_stream(&msg.session_id).await;
     }
 }
 
@@ -239,7 +258,7 @@ async fn process_stream_events(
             Ok(event) => match event {
                 StreamEvent::Text(token) => {
                     publish_activity(bus, sid).await;
-                    handle_text_event(
+                    let fired = handle_text_event(
                         bus,
                         sid,
                         dispatched_at,
@@ -249,10 +268,14 @@ async fn process_stream_events(
                         StreamContext::text(),
                     )
                     .await;
+                    if let Some(fired) = fired {
+                        intercept_and_resume(bus, sid, &mut accum, fired, dispatched_at).await;
+                        return;
+                    }
                 }
                 StreamEvent::Reasoning(token) => {
                     publish_activity(bus, sid).await;
-                    handle_reasoning_event(
+                    let fired = handle_reasoning_event(
                         bus,
                         sid,
                         dispatched_at,
@@ -262,6 +285,10 @@ async fn process_stream_events(
                         StreamContext::thinking(),
                     )
                     .await;
+                    if let Some(fired) = fired {
+                        intercept_and_resume(bus, sid, &mut accum, fired, dispatched_at).await;
+                        return;
+                    }
                 }
                 StreamEvent::ToolUseStart { index, id, name } => {
                     publish_activity(bus, sid).await;
@@ -285,9 +312,13 @@ async fn process_stream_events(
                     // A rule scoped to a tool call is tested against the
                     // arguments as they accumulate, so the tool name the
                     // start event recorded is what names the stream.
-                    if let Some(session) = rules.as_deref_mut() {
+                    let fired = rules.as_deref_mut().and_then(|session| {
                         let name = accum.tool_names.get(&index).map_or("", String::as_str);
-                        session.check(&partial_json, StreamContext::tool(index, name));
+                        session.check(&partial_json, StreamContext::tool(index, name))
+                    });
+                    if let Some(fired) = fired {
+                        intercept_and_resume(bus, sid, &mut accum, fired, dispatched_at).await;
+                        return;
                     }
                     bus.publish(ToolCallStreaming {
                         session_id: sid.clone(),
@@ -358,6 +389,71 @@ async fn process_stream_events(
         dispatched_at,
         "LLM stream ended without a terminal event (Done/Error)",
     )
+    .await;
+}
+
+/// Ends a stream a rule interrupted, and asks for the turn to resume.
+///
+/// Three publishes, in this order:
+///
+/// 1. [`CancelStream`] — the abort. It reuses the actor's own cancel path so
+///    the tombstone is armed exactly as a user cancel arms it, and so the
+///    aborted task is cleaned up by the one code path that already does it.
+///    A task cannot abort *itself* from inside, so the loop returns after
+///    publishing this rather than calling `JoinHandle::abort`.
+/// 2. The rule's body as a user entry — the guidance, entering the
+///    conversation once, ahead of the resumed request.
+/// 3. [`StreamCompleted`] with [`StreamCompletedReason::RuleIntercept`] —
+///    the terminal fact the session actor's resume handler acts on. It
+///    carries a reason distinct from a cancel so the turn is never reported
+///    as cancelled.
+///
+/// The partial output is deliberately *not* published: the offending delta
+/// never reached the chat log, and the earlier deltas stay visible there and
+/// are excluded from the resumed request by the session actor.
+async fn intercept_and_resume(
+    bus: &BusService,
+    sid: &SessionId,
+    accum: &mut StreamAccumulator,
+    fired: RuleFired,
+    dispatched_at: jiff::Timestamp,
+) {
+    tracing::warn!(
+        session_id = ?sid,
+        rule = %fired.name,
+        "stream rule matched; interrupting the turn before publishing"
+    );
+
+    bus.publish(CancelStream {
+        session_id: sid.clone(),
+    })
+    .await;
+
+    bus.publish(jinn_session_history_msg::PushChatEntry {
+        session_id: sid.clone(),
+        entry: ChatEntry::user(render_rule_interrupt(&fired.name, &fired.body)),
+        pin: None,
+    })
+    .await;
+
+    // The accumulator's text is released here rather than published: it is
+    // what the user watched appear, and the session actor has already taken
+    // it out of context by the time this lands.
+    let _partial = std::mem::take(&mut accum.text);
+
+    bus.publish(StreamCompleted {
+        model_used: Some(accum.model_id.clone()),
+        session_id: sid.clone(),
+        reason: StreamCompletedReason::RuleIntercept,
+        assistant_content: None,
+        tool_calls: None,
+        cost: None,
+        provider_completion_tokens: None,
+        provider_prompt_tokens: None,
+        cached_tokens: None,
+        thinking_content: None,
+        dispatched_at,
+    })
     .await;
 }
 
@@ -507,7 +603,7 @@ async fn handle_text_event(
     token: String,
     mut rules: Option<&mut (dyn StreamRuleSession + '_)>,
     ctx: StreamContext<'_>,
-) {
+) -> Option<RuleFired> {
     tracing::info!(
         session_id = ?sid,
         token_len = token.len(),
@@ -517,9 +613,9 @@ async fn handle_text_event(
     // Asked before any publish, so a delta that trips a rule has not yet
     // reached the chat log.
     if let Some(session) = rules.as_mut()
-        && session.check(&token, ctx).is_some()
+        && let Some(fired) = session.check(&token, ctx)
     {
-        return;
+        return Some(fired);
     }
     accum.text.push_str(&token);
     let parsed = match accum.parser.parse_reasoning_streaming_incremental(&token) {
@@ -539,6 +635,7 @@ async fn handle_text_event(
             .publish_text(bus, sid, parsed.normal_text, dispatched_at)
             .await;
     }
+    None
 }
 
 /// Handles a `StreamEvent::Reasoning`: accumulates and publishes thinking text.
@@ -554,7 +651,7 @@ async fn handle_reasoning_event(
     token: String,
     mut rules: Option<&mut (dyn StreamRuleSession + '_)>,
     ctx: StreamContext<'_>,
-) {
+) -> Option<RuleFired> {
     tracing::info!(
         session_id = ?sid,
         token_len = token.len(),
@@ -562,11 +659,12 @@ async fn handle_reasoning_event(
         "LLM ACTOR StreamEvent::Reasoning"
     );
     if let Some(session) = rules.as_mut()
-        && session.check(&token, ctx).is_some()
+        && let Some(fired) = session.check(&token, ctx)
     {
-        return;
+        return Some(fired);
     }
     accum.publish_thinking(bus, sid, token, dispatched_at).await;
+    None
 }
 
 /// Handles `StreamEvent::Done`: routes tool-use vs finished and publishes
@@ -812,11 +910,26 @@ impl InferenceActor {
             StreamCompletedReason::Canceled => {
                 // Already cleaned up by cancel_stream.
             }
+            StreamCompletedReason::RuleIntercept => {
+                // Already cleaned up by abort_stream, which the stream task
+                // reached through `AbortStream` before publishing this.
+            }
         }
     }
 
-    /// Cancels the active stream for a session and emits a completion event.
-    async fn cancel_stream(&mut self, session_id: &SessionId) {
+    /// Tears a session's stream down: arms the tombstone, cancels pending
+    /// tool batches, aborts the task, and forgets the session.
+    ///
+    /// Split out of [`Self::cancel_stream`] because a rule intercept needs
+    /// the same teardown with a *different* terminal reason. Publishing a
+    /// `CancelStream` to get it would emit a competing
+    /// `StreamCompleted(Canceled)` — which pushes the literal `"Cancelled"`
+    /// history entry that every consumer reads as a user cancel — so the
+    /// teardown is called directly instead.
+    ///
+    /// Returns the dispatch time of the aborted generation and whether there
+    /// was one to abort.
+    async fn abort_stream(&mut self, session_id: &SessionId) -> (Option<jiff::Timestamp>, bool) {
         // Arm the tombstone before anything else so any tool-loop continuation
         // already in flight is rejected when it arrives. Cleared by the next
         // user-originated send.
@@ -838,6 +951,13 @@ impl InferenceActor {
             .get(session_id)
             .and_then(SessionData::dispatched_at);
         let had_session = self.sessions.remove(session_id).is_some();
+        (dispatched_at, had_session)
+    }
+
+    /// Cancels the active stream for a session and emits a completion event.
+    async fn cancel_stream(&mut self, session_id: &SessionId) {
+        let (dispatched_at, had_session) = self.abort_stream(session_id).await;
+
         // Only emit StreamCompleted if there was actually an active session
         // to cancel. Avoids pushing a spurious "Cancelled" error entry when
         // the user presses ESC with nothing streaming.

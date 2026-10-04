@@ -2668,6 +2668,7 @@ dependencies = [
  "jinn-session-history-msg",
  "jinn-session-msg",
  "jinn-slices",
+ "jinn-stream-rules",
  "jinn-testutil",
  "jinn-tools-msg",
  "ratatui",

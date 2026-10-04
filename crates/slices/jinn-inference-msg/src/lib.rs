@@ -40,6 +40,25 @@ pub struct CancelStream {
 }
 impl jinn_slices::BusMessage for CancelStream {}
 
+/// Stop a stream because a rule matched it, without ending the turn.
+///
+/// Distinct from [`CancelStream`]: that one *ends* the turn and reports it
+/// as cancelled, while this one only tears the provider stream down. The
+/// stream task cannot abort itself — `JoinHandle::abort` panics when called
+/// from inside the aborted task — so it publishes this and returns, and the
+/// actor performs the teardown it owns (tombstone, pending tool batches, task
+/// handle, session record).
+///
+/// The actor's reply is a `StreamCompleted(RuleIntercept)`, published by the
+/// stream task itself, so no competing `Canceled` completion is emitted.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Command)]
+#[schema(description = "Stop the current stream for a session without ending the turn.")]
+pub struct AbortStream {
+    /// The session whose stream should be torn down.
+    pub session_id: SessionId,
+}
+impl jinn_slices::BusMessage for AbortStream {}
+
 /// Command to send conversation context to the LLM provider.
 ///
 /// Emitted by the dispatch layer when a turn becomes sendable.
@@ -125,6 +144,15 @@ pub enum StreamCompletedReason {
     ToolUse,
     /// The stream failed due to a provider error.
     Error,
+    /// A stream rule matched the output before it was published.
+    ///
+    /// Distinct from [`StreamCompletedReason::Canceled`] because the two
+    /// abort for opposite reasons and every consumer must be able to tell
+    /// them apart: a cancel is the user ending the turn, an intercept is the
+    /// harness correcting the model mid-sentence so it can continue on its
+    /// own. A consumer that reads an intercept as a cancel would end the
+    /// turn; one that reads a cancel as an intercept would retry it.
+    RuleIntercept,
 }
 
 /// Streaming response completed for a session.

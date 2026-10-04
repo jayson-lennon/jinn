@@ -971,3 +971,241 @@ async fn handle_done_event_publishes_stream_completed_before_execute_tool_batch(
         "StreamCompleted was recorded before ExecuteToolBatch"
     );
 }
+
+// ------------------------------------------------------------------
+// Stream-rule interception
+// ------------------------------------------------------------------
+
+/// Builds a rule set whose single rule fires on `condition`.
+fn rule_set(condition: &str) -> std::sync::Arc<dyn jinn_slices::StreamRuleSet> {
+    std::sync::Arc::new(jinn_stream_rules::matcher::CompiledSet::build(&[
+        jinn_preferences_config::schemas::StreamRuleConfig {
+            name: "test-rule".to_owned(),
+            description: "a rule the test tripped".to_owned(),
+            conditions: vec![condition.to_owned()],
+            scopes: vec!["text".to_owned()],
+            body: "Stop doing that.".to_owned(),
+        },
+    ]))
+}
+
+/// Drives `stream` through the loop with `rules` installed.
+async fn run_with_rules(
+    harness: &TestHarness,
+    stream: jinn_provider::ToolStream,
+    sid: &SessionId,
+    rules: Option<std::sync::Arc<dyn jinn_slices::StreamRuleSet>>,
+) {
+    let mut session = rules.map(|set| set.new_session(sid));
+    process_stream_events(
+        stream,
+        &harness.bus(),
+        sid,
+        "test-model",
+        jiff::Timestamp::now(),
+        session
+            .as_mut()
+            .map(|s| s.as_mut() as &mut (dyn jinn_slices::StreamRuleSession + '_)),
+    )
+    .await;
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_intercepted_delta_publishes_no_stream_token() {
+    // Given a stream whose second token trips the rule.
+    use jinn_provider::{StopReason, StreamEvent};
+    let harness = TestHarness::new().await;
+    let stream = scripted_stream(vec![
+        StreamEvent::Text("harmless ".to_owned()),
+        StreamEvent::Text("FORBIDDEN tail".to_owned()),
+        StreamEvent::Text(" more".to_owned()),
+        StreamEvent::Done {
+            stop_reason: StopReason::EndTurn,
+            usage: None,
+        },
+    ]);
+    let sid = SessionId::new();
+    let tokens = harness.spawn_recorder::<StreamToken>().await;
+
+    // When the stream is processed with the rule installed.
+    run_with_rules(&harness, stream, &sid, Some(rule_set("FORBIDDEN"))).await;
+
+    // Then no token containing the offending text was ever published.
+    let published = await_recorded(&tokens, 1, std::time::Duration::from_secs(2)).await;
+    let leaked = published
+        .iter()
+        .any(|t: &StreamToken| t.token.contains("FORBIDDEN"));
+    assert!(
+        !leaked,
+        "the offending delta must be matched before it is published downstream"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_intercept_completes_the_stream_as_a_rule_intercept() {
+    // Given a stream that trips the rule.
+    use jinn_provider::{StopReason, StreamEvent};
+    let harness = TestHarness::new().await;
+    let stream = scripted_stream(vec![
+        StreamEvent::Text("FORBIDDEN".to_owned()),
+        StreamEvent::Done {
+            stop_reason: StopReason::EndTurn,
+            usage: None,
+        },
+    ]);
+    let sid = SessionId::new();
+    let completed = harness.spawn_recorder::<StreamCompleted>().await;
+
+    // When the stream is processed with the rule installed.
+    run_with_rules(&harness, stream, &sid, Some(rule_set("FORBIDDEN"))).await;
+
+    // Then the completion reports a rule intercept, not a cancel and not a
+    // finished turn.
+    let recorded = await_recorded(&completed, 1, std::time::Duration::from_secs(5)).await;
+    assert_eq!(
+        recorded[0].reason,
+        StreamCompletedReason::RuleIntercept,
+        "an intercepted turn must be distinguishable from a cancelled one"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_intercept_publishes_no_cancelled_completion() {
+    // Given a stream that trips the rule.
+    use jinn_provider::StreamEvent;
+    let harness = TestHarness::new().await;
+    let stream = scripted_stream(vec![StreamEvent::Text("FORBIDDEN".to_owned())]);
+    let sid = SessionId::new();
+    let completed = harness.spawn_recorder::<StreamCompleted>().await;
+
+    // When the stream is processed with the rule installed.
+    run_with_rules(&harness, stream, &sid, Some(rule_set("FORBIDDEN"))).await;
+
+    // Then the only completion carries the intercept reason.
+    let recorded = await_recorded(&completed, 1, std::time::Duration::from_secs(5)).await;
+    assert!(
+        !recorded
+            .iter()
+            .any(|c| c.reason == StreamCompletedReason::Canceled),
+        "an intercept must not also emit a cancel completion: \
+         that pushes the `\"Cancelled\"` history entry every consumer reads as a user cancel"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_intercept_injects_the_rule_body_as_a_user_entry() {
+    // Given a stream that trips the rule.
+    use jinn_provider::StreamEvent;
+    let harness = TestHarness::new().await;
+    let stream = scripted_stream(vec![StreamEvent::Text("FORBIDDEN".to_owned())]);
+    let sid = SessionId::new();
+    let entries = harness.spawn_recorder::<PushChatEntry>().await;
+
+    // When the stream is processed with the rule installed.
+    run_with_rules(&harness, stream, &sid, Some(rule_set("FORBIDDEN"))).await;
+
+    // Then the rule's guidance entered the conversation as a user entry.
+    let recorded = await_recorded(&entries, 1, std::time::Duration::from_secs(5)).await;
+    let injected = recorded.iter().any(|e: &PushChatEntry| {
+        matches!(&e.entry.kind, jinn_core_types::ChatEntryKind::User { display, .. }
+            if display.contains("Stop doing that."))
+    });
+    assert!(
+        injected,
+        "the resumed turn must carry the rule body as guidance: {:?}",
+        recorded.iter().map(|e| &e.entry.kind).collect::<Vec<_>>()
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_intercept_aborts_the_stream_before_the_done_event() {
+    // Given a stream that would otherwise complete normally after tripping.
+    use jinn_provider::{StopReason, StreamEvent};
+    let harness = TestHarness::new().await;
+    let stream = scripted_stream(vec![
+        StreamEvent::Text("FORBIDDEN".to_owned()),
+        StreamEvent::ToolUseComplete {
+            tool_call: jinn_core_types::tool_types::ToolCall {
+                id: "call_1".to_owned(),
+                name: "read".to_owned(),
+                arguments: "{}".to_owned(),
+            },
+            index: 0,
+        },
+        StreamEvent::Done {
+            stop_reason: StopReason::ToolUse,
+            usage: None,
+        },
+    ]);
+    let sid = SessionId::new();
+    let batches = harness.spawn_recorder::<ExecuteToolBatch>().await;
+
+    // When the stream is processed with the rule installed.
+    run_with_rules(&harness, stream, &sid, Some(rule_set("FORBIDDEN"))).await;
+
+    // Then the loop returned at the intercept: the tool call never ran.
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    let recorded = await_recorded(&batches, 1, std::time::Duration::from_millis(150)).await;
+    assert!(
+        recorded.is_empty(),
+        "an intercepted response must not go on to execute the tool calls it was building"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_stream_with_no_rule_completes_unchanged() {
+    // Given a stream with a clean token and a Done.
+    use jinn_provider::{StopReason, StreamEvent};
+    let harness = TestHarness::new().await;
+    let stream = scripted_stream(vec![
+        StreamEvent::Text("hello".to_owned()),
+        StreamEvent::Done {
+            stop_reason: StopReason::EndTurn,
+            usage: None,
+        },
+    ]);
+    let sid = SessionId::new();
+    let tokens = harness.spawn_recorder::<StreamToken>().await;
+    let completed = harness.spawn_recorder::<StreamCompleted>().await;
+
+    // When the stream is processed with no rules configured — the `None` an
+    // empty configuration resolves to.
+    run_with_rules(&harness, stream, &sid, None).await;
+
+    // Then every token was published and the turn finished normally.
+    let recorded = await_recorded(&tokens, 1, std::time::Duration::from_secs(5)).await;
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].token, "hello");
+    let completed = await_recorded(&completed, 1, std::time::Duration::from_secs(5)).await;
+    assert_eq!(completed[0].reason, StreamCompletedReason::Finished);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_rule_that_matches_nothing_leaves_the_stream_untouched() {
+    // Given a stream whose tokens no rule matches, and a rule installed.
+    use jinn_provider::{StopReason, StreamEvent};
+    let harness = TestHarness::new().await;
+    let stream = scripted_stream(vec![
+        StreamEvent::Text("all fine".to_owned()),
+        StreamEvent::Done {
+            stop_reason: StopReason::EndTurn,
+            usage: None,
+        },
+    ]);
+    let sid = SessionId::new();
+    let completed = harness.spawn_recorder::<StreamCompleted>().await;
+
+    // When the stream is processed.
+    run_with_rules(&harness, stream, &sid, Some(rule_set("NEVER_MATCHES"))).await;
+
+    // Then the turn finished rather than being interrupted.
+    let recorded = await_recorded(&completed, 1, std::time::Duration::from_secs(5)).await;
+    assert_eq!(recorded[0].reason, StreamCompletedReason::Finished);
+}

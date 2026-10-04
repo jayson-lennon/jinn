@@ -92,8 +92,25 @@ impl SessionPersistenceActor {
             event.reason,
             StreamCompletedReason::Finished
                 | StreamCompletedReason::Error
-                | StreamCompletedReason::Canceled,
+                | StreamCompletedReason::Canceled
+                | StreamCompletedReason::RuleIntercept,
         );
+
+        // A rule intercept does not end the turn: the stream was stopped so
+        // the offending output could be taken out of context and the turn
+        // re-dispatched with the rule's body.
+        //
+        // Handled before the completion fold, which would otherwise finalize
+        // the streaming entries and clear the in-flight-stream guard — the
+        // two things the resume needs to tell a live intercept from a stale
+        // one, and the entries it must exclude from the resumed request.
+        // Falling through would also read the resulting phase transition as a
+        // turn end and report the turn as finished.
+        if event.reason == StreamCompletedReason::RuleIntercept {
+            self.on_rule_intercept(&event.session_id, event.reason)
+                .await;
+            return;
+        }
 
         // Count output tokens outside the lock (may spawn_blocking).
         let output_tokens = resolve_output_tokens(self.counter, event).await;
