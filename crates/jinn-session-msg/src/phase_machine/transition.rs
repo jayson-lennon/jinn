@@ -60,8 +60,9 @@ pub trait PhaseTransitions {
     /// Not a terminal transition: the turn continues, and the retried
     /// dispatch re-enters `Streaming` through the normal
     /// `Sending → Streaming` path. Dropping `StreamingPhase` discards the
-    /// stalled generation's indices, so the retry starts from a clean
-    /// `SendingPhase` — exactly what a fresh dispatch expects.
+    /// stalled generation's entry indices and the tool tracking maps are
+    /// cleared, so the retry starts from a clean slate — exactly what a fresh
+    /// dispatch expects.
     ///
     /// # Errors
     ///
@@ -82,7 +83,7 @@ pub trait PhaseTransitions {
 
 impl PhaseTransitions for SessionPhaseMachine {
     fn on_dispatch_message(&mut self) -> Result<TransitionOutcome, TransitionError> {
-        self.transition(PhaseKind::Idle, Phase::Sending(SendingPhase::default()))
+        self.transition(PhaseKind::Idle, Phase::Sending(SendingPhase))
     }
 
     fn on_first_token(&mut self) -> Result<TransitionOutcome, TransitionError> {
@@ -100,38 +101,48 @@ impl PhaseTransitions for SessionPhaseMachine {
         let next = if soft_cancel {
             Phase::Idle(IdlePhase)
         } else {
-            Phase::Sending(SendingPhase::default())
+            Phase::Sending(SendingPhase)
         };
-        self.transition(PhaseKind::Streaming, next)
+        let outcome = self.transition(PhaseKind::Streaming, next)?;
+        // The burst is over: every tool call in it has already been finalized
+        // by `ToolCallReceived`, so its registration is spent. Clearing here is
+        // what `StreamingPhase`'s drop used to do.
+        self.clear_tool_tracking();
+        Ok(outcome)
     }
 
     fn on_stream_completed_finished(&mut self) -> Result<TransitionOutcome, TransitionError> {
-        self.transition(PhaseKind::Streaming, Phase::Idle(IdlePhase))
+        self.end_turn_to_idle(PhaseKind::Streaming)
     }
 
     fn on_stream_completed_error(&mut self) -> Result<TransitionOutcome, TransitionError> {
-        self.transition(PhaseKind::Streaming, Phase::Idle(IdlePhase))
+        self.end_turn_to_idle(PhaseKind::Streaming)
     }
 
     fn on_stream_completed_canceled(&mut self) -> Result<TransitionOutcome, TransitionError> {
-        self.transition(PhaseKind::Streaming, Phase::Idle(IdlePhase))
+        self.end_turn_to_idle(PhaseKind::Streaming)
     }
 
     fn on_retry_rewind(&mut self) -> Result<TransitionOutcome, TransitionError> {
-        self.transition(
-            PhaseKind::Streaming,
-            Phase::Sending(SendingPhase::default()),
-        )
+        let outcome = self.transition(PhaseKind::Streaming, Phase::Sending(SendingPhase))?;
+        // The stalled generation owns every live registration; the retried
+        // dispatch starts from a clean slate.
+        self.clear_tool_tracking();
+        Ok(outcome)
     }
 
     fn on_tool_batch_completed(&mut self) -> Result<TransitionOutcome, TransitionError> {
         let disabled = self.take_tool_loop_disabled();
 
-        let next = if disabled {
-            Phase::Idle(IdlePhase)
-        } else {
-            Phase::Streaming(StreamingPhase::default())
-        };
-        self.transition(PhaseKind::Sending, next)
+        if disabled {
+            return self.end_turn_to_idle(PhaseKind::Sending);
+        }
+        // Continuing the tool loop into a fresh burst: registrations from the
+        // batch that just ran stay live, because the next dispatch can still
+        // address them. Only a turn *end* clears.
+        self.transition(
+            PhaseKind::Sending,
+            Phase::Streaming(StreamingPhase::default()),
+        )
     }
 }

@@ -41,6 +41,9 @@ trouper = { workspace = true }
 jinn-testutil = { workspace = true }
 
 rstest = { workspace = true }
+# Test-only: the tool-call delta refusal is asserted through a captured
+# subscriber, so the log a reader would actually see is the thing under test.
+tracing-subscriber = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 jinn-kernel = { workspace = true }

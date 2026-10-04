@@ -2174,6 +2174,95 @@ fn streaming_tool_call_renders_multiline_arguments() {
 }
 
 #[rstest::rstest]
+#[case("task")]
+#[case("write")]
+fn tool_call_arguments_render_as_a_block_after_a_phase_transition_mid_stream(#[case] tool: &str) {
+    // Given a turn that opened with a tool call: the call is registered while
+    // the session is still Sending, and its first argument delta has landed.
+    let mut state = AppState::default_with_scope_focus();
+    state.active_session_mut().begin_sending();
+    state
+        .active_session_mut()
+        .begin_tool_call(0, "tc_live", tool, jiff::Timestamp::now());
+    state
+        .active_session_mut()
+        .append_tool_call_delta(0, r#"line_one\n"#)
+        .expect("first delta should land on a registered call");
+
+    // When a prose token drives Sending -> Streaming between two deltas of the
+    // same call, and the rest of the arguments arrive.
+    state.active_session_mut().begin_streaming();
+    state
+        .active_session_mut()
+        .append_tool_call_delta(0, r#"line_two\n"#)
+        .expect("second delta should survive the transition");
+    state
+        .active_session_mut()
+        .append_tool_call_delta(0, r#"line_three"#)
+        .expect("third delta should survive the transition");
+
+    // When rendered.
+    let rows = rendered_content_rows(&state, 60, 20);
+
+    // Then every argument line occupies its own row, which only the streaming
+    // variant does. The collapsed variant joins the whole argument string onto
+    // one row, so this also distinguishes the two renderings: a collapsed entry
+    // satisfies a bare "the text appears somewhere" assertion, but not this one.
+    let row_of = |needle: &str| {
+        rows.iter()
+            .position(|r| r.contains(needle))
+            .unwrap_or_else(|| panic!("{needle} should render; got {rows:?}"))
+    };
+    let one = row_of("line_one");
+    let two = row_of("line_two");
+    let three = row_of("line_three");
+    assert_eq!(
+        two,
+        one + 1,
+        "the delta arriving after the phase transition should render on its own line; got {rows:?}"
+    );
+    assert_eq!(
+        three,
+        two + 1,
+        "every later delta should render on its own line; got {rows:?}"
+    );
+}
+
+#[rstest::rstest]
+fn bash_tool_call_arguments_render_after_a_phase_transition_mid_stream() {
+    // Given a `bash` turn that opened with a tool call whose arguments are
+    // streaming while the session is still Sending.
+    let mut state = AppState::default_with_scope_focus();
+    state.active_session_mut().begin_sending();
+    state
+        .active_session_mut()
+        .begin_tool_call(0, "tc_live", "bash", jiff::Timestamp::now());
+    state
+        .active_session_mut()
+        .append_tool_call_delta(0, r#"{"command":"cd"#)
+        .expect("first delta should land on a registered call");
+
+    // When a prose token drives Sending -> Streaming and the rest of the
+    // command arrives.
+    state.active_session_mut().begin_streaming();
+    state
+        .active_session_mut()
+        .append_tool_call_delta(0, r#" /mnt && ls"}"#)
+        .expect("second delta should survive the transition");
+
+    // When rendered.
+    let rows = rendered_content_rows(&state, 60, 20);
+
+    // Then the command renders whole. `bash` renders a single `$ <command>` row
+    // whether or not it is streaming, so the assertion is on the content the
+    // post-transition delta contributed rather than on the row shape.
+    assert!(
+        rows.iter().any(|r| r.contains("cd /mnt && ls")),
+        "the command from both deltas should render; got {rows:?}"
+    );
+}
+
+#[rstest::rstest]
 fn completed_tool_call_renders_collapsed_after_streaming_finishes() {
     // Given a session that streamed a tool call and has since finished.
     let mut state = AppState::default_with_scope_focus();
