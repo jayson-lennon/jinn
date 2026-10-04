@@ -1961,29 +1961,84 @@ mod mcp_dispatch_gate_tests {
         assert_eq!(messages[0].tool_call.name, "mcp__stub__echo");
     }
 
-    /// Installs a `fail_tool` rule denying `condition` on the `bash` tool.
-    fn install_denial_rule(services: &jinn_kernel::common::services::Services, condition: &str) {
-        let cell = services
+    /// The stream-rules cell, which the catalog registers.
+    fn rules_cell(
+        services: &jinn_kernel::common::services::Services,
+    ) -> jinn_slices::TypedCell<jinn_slices::StreamRules> {
+        services
             .slices
             .reader::<jinn_slices::StreamRules>(&jinn_slices::stream_rules_slot())
-            .expect("the catalog registers the stream-rules cell");
-        cell.update(|payload| {
+            .expect("the catalog registers the stream-rules cell")
+    }
+
+    /// A `fail_tool` rule denying `condition` on `tool`.
+    fn denial_rule(
+        name: &str,
+        condition: &str,
+        tool: &str,
+        project: Option<&str>,
+    ) -> jinn_preferences_config::schemas::StreamRuleConfig {
+        jinn_preferences_config::schemas::StreamRuleConfig {
+            name: name.to_owned(),
+            description: format!("denies {condition}"),
+            conditions: vec![condition.to_owned()],
+            scopes: vec![format!("tool:{tool}")],
+            body: "Use a narrower delete.".to_owned(),
+            on_trigger: Some(jinn_preferences_config::schemas::FAIL_TOOL_TRIGGER.to_owned()),
+            project: project.map(str::to_owned),
+        }
+    }
+
+    /// Installs `rules` as the session's rule set.
+    fn install_rules(
+        services: &jinn_kernel::common::services::Services,
+        rules: &[jinn_preferences_config::schemas::StreamRuleConfig],
+    ) {
+        rules_cell(services).update(|payload| {
             payload.install(std::sync::Arc::new(
-                jinn_stream_rules::matcher::CompiledSet::build(&[
-                    jinn_preferences_config::schemas::StreamRuleConfig {
-                        name: "no-rm".to_owned(),
-                        description: "denies rm".to_owned(),
-                        conditions: vec![condition.to_owned()],
-                        scopes: vec!["tool:bash".to_owned()],
-                        body: "Use a narrower delete.".to_owned(),
-                        on_trigger: Some(
-                            jinn_preferences_config::schemas::FAIL_TOOL_TRIGGER.to_owned(),
-                        ),
-                        project: None,
-                    },
-                ]),
+                jinn_stream_rules::matcher::CompiledSet::build(rules),
             ));
         });
+    }
+
+    /// Installs a `fail_tool` rule denying `condition` on the `bash` tool.
+    fn install_denial_rule(services: &jinn_kernel::common::services::Services, condition: &str) {
+        install_rules(services, &[denial_rule("no-rm", condition, "bash", None)]);
+    }
+
+    /// A session rooted at `cwd`, with the orchestrator spawned against it.
+    async fn session_at(
+        cwd: &std::path::Path,
+    ) -> (
+        State,
+        SessionId,
+        TestHarness,
+        jinn_kernel::common::services::Services,
+    ) {
+        let state = State::new(AppState::default());
+        let session_id = SessionId::new();
+        state
+            .write()
+            .session
+            .get_or_create(&session_id)
+            .set_cwd(cwd.to_path_buf());
+        let (harness, services) = spawn_orchestrator(&state).await;
+        (state, session_id, harness, services)
+    }
+
+    /// Dispatches a bash call running `command`.
+    async fn dispatch_bash(harness: &TestHarness, session_id: &SessionId, command: &str) {
+        harness
+            .publish(ExecuteToolBatch {
+                session_id: session_id.clone(),
+                tool_calls: vec![ToolCall {
+                    id: "tc_1".to_owned(),
+                    name: "bash".to_owned(),
+                    arguments: serde_json::json!({ "command": command }).to_string(),
+                }],
+                dispatched_at: jiff::Timestamp::now(),
+            })
+            .await;
     }
 
     #[rstest::rstest]
@@ -2090,5 +2145,184 @@ mod mcp_dispatch_gate_tests {
             messages.first().map(|m| m.tool_call_id.as_str()),
             Some("tc_ok")
         );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_project_scoped_rule_denies_a_call_in_that_project() {
+        // Given a rule scoped to one project, and a session inside it.
+        let (_state, session_id, harness, services) =
+            session_at(std::path::Path::new("/home/dev/code/myapp")).await;
+        install_rules(
+            &services,
+            &[denial_rule("scoped", "rm -rf", "bash", Some("myapp"))],
+        );
+        let results = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+
+        // When a matching call is dispatched there.
+        dispatch_bash(&harness, &session_id, "rm -rf /").await;
+
+        // Then it is denied.
+        let messages = await_recorded(&results, 1, Duration::from_secs(3)).await;
+        let first = messages.first().expect("a result is published");
+        assert!(
+            !first.result.success,
+            "the call must be denied in its project"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_project_scoped_rule_does_not_deny_a_call_elsewhere() {
+        // Given a rule scoped to one project, and a session inside another.
+        let (_state, session_id, harness, services) =
+            session_at(std::path::Path::new("/home/dev/code/other")).await;
+        install_rules(
+            &services,
+            &[denial_rule("scoped", "rm -rf", "bash", Some("myapp"))],
+        );
+        let started = harness
+            .spawn_recorder::<jinn_tools_msg::ToolExecutionStarted>()
+            .await;
+
+        // When the same call is dispatched there.
+        dispatch_bash(&harness, &session_id, "rm -rf /").await;
+
+        // Then it runs, because the rule does not apply to this project.
+        let messages = await_recorded(&started, 1, Duration::from_secs(3)).await;
+        assert_eq!(
+            messages.len(),
+            1,
+            "the call must start outside the rule's project"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_global_rule_denies_a_call_in_a_project_that_scopes_another_rule() {
+        // Given a global rule beside one scoped to a single project.
+        let (_state, session_id, harness, services) =
+            session_at(std::path::Path::new("/home/dev/elsewhere")).await;
+        install_rules(
+            &services,
+            &[
+                denial_rule("global", "rm -rf", "bash", None),
+                denial_rule("scoped", "curl", "bash", Some("myapp")),
+            ],
+        );
+        let results = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+
+        // When the global rule's command runs there.
+        dispatch_bash(&harness, &session_id, "rm -rf /").await;
+
+        // Then it is denied: scoping the other rule cannot lift this one.
+        let messages = await_recorded(&results, 1, Duration::from_secs(3)).await;
+        let first = messages.first().expect("a result is published");
+        assert!(!first.result.success, "a global rule is a floor");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_project_rule_adds_a_block_a_global_rule_does_not_carry() {
+        // Given a global rule about one command, beside a project rule about another.
+        let (_state, session_id, harness, services) =
+            session_at(std::path::Path::new("/home/dev/code/myapp")).await;
+        install_rules(
+            &services,
+            &[
+                denial_rule("global", "rm -rf", "bash", None),
+                denial_rule("scoped", "curl", "bash", Some("myapp")),
+            ],
+        );
+        let results = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+
+        // When the project rule's command runs there.
+        dispatch_bash(&harness, &session_id, "curl http://x").await;
+
+        // Then it is denied too, so a project rule can add blocks.
+        let messages = await_recorded(&results, 1, Duration::from_secs(3)).await;
+        let first = messages.first().expect("a result is published");
+        assert!(!first.result.success, "the project rule adds its own block");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_project_rules_set_is_resolved_once_and_reused() {
+        // Given a rule scoped to a project, and a session inside it.
+        let (state, session_id, harness, services) =
+            session_at(std::path::Path::new("/home/dev/code/myapp")).await;
+        install_rules(
+            &services,
+            &[denial_rule("scoped", "rm -rf", "bash", Some("myapp"))],
+        );
+        let results = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+
+        // When two calls are dispatched in a row.
+        dispatch_bash(&harness, &session_id, "rm -rf /a").await;
+        dispatch_bash(&harness, &session_id, "rm -rf /b").await;
+
+        // Then both are denied, so the cached set is the same one the second
+        // call consults and denying does not depend on resolving twice.
+        let messages = await_recorded(&results, 2, Duration::from_secs(3)).await;
+        assert_eq!(messages.len(), 2, "both calls must be denied");
+        assert!(
+            messages.iter().all(|m| !m.result.success),
+            "every denied call reports failure"
+        );
+        drop(state);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn two_sessions_in_different_projects_resolve_independent_sets() {
+        // Given one rule scoped to a project, and two sessions in different ones.
+        let state = State::new(AppState::default());
+        let inside = SessionId::new();
+        let outside = SessionId::new();
+        {
+            let mut guard = state.write();
+            guard
+                .session
+                .get_or_create(&inside)
+                .set_cwd("/home/dev/code/myapp".into());
+            guard
+                .session
+                .get_or_create(&outside)
+                .set_cwd("/home/dev/code/other".into());
+        }
+        let (harness, services) = spawn_orchestrator(&state).await;
+        install_rules(
+            &services,
+            &[denial_rule("scoped", "rm -rf", "bash", Some("myapp"))],
+        );
+        let results = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+
+        // When both dispatch the same command.
+        dispatch_bash(&harness, &inside, "rm -rf /a").await;
+        dispatch_bash(&harness, &outside, "rm -rf /b").await;
+
+        // Then only the session inside the rule's project is denied.
+        let messages = await_recorded(&results, 1, Duration::from_secs(3)).await;
+        let denied = messages.iter().find(|m| !m.result.success);
+        assert!(denied.is_some(), "the in-project call must be denied");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn no_rules_installed_leaves_every_call_alone() {
+        // Given a session and an empty rule set.
+        let (_state, session_id, harness, services) =
+            session_at(std::path::Path::new("/home/dev/code/myapp")).await;
+        install_rules(&services, &[]);
+        let started = harness
+            .spawn_recorder::<jinn_tools_msg::ToolExecutionStarted>()
+            .await;
+
+        // When a call is dispatched.
+        dispatch_bash(&harness, &session_id, "rm -rf /").await;
+
+        // Then it starts: an absent rule set must not read as "deny everything".
+        let messages = await_recorded(&started, 1, Duration::from_secs(3)).await;
+        assert_eq!(messages.len(), 1, "an empty set must deny nothing");
     }
 }

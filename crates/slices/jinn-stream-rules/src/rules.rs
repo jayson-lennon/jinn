@@ -110,8 +110,10 @@ mod tests {
     )]
 
     use super::read_rules;
+    use crate::matcher::CompiledSet;
     use jinn_config::ConfigLayer;
     use jinn_preferences_config::schemas::FAIL_TOOL_TRIGGER;
+    use jinn_slices::StreamRuleSet;
 
     /// Reads `doc` as a config layer.
     fn layer(doc: &str) -> ConfigLayer {
@@ -175,7 +177,7 @@ mod tests {
             [[project.entry]]
             path = "/home/dev/code/other"
             [[project.entry.command_policy]]
-            pattern = 'cargo test --workspace'
+            pattern = 'npm run release'
             message = 'Run the package test, not the whole workspace.'
         "#,
         );
@@ -186,7 +188,7 @@ mod tests {
         // Then the rule is scoped to the project that declared it.
         assert!(
             rules.iter().any(|r| {
-                r.conditions == vec!["cargo test --workspace".to_owned()]
+                r.conditions == vec!["npm run release".to_owned()]
                     && r.project.as_deref() == Some("/home/dev/code/other")
             }),
             "a project's own rule must keep its project scope, got: {:?}",
@@ -218,5 +220,141 @@ mod tests {
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].name, "no-todo");
         assert_eq!(rules[0].on_trigger, None);
+    }
+
+    /// A config carrying a global rule and a project-scoped one.
+    fn mixed_project_config() -> ConfigLayer {
+        layer(
+            r#"
+            [[stream_rules.entry]]
+            name = 'global-rule'
+            conditions = ['rm -rf']
+            scopes = ['tool:bash']
+            on_trigger = 'fail_tool'
+            body = 'Never.'
+
+            [[stream_rules.entry]]
+            name = 'myapp-rule'
+            conditions = ['npm\s+run\s+release']
+            scopes = ['tool:bash']
+            on_trigger = 'fail_tool'
+            project = 'myapp'
+            body = 'Run the checked-in script instead.'
+        "#,
+        )
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_global_and_a_project_rule_both_read_from_one_list() {
+        // Given a file with a global rule and a project-scoped one.
+        let config = mixed_project_config();
+
+        // When the rules are read.
+        let rules = read_rules(&config);
+
+        // Then both are present, each with its own scope intact.
+        assert_eq!(rules.len(), 2);
+        let global = rules.iter().find(|r| r.name == "global-rule");
+        assert_eq!(global.and_then(|r| r.project.as_deref()), None);
+        let scoped = rules.iter().find(|r| r.name == "myapp-rule");
+        assert_eq!(scoped.and_then(|r| r.project.as_deref()), Some("myapp"));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_global_rule_merged_with_a_project_rule_keeps_both_blocks() {
+        // Given the same two rules, compiled for the scoped project.
+        let set = crate::matcher::CompiledSet::build(&read_rules(&mixed_project_config()))
+            .for_project(std::path::Path::new("/home/dev/code/myapp"));
+
+        // When each command is offered to the executor in that project.
+        let global = set.deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
+        let scoped = set.deny_tool_call("bash", r#"{"command":"npm run release"}"#);
+
+        // Then both are denied: merging adds the project rule, it does not
+        // displace the global one.
+        assert_eq!(global.map(|hit| hit.name), Some("global-rule".to_owned()));
+        assert_eq!(scoped.map(|hit| hit.name), Some("myapp-rule".to_owned()));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_project_rule_merged_with_a_global_rule_is_silent_outside_its_project() {
+        // Given the same two rules, resolved for a project that is not myapp.
+        let set = crate::matcher::CompiledSet::build(&read_rules(&mixed_project_config()))
+            .for_project(std::path::Path::new("/home/dev/code/other"));
+
+        // When the global rule's command is offered there.
+        let global = set.deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
+
+        // Then it is still denied: a project-scoped rule cannot lift a global.
+        assert_eq!(global.map(|hit| hit.name), Some("global-rule".to_owned()));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_legacy_and_a_stream_rule_merge_into_one_set() {
+        // Given a file with the removed section beside a real stream rule.
+        let config = layer(
+            r#"
+            [[tools.bash_command_policy]]
+            pattern = 'chmod 777'
+            message = 'World-writable.'
+
+            [[stream_rules.entry]]
+            name = 'no-todo'
+            conditions = ['TODO']
+            scopes = ['text']
+            body = 'Finish it.'
+        "#,
+        );
+
+        // When the rules are read and compiled.
+        let rules = read_rules(&config);
+        let set = crate::matcher::CompiledSet::build(&rules);
+
+        // Then both are live: the legacy one denies, the stream one interrupts.
+        let denied = set.deny_tool_call("bash", r#"{"command":"chmod 777 x"}"#);
+        assert!(
+            denied.is_some(),
+            "the converted legacy rule must still deny"
+        );
+        assert!(
+            rules.iter().any(|r| r.name == "no-todo"),
+            "the stream rule must survive the merge"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_legacy_project_rule_merges_with_a_global_one() {
+        // Given a legacy global rule beside a legacy project rule.
+        let config = layer(
+            r#"
+            [[tools.bash_command_policy]]
+            pattern = 'drop\s+table'
+            message = 'No.'
+
+            [[project.entry]]
+            path = "/home/dev/code/myapp"
+            [[project.entry.command_policy]]
+            pattern = 'truncate'
+            message = 'Not here.'
+        "#,
+        );
+
+        // When the rules are read and compiled for that project.
+        let set = crate::matcher::CompiledSet::build(&read_rules(&config))
+            .for_project(std::path::Path::new("/home/dev/code/myapp"));
+
+        // Then both deny: the project rule adds its block beside the global.
+        let global = set.deny_tool_call("bash", r#"{"command":"drop table t"}"#);
+        let scoped = set.deny_tool_call("bash", r#"{"command":"truncate t"}"#);
+        assert!(global.is_some(), "the legacy global rule must still deny");
+        assert!(
+            scoped.is_some(),
+            "the legacy project rule must deny in its project"
+        );
     }
 }

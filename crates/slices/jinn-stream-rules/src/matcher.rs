@@ -293,20 +293,24 @@ fn compile_rule(config: &StreamRuleConfig) -> Option<CompiledRule> {
         return None;
     }
 
-    let trigger = RuleTrigger::parse(&config.name, config.on_trigger.as_deref().unwrap_or(""))?;
+    let mut trigger = RuleTrigger::parse(&config.name, config.on_trigger.as_deref().unwrap_or(""))?;
 
-    // A denial needs something to deny. Without a tool scope a `fail_tool`
-    // rule would match prose, find no call to refuse, and do nothing at all
-    // while appearing configured -- so it is rejected here, where the warning
-    // can name the rule, rather than silently inert at the executor.
+    // A denial needs something to deny, so a `fail_tool` rule scoped only to
+    // prose or reasoning can never refuse a call. It is NOT dropped for that:
+    // the trigger names what happens at the *executor*, and a rule still worth
+    // matching is worth interrupting on. The rule keeps its full stream
+    // behaviour and simply never denies, which is the only honest reading of a
+    // trigger that cannot apply here -- and it is warned about rather than
+    // silently accepting a spelling that will read as a missing block.
     if matches!(trigger, RuleTrigger::FailTool) && !scope.reaches_tools() {
         tracing::warn!(
             rule = %config.name,
             scopes = ?config.scopes,
             trigger = FAIL_TOOL_TRIGGER,
-            "stream rule denies tool calls but scopes to no tool, skipping the rule"
+            "stream rule names fail_tool but scopes to no tool; \
+             it will interrupt on a match but can never deny a call"
         );
-        return None;
+        trigger = RuleTrigger::Interrupt;
     }
 
     let project = compile_project(&config.name, config.project.as_deref().unwrap_or(""));
@@ -1260,16 +1264,98 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn a_denial_rule_scoped_to_no_tool_is_skipped() {
-        // Given a rule that denies tool calls but scopes only to prose.
+    fn a_denial_rule_scoped_to_no_tool_denies_nothing() {
+        // Given a rule naming fail_tool but scoping only to prose.
         let configs = [scoped_rule("mismatched", "rm -rf", "text", "fail_tool")];
 
         // When the executor consults the set about a matching call.
         let denied =
             CompiledSet::build(&configs).deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
 
-        // Then the rule was dropped rather than left armed with nothing to do.
+        // Then it denies nothing, because there is no tool call to deny.
         assert!(denied.is_none());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_denial_rule_scoped_to_no_tool_still_interrupts_on_prose() {
+        // Given a rule naming fail_tool but scoping only to prose.
+        let configs = [scoped_rule("mismatched", "rm -rf", "text", "fail_tool")];
+
+        // When the prose it matches is streamed.
+        let fired = fired_on(&configs, "run rm -rf now", StreamContext::text());
+
+        // Then it still interrupts: the trigger names what happens at the
+        // executor, and there is nothing to deny there.
+        assert_eq!(fired, Some("mismatched".to_owned()));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_denial_rule_scoped_to_a_tool_still_interrupts_while_streaming() {
+        // Given a rule naming fail_tool and scoping to a tool.
+        let configs = [scoped_rule("both", "rm -rf", "tool:bash", "fail_tool")];
+
+        // When that tool's arguments are streamed.
+        let fired = fired_on(
+            &configs,
+            r#"{"command":"rm -rf /"}"#,
+            StreamContext::tool(0, "bash"),
+        );
+
+        // Then it interrupts as well as denying, because catching the mistake
+        // mid-stream and refusing the call are both wanted.
+        assert_eq!(fired, Some("both".to_owned()));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_denial_rule_scoped_to_reasoning_denies_nothing() {
+        // Given a rule naming fail_tool but scoping only to reasoning.
+        let configs = [scoped_rule("thought", "rm -rf", "thinking", "fail_tool")];
+
+        // When the executor consults the set about a matching call.
+        let denied =
+            CompiledSet::build(&configs).deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
+
+        // Then it denies nothing.
+        assert!(denied.is_none());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_denial_rule_with_no_scope_denies_every_tool() {
+        // Given a rule naming fail_tool with no scope, which admits every stream.
+        let configs = [scoped_rule("any", "rm -rf", "tool", "fail_tool")];
+
+        // When the executor consults the set about a call to an unrelated tool.
+        let denied = CompiledSet::build(&configs).deny_tool_call("read", r#"{"path":"rm -rf"}"#);
+
+        // Then it denies, because an unscoped rule reaches every tool.
+        assert_eq!(denied.map(|hit| hit.name), Some("any".to_owned()));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_denial_rule_does_not_consume_the_turns_fire_budget() {
+        // Given a rule naming fail_tool, scoped to a tool.
+        let configs = [scoped_rule("no-rm", "rm -rf", "tool:bash", "fail_tool")];
+        let set = CompiledSet::build(&configs);
+
+        // When the executor denies the same call repeatedly.
+        let denials: Vec<bool> = (0..jinn_slices::MAX_FIRES_PER_RULE_PER_TURN + 2)
+            .map(|_| {
+                set.deny_tool_call("bash", r#"{"command":"rm -rf /"}"#)
+                    .is_some()
+            })
+            .collect();
+
+        // Then every one denies: a refusal is not an interruption, so it must
+        // not exhaust the cap that bounds interruptions.
+        assert!(
+            denials.iter().all(|d| *d),
+            "every denial must stand, got {denials:?}"
+        );
     }
 
     #[rstest::rstest]
