@@ -122,9 +122,9 @@ teardown_command = "..."
 path = "~/code/myapp"
 ```
 
-A project's own rules are [stream rules](#stream-rules) carrying its path in
-their `project` field, so they are configured with every other rule rather
-than on the project entry.
+A project's own rules are stream rules (see **Stream rules** below) carrying
+its path in their `project` field, so they are configured with every other
+rule rather than on the project entry.
 
 **Saved attendants** (`[[attendant.entry]]` — see `attendants.md` for the
 full field reference and the feature itself):
@@ -152,8 +152,8 @@ picker (`<leader>sa`) re-reads the document every time it opens, so a hand edit
 shows up without a restart. `name` is the key entries are matched by, so
 saving under an existing name replaces that entry in place.
 
-**Blocking a command before it runs** is a [stream rule](#stream-rules) with
-`on_trigger = "fail_tool"` and a tool scope:
+**Blocking a command before it runs** is a stream rule (see **Stream rules**
+below) with `on_trigger = "fail_tool"` and a tool scope:
 
 ```toml
 [[stream_rules.entry]]
@@ -341,8 +341,8 @@ max_failures = 4      # tool failures before the turn cancels
 `max_failures` uses a simple accumulator that rises on failure and falls on
 success, so the failures need not be consecutive.
 
-**Stream rules** (regex over the *live* assistant output — the only rule
-kind that runs mid-response):
+**Stream rules** (regex over the assistant's output as it is produced — the
+only rule kind that can act mid-response):
 
 ```toml
 [[stream_rules.entry]]
