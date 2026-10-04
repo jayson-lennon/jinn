@@ -2174,6 +2174,48 @@ fn streaming_tool_call_renders_multiline_arguments() {
 }
 
 #[rstest::rstest]
+#[case("task")]
+#[case("write")]
+#[case("bash")]
+fn tool_call_arguments_render_after_a_phase_transition_mid_stream(#[case] tool: &str) {
+    // Given a turn that opened with a tool call: the call is registered while
+    // the session is still Sending, and its first argument delta has landed.
+    let mut state = AppState::default_with_scope_focus();
+    state.active_session_mut().begin_sending();
+    state
+        .active_session_mut()
+        .begin_tool_call(0, "tc_live", tool, jiff::Timestamp::now());
+    state
+        .active_session_mut()
+        .append_tool_call_delta(0, r#"line_one\n"#)
+        .expect("first delta should land on a registered call");
+
+    // When a prose token drives Sending -> Streaming between two deltas of the
+    // same call, and the rest of the arguments arrive.
+    state.active_session_mut().begin_streaming();
+    state
+        .active_session_mut()
+        .append_tool_call_delta(0, r#"line_two\n"#)
+        .expect("second delta should survive the transition");
+    state
+        .active_session_mut()
+        .append_tool_call_delta(0, r#"line_three"#)
+        .expect("third delta should survive the transition");
+
+    // Then the chat log renders the arguments that arrived after the transition.
+    let rows = rendered_content_rows(&state, 60, 20);
+
+    assert!(
+        rows.iter().any(|r| r.contains("line_two")),
+        "the delta arriving after the phase transition should render; got {rows:?}"
+    );
+    assert!(
+        rows.iter().any(|r| r.contains("line_three")),
+        "every later delta should render; got {rows:?}"
+    );
+}
+
+#[rstest::rstest]
 fn completed_tool_call_renders_collapsed_after_streaming_finishes() {
     // Given a session that streamed a tool call and has since finished.
     let mut state = AppState::default_with_scope_focus();

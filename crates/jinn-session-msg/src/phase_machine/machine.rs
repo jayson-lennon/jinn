@@ -20,6 +20,8 @@
 //!
 //! ```
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::phase::{IdlePhase, Phase, PhaseKind, SendingPhase, StreamingPhase};
@@ -74,6 +76,25 @@ pub struct SessionPhaseMachine {
     /// Machine-level flag that survives phase transitions.
     /// Self-clearing on read.
     tool_loop_disabled: bool,
+    /// Maps stream tool-call index to history index for in-progress tool
+    /// calls whose arguments are still arriving.
+    ///
+    /// Machine-level, for the same reason `tool_loop_disabled` is: a tool
+    /// call's arguments stream in across the whole provider burst, which spans
+    /// both busy phases. When this map lived on `SendingPhase` and
+    /// `StreamingPhase` as two independent copies, every transition built a
+    /// fresh empty one for the destination variant and silently discarded a
+    /// registration that was still live — after which every later delta of
+    /// that call was refused. Cleared at the same points the turn ends.
+    streaming_tool_call_indices: HashMap<usize, usize>,
+    /// Maps `tool_call_id` to history index for the in-flight tool batch's
+    /// `Pending` result entries.
+    ///
+    /// Machine-level for the same reason: a tool result arrives in `Sending`
+    /// for the ordinary case (the stream ended in `ToolUse` before the batch
+    /// ran) and in `Streaming` only when a batch overlaps a live stream, so a
+    /// phase-local copy lost whichever registrations did not share its phase.
+    streaming_tool_result_indices: HashMap<String, usize>,
 }
 
 impl SessionPhaseMachine {
@@ -126,6 +147,9 @@ impl SessionPhaseMachine {
     /// the result so the caller can force-exclude dangling tool calls and drain
     /// the queue to the input buffer.
     ///
+    /// Clears the tool-call and tool-result maps: a cancelled turn is over, so
+    /// no registration from it may outlive it.
+    ///
     /// # Errors
     ///
     /// Returns [`TransitionError`] if not in `Streaming` or `Sending`.
@@ -135,6 +159,8 @@ impl SessionPhaseMachine {
             PhaseKind::Streaming | PhaseKind::Sending => {}
             PhaseKind::Idle => return Err(TransitionError { from: old }),
         }
+        self.streaming_tool_call_indices.clear();
+        self.streaming_tool_result_indices.clear();
         let old_phase = std::mem::replace(&mut self.phase, Phase::Idle(IdlePhase));
         let old_streaming = match old_phase {
             Phase::Streaming(sp) => sp,
@@ -212,130 +238,91 @@ impl SessionPhaseMachine {
         }
     }
 
-    /// Read-only access to tool-call tracking map. Returns empty if not streaming.
-    pub fn streaming_tool_call_indices(&self) -> &std::collections::HashMap<usize, usize> {
-        self.active_tool_call_indices()
-    }
-
-    /// Mutable access to tool-call tracking map. Returns `None` if not streaming.
-    pub fn streaming_tool_call_indices_mut(
-        &mut self,
-    ) -> Option<&mut std::collections::HashMap<usize, usize>> {
-        self.active_tool_call_indices_mut()
-    }
-
-    /// Read-only access to the tool-call tracking map of whichever busy phase
-    /// is current. Returns empty when neither is live.
+    /// Read-only access to the tool-call tracking map.
     ///
-    /// A tool call's arguments stream in during the provider burst, which
-    /// spans **both** busy phases. `dispatch_user_message` leaves the session
-    /// `Sending`, and the only `Sending → Streaming` transition is driven by a
-    /// text token — so a model that opens by calling a tool emits no token and
-    /// never reaches `Streaming`. Gating the map on `Streaming` alone dropped
-    /// those calls on the floor: their entry was pushed, the registration was
-    /// refused, and every argument delta was discarded.
+    /// Phase-agnostic by design: a tool call's arguments stream in across the
+    /// whole provider burst, which spans both busy phases, so there is no phase
+    /// for this map to be "the" map of. Same read as
+    /// [`Self::active_tool_call_indices`].
+    pub fn streaming_tool_call_indices(&self) -> &HashMap<usize, usize> {
+        &self.streaming_tool_call_indices
+    }
+
+    /// Mutable access to the tool-call tracking map.
     ///
-    /// Callers that do not care which busy phase they are in should use this;
-    /// [`Self::streaming_tool_call_indices`] stays for call sites that name
-    /// the phase they mean. Mirrors [`Self::active_tool_result_indices`].
-    pub fn active_tool_call_indices(&self) -> &std::collections::HashMap<usize, usize> {
-        match &self.phase {
-            Phase::Streaming(sp) => &sp.streaming_tool_call_indices,
-            Phase::Sending(sp) => &sp.streaming_tool_call_indices,
-            Phase::Idle(_) => {
-                use std::sync::OnceLock;
-                static EMPTY: OnceLock<std::collections::HashMap<usize, usize>> = OnceLock::new();
-                EMPTY.get_or_init(std::collections::HashMap::new)
-            }
-        }
+    /// Same write as [`Self::active_tool_call_indices_mut`]. Always available:
+    /// the map outlives every phase, so there is nothing to gate on. Callers
+    /// that must refuse a turn with no work in flight should test
+    /// [`Self::kind`] instead.
+    pub fn streaming_tool_call_indices_mut(&mut self) -> &mut HashMap<usize, usize> {
+        &mut self.streaming_tool_call_indices
     }
 
-    /// Mutable access to the tool-call tracking map of whichever busy phase is
-    /// current. Returns `None` in `Idle`.
-    pub fn active_tool_call_indices_mut(
-        &mut self,
-    ) -> Option<&mut std::collections::HashMap<usize, usize>> {
-        match &mut self.phase {
-            Phase::Streaming(sp) => Some(&mut sp.streaming_tool_call_indices),
-            Phase::Sending(sp) => Some(&mut sp.streaming_tool_call_indices),
-            Phase::Idle(_) => None,
-        }
+    /// Read-only access to the tool-call tracking map.
+    ///
+    /// Tool-call arguments stream in during both busy phases: a dispatch leaves
+    /// the session `Sending`, and the `Sending → Streaming` edge is driven by a
+    /// prose token that can arrive *between* two argument deltas of the same
+    /// call. Gating this map on one phase dropped the registration of any call
+    /// whose arguments outlived the edge, and every later delta was refused.
+    ///
+    /// Returns empty when no turn is in flight, because the map is cleared when
+    /// the turn ends.
+    pub fn active_tool_call_indices(&self) -> &HashMap<usize, usize> {
+        &self.streaming_tool_call_indices
     }
 
-    /// Read-only access to tool-result tracking map. Returns empty if not streaming.
-    pub fn streaming_tool_result_indices(&self) -> &std::collections::HashMap<String, usize> {
-        use std::sync::OnceLock;
-        static EMPTY: OnceLock<std::collections::HashMap<String, usize>> = OnceLock::new();
-        self.streaming_phase().map_or_else(
-            || EMPTY.get_or_init(std::collections::HashMap::new),
-            |sp| &sp.streaming_tool_result_indices,
-        )
+    /// Mutable access to the tool-call tracking map. Always available.
+    pub fn active_tool_call_indices_mut(&mut self) -> &mut HashMap<usize, usize> {
+        &mut self.streaming_tool_call_indices
     }
 
-    /// Mutable access to tool-result tracking map. Returns `None` if not streaming.
-    pub fn streaming_tool_result_indices_mut(
-        &mut self,
-    ) -> Option<&mut std::collections::HashMap<String, usize>> {
-        self.streaming_phase_mut()
-            .map(|sp| &mut sp.streaming_tool_result_indices)
+    /// Read-only access to the tool-result tracking map.
+    ///
+    /// Same read as [`Self::active_tool_result_indices`]. Returns empty when no
+    /// turn is in flight.
+    pub fn streaming_tool_result_indices(&self) -> &HashMap<String, usize> {
+        &self.streaming_tool_result_indices
     }
 
-    /// Read-only access to the tool-result tracking map of whichever busy
-    /// phase is current. Returns empty when neither is live.
+    /// Mutable access to the tool-result tracking map. Always available.
+    pub fn streaming_tool_result_indices_mut(&mut self) -> &mut HashMap<String, usize> {
+        &mut self.streaming_tool_result_indices
+    }
+
+    /// Read-only access to the tool-result tracking map.
     ///
     /// A tool result arrives in `Sending` for the ordinary case (the stream
-    /// ended in `ToolUse` before the batch ran) and in `Streaming` only when
-    /// a batch overlaps a live stream. Callers that do not care which one they
-    /// are in should use this; [`Self::streaming_tool_result_indices`] stays
-    /// for code that genuinely is phase-specific.
-    pub fn active_tool_result_indices(&self) -> &std::collections::HashMap<String, usize> {
-        match &self.phase {
-            Phase::Streaming(sp) => &sp.streaming_tool_result_indices,
-            Phase::Sending(sp) => &sp.streaming_tool_result_indices,
-            Phase::Idle(_) => {
-                use std::sync::OnceLock;
-                static EMPTY: OnceLock<std::collections::HashMap<String, usize>> = OnceLock::new();
-                EMPTY.get_or_init(std::collections::HashMap::new)
-            }
-        }
+    /// ended in `ToolUse` before the batch ran) and in `Streaming` only when a
+    /// batch overlaps a live stream, so a phase-local copy lost whichever
+    /// registrations did not share its phase.
+    ///
+    /// Returns empty when no turn is in flight.
+    pub fn active_tool_result_indices(&self) -> &HashMap<String, usize> {
+        &self.streaming_tool_result_indices
     }
 
-    /// Mutable access to the tool-result tracking map of whichever busy phase
-    /// is current. Returns `None` in `Idle`.
-    pub fn active_tool_result_indices_mut(
-        &mut self,
-    ) -> Option<&mut std::collections::HashMap<String, usize>> {
-        match &mut self.phase {
-            Phase::Streaming(sp) => Some(&mut sp.streaming_tool_result_indices),
-            Phase::Sending(sp) => Some(&mut sp.streaming_tool_result_indices),
-            Phase::Idle(_) => None,
-        }
+    /// Mutable access to the tool-result tracking map. Always available.
+    pub fn active_tool_result_indices_mut(&mut self) -> &mut HashMap<String, usize> {
+        &mut self.streaming_tool_result_indices
     }
 
     /// Shift all streaming indices >= `inserted_at` by +1.
     ///
     /// Called after `insert_entry_at` to keep indices valid. No-op in `Idle`.
     ///
-    /// Tool-call and tool-result indices are shifted in whichever busy phase is
-    /// current: a tool call's arguments stream in during `Sending` as often as
-    /// during `Streaming`, so shifting only one of them would let an index
-    /// drift onto the wrong history entry.
+    /// Tool-call and tool-result indices are shifted wherever they live: a tool
+    /// call's arguments stream in during `Sending` as often as during
+    /// `Streaming`, so shifting only one of them would let an index drift onto
+    /// the wrong history entry.
     pub fn shift_streaming_indices_for_insert_at(&mut self, inserted_at: usize) {
         // Two separate borrows: one mutable borrow per map, never overlapping.
-        for value in self
-            .active_tool_call_indices_mut()
-            .into_iter()
-            .flat_map(|m| m.values_mut())
-        {
+        for value in self.streaming_tool_call_indices.values_mut() {
             if *value >= inserted_at {
                 *value += 1;
             }
         }
-        for value in self
-            .active_tool_result_indices_mut()
-            .into_iter()
-            .flat_map(|m| m.values_mut())
-        {
+        for value in self.streaming_tool_result_indices.values_mut() {
             if *value >= inserted_at {
                 *value += 1;
             }
@@ -366,18 +353,10 @@ impl SessionPhaseMachine {
     /// it is dropped rather than shifted, so no index ever names a position one
     /// past the end. No-op in `Idle`.
     pub fn shift_streaming_indices_after_remove_at(&mut self, removed_at: usize) {
-        for value in self
-            .active_tool_call_indices_mut()
-            .into_iter()
-            .flat_map(|m| m.values_mut())
-        {
+        for value in self.streaming_tool_call_indices.values_mut() {
             *value = shift_removed_index(*value, removed_at);
         }
-        for value in self
-            .active_tool_result_indices_mut()
-            .into_iter()
-            .flat_map(|m| m.values_mut())
-        {
+        for value in self.streaming_tool_result_indices.values_mut() {
             *value = shift_removed_index(*value, removed_at);
         }
         let Some(sp) = self.streaming_phase_mut() else {
@@ -396,18 +375,15 @@ impl SessionPhaseMachine {
     /// Zeros the assistant entry, thinking entry, tool-call, and tool-result
     /// index tracking. The stall-retry path calls this after taking the
     /// partial entries out of context, so the retried stream's first token
-    /// creates fresh entries. No-op in `Idle`.
+    /// creates fresh entries. The tool-call and tool-result maps are cleared
+    /// even in `Idle`, where the entry indices have nothing to clear.
     pub fn clear_streaming_indices(&mut self) {
         if let Some(sp) = self.streaming_phase_mut() {
             sp.streaming_entry_index = None;
             sp.streaming_thinking_entry_index = None;
         }
-        if let Some(m) = self.active_tool_call_indices_mut() {
-            m.clear();
-        }
-        if let Some(m) = self.active_tool_result_indices_mut() {
-            m.clear();
-        }
+        self.streaming_tool_call_indices.clear();
+        self.streaming_tool_result_indices.clear();
     }
 
     /// Whether the machine is tracking a tool call at the given history index.
@@ -435,6 +411,15 @@ impl SessionPhaseMachine {
 
     // ── Internal helpers ────────────────────────────────────────────────
 
+    /// Drop every tool-call and tool-result registration.
+    ///
+    /// Called by the transitions that end a turn, now that the maps no longer
+    /// live on a phase struct whose drop did this implicitly.
+    pub(crate) fn clear_tool_tracking(&mut self) {
+        self.streaming_tool_call_indices.clear();
+        self.streaming_tool_result_indices.clear();
+    }
+
     /// Validate the current phase, then swap to `next`.
     ///
     /// Returns [`TransitionOutcome`] recording the before/after phases.
@@ -460,6 +445,25 @@ impl SessionPhaseMachine {
         } else {
             Err(TransitionError { from: actual })
         }
+    }
+
+    /// End the turn from `expected`: drop every registration and go `Idle`.
+    ///
+    /// The turn is over, so the tool-call and tool-result maps are cleared
+    /// before the swap. Previously this happened implicitly, as a side effect
+    /// of dropping the outgoing phase struct.
+    pub(crate) fn end_turn_to_idle(
+        &mut self,
+        expected: PhaseKind,
+    ) -> Result<TransitionOutcome, TransitionError> {
+        self.validate(expected)?;
+        self.clear_tool_tracking();
+        let old = self.phase.kind();
+        self.phase = Phase::Idle(IdlePhase);
+        Ok(TransitionOutcome {
+            old_phase: old,
+            new_phase: PhaseKind::Idle,
+        })
     }
 }
 

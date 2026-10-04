@@ -1,13 +1,20 @@
 //! Phase types for the session phase machine.
 //!
-//! [`Phase`] is a struct-per-variant enum where each phase carries its own
-//! state. Transitioning away from a variant drops its data automatically.
+//! [`Phase`] is a struct-per-variant enum where each variant carries only the
+//! state that is *meaningful solely while that phase is live* — the indices of
+//! the entries currently receiving stream tokens, and the soft-cancel flag.
+//! Transitioning away from a variant drops that data automatically.
+//!
+//! State that must outlive a transition does **not** live here. Tool-call and
+//! tool-result index tracking lives on [`SessionPhaseMachine`], beside
+//! `tool_loop_disabled`, because a tool call's arguments stream in across the
+//! provider burst rather than within one phase: a `Sending → Streaming` edge
+//! driven by a prose token used to discard the registration of a call that was
+//! already streaming, and every later delta of that call was refused.
 //!
 //! [`PhaseKind`] is the discriminant used for event emission and logging
 //! where the per-phase data is not needed. It lives in `jinn-session-msg`
 //! (the crossing-contract crate) and is re-exported here.
-
-use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -19,29 +26,17 @@ pub struct IdlePhase;
 
 /// Per-phase data for the Sending phase.
 ///
-/// Carries the in-flight tool batch's result tracking, plus any tool calls
-/// whose arguments are streaming in. A tool result does not arrive while the
-/// model is streaming — the stream ends in `ToolUse`, the phase becomes
-/// `Sending`, and *then* the tools run. Gating tool results on `Streaming`
-/// therefore dropped every one of them, leaving the finalized result to be
-/// pushed detached at the end of history.
-///
-/// Tool-call arguments stream in across the whole provider burst, which
-/// begins in this phase: a model that opens by calling a tool emits no text
-/// token, so it never reaches `Streaming`. The same mistake made here would
-/// discard every argument delta for such a turn.
+/// Carries nothing of its own: the in-flight tool batch's result tracking and
+/// any tool calls whose arguments are streaming in both belong to the machine,
+/// not to this phase. A tool result does not arrive while the model is
+/// streaming — the stream ends in `ToolUse`, the phase becomes `Sending`, and
+/// *then* the tools run — and tool-call arguments stream in across the whole
+/// provider burst, which begins in this phase.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SendingPhase {
-    /// Maps stream tool-call index to history index for in-progress tool
-    /// calls whose arguments are still arriving.
-    pub streaming_tool_call_indices: HashMap<usize, usize>,
-    /// Maps tool_call_id to history index for the in-flight tool batch's
-    /// `Pending` result entries.
-    pub streaming_tool_result_indices: HashMap<String, usize>,
-}
+pub struct SendingPhase;
 
-/// Carries all streaming tracking state - ephemeral indices and maps
-/// that are only meaningful while the LLM is actively streaming tokens.
+/// Carries the state that is only meaningful while the LLM is actively
+/// streaming tokens.
 ///
 /// All fields are cleared when transitioning away from `Streaming`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -50,10 +45,6 @@ pub struct StreamingPhase {
     pub streaming_entry_index: Option<usize>,
     /// Index into history for the entry currently receiving thinking tokens.
     pub streaming_thinking_entry_index: Option<usize>,
-    /// Maps stream tool-call index to history index for in-progress tool calls.
-    pub streaming_tool_call_indices: HashMap<usize, usize>,
-    /// Maps tool_call_id to history index for pending streaming ToolResult entries.
-    pub streaming_tool_result_indices: HashMap<String, usize>,
     /// When `true`, the next stream-completion boundary transitions to `Idle`
     /// instead of continuing the tool loop. Set by `soft_cancel()`.
     pub soft_cancel_requested: bool,
@@ -61,8 +52,11 @@ pub struct StreamingPhase {
 
 /// The current session phase with per-phase state.
 ///
-/// Each variant carries its own state struct. Transitioning away from a variant
-/// drops its data automatically - no manual cleanup of streaming indices or flags.
+/// Each variant carries only the state that belongs to that phase alone;
+/// anything a turn needs across a transition lives on
+/// [`SessionPhaseMachine`](super::machine::SessionPhaseMachine). Transitioning
+/// away from a variant drops its own data — no manual cleanup of streaming
+/// indices or flags.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Phase {
     /// Session is idle - no LLM request in flight.
