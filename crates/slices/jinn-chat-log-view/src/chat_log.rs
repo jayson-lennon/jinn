@@ -20,6 +20,7 @@ pub(crate) mod compaction;
 pub(crate) mod error_entry;
 pub mod gutter;
 pub(crate) mod markdown;
+pub(crate) mod rule_interrupt;
 pub mod scroll_indicator;
 pub(crate) mod shared;
 
@@ -87,5 +88,6 @@ pub fn entry_to_lines(entry: &ChatEntry, ctx: &RenderContext) -> Vec<Line<'stati
             *tokens_after,
             ctx,
         ),
+        ChatEntryKind::RuleInterrupt { rule, body } => rule_interrupt::to_lines(rule, body, ctx),
     }
 }

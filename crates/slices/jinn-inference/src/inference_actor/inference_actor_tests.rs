@@ -1108,16 +1108,67 @@ async fn an_intercept_injects_the_rule_body_as_a_user_entry() {
     // When the stream is processed with the rule installed.
     run_with_rules(&harness, stream, &sid, Some(rule_set("FORBIDDEN"))).await;
 
-    // Then the rule's guidance entered the conversation as a user entry.
+    // Then the rule's guidance entered the conversation as a rule interrupt.
     let recorded = await_recorded(&entries, 1, std::time::Duration::from_secs(5)).await;
     let injected = recorded.iter().any(|e: &PushChatEntry| {
-        matches!(&e.entry.kind, jinn_core_types::ChatEntryKind::User { display, .. }
-            if display.contains("Stop doing that."))
+        matches!(&e.entry.kind, jinn_core_types::ChatEntryKind::RuleInterrupt { rule, body }
+            if body.contains("Stop doing that.") && rule == "test-rule")
     });
     assert!(
         injected,
         "the resumed turn must carry the rule body as guidance: {:?}",
         recorded.iter().map(|e| &e.entry.kind).collect::<Vec<_>>()
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_intercept_injects_guidance_the_model_can_still_read() {
+    // Given a stream that trips the rule.
+    use jinn_provider::StreamEvent;
+    let harness = TestHarness::new().await;
+    let stream = scripted_stream(vec![StreamEvent::Text("FORBIDDEN".to_owned())]);
+    let sid = SessionId::new();
+    let entries = harness.spawn_recorder::<PushChatEntry>().await;
+
+    // When the stream is processed with the rule installed.
+    run_with_rules(&harness, stream, &sid, Some(rule_set("FORBIDDEN"))).await;
+
+    // Then the entry stays in context and assembles into a user turn, so the
+    // model reads the guidance rather than the intercept being display-only.
+    let recorded = await_recorded(&entries, 1, std::time::Duration::from_secs(5)).await;
+    let entry = recorded
+        .iter()
+        .map(|e: &PushChatEntry| e.entry.clone())
+        .find(|e| {
+            matches!(
+                &e.kind,
+                jinn_core_types::ChatEntryKind::RuleInterrupt { .. }
+            )
+        })
+        .expect("a rule interrupt entry is published");
+    let jinn_core_types::ChatEntryKind::RuleInterrupt { body, .. } = &entry.kind else {
+        panic!("expected a rule interrupt, got {:?}", entry.kind);
+    };
+
+    // And the body still carries the system-interrupt wrapper the model reads.
+    assert!(
+        body.contains("<system-interrupt"),
+        "the guidance must keep its interrupt wrapper: {body:?}"
+    );
+    // And it assembles into the resumed prompt as a user turn. `entries_to_messages`
+    // maps the variant to `LlmMessage::User` with the body verbatim, so what
+    // reaches the model is the wrapper plus guidance, unchanged from the `User`
+    // entry this site used to publish.
+    assert!(entry.is_in_context(), "guidance must reach the model");
+    assert!(
+        entry.kind.is_included_by_default(),
+        "guidance must be assembled into the prompt by default"
+    );
+    assert_eq!(
+        entry.prompt_text(),
+        Some(body.as_str()),
+        "the prompt contribution is the body verbatim, with no added prefix"
     );
 }
 

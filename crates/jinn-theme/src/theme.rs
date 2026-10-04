@@ -84,6 +84,11 @@ pub struct Theme {
     pub challenge_alert_fg: Color,
     /// Compaction summary block background.
     pub compaction_block_bg: Color,
+    /// Rule interrupt block background — guidance the harness injected mid-turn.
+    ///
+    /// Deliberately not the user-block color: an interrupt must not read as
+    /// something the user typed.
+    pub rule_interrupt_bg: Color,
     /// Sources (annotation) header background — bright, attention-grabbing bar.
     pub sources_header_bg: Color,
     /// Sources (annotation) header foreground (dark text on the bright background).
@@ -205,6 +210,7 @@ impl Theme {
             "challenge_alert_bg" => challenge_alert_bg,
             "challenge_alert_fg" => challenge_alert_fg,
             "compaction_block_bg" => compaction_block_bg,
+            "rule_interrupt_bg" => rule_interrupt_bg,
             "sources_header_bg" => sources_header_bg,
             "sources_header_fg" => sources_header_fg,
             "truncation_fg" => truncation_fg,
@@ -303,6 +309,8 @@ pub struct ThemeFile {
     pub challenge_alert_fg: Option<ThemeColor>,
     #[serde(default)]
     pub compaction_block_bg: Option<ThemeColor>,
+    #[serde(default)]
+    pub rule_interrupt_bg: Option<ThemeColor>,
     #[serde(default)]
     pub sources_header_bg: Option<ThemeColor>,
     #[serde(default)]
@@ -469,6 +477,9 @@ impl ThemeFile {
                 fallback.compaction_block_bg,
                 crate::color::ThemeColor::inner,
             ),
+            rule_interrupt_bg: self
+                .rule_interrupt_bg
+                .map_or(fallback.rule_interrupt_bg, crate::color::ThemeColor::inner),
             sources_header_bg: self
                 .sources_header_bg
                 .map_or(fallback.sources_header_bg, crate::color::ThemeColor::inner),
@@ -596,6 +607,7 @@ impl ThemeFile {
             challenge_alert_bg: Self::resolve_field(self.challenge_alert_bg),
             challenge_alert_fg: Self::resolve_field(self.challenge_alert_fg),
             compaction_block_bg: Self::resolve_field(self.compaction_block_bg),
+            rule_interrupt_bg: Self::resolve_field(self.rule_interrupt_bg),
             sources_header_bg: Self::resolve_field(self.sources_header_bg),
             sources_header_fg: Self::resolve_field(self.sources_header_fg),
             truncation_fg: Self::resolve_field(self.truncation_fg),
@@ -666,6 +678,7 @@ mod tests {
             challenge_alert_bg: None,
             challenge_alert_fg: None,
             compaction_block_bg: None,
+            rule_interrupt_bg: None,
             sources_header_bg: None,
             sources_header_fg: None,
             truncation_fg: None,
@@ -724,6 +737,9 @@ mod tests {
             challenge_alert_bg: Some(ThemeColor(Color::Rgb(255, 200, 0))),
             challenge_alert_fg: Some(ThemeColor(Color::Rgb(16, 16, 16))),
             compaction_block_bg: Some(ThemeColor(Color::Rgb(60, 50, 80))),
+            // Dark amber: near-black like the user block's base value but
+            // yellow-biased, so it reads as harness steering at a glance.
+            rule_interrupt_bg: Some(ThemeColor(Color::Rgb(72, 61, 20))),
             sources_header_bg: Some(ThemeColor(Color::Rgb(255, 200, 0))),
             sources_header_fg: Some(ThemeColor(Color::Rgb(16, 16, 16))),
             truncation_fg: Some(ThemeColor(Color::Rgb(83, 83, 83))),

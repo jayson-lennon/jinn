@@ -402,8 +402,10 @@ async fn process_stream_events(
 ///    aborted task is cleaned up by the one code path that already does it.
 ///    A task cannot abort *itself* from inside, so the loop returns after
 ///    publishing this rather than calling `JoinHandle::abort`.
-/// 2. The rule's body as a user entry — the guidance, entering the
-///    conversation once, ahead of the resumed request.
+/// 2. A [`ChatEntryKind::RuleInterrupt`] entry — the guidance, entering the
+///    conversation once, ahead of the resumed request. It reaches the model as
+///    a user turn, unchanged from when this published a `User` entry; it only
+///    renders differently, so harness steering is not mistaken for typed input.
 /// 3. [`StreamCompleted`] with [`StreamCompletedReason::RuleIntercept`] —
 ///    the terminal fact the session actor's resume handler acts on. It
 ///    carries a reason distinct from a cancel so the turn is never reported
@@ -427,7 +429,10 @@ async fn intercept_and_resume(
 
     bus.publish(jinn_session_history_msg::PushChatEntry {
         session_id: sid.clone(),
-        entry: ChatEntry::user(render_rule_interrupt(&fired.name, &fired.body)),
+        entry: ChatEntry::rule_interrupt(
+            &fired.name,
+            render_rule_interrupt(&fired.name, &fired.body),
+        ),
         pin: None,
     })
     .await;

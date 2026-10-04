@@ -3800,8 +3800,43 @@ fn force_exclude_mixed_complete_and_incomplete() {
 
 #[rstest::rstest]
 #[test]
-fn force_exclude_no_tool_calls_is_noop() {
+fn force_exclude_registers_dangling_loops_as_an_expanded_ignored_block() {
+    // Given an interrupted attempt whose dangling loop chunk is at least the
+    // collapse threshold, so exclusion alone would hide the whole attempt.
+    let mut session = ChatSessionState::new();
+    session.push_entry(ChatEntry::user("run it"));
+    session.push_entry(ChatEntry::assistant(""));
+    session.push_entry(ChatEntry::tool_call("tc-1", "bash", r#"{"command":"ls"}"#));
+    session.push_entry(ChatEntry::tool_call("tc-2", "read", r#"{"file":"a.rs"}"#));
+
+    // When force-excluding dangling tool calls.
+    let excluded = session.force_exclude_dangling_tool_calls();
+
+    // Then every excluded entry is registered as a shown ignored block.
+    let shown = session.shown_ignored_blocks_snapshot();
+    for id in &excluded {
+        assert!(shown.contains(id), "excluded entry {id:?} is not shown");
+    }
+}
+
+#[rstest::rstest]
+#[test]
+fn force_exclude_leaves_ignored_blocks_untouched_when_nothing_is_dangling() {
     // Given a history with no tool calls.
+    let mut session = ChatSessionState::new();
+    session.push_entry(ChatEntry::user("hello"));
+    session.push_entry(ChatEntry::assistant("hi"));
+
+    // When force-excluding dangling tool calls.
+    session.force_exclude_dangling_tool_calls();
+
+    // Then no ignored block is registered.
+    assert!(session.shown_ignored_blocks_snapshot().is_empty());
+}
+
+#[rstest::rstest]
+#[test]
+fn force_exclude_no_tool_calls_is_noop() {
     let mut session = ChatSessionState::new();
     session.push_entry(ChatEntry::user("hello"));
     session.push_entry(ChatEntry::assistant("hi"));

@@ -338,6 +338,47 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    async fn handler_leaves_a_discarded_tool_call_looking_unfinished() {
+        // Given a stalled session whose attempt left a tool call mid-arguments.
+        let (actor, _audit, payload) = stall_setup_with_full_attempt().await;
+        let session_id = payload.session_id.clone();
+
+        // When the retry handler runs.
+        actor.on_retry_stalled_session(&payload).await;
+
+        // Then the discarded tool call carries the same signature an abandoned
+        // partial does — streamed, never finished, out of context — which is
+        // what the chat log reads to keep rendering its arguments expanded
+        // instead of collapsing them to a truncated one-liner.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        let tool_call = session
+            .history()
+            .iter()
+            .find(|e| matches!(e.kind, ChatEntryKind::ToolCall { .. }))
+            .expect("the attempt left a tool call");
+
+        assert!(
+            matches!(
+                tool_call.timing,
+                jinn_core_types::EntryTiming::Streamed { .. }
+            ),
+            "a tool call must keep Streamed timing through a discard: {:?}",
+            tool_call.timing
+        );
+        assert!(
+            tool_call.timing.finished_at().is_none(),
+            "a discarded partial must never gain a finish stamp: {:?}",
+            tool_call.timing
+        );
+        assert!(
+            !tool_call.is_in_context(),
+            "the discarded call must be out of context"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
     async fn handler_rewinds_the_phase_so_the_retry_can_stream() {
         // Given a stalled Streaming session.
         let (actor, _audit, payload) = stall_setup().await;

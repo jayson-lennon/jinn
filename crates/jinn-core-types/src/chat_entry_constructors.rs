@@ -57,6 +57,7 @@ impl ChatEntry {
             | ChatEntryKind::Thinking(t)
             | ChatEntryKind::Transient(t)
             | ChatEntryKind::Compaction { summary: t, .. } => Some(t.as_str()),
+            ChatEntryKind::RuleInterrupt { body, .. } => Some(body.as_str()),
             ChatEntryKind::Actor { text, .. } => Some(text.as_str()),
             ChatEntryKind::ToolCall { arguments, .. } => Some(arguments.as_str()),
             ChatEntryKind::ToolResult { content, .. } => Some(content.as_str()),
@@ -242,6 +243,32 @@ impl ChatEntry {
             id: ChatEntryId::new(),
             timing: crate::entry_timing::EntryTiming::instant_now(),
             kind: ChatEntryKind::Annotation { citations },
+            pin_position: None,
+            context_override: ContextOverride::Default,
+            context_history: Vec::new(),
+            token_count: None,
+        }
+    }
+
+    /// Create a rule interrupt entry for a fired stream rule.
+    ///
+    /// The entry carries guidance the harness injected mid-turn. It reaches the
+    /// model as a user turn — interception is useless if the model never sees the
+    /// guidance — but it renders as its own kind so the user can tell harness
+    /// steering apart from their own input.
+    #[must_use]
+    pub fn rule_interrupt<S1, S2>(rule: S1, body: S2) -> Self
+    where
+        S1: Into<String>,
+        S2: Into<String>,
+    {
+        Self {
+            id: ChatEntryId::new(),
+            timing: crate::entry_timing::EntryTiming::instant_now(),
+            kind: ChatEntryKind::RuleInterrupt {
+                rule: rule.into(),
+                body: body.into(),
+            },
             pin_position: None,
             context_override: ContextOverride::Default,
             context_history: Vec::new(),

@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 use jinn_chat_log_view_msg::{
     DEFAULT_MIN_COLLAPSE_COUNT, PROXIMITY_COUNT, VisualItem, build_visual_items,
 };
+use jinn_core_types::EntryTiming;
 use jinn_core_types::SessionId;
 use jinn_kernel::common::app_state::AppState;
 use jinn_kernel::common::render_ctx::RenderCtx;
@@ -135,9 +136,14 @@ impl LayoutInputs {
         &self.theme
     }
 
-    /// Whether this tool call is still streaming its arguments.
-    pub(crate) fn is_streaming(&self, id: &ChatEntryId) -> bool {
-        self.streaming.contains(id)
+    /// Whether this tool call's arguments render through the streaming path.
+    ///
+    /// Takes the entry rather than its id because the abandoned-partial case
+    /// reads the entry's timing and context membership; the live case is a set
+    /// lookup. Delegates to [`is_streaming_tool_call`] so the render pass and
+    /// the layout worker cannot disagree.
+    pub(crate) fn is_streaming(&self, entry: &ChatEntry) -> bool {
+        is_streaming_tool_call(entry, &self.streaming)
     }
 
     /// Whether this `task` call is waiting on a loaded, running child session.
@@ -493,9 +499,28 @@ fn paired_status_for(
     }
 }
 
-/// Whether `entry` is a `ToolCall` still streaming its arguments.
+/// Whether `entry` is a `ToolCall` whose arguments render through the
+/// streaming path.
+///
+/// True for a call the phase machine still reports as streaming, and for one
+/// that was abandoned mid-arguments: streamed, never finished, and forced out
+/// of context. A turn that is interrupted or retried after a stall clears the
+/// live streaming set but leaves the partial entry in history, and an
+/// abandoned call is exactly as unfinished as a live one — collapsing it would
+/// truncate arguments the user still needs to read.
+///
+/// The abandoned test requires `Streamed` timing: an `Instant`-timed call has
+/// no finish stamp either, but it was never streaming to begin with.
 fn is_streaming_tool_call(entry: &ChatEntry, streaming: &HashSet<ChatEntryId>) -> bool {
-    matches!(&entry.kind, ChatEntryKind::ToolCall { .. }) && streaming.contains(&entry.id)
+    if !matches!(&entry.kind, ChatEntryKind::ToolCall { .. }) {
+        return false;
+    }
+    if streaming.contains(&entry.id) {
+        return true;
+    }
+    matches!(entry.timing, EntryTiming::Streamed { .. })
+        && entry.timing.finished_at().is_none()
+        && !entry.is_in_context()
 }
 
 /// Whether this `task` call is still awaiting its result while its linked child
@@ -1102,4 +1127,104 @@ impl<'a> HistoryRender<'a> {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
+
+    use jinn_core_types::EntryTiming;
+    use jinn_core_types::context_override::ContextOverride;
+
+    use super::{ChatEntry, is_streaming_tool_call};
+    use std::collections::HashSet;
+
+    /// An abandoned partial tool call: streamed, never finished, out of context.
+    fn abandoned_partial() -> ChatEntry {
+        let mut entry = ChatEntry::tool_call("call-1", "edit", "{\"file_path\":\"src/a.ts\"");
+        entry.timing = EntryTiming::streamed(jiff::Timestamp::now());
+        entry.context_override = ContextOverride::ForcedExclude;
+        entry
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn abandoned_partial_tool_call_renders_through_the_streaming_path() {
+        // Given a tool call that was interrupted mid-arguments and then excluded.
+        let entry = abandoned_partial();
+
+        // When testing whether its arguments render streaming.
+        let streaming = is_streaming_tool_call(&entry, &HashSet::new());
+
+        // Then it streams, so the arguments are not collapsed.
+        assert!(streaming);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn finalized_tool_call_renders_collapsed() {
+        // Given a tool call that ran to completion.
+        let mut entry = abandoned_partial();
+        entry.timing.finish();
+        entry.context_override = ContextOverride::Default;
+
+        // When testing whether its arguments render streaming.
+        let streaming = is_streaming_tool_call(&entry, &HashSet::new());
+
+        // Then it does not stream, so it collapses.
+        assert!(!streaming);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn live_partial_tool_call_renders_through_the_streaming_path() {
+        // Given a tool call the phase machine still reports as streaming.
+        let mut entry = abandoned_partial();
+        entry.context_override = ContextOverride::Default;
+        let streaming = HashSet::from([entry.id.clone()]);
+
+        // When testing whether its arguments render streaming.
+        let is_streaming = is_streaming_tool_call(&entry, &streaming);
+
+        // Then it streams on the strength of the live set alone.
+        assert!(is_streaming);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn pinned_abandoned_partial_tool_call_renders_collapsed() {
+        // Given an interrupted tool call that was pinned back into context.
+        let mut entry = abandoned_partial();
+        entry.context_override = ContextOverride::ForcedInclude;
+
+        // When testing whether its arguments render streaming.
+        let streaming = is_streaming_tool_call(&entry, &HashSet::new());
+
+        // Then it does not stream, because a pinned entry is not abandoned.
+        assert!(!streaming);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn instant_timed_excluded_tool_call_renders_collapsed() {
+        // Given an excluded tool call that never went through a streaming lifecycle.
+        let mut entry = ChatEntry::tool_call("call-1", "edit", "{}");
+        entry.context_override = ContextOverride::ForcedExclude;
+
+        // When testing whether its arguments render streaming.
+        let streaming = is_streaming_tool_call(&entry, &HashSet::new());
+
+        // Then it does not stream: it has no finish stamp but never streamed either.
+        assert!(!streaming);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn abandoned_partial_user_entry_renders_collapsed() {
+        // Given an excluded user message carrying streamed timing.
+        let mut entry = ChatEntry::user("hello");
+        entry.timing = EntryTiming::streamed(jiff::Timestamp::now());
+        entry.context_override = ContextOverride::ForcedExclude;
+
+        // When testing whether it renders streaming.
+        let streaming = is_streaming_tool_call(&entry, &HashSet::new());
+
+        // Then the streaming path is tool-call-only, so this message does not take it.
+        assert!(!streaming);
+    }
 }

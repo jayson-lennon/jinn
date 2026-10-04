@@ -3383,8 +3383,20 @@ impl ChatSessionState {
     ///
     /// Uses `ContextOverride::ForcedExclude` rather than removing entries,
     /// preserving them for display in the UI.
+    ///
+    /// The excluded entries are also registered as an expanded ignored block,
+    /// for the same reason [`Self::reset_streaming_entries_for_retry`] does it:
+    /// an interrupted attempt is typically three entries — exactly the collapse
+    /// threshold — so exclusion alone would reduce the whole attempt to a single
+    /// "N hidden entries" line.
+    ///
+    /// Returns the ids whose context override changed.
     pub fn force_exclude_dangling_tool_calls(&mut self) -> Vec<ChatEntryId> {
-        self.edit_history().exclude_incomplete_trailing_loops()
+        let excluded = self.edit_history().exclude_incomplete_trailing_loops();
+        if !excluded.is_empty() {
+            self.update_view(|v| v.shown_ignored_blocks.extend(excluded.iter().cloned()));
+        }
+        excluded
     }
 
     /// Disable the tool loop for this session's current turn.

@@ -726,6 +726,62 @@ fn annotation_kind_is_not_included_by_default() {
 }
 
 #[rstest::rstest]
+fn rule_interrupt_entry_serializes_roundtrip() {
+    // Given a rule interrupt entry naming the rule that fired.
+    let entry = ChatEntry::rule_interrupt(
+        "no-cat-command",
+        "<system-interrupt>halt</system-interrupt>",
+    );
+
+    // When serializing and deserializing.
+    let json = serde_json::to_string(&entry).expect("serialize");
+    let back: ChatEntry = serde_json::from_str(&json).expect("deserialize");
+
+    // Then the roundtrip preserves the RuleInterrupt kind and its fields.
+    assert_eq!(entry.kind, back.kind);
+}
+
+#[rstest::rstest]
+fn rule_interrupt_kind_is_included_by_default() {
+    // Given a rule interrupt entry.
+    let entry = ChatEntry::rule_interrupt("r", "b");
+
+    // When checking is_included_by_default.
+    // Then the kind IS included, so the model receives the guidance.
+    assert!(entry.kind.is_included_by_default());
+}
+
+#[rstest::rstest]
+fn rule_interrupt_entry_is_in_context() {
+    // Given a default rule interrupt entry.
+    let entry = ChatEntry::rule_interrupt("r", "b");
+
+    // When checking is_in_context.
+    // Then it is assembled into the prompt.
+    assert!(entry.is_in_context());
+}
+
+#[rstest::rstest]
+fn rule_interrupt_prompt_text_is_the_body() {
+    // Given a rule interrupt entry.
+    let entry = ChatEntry::rule_interrupt("no-cat", "stop using cat");
+
+    // When reading prompt_text.
+    // Then it is the body, which is the text sent to the model.
+    assert_eq!(entry.prompt_text(), Some("stop using cat"));
+}
+
+#[rstest::rstest]
+fn rule_interrupt_kind_str_names_the_variant() {
+    // Given a rule interrupt entry.
+    let entry = ChatEntry::rule_interrupt("r", "b");
+
+    // When reading kind_str.
+    // Then it identifies the rule interrupt kind.
+    assert_eq!(entry.kind_str(), "rule_interrupt");
+}
+
+#[rstest::rstest]
 fn user_entry_is_in_context_by_default() {
     // Given a default User entry.
     let entry = ChatEntry::user("hello");

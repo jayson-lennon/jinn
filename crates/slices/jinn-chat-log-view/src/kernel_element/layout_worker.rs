@@ -595,6 +595,9 @@ fn truncate_entry_text(entry: &mut jinn_core_types::ChatEntry, text: &str) {
         // citation list is a list of titles — so they are left as they are.
         jinn_core_types::ChatEntryKind::Compaction { .. }
         | jinn_core_types::ChatEntryKind::Annotation { .. } => {}
+        // Rule guidance is a short authored block, bounded well under the
+        // preview limit, so there is nothing to trim.
+        jinn_core_types::ChatEntryKind::RuleInterrupt { .. } => {}
     }
 }
 
@@ -689,7 +692,7 @@ fn measure_entry(
         ChatEntryKind::ToolResult { status, .. } => Some(*status),
         _ => None,
     };
-    let is_streaming = inputs.is_streaming(&entry.id);
+    let is_streaming = inputs.is_streaming(entry);
     let is_waiting_on_subagent = inputs.is_task_waiting(entry, tool_result_statuses);
 
     let ctx = RenderContext {

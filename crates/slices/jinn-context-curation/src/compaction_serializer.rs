@@ -38,7 +38,8 @@ pub fn serialize_entries_for_compaction(entries: &[ChatEntry]) -> String {
             | ChatEntryKind::Compaction { .. }
             | ChatEntryKind::Annotation { .. }
             | ChatEntryKind::ToolCall { .. }
-            | ChatEntryKind::ToolResult { .. } => {}
+            | ChatEntryKind::ToolResult { .. }
+            | ChatEntryKind::RuleInterrupt { .. } => {}
         }
     }
 

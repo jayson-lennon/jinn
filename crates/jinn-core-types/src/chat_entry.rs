@@ -288,6 +288,22 @@ pub enum ChatEntryKind {
         /// The citations captured for this turn (one entry per search).
         citations: Vec<crate::url_citation::UrlCitation>,
     },
+    /// Guidance injected by a fired stream rule, interrupting the turn in progress.
+    ///
+    /// Not user input and not model output: a stream rule matched an in-flight
+    /// generation and the harness appended this to steer the next request. It
+    /// is sent to the model as a user turn (that is the whole point — the model
+    /// has to read the guidance for interception to work) but it renders on its
+    /// own block so the user can tell harness steering apart from something
+    /// they typed.
+    ///
+    /// Persisted so an interrupted turn still reads correctly after a reopen.
+    RuleInterrupt {
+        /// The name of the rule that fired.
+        rule: String,
+        /// The rendered guidance handed to the model.
+        body: String,
+    },
 }
 
 impl ChatEntry {
@@ -577,6 +593,7 @@ impl ChatEntry {
             ChatEntryKind::Transient(..) => "transient",
             ChatEntryKind::Compaction { .. } => "compaction",
             ChatEntryKind::Annotation { .. } => "annotation",
+            ChatEntryKind::RuleInterrupt { .. } => "rule_interrupt",
         }
     }
 
@@ -610,6 +627,9 @@ impl ChatEntry {
                 .map(|c| c.title.clone())
                 .collect::<Vec<_>>()
                 .join(", "),
+            ChatEntryKind::RuleInterrupt { rule, body } => {
+                format!("{rule}: {body}")
+            }
         }
     }
 
@@ -693,6 +713,10 @@ impl ChatEntry {
                     c.title.hash(&mut hasher);
                 }
             }
+            ChatEntryKind::RuleInterrupt { rule, body } => {
+                rule.hash(&mut hasher);
+                body.hash(&mut hasher);
+            }
         }
         hasher.finish()
     }
@@ -758,6 +782,10 @@ impl ChatEntry {
                     c.title.len().hash(&mut hasher);
                 }
             }
+            ChatEntryKind::RuleInterrupt { rule, body } => {
+                rule.len().hash(&mut hasher);
+                body.len().hash(&mut hasher);
+            }
         }
         hasher.finish()
     }
@@ -770,7 +798,7 @@ impl ChatEntryKind {
     /// (before considering pin or user override).
     ///
     /// Kinds included by default: User, Assistant, ToolCall, ToolResult,
-    /// Compaction.
+    /// Compaction, RuleInterrupt.
     ///
     /// Kinds excluded by default: Error, Thinking, Transient, System, Actor,
     /// Annotation.
@@ -783,6 +811,7 @@ impl ChatEntryKind {
                 | ChatEntryKind::ToolCall { .. }
                 | ChatEntryKind::ToolResult { .. }
                 | ChatEntryKind::Compaction { .. }
+                | ChatEntryKind::RuleInterrupt { .. }
         )
     }
 }
