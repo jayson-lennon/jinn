@@ -9,7 +9,7 @@ the offer.
 
 | File             | Location                          | Contents                                                                                                                                                             |
 | ---------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jinn.toml`      | `~/.config/jinn/jinn.toml`        | User preferences: tools/skills defaults, session lifecycles, projects, MCP servers, compaction, auto-prune, web fetch/search, browser, Discord, interactive terminal |
+| `jinn.toml`      | `~/.config/jinn/jinn.toml`        | User preferences: tools/skills defaults, session lifecycles, projects, MCP servers, compaction, auto-prune, stream rules, web fetch/search, browser, Discord, interactive terminal |
 | `providers.toml` | `~/.config/jinn/providers.toml`   | Providers, API keys, base URLs, per-model metadata                                                                                                                   |
 | themes           | `~/.config/jinn/themes/*.toml`    | Color themes (picked with `<leader>sh`)                                                                                                                              |
 | personas         | `~/.config/jinn/personas/*.md`    | Persona templates (markdown + TOML frontmatter)                                                                                                                      |
@@ -335,6 +335,53 @@ max_failures = 4      # tool failures before the turn cancels
 
 `max_failures` uses a simple accumulator that rises on failure and falls on
 success, so the failures need not be consecutive.
+
+**Stream rules** (regex over the *live* assistant output — the only rule
+kind that runs mid-response):
+
+```toml
+[[stream_rules.entry]]
+name = "ts-no-any"                  # unique; identifies the rule in logs
+description = "Never widen a type to `any`"
+conditions = [': any', '\bas any\b']   # regexes; first match trips the rule
+scopes = ["tool:edit(*.ts)", "tool:write(*.tsx)"]
+body = """
+Use `unknown`, a domain type, or a type guard instead.
+Never widen a type to `any` to silence an error.
+"""
+```
+
+When a `conditions` regex matches the output so far, jinn stops the turn
+*before* that text reaches the chat log and resumes it with `body` injected
+as guidance — the model course-corrects itself instead of the user typing at
+it. The interrupted text stays visible in the log but is excluded from the
+resumed request, so the model does not see its own violation as context.
+
+`scopes` decides which streams the rule is tested against:
+
+| Scope token         | Matches                                       |
+| ------------------- | --------------------------------------------- |
+| `text`              | assistant prose                               |
+| `thinking`          | reasoning output                              |
+| `tool`              | any tool's serialized arguments               |
+| `tool:edit(*.ts)`   | `edit` calls touching a `.ts` file            |
+
+Omit `scopes` (or leave it empty) to test prose, reasoning, and tool
+arguments alike. Prefer a narrow scope when the rule is about one medium — a
+rule about TypeScript types belongs on tool arguments, where the offending
+source actually appears. A `tool:<name>(<glob>)` token matches when the tool
+name is equal and any path-like argument matches the glob.
+
+A rule fires at most three times per turn, so a model that needed a second
+reminder still gets one. A rule that fails to compile, names no reachable
+stream, or has an empty `body` is logged and skipped rather than breaking a
+turn. Use single-quoted strings for `conditions` so regex metacharacters
+survive without escape processing.
+
+Note this is distinct from `[[tools.bash_command_policy]]`, which blocks a
+*command* before it runs, and from `[[context_curation.auto_prune.regex.rules]]`,
+which prunes completed history. A stream rule is the only one that observes
+output as it is produced.
 
 ## Coverage note
 
