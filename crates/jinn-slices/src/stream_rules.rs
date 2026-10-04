@@ -212,6 +212,16 @@ pub trait StreamRuleSet: fmt::Debug + Send + Sync {
 
     /// Ends `session`'s turn, dropping its fire record.
     fn end_turn(&self, session: &SessionId);
+
+    /// The rule denying a completed call named `tool_name` with
+    /// `arguments`, if one matches.
+    ///
+    /// The tool executor consults this against the call's complete arguments
+    /// before spawning anything, so a `fail_tool` rule denies a command with
+    /// the same content whether the provider streamed its arguments in one
+    /// piece or a thousand. Returns `None` when no such rule matches, which
+    /// is every rule set with no `fail_tool` rule in it.
+    fn deny_tool_call(&self, tool_name: &str, arguments: &str) -> Option<RuleFired>;
 }
 
 /// The cell payload: the installed matcher, or the absence of one.
@@ -269,6 +279,15 @@ impl StreamRules {
         if let Some(set) = self.0.as_ref() {
             set.end_turn(session);
         }
+    }
+
+    /// The rule denying a completed tool call, if one matches.
+    pub fn deny_tool_call(&self, tool_name: &str, arguments: &str) -> Option<RuleFired> {
+        let set = self.0.as_ref()?;
+        if set.is_empty() {
+            return None;
+        }
+        set.deny_tool_call(tool_name, arguments)
     }
 }
 
@@ -342,6 +361,14 @@ mod tests {
         fn end_turn(&self, session: &jinn_core_types::SessionId) {
             let mut turns = self.turns.lock().unwrap();
             turns.remove(session);
+        }
+
+        fn deny_tool_call(
+            &self,
+            _tool_name: &str,
+            _arguments: &str,
+        ) -> Option<RuleFired> {
+            None
         }
     }
 

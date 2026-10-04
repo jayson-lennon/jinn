@@ -1,17 +1,24 @@
 //! The `[[stream_rules.entry]]` list — regex rules tested against the live
 //! assistant stream.
 //!
-//! Every other command- or output-shaping rule in `jinn.toml` runs *before*
-//! a thing happens or *after* it finished. A stream rule runs in the middle:
-//! its `conditions` are regexes over the accumulating assistant output, and
-//! the first one to match interrupts the turn and resumes it with the
-//! entry's `body` injected as guidance. That is the only mechanism jinn has
-//! for catching a model doing something it was told not to while it is
-//! still doing it.
+//! One rule kind covers every shape of correction jinn makes. Its
+//! `conditions` are regexes over the *accumulated* assistant output of a
+//! response — prose, reasoning, and serialized tool-call arguments, each
+//! buffered separately — so whether a rule fires is a function of the output
+//! itself and not of how the provider happened to chunk it. Absent
+//! `on_trigger`, a match interrupts the turn and resumes it with the entry's
+//! `body` as guidance, catching a model mid-sentence. Naming `fail_tool`
+//! instead denies the matched call outright, which is where blocking a
+//! command before it runs lives.
+//!
+//! So this is not only a "stream" mechanism, despite the name: a rule
+//! scoped to `tool:<name>` matches a completed tool call's arguments whether
+//! or not anything is being streamed past it, and `fail_tool` acts on that
+//! match alone.
 //!
 //! This module holds the section's declaration and its value shape only.
-//! Compilation — turning `conditions` and `scopes` into a matcher, and
-//! buffering the stream it matches against — lives in the
+//! Compilation — turning `conditions`, `scopes`, and `project` into a
+//! matcher, and buffering the content it matches against — lives in the
 //! `jinn-stream-rules` slice, which reads this shape.
 
 use serde::{Deserialize, Serialize};
@@ -57,11 +64,50 @@ pub struct StreamRuleConfig {
     pub scopes: Vec<String>,
     /// The markdown guidance injected when the rule fires.
     pub body: String,
+    /// What happens when the rule fires.
+    ///
+    /// Absent — the default — interrupts the turn and resumes it with `body`
+    /// as guidance. That is what every rule did before this key existed, and
+    /// the reason it stays the default. Naming [`FAIL_TOOL_TRIGGER`] instead
+    /// denies the matched tool call before it executes, which is how the
+    /// former `bash_command_policy` rules are now expressed.
+    ///
+    /// Any other value warns naming the rule and the value, and leaves the
+    /// rule inert: a typo must not silently change what a rule does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_trigger: Option<String>,
+    /// A path glob selecting the projects this rule applies in.
+    ///
+    /// Absent or empty means every project, which is what a rule about a
+    /// footgun in a shell needs — those habits are not repository-specific.
+    /// Naming a glob confines the rule to sessions whose working directory
+    /// matches it, so a rule about one codebase's layout does not fire in
+    /// another's.
+    ///
+    /// Precedence runs global-first: a rule matching every project is a floor
+    /// that a project-scoped rule can add to, never lift.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
+
+/// The `on_trigger` value that denies the matched tool call instead of
+/// interrupting the turn.
+///
+/// The only value besides the absent default that does anything; a rule
+/// declaring it must also scope itself to a tool, or it would have nothing
+/// to deny.
+pub const FAIL_TOOL_TRIGGER: &str = "fail_tool";
 
 impl jinn_config::ConfigList for StreamRuleConfig {
     const KEY: &'static str = STREAM_RULES_KEY;
     const ENTRY_KEY: &'static str = "name";
-    const ENTRY_FIELDS: &'static [&'static str] =
-        &["name", "description", "conditions", "scopes", "body"];
+    const ENTRY_FIELDS: &'static [&'static str] = &[
+        "name",
+        "description",
+        "conditions",
+        "scopes",
+        "body",
+        "on_trigger",
+        "project",
+    ];
 }

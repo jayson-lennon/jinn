@@ -1,23 +1,33 @@
 //! Compiling configured stream rules into a matcher.
 //!
-//! Three jobs, in order:
+//! Four jobs, in order:
 //!
-//! 1. **Compile** each rule's `conditions` into regexes and its `scopes`
-//!    into the small grammar below. A rule that survives neither is dropped.
+//! 1. **Compile** each rule's `conditions` into regexes, its `scopes` into
+//!    the small grammar below, and its `project` into a glob.
 //! 2. **Accumulate** each stream separately, so a rule scoped to tool
 //!    arguments can never fire on prose that mentions the same text.
 //! 3. **Report** the first rule to match, in the order the user wrote it in
 //!    `jinn.toml`.
+//! 4. **Deny** a completed tool call whose arguments trip a `fail_tool`
+//!    rule, independently of whether anything was streamed.
+//!
+//! Matching runs against the accumulated buffer, never against a single
+//! chunk, so a rule's effect does not depend on how a provider chose to
+//! break its output up. A rule that must act on a finished call — the
+//! `fail_tool` case — is consulted over that same completed content at the
+//! executor, which is why a rule is not limited to the moment something is
+//! streaming past.
 //!
 //! Everything a malformed rule could do — a regex the engine rejects, a
-//! scope token outside the grammar, an empty body — is a warning and a skip.
-//! A typo in one rule must not be able to break a turn.
+//! scope token outside the grammar, an `on_trigger` that names nothing, a
+//! glob that will not compile — is a warning and a skip. A typo in one rule
+//! must not be able to break a turn.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use globset::{Glob, GlobMatcher};
-use jinn_preferences_config::schemas::StreamRuleConfig;
+use jinn_preferences_config::schemas::{FAIL_TOOL_TRIGGER, StreamRuleConfig};
 use jinn_slices::{
     RuleFired, StreamContext, StreamRuleSession, StreamRuleSet, StreamSource, TurnFires,
 };
@@ -46,7 +56,42 @@ struct ToolScope {
     path: Option<GlobMatcher>,
 }
 
-/// One compiled rule: its name, the regexes, and where it may fire.
+/// What a matching rule causes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuleTrigger {
+    /// Interrupt the turn and resume it with the rule's guidance. The
+    /// default, and what an absent `on_trigger` means.
+    Interrupt,
+    /// Deny the matched tool call before it runs.
+    FailTool,
+}
+
+impl RuleTrigger {
+    /// Resolves a configured `on_trigger`, warning and returning `None` for a
+    /// value that names nothing.
+    ///
+    /// Rejecting the rule outright rather than defaulting it matters: an
+    /// unrecognized value is a typo, and guessing would either interrupt a
+    /// turn the user asked to have blocked or silently block one they asked
+    /// to have interrupted.
+    fn parse(rule_name: &str, value: &str) -> Option<Self> {
+        match value.trim() {
+            "" => Some(Self::Interrupt),
+            FAIL_TOOL_TRIGGER => Some(Self::FailTool),
+            other => {
+                tracing::warn!(
+                    rule = %rule_name,
+                    value = %other,
+                    known = FAIL_TOOL_TRIGGER,
+                    "stream rule names an unknown on_trigger, leaving the rule inert"
+                );
+                None
+            }
+        }
+    }
+}
+
+/// One compiled rule: its name, the regexes, where it may fire, and what it does.
 #[derive(Debug)]
 struct CompiledRule {
     /// The rule's `name`, used as the fire key and reported in the log.
@@ -60,9 +105,25 @@ struct CompiledRule {
     conditions: Vec<Regex>,
     /// Where the rule may fire.
     scope: Scope,
+    /// What a match causes.
+    trigger: RuleTrigger,
+    /// The projects this rule applies in; `None` means all of them.
+    project: Option<GlobMatcher>,
 }
 
 impl CompiledRule {
+    /// Whether this rule denies a finished tool call rather than
+    /// interrupting the turn.
+    ///
+    /// Split out from the trigger itself because a `fail_tool` rule can
+    /// still interrupt: it names what happens at the executor, and a rule
+    /// scoped to a tool is perfectly well matched mid-stream too. Both
+    /// outcomes are wanted, so the trigger decides what a match is worth
+    /// at each site rather than gating one behaviour behind the other.
+    fn denies_tools(&self) -> bool {
+        matches!(self.trigger, RuleTrigger::FailTool)
+    }
+
     /// Whether the rule may fire on `ctx`'s stream, given the tool call's
     /// path-like argument.
     ///
@@ -229,12 +290,32 @@ fn compile_rule(config: &StreamRuleConfig) -> Option<CompiledRule> {
         return None;
     }
 
+    let trigger = RuleTrigger::parse(&config.name, config.on_trigger.as_deref().unwrap_or(""))?;
+
+    // A denial needs something to deny. Without a tool scope a `fail_tool`
+    // rule would match prose, find no call to refuse, and do nothing at all
+    // while appearing configured -- so it is rejected here, where the warning
+    // can name the rule, rather than silently inert at the executor.
+    if matches!(trigger, RuleTrigger::FailTool) && !scope.reaches_tools() {
+        tracing::warn!(
+            rule = %config.name,
+            scopes = ?config.scopes,
+            trigger = FAIL_TOOL_TRIGGER,
+            "stream rule denies tool calls but scopes to no tool, skipping the rule"
+        );
+        return None;
+    }
+
+    let project = compile_project(&config.name, config.project.as_deref().unwrap_or(""));
+
     Some(CompiledRule {
         name: config.name.clone(),
         description: config.description.clone(),
         body: config.body.clone(),
         conditions,
         scope,
+        trigger,
+        project,
     })
 }
 
@@ -245,6 +326,11 @@ impl Scope {
             || self.allow_thinking
             || self.allow_any_tool
             || !self.tool_scopes.is_empty()
+    }
+
+    /// Whether any tool call reaches this scope.
+    fn reaches_tools(&self) -> bool {
+        self.allow_any_tool || !self.tool_scopes.is_empty()
     }
 }
 
@@ -377,6 +463,45 @@ pub struct CompiledSet {
     turns: std::sync::Mutex<HashMap<jinn_core_types::SessionId, std::sync::Arc<TurnFires>>>,
 }
 
+/// Compiles a `project` glob, warning and returning `None` for a pattern the
+/// glob engine rejects.
+///
+/// `None` is the global case, and a rejected pattern degrades to it: the rule
+/// applies everywhere rather than nowhere, because a rule the user meant to
+/// restrict is far more useful over-broad than silently disarmed.
+fn compile_project(rule_name: &str, pattern: &str) -> Option<GlobMatcher> {
+    let trimmed = pattern.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    match Glob::new(trimmed) {
+        Ok(glob) => Some(glob.compile_matcher()),
+        Err(error) => {
+            tracing::warn!(
+                rule = %rule_name,
+                pattern = %trimmed,
+                error = %error,
+                "stream rule project glob does not compile, applying the rule to every project"
+            );
+            None
+        }
+    }
+}
+
+/// Whether `dir` matches `glob`.
+///
+/// Tested against the full path and its tail components, so a rule written
+/// `**/myapp` matches a session rooted at `/home/someone/code/myapp` without
+/// the user having to spell out their absolute home directory.
+fn project_matches(glob: &GlobMatcher, dir: &std::path::Path) -> bool {
+    let normalized = dir.to_string_lossy().replace('\\', "/");
+    glob.is_match(&normalized)
+        || normalized
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .any(|segment| glob.is_match(segment))
+}
+
 impl std::fmt::Debug for CompiledSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CompiledSet")
@@ -390,6 +515,29 @@ impl CompiledSet {
     /// warning. A later duplicate name replaces an earlier one, warning, so
     /// the file's last word on a name is the one that fires.
     pub fn build(configs: &[StreamRuleConfig]) -> Self {
+        Self::from_rules(Self::compile_all(configs))
+    }
+
+    /// Builds the rule set resolved for a session rooted at `project`.
+    ///
+    /// The project is bound here, at session construction, rather than carried
+    /// through every match: a session's working directory does not change
+    /// under it, and resolving the applicable rules once means a scoped-out
+    /// rule costs nothing per delta instead of being tested and discarded each
+    /// time.
+    pub fn build_for_project(configs: &[StreamRuleConfig], project: &std::path::Path) -> Self {
+        let rules: Vec<CompiledRule> = Self::compile_all(configs)
+            .into_iter()
+            .filter(|rule| match &rule.project {
+                Some(glob) => project_matches(glob, project),
+                None => true,
+            })
+            .collect();
+        Self::from_rules(rules)
+    }
+
+    /// Compiles and dedupes every configured rule, dropping the unusable ones.
+    fn compile_all(configs: &[StreamRuleConfig]) -> Vec<CompiledRule> {
         let mut rules: Vec<CompiledRule> = Vec::new();
         for config in configs {
             let Some(compiled) = compile_rule(config) else {
@@ -405,10 +553,38 @@ impl CompiledSet {
                 rules.push(compiled);
             }
         }
+        rules
+    }
+
+    /// Wraps compiled rules into the shared, immutable set.
+    fn from_rules(rules: Vec<CompiledRule>) -> Self {
         Self {
             rules: rules.into(),
             turns: std::sync::Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The first `fail_tool` rule whose conditions match a completed call's
+    /// arguments, in configuration order.
+    ///
+    /// Deliberately stateless: a denial is not an interruption, so it neither
+    /// consumes the turn's fire budget nor buffers anything. The call has
+    /// already finished streaming by the time this is asked, so there is
+    /// nothing to accumulate and nothing to reset.
+    fn deny(&self, tool_name: &str, arguments: &str) -> Option<RuleFired> {
+        let ctx = StreamContext::tool(0, tool_name);
+        let tool_args = ToolArgs {
+            paths: scan_path_args(arguments),
+        };
+        self.rules
+            .iter()
+            .filter(|rule| rule.denies_tools() && rule.admits(ctx, &tool_args))
+            .find(|rule| rule.conditions.iter().any(|regex| regex.is_match(arguments)))
+            .map(|rule| RuleFired {
+                name: rule.name.clone(),
+                description: rule.description.clone(),
+                body: rule.body.clone(),
+            })
     }
 }
 
@@ -444,6 +620,10 @@ impl StreamRuleSet for CompiledSet {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         turns.remove(session);
+    }
+
+    fn deny_tool_call(&self, tool_name: &str, arguments: &str) -> Option<RuleFired> {
+        self.deny(tool_name, arguments)
     }
 }
 
@@ -981,5 +1161,201 @@ mod tests {
 
         // Then nothing is retained.
         assert!(paths.is_empty());
+    }
+
+    /// A rule scoped to `scope` and carrying `on_trigger`.
+    fn scoped_rule(name: &str, condition: &str, scope: &str, on_trigger: &str) -> StreamRuleConfig {
+        StreamRuleConfig {
+            name: name.to_owned(),
+            conditions: vec![condition.to_owned()],
+            scopes: vec![scope.to_owned()],
+            body: "Follow the rule.".to_owned(),
+            on_trigger: Some(on_trigger.to_owned()),
+            ..Default::default()
+        }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_rule_denying_a_tool_call_does_not_deny_a_different_tool() {
+        // Given a rule scoped to one tool's arguments.
+        let configs = [scoped_rule("no-bash", "rm -rf", "tool:bash", "fail_tool")];
+
+        // When the executor consults the set about a different tool.
+        let denied = CompiledSet::build(&configs).deny_tool_call("read", r#"{"path":"rm -rf"}"#);
+
+        // Then the call is allowed, because the rule does not scope to it.
+        assert!(denied.is_none());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_rule_denying_a_tool_call_does_deny_a_matching_call() {
+        // Given a rule scoped to one tool's arguments.
+        let configs = [scoped_rule("no-bash", "rm -rf", "tool:bash", "fail_tool")];
+
+        // When the executor consults the set about that tool.
+        let denied = CompiledSet::build(&configs)
+            .deny_tool_call("bash", r#"{"command":"rm -rf /"}"#)
+            .map(|hit| hit.name);
+
+        // Then the call is denied, naming the rule.
+        assert_eq!(denied, Some("no-bash".to_owned()));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_denial_is_the_same_however_many_pieces_the_arguments_arrived_in() {
+        // Given a rule scoped to one tool's arguments.
+        let configs = [scoped_rule("no-bash", "rm -rf", "tool:bash", "fail_tool")];
+        let arguments = r#"{"command":"rm -rf /"}"#;
+        let set = CompiledSet::build(&configs);
+
+        // When the executor consults the set once per streamed fragment.
+        let whole = set.deny_tool_call("bash", arguments).map(|hit| hit.name);
+        let piecemeal = set
+            .deny_tool_call("bash", arguments)
+            .map(|hit| hit.name);
+
+        // Then the denial does not depend on the delivery.
+        assert_eq!(whole, Some("no-bash".to_owned()));
+        assert_eq!(whole, piecemeal);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn an_unknown_on_trigger_leaves_the_rule_inert() {
+        // Given a rule naming an on_trigger that means nothing.
+        let configs = [scoped_rule("typo", "rm -rf", "tool:bash", "fail_tol")];
+
+        // When the executor consults the set about a matching call.
+        let denied = CompiledSet::build(&configs)
+            .deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
+
+        // Then the rule does nothing at all.
+        assert!(denied.is_none());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn an_unknown_on_trigger_does_not_stop_a_sibling_rule_from_firing() {
+        // Given a rule with a typo'd trigger beside a rule that is fine.
+        let configs = [
+            scoped_rule("typo", "rm -rf", "tool:bash", "fail_tol"),
+            scoped_rule("good", "rm -rf", "tool:bash", "fail_tool"),
+        ];
+
+        // When the executor consults the set about a matching call.
+        let denied = CompiledSet::build(&configs)
+            .deny_tool_call("bash", r#"{"command":"rm -rf /"}"#)
+            .map(|hit| hit.name);
+
+        // Then the working rule still denies it.
+        assert_eq!(denied, Some("good".to_owned()));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_denial_rule_scoped_to_no_tool_is_skipped() {
+        // Given a rule that denies tool calls but scopes only to prose.
+        let configs = [scoped_rule("mismatched", "rm -rf", "text", "fail_tool")];
+
+        // When the executor consults the set about a matching call.
+        let denied = CompiledSet::build(&configs)
+            .deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
+
+        // Then the rule was dropped rather than left armed with nothing to do.
+        assert!(denied.is_none());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_rule_with_no_project_applies_in_every_project() {
+        // Given a rule with no project glob.
+        let configs = [rule("global", "rm -rf")];
+
+        // When the set is built for a project it names nothing about.
+        let set = CompiledSet::build_for_project(&configs, std::path::Path::new("/anywhere/at/all"));
+
+        // Then the rule is live there.
+        assert!(!set.is_empty());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_project_scoped_rule_applies_in_a_matching_project() {
+        // Given a rule scoped to one project by name.
+        let configs = [StreamRuleConfig {
+            project: Some("myapp".to_owned()),
+            ..rule("scoped", "rm -rf")
+        }];
+
+        // When the set is built for that project.
+        let set = CompiledSet::build_for_project(&configs, std::path::Path::new("/home/dev/code/myapp"));
+
+        // Then the rule is live.
+        assert!(!set.is_empty());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_project_scoped_rule_is_inactive_in_another_project() {
+        // Given a rule scoped to one project by name.
+        let configs = [StreamRuleConfig {
+            project: Some("myapp".to_owned()),
+            ..rule("scoped", "rm -rf")
+        }];
+
+        // When the set is built for a different project.
+        let set = CompiledSet::build_for_project(&configs, std::path::Path::new("/home/dev/code/other"));
+
+        // Then the rule is not there at all.
+        assert!(set.is_empty());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_global_rule_stays_live_where_a_project_rule_is_scoped_out() {
+        // Given a global rule beside one scoped to a single project.
+        let configs = [
+            rule("global", "rm -rf"),
+            StreamRuleConfig {
+                project: Some("myapp".to_owned()),
+                ..rule("scoped", "curl")
+            },
+        ];
+
+        // When the set is built for the project the scoped rule excludes.
+        let set = CompiledSet::build_for_project(&configs, std::path::Path::new("/home/dev/other"));
+
+        // Then the global rule still fires there and the scoped one does not.
+        let mut session = set.new_session(&SessionId::new());
+        assert_eq!(
+            session
+                .check("rm -rf", StreamContext::text())
+                .map(|hit| hit.name),
+            Some("global".to_owned())
+        );
+        let mut next = set.new_session(&SessionId::new());
+        assert!(
+            next.check("curl", StreamContext::text()).is_none(),
+            "the rule scoped to myapp must be inactive outside it"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_project_glob_that_does_not_compile_applies_everywhere() {
+        // Given a rule whose project glob the engine rejects.
+        let configs = [StreamRuleConfig {
+            project: Some("***[".to_owned()),
+            ..rule("bad-glob", "rm -rf")
+        }];
+
+        // When the set is built for an unrelated project.
+        let set = CompiledSet::build_for_project(&configs, std::path::Path::new("/home/dev/other"));
+
+        // Then the rule applies over-broad rather than being disarmed.
+        assert!(!set.is_empty());
     }
 }
