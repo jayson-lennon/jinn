@@ -841,17 +841,17 @@ impl InferenceActor {
 
         // Resolved once per stream, not per delta: with no rules configured
         // this is `None` and the stream path is byte-for-byte what it was.
-        let rules = self
+        let rules_cell = self
             .services
             .slices
-            .reader::<jinn_slices::StreamRules>(&jinn_slices::stream_rules_slot())
-            .and_then(|cell| {
-                // The cell handle is cloned out first: the session borrows
-                // the installed set, so the handle must outlive the local
-                // `reader` binding above.
-                let cell = cell.clone();
-                cell.read().new_session(&session_id)
-            });
+            .reader::<jinn_slices::StreamRules>(&jinn_slices::stream_rules_slot());
+        let rules = rules_cell.as_ref().and_then(|cell| {
+            // The cell handle is cloned out first: the session borrows
+            // the installed set, so the handle must outlive the local
+            // `reader` binding above.
+            let cell = cell.clone();
+            cell.read().new_session(&session_id)
+        });
 
         let handle = tokio::spawn(run_stream(
             factory,
@@ -864,6 +864,7 @@ impl InferenceActor {
             dispatched_at,
             retry_config,
             rules,
+            rules_cell.map(|cell| cell.clone()),
         ));
 
         // Update session state.
@@ -1053,6 +1054,9 @@ async fn run_stream(
     dispatched_at: jiff::Timestamp,
     retry_config: RequestRetryConfig,
     rules: Option<Box<dyn StreamRuleSession + '_>>,
+    // The stream-rules cell, carried so the turn's fire record can be ended
+    // when the stream task finishes. `None` when no matcher is installed.
+    rules_cell: Option<jinn_slices::TypedCell<jinn_slices::StreamRules>>,
 ) {
     let service = match build_streaming_service(&factory, &retry_config, &bus, &sid) {
         Ok(s) => s,
@@ -1092,6 +1096,19 @@ async fn run_stream(
             .map(|boxed| boxed.as_mut() as &mut (dyn StreamRuleSession + '_)),
     )
     .await;
+
+    // The turn's fire record outlives every response in it, and this is where
+    // the last one is done with. Dropping it here is what makes the per-turn
+    // cap a cap on *this* turn: without it the record survives every later
+    // turn the session runs, so a rule the model ignored once would stop
+    // firing for the rest of the session's life.
+    //
+    // After `process_stream_events`, which consumes the buffers, so a rule
+    // cannot see content from a response it has already ended.
+    drop(rules.take());
+    if let Some(cell) = rules_cell {
+        cell.read().end_turn(&sid);
+    }
 }
 
 /// Constructs a fresh retrying service for one streaming attempt.

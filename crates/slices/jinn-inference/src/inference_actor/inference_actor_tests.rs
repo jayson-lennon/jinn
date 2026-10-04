@@ -1542,3 +1542,107 @@ async fn an_undated_cancel_applies_to_whichever_generation_is_current() {
     assert!(acted, "a cancel must always abort the current generation");
     assert!(!actor.sessions.contains_key(&sid));
 }
+
+/// The rule each chunking of the same prose trips, or `None`.
+///
+/// Returns the rule name rather than a bool so the two deliveries can be
+/// compared on *which* rule fired as well as on whether one did.
+async fn fired_rule_for(harness: &TestHarness, chunks: &[&str]) -> Option<String> {
+    use jinn_provider::{StopReason, StreamEvent};
+    let stream = scripted_stream(
+        chunks
+            .iter()
+            .map(|c| StreamEvent::Text((*c).to_owned()))
+            .chain(std::iter::once(StreamEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                usage: None,
+            }))
+            .collect(),
+    );
+    let sid = SessionId::new();
+    let entries = harness
+        .spawn_recorder::<jinn_session_history_msg::PushChatEntry>()
+        .await;
+    let intercepts = harness
+        .spawn_recorder::<jinn_inference_msg::StreamCompleted>()
+        .await;
+
+    run_with_rules(harness, stream, &sid, Some(rule_set("FORBIDDEN"))).await;
+
+    // The interrupt is only real if both halves arrived: the entry naming the
+    // rule, and the completion telling the session to resume. A run that
+    // fired nothing produces neither, and reads as `None`.
+    let interrupted = jinn_testutil::bus_harness::await_recorded(
+        &intercepts,
+        1,
+        std::time::Duration::from_secs(2),
+    )
+    .await;
+    if !interrupted
+        .iter()
+        .any(|c| c.reason == jinn_inference_msg::StreamCompletedReason::RuleIntercept)
+    {
+        return None;
+    }
+
+    jinn_testutil::bus_harness::await_recorded(
+        &entries,
+        1,
+        std::time::Duration::from_secs(2),
+    )
+    .await
+    .into_iter()
+    .find_map(|e| match &e.entry.kind {
+        jinn_core_types::ChatEntryKind::RuleInterrupt { rule, .. } => Some(rule.clone()),
+        _ => None,
+    })
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_rule_fires_the_same_whether_content_arrives_in_one_chunk_or_many() {
+    // Given the same content, delivered as a single chunk and as many.
+    use jinn_testutil::bus_harness::TestHarness;
+    let harness = TestHarness::new().await;
+
+    // When the loop runs on each delivery.
+    let whole = fired_rule_for(&harness, &["a harmless line FORBIDDEN tail"]).await;
+    let piece = fired_rule_for(
+        &harness,
+        &[
+            "a ",
+            "harmless ",
+            "line ",
+            "FORBIDDEN ",
+            "tail",
+            " and more",
+        ],
+    )
+    .await;
+
+    // Then the rule fires either way -- chunking does not decide it.
+    assert!(
+        whole.is_some(),
+        "one-chunk delivery must fire the rule"
+    );
+    assert_eq!(whole, piece, "the same content must fire identically");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_rule_fires_for_content_split_across_a_thousand_chunks() {
+    // Given a single forbidden word delivered one character at a time.
+    use jinn_testutil::bus_harness::TestHarness;
+    let harness = TestHarness::new().await;
+    let chunks: Vec<String> = "FORBIDDEN".chars().map(|c| c.to_string()).collect();
+    let refs: Vec<&str> = chunks.iter().map(String::as_str).collect();
+
+    // When the loop runs.
+    let fired = fired_rule_for(&harness, &refs).await;
+
+    // Then the rule still fires, because matching reads the accumulated buffer.
+    assert!(
+        fired.is_some(),
+        "a match split across many deltas must still be caught"
+    );
+}
