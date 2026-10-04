@@ -69,7 +69,9 @@ impl CompiledRule {
     /// A `tool:<name>(<glob>)` scope matches when the tool name is equal
     /// *and* any path-like argument of that call matches the glob, tested
     /// against both the full path and the bare basename so a rule written
-    /// `(*.ts)` matches an absolute path.
+    /// `(*.ts)` matches an absolute path. Admitting a call hands the whole
+    /// argument buffer to the condition, content included — the glob decides
+    /// which files the rule applies to, never what counts as a violation.
     fn admits(&self, ctx: StreamContext<'_>, args: &ToolArgs) -> bool {
         match ctx.source {
             StreamSource::Text => self.scope.allow_text,
@@ -679,6 +681,47 @@ mod tests {
 
         // Then it fires, matching the glob against the bare basename.
         assert_eq!(fired.as_deref(), Some("ts"));
+    }
+
+    #[rstest::rstest]
+    fn a_glob_scope_hands_the_whole_argument_buffer_to_the_condition() {
+        // Given a rule whose condition matches the *content* of an edit, and
+        // a scope that selects the file by name.
+        let mut config = rule("ts-no-any", ": any");
+        config.scopes = vec!["tool:edit(*.ts)".to_owned()];
+        let set = CompiledSet::build(&[config]);
+        let mut session = set.new_session(&SessionId::new());
+
+        // When the edit writes the forbidden text into a .ts file.
+        let fired = session.check(
+            r#"{"file_path":"src/app.ts","new_string":"let x: any = 5;"#,
+            StreamContext::tool(0, "edit"),
+        );
+
+        // Then it fires: the glob picks the file, the regex reads the content.
+        assert!(
+            fired.is_some(),
+            "a glob scope filters which calls apply; it must not hide the \
+             argument content the condition matches against"
+        );
+    }
+
+    #[rstest::rstest]
+    fn a_glob_scope_still_excludes_a_file_the_glob_does_not_name() {
+        // Given the same content-targeted rule.
+        let mut config = rule("ts-no-any", ": any");
+        config.scopes = vec!["tool:edit(*.ts)".to_owned()];
+        let set = CompiledSet::build(&[config]);
+        let mut session = set.new_session(&SessionId::new());
+
+        // When the same text is written into a file outside the glob.
+        let fired = session.check(
+            r#"{"file_path":"src/app.py","new_string":"x: any = 5"}"#,
+            StreamContext::tool(0, "edit"),
+        );
+
+        // Then it does not fire: the glob is what excludes it.
+        assert!(fired.is_none());
     }
 
     #[rstest::rstest]

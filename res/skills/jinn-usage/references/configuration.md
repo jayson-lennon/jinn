@@ -369,8 +369,18 @@ resumed request, so the model does not see its own violation as context.
 Omit `scopes` (or leave it empty) to test prose, reasoning, and tool
 arguments alike. Prefer a narrow scope when the rule is about one medium — a
 rule about TypeScript types belongs on tool arguments, where the offending
-source actually appears. A `tool:<name>(<glob>)` token matches when the tool
-name is equal and any path-like argument matches the glob.
+source actually appears.
+
+A `tool:<name>(<glob>)` token matches when the tool name is equal and any
+path-like argument matches the glob. The glob decides **which files** the
+rule applies to; `conditions` then tests the whole argument buffer, content
+included. So `tool:edit(*.ts)` with `conditions = [': any']` fires on an edit
+that writes `any` into a `.ts` file, and stays quiet for a `.py` file.
+
+Which arguments count as paths: values under a key ending in `path`, `file`,
+`dir`, or `pattern` — `edit` uses `file_path`, `read` and `write` use `path`.
+The glob is tried against both the full path and the bare basename, so `*.ts`
+matches `src/deep/nested/x.ts`.
 
 A rule fires at most three times per turn, so a model that needed a second
 reminder still gets one. A rule that fails to compile, names no reachable
