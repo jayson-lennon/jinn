@@ -115,14 +115,16 @@ setup_command = "cd <repo> && git worktree add -b <branch> ../<branch> && echo $
 teardown_command = "..."
 ```
 
-**Curated projects** (appear in the `<leader>sp` picker) — optionally with a
-command policy that blocks bash commands by regex inside that project:
+**Curated projects** (appear in the `<leader>sp` picker):
 
 ```toml
 [[project.entry]]
 path = "~/code/myapp"
-command_policy = [{ pattern = 'rm\s+-rf\s+/', message = "Never rm -rf from root here." }]
 ```
+
+A project's own rules are [stream rules](#stream-rules) carrying its path in
+their `project` field, so they are configured with every other rule rather
+than on the project entry.
 
 **Saved attendants** (`[[attendant.entry]]` — see `attendants.md` for the
 full field reference and the feature itself):
@@ -150,38 +152,41 @@ picker (`<leader>sa`) re-reads the document every time it opens, so a hand edit
 shows up without a restart. `name` is the key entries are matched by, so
 saving under an existing name replaces that entry in place.
 
-**Global command policy** (blocks the same commands in every directory, in
-every session). Same shape as a project's policy, and evaluated *before* the
-project's rules with first-match-wins — so a project policy can only add
-blocks, never lift a global one:
+**Blocking a command before it runs** is a [stream rule](#stream-rules) with
+`on_trigger = "fail_tool"` and a tool scope:
 
 ```toml
-[[tools.bash_command_policy]]
-pattern = 'git push\s+.*--force'
-message = 'Force-push main; open a PR instead.'
+[[stream_rules.entry]]
+name = 'no-force-push'
+description = 'force-pushing main rewrites published history'
+conditions = ['git push\s+.*--force']
+scopes = ['tool:bash']
+on_trigger = 'fail_tool'
+body = 'Force-pushing main rewrites published history — open a PR instead.'
 ```
 
-A match returns the `message` to the agent as a failed tool result and the
-command never runs. Use single-quoted patterns so regex metacharacters survive;
-use global rules for mistakes that are wrong everywhere, and the project
-`command_policy` for repo-specific habits. A pattern the regex engine cannot
-compile is inert (logged, no block), and there is no lookaround — `(?<!...)`
-and `(?=...)` do not work. Guards apply to the **bash tool only**; interactive
-terminals and MCP-provided tools are not policed.
+A match returns `body` to the agent as a failed tool result and the command
+never runs. Unlike an interrupt, this fires at the executor against the call's
+complete arguments, so it works for any tool you name a scope for — not bash
+alone. `fail_tool` requires a tool scope: a rule with no call to deny would do
+nothing.
 
-A fresh install ships five global rules: the `rg -rn` guard, plus four guards
-against unbounded whole-filesystem searches — `find /`, `find ~`, `ls -R /`,
-`ls -R ~`. The `find` guards match the command word and a bare `/` or `~`
-search path. The `ls` guards additionally pin the *recursive* flag: `-R` in
+> The older `[[tools.bash_command_policy]]` section is read at load time and
+> converted to exactly this form, carrying its pattern and message across, so
+> an existing file keeps working. `[[project.entry]].command_policy` becomes a
+> rule scoped with `project`.
+
+A fresh install ships five `fail_tool` rules: the combined ripgrep-flag guard,
+plus four guards against unbounded whole-filesystem searches — a bare-root
+`find`, a bare-home `find`, and the recursive-listing equivalents for `/` and
+`~`. The listing guards additionally pin the *recursive* flag: `-R` in
 any combined cluster (`-lR`, `-1R`, `-Rt`) or `--recursive`, never lowercase
 `-r`, which is `--reverse` and only flips sort order. Both tolerate other
 flags and a leading `cd <dir> &&` chain, and still catch the root walk when it
-is dressed up as `ls -lR /`, `ls --recursive ~`, or `ls -R "$HOME"`.
-
-Bounded forms keep working: `find /mnt/zed/... -name foo`, `ls -R ~/code`, and
-even `ls -lR /usr` are all allowed, because the guard is about the *path*, not
-the flag cluster. Delete or edit the block in your `jinn.toml` if a project
-legitimately needs one.
+is dressed up. Bounded forms keep working: a `find` under a real directory,
+and a recursive listing of a bounded path, are all allowed, because the guard
+is about the *path*, not the flag cluster. Delete or edit the entries in your
+`jinn.toml` if a project legitimately needs one.
 
 **MCP servers** — see `mcp-servers.md` for the full transport matrix:
 
@@ -388,10 +393,20 @@ stream, or has an empty `body` is logged and skipped rather than breaking a
 turn. Use single-quoted strings for `conditions` so regex metacharacters
 survive without escape processing.
 
-Note this is distinct from `[[tools.bash_command_policy]]`, which blocks a
-*command* before it runs, and from `[[context_curation.auto_prune.regex.rules]]`,
+Note this is distinct from `[[context_curation.auto_prune.regex.rules]]`,
 which prunes completed history. A stream rule is the only one that observes
-output as it is produced.
+output as it is produced — and with `on_trigger = "fail_tool"` it is also where
+blocking a call before it runs lives, so it is not limited to the moment
+something is streaming past.
+
+`on_trigger` and `project` are optional:
+
+- `on_trigger` — absent (the default) interrupts the turn and resumes it with
+  `body` as guidance. `fail_tool` denies the matched call instead. Any other
+  value is logged and leaves the rule inert.
+- `project` — a path glob selecting the sessions a rule applies in. Absent
+  means every project, and a global rule is a floor a project-scoped one can
+  add to but never lift.
 
 ## Coverage note
 

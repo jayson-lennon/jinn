@@ -4,19 +4,18 @@
 //! declares itself with `ConfigList`: `[[project.entry]]` stays a list
 //! and the layer matches entries by their identity field.
 //!
-//! The global command policy used to live here as
-//! `[[project.global_command_policy]]`. It now lives under the umbrella
-//! that owns it, `[[tools.bash_command_policy]]`.
+//! An entry used to carry a `command_policy` of its own. Those rules are
+//! stream rules now, scoped by their `project` field, so the field is gone
+//! and a project's rules live with every other rule in one list.
 
 use std::path::PathBuf;
 
-use super::command_policy::CommandPolicyRule;
 use serde::{Deserialize, Serialize};
 
 impl jinn_config::ConfigList for ProjectConfig {
     const KEY: &'static str = "project.entry";
     const ENTRY_KEY: &'static str = "path";
-    const ENTRY_FIELDS: &'static [&'static str] = &["path", "command_policy"];
+    const ENTRY_FIELDS: &'static [&'static str] = &["path"];
 }
 
 /// A curated project directory shown in the project picker.
@@ -28,10 +27,6 @@ impl jinn_config::ConfigList for ProjectConfig {
 pub struct ProjectConfig {
     /// The absolute (or `~`-prefixed) directory path.
     pub path: PathBuf,
-    /// Blocked-command rules the bash tool enforces for commands whose cwd
-    /// falls inside this project. Empty means no policy.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub command_policy: Vec<CommandPolicyRule>,
 }
 
 #[cfg(test)]
@@ -40,9 +35,9 @@ mod tests {
 
     use std::sync::Arc;
 
-    use jinn_config::{ConfigLayer, ConfigList, InMemoryConfigStorage};
+    use jinn_config::{ConfigLayer, InMemoryConfigStorage};
 
-    use super::{CommandPolicyRule, ProjectConfig};
+    use super::ProjectConfig;
 
     #[rstest::rstest]
     fn project_entries_read_from_the_umbrella_key() {
@@ -83,20 +78,10 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn a_projects_command_policy_renders_inline_and_reads_back() {
-        // Given a project carrying two blocked-command rules.
+    fn a_project_renders_as_a_path_and_reads_back() {
+        // Given a project with no rules of its own.
         let project = ProjectConfig {
             path: "/tmp/demo".parse().expect("path parses"),
-            command_policy: vec![
-                CommandPolicyRule {
-                    pattern: "git push".to_owned(),
-                    message: "ask first".to_owned(),
-                },
-                CommandPolicyRule {
-                    pattern: "rm -rf".to_owned(),
-                    message: "never".to_owned(),
-                },
-            ],
         };
         let storage = Arc::new(InMemoryConfigStorage::new(
             "[tools]\nx = 1\n".parse().expect("parses"),
@@ -113,38 +98,15 @@ mod tests {
             .expect("second save");
         let twice = storage.text();
 
-        // Then the rules render as one `key = value` on the entry rather than
-        // as a `[[project.entry.command_policy]]` sub-list, which TOML reads
-        // as a sibling of the project rather than part of it.
-        assert!(
-            once.contains("command_policy = [{ message = \"ask first\", pattern = \"git push\" }"),
-            "policy not inline:\n{once}"
-        );
-        assert!(
-            !once.contains("[[project.entry.command_policy]]"),
-            "policy rendered as a sub-list:\n{once}"
-        );
-
-        // And an identical re-save does not move the file.
+        // Then an identical re-save does not move the file.
         assert_eq!(
             once, twice,
             "document moved:\nonce:\n{once}\ntwice:\n{twice}"
         );
 
-        // And both rules read back off the right project.
+        // And it reads back on the right project.
         let read = layer.get_list::<ProjectConfig>().expect("read");
         assert_eq!(read.len(), 1);
-        assert_eq!(read[0].command_policy, project.command_policy);
-    }
-
-    #[rstest::rstest]
-    fn the_two_project_sections_do_not_share_a_key() {
-        // Given the two lists under the project umbrella.
-        // When their keys are compared.
-        // Then they are distinct, so neither shadows the other.
-        assert_ne!(
-            <ProjectConfig as ConfigList>::KEY,
-            crate::schemas::command_policy::GLOBAL_COMMAND_POLICY_KEY
-        );
+        assert_eq!(read[0].path, project.path);
     }
 }

@@ -304,7 +304,10 @@ impl StreamRules {
     /// Returns `None` when no matcher is installed, so a consumer can hold the
     /// result as an `Option` and treat absence as "no rules apply" — the same
     /// reading it gives an uninstalled cell.
-    pub fn for_project(&self, project: &std::path::Path) -> Option<std::sync::Arc<dyn StreamRuleSet>> {
+    pub fn for_project(
+        &self,
+        project: &std::path::Path,
+    ) -> Option<std::sync::Arc<dyn StreamRuleSet>> {
         let set = self.0.as_ref()?;
         Some(set.for_project(project))
     }
@@ -382,11 +385,7 @@ mod tests {
             turns.remove(session);
         }
 
-        fn deny_tool_call(
-            &self,
-            _tool_name: &str,
-            _arguments: &str,
-        ) -> Option<RuleFired> {
+        fn deny_tool_call(&self, _tool_name: &str, _arguments: &str) -> Option<RuleFired> {
             None
         }
 

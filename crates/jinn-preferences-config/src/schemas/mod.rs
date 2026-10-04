@@ -14,8 +14,8 @@
 //!   payload, not sections, and split across crates they would drift.
 //! - The **behavior** that reads a section stays with the feature that
 //!   runs it — kernel workers, or the slice that owns the runtime. A
-//!   `CompiledCommandPolicy` matcher or an MCP connection belongs to its
-//!   slice; only the data comes from here.
+//!   compiled rule matcher or an MCP connection belongs to its slice; only
+//!   the data comes from here.
 //!
 //! Consumers read a section through the configuration layer
 //! (`config.get::<T>()` / `get_list::<T>()`), so a section type is pure
@@ -24,10 +24,10 @@
 pub mod attendant;
 pub mod auto_prune;
 pub mod chat_log;
-pub mod command_policy;
 pub mod compaction;
 pub mod cwd_selector;
 pub mod discord;
+pub mod legacy_command_policy;
 pub mod mcp;
 pub mod minimap;
 pub mod project;
@@ -49,10 +49,12 @@ pub use auto_prune::{
     ToolAgeWindowAutoPruneConfig, TrivialAssistantAutoPruneConfig,
 };
 pub use chat_log::ChatLogConfig;
-pub use command_policy::{CommandPolicyRule, GLOBAL_COMMAND_POLICY_KEY};
 pub use compaction::CompactionConfig;
 pub use cwd_selector::CwdSelectorConfig;
 pub use discord::DiscordConfig;
+pub use legacy_command_policy::{
+    LEGACY_COMMAND_POLICY_KEY, LegacyCommandPolicyRule, LegacyProjectConfig,
+};
 pub use mcp::{
     HeaderExpandError, McpServerConfig, McpServersConfig, TransportKind, expand_header_value,
     expand_mcp_headers, referenced_header_variables,

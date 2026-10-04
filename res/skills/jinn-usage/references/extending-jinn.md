@@ -310,8 +310,9 @@ These are jinn's own code and are not user-extensible:
 - **The agent loop** — turn dispatch, steering vs. queueing, the settled
   boundary, compaction triggers.
 - **Tool-call interception** — jinn's only policy surface is
-  `[tools.bash_command_policy]` and per-project `command_policy`, both
-  regex-based bash-only guards. There's no general permission/approval UI.
+  `[[stream_rules.entry]]`: regex rules over the assistant's output, which with
+  `on_trigger = "fail_tool"` can deny a named tool's call before it runs.
+  There's no general permission/approval UI.
 - **Context assembly** — pinning, pruning, compaction tuning are config, not
   extensible.
 

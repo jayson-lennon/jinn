@@ -202,7 +202,6 @@ fn hit(
 fn tool_ctx(store: SessionStoreService, session_id: Option<SessionId>) -> ToolContext {
     ToolContext {
         cwd: std::path::PathBuf::from("/tmp"),
-        command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
         config: jinn_config::testutil::config_layer(""),
         timeout: None,
         state: None,

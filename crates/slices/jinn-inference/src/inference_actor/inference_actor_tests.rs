@@ -1585,17 +1585,13 @@ async fn fired_rule_for(harness: &TestHarness, chunks: &[&str]) -> Option<String
         return None;
     }
 
-    jinn_testutil::bus_harness::await_recorded(
-        &entries,
-        1,
-        std::time::Duration::from_secs(2),
-    )
-    .await
-    .into_iter()
-    .find_map(|e| match &e.entry.kind {
-        jinn_core_types::ChatEntryKind::RuleInterrupt { rule, .. } => Some(rule.clone()),
-        _ => None,
-    })
+    jinn_testutil::bus_harness::await_recorded(&entries, 1, std::time::Duration::from_secs(2))
+        .await
+        .into_iter()
+        .find_map(|e| match &e.entry.kind {
+            jinn_core_types::ChatEntryKind::RuleInterrupt { rule, .. } => Some(rule.clone()),
+            _ => None,
+        })
 }
 
 #[rstest::rstest]
@@ -1621,10 +1617,7 @@ async fn a_rule_fires_the_same_whether_content_arrives_in_one_chunk_or_many() {
     .await;
 
     // Then the rule fires either way -- chunking does not decide it.
-    assert!(
-        whole.is_some(),
-        "one-chunk delivery must fire the rule"
-    );
+    assert!(whole.is_some(), "one-chunk delivery must fire the rule");
     assert_eq!(whole, piece, "the same content must fire identically");
 }
 

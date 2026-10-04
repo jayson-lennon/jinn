@@ -36,7 +36,8 @@ use crate::schemas::{
 /// - `project` — [`crate::schemas::ProjectConfig`]
 /// - `session_lifecycle` — [`crate::schemas::SessionLifecycle`]
 /// - `stream_rules.entry` — [`crate::schemas::StreamRuleConfig`]
-/// - `tools.bash_command_policy` — [`crate::schemas::CommandPolicyRule`]
+/// - `tools.bash_command_policy` — [`crate::schemas::LegacyCommandPolicyRule`],
+///   read only to migrate an older file into stream rules
 ///
 /// Closing that gap means changing the `ConfigList` trait in
 /// `jinn-config`, which is out of scope for centralizing the schemas.

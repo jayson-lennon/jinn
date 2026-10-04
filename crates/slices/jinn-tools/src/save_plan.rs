@@ -126,7 +126,6 @@ mod tests {
     fn test_ctx() -> ToolContext {
         ToolContext {
             cwd: PathBuf::from("/tmp"),
-            command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
             config: jinn_config::testutil::config_layer(""),
             timeout: None,
             state: None,
@@ -380,7 +379,6 @@ mod tests {
         let dir = tempfile::tempdir().expect("create temp dir");
         let ctx = ToolContext {
             cwd: dir.path().to_owned(),
-            command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
             config: jinn_config::testutil::config_layer(""),
             timeout: None,
             state: None,

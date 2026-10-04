@@ -40,7 +40,6 @@ fn call(command: &str) -> ToolCall {
 fn ctx_with(session_id: Option<SessionId>, cwd: &str) -> ToolContext {
     ToolContext {
         cwd: PathBuf::from(cwd),
-        command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
         config: jinn_config::testutil::config_layer(""),
         timeout: None,
         state: None,

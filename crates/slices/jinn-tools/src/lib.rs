@@ -21,7 +21,6 @@ pub mod bash;
 #[cfg(test)]
 mod attendant_tools_tests;
 
-pub mod command_policy;
 pub mod edit;
 pub mod get_time;
 pub mod grep;

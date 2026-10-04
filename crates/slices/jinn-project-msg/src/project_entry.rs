@@ -174,11 +174,9 @@ mod tests {
         let projects = vec![
             ProjectConfig {
                 path: std::path::PathBuf::from("/zzz"),
-                command_policy: Vec::new(),
             },
             ProjectConfig {
                 path: std::path::PathBuf::from("/aaa"),
-                command_policy: Vec::new(),
             },
         ];
 

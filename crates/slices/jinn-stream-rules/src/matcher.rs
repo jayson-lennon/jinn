@@ -564,7 +564,11 @@ impl CompiledSet {
         self.rules
             .iter()
             .filter(|rule| rule.denies_tools() && rule.admits(ctx, &tool_args))
-            .find(|rule| rule.conditions.iter().any(|regex| regex.is_match(arguments)))
+            .find(|rule| {
+                rule.conditions
+                    .iter()
+                    .any(|regex| regex.is_match(arguments))
+            })
             .map(|rule| RuleFired {
                 name: rule.name.clone(),
                 description: rule.description.clone(),
@@ -1215,9 +1219,7 @@ mod tests {
 
         // When the executor consults the set once per streamed fragment.
         let whole = set.deny_tool_call("bash", arguments).map(|hit| hit.name);
-        let piecemeal = set
-            .deny_tool_call("bash", arguments)
-            .map(|hit| hit.name);
+        let piecemeal = set.deny_tool_call("bash", arguments).map(|hit| hit.name);
 
         // Then the denial does not depend on the delivery.
         assert_eq!(whole, Some("no-bash".to_owned()));
@@ -1231,8 +1233,8 @@ mod tests {
         let configs = [scoped_rule("typo", "rm -rf", "tool:bash", "fail_tol")];
 
         // When the executor consults the set about a matching call.
-        let denied = CompiledSet::build(&configs)
-            .deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
+        let denied =
+            CompiledSet::build(&configs).deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
 
         // Then the rule does nothing at all.
         assert!(denied.is_none());
@@ -1263,8 +1265,8 @@ mod tests {
         let configs = [scoped_rule("mismatched", "rm -rf", "text", "fail_tool")];
 
         // When the executor consults the set about a matching call.
-        let denied = CompiledSet::build(&configs)
-            .deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
+        let denied =
+            CompiledSet::build(&configs).deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
 
         // Then the rule was dropped rather than left armed with nothing to do.
         assert!(denied.is_none());
@@ -1277,7 +1279,8 @@ mod tests {
         let configs = [rule("global", "rm -rf")];
 
         // When the set is built for a project it names nothing about.
-        let set = CompiledSet::build(&configs).for_project(std::path::Path::new("/anywhere/at/all"));
+        let set =
+            CompiledSet::build(&configs).for_project(std::path::Path::new("/anywhere/at/all"));
 
         // Then the rule is live there.
         assert!(!set.is_empty());
@@ -1293,7 +1296,8 @@ mod tests {
         }];
 
         // When the set is built for that project.
-        let set = CompiledSet::build(&configs).for_project(std::path::Path::new("/home/dev/code/myapp"));
+        let set =
+            CompiledSet::build(&configs).for_project(std::path::Path::new("/home/dev/code/myapp"));
 
         // Then the rule is live.
         assert!(!set.is_empty());
@@ -1309,7 +1313,8 @@ mod tests {
         }];
 
         // When the set is built for a different project.
-        let set = CompiledSet::build(&configs).for_project(std::path::Path::new("/home/dev/code/other"));
+        let set =
+            CompiledSet::build(&configs).for_project(std::path::Path::new("/home/dev/code/other"));
 
         // Then the rule is not there at all.
         assert!(set.is_empty());
