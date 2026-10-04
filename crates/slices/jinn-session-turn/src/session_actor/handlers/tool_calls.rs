@@ -47,7 +47,16 @@ impl SessionPersistenceActor {
         self.state.with_session(|view| {
             let session = view.session.map().get_or_create(&event.session_id);
             if let Err(e) = session.append_tool_call_delta(event.index, &event.partial_json) {
-                tracing::error!(err = ?e, "failed to append tool call delta");
+                // A refused delta is never silent: the index and the phase the
+                // session was in at the time are what a reader needs to work out
+                // whether the call was never registered or its registration was
+                // lost to a phase transition.
+                tracing::warn!(
+                    err = ?e,
+                    index = event.index,
+                    current_phase = ?session.phase(),
+                    "refused tool call delta - no live registration for this index"
+                );
             }
         });
     }
@@ -65,7 +74,7 @@ impl SessionPersistenceActor {
                 // background task has not yet been aborted.
                 if !matches!(session.phase(), PhaseKind::Sending) {
                     tracing::debug!(
-                        session_id = %event.session_id,
+                        current_phase = ?session.phase(),
                         phase = ?session.phase(),
                         "dropping stale ToolExecutionCompleted: session not in Sending"
                     );
@@ -1324,6 +1333,89 @@ mod tests {
         if let ChatEntryKind::ToolCall { arguments, .. } = &tc.kind {
             assert_eq!(arguments, "{\"command\":\"ls\"}");
         }
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn on_tool_call_streaming_logs_index_and_phase_when_the_delta_is_refused() {
+        use std::sync::{Arc, Mutex};
+
+        use tracing_subscriber::Layer;
+        use tracing_subscriber::layer::SubscriberExt;
+
+        /// A `MakeWriter` capturing formatted log output for assertions.
+        #[derive(Clone, Default)]
+        struct CapturingWriter(Arc<Mutex<Vec<u8>>>);
+
+        impl CapturingWriter {
+            fn contents(&self) -> String {
+                String::from_utf8(self.0.lock().expect("poisoned").clone())
+                    .expect("captured output is utf-8")
+            }
+        }
+
+        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CapturingWriter {
+            type Writer = CapturingSink;
+
+            fn make_writer(&'a self) -> Self::Writer {
+                CapturingSink(self.0.clone())
+            }
+        }
+
+        struct CapturingSink(Arc<Mutex<Vec<u8>>>);
+
+        impl std::io::Write for CapturingSink {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0
+                    .lock()
+                    .map_err(|err| {
+                        std::io::Error::other(format!("capture buffer mutex poisoned: {err}"))
+                    })?
+                    .extend_from_slice(buf);
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        // Given a session with a turn in flight but no registration for index 7.
+        let (actor, _audit) = test_actor_recording().await;
+        let session_id = {
+            let mut state = actor.state.write();
+            let session = state.active_session_mut();
+            session.begin_sending();
+            state.session.active_session_id().clone()
+        };
+
+        let capture = CapturingWriter::default();
+        let subscriber = tracing_subscriber::registry().with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(capture.clone())
+                .with_ansi(false)
+                .with_filter(tracing_subscriber::EnvFilter::new("warn")),
+        );
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        // When a delta arrives for an index that was never registered.
+        actor.on_tool_call_streaming(&ToolCallStreaming {
+            session_id,
+            index: 7,
+            partial_json: "{\"command\":\"ls\"}".to_owned(),
+        });
+
+        // Then the refusal is logged, naming both the index and the phase, so a
+        // reader can tell an unregistered index from one lost to a transition.
+        let contents = capture.contents();
+        assert!(
+            contents.contains("index=7"),
+            "the refused delta should log its tool-call index; got: {contents}"
+        );
+        assert!(
+            contents.contains("current_phase=Sending"),
+            "the refused delta should log the session phase; got: {contents}"
+        );
     }
 
     #[rstest::rstest]

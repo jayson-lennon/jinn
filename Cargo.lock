@@ -3484,6 +3484,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "trouper",
  "wherror",
 ]

@@ -1184,7 +1184,7 @@ impl ChatSessionState {
 
         // Safety net: finalize any still-pending thinking entry (pure-reasoning
         // streams that never produced a content token). Must run before the
-        // StreamingPhase drop clears the index.
+        // Cleared by the StreamingPhase drop in on_stream_completed_*.
         if let Some(idx) = self.core.ephemeral.machine.streaming_thinking_entry_index() {
             self.finish_thinking_entry(idx);
         }
@@ -1195,7 +1195,7 @@ impl ChatSessionState {
                 "finish_streaming: machine rejected transition"
             );
         }
-        // Streaming indices cleared automatically by Phase::Streaming drop.
+        // The transition above cleared every tool-call and tool-result registration.
     }
 
     /// Cancel streaming but keep partial text in history.
@@ -1222,7 +1222,7 @@ impl ChatSessionState {
                 "cancel_streaming: machine rejected cancel"
             );
         }
-        // All streaming indices cleaned up by StreamingPhase drop on cancel()
+        // cancel() cleared every tool-call and tool-result registration.
     }
 
     /// Cancel streaming and drain steering fragments plus queued messages back
@@ -1315,7 +1315,7 @@ impl ChatSessionState {
             self.core
                 .ephemeral
                 .machine
-                .streaming_tool_call_indices()
+                .active_tool_call_indices()
                 .values()
                 .copied(),
         );
@@ -1389,15 +1389,14 @@ impl ChatSessionState {
         entry.timing = EntryTiming::streamed(dispatched_at);
         entry.timing.set_first_token();
         let history_index = self.push_entry(entry);
-        let Some(indices) = self.core.ephemeral.machine.active_tool_call_indices_mut() else {
-            tracing::warn!(
-                current_phase = ?self.core.ephemeral.machine.kind(),
-                index,
-                "begin_tool_call had no tool-call map - index will not receive deltas"
-            );
-            return;
-        };
-        indices.insert(index, history_index);
+        // The tracking map is machine-level and always present, so a
+        // registration made here survives every later phase transition — a
+        // prose token arriving mid-arguments no longer discards it.
+        self.core
+            .ephemeral
+            .machine
+            .active_tool_call_indices_mut()
+            .insert(index, history_index);
     }
 
     /// Append an incremental delta to a streaming tool call's arguments.
@@ -1421,7 +1420,7 @@ impl ChatSessionState {
             .core
             .ephemeral
             .machine
-            .streaming_tool_call_indices()
+            .active_tool_call_indices()
             .get(&index)
             .copied()
             .ok_or(StreamingError::NoToolCallIndex { index })?;
@@ -1495,14 +1494,9 @@ impl ChatSessionState {
     ) {
         // Early return if neither busy phase is live — don't push orphaned
         // entries. Checked before the push so a refused result leaves no
-        // half-written entry behind.
-        if self
-            .core
-            .ephemeral
-            .machine
-            .active_tool_result_indices_mut()
-            .is_none()
-        {
+        // half-written entry behind. The tracking map itself is always
+        // present, so the guard tests the phase rather than the map.
+        if matches!(self.core.ephemeral.machine.kind(), PhaseKind::Idle) {
             tracing::warn!(
                 current_phase = ?self.core.ephemeral.machine.kind(),
                 tool_call_id,
@@ -1517,9 +1511,11 @@ impl ChatSessionState {
         let history_index = self.push_entry(entry);
 
         // Re-acquire the tracking map after push_entry releases &mut self.
-        if let Some(indices) = self.core.ephemeral.machine.active_tool_result_indices_mut() {
-            indices.insert(tool_call_id.to_owned(), history_index);
-        }
+        self.core
+            .ephemeral
+            .machine
+            .active_tool_result_indices_mut()
+            .insert(tool_call_id.to_owned(), history_index);
     }
 
     /// Append incremental output to a pending ToolResult entry.
@@ -1588,7 +1584,7 @@ impl ChatSessionState {
             .ephemeral
             .machine
             .active_tool_result_indices_mut()
-            .and_then(|map| map.remove(tool_call_id));
+            .remove(tool_call_id);
 
         let apply = |entry: &mut ChatEntry| {
             if let ChatEntryKind::ToolResult {
@@ -3059,7 +3055,7 @@ impl ChatSessionState {
         self.core
             .ephemeral
             .machine
-            .streaming_tool_call_indices()
+            .active_tool_call_indices()
             .values()
             .filter_map(|&history_index| history.get(history_index))
             .map(|entry| entry.id.clone())

@@ -978,12 +978,17 @@ async fn handle_done_event_publishes_stream_completed_before_execute_tool_batch(
 
 /// Builds a rule set whose single rule fires on `condition`.
 fn rule_set(condition: &str) -> std::sync::Arc<dyn jinn_slices::StreamRuleSet> {
+    rule_set_for(condition, "text")
+}
+
+/// Builds a rule set whose single rule fires on `condition` for `scope`.
+fn rule_set_for(condition: &str, scope: &str) -> std::sync::Arc<dyn jinn_slices::StreamRuleSet> {
     std::sync::Arc::new(jinn_stream_rules::matcher::CompiledSet::build(&[
         jinn_preferences_config::schemas::StreamRuleConfig {
             name: "test-rule".to_owned(),
             description: "a rule the test tripped".to_owned(),
             conditions: vec![condition.to_owned()],
-            scopes: vec!["text".to_owned()],
+            scopes: vec![scope.to_owned()],
             body: "Stop doing that.".to_owned(),
         },
     ]))
@@ -1169,6 +1174,75 @@ async fn an_intercept_injects_guidance_the_model_can_still_read() {
         entry.prompt_text(),
         Some(body.as_str()),
         "the prompt contribution is the body verbatim, with no added prefix"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_intercepted_tool_call_still_reaches_the_chat_log() {
+    // Given a tool call whose arguments trip a bash-scoped rule.
+    use jinn_provider::StreamEvent;
+    let harness = TestHarness::new().await;
+    let stream = scripted_stream(vec![
+        StreamEvent::ToolUseStart {
+            index: 0,
+            id: "tc-1".to_owned(),
+            name: "bash".to_owned(),
+        },
+        StreamEvent::ToolUseInputDelta {
+            index: 0,
+            partial_json: r#"{"command":"echo FORBIDDEN"#.to_owned(),
+        },
+        StreamEvent::ToolUseComplete {
+            tool_call: ToolCall {
+                id: "tc-1".to_owned(),
+                name: "bash".to_owned(),
+                arguments: r#"{"command":"echo FORBIDDEN"}"#.to_owned(),
+            },
+            index: 0,
+        },
+        StreamEvent::Done {
+            stop_reason: jinn_provider::StopReason::ToolUse,
+            usage: None,
+        },
+    ]);
+    let sid = SessionId::new();
+    let deltas = harness
+        .spawn_recorder::<jinn_tools_msg::ToolCallStreaming>()
+        .await;
+    let batches = harness
+        .spawn_recorder::<jinn_tools_msg::ExecuteToolBatch>()
+        .await;
+
+    // When processed with a bash-scoped rule matching FORBIDDEN.
+    run_with_rules(
+        &harness,
+        stream,
+        &sid,
+        Some(rule_set_for("FORBIDDEN", "tool:bash")),
+    )
+    .await;
+
+    // Then the arguments are visible in the log. A tool rule accumulates, so
+    // the delta that trips it is the first one — dropping it left the chat log
+    // showing a tool call with no arguments at all.
+    let published = await_recorded(&deltas, 1, std::time::Duration::from_secs(5)).await;
+    assert_eq!(
+        published.len(),
+        1,
+        "the offending delta should reach the log, got {}",
+        published.len()
+    );
+    assert!(
+        published[0].partial_json.contains("echo FORBIDDEN"),
+        "the log should show the command the model attempted, got {:?}",
+        published[0].partial_json
+    );
+    // And the tool still never runs.
+    assert!(
+        batches.is_empty(),
+        "an intercepted tool call must never execute, got {} batches",
+        batches.len()
     );
 }
 

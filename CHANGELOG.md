@@ -1,5 +1,9 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Do not make edits)**
 
+## (development)
+
+- Display bug fix from v1.4.0 applied generically so all tool calls should display properly.
+
 ## 2026-10-02 v1.4.0
 
 - Fix display bug with `write` tool. It should now display immediately as tokens stream in.

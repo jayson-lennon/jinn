@@ -250,9 +250,11 @@ fn first_token_creates_default_streaming_state() {
     let sp = m.streaming_phase().expect("should be streaming");
     assert!(sp.streaming_entry_index.is_none());
     assert!(sp.streaming_thinking_entry_index.is_none());
-    assert!(sp.streaming_tool_call_indices.is_empty());
-    assert!(sp.streaming_tool_result_indices.is_empty());
     assert!(!sp.soft_cancel_requested);
+    // And the tool tracking maps, which are machine-level, are untouched by
+    // the edge.
+    assert!(m.active_tool_call_indices().is_empty());
+    assert!(m.active_tool_result_indices().is_empty());
 }
 
 #[rstest::rstest]
@@ -264,15 +266,16 @@ fn streaming_state_cleared_on_finish() {
         let sp = m.streaming_phase_mut().expect("should be streaming");
         sp.streaming_entry_index = Some(5);
         sp.streaming_thinking_entry_index = Some(3);
-        sp.streaming_tool_call_indices.insert(0, 10);
-        sp.streaming_tool_result_indices
-            .insert("tc_1".to_owned(), 12);
     }
+    m.active_tool_call_indices_mut().insert(0, 10);
+    m.active_tool_result_indices_mut()
+        .insert("tc_1".to_owned(), 12);
 
     // When stream finishes.
     m.on_stream_completed_finished().expect("should succeed");
 
-    // Then all streaming state is gone (dropped with the variant).
+    // Then all streaming state is gone (dropped with the variant, and the
+    // tool tracking maps are cleared explicitly by the transition).
     assert!(m.streaming_phase().is_none());
     assert_eq!(m.kind(), PhaseKind::Idle);
 }
@@ -524,55 +527,42 @@ fn tool_loop_disabled_mid_cycle() {
 fn cancel_returns_streaming_data() {
     // Given a machine in Streaming with populated state.
     let mut m = streaming_machine();
-    {
-        let sp = m.streaming_phase_mut().expect("streaming");
-        sp.streaming_entry_index = Some(42);
-        sp.streaming_tool_call_indices.insert(0, 10);
-        sp.streaming_tool_call_indices.insert(1, 11);
-        sp.streaming_tool_result_indices
-            .insert("tc_a".to_owned(), 20);
-    }
+    m.streaming_phase_mut()
+        .expect("streaming")
+        .streaming_entry_index = Some(42);
+    m.active_tool_call_indices_mut().insert(0, 10);
+    m.active_tool_call_indices_mut().insert(1, 11);
+    m.active_tool_result_indices_mut()
+        .insert("tc_a".to_owned(), 20);
 
     // When cancel is called.
     let result = m.cancel().expect("cancel should succeed");
 
-    // Then the old streaming data is preserved in the result.
+    // Then the old streaming entry index is preserved in the result.
     assert_eq!(result.old_streaming.streaming_entry_index, Some(42));
-    assert_eq!(result.old_streaming.streaming_tool_call_indices.len(), 2);
-    assert_eq!(result.old_streaming.streaming_tool_result_indices.len(), 1);
-    assert_eq!(
-        result.old_streaming.streaming_tool_call_indices.get(&0),
-        Some(&10)
-    );
-    assert_eq!(
-        result
-            .old_streaming
-            .streaming_tool_result_indices
-            .get("tc_a"),
-        Some(&20)
-    );
+    // And every tool tracking registration is gone: the turn was cancelled, so
+    // nothing from it may outlive it.
+    assert!(m.active_tool_call_indices().is_empty());
+    assert!(m.active_tool_result_indices().is_empty());
 }
 
 #[rstest::rstest]
 #[test]
-fn streaming_phase_tracks_tool_calls() {
-    // Given a machine in Streaming.
+fn tool_call_tracking_survives_the_tool_use_handoff_when_the_loop_continues() {
+    // Given a machine in Streaming with a live tool-call registration and the
+    // tool loop left enabled.
     let mut m = streaming_machine();
+    m.active_tool_call_indices_mut().insert(3, 15);
 
-    // When tool call indices are set.
-    m.streaming_phase_mut()
-        .expect("streaming")
-        .streaming_tool_call_indices
-        .insert(3, 15);
+    // When the stream ends in tool use, handing off to the next burst.
+    let outcome = m
+        .on_stream_completed_tool_use()
+        .expect("tool use should succeed");
 
-    // Then they persist until the phase changes.
-    assert_eq!(
-        m.streaming_phase()
-            .expect("streaming")
-            .streaming_tool_call_indices
-            .get(&3),
-        Some(&15)
-    );
+    // Then the phase advanced but the registration was dropped, because that
+    // burst's calls were all finalized before this edge fired.
+    assert_eq!(outcome.new_phase, PhaseKind::Sending);
+    assert!(m.active_tool_call_indices().is_empty());
 }
 
 #[rstest::rstest]
@@ -685,22 +675,88 @@ fn rewind_from_streaming_drops_streaming_indices() {
     let mut m = streaming_machine();
     m.set_streaming_entry_index(1);
     m.set_streaming_thinking_entry_index(2);
-    m.streaming_tool_call_indices_mut()
-        .expect("streaming")
-        .insert(0, 3);
+    m.streaming_tool_call_indices_mut().insert(0, 3);
     m.streaming_tool_result_indices_mut()
-        .expect("streaming")
         .insert("tc-1".to_owned(), 4);
 
     // When rewinding for a stall retry.
     m.on_retry_rewind().expect("rewind from Streaming");
 
-    // Then every index is gone — the StreamingPhase was dropped wholesale,
-    // so the retried stream starts from a clean slate.
+    // Then every index is gone — the StreamingPhase was dropped wholesale and
+    // the tool tracking maps are cleared explicitly, so the retried stream
+    // starts from a clean slate.
     assert_eq!(m.streaming_entry_index(), None);
     assert_eq!(m.streaming_thinking_entry_index(), None);
     assert!(m.streaming_tool_call_indices().is_empty());
     assert!(m.streaming_tool_result_indices().is_empty());
+}
+
+#[rstest::rstest]
+#[test]
+fn tool_call_registration_survives_sending_to_streaming() {
+    // Given a tool call registered while the turn is still Sending.
+    let mut m = sending_machine();
+    m.active_tool_call_indices_mut().insert(0, 3);
+
+    // When a prose token drives Sending -> Streaming.
+    m.on_first_token().expect("first token should succeed");
+
+    // Then the registration is still readable, so the rest of that call's
+    // arguments can still be appended.
+    assert_eq!(m.active_tool_call_indices().get(&0), Some(&3));
+}
+
+#[rstest::rstest]
+#[test]
+fn tool_call_registration_survives_the_tool_batch_boundary() {
+    // Given a tool call registered while the tool batch ran in Sending.
+    let mut m = sending_machine();
+    m.active_tool_call_indices_mut().insert(0, 3);
+
+    // When the batch completes and the next burst begins.
+    m.on_tool_batch_completed()
+        .expect("tool batch should complete");
+
+    // Then the registration is still readable in the new burst, because only a
+    // turn *end* clears.
+    assert_eq!(m.kind(), PhaseKind::Streaming);
+    assert_eq!(m.active_tool_call_indices().get(&0), Some(&3));
+}
+
+#[rstest::rstest]
+#[test]
+fn tool_call_registration_survives_a_round_trip_through_both_busy_phases() {
+    // Given a tool call registered at the start of a turn.
+    let mut m = sending_machine();
+    m.active_tool_call_indices_mut().insert(0, 3);
+
+    // When the turn crosses the Sending -> Streaming boundary and back.
+    m.on_first_token().expect("first token should succeed");
+    m.on_stream_completed_error().expect("error should succeed");
+
+    // Then the registration is cleared by the turn end, which is the point of
+    // clearing it — a *new* burst must start from a clean slate.
+    assert_eq!(m.kind(), PhaseKind::Idle);
+    assert!(m.active_tool_call_indices().is_empty());
+}
+
+#[rstest::rstest]
+#[test]
+fn tool_call_registration_is_cleared_when_the_turn_ends() {
+    // Given a turn holding a live tool-call registration.
+    let mut m = streaming_machine();
+    m.active_tool_call_indices_mut().insert(0, 3);
+    m.active_tool_result_indices_mut()
+        .insert("tc-1".to_owned(), 4);
+
+    // When the stream finishes and the session returns to Idle.
+    m.on_stream_completed_finished()
+        .expect("finish should succeed");
+
+    // Then nothing is registered, because no turn is in flight any more.
+    assert_eq!(m.kind(), PhaseKind::Idle);
+    assert!(m.active_tool_call_indices().is_empty());
+    assert!(m.active_tool_result_indices().is_empty());
 }
 
 #[rstest::rstest]

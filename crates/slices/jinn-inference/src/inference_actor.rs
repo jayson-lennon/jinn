@@ -310,6 +310,7 @@ async fn process_stream_events(
                     partial_json,
                 } => {
                     publish_activity(bus, sid).await;
+                    // Tested before publishing, as on every other stream path.
                     // A rule scoped to a tool call is tested against the
                     // arguments as they accumulate, so the tool name the
                     // start event recorded is what names the stream.
@@ -317,16 +318,28 @@ async fn process_stream_events(
                         let name = accum.tool_names.get(&index).map_or("", String::as_str);
                         session.check(&partial_json, StreamContext::tool(index, name))
                     });
-                    if let Some(fired) = fired {
-                        intercept_and_resume(bus, sid, &mut accum, fired, dispatched_at).await;
-                        return;
-                    }
+                    // Published even when a rule fired, unlike the text and
+                    // reasoning paths. Because a tool rule accumulates, the
+                    // delta that trips it is usually the first one — dropping
+                    // it left the log showing a tool call whose arguments had
+                    // never arrived, rendering as a bare `$` with nothing in
+                    // it. The user watched the model begin this call, so the
+                    // attempt is shown up to the interrupt point.
+                    //
+                    // Showing the arguments does not run them: the tool never
+                    // executes, because `ToolUseComplete` — and with it
+                    // `ExecuteToolBatch` — is never reached once this handler
+                    // returns.
                     bus.publish(ToolCallStreaming {
                         session_id: sid.clone(),
                         index,
                         partial_json,
                     })
                     .await;
+                    if let Some(fired) = fired {
+                        intercept_and_resume(bus, sid, &mut accum, fired, dispatched_at).await;
+                        return;
+                    }
                 }
                 StreamEvent::ToolUseComplete { tool_call, .. } => {
                     publish_activity(bus, sid).await;

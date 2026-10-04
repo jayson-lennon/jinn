@@ -4193,7 +4193,6 @@ fn insert_entry_at_shifts_tool_result_indices() {
         .ephemeral
         .machine
         .streaming_tool_result_indices_mut()
-        .expect("streaming")
         .insert("tr-1".to_owned(), 4);
 
     // When inserting at index 2.
@@ -4229,7 +4228,6 @@ fn insert_entry_at_does_not_shift_tool_result_indices_before_insertion() {
         .ephemeral
         .machine
         .streaming_tool_result_indices_mut()
-        .expect("streaming")
         .insert("tr-1".to_owned(), 1);
 
     // When inserting at index 2 (after the tool result).
@@ -4262,7 +4260,6 @@ fn insert_entry_at_shifts_tool_call_indices() {
         .ephemeral
         .machine
         .streaming_tool_call_indices_mut()
-        .expect("streaming")
         .insert(0, 3);
 
     // When inserting at index 1.
@@ -4293,7 +4290,6 @@ fn insert_entry_at_does_not_shift_tool_call_indices_before_insertion() {
         .ephemeral
         .machine
         .streaming_tool_call_indices_mut()
-        .expect("streaming")
         .insert(0, 1);
 
     // When inserting at index 3 (after the tool call).
@@ -4372,7 +4368,6 @@ fn insert_entry_at_shifts_multiple_indices() {
         .ephemeral
         .machine
         .streaming_tool_call_indices_mut()
-        .expect("streaming")
         .insert(0, 1);
 
     // When inserting at index 0.
