@@ -668,6 +668,16 @@ pub fn tool_group_end(history: &[ChatEntry], index: usize) -> Option<usize> {
 
 /// Whether an entry may sit between a loop's calls and results without
 /// breaking the provider-level relationship.
+///
+/// A rule intercept's guidance qualifies because it is not a provider message
+/// at all: it is injected as a user turn when the interrupted turn resumes, and
+/// has already been converted by the time a request is assembled. When a
+/// stream rule caught a tool call mid-arguments, the synthetic result
+/// explaining the failed call is deliberately placed *before* this guidance —
+/// so the model reads the failure, then the advice — which puts an interstitial
+/// entry between the call and its result. Treating guidance as terminating
+/// instead would scan a half-open group and force-exclude the very call the
+/// synthetic result exists to explain.
 pub fn is_tool_loop_interstitial(entry: &ChatEntry) -> bool {
     matches!(
         entry.kind,
@@ -676,6 +686,7 @@ pub fn is_tool_loop_interstitial(entry: &ChatEntry) -> bool {
             | ChatEntryKind::Thinking(_)
             | ChatEntryKind::Transient(_)
             | ChatEntryKind::Annotation { .. }
+            | ChatEntryKind::RuleInterrupt { .. }
     )
 }
 

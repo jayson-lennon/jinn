@@ -474,7 +474,6 @@ impl CompiledSet {
             turns: std::sync::Mutex::new(HashMap::new()),
         }
     }
-
 }
 
 impl StreamRuleSet for CompiledSet {

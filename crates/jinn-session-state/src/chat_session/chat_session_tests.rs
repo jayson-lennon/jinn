@@ -6959,3 +6959,195 @@ fn a_history_removal_ahead_of_a_streaming_tool_call_does_not_strand_its_delta() 
         panic!("expected a ToolCall entry");
     }
 }
+
+/// A session mid-response with a tool call whose arguments are still arriving.
+fn streaming_tool_call_session(id: &str, name: &str) -> ChatSessionState {
+    let mut session = ChatSessionState::new();
+    session.begin_sending();
+    session.begin_streaming();
+    session.begin_tool_call(0, id, name, jiff::Timestamp::now());
+    session
+        .append_tool_call_delta(0, r#"{"command":"rm -rf "#)
+        .expect("append argument delta");
+    session
+}
+
+#[rstest::rstest]
+fn an_interrupted_call_is_paired_with_a_result() {
+    // Given a session interrupted mid-arguments.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+
+    // When the interrupted call is explained.
+    let completed = session.explain_interrupted_tool_calls();
+
+    // Then exactly one call is completed, by a result carrying its id.
+    assert_eq!(completed, 1);
+    let result = session
+        .history()
+        .iter()
+        .find_map(|e| match &e.kind {
+            ChatEntryKind::ToolResult { id, .. } if id == "tc_1" => Some(e),
+            _ => None,
+        })
+        .expect("a result for the interrupted call");
+    assert!(
+        matches!(
+            result.kind,
+            ChatEntryKind::ToolResult {
+                status: jinn_core_types::ToolResultStatus::Failure,
+                ..
+            }
+        ),
+        "the call did not run, so the result is a failure"
+    );
+}
+
+#[rstest::rstest]
+fn an_interrupted_calls_result_sits_next_to_its_call() {
+    // Given a session interrupted mid-arguments.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+
+    // When the interrupted call is explained.
+    session.explain_interrupted_tool_calls();
+
+    // Then the result immediately follows the call it answers.
+    let kinds: Vec<&str> = session.history().iter().map(ChatEntry::kind_str).collect();
+    let call_at = kinds
+        .iter()
+        .position(|k| *k == "tool_call")
+        .expect("the call is in history");
+    assert_eq!(kinds.get(call_at + 1).copied(), Some("tool_result"));
+}
+
+#[rstest::rstest]
+fn an_interrupted_result_quotes_the_arguments_truncated() {
+    // Given a session interrupted mid-arguments.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+
+    // When the interrupted call is explained.
+    session.explain_interrupted_tool_calls();
+
+    // Then the result carries the fragment verbatim, labelled as truncated.
+    let content = session
+        .history()
+        .iter()
+        .find_map(|e| match &e.kind {
+            ChatEntryKind::ToolResult { id, content, .. } if id == "tc_1" => Some(content.clone()),
+            _ => None,
+        })
+        .expect("a result for the interrupted call");
+    assert!(
+        content.contains(r#"{"command":"rm -rf "#),
+        "the fragment must survive byte-for-byte, got: {content}"
+    );
+    assert!(
+        content.contains("truncated"),
+        "the fragment must be labelled as incomplete, got: {content}"
+    );
+}
+
+#[rstest::rstest]
+fn an_interrupted_result_names_the_tool() {
+    // Given a session interrupted mid-arguments.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+
+    // When the interrupted call is explained.
+    session.explain_interrupted_tool_calls();
+
+    // Then the result names the tool that did not run.
+    let content = session
+        .history()
+        .iter()
+        .find_map(|e| match &e.kind {
+            ChatEntryKind::ToolResult { id, content, .. } if id == "tc_1" => Some(content.clone()),
+            _ => None,
+        })
+        .expect("a result for the interrupted call");
+    assert!(content.contains("bash"), "got: {content}");
+}
+
+#[rstest::rstest]
+fn explaining_a_prose_interrupt_completes_nothing() {
+    // Given a session streaming prose with no tool call.
+    let mut session = ChatSessionState::new();
+    session.begin_sending();
+    session.begin_streaming();
+    session
+        .append_stream_token("some prose", jiff::Timestamp::now())
+        .expect("append prose");
+    let before = session.history().len();
+
+    // When the intercept explains interrupted calls.
+    let completed = session.explain_interrupted_tool_calls();
+
+    // Then nothing was added, because there was no call to explain.
+    assert_eq!(completed, 0);
+    assert_eq!(session.history().len(), before);
+}
+
+#[rstest::rstest]
+fn an_interrupted_call_stays_in_context_on_retry() {
+    // Given a session whose tool call has been paired with a result.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+    session.explain_interrupted_tool_calls();
+
+    // When the attempt is prepared for retry.
+    session.reset_streaming_entries_for_retry();
+
+    // Then the call is still in context, so the model can read its failure.
+    assert!(
+        session.history().iter().any(
+            |e| matches!(&e.kind, ChatEntryKind::ToolCall { id, .. } if id == "tc_1")
+                && e.is_in_context()
+        ),
+        "an explained call must stay in the resumed request"
+    );
+}
+
+#[rstest::rstest]
+fn an_answered_call_is_kept_while_its_partial_assistant_text_is_not() {
+    // Given a session with partial prose beside an explained tool call.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+    session
+        .append_stream_token("I will now run ", jiff::Timestamp::now())
+        .expect("append prose");
+    session.explain_interrupted_tool_calls();
+
+    // When the attempt is prepared for retry.
+    session.reset_streaming_entries_for_retry();
+
+    // Then only the prose is excluded; the call and its result survive.
+    assert!(
+        session.history().iter().all(
+            |e| !matches!(&e.kind, ChatEntryKind::Assistant(t) if t.contains("I will now"))
+                || !e.is_in_context()
+        ),
+        "the partial assistant text is an abandoned attempt and stays out"
+    );
+    assert!(
+        session.history().iter().any(
+            |e| matches!(&e.kind, ChatEntryKind::ToolCall { id, .. } if id == "tc_1")
+                && e.is_in_context()
+        ),
+        "the explained call stays in"
+    );
+}
+
+#[rstest::rstest]
+fn an_unanswered_call_is_still_excluded_on_retry() {
+    // Given a session interrupted mid-arguments with nothing explaining it.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+
+    // When the attempt is prepared for retry.
+    session.reset_streaming_entries_for_retry();
+
+    // Then the dangling call is taken out of context, as before: providers
+    // reject a request whose calls have no results.
+    assert!(
+        session.history().iter().all(
+            |e| !matches!(&e.kind, ChatEntryKind::ToolCall { id, .. } if id == "tc_1")
+                || !e.is_in_context()
+        ),
+        "an unanswered call cannot be sent to a provider"
+    );
+}

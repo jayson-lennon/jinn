@@ -49,6 +49,33 @@ use crate::fields::SessionProfile;
 use crate::runtime::SessionUi;
 use crate::steering_buffer::SteeringBuffer;
 
+////// The tool-result content for a call a stream rule interrupted mid-arguments.
+///
+/// The content is what the model reads instead of running the call, so it has
+/// to say two things: that the call did not happen, and what it was trying to
+/// do. The arguments ride verbatim and are labelled truncated — completing them
+/// would invent a call the model never made, and the whole point is to show
+/// the model the mistake it is about to repeat.
+///
+/// The rule is named only as a user-defined rule, never by name: the name
+/// crosses no boundary, and a generic framing keeps the result about the call
+/// rather than about jinn's configuration.
+///
+/// The fragment lives in the result's content rather than the call's arguments
+/// deliberately. Arguments are serialized arguments that every provider parses
+/// as JSON, and a truncated fragment is not JSON — Google's encoder degrades
+/// one to `{}` silently, which would leave the model a call that does nothing
+/// and no explanation of why. Result content is free text on all three
+/// providers, so this text reaches the model intact everywhere.
+fn interrupted_call_result(tool_name: &str, arguments: &str) -> String {
+    format!(
+        "This `{tool_name}` call did not run. A user-defined rule matched its arguments \
+     and stopped the response before the call was sent.\n\n\
+     The arguments the model had produced, truncated where it was interrupted:\n\n\
+     {arguments}"
+    )
+}
+
 /// The one place an absent filter is answered at a gate.
 ///
 /// An absent filter inherits, and an inherited filter withholds nothing, so
@@ -1262,9 +1289,105 @@ impl ChatSessionState {
         }
     }
 
+    /// The tool calls whose arguments are still streaming, as `(tool call id,
+    /// tool name, arguments accumulated so far)`.
+    ///
+    /// The argument text is whatever the model had produced when this was
+    /// read, which mid-stream is a prefix of the real JSON and usually not
+    /// parseable. It is reported verbatim for exactly that reason: a fragment
+    /// is worth showing to the model unaltered, where repairing it would
+    /// invent content the model never wrote.
+    ///
+    /// Read from the streaming phase's index map, so this is only meaningful
+    /// while a response is in flight — and only for calls whose arguments had
+    /// started arriving. A model that opens with a tool call and is
+    /// interrupted before its first delta appears here.
+    #[must_use]
+    pub fn streaming_tool_call_fragments(&self) -> Vec<(String, String, String)> {
+        let history = &self.core.history_work.history;
+        self.core
+            .ephemeral
+            .machine
+            .active_tool_call_indices()
+            .values()
+            .filter_map(|&index| history.get(index))
+            .filter_map(|entry| match &entry.kind {
+                ChatEntryKind::ToolCall {
+                    id,
+                    name,
+                    arguments,
+                    ..
+                } => Some((id.clone(), name.clone(), arguments.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Complete the tool calls a stream rule interrupted, each paired with a
+    /// synthetic result explaining that it never ran.
+    ///
+    /// An intercepted tool call is a call the model made and never got an
+    /// answer for, because interrupting its argument stream means it is never
+    /// dispatched. Leaving it unanswered is not a neutral outcome: providers
+    /// reject a request whose `tool_calls` have no matching results, and
+    /// force-excluding it leaves the model resuming with no memory of an
+    /// attempt it will simply repeat. The synthetic result is what makes the
+    /// call both valid and legible.
+    ///
+    /// The fragment is placed immediately after its call and *before* the
+    /// interrupt's guidance entry, so the model reads the failure first and
+    /// the advice second. Guidance is treated as skippable rather than
+    /// terminating for the same reason it is not a provider message: it sits
+    /// between a call and its result without breaking the pairing.
+    ///
+    /// Returns the number of calls completed. Zero means the intercept caught
+    /// prose or reasoning rather than a tool call, which is the common case
+    /// and needs nothing here.
+    pub fn explain_interrupted_tool_calls(&mut self) -> usize {
+        let fragments = self.streaming_tool_call_fragments();
+        if fragments.is_empty() {
+            return 0;
+        }
+
+        let history = self.core.history_work.history.clone();
+        // Collected first and inserted back-to-front, so each insertion's
+        // index stays valid: inserting in place would renumber the calls that
+        // have not been paired yet.
+        let mut insertions: Vec<(usize, ChatEntry)> = Vec::with_capacity(fragments.len());
+        for (id, name, arguments) in fragments {
+            let Some(call_index) = history.iter().position(
+                |entry| matches!(&entry.kind, ChatEntryKind::ToolCall { id: t, .. } if t == &id),
+            ) else {
+                continue;
+            };
+            insertions.push((
+                call_index + 1,
+                ChatEntry::tool_result(
+                    id.clone(),
+                    name.clone(),
+                    interrupted_call_result(&name, &arguments),
+                    ToolResultStatus::Failure,
+                ),
+            ));
+        }
+
+        let completed = insertions.len();
+        for (index, entry) in insertions.into_iter().rev() {
+            self.insert_entry_at(index, entry);
+        }
+        completed
+    }
+
     /// Prepare a stalled stream for retry: take the partial entries out of
     /// context and clear the streaming bookkeeping so the retried generation
     /// starts from scratch.
+    ///
+    /// A call a stream rule interrupted is deliberately left *in* context when
+    /// it has been paired with a synthetic result: that pairing is what makes
+    /// the resumed request valid, and taking the call out of context would
+    /// leave an answered-but-absent call the model cannot read. Excluding it
+    /// was the old behaviour and it is what made a model resume blind and
+    /// re-emit the identical call.
     ///
     /// Nothing is removed. A stalled attempt's partial assistant text, thinking
     /// and tool calls stay in history exactly where the user watched them
@@ -1294,12 +1417,53 @@ impl ChatSessionState {
         let mut indices = self.collect_streaming_history_indices();
         indices.sort_unstable();
         indices.dedup();
+        // A tool call answered by a synthetic result is a finished exchange,
+        // not an abandoned attempt: it and its result stay in context so the
+        // model can read them. Dropping the call would strand an answered
+        // call the model never sees, which is the blind resume this whole
+        // method exists to avoid. Every other streaming entry is a partial
+        // attempt and is still taken out.
+        let answered = self.tool_calls_answered_in_context();
+        indices.retain(|index| {
+            !self
+                .core
+                .history_work
+                .history
+                .get(*index)
+                .is_some_and(|entry| answered.contains(&entry.id))
+        });
         let excluded = self.edit_history().force_exclude_at_indices(&indices);
         if !excluded.is_empty() {
             self.update_view(|v| v.shown_ignored_blocks.extend(excluded.iter().cloned()));
         }
         self.core.ephemeral.machine.clear_streaming_indices();
         excluded
+    }
+
+    /// The ids of tool calls already answered by a result that is itself in
+    /// context.
+    ///
+    /// The pairing is what makes a call a finished exchange, so it is the
+    /// test: a call with an answered result belongs in the model's context
+    /// even when the attempt that produced it was abandoned mid-stream.
+    fn tool_calls_answered_in_context(&self) -> HashSet<ChatEntryId> {
+        let history = &self.core.history_work.history;
+        let answered: HashSet<&str> = history
+            .iter()
+            .filter(|entry| entry.is_in_context())
+            .filter_map(|entry| match &entry.kind {
+                ChatEntryKind::ToolResult { id, .. } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        history
+            .iter()
+            .filter(|entry| match &entry.kind {
+                ChatEntryKind::ToolCall { id, .. } => answered.contains(id.as_str()),
+                _ => false,
+            })
+            .map(|entry| entry.id.clone())
+            .collect()
     }
 
     /// Every history entry index currently tracked by the streaming phase.

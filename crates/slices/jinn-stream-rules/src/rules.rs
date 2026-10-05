@@ -159,10 +159,7 @@ mod tests {
         let set = CompiledSet::build(&read_rules(&config));
         let mut session = set.new_session(&jinn_core_types::SessionId::new());
         let fired = session
-            .check(
-                r#"{"command":"rm -rf /"}"#,
-                StreamContext::tool(0, "bash"),
-            )
+            .check(r#"{"command":"rm -rf /"}"#, StreamContext::tool(0, "bash"))
             .map(|hit| hit.name);
 
         // Then it fires, which is what stops the call from running.
@@ -381,18 +378,17 @@ mod tests {
         // Then both are live: the legacy one fires on the tool stream, the
         // stream one fires on prose.
         let mut session = set.new_session(&jinn_core_types::SessionId::new());
-        let legacy = session
-            .check(r#"{"command":"chmod 777 x"}"#, StreamContext::tool(0, "bash"));
+        let legacy = session.check(
+            r#"{"command":"chmod 777 x"}"#,
+            StreamContext::tool(0, "bash"),
+        );
         let mut prose = set.new_session(&jinn_core_types::SessionId::new());
         let modern = prose.check("leave a TODO here", StreamContext::text());
         assert!(
             legacy.is_some(),
             "the converted legacy rule must still fire on the tool stream"
         );
-        assert!(
-            modern.is_some(),
-            "the stream rule must survive the merge"
-        );
+        assert!(modern.is_some(), "the stream rule must survive the merge");
     }
 
     #[rstest::rstest]

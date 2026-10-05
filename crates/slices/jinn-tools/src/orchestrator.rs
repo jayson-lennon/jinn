@@ -1789,5 +1789,4 @@ mod mcp_dispatch_gate_tests {
         let messages = await_recorded(&dispatched, 1, Duration::from_secs(3)).await;
         assert_eq!(messages[0].tool_call.name, "mcp__stub__echo");
     }
-
 }

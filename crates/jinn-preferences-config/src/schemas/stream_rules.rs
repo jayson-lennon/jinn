@@ -78,6 +78,12 @@ pub struct StreamRuleConfig {
 impl jinn_config::ConfigList for StreamRuleConfig {
     const KEY: &'static str = STREAM_RULES_KEY;
     const ENTRY_KEY: &'static str = "name";
-    const ENTRY_FIELDS: &'static [&'static str] =
-        &["name", "description", "conditions", "scopes", "body", "project"];
+    const ENTRY_FIELDS: &'static [&'static str] = &[
+        "name",
+        "description",
+        "conditions",
+        "scopes",
+        "body",
+        "project",
+    ];
 }
