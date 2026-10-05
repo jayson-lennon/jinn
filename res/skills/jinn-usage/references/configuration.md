@@ -396,19 +396,25 @@ When a rule catches a tool call, the call is paired with a result saying it did
 not run and quoting the arguments the model had produced. The model reads its
 own failed attempt instead of resuming blind and re-emitting it.
 
-**`[stream_rules]`** tunes how many interrupts a session may take in a row:
+**`[watchdog.stream_rules]`** tunes how many interrupts a session may take in a
+row:
 
 ```toml
-[stream_rules]
-max_interrupts = 3
+[watchdog.stream_rules]
+max_failures = 4
 ```
 
-Consecutive, per session, default 3. A response that completes without an
+Consecutive, per session, default 4. A response that completes without an
 interrupt pays one back (floored at zero); an interrupted one does not, so
-repeats accumulate across a turn. A value of 3 means three interrupts are
-allowed and the **fourth** consecutive one cancels the stream, rather than
+repeats accumulate across a turn. A value of 4 means four interrupts are
+allowed and the **fifth** consecutive one cancels the stream, rather than
 correcting forever — a rule whose condition also matches the guidance it injects
 would otherwise loop. A value below 1 is treated as 1.
+
+The budget is owned by the stream-rule watchdog rather than by the matcher, so
+the trip happens after the interrupting response resumes. A `jinn.toml` still
+carrying the old `[stream_rules] max_interrupts` keeps its value for that
+launch, logs a warning naming the move, and is never rewritten.
 
 A rule that fails to compile, names no reachable stream, or has an empty `body`
 is logged and skipped rather than breaking a turn. Use single-quoted strings for
