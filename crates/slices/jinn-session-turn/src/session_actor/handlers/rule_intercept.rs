@@ -70,7 +70,27 @@ impl SessionPersistenceActor {
 
         let acted = self.state.with_session(|view| {
             let session = view.session.map().get_or_create(session_id);
-            if matches!(session.phase(), PhaseKind::Sending | PhaseKind::Streaming)
+            // A terminated turn refuses to resume, and the refusal comes first.
+            //
+            // This handler and `CancelTurn` race by construction: the watchdog
+            // counts an interrupt that this intercept reported, and the
+            // completion carrying it is published from inside the stream task the
+            // watchdog's cancel is tearing down. In practice the intercept's
+            // message lands *after* the cancel has been processed — and the
+            // cancel settles the session, which puts it back in a busy phase
+            // with a live guard, so both of the checks below would pass. Without
+            // this one the intercept then rewound the session and re-dispatched a
+            // turn nobody was running, re-arming the in-flight guard on a dead
+            // session; the stall watchdog later fired on that silence and
+            // restarted the turn.
+            if session.is_terminated() {
+                tracing::warn!(
+                    session_id = %session_id,
+                    phase = ?session.phase(),
+                    "rule-intercept resume refused: the turn was terminated"
+                );
+                false
+            } else if matches!(session.phase(), PhaseKind::Sending | PhaseKind::Streaming)
                 && session.has_in_flight_stream()
             {
                 // Read the fragments *before* the reset: the reset clears the
@@ -153,6 +173,7 @@ mod tests {
     use jinn_core_types::ChatEntryKind;
     use jinn_core_types::SessionId;
     use jinn_inference_msg::StreamCompletedReason;
+    use jinn_inference_msg::{CancelCause, CancelTurn, SendToLlmProvider, StreamOrigin};
     use jinn_kernel::common::services::BusAudit;
     use jinn_session_msg::{PhaseKind, TurnCompleted, TurnOutcome};
 
@@ -443,6 +464,111 @@ mod tests {
             handed_off.len(),
             1,
             "a repeated intercept must still resume the turn"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn an_intercept_arriving_after_a_termination_does_not_resume() {
+        // Given a session whose watchdog cancelled the turn, and whose
+        // intercept completion — published from inside the stream task the
+        // cancel tore down — arrives afterwards. This is the reported ordering,
+        // reproduced: the cancel settles the session, which rewinds it to a
+        // busy phase with a live guard, so the intercept's own in-flight check
+        // passes on a turn nobody is running.
+        let (actor, audit, session_id) = intercept_setup().await;
+        actor
+            .on_cancel_turn(&CancelTurn {
+                session_id: session_id.clone(),
+                cause: CancelCause::TurnAndQueuedDispatch,
+            })
+            .await;
+        {
+            // Reproduce the settle: the cancel's own report is consumed, which
+            // is what returns the session to a busy-looking phase.
+            let mut state = actor.state.write();
+            let session = state.session.get_mut(&session_id).expect("session exists");
+            session.rewind_for_retry();
+            session.arm_stream(jiff::Timestamp::now());
+        }
+
+        // When the intercept's completion lands.
+        actor
+            .on_stream_completed(&intercept_completion(&session_id))
+            .await;
+
+        // Then no resume is dispatched. Dispatching here is what re-armed the
+        // in-flight guard on a terminated session and let the stall watchdog
+        // re-trigger on a stream that never existed.
+        let redispatched = audit.names().iter().any(|n| n.contains("DispatchTurn"));
+        assert!(
+            !redispatched,
+            "a terminated turn must not resume: it would re-arm the in-flight \
+             guard on a dead session and the stall watchdog would fire on it"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_terminated_turn_refuses_to_resume() {
+        // Given a streaming session marked terminated by a cancel.
+        let (actor, audit, session_id) = intercept_setup().await;
+        actor
+            .state
+            .write()
+            .session
+            .get_mut(&session_id)
+            .expect("session exists")
+            .mark_terminated();
+
+        // When the intercept's completion lands.
+        actor
+            .on_stream_completed(&intercept_completion(&session_id))
+            .await;
+
+        // Then no redispatch is requested — the observable consequence of the
+        // refusal, not the guard itself.
+        assert!(
+            !audit.names().iter().any(|n| n.contains("DispatchTurn")),
+            "a terminated turn must not be handed back for redispatch"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_new_dispatch_clears_the_termination_mark() {
+        // Given a session marked terminated.
+        let (actor, _audit, session_id) = intercept_setup().await;
+        actor
+            .state
+            .write()
+            .session
+            .get_mut(&session_id)
+            .expect("session exists")
+            .mark_terminated();
+
+        // When the user's next turn dispatches.
+        actor.on_send_to_llm_provider(&SendToLlmProvider {
+            session_id: session_id.clone(),
+            messages: vec![],
+            system_prompt: Default::default(),
+            tool_definitions: vec![],
+            provider_id: None,
+            estimated_tokens: 0,
+            model_used: None,
+            reasoning_effort: None,
+            endpoint_tag: None,
+            dispatched_at: jiff::Timestamp::now(),
+            origin: StreamOrigin::User,
+        });
+
+        // Then the mark is spent, so the next intercept resumes normally
+        // instead of being refused as a resume of a turn that no longer exists.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert!(
+            !session.is_terminated(),
+            "the mark must not outlive the turn it terminated"
         );
     }
 }

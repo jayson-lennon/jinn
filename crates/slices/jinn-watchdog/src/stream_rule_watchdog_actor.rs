@@ -77,6 +77,7 @@ use jinn_inference_msg::StreamCompleted;
 use jinn_inference_msg::StreamCompletedReason;
 use jinn_kernel::Services;
 use jinn_session_history_msg::PushChatEntry;
+use jinn_session_msg::TurnCompleted;
 
 /// The stream-rule watchdog actor's static trouper path.
 pub const STREAM_RULE_WATCHDOG_PATH: &str = "stream-rule-watchdog";
@@ -160,6 +161,12 @@ impl StreamRuleWatchdogActor {
                 }
             })
             .handles::<StreamCompleted>()
+            // The turn-end signal. This actor's own trip ends the turn *and*
+            // drops the resume the session actor had already armed a guard for,
+            // so no `StreamCompleted(Canceled)` follows it — without this the
+            // accumulator survives a turn this actor just terminated, and the
+            // session's next turn is one intercept away from tripping again.
+            .handles::<TurnCompleted>()
             .mailbox(64, trouper::inbox::OverloadPolicy::Block)
             .start();
         path
@@ -197,6 +204,17 @@ impl MsgHandler<StreamCompleted> for StreamRuleWatchdogActor {
     async fn handle(&mut self, msg: &StreamCompleted, _ctx: &mut MsgCtx<'_>) {
         let actions = self.on_response_end(&msg.session_id, msg.reason);
         self.publish_actions(actions).await;
+    }
+}
+
+impl MsgHandler<TurnCompleted> for StreamRuleWatchdogActor {
+    /// Clears the session's interrupt count when its turn ends.
+    ///
+    /// A turn that ends — succeeded, cancelled, or terminated by this watchdog —
+    /// closes the chapter the count was measuring. Carrying it forward would mean
+    /// the next turn starts part-way to a trip it has done nothing to earn.
+    async fn handle(&mut self, msg: &TurnCompleted, _ctx: &mut MsgCtx<'_>) {
+        self.on_turn_end(&msg.session_id);
     }
 }
 
@@ -243,6 +261,11 @@ impl StreamRuleWatchdogActor {
             | StreamCompletedReason::Canceled
             | StreamCompletedReason::Error => Vec::new(),
         }
+    }
+
+    /// Clears the session's interrupt count when its turn ends.
+    pub fn on_turn_end(&mut self, session_id: &SessionId) {
+        self.accumulators.remove(session_id);
     }
 
     /// Records one rule interrupt for `session_id`, returning the actions the

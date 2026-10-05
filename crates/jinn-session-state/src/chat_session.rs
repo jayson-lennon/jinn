@@ -3733,6 +3733,37 @@ impl ChatSessionState {
         self.core.ephemeral.stream_dispatched_at.is_some()
     }
 
+    /// Record that the turn this session was running has been terminated.
+    ///
+    /// Call this from the terminate routine, before anything settles. A
+    /// stream-rule intercept whose completion was published from inside the
+    /// stream task the cancel tore down arrives after the settle, when the
+    /// session already looks busy again; this is what tells it the turn it is
+    /// about to resume is not running.
+    pub fn mark_terminated(&mut self) {
+        self.core.ephemeral.terminated = true;
+    }
+
+    /// Return whether this session's current turn has already been terminated.
+    ///
+    /// A handler that would *resume* a turn must refuse when this is true:
+    /// resuming a terminated turn re-arms the in-flight guard on a session
+    /// nothing will ever complete, which is what a watchdog then reports as a
+    /// stall.
+    #[must_use]
+    pub fn is_terminated(&self) -> bool {
+        self.core.ephemeral.terminated
+    }
+
+    /// Clear the terminated mark, spent by the next dispatch.
+    ///
+    /// Spent exactly once, on the turn boundary: the mark must not outlive the
+    /// turn it ended, or the user's next message would be refused as a resume of
+    /// a turn that no longer exists.
+    pub fn clear_terminated(&mut self) {
+        self.core.ephemeral.terminated = false;
+    }
+
     /// Buffer tool results that arrived before their stream completion.
     pub fn buffer_tool_results(&mut self, results: Vec<jinn_core_types::tool_types::ToolResult>) {
         self.core.ephemeral.pending_tool_batch = Some(results);

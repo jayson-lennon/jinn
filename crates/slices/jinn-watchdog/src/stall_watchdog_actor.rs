@@ -76,6 +76,7 @@ use jinn_inference_msg::{CancelCause, CancelTurn};
 use jinn_kernel::Services;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_session_msg::RetryStalledSession;
+use jinn_session_msg::TurnCompleted;
 
 /// Production tick cadence. The stall window is seconds-scale, so a
 /// 1-second heartbeat adds at most that much detection latency.
@@ -200,6 +201,13 @@ impl StallWatchdogActor {
             .handles::<SendToLlmProvider>()
             .handles::<StreamActivity>()
             .handles::<StreamCompleted>()
+            // The turn-end signal. `StreamCompleted` is the *stream's* end and
+            // is not published when a cancel drops a dispatch the session actor
+            // had already armed a guard for; `TurnCompleted` is published by the
+            // session actor's terminate routine on every terminal outcome. Without
+            // it this actor keeps a timer for a session whose turn ended, and
+            // re-triggers on the silence.
+            .handles::<TurnCompleted>()
             .handles::<StallTick>()
             .mailbox(64, trouper::inbox::OverloadPolicy::DropNew)
             .start();
@@ -307,7 +315,36 @@ impl MsgHandler<StreamCompleted> for StallWatchdogActor {
     }
 }
 
+impl MsgHandler<TurnCompleted> for StallWatchdogActor {
+    /// Stops monitoring a session whose turn ended, whatever ended it.
+    ///
+    /// `StreamCompleted` is the stream's end, and a cancel can end a turn with no
+    /// stream to end: a watchdog trip drops the resume the session actor had
+    /// already armed a guard for, so nothing downstream of that drop publishes a
+    /// completion. The turn is over all the same, and this is the event that says
+    /// so. Removing the session outright rather than disarming it is deliberate —
+    /// a retained entry would re-arm on the next dispatch and a spent restart
+    /// budget would make the next genuine stall look like the last one.
+    async fn handle(&mut self, msg: &TurnCompleted, _ctx: &mut MsgCtx<'_>) {
+        self.on_turn_end(&msg.session_id);
+    }
+}
+
 impl StallWatchdogActor {
+    /// Stops monitoring a session entirely.
+    ///
+    /// Called on the turn-end event. Drops the timer *and* the accumulated
+    /// restart budget, so a fresh turn starts from a clean slate rather than
+    /// inheriting restarts spent by a turn that has ended.
+    pub fn on_turn_end(&mut self, session_id: &SessionId) {
+        if self.sessions.remove(session_id).is_some() {
+            tracing::debug!(
+                session_id = %session_id,
+                "turn ended; stall watchdog disarmed and its budget cleared"
+            );
+        }
+    }
+
     /// Arms (or re-arms) the session's timer at dispatch time.
     ///
     /// Arming at dispatch — not first token — covers the silent

@@ -35,6 +35,10 @@ impl SessionPersistenceActor {
         self.state.with_session(|view| {
             let session = view.session.map().get_or_create(&payload.session_id);
             session.arm_stream(payload.dispatched_at);
+            // Spent exactly once, at the turn boundary. A termination mark that
+            // outlived its turn would refuse the user's next message as a resume
+            // of a turn that no longer exists.
+            session.clear_terminated();
         });
         tracing::debug!(
             session_id = %payload.session_id,

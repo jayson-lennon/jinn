@@ -23,57 +23,92 @@ use super::super::SessionPersistenceActor;
 use jinn_session_msg::PhaseKind;
 
 impl SessionPersistenceActor {
-    /// Ends a turn that something cancelled.
+    /// Ends a turn and reports its end — the one routine that terminates a turn.
     ///
-    /// Publishes the completion rather than settling the phase directly. The
-    /// `StreamCompleted(Canceled)` handler above already settles it — and
-    /// finalizes the partial entry, force-excludes dangling tool calls, and
-    /// drains the queue on the way. Settling here as well would run that
-    /// twice: once now, and once when this actor receives the completion it
-    /// just published.
+    /// Every path that ends a turn without a provider stream to end goes through
+    /// here: a person pressing Escape, a watchdog giving up, a subagent teardown,
+    /// an attendant rerun. There is no second way to report a turn's end, which is
+    /// what makes the report reliable enough to hang a phase transition on.
     ///
-    /// Skips a session that is *already settled*, which is what makes the
-    /// cancel idempotent.
+    /// Unconditional, and that is load-bearing. A watchdog cancel lands *after*
+    /// this actor already published the resume it is meant to stop:
+    /// `on_send_to_llm_provider` arms the in-flight guard on receipt of every
+    /// `SendToLlmProvider`, including the one the intercept re-dispatches. The
+    /// inference actor then drops that resume, because it is the only actor that
+    /// can know the dispatch was latched away. Nothing downstream of that drop
+    /// ever runs — no provider, no completion, no settle — so the guard is never
+    /// cleared and the phase is never left. The session sits `Streaming` with a
+    /// stream that does not exist, and the stall watchdog re-triggers on the
+    /// silence.
     ///
-    /// A caller that settles the phase synchronously — the Escape path does
-    /// `cancel_streaming()` and publishes `CancelTurn` in the same handler —
-    /// leaves nothing for a second settle to do. `cancel_streaming()` clears the
-    /// streaming entry index and the phase, and `machine.cancel()` rejects an
-    /// already-idle session, so re-running the fold would finalize nothing and
-    /// push a *second* `"Cancelled"` entry onto a turn the user has already been
-    /// shown as cancelled.
+    /// Skipping the report "because the phase already looks done" is what
+    /// produced that wedge. The phase is the thing that is broken, so it cannot
+    /// be the evidence that the turn is over.
     ///
-    /// The predicate is "idle and no live generation" rather than "the last
-    /// entry is an error". A synchronous cancel produces an idle session with no
-    /// generation armed, whereas a session that has merely gone idle after a
-    /// normal turn still has one, and must still be able to have a cancel
-    /// reported against it. Matching on entry text instead would miss the
-    /// frontend path — which never writes a `"Cancelled"` entry of its own — and
-    /// double-report exactly the case this exists to prevent.
-    pub(in crate::session_actor) async fn on_cancel_turn(&self, msg: &CancelTurn) {
-        // The generation stamp must be the live one, not `now()`: the stale
-        // guard in `apply_stream_completion` drops a completion whose
-        // `dispatched_at` predates the session's active generation, so a
-        // freshly-timestamped one on a session with a live generation would be
-        // silently discarded and the session would never settle.
-        // `Option<Option<_>>` is deliberate: the outer is "is there a turn to
-        // end", the inner is "which generation". A busy session with no
-        // generation stamp still has a turn to end — it was rewound to
-        // `Sending` by an intercept, and the generation it lost is the one
-        // being replaced.
-        let Some(dispatched_at) = self.state.with_session(|view| {
+    /// Re-reporting is safe when the caller settled the phase synchronously
+    /// first, which the frontend's Escape path does: `apply_stream_completion`
+    /// entering an already-`Idle` session is a no-op for the phase, because
+    /// `machine.cancel()` rejects it, and this actor is the *only* publisher of
+    /// a `StreamCompleted(Canceled)`. Both halves are serialized through this
+    /// actor, so whichever order they arrive in, exactly one settle happens.
+    pub(in crate::session_actor) async fn terminate_turn(&self, msg: &CancelTurn) {
+        // A turn ends once. Keying this on the termination record rather than on
+        // the phase is what makes the report both unconditional and
+        // non-duplicating: the record is set here and nowhere else, so "already
+        // terminated" is a fact about this routine rather than an inference from
+        // a phase that a cancel, a fold, and a resume each move on their own.
+        //
+        // Skipping on the phase instead was wrong twice over. It skipped the
+        // report for a busy session whose turn had genuinely ended — the wedge
+        // this exists to close. And where the phase *was* `Idle`, it was `Idle`
+        // for two different reasons: a caller that settled synchronously before
+        // publishing, and a turn this routine already reported. The first needs
+        // a report (its `"Cancelled"` entry has not been written yet); the second
+        // must not have one, or the fold pushes a duplicate onto history.
+        let already_terminated = self.state.with_session(|view| {
             let session = view.session.map().get_or_create(&msg.session_id);
-            let already_settled =
-                session.phase() == PhaseKind::Idle && session.stream_dispatched_at().is_none();
-            (!already_settled).then(|| session.stream_dispatched_at())
-        }) else {
+            if session.is_terminated() {
+                true
+            } else {
+                session.mark_terminated();
+                false
+            }
+        });
+        if already_terminated {
             tracing::debug!(
                 session_id = %msg.session_id,
-                "CancelTurn for an already-settled session; nothing to end"
+                "CancelTurn for an already-terminated turn; not reporting twice"
             );
             return;
-        };
-        let dispatched_at = dispatched_at.unwrap_or_else(jiff::Timestamp::now);
+        }
+
+        // Terminated-before-arrival is the half of termination the phase cannot
+        // express, so it gets its own record — the one set above.
+        //
+        // `CancelTurn` and a stream-rule intercept race by construction: the
+        // watchdog counts an interrupt that the intercept itself reported, and
+        // the intercept's completion is published from inside the stream task
+        // that the cancel is tearing down. In a real run the intercept's handler
+        // lands *after* the cancel's, and the cancel settles the session — which
+        // rewinds it to a busy phase with a live guard, so every check the
+        // intercept performs passes. It then resumes a turn nobody is running,
+        // re-arming the in-flight guard on a dead session, which is exactly what
+        // the stall watchdog re-triggers on.
+
+        // The stamp must be the session's own live generation, not `now()`. A
+        // fresh stamp on a session with a live generation sorts *before* it, and
+        // the stale-generation guard drops the report on arrival — closing the
+        // wedge by reproducing it. A session with no live generation has nothing
+        // to settle, so the current time is both correct and sufficient.
+        let dispatched_at = self
+            .state
+            .with_session(|view| {
+                view.session
+                    .map()
+                    .get_or_create(&msg.session_id)
+                    .stream_dispatched_at()
+            })
+            .unwrap_or_else(jiff::Timestamp::now);
 
         self.publish(StreamCompleted {
             model_used: None,
@@ -89,6 +124,11 @@ impl SessionPersistenceActor {
             dispatched_at,
         })
         .await;
+    }
+
+    /// Handles a cancel request by terminating the turn it names.
+    pub(in crate::session_actor) async fn on_cancel_turn(&self, msg: &CancelTurn) {
+        self.terminate_turn(msg).await;
     }
 
     /// Appends a streaming token to the session's assistant entry,
@@ -920,46 +960,47 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn cancelling_an_already_settled_session_publishes_nothing() {
-        // Given a turn that was already cancelled and reported — the state a
-        // caller that settles locally leaves behind.
+    async fn a_synchronously_settled_turn_is_reported_once_by_the_cancel() {
+        // Given a session settled locally by the frontend, which never writes a
+        // `"Cancelled"` entry itself — the fold does.
         let (actor, audit) = test_actor_recording().await;
         let session_id = begin_streaming_session(&actor);
         actor
-            .on_stream_completed(&stream_completed(
-                &session_id,
-                StreamCompletedReason::Canceled,
-                None,
-                None,
-                None,
-                None,
-            ))
-            .await;
+            .state
+            .write()
+            .session
+            .get_mut(&session_id)
+            .expect("session exists")
+            .cancel_streaming(jiff::Timestamp::now());
         audit.clear();
 
-        // When a second cancel arrives for that session.
+        // When the command it published lands.
         let msg = CancelTurn {
             session_id: session_id.clone(),
             cause: CancelCause::Turn,
         };
         actor.on_cancel_turn(&msg).await;
 
-        // Then nothing more is reported, so the user's history does not gain a
-        // second `Cancelled` entry for one Escape.
+        // Then the end is still reported: the entry that tells the user the turn
+        // was cancelled has not been written yet, and the phase being `Idle` is
+        // not evidence that it has.
         let completed = audit.of_type::<StreamCompleted>();
-        assert!(
-            completed.is_empty(),
-            "an already-reported cancel must not report twice; got {completed:?}"
+        assert_eq!(
+            completed.len(),
+            1,
+            "a caller that settles locally leaves the entry unwritten; skipping \
+             on the phase would lose it. got {completed:?}"
         );
+        assert_eq!(completed[0].reason, StreamCompletedReason::Canceled);
     }
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn a_cancel_settles_the_phase_only_once() {
+    async fn a_cancel_after_a_synchronous_settle_leaves_the_phase_idle() {
         // Given a streaming session, cancelled the way the frontend's Escape
         // path does — settle locally, then publish the command, which the bus
         // broadcasts back to this actor.
-        let (actor, audit) = test_actor_recording().await;
+        let (actor, _audit) = test_actor_recording().await;
         let session_id = begin_streaming_session(&actor);
         {
             let mut state = actor.state.write();
@@ -970,20 +1011,25 @@ mod tests {
                 .cancel_streaming(jiff::Timestamp::now());
         }
 
-        // When the command lands.
+        // When the command lands and its report is consumed.
         let msg = CancelTurn {
             session_id: session_id.clone(),
             cause: CancelCause::Turn,
         };
         actor.on_cancel_turn(&msg).await;
+        actor
+            .on_stream_completed(&stream_completed(
+                &session_id,
+                StreamCompletedReason::Canceled,
+                None,
+                None,
+                None,
+                None,
+            ))
+            .await;
 
-        // Then exactly one `Cancelled` entry reaches the history. Reporting
-        // from both actors — as this path used to — would have produced two.
-        let completed = audit.of_type::<StreamCompleted>();
-        assert!(
-            completed.is_empty(),
-            "the already-settled session must not report a second time"
-        );
+        // Then the session is still idle: the second report found nothing to
+        // settle, which is what the phase machine's rejection buys.
         let state = actor.state.read();
         let session = state.session.get(&session_id).expect("session exists");
         assert_eq!(session.phase(), PhaseKind::Idle);
@@ -1024,9 +1070,129 @@ mod tests {
         );
     }
 
+    // ------------------------------------------------------------------
+    // The watchdog-trip wedge: cancel after the resume was already dispatched
+    // ------------------------------------------------------------------
+
     #[rstest::rstest]
     #[tokio::test]
-    async fn cancelling_an_idle_session_leaves_the_phase_untouched() {
+    async fn a_cancel_after_the_resume_was_dispatched_still_settles_the_turn() {
+        // Given a session whose intercept armed the in-flight guard by
+        // publishing a resume — the state a watchdog trip lands on. The resume
+        // is then dropped downstream, so nothing else will ever complete.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor);
+        {
+            let mut state = actor.state.write();
+            let session = state.session.get_mut(&session_id).expect("session exists");
+            session.arm_stream(jiff::Timestamp::now());
+        }
+        assert!(
+            actor
+                .state
+                .read()
+                .session
+                .get(&session_id)
+                .expect("session exists")
+                .has_in_flight_stream(),
+            "precondition: a stream is genuinely in flight"
+        );
+
+        // When the watchdog cancels the turn.
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+            cause: CancelCause::TurnAndQueuedDispatch,
+        };
+        actor.on_cancel_turn(&msg).await;
+
+        // Then the turn's end is still reported — reporting nothing here is what
+        // left the session wedged in a busy phase with the stall watchdog's
+        // timer still armed.
+        let completed = audit.of_type::<StreamCompleted>();
+        assert_eq!(
+            completed.len(),
+            1,
+            "a cancel must report the end even when the resume it stops was \
+             already dispatched; nothing downstream of the drop will"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_cancel_clears_the_in_flight_guard_it_terminated() {
+        // Given the same armed-guard state, with the report consumed.
+        let (actor, _audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor);
+        let dispatched_at = jiff::Timestamp::now();
+        {
+            let mut state = actor.state.write();
+            let session = state.session.get_mut(&session_id).expect("session exists");
+            session.arm_stream(dispatched_at);
+        }
+
+        // When the cancel is reported and its completion is consumed.
+        actor
+            .on_cancel_turn(&CancelTurn {
+                session_id: session_id.clone(),
+                cause: CancelCause::TurnAndQueuedDispatch,
+            })
+            .await;
+        actor
+            .on_stream_completed(&StreamCompleted {
+                model_used: None,
+                session_id: session_id.clone(),
+                reason: StreamCompletedReason::Canceled,
+                assistant_content: None,
+                tool_calls: None,
+                cost: None,
+                provider_completion_tokens: None,
+                provider_prompt_tokens: None,
+                cached_tokens: None,
+                thinking_content: None,
+                dispatched_at,
+            })
+            .await;
+
+        // Then the guard is cleared and the session is idle, so the stall
+        // watchdog's retry finds nothing in flight and stands down.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(session.phase(), PhaseKind::Idle);
+        assert!(
+            !session.has_in_flight_stream(),
+            "a terminated turn must leave no in-flight guard behind, or the \
+             stall watchdog re-triggers against a stream that does not exist"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_second_cancel_for_the_same_turn_reports_nothing() {
+        // Given a streaming session already terminated by a cancel.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor);
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+            cause: CancelCause::Turn,
+        };
+        actor.on_cancel_turn(&msg).await;
+        audit.clear();
+
+        // When the same cancel is delivered again — the frontend settles
+        // locally and publishes, and the bus delivers it back.
+        actor.on_cancel_turn(&msg).await;
+
+        // Then nothing more is reported. The termination record is what decides,
+        // not the phase: a second report would push a second `"Cancelled"`
+        // entry onto history, because the entry is written by the fold and the
+        // fold's entry push is not itself idempotent.
+        let completed = audit.of_type::<StreamCompleted>();
+        assert!(completed.is_empty(), "a turn ends once; got {completed:?}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn cancelling_a_session_that_never_ran_leaves_the_phase_untouched() {
         // Given a session that never ran a turn.
         let (actor, audit) = test_actor_recording().await;
         let session_id = actor.state.read().session.active_session_id().clone();
@@ -1037,14 +1203,29 @@ mod tests {
             cause: CancelCause::Turn,
         };
         actor.on_cancel_turn(&msg).await;
+        actor
+            .on_stream_completed(&stream_completed(
+                &session_id,
+                StreamCompletedReason::Canceled,
+                None,
+                None,
+                None,
+                None,
+            ))
+            .await;
 
-        // Then the phase is untouched — a cancel never *starts* a turn.
+        // Then the phase is untouched — a cancel never *starts* a turn. The
+        // report is still published, because "was never running" is not "already
+        // ended", and only this routine may claim otherwise.
         let state = actor.state.read();
         let session = state.session.get(&session_id).expect("session exists");
         assert_eq!(session.phase(), PhaseKind::Idle);
-        assert!(
-            audit.of_type::<StreamCompleted>().is_empty(),
-            "nothing to end"
+        assert_eq!(
+            audit.of_type::<StreamCompleted>().len(),
+            1,
+            "a session that never ran is not already-terminated, so the \
+             routine reports it as ended rather than leaving the mark to \
+             silently suppress a later real cancel"
         );
     }
 
