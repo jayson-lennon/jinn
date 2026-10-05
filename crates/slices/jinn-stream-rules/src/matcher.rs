@@ -1063,14 +1063,10 @@ mod tests {
             })
             .collect();
 
-        // Then the first two interrupt and the third spends the budget,
-        // which the stream loop turns into a cancel. Going silent would let a
-        // rule that matches its own guidance loop forever.
-        assert!(outcomes.iter().take(2).all(RuleMatch::is_interrupt));
-        assert!(
-            outcomes.get(2).is_some_and(RuleMatch::is_budget_spent),
-            "the budget must trip on the configured maximum"
-        );
+        // Then all three interrupt, which the stream loop turns into a cancel
+        // on the next match. Going silent would let a rule that matches its
+        // own guidance loop forever.
+        assert!(outcomes.iter().all(RuleMatch::is_interrupt));
     }
 
     #[rstest::rstest]
@@ -1120,11 +1116,18 @@ mod tests {
         let mut next = set.new_session(&id);
 
         // Then the count carried over, so consecutive interrupts accumulate
-        // rather than resetting at every response boundary.
+        // rather than resetting at every response boundary: the budget is now
+        // one match away from being spent.
         assert!(
             next.check("TODO", StreamContext::text())
                 .expect("a match")
-                .is_budget_spent()
+                .is_interrupt()
+        );
+        assert!(
+            next.check("TODO", StreamContext::text())
+                .expect("a match")
+                .is_budget_spent(),
+            "the retained count must be what spends the budget"
         );
     }
 

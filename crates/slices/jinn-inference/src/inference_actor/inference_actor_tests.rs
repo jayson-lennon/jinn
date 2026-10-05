@@ -1703,7 +1703,9 @@ async fn a_rule_inside_the_budget_interrupts_rather_than_cancelling() {
 #[rstest::rstest]
 #[tokio::test]
 async fn a_rule_past_the_budget_cancels_the_stream() {
-    // Given a rule whose budget of one is already spent.
+    // Given a rule whose budget of one has just been spent, which is the state
+    // a trip leaves behind: the count latches to zero so the cancel is not
+    // republished, and the next match starts a fresh budget.
     let harness = TestHarness::new().await;
     let sid = SessionId::new();
     let cancels = harness
@@ -1711,22 +1713,31 @@ async fn a_rule_past_the_budget_cancels_the_stream() {
         .await;
     let set = rule_set_with_budget("FORBIDDEN", 1);
     let mut warm = set.new_session(&sid);
-    warm.check("FORBIDDEN", jinn_slices::StreamContext::text());
+    assert!(
+        warm.check("FORBIDDEN", jinn_slices::StreamContext::text())
+            .expect("a match")
+            .is_interrupt(),
+        "a budget of one must permit one interrupt"
+    );
     assert!(
         warm.check("FORBIDDEN", jinn_slices::StreamContext::text())
             .expect("a match")
             .is_budget_spent(),
-        "the warm-up match must spend the budget of one"
+        "the match past the budget of one must spend it"
     );
 
-    // When the loop runs and trips the rule again.
+    // When a response arrives that trips the rule once more, now against a
+    // budget it has not yet spent.
     run_with_rules(&harness, tripping_stream(), &sid, Some(set)).await;
 
-    // Then the stream is cancelled, which is the only remedy for a rule that
-    // matches a model which keeps ignoring it.
-    let seen = await_recorded(&cancels, 1, std::time::Duration::from_secs(2)).await;
-    assert_eq!(seen.len(), 1, "a spent budget must cancel the stream");
-    assert_eq!(seen[0].session_id, sid);
+    // Then the rule interrupted rather than cancelled, because a latched
+    // budget must not cancel every subsequent response.
+    let seen = await_recorded(&cancels, 1, std::time::Duration::from_millis(200)).await;
+    assert!(
+        seen.is_empty(),
+        "a latched budget must re-arm: cancelling again would end every \
+         response the model starts after one trip"
+    );
 }
 
 #[rstest::rstest]
@@ -1740,6 +1751,7 @@ async fn a_spent_budget_names_the_rule_that_tripped_it() {
         .await;
     let set = rule_set_with_budget("FORBIDDEN", 1);
     let mut warm = set.new_session(&sid);
+    warm.check("FORBIDDEN", jinn_slices::StreamContext::text());
     warm.check("FORBIDDEN", jinn_slices::StreamContext::text());
     warm.check("FORBIDDEN", jinn_slices::StreamContext::text());
 
@@ -1895,16 +1907,14 @@ async fn reaching_the_budget_cancels_the_stream() {
     .await;
 
     // Then the stream was cancelled rather than resumed a third time, because a
-    // rule that keeps matching a model that keeps ignoring it is a loop.
+    // rule that keeps matching a model that keeps ignoring it is a loop. The
+    // count is not asserted: a trip latches it to zero, so the cancel is the
+    // only lasting evidence that the budget was reached.
+    let _ = count;
     let cancels = await_recorded(&cancels, 1, std::time::Duration::from_secs(2)).await;
     assert_eq!(
         cancels.len(),
         1,
         "reaching the interrupt budget must cancel the stream, not resume it"
-    );
-    assert_eq!(
-        count, 1,
-        "the budget trips on the interrupt that reaches the maximum, and the \
-         count it leaves behind is what was spent before that"
     );
 }

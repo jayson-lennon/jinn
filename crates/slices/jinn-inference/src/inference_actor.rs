@@ -475,8 +475,8 @@ async fn give_up_on_the_session(
     bus.publish(jinn_session_history_msg::PushChatEntry {
         session_id: sid.clone(),
         entry: ChatEntry::system(format!(
-            "\u{1f6d1} stream-rules: `{}` interrupted this turn {maximum} times in a row; \
-             cancelling the stream.",
+            "\u{1f6d1} stream-rules: `{}` interrupted this turn more than {maximum} times \
+             in a row; cancelling the stream.",
             rule.name
         )),
         pin: None,

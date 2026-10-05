@@ -405,9 +405,10 @@ max_interrupts = 3
 
 Consecutive, per session, default 3. A response that completes without an
 interrupt pays one back (floored at zero); an interrupted one does not, so
-repeats accumulate across a turn. On reaching the limit jinn cancels the stream
-rather than correcting forever — a rule whose condition also matches the
-guidance it injects would otherwise loop. A value below 1 is treated as 1.
+repeats accumulate across a turn. A value of 3 means three interrupts are
+allowed and the **fourth** consecutive one cancels the stream, rather than
+correcting forever — a rule whose condition also matches the guidance it injects
+would otherwise loop. A value below 1 is treated as 1.
 
 A rule that fails to compile, names no reachable stream, or has an empty `body`
 is logged and skipped rather than breaking a turn. Use single-quoted strings for

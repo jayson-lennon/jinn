@@ -168,10 +168,16 @@ impl InterruptCount {
     /// Records an interrupt and reports whether the session has stayed within
     /// `maximum`.
     ///
-    /// Returns `false` once the count reaches the threshold. The caller treats
+    /// Returns `false` once the count *exceeds* `maximum`. The caller treats
     /// that as a budget trip rather than as silence: a rule that keeps
     /// matching a model that keeps ignoring it is a loop, and the remedy is to
     /// stop the stream rather than to silently stop correcting.
+    ///
+    /// The comparison is against the count *after* the increment, so a budget
+    /// of `n` permits exactly `n` interrupts before the next one cancels.
+    /// Testing `<=` here would trip on the nth interrupt and silently allow
+    /// only `n - 1`, which reads as an off-by-one against the configured
+    /// number even though the counter itself is right.
     ///
     /// The threshold is a parameter rather than stored state so one session's
     /// count cannot be judged against two budgets — a set narrowed per project
@@ -182,7 +188,7 @@ impl InterruptCount {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         *count += 1;
-        *count < maximum
+        *count <= maximum
     }
 
     /// How many consecutive interrupts this session has taken.
@@ -619,48 +625,52 @@ mod tests {
         rules.install(std::sync::Arc::new(AlwaysSet::new(false)));
         let session_id = jinn_core_types::SessionId::new();
 
-        // When three separate responses each trip a rule.
+        // When one more response than the budget allows trips a rule.
         let mut outcomes = Vec::new();
-        for _ in 0..MAX_INTERRUPTS_PER_SESSION {
+        for _ in 0..=MAX_INTERRUPTS_PER_SESSION {
             let mut response = rules.new_session(&session_id).expect("session");
             outcomes.push(response.check("a", StreamContext::text()).expect("a match"));
         }
 
-        // Then the count carried across the response boundaries: the third
-        // response trips the budget. A per-response count would have reset on
-        // each new session and interrupted all three times, which is the loop
-        // the budget exists to stop.
-        assert!(matches!(outcomes.first(), Some(RuleMatch::Interrupt(_))));
+        // Then the count carried across the response boundaries: a budget of
+        // three interrupts three times and the next one is spent. A
+        // per-response count would have reset on each new session and
+        // interrupted every time, which is the loop the budget exists to stop.
+        assert_eq!(outcomes.len(), MAX_INTERRUPTS_PER_SESSION + 1);
         assert!(
-            outcomes.get(1).is_some_and(RuleMatch::is_interrupt),
-            "the second response must still interrupt"
+            outcomes
+                .iter()
+                .take(MAX_INTERRUPTS_PER_SESSION)
+                .all(|o| o.is_interrupt()),
+            "a budget of N must permit N interrupts"
         );
         assert!(
-            outcomes.get(2).is_some_and(RuleMatch::is_budget_spent),
+            outcomes.last().is_some_and(RuleMatch::is_budget_spent),
             "consecutive interrupts must accumulate across responses"
         );
     }
 
     #[rstest::rstest]
     #[test]
-    fn the_budget_trips_on_the_last_interrupt() {
+    fn the_budget_trips_one_interrupt_past_the_maximum() {
         // Given an installed matcher holding rules.
         let mut rules = StreamRules::empty();
         rules.install(std::sync::Arc::new(AlwaysSet::new(false)));
         let session_id = jinn_core_types::SessionId::new();
 
-        // When one response trips a rule past the budget.
+        // When one more response than the budget allows trips a rule.
         let mut response = rules.new_session(&session_id).expect("session");
-        let outcomes: Vec<RuleMatch> = (0..MAX_INTERRUPTS_PER_SESSION)
+        let outcomes: Vec<RuleMatch> = (0..=MAX_INTERRUPTS_PER_SESSION)
             .map(|_| response.check("a", StreamContext::text()).expect("a match"))
             .collect();
 
-        // Then the budget is spent exactly once, on the threshold.
+        // Then the budget is spent exactly once, one interrupt past the
+        // configured number rather than on it.
         let spent: Vec<bool> = outcomes.iter().map(RuleMatch::is_budget_spent).collect();
         assert_eq!(
             spent,
-            vec![false, false, true],
-            "the trip must land on the configured maximum"
+            vec![false, false, false, true],
+            "a budget of three must interrupt three times before it is spent"
         );
         assert!(
             outcomes
@@ -742,8 +752,14 @@ mod tests {
         rules.end_response(&session_id, TurnEnd::Aborted);
         let mut next = rules.new_session(&session_id).expect("session");
 
-        // Then the count carried over and the next violation trips, so
-        // consecutive interrupts accumulate rather than resetting per response.
+        // Then the count carried over, so the retained interrupts are what
+        // spends the budget rather than resetting at each response boundary.
+        assert!(
+            next.check("a", StreamContext::text())
+                .expect("a match")
+                .is_interrupt(),
+            "the retained count must leave the next match within budget"
+        );
         assert!(
             next.check("a", StreamContext::text())
                 .expect("a match")
