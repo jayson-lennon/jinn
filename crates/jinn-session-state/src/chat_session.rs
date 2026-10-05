@@ -1421,16 +1421,30 @@ impl ChatSessionState {
         // not an abandoned attempt: it and its result stay in context so the
         // model can read them. Dropping the call would strand an answered
         // call the model never sees, which is the blind resume this whole
-        // method exists to avoid. Every other streaming entry is a partial
-        // attempt and is still taken out.
+        // method exists to avoid.
+        //
+        // The assistant entry the model was streaming when it made that call
+        // is part of the same exchange and is kept with it. Retaining the call
+        // but not its host reads to the model as a tool call that appeared out
+        // of nowhere, with no preamble to say what it was doing — and the
+        // request assembler manufactures an *empty* assistant to carry the call
+        // in that case, so the model's own words are dropped while the shape
+        // looks fine. An interrupted response is still an unfinished sentence,
+        // but the alternative is sending the model a call with no context for
+        // it, which is the failure this exclusion exists to prevent.
+        //
+        // Everything else streaming is still a partial attempt and is taken
+        // out: reasoning, and prose from an attempt that made no call at all.
         let answered = self.tool_calls_answered_in_context();
+        let carriers = self.entries_hosting_retained_calls(&answered);
         indices.retain(|index| {
-            !self
-                .core
-                .history_work
-                .history
-                .get(*index)
-                .is_some_and(|entry| answered.contains(&entry.id))
+            let entry = self.core.history_work.history.get(*index);
+            match entry {
+                Some(entry) if answered.contains(&entry.id) || carriers.contains(&entry.id) => {
+                    false
+                }
+                _ => true,
+            }
         });
         let excluded = self.edit_history().force_exclude_at_indices(&indices);
         if !excluded.is_empty() {
@@ -1438,6 +1452,40 @@ impl ChatSessionState {
         }
         self.core.ephemeral.machine.clear_streaming_indices();
         excluded
+    }
+
+    /// The assistant entries whose adjacent tool calls are in `retained`.
+    ///
+    /// Walks back from each retained call to the nearest preceding assistant
+    /// entry, which is the one it renders into: the request assembler attaches
+    /// a call to the most recent assistant message, and synthesizes an empty
+    /// one when there is none. Scanning backwards and stopping at the first
+    /// assistant mirrors that exactly, so what is kept here is the same entry
+    /// that would have carried the call.
+    fn entries_hosting_retained_calls(
+        &self,
+        retained: &HashSet<ChatEntryId>,
+    ) -> HashSet<ChatEntryId> {
+        let history = &self.core.history_work.history;
+        let mut hosts = HashSet::new();
+        for (index, entry) in history.iter().enumerate() {
+            let ChatEntryKind::ToolCall { .. } = &entry.kind else {
+                continue;
+            };
+            if !retained.contains(&entry.id) {
+                continue;
+            }
+            let host = history
+                .get(..index)
+                .unwrap_or_default()
+                .iter()
+                .rev()
+                .find(|candidate| matches!(candidate.kind, ChatEntryKind::Assistant(_)));
+            if let Some(host) = host {
+                hosts.insert(host.id.clone());
+            }
+        }
+        hosts
     }
 
     /// The ids of tool calls already answered by a result that is itself in

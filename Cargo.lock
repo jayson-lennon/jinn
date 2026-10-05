@@ -3363,6 +3363,8 @@ dependencies = [
  "jinn-chat-log-view-msg",
  "jinn-context",
  "jinn-core-types",
+ "jinn-llm-support",
+ "jinn-provider",
  "jinn-session-history",
  "jinn-session-lifecycle-msg",
  "jinn-session-msg",

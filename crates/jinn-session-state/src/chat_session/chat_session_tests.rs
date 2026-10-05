@@ -7105,7 +7105,7 @@ fn an_interrupted_call_stays_in_context_on_retry() {
 }
 
 #[rstest::rstest]
-fn an_answered_call_is_kept_while_its_partial_assistant_text_is_not() {
+fn an_answered_call_is_kept_with_the_prose_that_introduced_it() {
     // Given a session with partial prose beside an explained tool call.
     let mut session = streaming_tool_call_session("tc_1", "bash");
     session
@@ -7116,20 +7116,56 @@ fn an_answered_call_is_kept_while_its_partial_assistant_text_is_not() {
     // When the attempt is prepared for retry.
     session.reset_streaming_entries_for_retry();
 
-    // Then only the prose is excluded; the call and its result survive.
+    // Then the prose stays too: it is the sentence that introduced the call,
+    // and keeping the call without it hands the model a call with no
+    // explanation of what it was doing.
+    assert!(
+        session.history().iter().any(
+            |e| matches!(&e.kind, ChatEntryKind::Assistant(t) if t.contains("I will now"))
+                && e.is_in_context()
+        ),
+        "the prose introducing a retained call must stay in the resumed request"
+    );
+}
+
+#[rstest::rstest]
+fn prose_with_no_retained_call_is_still_excluded_on_retry() {
+    // Given a session whose only partial output is prose.
+    let mut session = streaming_session();
+    session
+        .append_stream_token("I will now think about this", jiff::Timestamp::now())
+        .expect("append prose");
+
+    // When the attempt is prepared for retry.
+    session.reset_streaming_entries_for_retry();
+
+    // Then it is an abandoned attempt with nothing completed to pair against,
+    // so it stays out as it always has.
     assert!(
         session.history().iter().all(
-            |e| !matches!(&e.kind, ChatEntryKind::Assistant(t) if t.contains("I will now"))
+            |e| !matches!(&e.kind, ChatEntryKind::Assistant(t) if t.contains("think about"))
                 || !e.is_in_context()
         ),
-        "the partial assistant text is an abandoned attempt and stays out"
+        "an attempt that made no call is still excluded"
     );
+}
+
+#[rstest::rstest]
+fn reasoning_beside_a_retained_call_is_still_excluded_on_retry() {
+    // Given a session that thought, then made a call the rule interrupted.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+    session.explain_interrupted_tool_calls();
+    session.reset_streaming_entries_for_retry();
+
+    // Then an empty assistant host is retained but adds nothing: the call is
+    // carried by a synthesized empty assistant, which is what the assembler
+    // would have done regardless.
     assert!(
         session.history().iter().any(
             |e| matches!(&e.kind, ChatEntryKind::ToolCall { id, .. } if id == "tc_1")
                 && e.is_in_context()
         ),
-        "the explained call stays in"
+        "the call and its result stay"
     );
 }
 
@@ -7149,5 +7185,46 @@ fn an_unanswered_call_is_still_excluded_on_retry() {
                 || !e.is_in_context()
         ),
         "an unanswered call cannot be sent to a provider"
+    );
+}
+
+#[rstest::rstest]
+fn an_interrupted_call_reaches_the_model_with_its_own_prose() {
+    // Given a session interrupted mid-arguments, explained and prepared for retry.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+    session
+        .append_stream_token("I will now run ", jiff::Timestamp::now())
+        .expect("append prose");
+    session.explain_interrupted_tool_calls();
+    session.reset_streaming_entries_for_retry();
+
+    // When the resumed request is assembled from what stayed in context.
+    let kept: Vec<jinn_core_types::ChatEntry> = session
+        .history()
+        .iter()
+        .filter(|e| e.is_in_context())
+        .cloned()
+        .collect();
+    let messages = jinn_llm_support::entries_to_messages::entries_to_messages(&kept);
+
+    // Then the assistant message carries both the model's own words and the
+    // call it made, rather than arriving as a bare tool call from nowhere.
+    let assistant = messages.iter().find_map(|m| match m {
+        jinn_provider::LlmMessage::Assistant {
+            content,
+            tool_calls,
+        } => Some((content, tool_calls)),
+        _ => None,
+    });
+    let (content, tool_calls) = assistant.expect("an assistant message");
+    assert_eq!(
+        content, "I will now run ",
+        "the model's preamble must survive"
+    );
+    assert!(
+        tool_calls
+            .as_ref()
+            .is_some_and(|calls| calls.iter().any(|c| c.id == "tc_1")),
+        "the interrupted call must ride on the same message"
     );
 }
