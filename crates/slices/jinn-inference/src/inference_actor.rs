@@ -26,7 +26,7 @@ use jinn_session_history_msg::PushChatEntry;
 use jinn_slices::StreamContext;
 use jinn_slices::SystemPrompt;
 use jinn_slices::render_rule_interrupt;
-use jinn_slices::{RuleFired, RuleMatch, StreamRuleSession, TurnEnd};
+use jinn_slices::{RuleFired, StreamRuleSession};
 use jinn_tools_msg::CancelToolBatch;
 use jinn_tools_msg::ExecuteToolBatch;
 use jinn_tools_msg::{ToolCallReceived, ToolCallStreaming, ToolUseStarted};
@@ -243,19 +243,18 @@ async fn publish_activity(bus: &BusService, sid: &SessionId) {
 /// [`StreamCompleted`] governs a stream's end.
 /// How one response's event loop came to an end.
 ///
-/// `run_stream` needs this to decide whether a response completed on its own or
-/// was cut short by a rule, because only the former repays the session's
-/// interrupt budget. An interrupt leaves the loop early, so without this
-/// distinction every interrupt would debit the count it had just raised and the
-/// threshold could never be reached.
+/// Two outcomes, and the distinction matters only to the log. A response a
+/// rule interrupted has already published its `StreamCompleted(RuleIntercept)`
+/// by the time this returns, so the loop holds no budget to update and no
+/// decision left to make: whether a session that keeps violating a rule should
+/// be cancelled belongs to the stream-rule watchdog, which reads that same
+/// completion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StreamOutcome {
     /// The response ran to completion: `Done`, or a terminal `Error`.
     Completed,
     /// A rule matched and the turn is being resumed rather than finished.
     Interrupted,
-    /// The session's interrupt budget was spent; the stream is being cancelled.
-    BudgetSpent,
 }
 
 /// Processes one response's stream events, returning how the stream ended.
@@ -424,71 +423,20 @@ async fn process_stream_events(
 
 /// Acts on what a stream rule matched.
 ///
-/// Two outcomes, and the distinction is the whole point of returning a
-/// [`RuleMatch`] rather than a bare rule: a match inside the session's
-/// interrupt budget resumes the turn, while a match past it cancels the
-/// stream. Resuming a fourth time would be resuming a loop.
+/// One outcome, which is the point: a match is a fact, and the loop's only
+/// response to a fact is to interrupt and resume. The matcher holds no count
+/// and no budget, so there is nothing here to branch on — a rule that keeps
+/// matching a model that keeps ignoring it has stopped being a correction, and
+/// the stream-rule watchdog is what notices and ends the session.
 async fn apply_rule_match(
     bus: &BusService,
     sid: &SessionId,
     accum: &mut StreamAccumulator,
-    fired: RuleMatch,
+    fired: RuleFired,
     dispatched_at: jiff::Timestamp,
 ) -> StreamOutcome {
-    match fired {
-        RuleMatch::Interrupt(rule) => {
-            intercept_and_resume(bus, sid, accum, rule, dispatched_at).await;
-            StreamOutcome::Interrupted
-        }
-        RuleMatch::BudgetSpent { rule, maximum } => {
-            give_up_on_the_session(bus, sid, rule, maximum).await;
-            StreamOutcome::BudgetSpent
-        }
-    }
-}
-
-/// Ends a stream whose session has taken too many interrupts in a row, and
-/// gives up on it.
-///
-/// A plain [`CancelStream`], deliberately, and that is the design: it reuses
-/// the one cancel path everything else uses, so the session ends exactly as a
-/// user-initiated cancel ends — the tombstone is armed, the task is torn down,
-/// and the chat log carries the same `Cancelled` entry. A rule that matches a
-/// model which keeps ignoring it has stopped being a correction and become a
-/// loop, and the honest report of that is a cancelled turn.
-///
-/// No guidance is injected: there is nobody left to give it to, and injecting
-/// it would read as a correction the model may act on before the cancel
-/// lands.
-async fn give_up_on_the_session(
-    bus: &BusService,
-    sid: &SessionId,
-    rule: RuleFired,
-    maximum: usize,
-) {
-    tracing::warn!(
-        session_id = %sid,
-        rule = %rule.name,
-        maximum,
-        "stream rule interrupted the turn too many times in a row; cancelling the stream"
-    );
-    bus.publish(jinn_session_history_msg::PushChatEntry {
-        session_id: sid.clone(),
-        entry: ChatEntry::system(format!(
-            "\u{1f6d1} stream-rules: `{}` interrupted this turn more than {maximum} times \
-             in a row; cancelling the stream.",
-            rule.name
-        )),
-        pin: None,
-    })
-    .await;
-
-    // Undated, so it applies to whatever generation is current — including
-    // this one, which the actor tears down as it handles it.
-    bus.publish(CancelStream {
-        session_id: sid.clone(),
-    })
-    .await;
+    intercept_and_resume(bus, sid, accum, fired, dispatched_at).await;
+    StreamOutcome::Interrupted
 }
 
 /// Ends a stream a rule interrupted, and asks for the turn to resume.
@@ -713,7 +661,7 @@ async fn handle_text_event(
     token: String,
     mut rules: Option<&mut (dyn StreamRuleSession + '_)>,
     ctx: StreamContext<'_>,
-) -> Option<RuleMatch> {
+) -> Option<RuleFired> {
     tracing::info!(
         session_id = ?sid,
         token_len = token.len(),
@@ -761,7 +709,7 @@ async fn handle_reasoning_event(
     token: String,
     mut rules: Option<&mut (dyn StreamRuleSession + '_)>,
     ctx: StreamContext<'_>,
-) -> Option<RuleMatch> {
+) -> Option<RuleFired> {
     tracing::info!(
         session_id = ?sid,
         token_len = token.len(),
@@ -851,6 +799,60 @@ async fn handle_done_event(
 impl InferenceActor {
     /// Dispatches incoming commands to the appropriate handler.
     /// Starts an LLM streaming response for a session, aborting any existing stream.
+    /// Narrows the installed rule set to `session_id`'s project and mints the
+    /// matching state for one response.
+    ///
+    /// The project is bound *here*, once per stream, rather than per delta or
+    /// per project change mid-stream. A session's project association is
+    /// stamped at creation and does not move under a running turn, so binding
+    /// it at the mint point is sufficient and costs nothing per delta. The
+    /// working directory is deliberately not the thing matched: it moves during
+    /// a turn, and a rule bound to a moving value is a rule that changes
+    /// meaning under a running stream.
+    ///
+    /// A session with no project association gets every rule, which is the
+    /// unscoped reading rather than a narrowed one — a rule naming no project
+    /// applies everywhere, so a rule naming a project applies nowhere until
+    /// this session is stamped with one.
+    async fn resolve_rule_session(
+        &self,
+        session_id: &SessionId,
+    ) -> Option<Box<dyn StreamRuleSession + 'static>> {
+        let cell = self
+            .services
+            .slices
+            .reader::<jinn_slices::StreamRules>(&jinn_slices::stream_rules_slot())?;
+
+        // The cell handle is cloned out first: the session borrows the
+        // installed set, so the handle must outlive the local `reader` binding
+        // above.
+        let cell = cell.clone();
+
+        let project = match self.services.session_store.load_session(session_id).await {
+            Ok(Some(snapshot)) => snapshot.project().map(std::path::Path::to_path_buf),
+            Ok(None) => None,
+            Err(error) => {
+                // An unreadable store must not disable the user's rules: an
+                // unscoped session is the safe reading, since it fires the
+                // global rules and leaves project-scoped ones disarmed.
+                tracing::warn!(
+                    session_id = %session_id,
+                    ?error,
+                    "could not read the session's project; rule set left unscoped"
+                );
+                None
+            }
+        };
+
+        let guard = cell.read();
+        let set = match project {
+            Some(ref path) => guard.for_project(path),
+            None => guard.installed(),
+        };
+        set.filter(|set| !set.is_empty())
+            .map(|set| set.new_session(session_id))
+    }
+
     async fn start_stream(&mut self, payload: &SendToLlmProvider) {
         // Cancel tombstone: a continuation arriving for a recently-cancelled
         // session is the in-flight remnant of the tool loop losing the race
@@ -926,17 +928,7 @@ impl InferenceActor {
 
         // Resolved once per stream, not per delta: with no rules configured
         // this is `None` and the stream path is byte-for-byte what it was.
-        let rules_cell = self
-            .services
-            .slices
-            .reader::<jinn_slices::StreamRules>(&jinn_slices::stream_rules_slot());
-        let rules = rules_cell.as_ref().and_then(|cell| {
-            // The cell handle is cloned out first: the session borrows
-            // the installed set, so the handle must outlive the local
-            // `reader` binding above.
-            let cell = cell.clone();
-            cell.read().new_session(&session_id)
-        });
+        let rules = self.resolve_rule_session(&session_id).await;
 
         let handle = tokio::spawn(run_stream(
             factory,
@@ -949,7 +941,6 @@ impl InferenceActor {
             dispatched_at,
             retry_config,
             rules,
-            rules_cell.map(|cell| cell.clone()),
         ));
 
         // Update session state.
@@ -1139,9 +1130,6 @@ async fn run_stream(
     dispatched_at: jiff::Timestamp,
     retry_config: RequestRetryConfig,
     rules: Option<Box<dyn StreamRuleSession + '_>>,
-    // The stream-rules cell, carried so the turn's fire record can be ended
-    // when the stream task finishes. `None` when no matcher is installed.
-    rules_cell: Option<jinn_slices::TypedCell<jinn_slices::StreamRules>>,
 ) {
     let service = match build_streaming_service(&factory, &retry_config, &bus, &sid) {
         Ok(s) => s,
@@ -1182,23 +1170,14 @@ async fn run_stream(
     )
     .await;
 
-    // The session's interrupt count outlives every response in it, and this is
-    // where the last one is done with.
-    //
-    // Only a response that ran to completion debits it. An interrupted one does
-    // not, and that is what makes the budget reachable at all: the count is
-    // raised on the way out of a match, so debiting here would repay the debt
-    // this same attempt had just incurred and leave the count at zero. A budget
-    // repaid by the very event it counts can never be spent.
-    //
-    // Dropping the buffers first means a rule cannot see content from a
-    // response that has already ended.
+    // Dropping the buffers means a rule cannot see content from a response
+    // that has already ended.
     drop(rules.take());
-    if outcome == StreamOutcome::Completed
-        && let Some(cell) = rules_cell
-    {
-        cell.read().end_response(&sid, TurnEnd::Finished);
-    }
+    tracing::debug!(
+        session_id = %sid,
+        ?outcome,
+        "provider stream task finished"
+    );
 }
 
 /// Constructs a fresh retrying service for one streaming attempt.

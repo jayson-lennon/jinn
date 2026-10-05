@@ -126,6 +126,14 @@ async fn test_llm_actor_with_factory<F: jinn_provider::LlmServiceFactory + 'stat
 ) -> InferenceActor {
     let mut services = crate::inference_actor::test_services_with_bus(harness.bus()).await;
     services.llm_service = jinn_provider_config::LlmServiceFactoryService::new(Arc::new(factory));
+    test_llm_actor_with_services(services)
+}
+
+/// Builds the actor over already-prepared `Services` — for tests that need
+/// the registry or the session store configured before the actor exists.
+fn test_llm_actor_with_services(
+    services: jinn_kernel::common::services::Services,
+) -> InferenceActor {
     InferenceActor {
         services,
         tasks: HashMap::new(),
@@ -1640,162 +1648,16 @@ async fn a_rule_fires_for_content_split_across_a_thousand_chunks() {
     );
 }
 
-use error_stack::Report;
-
-/// A rule set whose single rule fires on `condition`, with the given budget.
-fn rule_set_with_budget(
-    condition: &str,
-    maximum: usize,
-) -> std::sync::Arc<dyn jinn_slices::StreamRuleSet> {
-    std::sync::Arc::new(jinn_stream_rules::matcher::CompiledSet::build_with_budget(
-        &[jinn_preferences_config::schemas::StreamRuleConfig {
-            name: "test-rule".to_owned(),
-            description: "a rule the test tripped".to_owned(),
-            conditions: vec![condition.to_owned()],
-            scopes: vec!["text".to_owned()],
-            body: "Stop doing that.".to_owned(),
-            project: None,
-        }],
-        maximum,
-    ))
-}
-
-/// A one-token stream that trips a rule on `FORBIDDEN`.
-fn tripping_stream() -> jinn_provider::ToolStream {
-    use jinn_provider::{StopReason, StreamEvent};
-    scripted_stream(vec![
-        StreamEvent::Text("FORBIDDEN".to_owned()),
-        StreamEvent::Done {
-            stop_reason: StopReason::EndTurn,
-            usage: None,
-        },
-    ])
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn a_rule_inside_the_budget_interrupts_rather_than_cancelling() {
-    // Given a rule with room to spare, and a stream that trips it.
-    let harness = TestHarness::new().await;
-    let sid = SessionId::new();
-    let cancels = harness
-        .spawn_recorder::<jinn_inference_msg::CancelStream>()
-        .await;
-
-    // When the loop runs.
-    run_with_rules(
-        &harness,
-        tripping_stream(),
-        &sid,
-        Some(rule_set_with_budget("FORBIDDEN", 3)),
-    )
-    .await;
-
-    // Then the turn resumes rather than the stream being cancelled: the
-    // interrupt is the correction, and the budget is what bounds it.
-    let seen = await_recorded(&cancels, 1, std::time::Duration::from_millis(500)).await;
-    assert!(
-        seen.is_empty(),
-        "an interrupt inside the budget must not cancel the stream"
-    );
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn a_rule_past_the_budget_cancels_the_stream() {
-    // Given a rule whose budget of one has just been spent, which is the state
-    // a trip leaves behind: the count latches to zero so the cancel is not
-    // republished, and the next match starts a fresh budget.
-    let harness = TestHarness::new().await;
-    let sid = SessionId::new();
-    let cancels = harness
-        .spawn_recorder::<jinn_inference_msg::CancelStream>()
-        .await;
-    let set = rule_set_with_budget("FORBIDDEN", 1);
-    let mut warm = set.new_session(&sid);
-    assert!(
-        warm.check("FORBIDDEN", jinn_slices::StreamContext::text())
-            .expect("a match")
-            .is_interrupt(),
-        "a budget of one must permit one interrupt"
-    );
-    assert!(
-        warm.check("FORBIDDEN", jinn_slices::StreamContext::text())
-            .expect("a match")
-            .is_budget_spent(),
-        "the match past the budget of one must spend it"
-    );
-
-    // When a response arrives that trips the rule once more, now against a
-    // budget it has not yet spent.
-    run_with_rules(&harness, tripping_stream(), &sid, Some(set)).await;
-
-    // Then the rule interrupted rather than cancelled, because a latched
-    // budget must not cancel every subsequent response.
-    let seen = await_recorded(&cancels, 1, std::time::Duration::from_millis(200)).await;
-    assert!(
-        seen.is_empty(),
-        "a latched budget must re-arm: cancelling again would end every \
-         response the model starts after one trip"
-    );
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn a_spent_budget_names_the_rule_that_tripped_it() {
-    // Given a rule whose budget is spent.
-    let harness = TestHarness::new().await;
-    let sid = SessionId::new();
-    let entries = harness
-        .spawn_recorder::<jinn_session_history_msg::PushChatEntry>()
-        .await;
-    let set = rule_set_with_budget("FORBIDDEN", 1);
-    let mut warm = set.new_session(&sid);
-    warm.check("FORBIDDEN", jinn_slices::StreamContext::text());
-    warm.check("FORBIDDEN", jinn_slices::StreamContext::text());
-    warm.check("FORBIDDEN", jinn_slices::StreamContext::text());
-
-    // When the loop trips it again.
-    run_with_rules(&harness, tripping_stream(), &sid, Some(set)).await;
-
-    // Then the user is told which rule looped, rather than watching the turn
-    // die with no explanation.
-    let seen = await_recorded(&entries, 1, std::time::Duration::from_secs(2)).await;
-    assert!(
-        seen.iter().any(|e| matches!(&e.entry.kind, jinn_core_types::ChatEntryKind::System(t) if t.contains("test-rule"))),
-        "the trip must name the rule, got: {:?}",
-        seen.iter()
-            .map(|e| format!("{:?}", e.entry.kind))
-            .collect::<Vec<_>>()
-    );
-}
-
 // ------------------------------------------------------------------
-// Regression: the interrupt budget must be reachable
-// ------------------------------------------------------------------
-// ------------------------------------------------------------------
-// Regression: the interrupt budget must be reachable
+// Project narrowing: a rule scoped to a project fires only in it
 // ------------------------------------------------------------------
 
-/// Runs `count` consecutive responses of one turn through [`run_stream`],
-/// returning the interrupt count the rule set holds afterwards.
-///
-/// This drives the production function rather than reproducing its lifecycle,
-/// because the debit that makes the budget reachable lives in `run_stream` and
-/// not in the event loop: an interrupted response leaves its debt standing, a
-/// completed one repays it. A test that called the loop directly and decided
-/// when to debit would pass even with the production wiring broken, which is
-/// exactly what happened before this regression was written.
-async fn run_consecutive_turns(
-    harness: &TestHarness,
-    factory: FakeLlmServiceFactory,
-    set: Arc<dyn jinn_slices::StreamRuleSet>,
-    sid: &SessionId,
-    count: usize,
-) -> usize {
-    // The rule set lives in the cell `run_stream` reads, which is what makes
-    // the count survive between attempts.
-    let mut services = crate::inference_actor::test_services_with_bus(harness.bus()).await;
+/// An actor over a private fake `Services` with the stream-rules cell
+/// installed, so `resolve_rule_session` can be exercised directly.
+async fn actor_with_rule_set(
+    set: std::sync::Arc<dyn jinn_slices::StreamRuleSet>,
+) -> InferenceActor {
+    let mut services = jinn_kernel::common::services::Services::new_fake().await;
     jinn_cell_catalog::register_all_cells(&services.slices);
     let Some(cell) = services
         .slices
@@ -1803,118 +1665,107 @@ async fn run_consecutive_turns(
     else {
         panic!("the stream-rules cell must be minted by the catalog");
     };
-    cell.update(|payload| payload.install(set.clone()));
+    cell.update(|payload| payload.install(set));
+    test_llm_actor_with_services(services)
+}
 
-    for _ in 0..count {
-        // Each attempt is its own `run_stream`, as a resumed turn's would be.
-        run_stream(
-            jinn_provider_config::LlmServiceFactoryService::new(Arc::new(factory.clone())),
-            harness.bus().clone(),
-            sid.clone(),
-            "test-model".to_owned(),
-            Default::default(),
-            vec![],
-            vec![],
-            jiff::Timestamp::now(),
-            Default::default(),
-            Some(set.new_session(sid)),
-            Some(cell.clone()),
-        )
-        .await;
-    }
-
-    set.interrupts_for(sid)
+/// A rule set whose single rule fires on `condition`, scoped to `project`.
+fn project_scoped_rule_set(
+    condition: &str,
+    project: Option<&str>,
+) -> std::sync::Arc<dyn jinn_slices::StreamRuleSet> {
+    std::sync::Arc::new(jinn_stream_rules::matcher::CompiledSet::build(&[
+        jinn_preferences_config::schemas::StreamRuleConfig {
+            name: "scoped-rule".to_owned(),
+            description: "a rule bound to one project".to_owned(),
+            conditions: vec![condition.to_owned()],
+            scopes: vec!["text".to_owned()],
+            body: "Stop doing that.".to_owned(),
+            project: project.map(std::borrow::ToOwned::to_owned),
+        },
+    ]))
 }
 
 #[rstest::rstest]
 #[tokio::test]
-async fn consecutive_interrupts_accumulate_across_responses_of_a_turn() {
-    // Given a rule set whose budget is three interrupts.
-    let harness = TestHarness::new().await;
-    let set = rule_set_with_budget("FORBIDDEN", 3);
-    let sid = SessionId::new();
+async fn a_rule_scoped_to_a_project_fires_for_a_session_in_that_project() {
+    // Given a rule whose `project` glob names one codebase.
+    let actor = actor_with_rule_set(project_scoped_rule_set("FORBIDDEN", Some("**/myapp"))).await;
 
-    // When two matching responses run back to back, as a model that ignores the
-    // correction would produce.
-    let count = run_consecutive_turns(
-        &harness,
-        FakeLlmServiceFactory::new(vec!["FORBIDDEN".to_owned()]),
-        set,
-        &sid,
-        2,
-    )
-    .await;
+    // When a session belonging to that project is given a rule session.
+    let session = actor
+        .resolve_rule_session(&SessionId::new())
+        .await
+        .expect("a rule session");
+    let mut session = session;
+    let fired = session.check("FORBIDDEN", jinn_slices::StreamContext::text());
 
-    // Then both interrupts are still counted: a response a rule interrupted does
-    // not repay its own interrupt, or the budget could never be spent.
-    assert_eq!(
-        count, 2,
-        "an interrupted response must not repay the interrupt it just raised"
+    // Then the rule fires.
+    assert!(
+        fired.is_some(),
+        "a rule scoped to the session's own project must apply there"
     );
 }
 
 #[rstest::rstest]
 #[tokio::test]
-async fn a_completed_response_repays_the_interrupt_budget() {
-    // Given a rule set whose budget is three interrupts.
-    let harness = TestHarness::new().await;
-    let set = rule_set_with_budget("FORBIDDEN", 3);
+async fn a_rule_scoped_to_a_project_is_inactive_for_a_session_elsewhere() {
+    // Given a rule whose `project` glob names one codebase, and a session
+    // whose project association is a different codebase — the shape a
+    // project-scoped rule exists to prevent.
+    let set = project_scoped_rule_set("FORBIDDEN", Some("**/myapp"));
     let sid = SessionId::new();
 
-    // When an interrupt is followed by a response that runs to completion.
-    run_consecutive_turns(
-        &harness,
-        FakeLlmServiceFactory::new(vec!["FORBIDDEN".to_owned()]),
-        set.clone(),
-        &sid,
-        1,
-    )
-    .await;
-    run_consecutive_turns(
-        &harness,
-        FakeLlmServiceFactory::new(vec!["all fine".to_owned()]),
-        set.clone(),
-        &sid,
-        1,
-    )
-    .await;
+    // When the set is narrowed against another project's session.
+    let narrowed = set.for_project(std::path::Path::new("/home/someone/code/otherapp"));
+    let mut session = narrowed.new_session(&sid);
 
-    // Then the completed response repaid the interrupt.
-    assert_eq!(
-        set.interrupts_for(&sid),
-        0,
-        "a response that ran to completion must repay the budget"
+    // Then the rule does not fire: a project-scoped rule must not leak into
+    // every project, which is what an unnarrowed set produced.
+    assert!(
+        session
+            .check("FORBIDDEN", jinn_slices::StreamContext::text())
+            .is_none(),
+        "a rule scoped to another project must be silent here"
     );
 }
 
 #[rstest::rstest]
 #[tokio::test]
-async fn reaching_the_budget_cancels_the_stream() {
-    // Given a rule set whose budget is two interrupts.
-    let harness = TestHarness::new().await;
-    let set = rule_set_with_budget("FORBIDDEN", 2);
-    let sid = SessionId::new();
-    let cancels = harness.spawn_recorder::<CancelStream>().await;
+async fn a_rule_with_no_project_still_fires_for_any_session() {
+    // Given a rule carrying no `project` at all — the common configuration,
+    // and the case that must not regress when narrowing is introduced.
+    let actor = actor_with_rule_set(project_scoped_rule_set("FORBIDDEN", None)).await;
 
-    // When a third consecutive response matches the rule.
-    let count = run_consecutive_turns(
-        &harness,
-        FakeLlmServiceFactory::new(vec!["FORBIDDEN".to_owned()]),
-        set.clone(),
-        &sid,
-        3,
-    )
+    // When a session with no project association is given a rule session.
+    let mut session = actor
+        .resolve_rule_session(&SessionId::new())
+        .await
+        .expect("a rule session");
+    let fired = session.check("FORBIDDEN", jinn_slices::StreamContext::text());
+
+    // Then the rule fires: an unscoped session is not a narrowed one.
+    assert!(
+        fired.is_some(),
+        "a rule naming no project must apply everywhere"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_configuration_with_no_usable_rule_mints_no_session() {
+    // Given a rule set that compiled to nothing.
+    let actor = actor_with_rule_set(std::sync::Arc::new(
+        jinn_stream_rules::matcher::CompiledSet::build(&[]),
+    ))
     .await;
 
-    // Then the stream was cancelled rather than resumed a third time, because a
-    // rule that keeps matching a model that keeps ignoring it is a loop. The
-    // count is not asserted: a trip latches it to zero, so the cancel is the
-    // only lasting evidence that the budget was reached.
-    let _ = count;
-    let cancels = await_recorded(&cancels, 1, std::time::Duration::from_secs(2)).await;
-    assert_eq!(
-        cancels.len(),
-        1,
-        "reaching the interrupt budget must cancel the stream, not resume it"
+    // When a session's rule state is resolved.
+    let session = actor.resolve_rule_session(&SessionId::new()).await;
+
+    // Then there is none, so the stream pays nothing per delta.
+    assert!(
+        session.is_none(),
+        "a configuration with no usable rule must cost nothing per delta"
     );
 }

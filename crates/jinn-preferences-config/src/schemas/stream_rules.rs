@@ -44,17 +44,16 @@ pub const STREAM_RULES_BUDGET_KEY: &str = "stream_rules";
 /// **not** registered in
 /// [`register_all_sections`](crate::registration::register_all_sections), so
 /// no code path can write the file back with this key present.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LegacyStreamRulesBudget {
     /// Consecutive interrupts tolerated before the stream is cancelled.
+    ///
+    /// Zero is the derived default and means *absent*, which is what
+    /// distinguishes "no old key in the file" from "the old key set to
+    /// something": a caller that sees zero must ignore the section, not honour
+    /// a threshold of zero.
     #[serde(default)]
     pub max_interrupts: usize,
-}
-
-impl Default for LegacyStreamRulesBudget {
-    fn default() -> Self {
-        Self { max_interrupts: 0 }
-    }
 }
 
 impl LegacyStreamRulesBudget {

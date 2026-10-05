@@ -16,45 +16,40 @@
 //! traits that describe the matcher — sits here, in the shared crate both
 //! sides already depend on.
 //!
-//! ## Two lifetimes, deliberately
+//! ## A match is a fact, not a decision
 //!
-//! A turn and an assistant response are not the same span. One turn streams
-//! many responses as the tool loop runs, so:
+//! [`StreamRuleSession::check`] answers exactly one question: did a rule match,
+//! and which one. It holds no interrupt count, knows no budget, and decides
+//! nothing about cancelling a stream. Those are policy questions that span a
+//! whole turn — a turn streams many responses, and an interrupt is itself a
+//! response boundary — so they belong to the watchdog actor that watches the
+//! turn (`jinn-watchdog`), not to a per-delta predicate. A counter threaded
+//! through here would have to be shared, mutable, and consulted per delta to
+//! answer a question that is only asked once per response.
 //!
-//! - **Buffers** are per response. Fresh buffers per response are what make
-//!   "reset at the start of every assistant response" true by construction:
-//!   a retry cannot inherit an aborted attempt's text, because it cannot
-//!   reach that attempt's buffers.
-//! - **The interrupt count** is per session, and it is *consecutive*, not
-//!   per-turn. The failure it bounds is a model that trips, resumes, and
-//!   trips again: a rule whose condition also matches the guidance it
-//!   injects, which would otherwise interrupt forever. A response that
-//!   completes without an interrupt debits it, so a rule the model needed to
-//!   be reminded about twice still gets its two chances.
+//! ## Buffers are per response
 //!
-//! The count deliberately survives across the responses of one turn, because
-//! an interrupt *is* a response boundary — it ends the stream and the turn
-//! re-dispatches. A per-turn cap would be cleared by the very act it exists
-//! to bound, and would be unreachable on the only path where it mattered.
+//! A turn and an assistant response are not the same span: one turn streams
+//! many responses as the tool loop runs. The accumulation buffers are minted
+//! per response and dropped with it, which is what makes "reset at the start of
+//! every assistant response" true by construction — a retry cannot inherit an
+//! aborted attempt's text, because it cannot reach that attempt's buffers.
 //!
-//! Splitting the two is why [`StreamRuleSet::end_turn`] exists: the session's
-//! count outlives every response in it and is debited when a response ends
-//! cleanly.
+//! ## What is deliberately absent
+//!
+//! No interrupt count, no budget constant, no turn-end enum, and no
+//! cancel-or-resume outcome variant live in this module or in the matcher
+//! behind it. A monitor that owns its state in the vocabulary crate is a
+//! monitor the matcher cannot avoid consulting, and a matcher that decides to
+//! end a session cannot be tested without one.
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use jinn_core_types::SessionId;
 
 use crate::slices::SlotKey;
-
-/// How many times a rule may interrupt a session in a row before the stream
-/// is cancelled.
-///
-/// Three is enough for a model that needed a second reminder and bounded
-/// enough that a rule matching its own injected guidance cannot loop.
-pub const MAX_INTERRUPTS_PER_SESSION: usize = 3;
 
 /// Which of the three streams a delta arrived on.
 ///
@@ -129,168 +124,26 @@ pub struct RuleFired {
     pub body: String,
 }
 
-/// How a response ended, for the interrupt budget's turn-end policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TurnEnd {
-    /// The response completed without an interrupt.
-    ///
-    /// Debits the count: a model that finished its response after being
-    /// corrected has heard the correction.
-    Finished,
-    /// The response ended some other way — interrupted, cancelled, or errored.
-    ///
-    /// Retains the count, so a session interrupted three times in a row stays
-    /// over its budget into the retry that followed. Debiting on every
-    /// non-clean end would make the budget unreachable on exactly the path it
-    /// exists to bound.
-    Aborted,
-}
-
-/// How many interrupts a session has taken in a row.
-///
-/// One counter for the session, shared between every response of a turn, so a
-/// second response sees what the first already tripped. Per session rather
-/// than per rule because the failure being bounded is a model that trips,
-/// resumes, and trips again — which several rules can conspire to cause.
-///
-/// Mutex-guarded because the set is shared across turns while the count
-/// belongs to one session.
-#[derive(Default)]
-pub struct InterruptCount(Mutex<usize>);
-
-impl fmt::Debug for InterruptCount {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&self.count(), f)
-    }
-}
-
-impl InterruptCount {
-    /// Records an interrupt and reports whether the session has stayed within
-    /// `maximum`.
-    ///
-    /// Returns `false` once the count *exceeds* `maximum`. The caller treats
-    /// that as a budget trip rather than as silence: a rule that keeps
-    /// matching a model that keeps ignoring it is a loop, and the remedy is to
-    /// stop the stream rather than to silently stop correcting.
-    ///
-    /// The comparison is against the count *after* the increment, so a budget
-    /// of `n` permits exactly `n` interrupts before the next one cancels.
-    /// Testing `<=` here would trip on the nth interrupt and silently allow
-    /// only `n - 1`, which reads as an off-by-one against the configured
-    /// number even though the counter itself is right.
-    ///
-    /// The threshold is a parameter rather than stored state so one session's
-    /// count cannot be judged against two budgets — a set narrowed per project
-    /// must not hand the same session two different limits.
-    pub fn record(&self, maximum: usize) -> bool {
-        let mut count = self
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *count += 1;
-        *count <= maximum
-    }
-
-    /// How many consecutive interrupts this session has taken.
-    #[must_use]
-    pub fn count(&self) -> usize {
-        *self
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    /// Debits one interrupt, clamping at zero.
-    ///
-    /// A response that completed without an interrupt is evidence the model
-    /// heard the last correction, so the debt is repaid before the next
-    /// response is judged. Clamping rather than wrapping is what keeps a long
-    /// conversation from accumulating a count past the cap's meaning.
-    pub fn debit(&self) {
-        let mut count = self
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *count = count.saturating_sub(1);
-    }
-
-    /// Zeroes the count, called when the budget trips.
-    ///
-    /// Latching rather than leaving the session pinned at the maximum: the
-    /// trip is over, and a count stuck there would cancel every subsequent
-    /// response the model starts.
-    pub fn reset(&self) {
-        *self
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = 0;
-    }
-}
-
 /// One assistant response's worth of matcher state: the accumulation buffers
 /// for each stream, plus a handle on its session's interrupt count.
 ///
 /// Minted per stream run and dropped with it.
 pub trait StreamRuleSession: fmt::Debug + Send {
-    /// Accumulates `delta` and returns what it trips, if anything.
+    /// Accumulates `delta` and returns the rule it trips, if any.
     ///
     /// Returns the first match in configuration order: when two rules match
     /// the same delta, the one written first in `jinn.toml` wins, since that
     /// is the file the user would expect to be authoritative.
     ///
-    /// A [`RuleMatch::BudgetSpent`] is returned in place of the interrupt it
-    /// would otherwise have produced, so the caller learns from one value both
-    /// that a rule matched and that the session is out of budget.
-    fn check(&mut self, delta: &str, ctx: StreamContext<'_>) -> Option<RuleMatch>;
+    /// A fired rule is a fact and nothing more. Whether a session that has
+    /// been corrected too many times in a row should be cancelled is decided
+    /// by the stream-rule watchdog, from the response-completion signal an
+    /// intercept already publishes.
+    fn check(&mut self, delta: &str, ctx: StreamContext<'_>) -> Option<RuleFired>;
 
     /// The buffers' current contents, keyed by stream — for tests and
     /// diagnostics.
     fn buffers(&self) -> &HashMap<String, String>;
-}
-
-/// What a match is worth to the caller, beyond the rule itself.
-///
-/// A match is either an interrupt the stream loop should act on, or the trip
-/// that says the session has taken enough of them. The trip is separate rather
-/// than folded into "no match" because the two demand opposite responses:
-/// an interrupt resumes the turn, while a trip stops the stream.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RuleMatch {
-    /// A rule matched and the turn should be interrupted and resumed.
-    Interrupt(RuleFired),
-    /// The session has taken `maximum` interrupts in a row; the stream should
-    /// be cancelled rather than resumed a fourth time.
-    ///
-    /// Carries the rule that tripped, so the cancellation can name what looped.
-    BudgetSpent {
-        /// The rule whose match took the session over its budget.
-        rule: RuleFired,
-        /// The threshold that was reached.
-        maximum: usize,
-    },
-}
-
-impl RuleMatch {
-    /// The rule that matched, whichever outcome it produced.
-    #[must_use]
-    pub fn fired(&self) -> &RuleFired {
-        match self {
-            Self::Interrupt(rule) | Self::BudgetSpent { rule, .. } => rule,
-        }
-    }
-
-    /// Whether this match means the stream should be cancelled rather than
-    /// resumed.
-    #[must_use]
-    pub fn is_budget_spent(&self) -> bool {
-        matches!(self, Self::BudgetSpent { .. })
-    }
-
-    /// Whether this match resumes the turn rather than cancelling it.
-    #[must_use]
-    pub fn is_interrupt(&self) -> bool {
-        matches!(self, Self::Interrupt(_))
-    }
 }
 
 /// The compiled rule set: stateless with respect to any one turn, shareable
@@ -308,25 +161,12 @@ pub trait StreamRuleSet: fmt::Debug + Send + Sync {
     /// Mints the state for one assistant response, attaching it to
     /// `session`'s current turn.
     ///
-    /// The returned session is owned, not borrowed: it is minted inside a
-    /// cell read guard that does not outlive the call, so a borrowing
-    /// session could never be handed to the stream task.
-    fn new_session(&self, session: &SessionId) -> Box<dyn StreamRuleSession>;
-
-    /// Records that one of `session`'s responses ended `how`.
-    ///
-    /// A clean completion debits the interrupt count; anything else retains
-    /// it, so consecutive interrupts accumulate across the responses of a
-    /// turn rather than resetting at each one.
-    fn end_response(&self, session: &SessionId, how: TurnEnd);
-
-    /// How many consecutive interrupts `session` has taken.
-    ///
-    /// Exposed so a consumer -- or a test -- can observe the budget rather than
-    /// infer it from what the stream did. Production never needs to ask: the
-    /// count is consulted inside [`StreamRuleSession::check`], which is where
-    /// the trip is decided.
-    fn interrupts_for(&self, session: &SessionId) -> usize;
+    /// The returned session is owned and `'static`, not borrowed: it is
+    /// minted inside a cell read guard that does not outlive the call, so a
+    /// borrowing session could never be handed to the stream task. Owning its
+    /// compiled rules outright is what makes that possible — the response
+    /// holds an `Arc` of them, not a reference to this set.
+    fn new_session(&self, session: &SessionId) -> Box<dyn StreamRuleSession + 'static>;
 
     /// This set with every rule whose `project` glob excludes `project`
     /// removed.
@@ -366,6 +206,16 @@ impl StreamRules {
         Self(None)
     }
 
+    /// The installed set, unscoped.
+    ///
+    /// The counterpart to [`Self::for_project`] for a session with no project
+    /// association to narrow against. Returning `None` for an uninstalled cell
+    /// keeps absence and emptiness reading the same way at every entry point.
+    #[must_use]
+    pub fn installed(&self) -> Option<Arc<dyn StreamRuleSet>> {
+        self.0.clone()
+    }
+
     /// Installs `set` as the matcher, replacing any previous one.
     pub fn install(&mut self, set: Arc<dyn StreamRuleSet>) {
         self.0 = Some(set);
@@ -386,18 +236,6 @@ impl StreamRules {
             return None;
         }
         Some(set.new_session(session))
-    }
-
-    /// Records that one of `session`'s responses ended `how`.
-    pub fn end_response(&self, session: &SessionId, how: TurnEnd) {
-        if let Some(set) = self.0.as_ref() {
-            set.end_response(session, how);
-        }
-    }
-
-    /// How many consecutive interrupts `session` has taken.
-    pub fn interrupts_for(&self, session: &SessionId) -> usize {
-        self.0.as_ref().map_or(0, |set| set.interrupts_for(session))
     }
 
     /// The installed set narrowed to the rules that apply in `project`.
@@ -427,29 +265,20 @@ pub fn stream_rules_slot() -> SlotKey {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        InterruptCount, MAX_INTERRUPTS_PER_SESSION, RuleFired, RuleMatch, StreamContext,
-        StreamRuleSession, StreamRuleSet, StreamRules, TurnEnd,
-    };
+    #![allow(clippy::expect_used, clippy::indexing_slicing, reason = "test code")]
+
+    use super::{RuleFired, StreamContext, StreamRuleSession, StreamRuleSet, StreamRules};
     use crate::Slices;
 
-    /// A matcher that fires on every delta, to exercise the cell, the
-    /// interrupt count and the per-response split without compiling a regex.
+    /// A matcher that fires on every delta, to exercise the cell and the
+    /// per-response buffer split without compiling a regex.
     struct AlwaysSet {
         empty: bool,
-        counts: std::sync::Mutex<
-            std::collections::HashMap<jinn_core_types::SessionId, std::sync::Arc<InterruptCount>>,
-        >,
-        maximum: usize,
     }
 
     impl AlwaysSet {
         fn new(empty: bool) -> Self {
-            Self {
-                empty,
-                counts: std::sync::Mutex::new(std::collections::HashMap::new()),
-                maximum: MAX_INTERRUPTS_PER_SESSION,
-            }
+            Self { empty }
         }
     }
 
@@ -470,70 +299,30 @@ mod tests {
             self.empty
         }
 
-        fn new_session(&self, session: &jinn_core_types::SessionId) -> Box<dyn StreamRuleSession> {
-            let mut counts = self.counts.lock().unwrap();
-            let interrupts = std::sync::Arc::clone(
-                counts
-                    .entry(session.clone())
-                    .or_insert_with(|| std::sync::Arc::new(InterruptCount::default())),
-            );
+        fn new_session(&self, _session: &jinn_core_types::SessionId) -> Box<dyn StreamRuleSession> {
             Box::new(AlwaysSession {
-                interrupts: interrupts.clone(),
-                maximum: self.maximum,
                 buffers: std::collections::HashMap::new(),
             })
         }
 
-        fn end_response(&self, session: &jinn_core_types::SessionId, how: TurnEnd) {
-            let Some(count) = self.counts.lock().unwrap().get(session).cloned() else {
-                return;
-            };
-            if how == TurnEnd::Finished {
-                count.debit();
-            }
-        }
-
-        fn interrupts_for(&self, session: &jinn_core_types::SessionId) -> usize {
-            self.counts
-                .lock()
-                .unwrap()
-                .get(session)
-                .map_or(0, |arc| arc.count())
-        }
-
         fn for_project(&self, _project: &std::path::Path) -> std::sync::Arc<dyn StreamRuleSet> {
-            std::sync::Arc::new(Self {
-                empty: self.empty,
-                counts: std::sync::Mutex::new(std::collections::HashMap::new()),
-                maximum: self.maximum,
-            })
+            std::sync::Arc::new(Self { empty: self.empty })
         }
     }
 
     #[derive(Debug)]
     struct AlwaysSession {
-        interrupts: std::sync::Arc<InterruptCount>,
-        maximum: usize,
         buffers: std::collections::HashMap<String, String>,
     }
 
     impl StreamRuleSession for AlwaysSession {
-        fn check(&mut self, delta: &str, ctx: StreamContext<'_>) -> Option<RuleMatch> {
+        fn check(&mut self, delta: &str, ctx: StreamContext<'_>) -> Option<RuleFired> {
             let key = format!("{:?}", ctx.source);
             self.buffers.entry(key.clone()).or_default().push_str(delta);
-            let rule = RuleFired {
+            Some(RuleFired {
                 name: key,
                 description: String::new(),
                 body: delta.to_owned(),
-            };
-            Some(if self.interrupts.record(self.maximum) {
-                RuleMatch::Interrupt(rule)
-            } else {
-                self.interrupts.reset();
-                RuleMatch::BudgetSpent {
-                    rule,
-                    maximum: self.maximum,
-                }
             })
         }
 
@@ -590,207 +379,23 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn a_clean_response_debits_the_interrupt_count() {
-        // Given a session that has been interrupted once.
-        let count = InterruptCount::default();
-        assert!(count.record(3), "the first interrupt is within budget");
-        assert_eq!(count.count(), 1);
-
-        // When a response ends without an interrupt.
-        count.debit();
-
-        // Then the count is back to zero, never negative.
-        assert_eq!(count.count(), 0);
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn debiting_a_zero_count_stays_at_zero() {
-        // Given a session that has never been interrupted.
-        let count = InterruptCount::default();
-
-        // When a clean response ends.
-        count.debit();
-        count.debit();
-
-        // Then the count clamps at zero rather than wrapping.
-        assert_eq!(count.count(), 0);
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn interrupts_accumulate_across_responses() {
+    fn a_match_carries_only_the_rule_that_fired() {
         // Given an installed matcher holding rules.
         let mut rules = StreamRules::empty();
         rules.install(std::sync::Arc::new(AlwaysSet::new(false)));
-        let session_id = jinn_core_types::SessionId::new();
 
-        // When one more response than the budget allows trips a rule.
-        let mut outcomes = Vec::new();
-        for _ in 0..=MAX_INTERRUPTS_PER_SESSION {
-            let mut response = rules.new_session(&session_id).expect("session");
-            outcomes.push(response.check("a", StreamContext::text()).expect("a match"));
-        }
+        // When a delta is checked.
+        let mut session = rules
+            .new_session(&jinn_core_types::SessionId::new())
+            .expect("session");
+        let fired = session.check("the offending text", StreamContext::text());
 
-        // Then the count carried across the response boundaries: a budget of
-        // three interrupts three times and the next one is spent. A
-        // per-response count would have reset on each new session and
-        // interrupted every time, which is the loop the budget exists to stop.
-        assert_eq!(outcomes.len(), MAX_INTERRUPTS_PER_SESSION + 1);
-        assert!(
-            outcomes
-                .iter()
-                .take(MAX_INTERRUPTS_PER_SESSION)
-                .all(|o| o.is_interrupt()),
-            "a budget of N must permit N interrupts"
-        );
-        assert!(
-            outcomes.last().is_some_and(RuleMatch::is_budget_spent),
-            "consecutive interrupts must accumulate across responses"
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn the_budget_trips_one_interrupt_past_the_maximum() {
-        // Given an installed matcher holding rules.
-        let mut rules = StreamRules::empty();
-        rules.install(std::sync::Arc::new(AlwaysSet::new(false)));
-        let session_id = jinn_core_types::SessionId::new();
-
-        // When one more response than the budget allows trips a rule.
-        let mut response = rules.new_session(&session_id).expect("session");
-        let outcomes: Vec<RuleMatch> = (0..=MAX_INTERRUPTS_PER_SESSION)
-            .map(|_| response.check("a", StreamContext::text()).expect("a match"))
-            .collect();
-
-        // Then the budget is spent exactly once, one interrupt past the
-        // configured number rather than on it.
-        let spent: Vec<bool> = outcomes.iter().map(RuleMatch::is_budget_spent).collect();
-        assert_eq!(
-            spent,
-            vec![false, false, false, true],
-            "a budget of three must interrupt three times before it is spent"
-        );
-        assert!(
-            outcomes
-                .iter()
-                .all(|o| o.is_budget_spent() || o.is_interrupt()),
-            "every outcome must be one of the two the loop knows how to act on"
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn a_trip_latches_rather_than_staying_spent() {
-        // Given a session whose budget has just been spent.
-        let count = InterruptCount::default();
-        for _ in 0..MAX_INTERRUPTS_PER_SESSION {
-            count.record(MAX_INTERRUPTS_PER_SESSION);
-        }
-        assert_eq!(count.count(), MAX_INTERRUPTS_PER_SESSION);
-
-        // When the trip latches.
-        count.reset();
-
-        // Then the count is zero, so the next response is judged afresh
-        // rather than cancelled forever.
-        assert_eq!(count.count(), 0);
-        assert!(
-            count.record(MAX_INTERRUPTS_PER_SESSION),
-            "a latched session must be able to interrupt again"
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn a_clean_response_lets_a_rule_fire_again() {
-        // Given an installed matcher holding rules, on a session whose count
-        // is already spent.
-        let mut rules = StreamRules::empty();
-        rules.install(std::sync::Arc::new(AlwaysSet::new(false)));
-        let session_id = jinn_core_types::SessionId::new();
-        {
-            let mut response = rules.new_session(&session_id).expect("session");
-            // Bounded, not `while is_some()`: the latch makes every later
-            // match return `Some` again, so an unbounded loop would spin.
-            for _ in 0..=MAX_INTERRUPTS_PER_SESSION {
-                response.check("a", StreamContext::text());
-            }
-        }
-
-        // When a response completes without an interrupt, and the next one
-        // violates again.
-        rules.end_response(&session_id, TurnEnd::Finished);
-        let mut next = rules.new_session(&session_id).expect("session");
-        let fired = next.check("a", StreamContext::text());
-
-        // Then the rule is eligible again, because a model that complied once
-        // has earned the chance to err again.
-        assert!(matches!(fired, Some(RuleMatch::Interrupt(_))));
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn an_aborted_response_retains_the_count() {
-        // Given an installed matcher holding rules, on a session one
-        // interrupt short of its budget.
-        let mut rules = StreamRules::empty();
-        rules.install(std::sync::Arc::new(AlwaysSet::new(false)));
-        let session_id = jinn_core_types::SessionId::new();
-        {
-            let mut response = rules.new_session(&session_id).expect("session");
-            for _ in 0..MAX_INTERRUPTS_PER_SESSION - 1 {
-                assert!(matches!(
-                    response.check("a", StreamContext::text()),
-                    Some(RuleMatch::Interrupt(_))
-                ));
-            }
-        }
-
-        // When the response that was interrupted ends as interrupted.
-        rules.end_response(&session_id, TurnEnd::Aborted);
-        let mut next = rules.new_session(&session_id).expect("session");
-
-        // Then the count carried over, so the retained interrupts are what
-        // spends the budget rather than resetting at each response boundary.
-        assert!(
-            next.check("a", StreamContext::text())
-                .expect("a match")
-                .is_interrupt(),
-            "the retained count must leave the next match within budget"
-        );
-        assert!(
-            next.check("a", StreamContext::text())
-                .expect("a match")
-                .is_budget_spent(),
-            "an interrupted response must not repay the count"
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn the_count_is_per_session() {
-        // Given an installed matcher holding rules.
-        let mut rules = StreamRules::empty();
-        rules.install(std::sync::Arc::new(AlwaysSet::new(false)));
-        let first_id = jinn_core_types::SessionId::new();
-        let second_id = jinn_core_types::SessionId::new();
-        {
-            let mut first = rules.new_session(&first_id).expect("session");
-            for _ in 0..=MAX_INTERRUPTS_PER_SESSION {
-                first.check("a", StreamContext::text());
-            }
-        }
-
-        // When another session's response runs.
-        let mut second = rules.new_session(&second_id).expect("session");
-
-        // Then it is unaffected by the first session's exhausted budget.
-        assert!(matches!(
-            second.check("a", StreamContext::text()),
-            Some(RuleMatch::Interrupt(_))
-        ));
+        // Then the value is the fired rule itself, carrying what the caller
+        // needs to name it and to resume the turn with its guidance. There is
+        // no second outcome to match on: a match is a fact, and whether it
+        // ends the session is the watchdog's call.
+        let fired = fired.expect("a match");
+        assert_eq!(fired.body, "the offending text");
     }
 
     #[rstest::rstest]
