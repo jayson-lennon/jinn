@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use jinn_context_assembly_msg::ContextOverrideChanged;
 use jinn_core_types::SessionId;
 use jinn_core_types::tool_types::ToolCall;
-use jinn_inference_msg::{StreamCompleted, StreamCompletedReason, StreamToken};
+use jinn_inference_msg::{CancelTurn, StreamCompleted, StreamCompletedReason, StreamToken};
 use jinn_kernel::common::actor_deps::BusPublish;
 use jinn_kernel::protocol::{ChatEntry, ChatEntryId, ChatEntryKind};
 use jinn_llm_support::token_estimator::{TiktokenCounter, TokenCounter};
@@ -23,6 +23,61 @@ use super::super::SessionPersistenceActor;
 use jinn_session_msg::PhaseKind;
 
 impl SessionPersistenceActor {
+    /// Ends a turn that something cancelled.
+    ///
+    /// Publishes the completion rather than settling the phase directly. The
+    /// `StreamCompleted(Canceled)` handler above already settles it — and
+    /// finalizes the partial entry, force-excludes dangling tool calls, and
+    /// drains the queue on the way. Settling here as well would run that
+    /// twice: once now, and once when this actor receives the completion it
+    /// just published.
+    ///
+    /// Skips an idle session, which makes the cancel idempotent and is what
+    /// keeps a caller that settled the phase synchronously from settling it
+    /// twice. Escape settles locally and emits `CancelTurn` in the same
+    /// handler, so by the time that command arrives here the session is already
+    /// idle and a second report would push a duplicate `Cancelled` entry into
+    /// the user's history.
+    pub(in crate::session_actor) async fn on_cancel_turn(&self, msg: &CancelTurn) {
+        // The generation stamp must be the live one, not `now()`: the stale
+        // guard in `apply_stream_completion` drops a completion whose
+        // `dispatched_at` predates the session's active generation, so a
+        // freshly-timestamped one on a session with a live generation would be
+        // silently discarded and the session would never settle.
+        // `Option<Option<_>>` is deliberate: the outer is "is there a turn to
+        // end", the inner is "which generation". A busy session with no
+        // generation stamp still has a turn to end — it was rewound to
+        // `Sending` by an intercept, and the generation it lost is the one
+        // being replaced.
+        let Some(dispatched_at) = self.state.with_session(|view| {
+            let session = view.session.map().get_or_create(&msg.session_id);
+            (session.phase() != PhaseKind::Idle).then(|| session.stream_dispatched_at())
+        }) else {
+            tracing::debug!(
+                session_id = %msg.session_id,
+                phase = ?PhaseKind::Idle,
+                "CancelTurn for an idle session; nothing to end"
+            );
+            return;
+        };
+        let dispatched_at = dispatched_at.unwrap_or_else(jiff::Timestamp::now);
+
+        self.publish(StreamCompleted {
+            model_used: None,
+            session_id: msg.session_id.clone(),
+            reason: StreamCompletedReason::Canceled,
+            assistant_content: None,
+            tool_calls: None,
+            cost: None,
+            provider_completion_tokens: None,
+            provider_prompt_tokens: None,
+            cached_tokens: None,
+            thinking_content: None,
+            dispatched_at,
+        })
+        .await;
+    }
+
     /// Appends a streaming token to the session's assistant entry,
     /// or to the thinking entry if the token is flagged as reasoning.
     pub(in crate::session_actor) fn on_stream_token(&self, event: &StreamToken) {

@@ -6,7 +6,7 @@
 //! increments it, a successful one debits it by one (floor at zero), and
 //! reaching the configured maximum trips the watchdog — the actor pushes
 //! the trip marker ([`PushChatEntry`]) followed by
-//! [`CancelStream`], then resets the counter so the same session is not
+//! [`CancelTurn`], then resets the counter so the same session is not
 //! re-killed immediately. A turn that ends in a genuine final answer
 //! ([`StreamCompleted`] with `Finished`) resets the counter (recovery
 //! latch); a turn ended by error/cancel retains it.
@@ -24,9 +24,9 @@ use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
 use jinn_core_types::SessionId;
-use jinn_inference_msg::CancelStream;
 use jinn_inference_msg::StreamCompleted;
 use jinn_inference_msg::StreamCompletedReason;
+use jinn_inference_msg::{CancelCause, CancelTurn};
 use jinn_kernel::Services;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_tools_msg::ToolExecutionCompleted;
@@ -40,7 +40,7 @@ pub const TOOL_CALL_WATCHDOG_PATH: &str = "tool-call-watchdog";
 #[derive(Debug)]
 pub enum ToolWatchdogAction {
     Marker(SessionId, String),
-    CancelStream(SessionId),
+    CancelTurn(SessionId),
 }
 
 /// Dependencies for [`ToolCallWatchdogActor`].
@@ -123,8 +123,14 @@ impl ToolCallWatchdogActor {
                         })
                         .await;
                 }
-                ToolWatchdogAction::CancelStream(session_id) => {
-                    self.services.bus.publish(CancelStream { session_id }).await;
+                ToolWatchdogAction::CancelTurn(session_id) => {
+                    self.services
+                        .bus
+                        .publish(CancelTurn {
+                            session_id,
+                            cause: CancelCause::Turn,
+                        })
+                        .await;
                 }
             }
         }
@@ -184,7 +190,7 @@ impl ToolCallWatchdogActor {
         self.accumulators.insert(session.clone(), 0);
         vec![
             ToolWatchdogAction::Marker(session.clone(), trip_text(self.max_failures, count)),
-            ToolWatchdogAction::CancelStream(session),
+            ToolWatchdogAction::CancelTurn(session),
         ]
     }
 
@@ -248,7 +254,7 @@ mod tests {
             text.contains('4'),
             "trip text must name the failure count, got: {text:?}"
         );
-        let ToolWatchdogAction::CancelStream(cancel_session) = &actions[1] else {
+        let ToolWatchdogAction::CancelTurn(cancel_session) = &actions[1] else {
             panic!("second action must be the cancel, got: {actions:?}");
         };
         assert_eq!(cancel_session, &session);

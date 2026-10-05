@@ -21,7 +21,7 @@ use crate::tool_types::ToolContext;
 use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::SessionId;
 use jinn_core_types::tool_types::{ToolCall, ToolResult};
-use jinn_inference_msg::CancelStream;
+use jinn_inference_msg::CancelTurn;
 use jinn_kernel::common::app_paths::AppPaths;
 use jinn_kernel::common::app_state::AppState;
 use jinn_kernel::common::bus::HarnessServices;
@@ -626,7 +626,7 @@ async fn task_timeout_cancels_child_and_fails() {
     let (state, parent_id) = parent_fixture();
     let ctx = task_ctx(&harness, &state, parent_id.clone()).await;
     let created_rec = harness.spawn_recorder::<SessionCreated>().await;
-    let cancel_rec = harness.spawn_recorder::<CancelStream>().await;
+    let cancel_rec = harness.spawn_recorder::<CancelTurn>().await;
 
     // When the child never finishes and the budget expires.
     let pending = tokio::spawn(execute(

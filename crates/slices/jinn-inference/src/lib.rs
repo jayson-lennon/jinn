@@ -2,7 +2,7 @@
 //!
 //! Hosts the trouper [`ServiceActor`] inference actor (converted from the
 //! kernel `LlmActor`). It consumes the slice-owned dispatch commands
-//! ([`SendToLlmProvider`], [`CancelStream`]) and its own [`StreamCompleted`]
+//! ([`SendToLlmProvider`], [`CancelTurn`]) and its own [`StreamCompleted`]
 //! echo, builds/opens the provider
 //! stream via the `LlmService` factory in `Services`, and republishes stream
 //! facts (`StreamToken`, `StreamCompleted`, tool-stream events, error/cancel
@@ -22,7 +22,7 @@ pub mod streaming_indicator;
 
 use jinn_slices::SliceHost;
 
-pub use jinn_inference_msg::CancelStream;
+pub use jinn_inference_msg::CancelTurn;
 pub use jinn_inference_msg::SendToLlmProvider;
 pub use jinn_inference_msg::StreamCompleted;
 

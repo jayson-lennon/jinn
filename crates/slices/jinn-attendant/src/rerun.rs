@@ -16,7 +16,7 @@
 
 use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::{ChatEntryId, SessionId};
-use jinn_inference_msg::CancelStream;
+use jinn_inference_msg::{CancelCause, CancelTurn};
 use jinn_kernel::common::state::State;
 use jinn_session_msg::PhaseKind;
 
@@ -29,7 +29,7 @@ use crate::activation;
 /// only when the reset actually changed something, which is the caller's cue
 /// that the exclusions need writing to disk.
 pub type RerunOutcome = (
-    Option<CancelStream>,
+    Option<CancelTurn>,
     Option<EnqueueUserMessage>,
     Vec<ChatEntryId>,
 );
@@ -72,8 +72,9 @@ pub fn rerun_in_state(
     // start would carry the old turn's leftovers.
     let cancel = (session.phase() != PhaseKind::Idle).then(|| {
         session.cancel_streaming(jiff::Timestamp::now());
-        CancelStream {
+        CancelTurn {
             session_id: attendant_id.clone(),
+            cause: CancelCause::Turn,
         }
     });
     let (entry, reset) = activation::prepare_manual_run(session);

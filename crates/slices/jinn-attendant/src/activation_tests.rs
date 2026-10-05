@@ -298,7 +298,7 @@ async fn prep_mode_makes_the_trigger_inert_end_to_end() {
         .spawn_recorder::<jinn_chat_input_msg::EnqueueUserMessage>()
         .await;
     let canceled = harness
-        .spawn_recorder::<jinn_inference_msg::CancelStream>()
+        .spawn_recorder::<jinn_inference_msg::CancelTurn>()
         .await;
     let state = State::new(AppState::default());
     // The default state pre-seeds an active session, so the fixture parent

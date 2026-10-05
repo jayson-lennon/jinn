@@ -11,15 +11,15 @@
 //!   Silence past the configured window publishes the visible retry marker
 //!   and re-dispatches the turn (`RetryStalledSession`); past the budget of
 //!   silent stalls between completed generations it surrenders (surrender
-//!   marker + `CancelStream`).
+//!   marker + `CancelTurn`).
 //! - [`tool_call_watchdog_actor::ToolCallWatchdogActor`] accumulates
 //!   consecutive tool failures (`ToolExecutionCompleted`), trips at the
-//!   configured count (trip marker + `CancelStream`), and recovers on a
+//!   configured count (trip marker + `CancelTurn`), and recovers on a
 //!   genuinely finished turn (`StreamCompleted` with `Finished`).
 //! - [`stream_rule_watchdog_actor::StreamRuleWatchdogActor`] accumulates
 //!   consecutive stream-rule interrupts (`StreamCompleted` with
 //!   `RuleIntercept`), trips at the configured count (trip marker +
-//!   `CancelStream`), and repays one interrupt per finished response.
+//!   `CancelTurn`), and repays one interrupt per finished response.
 //!
 //! All three actors publish through `Services`' bus (kernel dependency, see
 //! Cargo.toml) and write no shared state.

@@ -120,14 +120,14 @@ mod tests {
             jinn_slices::empty_config_layer(),
         );
 
-        // Then the prompt is dismissed and a CancelStream command is emitted.
+        // Then the prompt is dismissed and a CancelTurn command is emitted.
         assert!(!state.frontend.cancel_stream_prompt);
         assert!(
             result
                 .message_names
                 .iter()
-                .any(|n| n.contains("CancelStream")),
-            "should emit CancelStream: {:?}",
+                .any(|n| n.contains("CancelTurn")),
+            "should emit CancelTurn: {:?}",
             result.message_names
         );
     }
@@ -147,7 +147,7 @@ mod tests {
             jinn_slices::empty_config_layer(),
         );
 
-        // Then the prompt is dismissed but no CancelStream command.
+        // Then the prompt is dismissed but no CancelTurn command.
         assert!(!state.frontend.cancel_stream_prompt);
     }
 
@@ -205,14 +205,14 @@ mod tests {
             jinn_slices::empty_config_layer(),
         );
 
-        // Then the prompt is dismissed and no CancelStream command is emitted.
+        // Then the prompt is dismissed and no CancelTurn command is emitted.
         assert!(!state.frontend.cancel_stream_prompt);
         assert!(
             !result
                 .message_names
                 .iter()
-                .any(|n| n.contains("CancelStream")),
-            "should not emit CancelStream: {:?}",
+                .any(|n| n.contains("CancelTurn")),
+            "should not emit CancelTurn: {:?}",
             result.message_names
         );
     }

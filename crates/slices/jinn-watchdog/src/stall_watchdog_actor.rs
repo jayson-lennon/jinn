@@ -7,7 +7,7 @@
 //! visible retry marker ([`PushChatEntry`]) and re-dispatches the turn
 //! ([`RetryStalledSession`]) — up to `max_restarts` consecutive times.
 //! Beyond the budget it gives up instead: a surrender entry followed by
-//! [`CancelStream`].
+//! [`CancelTurn`].
 //!
 //! **Liveness is one contract, not a list.** The inference actor publishes
 //! [`StreamActivity`] on *every* non-terminal provider event — text,
@@ -68,11 +68,11 @@ use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
 use jinn_core_types::SessionId;
-use jinn_inference_msg::CancelStream;
 use jinn_inference_msg::SendToLlmProvider;
 use jinn_inference_msg::StreamActivity;
 use jinn_inference_msg::StreamCompleted;
 use jinn_inference_msg::StreamCompletedReason;
+use jinn_inference_msg::{CancelCause, CancelTurn};
 use jinn_kernel::Services;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_session_msg::RetryStalledSession;
@@ -251,8 +251,14 @@ impl StallWatchdogActor {
                 StallAction::RetryStalledSession(command) => {
                     self.services.bus.publish(command).await;
                 }
-                StallAction::CancelStream(session_id) => {
-                    self.services.bus.publish(CancelStream { session_id }).await;
+                StallAction::CancelTurn(session_id) => {
+                    self.services
+                        .bus
+                        .publish(CancelTurn {
+                            session_id,
+                            cause: CancelCause::Turn,
+                        })
+                        .await;
                 }
             }
         }
@@ -266,7 +272,7 @@ impl StallWatchdogActor {
 pub enum StallAction {
     Marker(SessionId, String),
     RetryStalledSession(RetryStalledSession),
-    CancelStream(SessionId),
+    CancelTurn(SessionId),
 }
 
 /// The actor's self-addressed heartbeat: advances time and publishes
@@ -435,7 +441,7 @@ fn trip(
     stall.restarts = 0;
     vec![
         StallAction::Marker(session.clone(), give_up_text(max_restarts)),
-        StallAction::CancelStream(session),
+        StallAction::CancelTurn(session),
     ]
 }
 
@@ -519,8 +525,8 @@ mod tests {
             text.contains("stall-watchdog:"),
             "surrender marker must carry the watchdog prefix, got: {text:?}"
         );
-        let StallAction::CancelStream(cancel_session) = &actions[1] else {
-            panic!("second action must be a CancelStream, got: {actions:?}");
+        let StallAction::CancelTurn(cancel_session) = &actions[1] else {
+            panic!("second action must be a CancelTurn, got: {actions:?}");
         };
         assert_eq!(cancel_session, session);
     }

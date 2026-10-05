@@ -642,12 +642,12 @@ async fn escape_still_cancels_through_the_same_keymap() {
         &app.services.config,
     );
 
-    // Then a CancelStream is emitted.
+    // Then a CancelTurn is emitted.
     assert!(
         result
             .message_names
             .iter()
-            .any(|n| n.contains("CancelStream")),
+            .any(|n| n.contains("CancelTurn")),
         "the confirming escape must still cancel: {:?}",
         result.message_names
     );
@@ -680,12 +680,12 @@ async fn a_finished_turn_dismisses_the_cancel_stream_prompt() {
         !app.core.state.read().frontend.cancel_stream_prompt,
         "a prompt must not outlive the turn it asks to abort"
     );
-    // And no CancelStream is emitted for a turn that already finished.
+    // And no CancelTurn is emitted for a turn that already finished.
     assert!(
         !result
             .message_names
             .iter()
-            .any(|n| n.contains("CancelStream")),
+            .any(|n| n.contains("CancelTurn")),
         "a finished turn must not be cancelled: {:?}",
         result.message_names
     );

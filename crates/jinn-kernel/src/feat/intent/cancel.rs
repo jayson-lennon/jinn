@@ -181,7 +181,7 @@ pub(crate) fn try_handle_cancel_stream_prompt(
 
     // An idle session's own turn already produced nothing to salvage, so the
     // cascade reaches down into its running descendants and leaves the parent
-    // alone. Sending it a `CancelStream` would be actively harmful: the
+    // alone. Sending it a `CancelTurn` would be actively harmful: the
     // inference actor tombstones a session id before it checks for a live
     // stream, which would drop this session's `ToolContinuation` sends until
     // its next user message. Cancelling it inline would drain its steering
@@ -194,8 +194,9 @@ pub(crate) fn try_handle_cancel_stream_prompt(
 
         // Cancel stream.
         state.active_session_mut().cancel_stream_and_drain();
-        let mut result = IntentResult::empty().with_message(jinn_inference_msg::CancelStream {
+        let mut result = IntentResult::empty().with_message(jinn_inference_msg::CancelTurn {
             session_id: session_id.clone(),
+            cause: jinn_inference_msg::CancelCause::Turn,
         });
 
         // Also cancel any running lifecycle command.
@@ -256,8 +257,9 @@ pub fn cascade_descendants(
                 | jinn_session_msg::SessionOrigin::Attendant,
             ) => {
                 result = result
-                    .with_message(jinn_inference_msg::CancelStream {
+                    .with_message(jinn_inference_msg::CancelTurn {
                         session_id: child_id.clone(),
+                        cause: jinn_inference_msg::CancelCause::Turn,
                     })
                     .merge(cascade_descendants(state, &child_id, visited));
             }
@@ -317,7 +319,7 @@ mod tests {
         result
             .message_names
             .iter()
-            .filter(|name| name.contains("CancelStream"))
+            .filter(|name| name.contains("CancelTurn"))
             .count()
     }
 

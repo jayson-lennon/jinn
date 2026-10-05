@@ -6792,7 +6792,7 @@ fn cancel_streaming_leaves_the_input_draft_where_the_user_typed_it() {
 fn a_queued_message_is_handed_back_to_the_user_as_an_editable_draft() {
     // Given a streaming session attached to the chat-input cell, with a
     // seeded turn already sitting in the queue. This is the state a trigger
-    // produces when it publishes `CancelStream` without also dropping the
+    // produces when it publishes `CancelTurn` without also dropping the
     // phase: the enqueue sees a hot session and queues instead of
     // dispatching.
     let slices = jinn_slices::Slices::new();

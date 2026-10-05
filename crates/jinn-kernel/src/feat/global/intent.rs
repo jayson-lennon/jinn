@@ -4,7 +4,7 @@ use crate::common::app_state::AppState;
 use crate::protocol::{IntentResult, KernelIntent};
 use jinn_chat_input_msg::ChatInputBoxState;
 use jinn_core_types::SessionId;
-use jinn_inference_msg::CancelStream;
+use jinn_inference_msg::{CancelCause, CancelTurn};
 
 use super::validator;
 
@@ -38,8 +38,9 @@ pub fn handle_interrupt(state: &mut AppState, target: Option<&SessionId>) -> Int
         state
             .session_mut(id)
             .cancel_streaming(jiff::Timestamp::now());
-        return IntentResult::new_message(CancelStream {
+        return IntentResult::new_message(CancelTurn {
             session_id: id.clone(),
+            cause: CancelCause::Turn,
         });
     }
 
@@ -163,7 +164,7 @@ mod tests {
         // When handling Interrupt.
         let result = handle_interrupt(&mut state);
 
-        // Then no CancelStream command is emitted.
+        // Then no CancelTurn command is emitted.
         assert!(result.message_names.is_empty());
         // And the session is still streaming.
         assert!(matches!(
@@ -192,7 +193,7 @@ mod tests {
             state.session.get_unchecked(&second_id).phase(),
             PhaseKind::Idle
         ));
-        // And a CancelStream message is returned for that session.
+        // And a CancelTurn message is returned for that session.
         assert_eq!(result.messages.len(), 1);
     }
 

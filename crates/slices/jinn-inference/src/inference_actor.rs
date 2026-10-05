@@ -8,8 +8,8 @@ use jiff::Timestamp;
 use jinn_core_types::SessionId;
 use jinn_core_types::tool_types::ToolCall;
 use jinn_inference_msg::{
-    AbortStream, CancelPendingDispatch, CancelStream, SendToLlmProvider, StreamActivity,
-    StreamCompleted, StreamCompletedReason, StreamOrigin, StreamToken,
+    AbortStream, CancelTurn, SendToLlmProvider, StreamActivity, StreamCompleted,
+    StreamCompletedReason, StreamOrigin, StreamToken,
 };
 use jinn_kernel::common::actor_deps::BusPublish;
 use jinn_kernel::common::services::Services;
@@ -123,11 +123,11 @@ pub struct InferenceActor {
     tasks: HashMap<SessionId, tokio::task::JoinHandle<()>>,
     /// Per-session state.
     sessions: HashMap<SessionId, SessionData>,
-    /// Sessions tombstoned by a recent [`CancelStream`]. While tombstoned,
+    /// Sessions tombstoned by a recent [`CancelTurn`]. While tombstoned,
     /// `ToolContinuation` sends are dropped; a `User` send clears it.
     cancelled_sessions: HashSet<SessionId>,
     /// Sessions whose next dispatch is to be dropped by
-    /// [`CancelPendingDispatch`], spent as soon as it is honoured.
+    /// [`CancelTurn`] with a latching cause, spent as soon as it is honoured.
     ///
     /// The complement of [`Self::cancelled_sessions`], which guards a stream
     /// that is running: this one guards the window *before* one starts, and
@@ -182,8 +182,7 @@ impl InferenceActor {
                 }
             })
             .handles::<SendToLlmProvider>()
-            .handles::<CancelStream>()
-            .handles::<CancelPendingDispatch>()
+            .handles::<CancelTurn>()
             .handles::<AbortStream>()
             .handles::<StreamCompleted>()
             .start()
@@ -213,30 +212,28 @@ impl MsgHandler<AbortStream> for InferenceActor {
     }
 }
 
-impl MsgHandler<CancelStream> for InferenceActor {
-    async fn handle(&mut self, msg: &CancelStream, _ctx: &mut MsgCtx<'_>) {
-        self.cancel_stream(&msg.session_id).await;
-    }
-}
-
-impl MsgHandler<CancelPendingDispatch> for InferenceActor {
-    /// Latches away the next dispatch rather than ending a running stream.
+impl MsgHandler<CancelTurn> for InferenceActor {
+    /// Stops the stream, and publishes nothing.
     ///
-    /// Reports the turn's end as it arms the latch, because the turn being
-    /// ended is the one still in flight — not the dispatch this drops. A
-    /// watchdog tripped, the intercept has already rewound the session, and the
-    /// resume this stops is the last thing that turn was going to do. Silence
-    /// here left the session in `Sending` with its spinner lit and no turn-end
-    /// signal, so the reasoning that once favoured silence ("a dispatch that
-    /// never started has no response to end") was right about the dispatch and
-    /// wrong about the turn: the turn did start, and something else has to say
-    /// it stopped.
-    #[expect(
-        clippy::unused_async,
-        reason = "the MsgHandler signature is async; the teardown awaits its own publish"
-    )]
-    async fn handle(&mut self, msg: &CancelPendingDispatch, _ctx: &mut MsgCtx<'_>) {
-        self.settle_latched_turn(&msg.session_id).await;
+    /// Reporting the turn's end is the session actor's job — it owns the
+    /// phase, and its `StreamCompleted(Canceled)` handler settles it. This
+    /// actor used to publish that completion itself, and the session actor
+    /// settles independently of anything published, so a cancel that both
+    /// reported and settled ran the settle twice.
+    ///
+    /// The latch is armed here rather than on the dispatch side because this
+    /// is the only actor that sees dispatches. The stream-rule watchdog's
+    /// resume is already queued by the time its interrupt is counted — the
+    /// intercept tore the generation down first — and it arrives as a
+    /// user-originated send, the only origin that lifts the tombstone this
+    /// teardown just armed. Dropping it is therefore the only way the trip
+    /// stops the loop rather than resetting its counter.
+    async fn handle(&mut self, msg: &CancelTurn, _ctx: &mut MsgCtx<'_>) {
+        self.abort_stream(&msg.session_id, None).await;
+
+        if msg.cause.latches_queued_dispatch() {
+            self.latch_dispatch(&msg.session_id);
+        }
     }
 }
 
@@ -475,8 +472,8 @@ async fn apply_rule_match(
 ///
 /// Three publishes, in this order:
 ///
-/// 1. [`CancelStream`] — the abort. It reuses the actor's own cancel path so
-///    the tombstone is armed exactly as a user cancel arms it, and so the
+/// 1. [`AbortStream`] — the teardown. It shares the cancel path's own teardown
+///    so the tombstone is armed exactly as a user cancel arms it, and so the
 ///    aborted task is cleaned up by the one code path that already does it.
 ///    A task cannot abort *itself* from inside, so the loop returns after
 ///    publishing this rather than calling `JoinHandle::abort`.
@@ -907,7 +904,7 @@ impl InferenceActor {
 
         // Cancel tombstone: a continuation arriving for a recently-cancelled
         // session is the in-flight remnant of the tool loop losing the race
-        // against `CancelStream` — drop it silently (the `StreamCompleted(
+        // against `CancelTurn` — drop it silently (the `StreamCompleted(
         // Canceled)` already ended the turn and pushed its cancel entry).
         if payload.origin == StreamOrigin::ToolContinuation
             && self.cancelled_sessions.contains(&payload.session_id)
@@ -1073,12 +1070,10 @@ impl InferenceActor {
     /// Tears a session's stream down: arms the tombstone, cancels pending
     /// tool batches, aborts the task, and forgets the session.
     ///
-    /// Split out of [`Self::cancel_stream`] because a rule intercept needs
-    /// the same teardown with a *different* terminal reason. Publishing a
-    /// `CancelStream` to get it would emit a competing
-    /// `StreamCompleted(Canceled)` — which pushes the literal `"Cancelled"`
-    /// history entry that every consumer reads as a user cancel — so the
-    /// teardown is called directly instead.
+    /// Shared by every teardown: a rule intercept needs the same work with a
+    /// *different* terminal reason. Publishing a
+    /// `CancelTurn` to get it would end the turn rather than resume it, and
+    /// would race the intercept's own `RuleIntercept` completion.
     ///
     /// A rule intercept carries the dispatch it is aborting, and a mismatch
     /// means the abort is stale: the turn already resumed on a newer
@@ -1133,91 +1128,18 @@ impl InferenceActor {
         (dispatched_at, had_session)
     }
 
-    /// Cancels the active stream for a session and emits a completion event.
-    /// Latches away the next dispatch for `session_id`.
+    /// Drops the next dispatch for a session, before it starts.
     ///
-    /// The pure seam of [`MsgHandler<CancelPendingDispatch>`], split out so the
-    /// latch's lifecycle is testable without a `MsgCtx` — the watchdog family's
-    /// convention, and the reason its decision methods are separately testable
-    /// from its publishing.
+    /// The pure seam of [`MsgHandler<CancelTurn>`]'s latch arm, split out so
+    /// the latch's lifecycle is testable without a `MsgCtx` — the watchdog
+    /// family's convention, and the reason its decision methods are separately
+    /// testable from its publishing.
     fn latch_dispatch(&mut self, session_id: &SessionId) {
         self.dispatch_cancelled_sessions.insert(session_id.clone());
         tracing::warn!(
             session_id = %session_id,
             "latched away the next dispatch; the pending resume will not start"
         );
-    }
-
-    /// Ends a turn whose next dispatch is being latched away.
-    ///
-    /// Reports the turn's end here, when the latch is armed, rather than when
-    /// the latch is spent. The turn is genuinely over at arming time — a
-    /// watchdog tripped — and the intercept has already rewound the session to
-    /// `Sending` in anticipation of a resume that will now never run. Nothing
-    /// else settles it: the latched dispatch never starts, so it produces no
-    /// completion, and the session would sit in `Sending` with its spinner lit
-    /// and no turn-end signal.
-    ///
-    /// The dispatch is dropped silently when the latch is spent. By then this
-    /// completion has already been consumed, and emitting a second one for the
-    /// same turn would double-report its end.
-    async fn settle_latched_turn(&mut self, session_id: &SessionId) {
-        self.latch_dispatch(session_id);
-        self.publish(StreamCompleted {
-            model_used: None,
-            session_id: session_id.clone(),
-            reason: StreamCompletedReason::Canceled,
-            assistant_content: None,
-            tool_calls: None,
-            cost: None,
-            provider_completion_tokens: None,
-            provider_prompt_tokens: None,
-            cached_tokens: None,
-            thinking_content: None,
-            dispatched_at: Timestamp::now(),
-        })
-        .await;
-    }
-
-    async fn cancel_stream(&mut self, session_id: &SessionId) {
-        let (dispatched_at, _had_session) = self.abort_stream(session_id, None).await;
-
-        // Whether to report the turn's end is a question about the *turn*, not
-        // about this actor's stream table — and the two disagree exactly when a
-        // cancel is most needed.
-        //
-        // The tool-call watchdog's cancel works because its trip lands while a
-        // stream is still live. A rule-loop trip cannot: the intercept already
-        // tore the generation down before the watchdog counted it, so
-        // `had_session` is false on every one of those trips, and gating on it
-        // reported nothing at all. The session then sat in the phase its
-        // rewind left it, with its spinner lit and no turn-end signal.
-        //
-        // The same gate swallowed a user's Escape: the frontend settles the
-        // phase in shared state without a bus event, so if this actor held no
-        // stream the session's own completion was the only remaining report —
-        // and suppressing it left the stall watchdog holding an armed timer for
-        // a session the user had already stopped.
-        //
-        // So the report is unconditional. The stale case it was written to
-        // avoid is already filtered upstream: the ESC intent returns no
-        // `CancelStream` at all when the session is idle, so this handler only
-        // runs for a cancel someone asked for.
-        let _ = dispatched_at;
-        self.publish(StreamCompleted {
-            model_used: None,
-            session_id: session_id.clone(),
-            reason: StreamCompletedReason::Canceled,
-            assistant_content: None,
-            tool_calls: None,
-            cost: None,
-            provider_completion_tokens: None,
-            provider_prompt_tokens: None,
-            cached_tokens: None,
-            thinking_content: None,
-            dispatched_at: dispatched_at.unwrap_or_else(Timestamp::now),
-        })
-        .await;
     }
 }
 
