@@ -69,9 +69,9 @@ use crate::steering_buffer::SteeringBuffer;
 /// providers, so this text reaches the model intact everywhere.
 fn interrupted_call_result(tool_name: &str, arguments: &str) -> String {
     format!(
-        "This `{tool_name}` call did not run. A user-defined rule matched its arguments \
+        "This `{tool_name}` call did not run. A user-defined rule triggered \
      and stopped the response before the call was sent.\n\n\
-     The arguments the model had produced, truncated where it was interrupted:\n\n\
+     The tool call fragment provided (do not re-run as is), truncated where it was interrupted:\n\n\
      {arguments}"
     )
 }
