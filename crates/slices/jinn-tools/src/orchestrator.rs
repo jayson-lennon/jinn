@@ -143,79 +143,7 @@ pub struct ToolOrchestratorActor {
     state: State,
     /// Runtime services.
     services: Services,
-    /// Session ID -> the stream-rule set resolved for that session's project.
-    ///
-    /// A rule's `project` glob is bound to a session rather than to the
-    /// process, because a session's working directory is what selects the
-    /// project and it does not move under a running turn. Resolved once on
-    /// the session's first tool call and reused after, so a `project`-scoped
-    /// rule costs one glob test per call instead of a rebuild.
-    project_rules: HashMap<SessionId, std::sync::Arc<dyn jinn_slices::StreamRuleSet>>,
 }
-
-/// The rule set that denies nothing, cached for sessions with no rules.
-///
-/// A real `StreamRuleSet` rather than an `Option`, so the per-session map can
-/// record "resolved, empty" and stop re-reading the cell per tool call. Every
-/// match on it returns `None`, which is the no-rules-configured path.
-struct DenyNothing;
-
-impl std::fmt::Debug for DenyNothing {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("DenyNothing")
-    }
-}
-
-impl jinn_slices::StreamRuleSet for DenyNothing {
-    fn name(&self) -> &'static str {
-        "deny-nothing"
-    }
-
-    fn is_empty(&self) -> bool {
-        true
-    }
-
-    fn new_session(&self, _session: &SessionId) -> Box<dyn jinn_slices::StreamRuleSession> {
-        Box::new(NoRules)
-    }
-
-    fn end_turn(&self, _session: &SessionId) {}
-
-    fn deny_tool_call(&self, _tool_name: &str, _arguments: &str) -> Option<jinn_slices::RuleFired> {
-        None
-    }
-
-    fn for_project(
-        &self,
-        _project: &std::path::Path,
-    ) -> std::sync::Arc<dyn jinn_slices::StreamRuleSet> {
-        DENY_NOTHING.clone()
-    }
-}
-
-/// A session that fires nothing, for when no rule is configured.
-#[derive(Debug)]
-struct NoRules;
-
-impl jinn_slices::StreamRuleSession for NoRules {
-    fn check(
-        &mut self,
-        _delta: &str,
-        _ctx: jinn_slices::StreamContext<'_>,
-    ) -> Option<jinn_slices::RuleFired> {
-        None
-    }
-
-    fn buffers(&self) -> &std::collections::HashMap<String, String> {
-        static EMPTY: std::sync::OnceLock<std::collections::HashMap<String, String>> =
-            std::sync::OnceLock::new();
-        EMPTY.get_or_init(std::collections::HashMap::new)
-    }
-}
-
-/// The shared "denies nothing" set.
-static DENY_NOTHING: std::sync::LazyLock<std::sync::Arc<dyn jinn_slices::StreamRuleSet>> =
-    std::sync::LazyLock::new(|| std::sync::Arc::new(DenyNothing));
 
 /// Dependencies for [`ToolOrchestratorActor`].
 #[derive(Clone)]
@@ -329,7 +257,6 @@ impl ToolOrchestratorActor {
             pending: HashMap::new(),
             state: deps.state,
             services: deps.services,
-            project_rules: HashMap::new(),
         };
         let all_builtins = crate::registry::builtin_tools(
             actor
@@ -766,19 +693,6 @@ impl ToolOrchestratorActor {
             return self.reject_withheld_tool(session_id, tool_call).await;
         }
 
-        // A `fail_tool` stream rule, consulted here against the call's complete
-        // arguments. Placed beside the filter gate rather than inside a tool
-        // because the rule's subject is the call, not any one tool's internals,
-        // and a denial that happened inside `bash` could not stop a rule
-        // scoped to a different tool. Everything after this point has not
-        // spawned yet, so a denied call emits no execution event and leaves
-        // no process behind.
-        if let Some(denied) = self.rule_denies_tool_call(&session_id, &tool_call) {
-            return self
-                .reject_denied_tool_call(session_id, tool_call, denied)
-                .await;
-        }
-
         match self.find_registration(&session_id, &tool_call.name) {
             Some(ToolRegistration::Builtin {
                 execute,
@@ -843,91 +757,6 @@ impl ToolOrchestratorActor {
             pin_position: None,
         };
 
-        self.publish(ToolExecutionCompleted { session_id, result })
-            .await;
-        None
-    }
-
-    /// The `fail_tool` rule denying this call, if one matches.
-    ///
-    /// The call's `arguments` are the complete serialized arguments the model
-    /// produced, so the outcome does not depend on how the provider streamed
-    /// them: one chunk and a thousand arrive here as the same string.
-    fn rule_denies_tool_call(
-        &mut self,
-        session_id: &SessionId,
-        tool_call: &ToolCall,
-    ) -> Option<jinn_slices::RuleFired> {
-        let set = self.project_rule_set(session_id);
-        set.deny_tool_call(&tool_call.name, &tool_call.arguments)
-    }
-
-    /// The rule set resolved for `session_id`'s project, building it once.
-    ///
-    /// Falls back to a set that denies nothing when the stream-rules cell is
-    /// absent or empty: the common configuration is no rules at all, and a
-    /// missing cell must not read as "every call is denied".
-    fn project_rule_set(
-        &mut self,
-        session_id: &SessionId,
-    ) -> std::sync::Arc<dyn jinn_slices::StreamRuleSet> {
-        if let Some(set) = self.project_rules.get(session_id) {
-            return std::sync::Arc::clone(set);
-        }
-
-        let cwd = {
-            let guard = self.state.read();
-            guard.session.get(session_id).map_or_else(
-                || guard.session.default_cwd().clone(),
-                |session| session.cwd().to_owned(),
-            )
-        };
-
-        let set = self
-            .services
-            .slices
-            .reader::<jinn_slices::StreamRules>(&jinn_slices::stream_rules_slot())
-            .and_then(|cell| cell.read().for_project(&cwd));
-        if let Some(set) = set {
-            self.project_rules
-                .insert(session_id.clone(), std::sync::Arc::clone(&set));
-            set
-        } else {
-            // No matcher installed. Cache the absence too, so a session without
-            // rules does not re-resolve the cell on every call, and never
-            // reads as "everything is denied".
-            self.project_rules
-                .insert(session_id.clone(), DENY_NOTHING.clone());
-            DENY_NOTHING.clone()
-        }
-    }
-
-    /// Publishes a failure for a tool call a stream rule denied.
-    ///
-    /// Reports the rule's guidance as the failure content, because that is the
-    /// text written to explain the block, and names the rule so the model can
-    /// tell a policy denial from a broken call.
-    async fn reject_denied_tool_call(
-        &self,
-        session_id: SessionId,
-        tool_call: ToolCall,
-        denied: jinn_slices::RuleFired,
-    ) -> Option<tokio::task::JoinHandle<()>> {
-        tracing::warn!(
-            session_id = %session_id,
-            tool = %tool_call.name,
-            rule = %denied.name,
-            "stream rule denied the tool call before it ran"
-        );
-        let result = ToolResult {
-            tool_call_id: tool_call.id.clone(),
-            name: tool_call.name.clone(),
-            content: format!("Denied by rule `{}`: {}", denied.name, denied.body),
-            success: false,
-            full_content: None,
-            truncation: None,
-            pin_position: None,
-        };
         self.publish(ToolExecutionCompleted { session_id, result })
             .await;
         None

@@ -1,6 +1,6 @@
 //! Compiling configured stream rules into a matcher.
 //!
-//! Four jobs, in order:
+//! Three jobs, in order:
 //!
 //! 1. **Compile** each rule's `conditions` into regexes, its `scopes` into
 //!    the small grammar below, and its `project` into a glob.
@@ -8,26 +8,23 @@
 //!    arguments can never fire on prose that mentions the same text.
 //! 3. **Report** the first rule to match, in the order the user wrote it in
 //!    `jinn.toml`.
-//! 4. **Deny** a completed tool call whose arguments trip a `fail_tool`
-//!    rule, independently of whether anything was streamed.
 //!
-//! Matching runs against the accumulated buffer, never against a single
-//! chunk, so a rule's effect does not depend on how a provider chose to
-//! break its output up. A rule that must act on a finished call — the
-//! `fail_tool` case — is consulted over that same completed content at the
-//! executor, which is why a rule is not limited to the moment something is
-//! streaming past.
+//! A match has exactly one consequence: the turn is interrupted and resumed
+//! with the rule's body as guidance. There is no second outcome to configure
+//! and no separate decision point — a rule scoped to a tool call matches that
+//! call's arguments as they accumulate, and interrupting that call is what
+//! stops it running. A rule therefore needs no knowledge of whether the
+//! content it matched arrived as one piece or a thousand.
 //!
 //! Everything a malformed rule could do — a regex the engine rejects, a
-//! scope token outside the grammar, an `on_trigger` that names nothing, a
-//! glob that will not compile — is a warning and a skip. A typo in one rule
-//! must not be able to break a turn.
+//! scope token outside the grammar, a glob that will not compile — is a
+//! warning and a skip. A typo in one rule must not be able to break a turn.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use globset::{Glob, GlobMatcher};
-use jinn_preferences_config::schemas::{FAIL_TOOL_TRIGGER, StreamRuleConfig};
+use jinn_preferences_config::schemas::StreamRuleConfig;
 use jinn_slices::{
     RuleFired, StreamContext, StreamRuleSession, StreamRuleSet, StreamSource, TurnFires,
 };
@@ -56,41 +53,6 @@ struct ToolScope {
     path: Option<GlobMatcher>,
 }
 
-/// What a matching rule causes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RuleTrigger {
-    /// Interrupt the turn and resume it with the rule's guidance. The
-    /// default, and what an absent `on_trigger` means.
-    Interrupt,
-    /// Deny the matched tool call before it runs.
-    FailTool,
-}
-
-impl RuleTrigger {
-    /// Resolves a configured `on_trigger`, warning and returning `None` for a
-    /// value that names nothing.
-    ///
-    /// Rejecting the rule outright rather than defaulting it matters: an
-    /// unrecognized value is a typo, and guessing would either interrupt a
-    /// turn the user asked to have blocked or silently block one they asked
-    /// to have interrupted.
-    fn parse(rule_name: &str, value: &str) -> Option<Self> {
-        match value.trim() {
-            "" => Some(Self::Interrupt),
-            FAIL_TOOL_TRIGGER => Some(Self::FailTool),
-            other => {
-                tracing::warn!(
-                    rule = %rule_name,
-                    value = %other,
-                    known = FAIL_TOOL_TRIGGER,
-                    "stream rule names an unknown on_trigger, leaving the rule inert"
-                );
-                None
-            }
-        }
-    }
-}
-
 /// One compiled rule: its name, the regexes, where it may fire, and what it does.
 ///
 /// `Clone` shares the compiled `Regex` and `GlobMatcher` values rather than
@@ -108,25 +70,11 @@ struct CompiledRule {
     conditions: Vec<Regex>,
     /// Where the rule may fire.
     scope: Scope,
-    /// What a match causes.
-    trigger: RuleTrigger,
     /// The projects this rule applies in; `None` means all of them.
     project: Option<GlobMatcher>,
 }
 
 impl CompiledRule {
-    /// Whether this rule denies a finished tool call rather than
-    /// interrupting the turn.
-    ///
-    /// Split out from the trigger itself because a `fail_tool` rule can
-    /// still interrupt: it names what happens at the executor, and a rule
-    /// scoped to a tool is perfectly well matched mid-stream too. Both
-    /// outcomes are wanted, so the trigger decides what a match is worth
-    /// at each site rather than gating one behaviour behind the other.
-    fn denies_tools(&self) -> bool {
-        matches!(self.trigger, RuleTrigger::FailTool)
-    }
-
     /// Whether the rule may fire on `ctx`'s stream, given the tool call's
     /// path-like argument.
     ///
@@ -293,26 +241,6 @@ fn compile_rule(config: &StreamRuleConfig) -> Option<CompiledRule> {
         return None;
     }
 
-    let mut trigger = RuleTrigger::parse(&config.name, config.on_trigger.as_deref().unwrap_or(""))?;
-
-    // A denial needs something to deny, so a `fail_tool` rule scoped only to
-    // prose or reasoning can never refuse a call. It is NOT dropped for that:
-    // the trigger names what happens at the *executor*, and a rule still worth
-    // matching is worth interrupting on. The rule keeps its full stream
-    // behaviour and simply never denies, which is the only honest reading of a
-    // trigger that cannot apply here -- and it is warned about rather than
-    // silently accepting a spelling that will read as a missing block.
-    if matches!(trigger, RuleTrigger::FailTool) && !scope.reaches_tools() {
-        tracing::warn!(
-            rule = %config.name,
-            scopes = ?config.scopes,
-            trigger = FAIL_TOOL_TRIGGER,
-            "stream rule names fail_tool but scopes to no tool; \
-             it will interrupt on a match but can never deny a call"
-        );
-        trigger = RuleTrigger::Interrupt;
-    }
-
     let project = compile_project(&config.name, config.project.as_deref().unwrap_or(""));
 
     Some(CompiledRule {
@@ -321,7 +249,6 @@ fn compile_rule(config: &StreamRuleConfig) -> Option<CompiledRule> {
         body: config.body.clone(),
         conditions,
         scope,
-        trigger,
         project,
     })
 }
@@ -553,32 +480,6 @@ impl CompiledSet {
         }
     }
 
-    /// The first `fail_tool` rule whose conditions match a completed call's
-    /// arguments, in configuration order.
-    ///
-    /// Deliberately stateless: a denial is not an interruption, so it neither
-    /// consumes the turn's fire budget nor buffers anything. The call has
-    /// already finished streaming by the time this is asked, so there is
-    /// nothing to accumulate and nothing to reset.
-    fn deny(&self, tool_name: &str, arguments: &str) -> Option<RuleFired> {
-        let ctx = StreamContext::tool(0, tool_name);
-        let tool_args = ToolArgs {
-            paths: scan_path_args(arguments),
-        };
-        self.rules
-            .iter()
-            .filter(|rule| rule.denies_tools() && rule.admits(ctx, &tool_args))
-            .find(|rule| {
-                rule.conditions
-                    .iter()
-                    .any(|regex| regex.is_match(arguments))
-            })
-            .map(|rule| RuleFired {
-                name: rule.name.clone(),
-                description: rule.description.clone(),
-                body: rule.body.clone(),
-            })
-    }
 }
 
 impl StreamRuleSet for CompiledSet {
@@ -613,10 +514,6 @@ impl StreamRuleSet for CompiledSet {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         turns.remove(session);
-    }
-
-    fn deny_tool_call(&self, tool_name: &str, arguments: &str) -> Option<RuleFired> {
-        self.deny(tool_name, arguments)
     }
 
     fn for_project(&self, project: &std::path::Path) -> std::sync::Arc<dyn StreamRuleSet> {
@@ -1173,128 +1070,39 @@ mod tests {
         assert!(paths.is_empty());
     }
 
-    /// A rule scoped to `scope` and carrying `on_trigger`.
-    fn scoped_rule(name: &str, condition: &str, scope: &str, on_trigger: &str) -> StreamRuleConfig {
+    /// A rule scoped to `scope`.
+    fn scoped_rule(name: &str, condition: &str, scope: &str) -> StreamRuleConfig {
         StreamRuleConfig {
             name: name.to_owned(),
             conditions: vec![condition.to_owned()],
             scopes: vec![scope.to_owned()],
             body: "Follow the rule.".to_owned(),
-            on_trigger: Some(on_trigger.to_owned()),
             ..Default::default()
         }
     }
 
     #[rstest::rstest]
     #[test]
-    fn a_rule_denying_a_tool_call_does_not_deny_a_different_tool() {
+    fn a_tool_scoped_rule_ignores_a_different_tool() {
         // Given a rule scoped to one tool's arguments.
-        let configs = [scoped_rule("no-bash", "rm -rf", "tool:bash", "fail_tool")];
+        let configs = [scoped_rule("no-bash", "rm -rf", "tool:bash")];
 
-        // When the executor consults the set about a different tool.
-        let denied = CompiledSet::build(&configs).deny_tool_call("read", r#"{"path":"rm -rf"}"#);
+        // When another tool's arguments carrying the same text are streamed.
+        let fired = fired_on(
+            &configs,
+            r#"{"path":"rm -rf"}"#,
+            StreamContext::tool(0, "read"),
+        );
 
-        // Then the call is allowed, because the rule does not scope to it.
-        assert!(denied.is_none());
+        // Then it does not fire, because the rule does not scope to it.
+        assert!(fired.is_none());
     }
 
     #[rstest::rstest]
     #[test]
-    fn a_rule_denying_a_tool_call_does_deny_a_matching_call() {
+    fn a_tool_scoped_rule_interrupts_a_matching_call() {
         // Given a rule scoped to one tool's arguments.
-        let configs = [scoped_rule("no-bash", "rm -rf", "tool:bash", "fail_tool")];
-
-        // When the executor consults the set about that tool.
-        let denied = CompiledSet::build(&configs)
-            .deny_tool_call("bash", r#"{"command":"rm -rf /"}"#)
-            .map(|hit| hit.name);
-
-        // Then the call is denied, naming the rule.
-        assert_eq!(denied, Some("no-bash".to_owned()));
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn a_denial_is_the_same_however_many_pieces_the_arguments_arrived_in() {
-        // Given a rule scoped to one tool's arguments.
-        let configs = [scoped_rule("no-bash", "rm -rf", "tool:bash", "fail_tool")];
-        let arguments = r#"{"command":"rm -rf /"}"#;
-        let set = CompiledSet::build(&configs);
-
-        // When the executor consults the set once per streamed fragment.
-        let whole = set.deny_tool_call("bash", arguments).map(|hit| hit.name);
-        let piecemeal = set.deny_tool_call("bash", arguments).map(|hit| hit.name);
-
-        // Then the denial does not depend on the delivery.
-        assert_eq!(whole, Some("no-bash".to_owned()));
-        assert_eq!(whole, piecemeal);
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn an_unknown_on_trigger_leaves_the_rule_inert() {
-        // Given a rule naming an on_trigger that means nothing.
-        let configs = [scoped_rule("typo", "rm -rf", "tool:bash", "fail_tol")];
-
-        // When the executor consults the set about a matching call.
-        let denied =
-            CompiledSet::build(&configs).deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
-
-        // Then the rule does nothing at all.
-        assert!(denied.is_none());
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn an_unknown_on_trigger_does_not_stop_a_sibling_rule_from_firing() {
-        // Given a rule with a typo'd trigger beside a rule that is fine.
-        let configs = [
-            scoped_rule("typo", "rm -rf", "tool:bash", "fail_tol"),
-            scoped_rule("good", "rm -rf", "tool:bash", "fail_tool"),
-        ];
-
-        // When the executor consults the set about a matching call.
-        let denied = CompiledSet::build(&configs)
-            .deny_tool_call("bash", r#"{"command":"rm -rf /"}"#)
-            .map(|hit| hit.name);
-
-        // Then the working rule still denies it.
-        assert_eq!(denied, Some("good".to_owned()));
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn a_denial_rule_scoped_to_no_tool_denies_nothing() {
-        // Given a rule naming fail_tool but scoping only to prose.
-        let configs = [scoped_rule("mismatched", "rm -rf", "text", "fail_tool")];
-
-        // When the executor consults the set about a matching call.
-        let denied =
-            CompiledSet::build(&configs).deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
-
-        // Then it denies nothing, because there is no tool call to deny.
-        assert!(denied.is_none());
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn a_denial_rule_scoped_to_no_tool_still_interrupts_on_prose() {
-        // Given a rule naming fail_tool but scoping only to prose.
-        let configs = [scoped_rule("mismatched", "rm -rf", "text", "fail_tool")];
-
-        // When the prose it matches is streamed.
-        let fired = fired_on(&configs, "run rm -rf now", StreamContext::text());
-
-        // Then it still interrupts: the trigger names what happens at the
-        // executor, and there is nothing to deny there.
-        assert_eq!(fired, Some("mismatched".to_owned()));
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn a_denial_rule_scoped_to_a_tool_still_interrupts_while_streaming() {
-        // Given a rule naming fail_tool and scoping to a tool.
-        let configs = [scoped_rule("both", "rm -rf", "tool:bash", "fail_tool")];
+        let configs = [scoped_rule("no-bash", "rm -rf", "tool:bash")];
 
         // When that tool's arguments are streamed.
         let fired = fired_on(
@@ -1303,59 +1111,83 @@ mod tests {
             StreamContext::tool(0, "bash"),
         );
 
-        // Then it interrupts as well as denying, because catching the mistake
-        // mid-stream and refusing the call are both wanted.
-        assert_eq!(fired, Some("both".to_owned()));
+        // Then the turn is interrupted, naming the rule.
+        assert_eq!(fired, Some("no-bash".to_owned()));
     }
 
     #[rstest::rstest]
     #[test]
-    fn a_denial_rule_scoped_to_reasoning_denies_nothing() {
-        // Given a rule naming fail_tool but scoping only to reasoning.
-        let configs = [scoped_rule("thought", "rm -rf", "thinking", "fail_tool")];
+    fn an_interrupt_is_the_same_however_many_pieces_the_arguments_arrived_in() {
+        // Given a rule scoped to one tool's arguments.
+        let configs = [scoped_rule("no-bash", "rm -rf", "tool:bash")];
+        let arguments = r#"{"command":"rm -rf /"}"#;
 
-        // When the executor consults the set about a matching call.
-        let denied =
-            CompiledSet::build(&configs).deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
+        // When the same arguments arrive whole, and again one character at a time.
+        let whole = fired_on(&configs, arguments, StreamContext::tool(0, "bash"));
+        let piecemeal = {
+            let set = CompiledSet::build(&configs);
+            let mut session = set.new_session(&SessionId::new());
+            arguments
+                .chars()
+                .find_map(|ch| session.check(&ch.to_string(), StreamContext::tool(0, "bash")))
+                .map(|hit| hit.name)
+        };
 
-        // Then it denies nothing.
-        assert!(denied.is_none());
+        // Then the interruption does not depend on the delivery.
+        assert_eq!(whole, Some("no-bash".to_owned()));
+        assert_eq!(whole, piecemeal);
     }
 
     #[rstest::rstest]
     #[test]
-    fn a_denial_rule_with_no_scope_denies_every_tool() {
-        // Given a rule naming fail_tool with no scope, which admits every stream.
-        let configs = [scoped_rule("any", "rm -rf", "tool", "fail_tool")];
+    fn a_tool_scoped_rule_ignores_reasoning() {
+        // Given a rule scoped only to a tool.
+        let configs = [scoped_rule("no-bash", "rm -rf", "tool:bash")];
 
-        // When the executor consults the set about a call to an unrelated tool.
-        let denied = CompiledSet::build(&configs).deny_tool_call("read", r#"{"path":"rm -rf"}"#);
+        // When reasoning mentioning the same text is streamed.
+        let fired = fired_on(&configs, "thinking about rm -rf", StreamContext::thinking());
 
-        // Then it denies, because an unscoped rule reaches every tool.
-        assert_eq!(denied.map(|hit| hit.name), Some("any".to_owned()));
+        // Then it does not fire.
+        assert!(fired.is_none());
     }
 
     #[rstest::rstest]
-    #[test]
-    fn a_denial_rule_does_not_consume_the_turns_fire_budget() {
-        // Given a rule naming fail_tool, scoped to a tool.
-        let configs = [scoped_rule("no-rm", "rm -rf", "tool:bash", "fail_tool")];
-        let set = CompiledSet::build(&configs);
-
-        // When the executor denies the same call repeatedly.
-        let denials: Vec<bool> = (0..jinn_slices::MAX_FIRES_PER_RULE_PER_TURN + 2)
-            .map(|_| {
-                set.deny_tool_call("bash", r#"{"command":"rm -rf /"}"#)
-                    .is_some()
-            })
-            .collect();
-
-        // Then every one denies: a refusal is not an interruption, so it must
-        // not exhaust the cap that bounds interruptions.
-        assert!(
-            denials.iter().all(|d| *d),
-            "every denial must stand, got {denials:?}"
+    #[case("*")]
+    #[case("**")]
+    #[case("all")]
+    #[case("any")]
+    #[case("tool:*")]
+    #[case("text,tool:*")]
+    fn a_star_is_not_a_scope_token(#[case] scope: &str) {
+        // Given a rule whose scope is a wildcard-looking token.
+        // When prose carrying the pattern is streamed.
+        // Then nothing fires: a wildcard is not in the grammar, so the token is
+        // dropped rather than silently widened to every stream.
+        assert_eq!(
+            fired_on(
+                &[scoped_rule("scoped", "rm -rf", scope)],
+                "run rm -rf",
+                StreamContext::text()
+            ),
+            None
         );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_star_scope_does_not_match_a_tool_either() {
+        // Given a rule scoped to a wildcard-looking token.
+        let configs = [scoped_rule("star", "rm -rf", "*")];
+
+        // When a matching tool's arguments are streamed.
+        let fired = fired_on(
+            &configs,
+            r#"{"command":"rm -rf /"}"#,
+            StreamContext::tool(0, "bash"),
+        );
+
+        // Then it fires on nothing.
+        assert!(fired.is_none());
     }
 
     #[rstest::rstest]
