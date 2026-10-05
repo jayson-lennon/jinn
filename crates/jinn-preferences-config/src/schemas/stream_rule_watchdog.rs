@@ -77,8 +77,9 @@ mod tests {
     #[test]
     fn an_absent_section_is_the_default() {
         // Given a document with no `[watchdog.stream_rules]` section.
-        let config: StreamRuleWatchdogConfig =
-            jinn_config::testutil::config_layer("").get().expect("defaulted");
+        let config: StreamRuleWatchdogConfig = jinn_config::testutil::config_layer("")
+            .get()
+            .expect("defaulted");
 
         // Then the maximum is the documented default.
         assert_eq!(config.max_failures, 4);
@@ -140,8 +141,7 @@ mod tests {
         let stream_rules: StreamRuleWatchdogConfig = layer.get().expect("read");
         let tool_call: super::super::tool_call_watchdog::ToolCallWatchdogConfig =
             layer.get().expect("read");
-        let stall: super::super::stall_watchdog::StallWatchdogConfig =
-            layer.get().expect("read");
+        let stall: super::super::stall_watchdog::StallWatchdogConfig = layer.get().expect("read");
 
         // Then each is read from the same table without disturbing the others.
         assert_eq!(stream_rules.max_failures, 2);

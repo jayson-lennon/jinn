@@ -166,8 +166,9 @@ mod tests {
     #[test]
     fn an_absent_old_key_reads_zero_and_floors_at_one() {
         // Given a document with no `[stream_rules]` table at all.
-        let config: LegacyStreamRulesBudget =
-            jinn_config::testutil::config_layer("").get().expect("defaulted");
+        let config: LegacyStreamRulesBudget = jinn_config::testutil::config_layer("")
+            .get()
+            .expect("defaulted");
 
         // Then it reads the floor, never zero — zero would cancel the first
         // interrupt whatever the user meant.

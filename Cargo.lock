@@ -3993,6 +3993,7 @@ name = "jinn-watchdog"
 version = "1.4.0"
 dependencies = [
  "error-stack",
+ "jinn-config",
  "jinn-core-types",
  "jinn-inference-msg",
  "jinn-kernel",
