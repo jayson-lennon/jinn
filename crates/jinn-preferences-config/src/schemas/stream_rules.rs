@@ -1,24 +1,74 @@
-//! The `[[stream_rules.entry]]` list — regex rules tested against the live
-//! assistant stream.
+//! Stream-rule configuration — the `jinn.toml` `[stream_rules]` section and
+//! its `[[stream_rules.entry]]` rules.
 //!
-//! One rule kind covers every shape of correction jinn makes. Its
-//! `conditions` are regexes over the *accumulated* assistant output of a
-//! response — prose, reasoning, and serialized tool-call arguments, each
-//! buffered separately — so whether a rule fires is a function of the output
-//! itself and not of how the provider happened to chunk it. A match always
-//! interrupts the turn and resumes it with the entry's `body` as guidance,
-//! catching a model mid-sentence.
+//! Two shapes, because the section has two jobs. The rules are a list, each
+//! entry one rule; the budget is a scalar tuning the interrupt loop's bound.
+//! They are declared apart so a rule's own fields and the section's knob do
+//! not read as one another's.
 //!
-//! So this is not only a "stream" mechanism, despite the name: a rule
-//! scoped to `tool:<name>` matches a tool call's arguments as they arrive,
-//! and interrupting that call is what stops it running.
-//!
-//! This module holds the section's declaration and its value shape only.
-//! Compilation — turning `conditions`, `scopes`, and `project` into a
-//! matcher, and buffering the content it matches against — lives in the
-//! `jinn-stream-rules` slice, which reads this shape.
+//! Pure serde data. Compilation — turning `conditions`, `scopes`, and `project`
+//! into a matcher — lives in the `jinn-stream-rules` slice, which reads these
+//! shapes.
 
 use serde::{Deserialize, Serialize};
+
+/// The `jinn.toml` key the stream rules' budget lives at.
+///
+/// Dotted on purpose, matching the sibling sections' convention: the dot is
+/// what separates the section from its list, so `[stream_rules]` and
+/// `[[stream_rules.entry]]` can coexist in one file.
+pub const STREAM_RULES_BUDGET_KEY: &str = "stream_rules";
+
+/// Default number of consecutive interrupts tolerated before the stream is
+/// cancelled.
+///
+/// Three is enough for a model that needed a second reminder, and bounded
+/// enough that a rule whose condition also matches its own injected guidance
+/// cannot loop.
+pub const DEFAULT_MAX_INTERRUPTS: usize = 3;
+
+/// The interrupt budget for the stream loop.
+///
+/// Serialized as `[stream_rules]` in `jinn.toml`. The rules themselves are
+/// unaffected by this section's absence: an absent budget is the default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StreamRulesConfig {
+    /// Consecutive interrupts tolerated before the stream is cancelled. A
+    /// response that completes without an interrupt debits the count by one.
+    ///
+    /// Default: 3.
+    #[serde(default = "default_max_interrupts")]
+    pub max_interrupts: usize,
+}
+
+fn default_max_interrupts() -> usize {
+    DEFAULT_MAX_INTERRUPTS
+}
+
+impl StreamRulesConfig {
+    /// The trip threshold for the interrupt accumulator.
+    ///
+    /// A zero maximum is nonsense — the loop would cancel on the first
+    /// interrupt regardless of what the user asked for — so a configured zero
+    /// is floored at one rather than honoured. The same shape the tool-call
+    /// watchdog uses for its own floor.
+    #[must_use]
+    pub fn effective_max_interrupts(&self) -> usize {
+        self.max_interrupts.max(1)
+    }
+}
+
+impl Default for StreamRulesConfig {
+    fn default() -> Self {
+        Self {
+            max_interrupts: DEFAULT_MAX_INTERRUPTS,
+        }
+    }
+}
+
+impl jinn_config::Configurable for StreamRulesConfig {
+    const KEY: &'static str = STREAM_RULES_BUDGET_KEY;
+}
 
 /// The `jinn.toml` key the stream rules live at.
 ///
@@ -86,4 +136,101 @@ impl jinn_config::ConfigList for StreamRuleConfig {
         "body",
         "project",
     ];
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used, clippy::indexing_slicing, reason = "test code")]
+
+    use super::*;
+
+    #[rstest::rstest]
+    #[test]
+    fn an_absent_budget_is_the_default() {
+        // Given a document with no `[stream_rules]` section.
+        let config: StreamRulesConfig = jinn_config::testutil::config_layer("")
+            .get()
+            .expect("defaulted");
+
+        // Then the budget is the documented default.
+        assert_eq!(config.max_interrupts, DEFAULT_MAX_INTERRUPTS);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_configured_budget_is_read() {
+        // Given a document setting the budget.
+        let config: StreamRulesConfig = jinn_config::testutil::config_layer(
+            r#"
+            [stream_rules]
+            max_interrupts = 5
+        "#,
+        )
+        .get()
+        .expect("read");
+
+        // Then it is what the user asked for.
+        assert_eq!(config.max_interrupts, 5);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_zero_budget_is_floored_at_one() {
+        // Given a document setting the budget to zero.
+        let config = StreamRulesConfig { max_interrupts: 0 };
+
+        // Then the threshold is one, because zero would cancel on the first
+        // interrupt whatever the user meant.
+        assert_eq!(config.effective_max_interrupts(), 1);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_budget_and_the_rules_coexist_in_one_file() {
+        // Given a document carrying both the section and its rules.
+        let layer = jinn_config::testutil::config_layer(
+            r#"
+            [stream_rules]
+            max_interrupts = 2
+
+            [[stream_rules.entry]]
+            name = 'no-todo'
+            conditions = ['TODO']
+            scopes = ['text']
+            body = 'Finish it or remove it.'
+        "#,
+        );
+
+        // When both are read.
+        let config: StreamRulesConfig = layer.get().expect("read budget");
+        let rules: Vec<StreamRuleConfig> = layer.get_list().expect("read rules");
+
+        // Then each is read from the same file without disturbing the other.
+        assert_eq!(config.max_interrupts, 2);
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].name, "no-todo");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_rule_naming_the_removed_trigger_key_still_deserializes() {
+        // Given a rule written against the removed `on_trigger` key.
+        let rules: Vec<StreamRuleConfig> = jinn_config::testutil::config_layer(
+            r#"
+            [[stream_rules.entry]]
+            name = 'no-rm'
+            conditions = ['rm -rf']
+            scopes = ['tool:bash']
+            on_trigger = 'fail_tool'
+            body = 'Never.'
+        "#,
+        )
+        .get_list()
+        .expect("read");
+
+        // Then the rule is intact: an unknown key is ignored, not a failure,
+        // so a file written before the removal keeps its rules.
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].conditions, vec!["rm -rf".to_owned()]);
+    }
 }

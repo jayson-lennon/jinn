@@ -66,7 +66,10 @@ pub use request_retry::RequestRetryConfig;
 pub use session_lifecycle::{BuiltinId, LifecycleCommand, SessionLifecycle};
 pub use skills::SkillsConfig;
 pub use stall_watchdog::StallWatchdogConfig;
-pub use stream_rules::{STREAM_RULES_KEY, StreamRuleConfig};
+pub use stream_rules::{
+    DEFAULT_MAX_INTERRUPTS, STREAM_RULES_BUDGET_KEY, STREAM_RULES_KEY, StreamRuleConfig,
+    StreamRulesConfig,
+};
 pub use term::{
     DEFAULT_CONTROL_TOGGLE_KEY, DEFAULT_SETTLE_MAX_WAIT_MS, DEFAULT_SETTLE_QUIET_MS,
     InteractiveTermPrefs,

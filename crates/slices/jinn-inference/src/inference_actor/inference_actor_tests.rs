@@ -1639,3 +1639,121 @@ async fn a_rule_fires_for_content_split_across_a_thousand_chunks() {
         "a match split across many deltas must still be caught"
     );
 }
+
+use error_stack::Report;
+
+/// A rule set whose single rule fires on `condition`, with the given budget.
+fn rule_set_with_budget(
+    condition: &str,
+    maximum: usize,
+) -> std::sync::Arc<dyn jinn_slices::StreamRuleSet> {
+    std::sync::Arc::new(jinn_stream_rules::matcher::CompiledSet::build_with_budget(
+        &[jinn_preferences_config::schemas::StreamRuleConfig {
+            name: "test-rule".to_owned(),
+            description: "a rule the test tripped".to_owned(),
+            conditions: vec![condition.to_owned()],
+            scopes: vec!["text".to_owned()],
+            body: "Stop doing that.".to_owned(),
+            project: None,
+        }],
+        maximum,
+    ))
+}
+
+/// A one-token stream that trips a rule on `FORBIDDEN`.
+fn tripping_stream() -> jinn_provider::ToolStream {
+    use jinn_provider::{StopReason, StreamEvent};
+    scripted_stream(vec![
+        StreamEvent::Text("FORBIDDEN".to_owned()),
+        StreamEvent::Done {
+            stop_reason: StopReason::EndTurn,
+            usage: None,
+        },
+    ])
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_rule_inside_the_budget_interrupts_rather_than_cancelling() {
+    // Given a rule with room to spare, and a stream that trips it.
+    let harness = TestHarness::new().await;
+    let sid = SessionId::new();
+    let cancels = harness
+        .spawn_recorder::<jinn_inference_msg::CancelStream>()
+        .await;
+
+    // When the loop runs.
+    run_with_rules(
+        &harness,
+        tripping_stream(),
+        &sid,
+        Some(rule_set_with_budget("FORBIDDEN", 3)),
+    )
+    .await;
+
+    // Then the turn resumes rather than the stream being cancelled: the
+    // interrupt is the correction, and the budget is what bounds it.
+    let seen = await_recorded(&cancels, 1, std::time::Duration::from_millis(500)).await;
+    assert!(
+        seen.is_empty(),
+        "an interrupt inside the budget must not cancel the stream"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_rule_past_the_budget_cancels_the_stream() {
+    // Given a rule whose budget of one is already spent.
+    let harness = TestHarness::new().await;
+    let sid = SessionId::new();
+    let cancels = harness
+        .spawn_recorder::<jinn_inference_msg::CancelStream>()
+        .await;
+    let set = rule_set_with_budget("FORBIDDEN", 1);
+    let mut warm = set.new_session(&sid);
+    warm.check("FORBIDDEN", jinn_slices::StreamContext::text());
+    assert!(
+        warm.check("FORBIDDEN", jinn_slices::StreamContext::text())
+            .expect("a match")
+            .is_budget_spent(),
+        "the warm-up match must spend the budget of one"
+    );
+
+    // When the loop runs and trips the rule again.
+    run_with_rules(&harness, tripping_stream(), &sid, Some(set)).await;
+
+    // Then the stream is cancelled, which is the only remedy for a rule that
+    // matches a model which keeps ignoring it.
+    let seen = await_recorded(&cancels, 1, std::time::Duration::from_secs(2)).await;
+    assert_eq!(seen.len(), 1, "a spent budget must cancel the stream");
+    assert_eq!(seen[0].session_id, sid);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_spent_budget_names_the_rule_that_tripped_it() {
+    // Given a rule whose budget is spent.
+    let harness = TestHarness::new().await;
+    let sid = SessionId::new();
+    let entries = harness
+        .spawn_recorder::<jinn_session_history_msg::PushChatEntry>()
+        .await;
+    let set = rule_set_with_budget("FORBIDDEN", 1);
+    let mut warm = set.new_session(&sid);
+    warm.check("FORBIDDEN", jinn_slices::StreamContext::text());
+    warm.check("FORBIDDEN", jinn_slices::StreamContext::text());
+
+    // When the loop trips it again.
+    run_with_rules(&harness, tripping_stream(), &sid, Some(set)).await;
+
+    // Then the user is told which rule looped, rather than watching the turn
+    // die with no explanation.
+    let seen = await_recorded(&entries, 1, std::time::Duration::from_secs(2)).await;
+    assert!(
+        seen.iter().any(|e| matches!(&e.entry.kind, jinn_core_types::ChatEntryKind::System(t) if t.contains("test-rule"))),
+        "the trip must name the rule, got: {:?}",
+        seen.iter()
+            .map(|e| format!("{:?}", e.entry.kind))
+            .collect::<Vec<_>>()
+    );
+}

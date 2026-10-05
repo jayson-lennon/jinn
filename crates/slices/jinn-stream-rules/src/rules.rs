@@ -160,7 +160,7 @@ mod tests {
         let mut session = set.new_session(&jinn_core_types::SessionId::new());
         let fired = session
             .check(r#"{"command":"rm -rf /"}"#, StreamContext::tool(0, "bash"))
-            .map(|hit| hit.name);
+            .map(|hit| hit.fired().name.clone());
 
         // Then it fires, which is what stops the call from running.
         assert_eq!(fired, Some("bash-policy: rm -rf /".to_owned()));
@@ -260,7 +260,7 @@ mod tests {
         let mut session = set.new_session(&jinn_core_types::SessionId::new());
         let fired = session
             .check(r#"{"command":"rm -rf /"}"#, StreamContext::tool(0, "bash"))
-            .map(|hit| hit.name);
+            .map(|hit| hit.fired().name.clone());
 
         // Then it fires as a plain interrupt: the key is simply unknown now,
         // and a file that still carries it keeps working.
@@ -316,7 +316,7 @@ mod tests {
             let mut session = set.new_session(&jinn_core_types::SessionId::new());
             session
                 .check(r#"{"command":"rm -rf /"}"#, StreamContext::tool(0, "bash"))
-                .map(|hit| hit.name)
+                .map(|hit| hit.fired().name.clone())
         };
         let scoped = {
             let mut session = set.new_session(&jinn_core_types::SessionId::new());
@@ -325,7 +325,7 @@ mod tests {
                     r#"{"command":"npm run release"}"#,
                     StreamContext::tool(0, "bash"),
                 )
-                .map(|hit| hit.name)
+                .map(|hit| hit.fired().name.clone())
         };
 
         // Then both fire: merging adds the project rule, it does not displace
@@ -346,7 +346,7 @@ mod tests {
             let mut session = set.new_session(&jinn_core_types::SessionId::new());
             session
                 .check(r#"{"command":"rm -rf /"}"#, StreamContext::tool(0, "bash"))
-                .map(|hit| hit.name)
+                .map(|hit| hit.fired().name.clone())
         };
 
         // Then it still fires: a project-scoped rule cannot lift a global.

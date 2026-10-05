@@ -23,11 +23,10 @@ use jinn_provider_config::LlmServiceFactoryService;
 use jinn_provider_config::StopReason;
 use jinn_provider_config::StreamEvent;
 use jinn_session_history_msg::PushChatEntry;
-use jinn_slices::RuleFired;
 use jinn_slices::StreamContext;
-use jinn_slices::StreamRuleSession;
 use jinn_slices::SystemPrompt;
 use jinn_slices::render_rule_interrupt;
+use jinn_slices::{RuleFired, RuleMatch, StreamRuleSession, TurnEnd};
 use jinn_tools_msg::CancelToolBatch;
 use jinn_tools_msg::ExecuteToolBatch;
 use jinn_tools_msg::{ToolCallReceived, ToolCallStreaming, ToolUseStarted};
@@ -270,7 +269,7 @@ async fn process_stream_events(
                     )
                     .await;
                     if let Some(fired) = fired {
-                        intercept_and_resume(bus, sid, &mut accum, fired, dispatched_at).await;
+                        apply_rule_match(bus, sid, &mut accum, fired, dispatched_at).await;
                         return;
                     }
                 }
@@ -287,7 +286,7 @@ async fn process_stream_events(
                     )
                     .await;
                     if let Some(fired) = fired {
-                        intercept_and_resume(bus, sid, &mut accum, fired, dispatched_at).await;
+                        apply_rule_match(bus, sid, &mut accum, fired, dispatched_at).await;
                         return;
                     }
                 }
@@ -337,7 +336,7 @@ async fn process_stream_events(
                     })
                     .await;
                     if let Some(fired) = fired {
-                        intercept_and_resume(bus, sid, &mut accum, fired, dispatched_at).await;
+                        apply_rule_match(bus, sid, &mut accum, fired, dispatched_at).await;
                         return;
                     }
                 }
@@ -403,6 +402,73 @@ async fn process_stream_events(
         dispatched_at,
         "LLM stream ended without a terminal event (Done/Error)",
     )
+    .await;
+}
+
+/// Acts on what a stream rule matched.
+///
+/// Two outcomes, and the distinction is the whole point of returning a
+/// [`RuleMatch`] rather than a bare rule: a match inside the session's
+/// interrupt budget resumes the turn, while a match past it cancels the
+/// stream. Resuming a fourth time would be resuming a loop.
+async fn apply_rule_match(
+    bus: &BusService,
+    sid: &SessionId,
+    accum: &mut StreamAccumulator,
+    fired: RuleMatch,
+    dispatched_at: jiff::Timestamp,
+) {
+    match fired {
+        RuleMatch::Interrupt(rule) => {
+            intercept_and_resume(bus, sid, accum, rule, dispatched_at).await;
+        }
+        RuleMatch::BudgetSpent { rule, maximum } => {
+            give_up_on_the_session(bus, sid, rule, maximum).await;
+        }
+    }
+}
+
+/// Ends a stream whose session has taken too many interrupts in a row, and
+/// gives up on it.
+///
+/// A plain [`CancelStream`], deliberately, and that is the design: it reuses
+/// the one cancel path everything else uses, so the session ends exactly as a
+/// user-initiated cancel ends — the tombstone is armed, the task is torn down,
+/// and the chat log carries the same `Cancelled` entry. A rule that matches a
+/// model which keeps ignoring it has stopped being a correction and become a
+/// loop, and the honest report of that is a cancelled turn.
+///
+/// No guidance is injected: there is nobody left to give it to, and injecting
+/// it would read as a correction the model may act on before the cancel
+/// lands.
+async fn give_up_on_the_session(
+    bus: &BusService,
+    sid: &SessionId,
+    rule: RuleFired,
+    maximum: usize,
+) {
+    tracing::warn!(
+        session_id = %sid,
+        rule = %rule.name,
+        maximum,
+        "stream rule interrupted the turn too many times in a row; cancelling the stream"
+    );
+    bus.publish(jinn_session_history_msg::PushChatEntry {
+        session_id: sid.clone(),
+        entry: ChatEntry::system(format!(
+            "\u{1f6d1} stream-rules: `{}` interrupted this turn {maximum} times in a row; \
+             cancelling the stream.",
+            rule.name
+        )),
+        pin: None,
+    })
+    .await;
+
+    // Undated, so it applies to whatever generation is current — including
+    // this one, which the actor tears down as it handles it.
+    bus.publish(CancelStream {
+        session_id: sid.clone(),
+    })
     .await;
 }
 
@@ -628,7 +694,7 @@ async fn handle_text_event(
     token: String,
     mut rules: Option<&mut (dyn StreamRuleSession + '_)>,
     ctx: StreamContext<'_>,
-) -> Option<RuleFired> {
+) -> Option<RuleMatch> {
     tracing::info!(
         session_id = ?sid,
         token_len = token.len(),
@@ -676,7 +742,7 @@ async fn handle_reasoning_event(
     token: String,
     mut rules: Option<&mut (dyn StreamRuleSession + '_)>,
     ctx: StreamContext<'_>,
-) -> Option<RuleFired> {
+) -> Option<RuleMatch> {
     tracing::info!(
         session_id = ?sid,
         token_len = token.len(),
@@ -1097,17 +1163,18 @@ async fn run_stream(
     )
     .await;
 
-    // The turn's fire record outlives every response in it, and this is where
-    // the last one is done with. Dropping it here is what makes the per-turn
-    // cap a cap on *this* turn: without it the record survives every later
-    // turn the session runs, so a rule the model ignored once would stop
-    // firing for the rest of the session's life.
+    // The session's interrupt count outlives every response in it, and this is
+    // where the last one is done with.
     //
-    // After `process_stream_events`, which consumes the buffers, so a rule
-    // cannot see content from a response it has already ended.
+    // Only a response that ran to completion without an interrupt debits it.
+    // An interrupted one returns above without reaching here, so its debt
+    // carries into the resumed attempt — which is the whole point, since two
+    // consecutive interrupts are the failure the budget bounds. Dropping the
+    // buffers first means a rule cannot see content from a response it has
+    // already ended.
     drop(rules.take());
     if let Some(cell) = rules_cell {
-        cell.read().end_turn(&sid);
+        cell.read().end_response(&sid, TurnEnd::Finished);
     }
 }
 
