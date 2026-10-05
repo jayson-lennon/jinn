@@ -1002,7 +1002,7 @@ async fn run_with_rules(
     stream: jinn_provider::ToolStream,
     sid: &SessionId,
     rules: Option<std::sync::Arc<dyn jinn_slices::StreamRuleSet>>,
-) {
+) -> StreamOutcome {
     let mut session = rules.map(|set| set.new_session(sid));
     process_stream_events(
         stream,
@@ -1014,7 +1014,7 @@ async fn run_with_rules(
             .as_mut()
             .map(|s| s.as_mut() as &mut (dyn jinn_slices::StreamRuleSession + '_)),
     )
-    .await;
+    .await
 }
 
 #[rstest::rstest]
@@ -1755,5 +1755,156 @@ async fn a_spent_budget_names_the_rule_that_tripped_it() {
         seen.iter()
             .map(|e| format!("{:?}", e.entry.kind))
             .collect::<Vec<_>>()
+    );
+}
+
+// ------------------------------------------------------------------
+// Regression: the interrupt budget must be reachable
+// ------------------------------------------------------------------
+// ------------------------------------------------------------------
+// Regression: the interrupt budget must be reachable
+// ------------------------------------------------------------------
+
+/// Runs `count` consecutive responses of one turn through [`run_stream`],
+/// returning the interrupt count the rule set holds afterwards.
+///
+/// This drives the production function rather than reproducing its lifecycle,
+/// because the debit that makes the budget reachable lives in `run_stream` and
+/// not in the event loop: an interrupted response leaves its debt standing, a
+/// completed one repays it. A test that called the loop directly and decided
+/// when to debit would pass even with the production wiring broken, which is
+/// exactly what happened before this regression was written.
+async fn run_consecutive_turns(
+    harness: &TestHarness,
+    factory: FakeLlmServiceFactory,
+    set: Arc<dyn jinn_slices::StreamRuleSet>,
+    sid: &SessionId,
+    count: usize,
+) -> usize {
+    // The rule set lives in the cell `run_stream` reads, which is what makes
+    // the count survive between attempts.
+    let mut services = crate::inference_actor::test_services_with_bus(harness.bus()).await;
+    jinn_cell_catalog::register_all_cells(&services.slices);
+    let Some(cell) = services
+        .slices
+        .reader::<jinn_slices::StreamRules>(&jinn_slices::stream_rules_slot())
+    else {
+        panic!("the stream-rules cell must be minted by the catalog");
+    };
+    cell.update(|payload| payload.install(set.clone()));
+
+    for _ in 0..count {
+        // Each attempt is its own `run_stream`, as a resumed turn's would be.
+        run_stream(
+            jinn_provider_config::LlmServiceFactoryService::new(Arc::new(factory.clone())),
+            harness.bus().clone(),
+            sid.clone(),
+            "test-model".to_owned(),
+            Default::default(),
+            vec![],
+            vec![],
+            jiff::Timestamp::now(),
+            Default::default(),
+            Some(set.new_session(sid)),
+            Some(cell.clone()),
+        )
+        .await;
+    }
+
+    set.interrupts_for(sid)
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn consecutive_interrupts_accumulate_across_responses_of_a_turn() {
+    // Given a rule set whose budget is three interrupts.
+    let harness = TestHarness::new().await;
+    let set = rule_set_with_budget("FORBIDDEN", 3);
+    let sid = SessionId::new();
+
+    // When two matching responses run back to back, as a model that ignores the
+    // correction would produce.
+    let count = run_consecutive_turns(
+        &harness,
+        FakeLlmServiceFactory::new(vec!["FORBIDDEN".to_owned()]),
+        set,
+        &sid,
+        2,
+    )
+    .await;
+
+    // Then both interrupts are still counted: a response a rule interrupted does
+    // not repay its own interrupt, or the budget could never be spent.
+    assert_eq!(
+        count, 2,
+        "an interrupted response must not repay the interrupt it just raised"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_completed_response_repays_the_interrupt_budget() {
+    // Given a rule set whose budget is three interrupts.
+    let harness = TestHarness::new().await;
+    let set = rule_set_with_budget("FORBIDDEN", 3);
+    let sid = SessionId::new();
+
+    // When an interrupt is followed by a response that runs to completion.
+    run_consecutive_turns(
+        &harness,
+        FakeLlmServiceFactory::new(vec!["FORBIDDEN".to_owned()]),
+        set.clone(),
+        &sid,
+        1,
+    )
+    .await;
+    run_consecutive_turns(
+        &harness,
+        FakeLlmServiceFactory::new(vec!["all fine".to_owned()]),
+        set.clone(),
+        &sid,
+        1,
+    )
+    .await;
+
+    // Then the completed response repaid the interrupt.
+    assert_eq!(
+        set.interrupts_for(&sid),
+        0,
+        "a response that ran to completion must repay the budget"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn reaching_the_budget_cancels_the_stream() {
+    // Given a rule set whose budget is two interrupts.
+    let harness = TestHarness::new().await;
+    let set = rule_set_with_budget("FORBIDDEN", 2);
+    let sid = SessionId::new();
+    let cancels = harness.spawn_recorder::<CancelStream>().await;
+
+    // When a third consecutive response matches the rule.
+    let count = run_consecutive_turns(
+        &harness,
+        FakeLlmServiceFactory::new(vec!["FORBIDDEN".to_owned()]),
+        set.clone(),
+        &sid,
+        3,
+    )
+    .await;
+
+    // Then the stream was cancelled rather than resumed a third time, because a
+    // rule that keeps matching a model that keeps ignoring it is a loop.
+    let cancels = await_recorded(&cancels, 1, std::time::Duration::from_secs(2)).await;
+    assert_eq!(
+        cancels.len(),
+        1,
+        "reaching the interrupt budget must cancel the stream, not resume it"
+    );
+    assert_eq!(
+        count, 1,
+        "the budget trips on the interrupt that reaches the maximum, and the \
+         count it leaves behind is what was spent before that"
     );
 }

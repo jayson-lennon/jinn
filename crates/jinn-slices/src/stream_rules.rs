@@ -314,6 +314,14 @@ pub trait StreamRuleSet: fmt::Debug + Send + Sync {
     /// turn rather than resetting at each one.
     fn end_response(&self, session: &SessionId, how: TurnEnd);
 
+    /// How many consecutive interrupts `session` has taken.
+    ///
+    /// Exposed so a consumer -- or a test -- can observe the budget rather than
+    /// infer it from what the stream did. Production never needs to ask: the
+    /// count is consulted inside [`StreamRuleSession::check`], which is where
+    /// the trip is decided.
+    fn interrupts_for(&self, session: &SessionId) -> usize;
+
     /// This set with every rule whose `project` glob excludes `project`
     /// removed.
     ///
@@ -379,6 +387,11 @@ impl StreamRules {
         if let Some(set) = self.0.as_ref() {
             set.end_response(session, how);
         }
+    }
+
+    /// How many consecutive interrupts `session` has taken.
+    pub fn interrupts_for(&self, session: &SessionId) -> usize {
+        self.0.as_ref().map_or(0, |set| set.interrupts_for(session))
     }
 
     /// The installed set narrowed to the rules that apply in `project`.
@@ -472,6 +485,14 @@ mod tests {
             if how == TurnEnd::Finished {
                 count.debit();
             }
+        }
+
+        fn interrupts_for(&self, session: &jinn_core_types::SessionId) -> usize {
+            self.counts
+                .lock()
+                .unwrap()
+                .get(session)
+                .map_or(0, |arc| arc.count())
         }
 
         fn for_project(&self, _project: &std::path::Path) -> std::sync::Arc<dyn StreamRuleSet> {

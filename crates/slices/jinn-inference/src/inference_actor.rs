@@ -241,6 +241,25 @@ async fn publish_activity(bus: &BusService, sid: &SessionId) {
 /// handles the event, so a future [`StreamEvent`] variant cannot silently
 /// blind the watchdog. The terminal `Done`/`Error` arms publish no activity —
 /// [`StreamCompleted`] governs a stream's end.
+/// How one response's event loop came to an end.
+///
+/// `run_stream` needs this to decide whether a response completed on its own or
+/// was cut short by a rule, because only the former repays the session's
+/// interrupt budget. An interrupt leaves the loop early, so without this
+/// distinction every interrupt would debit the count it had just raised and the
+/// threshold could never be reached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamOutcome {
+    /// The response ran to completion: `Done`, or a terminal `Error`.
+    Completed,
+    /// A rule matched and the turn is being resumed rather than finished.
+    Interrupted,
+    /// The session's interrupt budget was spent; the stream is being cancelled.
+    BudgetSpent,
+}
+
+/// Processes one response's stream events, returning how the stream ended.
+
 async fn process_stream_events(
     mut stream: jinn_provider::ToolStream,
     bus: &BusService,
@@ -248,7 +267,7 @@ async fn process_stream_events(
     model_id: &str,
     dispatched_at: jiff::Timestamp,
     mut rules: Option<&mut (dyn StreamRuleSession + '_)>,
-) {
+) -> StreamOutcome {
     let mut accum = StreamAccumulator::new(model_id);
     let mut events_seen = 0usize;
 
@@ -269,8 +288,7 @@ async fn process_stream_events(
                     )
                     .await;
                     if let Some(fired) = fired {
-                        apply_rule_match(bus, sid, &mut accum, fired, dispatched_at).await;
-                        return;
+                        return apply_rule_match(bus, sid, &mut accum, fired, dispatched_at).await;
                     }
                 }
                 StreamEvent::Reasoning(token) => {
@@ -286,8 +304,7 @@ async fn process_stream_events(
                     )
                     .await;
                     if let Some(fired) = fired {
-                        apply_rule_match(bus, sid, &mut accum, fired, dispatched_at).await;
-                        return;
+                        return apply_rule_match(bus, sid, &mut accum, fired, dispatched_at).await;
                     }
                 }
                 StreamEvent::ToolUseStart { index, id, name } => {
@@ -336,8 +353,7 @@ async fn process_stream_events(
                     })
                     .await;
                     if let Some(fired) = fired {
-                        apply_rule_match(bus, sid, &mut accum, fired, dispatched_at).await;
-                        return;
+                        return apply_rule_match(bus, sid, &mut accum, fired, dispatched_at).await;
                     }
                 }
                 StreamEvent::ToolUseComplete { tool_call, .. } => {
@@ -359,7 +375,7 @@ async fn process_stream_events(
                     // this arm declares no liveness.
                     handle_done_event(bus, sid, &mut accum, stop_reason, usage, dispatched_at)
                         .await;
-                    return;
+                    return StreamOutcome::Completed;
                 }
                 StreamEvent::Error { message, .. } => {
                     // Terminal: as with `Done`, no liveness is declared.
@@ -373,7 +389,7 @@ async fn process_stream_events(
                         "LLM stream error event",
                     )
                     .await;
-                    return;
+                    return StreamOutcome::Completed;
                 }
             },
             Err(e) => {
@@ -387,7 +403,7 @@ async fn process_stream_events(
                     "LLM stream chunk error",
                 )
                 .await;
-                return;
+                return StreamOutcome::Completed;
             }
         }
     }
@@ -403,6 +419,7 @@ async fn process_stream_events(
         "LLM stream ended without a terminal event (Done/Error)",
     )
     .await;
+    StreamOutcome::Completed
 }
 
 /// Acts on what a stream rule matched.
@@ -417,13 +434,15 @@ async fn apply_rule_match(
     accum: &mut StreamAccumulator,
     fired: RuleMatch,
     dispatched_at: jiff::Timestamp,
-) {
+) -> StreamOutcome {
     match fired {
         RuleMatch::Interrupt(rule) => {
             intercept_and_resume(bus, sid, accum, rule, dispatched_at).await;
+            StreamOutcome::Interrupted
         }
         RuleMatch::BudgetSpent { rule, maximum } => {
             give_up_on_the_session(bus, sid, rule, maximum).await;
+            StreamOutcome::BudgetSpent
         }
     }
 }
@@ -1151,7 +1170,7 @@ async fn run_stream(
     };
 
     let mut rules = rules;
-    process_stream_events(
+    let outcome = process_stream_events(
         stream,
         &bus,
         &sid,
@@ -1166,14 +1185,18 @@ async fn run_stream(
     // The session's interrupt count outlives every response in it, and this is
     // where the last one is done with.
     //
-    // Only a response that ran to completion without an interrupt debits it.
-    // An interrupted one returns above without reaching here, so its debt
-    // carries into the resumed attempt — which is the whole point, since two
-    // consecutive interrupts are the failure the budget bounds. Dropping the
-    // buffers first means a rule cannot see content from a response it has
-    // already ended.
+    // Only a response that ran to completion debits it. An interrupted one does
+    // not, and that is what makes the budget reachable at all: the count is
+    // raised on the way out of a match, so debiting here would repay the debt
+    // this same attempt had just incurred and leave the count at zero. A budget
+    // repaid by the very event it counts can never be spent.
+    //
+    // Dropping the buffers first means a rule cannot see content from a
+    // response that has already ended.
     drop(rules.take());
-    if let Some(cell) = rules_cell {
+    if outcome == StreamOutcome::Completed
+        && let Some(cell) = rules_cell
+    {
         cell.read().end_response(&sid, TurnEnd::Finished);
     }
 }

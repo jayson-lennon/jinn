@@ -542,6 +542,14 @@ impl StreamRuleSet for CompiledSet {
         }
     }
 
+    fn interrupts_for(&self, session: &jinn_core_types::SessionId) -> usize {
+        self.sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(session)
+            .map_or(0, |arc| arc.count())
+    }
+
     fn for_project(&self, project: &std::path::Path) -> std::sync::Arc<dyn StreamRuleSet> {
         // Rules are cloned rather than recompiled: the regexes and globs are
         // already built, and only the project test is new. A rule with no
