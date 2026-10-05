@@ -16,7 +16,8 @@ use jinn_config::ConfigLayer;
 use crate::schemas::{
     AutoPruneConfig, ChatLogConfig, CompactionConfig, CwdSelectorConfig, DiscordConfig,
     InteractiveTermPrefs, McpServersConfig, MinimapConfig, RequestRetryConfig, SkillsConfig,
-    StallWatchdogConfig, ToolCallWatchdogConfig, ToolsConfig, WebSearchConfig,
+    StallWatchdogConfig, StreamRuleWatchdogConfig, ToolCallWatchdogConfig, ToolsConfig,
+    WebSearchConfig,
 };
 
 /// Registers every `jinn.toml` section that can be validated at launch.
@@ -36,6 +37,11 @@ use crate::schemas::{
 /// - `project` — [`crate::schemas::ProjectConfig`]
 /// - `session_lifecycle` — [`crate::schemas::SessionLifecycle`]
 /// - `stream_rules.entry` — [`crate::schemas::StreamRuleConfig`]
+/// - `watchdog.stream_rules` — [`crate::schemas::StreamRuleWatchdogConfig`]
+///
+/// The removed `stream_rules.max_interrupts` budget is deliberately absent
+/// from this roster: nothing registers it, so no code path can write it back
+/// into a user's file. It is read for migration only.
 /// - `tools.bash_command_policy` — [`crate::schemas::LegacyCommandPolicyRule`],
 ///   read only to migrate an older file into stream rules
 ///
@@ -54,6 +60,7 @@ pub fn register_all_sections(config: &ConfigLayer) {
     config.register::<MinimapConfig>();
     config.register::<StallWatchdogConfig>();
     config.register::<ToolCallWatchdogConfig>();
+    config.register::<StreamRuleWatchdogConfig>();
     config.register::<AutoPruneConfig>();
     config.register::<InteractiveTermPrefs>();
     config.register::<McpServersConfig>();

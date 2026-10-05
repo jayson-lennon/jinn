@@ -23,7 +23,6 @@ pub mod rules;
 
 use std::sync::Arc;
 
-use jinn_preferences_config::schemas::StreamRulesConfig;
 use jinn_slices::{RenderFacts, SliceHost, StreamRules};
 
 use crate::matcher::CompiledSet;
@@ -36,16 +35,10 @@ use crate::rules::read_rules;
 /// configuration with no usable rule installs an empty set, which the stream
 /// loop treats as "no rules" and costs nothing per delta.
 pub fn activate(host: &mut SliceHost<'_, RenderFacts>, config: &jinn_config::ConfigLayer) {
-    let rules = read_rules(config);
     // Read at the point of use rather than cached, matching the rules
-    // themselves: a reload is observed by the next launch. An absent section
-    // is the default budget, so a file with rules and no `[stream_rules]`
-    // table still gets a bounded loop.
-    let budget = config
-        .get::<StreamRulesConfig>()
-        .unwrap_or_default()
-        .effective_max_interrupts();
-    let set = Arc::new(CompiledSet::build_with_budget(&rules, budget));
+    // themselves: a reload is observed by the next launch.
+    let rules = read_rules(config);
+    let set = Arc::new(CompiledSet::build(&rules));
 
     // The cell was minted by the catalog before any activation ran, so a
     // failure here means the boot list's ordering was violated.

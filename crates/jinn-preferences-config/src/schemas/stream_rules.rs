@@ -1,74 +1,18 @@
-//! Stream-rule configuration — the `jinn.toml` `[stream_rules]` section and
-//! its `[[stream_rules.entry]]` rules.
+//! Stream-rule configuration — the `jinn.toml` `[[stream_rules.entry]]`
+//! rules, and the removed `[stream_rules] max_interrupts` budget.
 //!
-//! Two shapes, because the section has two jobs. The rules are a list, each
-//! entry one rule; the budget is a scalar tuning the interrupt loop's bound.
-//! They are declared apart so a rule's own fields and the section's knob do
-//! not read as one another's.
+//! Two shapes, because the section had two jobs. The rules are a list, each
+//! entry one rule; the budget was a scalar tuning the interrupt loop's bound.
+//! The rules are live. The budget is a legacy read-only shape, kept only so a
+//! file written before the budget moved to
+//! [`StreamRuleWatchdogConfig`](super::stream_rule_watchdog::StreamRuleWatchdogConfig)
+//! keeps the value the user tuned.
 //!
 //! Pure serde data. Compilation — turning `conditions`, `scopes`, and `project`
 //! into a matcher — lives in the `jinn-stream-rules` slice, which reads these
 //! shapes.
 
 use serde::{Deserialize, Serialize};
-
-/// The `jinn.toml` key the stream rules' budget lives at.
-///
-/// Dotted on purpose, matching the sibling sections' convention: the dot is
-/// what separates the section from its list, so `[stream_rules]` and
-/// `[[stream_rules.entry]]` can coexist in one file.
-pub const STREAM_RULES_BUDGET_KEY: &str = "stream_rules";
-
-/// Default number of consecutive interrupts tolerated before the stream is
-/// cancelled.
-///
-/// Three is enough for a model that needed a second reminder, and bounded
-/// enough that a rule whose condition also matches its own injected guidance
-/// cannot loop.
-pub const DEFAULT_MAX_INTERRUPTS: usize = 3;
-
-/// The interrupt budget for the stream loop.
-///
-/// Serialized as `[stream_rules]` in `jinn.toml`. The rules themselves are
-/// unaffected by this section's absence: an absent budget is the default.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StreamRulesConfig {
-    /// Consecutive interrupts tolerated before the stream is cancelled. A
-    /// response that completes without an interrupt debits the count by one.
-    ///
-    /// Default: 3.
-    #[serde(default = "default_max_interrupts")]
-    pub max_interrupts: usize,
-}
-
-fn default_max_interrupts() -> usize {
-    DEFAULT_MAX_INTERRUPTS
-}
-
-impl StreamRulesConfig {
-    /// The trip threshold for the interrupt accumulator.
-    ///
-    /// A zero maximum is nonsense — the loop would cancel on the first
-    /// interrupt regardless of what the user asked for — so a configured zero
-    /// is floored at one rather than honoured. The same shape the tool-call
-    /// watchdog uses for its own floor.
-    #[must_use]
-    pub fn effective_max_interrupts(&self) -> usize {
-        self.max_interrupts.max(1)
-    }
-}
-
-impl Default for StreamRulesConfig {
-    fn default() -> Self {
-        Self {
-            max_interrupts: DEFAULT_MAX_INTERRUPTS,
-        }
-    }
-}
-
-impl jinn_config::Configurable for StreamRulesConfig {
-    const KEY: &'static str = STREAM_RULES_BUDGET_KEY;
-}
 
 /// The `jinn.toml` key the stream rules live at.
 ///
@@ -77,6 +21,56 @@ impl jinn_config::Configurable for StreamRulesConfig {
 /// single-segment one, so a bare `rules` would leave every deleted rule in
 /// the file forever.
 pub const STREAM_RULES_KEY: &str = "stream_rules.entry";
+
+/// The `jinn.toml` key the removed stream-rule budget lived at.
+///
+/// Named only so the migration warning can quote the key it is replacing.
+/// The live key is
+/// [`STREAM_RULE_WATCHDOG_KEY`](super::stream_rule_watchdog::STREAM_RULE_WATCHDOG_KEY).
+pub const STREAM_RULES_BUDGET_KEY: &str = "stream_rules";
+
+/// The removed `[stream_rules] max_interrupts` budget, as an older `jinn.toml`
+/// wrote it.
+///
+/// This is the value shape of a section that no longer exists. It is kept only
+/// so a file written before the budget moved to
+/// `[watchdog.stream_rules] max_failures` keeps the threshold its owner tuned:
+/// the watchdog slice reads it at activation and uses its value as its
+/// maximum, warning about the migration.
+///
+/// Nothing writes this key, nothing enforces it directly, and nothing else
+/// should depend on it — it exists at the boundary with an older file, and
+/// goes away when that boundary does. In particular it is deliberately
+/// **not** registered in
+/// [`register_all_sections`](crate::registration::register_all_sections), so
+/// no code path can write the file back with this key present.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LegacyStreamRulesBudget {
+    /// Consecutive interrupts tolerated before the stream is cancelled.
+    #[serde(default)]
+    pub max_interrupts: usize,
+}
+
+impl Default for LegacyStreamRulesBudget {
+    fn default() -> Self {
+        Self { max_interrupts: 0 }
+    }
+}
+
+impl LegacyStreamRulesBudget {
+    /// The threshold an older file asked for, floored at one.
+    ///
+    /// The floor matches the live watchdog's own: a configured zero would
+    /// cancel on the first interrupt, which is not what either default means.
+    #[must_use]
+    pub fn effective_max_interrupts(&self) -> usize {
+        self.max_interrupts.max(1)
+    }
+}
+
+impl jinn_config::Configurable for LegacyStreamRulesBudget {
+    const KEY: &'static str = STREAM_RULES_BUDGET_KEY;
+}
 
 /// One rule, as written in `jinn.toml`.
 ///
@@ -115,9 +109,14 @@ pub struct StreamRuleConfig {
     ///
     /// Absent or empty means every project, which is what a rule about a
     /// footgun in a shell needs — those habits are not repository-specific.
-    /// Naming a glob confines the rule to sessions whose working directory
+    /// Naming a glob confines the rule to sessions whose project association
     /// matches it, so a rule about one codebase's layout does not fire in
     /// another's.
+    ///
+    /// Bound once per stream, when the session's rule set is minted, rather
+    /// than per delta: the project's stamp does not move under a running
+    /// turn, so binding it at the mint point is sufficient and costs nothing
+    /// per delta.
     ///
     /// Precedence runs global-first: a rule matching every project is a floor
     /// that a project-scoped rule can add to, never lift.
@@ -146,21 +145,9 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn an_absent_budget_is_the_default() {
-        // Given a document with no `[stream_rules]` section.
-        let config: StreamRulesConfig = jinn_config::testutil::config_layer("")
-            .get()
-            .expect("defaulted");
-
-        // Then the budget is the documented default.
-        assert_eq!(config.max_interrupts, DEFAULT_MAX_INTERRUPTS);
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn a_configured_budget_is_read() {
-        // Given a document setting the budget.
-        let config: StreamRulesConfig = jinn_config::testutil::config_layer(
+    fn a_file_carrying_the_old_key_is_still_read() {
+        // Given a document written before the budget moved.
+        let config: LegacyStreamRulesBudget = jinn_config::testutil::config_layer(
             r#"
             [stream_rules]
             max_interrupts = 5
@@ -169,25 +156,28 @@ mod tests {
         .get()
         .expect("read");
 
-        // Then it is what the user asked for.
+        // Then the tuned threshold survives the move rather than silently
+        // reverting to the new default.
         assert_eq!(config.max_interrupts, 5);
+        assert_eq!(config.effective_max_interrupts(), 5);
     }
 
     #[rstest::rstest]
     #[test]
-    fn a_zero_budget_is_floored_at_one() {
-        // Given a document setting the budget to zero.
-        let config = StreamRulesConfig { max_interrupts: 0 };
+    fn an_absent_old_key_reads_zero_and_floors_at_one() {
+        // Given a document with no `[stream_rules]` table at all.
+        let config: LegacyStreamRulesBudget =
+            jinn_config::testutil::config_layer("").get().expect("defaulted");
 
-        // Then the threshold is one, because zero would cancel on the first
+        // Then it reads the floor, never zero — zero would cancel the first
         // interrupt whatever the user meant.
         assert_eq!(config.effective_max_interrupts(), 1);
     }
 
     #[rstest::rstest]
     #[test]
-    fn the_budget_and_the_rules_coexist_in_one_file() {
-        // Given a document carrying both the section and its rules.
+    fn the_old_budget_and_the_rules_coexist_in_one_file() {
+        // Given a document carrying both the old budget and the rules.
         let layer = jinn_config::testutil::config_layer(
             r#"
             [stream_rules]
@@ -202,11 +192,11 @@ mod tests {
         );
 
         // When both are read.
-        let config: StreamRulesConfig = layer.get().expect("read budget");
+        let budget: LegacyStreamRulesBudget = layer.get().expect("read budget");
         let rules: Vec<StreamRuleConfig> = layer.get_list().expect("read rules");
 
         // Then each is read from the same file without disturbing the other.
-        assert_eq!(config.max_interrupts, 2);
+        assert_eq!(budget.max_interrupts, 2);
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].name, "no-todo");
     }
