@@ -153,7 +153,7 @@ shows up without a restart. `name` is the key entries are matched by, so
 saving under an existing name replaces that entry in place.
 
 **Blocking a command before it runs** is a stream rule (see **Stream rules**
-below) with `on_trigger = "fail_tool"` and a tool scope:
+below) with a tool scope:
 
 ```toml
 [[stream_rules.entry]]
@@ -161,22 +161,21 @@ name = 'no-force-push'
 description = 'force-pushing main rewrites published history'
 conditions = ['git push\s+.*--force']
 scopes = ['tool:bash']
-on_trigger = 'fail_tool'
 body = 'Force-pushing main rewrites published history — open a PR instead.'
 ```
 
-A match returns `body` to the agent as a failed tool result and the command
-never runs. Unlike an interrupt, this fires at the executor against the call's
-complete arguments, so it works for any tool you name a scope for — not bash
-alone. `fail_tool` requires a tool scope: a rule with no call to deny would do
-nothing.
+A match interrupts the response as the arguments stream, so the call is never
+dispatched and the command never runs. `body` comes back as guidance and the
+agent sees the abandoned call, explained, in the resumed request. It works for
+any tool you name a scope for — not bash alone.
 
 > The older `[[tools.bash_command_policy]]` section is read at load time and
 > converted to exactly this form, carrying its pattern and message across, so
 > an existing file keeps working. `[[project.entry]].command_policy` becomes a
-> rule scoped with `project`.
+> rule scoped with `project`. A file still carrying the old `on_trigger` key is
+> read fine — the key is ignored and the rule interrupts as normal.
 
-A fresh install ships five `fail_tool` rules: the combined ripgrep-flag guard,
+A fresh install ships five tool-scoped rules: the combined ripgrep-flag guard,
 plus four guards against unbounded whole-filesystem searches — a bare-root
 `find`, a bare-home `find`, and the recursive-listing equivalents for `/` and
 `~`. The listing guards additionally pin the *recursive* flag: `-R` in
@@ -387,26 +386,40 @@ Which arguments count as paths: values under a key ending in `path`, `file`,
 The glob is tried against both the full path and the bare basename, so `*.ts`
 matches `src/deep/nested/x.ts`.
 
-A rule fires at most three times per turn, so a model that needed a second
-reminder still gets one. A rule that fails to compile, names no reachable
-stream, or has an empty `body` is logged and skipped rather than breaking a
-turn. Use single-quoted strings for `conditions` so regex metacharacters
-survive without escape processing.
+A match does one thing: it interrupts the turn and resumes it with `body` as
+guidance. There is no second behaviour to configure. A rule scoped to
+`tool:<name>` matches that call's arguments as they arrive, and interrupting
+that call is what stops it running — so blocking a command before it executes
+is the same mechanism as catching a model mid-sentence.
+
+When a rule catches a tool call, the call is paired with a result saying it did
+not run and quoting the arguments the model had produced. The model reads its
+own failed attempt instead of resuming blind and re-emitting it.
+
+**`[stream_rules]`** tunes how many interrupts a session may take in a row:
+
+```toml
+[stream_rules]
+max_interrupts = 3
+```
+
+Consecutive, per session, default 3. A response that completes without an
+interrupt pays one back (floored at zero); an interrupted one does not, so
+repeats accumulate across a turn. On reaching the limit jinn cancels the stream
+rather than correcting forever — a rule whose condition also matches the
+guidance it injects would otherwise loop. A value below 1 is treated as 1.
+
+A rule that fails to compile, names no reachable stream, or has an empty `body`
+is logged and skipped rather than breaking a turn. Use single-quoted strings for
+`conditions` so regex metacharacters survive without escape processing.
 
 Note this is distinct from `[[context_curation.auto_prune.regex.rules]]`,
 which prunes completed history. A stream rule is the only one that observes
-output as it is produced — and with `on_trigger = "fail_tool"` it is also where
-blocking a call before it runs lives, so it is not limited to the moment
-something is streaming past.
+output as it is produced.
 
-`on_trigger` and `project` are optional:
-
-- `on_trigger` — absent (the default) interrupts the turn and resumes it with
-  `body` as guidance. `fail_tool` denies the matched call instead. Any other
-  value is logged and leaves the rule inert.
-- `project` — a path glob selecting the sessions a rule applies in. Absent
-  means every project, and a global rule is a floor a project-scoped one can
-  add to but never lift.
+`project` is optional: a path glob selecting the sessions a rule applies in.
+Absent means every project, and a global rule is a floor a project-scoped one
+can add to but never lift.
 
 ## Coverage note
 

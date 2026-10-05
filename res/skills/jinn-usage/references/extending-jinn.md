@@ -310,8 +310,8 @@ These are jinn's own code and are not user-extensible:
 - **The agent loop** — turn dispatch, steering vs. queueing, the settled
   boundary, compaction triggers.
 - **Tool-call interception** — jinn's only policy surface is
-  `[[stream_rules.entry]]`: regex rules over the assistant's output, which with
-  `on_trigger = "fail_tool"` can deny a named tool's call before it runs.
+  `[[stream_rules.entry]]`: regex rules over the assistant's output, which can
+  stop a named tool's call before it runs by interrupting its arguments.
   There's no general permission/approval UI.
 - **Context assembly** — pinning, pruning, compaction tuning are config, not
   extensible.

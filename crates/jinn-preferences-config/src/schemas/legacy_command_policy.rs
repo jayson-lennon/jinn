@@ -4,8 +4,8 @@
 //! This is the value shape of a section that no longer exists. It is kept
 //! only so a file written before the removal keeps working: `jinn-stream-rules`
 //! reads it at load time and converts each rule into the stream rule that
-//! replaced it, carrying the pattern, the message, and `on_trigger =
-//! "fail_tool"` across.
+//! replaced it, carrying the pattern and the message across and scoping it to
+//! `tool:bash`.
 //!
 //! Nothing writes this key, nothing enforces it directly, and nothing else
 //! should depend on it — it exists at the boundary with an older file, and
