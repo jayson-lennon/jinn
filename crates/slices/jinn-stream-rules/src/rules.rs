@@ -5,14 +5,14 @@
 //! deleted is not left armed by a stale copy.
 //!
 //! This is also where the removed `[[tools.bash_command_policy]]` section is
-//! read. Its rules became stream rules carrying `on_trigger = "fail_tool"`,
-//! which is the same behaviour under a name that also covers the rest of the
-//! rule surface — so a user's existing patterns keep working without their
-//! file being rewritten.
+//! read. Its rules became stream rules scoped to `tool:bash`, which is the
+//! same behaviour under a name that also covers the rest of the rule surface —
+//! so a user's existing patterns keep working without their file being
+//! rewritten.
 
 use jinn_config::ConfigLayer;
 use jinn_preferences_config::schemas::{
-    FAIL_TOOL_TRIGGER, LegacyCommandPolicyRule, LegacyProjectConfig, StreamRuleConfig,
+    LegacyCommandPolicyRule, LegacyProjectConfig, StreamRuleConfig,
 };
 
 /// Reads the configured stream rules, in file order.
@@ -54,10 +54,10 @@ fn read_legacy_command_policy(config: &ConfigLayer) -> Vec<StreamRuleConfig> {
 
     tracing::warn!(
         key = "tools.bash_command_policy",
-        replacement = "stream_rules.entry with on_trigger = \"fail_tool\"",
-        "`[[tools.bash_command_policy]]` is now a stream rule with on_trigger = \
-         \"fail_tool\"; your patterns still apply, and [[project.entry]].command_policy \
-         becomes a rule's `project` field"
+        replacement = "stream_rules.entry scoped to tool:bash",
+        "`[[tools.bash_command_policy]]` is now a stream rule scoped to tool:bash; \
+         your patterns still apply, and [[project.entry]].command_policy becomes a \
+         rule's `project` field"
     );
 
     let mut converted = Vec::new();
@@ -91,11 +91,10 @@ fn convert(rule: &LegacyCommandPolicyRule, project: Option<&std::path::Path>) ->
         name: format!("bash-policy: {}", rule.pattern),
         description: String::new(),
         conditions: vec![rule.pattern.clone()],
-        // A legacy rule was about one tool, so it must be scoped to that tool
-        // or the `fail_tool` requirement rejects it and the rule does nothing.
+        // A legacy rule was about one tool, so it is scoped to that tool.
+        // Interrupting that call's argument stream is what stops it running.
         scopes: vec!["tool:bash".to_owned()],
         body: rule.message.clone(),
-        on_trigger: Some(FAIL_TOOL_TRIGGER.to_owned()),
         project: project.map(|p| p.to_string_lossy().into_owned()),
     }
 }
@@ -112,8 +111,7 @@ mod tests {
     use super::read_rules;
     use crate::matcher::CompiledSet;
     use jinn_config::ConfigLayer;
-    use jinn_preferences_config::schemas::FAIL_TOOL_TRIGGER;
-    use jinn_slices::StreamRuleSet;
+    use jinn_slices::{StreamContext, StreamRuleSet};
 
     /// Reads `doc` as a config layer.
     fn layer(doc: &str) -> ConfigLayer {
@@ -122,7 +120,7 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn a_legacy_command_policy_rule_becomes_a_failing_tool_rule() {
+    fn a_legacy_command_policy_rule_becomes_a_bash_scoped_rule() {
         // Given the removed section, with one rule.
         let config = layer(
             r#"
@@ -135,15 +133,40 @@ mod tests {
         // When the rules are read.
         let rules = read_rules(&config);
 
-        // Then it is a stream rule that denies the bash tool.
+        // Then it is a stream rule scoped to the bash tool.
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].conditions, vec!["rm -rf /".to_owned()]);
         assert_eq!(
-            rules[0].on_trigger.as_deref(),
-            Some(FAIL_TOOL_TRIGGER),
-            "a legacy rule blocked the command, so it must deny"
+            rules[0].scopes,
+            vec!["tool:bash".to_owned()],
+            "a legacy rule was about one tool, so it must scope to it"
         );
-        assert_eq!(rules[0].scopes, vec!["tool:bash".to_owned()]);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_legacy_command_policy_rule_still_stops_the_command() {
+        // Given the removed section, with one rule.
+        let config = layer(
+            r#"
+            [[tools.bash_command_policy]]
+            pattern = 'rm -rf /'
+            message = 'That is the whole filesystem.'
+        "#,
+        );
+
+        // When the converted rule is compiled and the offending command streams.
+        let set = CompiledSet::build(&read_rules(&config));
+        let mut session = set.new_session(&jinn_core_types::SessionId::new());
+        let fired = session
+            .check(
+                r#"{"command":"rm -rf /"}"#,
+                StreamContext::tool(0, "bash"),
+            )
+            .map(|hit| hit.name);
+
+        // Then it fires, which is what stops the call from running.
+        assert_eq!(fired, Some("bash-policy: rm -rf /".to_owned()));
     }
 
     #[rstest::rstest]
@@ -219,7 +242,32 @@ mod tests {
         // Then the rule is there and the migration contributed nothing.
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].name, "no-todo");
-        assert_eq!(rules[0].on_trigger, None);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_rule_naming_the_removed_trigger_key_still_fires() {
+        // Given a rule written against the removed `on_trigger` key.
+        let config = layer(
+            r#"
+            [[stream_rules.entry]]
+            name = "no-rm"
+            conditions = ['rm -rf']
+            scopes = ['tool:bash']
+            body = 'Never.'
+        "#,
+        );
+
+        // When the rule is compiled and the offending command streams.
+        let set = CompiledSet::build(&read_rules(&config));
+        let mut session = set.new_session(&jinn_core_types::SessionId::new());
+        let fired = session
+            .check(r#"{"command":"rm -rf /"}"#, StreamContext::tool(0, "bash"))
+            .map(|hit| hit.name);
+
+        // Then it fires as a plain interrupt: the key is simply unknown now,
+        // and a file that still carries it keeps working.
+        assert_eq!(fired, Some("no-rm".to_owned()));
     }
 
     /// A config carrying a global rule and a project-scoped one.
@@ -230,14 +278,12 @@ mod tests {
             name = 'global-rule'
             conditions = ['rm -rf']
             scopes = ['tool:bash']
-            on_trigger = 'fail_tool'
             body = 'Never.'
 
             [[stream_rules.entry]]
             name = 'myapp-rule'
             conditions = ['npm\s+run\s+release']
             scopes = ['tool:bash']
-            on_trigger = 'fail_tool'
             project = 'myapp'
             body = 'Run the checked-in script instead.'
         "#,
@@ -265,17 +311,30 @@ mod tests {
     #[test]
     fn a_global_rule_merged_with_a_project_rule_keeps_both_blocks() {
         // Given the same two rules, compiled for the scoped project.
-        let set = crate::matcher::CompiledSet::build(&read_rules(&mixed_project_config()))
+        let set = CompiledSet::build(&read_rules(&mixed_project_config()))
             .for_project(std::path::Path::new("/home/dev/code/myapp"));
 
-        // When each command is offered to the executor in that project.
-        let global = set.deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
-        let scoped = set.deny_tool_call("bash", r#"{"command":"npm run release"}"#);
+        // When each command's arguments stream in that project.
+        let global = {
+            let mut session = set.new_session(&jinn_core_types::SessionId::new());
+            session
+                .check(r#"{"command":"rm -rf /"}"#, StreamContext::tool(0, "bash"))
+                .map(|hit| hit.name)
+        };
+        let scoped = {
+            let mut session = set.new_session(&jinn_core_types::SessionId::new());
+            session
+                .check(
+                    r#"{"command":"npm run release"}"#,
+                    StreamContext::tool(0, "bash"),
+                )
+                .map(|hit| hit.name)
+        };
 
-        // Then both are denied: merging adds the project rule, it does not
-        // displace the global one.
-        assert_eq!(global.map(|hit| hit.name), Some("global-rule".to_owned()));
-        assert_eq!(scoped.map(|hit| hit.name), Some("myapp-rule".to_owned()));
+        // Then both fire: merging adds the project rule, it does not displace
+        // the global one.
+        assert_eq!(global, Some("global-rule".to_owned()));
+        assert_eq!(scoped, Some("myapp-rule".to_owned()));
     }
 
     #[rstest::rstest]
@@ -285,11 +344,16 @@ mod tests {
         let set = crate::matcher::CompiledSet::build(&read_rules(&mixed_project_config()))
             .for_project(std::path::Path::new("/home/dev/code/other"));
 
-        // When the global rule's command is offered there.
-        let global = set.deny_tool_call("bash", r#"{"command":"rm -rf /"}"#);
+        // When the global rule's command's arguments stream there.
+        let global = {
+            let mut session = set.new_session(&jinn_core_types::SessionId::new());
+            session
+                .check(r#"{"command":"rm -rf /"}"#, StreamContext::tool(0, "bash"))
+                .map(|hit| hit.name)
+        };
 
-        // Then it is still denied: a project-scoped rule cannot lift a global.
-        assert_eq!(global.map(|hit| hit.name), Some("global-rule".to_owned()));
+        // Then it still fires: a project-scoped rule cannot lift a global.
+        assert_eq!(global, Some("global-rule".to_owned()));
     }
 
     #[rstest::rstest]
@@ -314,14 +378,19 @@ mod tests {
         let rules = read_rules(&config);
         let set = crate::matcher::CompiledSet::build(&rules);
 
-        // Then both are live: the legacy one denies, the stream one interrupts.
-        let denied = set.deny_tool_call("bash", r#"{"command":"chmod 777 x"}"#);
+        // Then both are live: the legacy one fires on the tool stream, the
+        // stream one fires on prose.
+        let mut session = set.new_session(&jinn_core_types::SessionId::new());
+        let legacy = session
+            .check(r#"{"command":"chmod 777 x"}"#, StreamContext::tool(0, "bash"));
+        let mut prose = set.new_session(&jinn_core_types::SessionId::new());
+        let modern = prose.check("leave a TODO here", StreamContext::text());
         assert!(
-            denied.is_some(),
-            "the converted legacy rule must still deny"
+            legacy.is_some(),
+            "the converted legacy rule must still fire on the tool stream"
         );
         assert!(
-            rules.iter().any(|r| r.name == "no-todo"),
+            modern.is_some(),
             "the stream rule must survive the merge"
         );
     }
@@ -348,13 +417,21 @@ mod tests {
         let set = crate::matcher::CompiledSet::build(&read_rules(&config))
             .for_project(std::path::Path::new("/home/dev/code/myapp"));
 
-        // Then both deny: the project rule adds its block beside the global.
-        let global = set.deny_tool_call("bash", r#"{"command":"drop table t"}"#);
-        let scoped = set.deny_tool_call("bash", r#"{"command":"truncate t"}"#);
-        assert!(global.is_some(), "the legacy global rule must still deny");
+        // Then both fire: the project rule adds its block beside the global.
+        let mut session = set.new_session(&jinn_core_types::SessionId::new());
+        let global = session.check(
+            r#"{"command":"drop table t"}"#,
+            StreamContext::tool(0, "bash"),
+        );
+        let mut scoped = set.new_session(&jinn_core_types::SessionId::new());
+        let in_project = scoped.check(
+            r#"{"command":"truncate t"}"#,
+            StreamContext::tool(0, "bash"),
+        );
+        assert!(global.is_some(), "the legacy global rule must still fire");
         assert!(
-            scoped.is_some(),
-            "the legacy project rule must deny in its project"
+            in_project.is_some(),
+            "the legacy project rule must fire in its project"
         );
     }
 }

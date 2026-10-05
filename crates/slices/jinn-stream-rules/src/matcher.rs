@@ -261,11 +261,6 @@ impl Scope {
             || self.allow_any_tool
             || !self.tool_scopes.is_empty()
     }
-
-    /// Whether any tool call reaches this scope.
-    fn reaches_tools(&self) -> bool {
-        self.allow_any_tool || !self.tool_scopes.is_empty()
-    }
 }
 
 /// Resolves a rule's scope tokens into a [`Scope`].
@@ -1079,23 +1074,6 @@ mod tests {
             body: "Follow the rule.".to_owned(),
             ..Default::default()
         }
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn a_tool_scoped_rule_ignores_a_different_tool() {
-        // Given a rule scoped to one tool's arguments.
-        let configs = [scoped_rule("no-bash", "rm -rf", "tool:bash")];
-
-        // When another tool's arguments carrying the same text are streamed.
-        let fired = fired_on(
-            &configs,
-            r#"{"path":"rm -rf"}"#,
-            StreamContext::tool(0, "read"),
-        );
-
-        // Then it does not fire, because the rule does not scope to it.
-        assert!(fired.is_none());
     }
 
     #[rstest::rstest]

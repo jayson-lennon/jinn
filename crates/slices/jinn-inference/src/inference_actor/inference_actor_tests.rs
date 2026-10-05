@@ -990,7 +990,7 @@ fn rule_set_for(condition: &str, scope: &str) -> std::sync::Arc<dyn jinn_slices:
             conditions: vec![condition.to_owned()],
             scopes: vec![scope.to_owned()],
             body: "Stop doing that.".to_owned(),
-            on_trigger: None,
+
             project: None,
         },
     ]))
