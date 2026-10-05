@@ -78,6 +78,7 @@ use jinn_inference_msg::StreamCompletedReason;
 use jinn_kernel::Services;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_session_msg::TurnCompleted;
+use jinn_session_msg::TurnOutcome;
 
 /// The stream-rule watchdog actor's static trouper path.
 pub const STREAM_RULE_WATCHDOG_PATH: &str = "stream-rule-watchdog";
@@ -213,8 +214,17 @@ impl MsgHandler<TurnCompleted> for StreamRuleWatchdogActor {
     /// A turn that ends — succeeded, cancelled, or terminated by this watchdog —
     /// closes the chapter the count was measuring. Carrying it forward would mean
     /// the next turn starts part-way to a trip it has done nothing to earn.
+    ///
+    /// Ignores [`TurnOutcome::RuleIntercepted`], which this actor's own
+    /// counterpart publishes on *every* interrupt. Clearing on it made the count
+    /// impossible to accumulate: each interrupt zeroed the one before it, so the
+    /// trip threshold was never reached and this watchdog could never cancel
+    /// anything.
     async fn handle(&mut self, msg: &TurnCompleted, _ctx: &mut MsgCtx<'_>) {
-        self.on_turn_end(&msg.session_id);
+        if !msg.outcome.is_terminal() {
+            return;
+        }
+        self.on_turn_end(&msg.session_id, msg.outcome);
     }
 }
 
@@ -264,7 +274,19 @@ impl StreamRuleWatchdogActor {
     }
 
     /// Clears the session's interrupt count when its turn ends.
-    pub fn on_turn_end(&mut self, session_id: &SessionId) {
+    ///
+    /// Takes the outcome rather than assuming the caller filtered, so the policy
+    /// holds even if a future call site forgets: a watchdog that arms itself on a
+    /// non-terminal outcome cannot be walked back by its caller.
+    pub fn on_turn_end(&mut self, session_id: &SessionId, outcome: TurnOutcome) {
+        if !outcome.is_terminal() {
+            return;
+        }
+        self.clear_interrupt_count(session_id);
+    }
+
+    /// Drops the session's accumulated interrupts.
+    pub fn clear_interrupt_count(&mut self, session_id: &SessionId) {
         self.accumulators.remove(session_id);
     }
 
@@ -321,6 +343,50 @@ mod tests {
     /// (struct-direct tests assert on the returned actions).
     async fn watchdog(max_failures: u8) -> StreamRuleWatchdogActor {
         StreamRuleWatchdogActor::with_max_failures(Services::new_fake().await, max_failures)
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn an_intercept_reported_as_a_turn_outcome_does_not_clear_the_count() {
+        // Given a watchdog holding two interrupts, one short of its maximum.
+        let session = SessionId::new();
+        let mut actor = watchdog(2).await;
+        for _ in 0..2 {
+            let _ = actor.record_interrupt(&session);
+        }
+
+        // When the intercept's own TurnCompleted(RuleIntercepted) is delivered —
+        // which every intercept publishes, and which is not a turn ending.
+        actor.on_turn_end(&session, TurnOutcome::RuleIntercepted);
+
+        // Then one more interrupt trips the watchdog. Clearing on the intercept's
+        // report made the count impossible to accumulate — each interrupt zeroed
+        // the one before it, so the threshold was never reached and this
+        // watchdog could never cancel anything.
+        let actions = actor.record_interrupt(&session);
+        assert_eq!(
+            actions.len(),
+            2,
+            "the count must survive a non-terminal outcome"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_terminal_turn_end_clears_the_count() {
+        // Given a watchdog holding two interrupts, one short of its maximum.
+        let session = SessionId::new();
+        let mut actor = watchdog(2).await;
+        for _ in 0..2 {
+            let _ = actor.record_interrupt(&session);
+        }
+
+        // When the turn ends for real.
+        actor.on_turn_end(&session, TurnOutcome::Succeeded);
+
+        // Then the next interrupt does not trip: the ended turn's debt is gone.
+        let actions = actor.record_interrupt(&session);
+        assert!(actions.is_empty());
     }
 
     #[rstest::rstest]

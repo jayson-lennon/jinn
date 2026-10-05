@@ -155,12 +155,30 @@ pub enum TurnOutcome {
     /// A stream rule interrupted the turn and it resumed with the rule's
     /// body.
     ///
-    /// Distinct from [`TurnOutcome::Canceled`] and
-    /// [`TurnOutcome::Error`]: the turn did not fail and the user did not end
-    /// it. A consumer that reads an intercept as a cancel would end a turn
-    /// that is still running; one that reads it as an error would suppress a
-    /// re-run that is about to happen.
+    /// **This is not a terminal outcome, despite arriving on
+    /// [`TurnCompleted`].** The turn did not end — it was rewound and
+    /// re-dispatched, and a fresh generation will follow. It is reported here
+    /// rather than as its own event so a consumer can tell an intercepted
+    /// generation from a cancelled turn with one subscription, but a consumer
+    /// that *reacts to a turn ending* must exclude it. Use
+    /// [`TurnOutcome::is_terminal`] rather than matching variants by hand; the
+    /// bug this prevents is a watchdog disarming itself on an intercept and a
+    /// turn counter being cleared mid-turn, so the condition it is watching for
+    /// never accumulates.
     RuleIntercepted,
+}
+
+impl TurnOutcome {
+    /// Whether this outcome ends the turn, and so must disarm anything
+    /// monitoring it.
+    ///
+    /// The single place this policy lives. Every watchdog that tracks a turn
+    /// asks this rather than re-deriving "which outcomes are terminal", because
+    /// the two derivations are what let a watchdog disarm on an intercept.
+    #[must_use]
+    pub fn is_terminal(self) -> bool {
+        !matches!(self, Self::RuleIntercepted)
+    }
 }
 
 /// Session archived in persistent storage.

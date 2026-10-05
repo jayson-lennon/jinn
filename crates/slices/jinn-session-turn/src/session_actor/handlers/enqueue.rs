@@ -49,6 +49,18 @@ impl SessionPersistenceActor {
         let mut entry = payload.entry.clone();
         let pending_paths = self.expand_user_entry(&payload.session_id, &mut entry);
 
+        // A person starting a new turn spends any termination mark from the
+        // previous one. This is the only place it is spent, deliberately: it is
+        // the one boundary that means "the user asked for a turn" rather than
+        // "the harness is continuing one", and a mark that outlived its turn
+        // would refuse the user's next message.
+        self.state.with_session(|view| {
+            view.session
+                .map()
+                .get_or_create(&payload.session_id)
+                .clear_terminated();
+        });
+
         // Resolve `@path` image attachments: read bytes off the async runtime
         // (`spawn_blocking`), classify each as native / needs-conversion /
         // not-an-image, and fill `entry.kind.attachments`. Non-native images

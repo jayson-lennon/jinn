@@ -170,6 +170,8 @@ mod tests {
         reason = "test code"
     )]
     use super::super::super::helpers::test_actor_recording;
+    use jinn_chat_input_msg::EnqueueUserMessage;
+    use jinn_core_types::ChatEntry;
     use jinn_core_types::ChatEntryKind;
     use jinn_core_types::SessionId;
     use jinn_inference_msg::StreamCompletedReason;
@@ -536,8 +538,8 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn a_new_dispatch_clears_the_termination_mark() {
-        // Given a session marked terminated.
+    async fn a_late_resume_does_not_clear_the_termination_mark() {
+        // Given a session marked terminated by a cancel.
         let (actor, _audit, session_id) = intercept_setup().await;
         actor
             .state
@@ -547,7 +549,8 @@ mod tests {
             .expect("session exists")
             .mark_terminated();
 
-        // When the user's next turn dispatches.
+        // When a dispatch for that already-ended turn arrives — a resume queued
+        // before the cancel, which lands after it as a user-origin send.
         actor.on_send_to_llm_provider(&SendToLlmProvider {
             session_id: session_id.clone(),
             messages: vec![],
@@ -562,13 +565,82 @@ mod tests {
             origin: StreamOrigin::User,
         });
 
-        // Then the mark is spent, so the next intercept resumes normally
-        // instead of being refused as a resume of a turn that no longer exists.
+        // Then the mark stands. Spending it here is what let a late resume
+        // restart the stream the user had just stopped, so Escape appeared to
+        // need pressing twice.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert!(
+            session.is_terminated(),
+            "a resume racing a cancel must not spend the mark"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_late_resume_does_not_re_arm_the_in_flight_guard() {
+        // Given a terminated session whose guard the cancel cleared.
+        let (actor, _audit, session_id) = intercept_setup().await;
+        {
+            let mut state = actor.state.write();
+            let session = state.session.get_mut(&session_id).expect("session exists");
+            session.mark_terminated();
+            session.clear_stream_generation();
+        }
+
+        // When a dispatch for the ended turn arrives.
+        actor.on_send_to_llm_provider(&SendToLlmProvider {
+            session_id: session_id.clone(),
+            messages: vec![],
+            system_prompt: Default::default(),
+            tool_definitions: vec![],
+            provider_id: None,
+            estimated_tokens: 0,
+            model_used: None,
+            reasoning_effort: None,
+            endpoint_tag: None,
+            dispatched_at: jiff::Timestamp::now(),
+            origin: StreamOrigin::User,
+        });
+
+        // Then no guard is armed. An armed guard with nothing behind it is the
+        // wedge the stall watchdog reports 60 seconds later as a stall.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert!(
+            !session.has_in_flight_stream(),
+            "a dispatch for a terminated turn must not arm the in-flight guard"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_new_user_message_clears_the_termination_mark() {
+        // Given a session marked terminated by a previous turn.
+        let (actor, _audit, session_id) = intercept_setup().await;
+        actor
+            .state
+            .write()
+            .session
+            .get_mut(&session_id)
+            .expect("session exists")
+            .mark_terminated();
+
+        // When the user submits a new message.
+        actor
+            .handle_enqueue_user_message(&EnqueueUserMessage {
+                session_id: session_id.clone(),
+                entry: ChatEntry::user("carry on"),
+            })
+            .await;
+
+        // Then the mark is spent, so the new turn is not refused as a resume of
+        // a turn that no longer exists.
         let state = actor.state.read();
         let session = state.session.get(&session_id).expect("session exists");
         assert!(
             !session.is_terminated(),
-            "the mark must not outlive the turn it terminated"
+            "a new user message must clear the previous turn's termination"
         );
     }
 }

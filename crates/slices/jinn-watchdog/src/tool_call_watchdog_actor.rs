@@ -28,6 +28,7 @@ use jinn_inference_msg::{CancelCause, CancelTurn};
 use jinn_kernel::Services;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_session_msg::TurnCompleted;
+use jinn_session_msg::TurnOutcome;
 use jinn_tools_msg::ToolExecutionCompleted;
 
 /// The tool-call watchdog actor's static trouper path.
@@ -148,7 +149,7 @@ impl MsgHandler<ToolExecutionCompleted> for ToolCallWatchdogActor {
 
 impl MsgHandler<TurnCompleted> for ToolCallWatchdogActor {
     async fn handle(&mut self, msg: &TurnCompleted, _ctx: &mut MsgCtx<'_>) {
-        self.on_turn_end(&msg.session_id);
+        self.on_turn_end(&msg.session_id, msg.outcome);
     }
 }
 
@@ -203,7 +204,13 @@ impl ToolCallWatchdogActor {
     /// reports its own end and then must not carry the count into the next turn,
     /// or a session that tripped once is one failure away from tripping again
     /// on a fresh, unrelated turn.
-    pub fn on_turn_end(&mut self, session_id: &SessionId) {
+    ///
+    /// Takes the outcome rather than assuming the caller filtered, so the policy
+    /// holds even if a future call site forgets.
+    pub fn on_turn_end(&mut self, session_id: &SessionId, outcome: TurnOutcome) {
+        if !outcome.is_terminal() {
+            return;
+        }
         self.accumulators.remove(session_id);
     }
 }
@@ -372,7 +379,7 @@ mod tests {
         }
 
         // When that turn ends and a new turn logs one more failure.
-        actor.on_turn_end(&session);
+        actor.on_turn_end(&session, TurnOutcome::Succeeded);
         let actions = actor.on_tool_result(&session, false);
 
         // Then the watchdog did not trip: the ended turn's count was cleared.
@@ -391,7 +398,7 @@ mod tests {
 
         // When the turn ends because the watchdog itself cancelled it, and the
         // next turn logs one more failure.
-        actor.on_turn_end(&session);
+        actor.on_turn_end(&session, TurnOutcome::Succeeded);
         let actions = actor.on_tool_result(&session, false);
 
         // Then it does not trip. Retaining the count across a turn that ended
@@ -412,7 +419,7 @@ mod tests {
 
         // When the trip's own turn end is reported and the next turn logs one
         // failure.
-        actor.on_turn_end(&session);
+        actor.on_turn_end(&session, TurnOutcome::Succeeded);
         let actions = actor.on_tool_result(&session, false);
 
         // Then it does not trip: a count of one is not four.
@@ -428,7 +435,7 @@ mod tests {
         let mut actor = watchdog(4).await;
 
         // When a turn ends for a session it never saw.
-        actor.on_turn_end(&ghost);
+        actor.on_turn_end(&ghost, TurnOutcome::Succeeded);
 
         // Then nothing happens and the watchdog still trips normally later.
         for call in 1..=4 {

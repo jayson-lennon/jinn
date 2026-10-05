@@ -77,6 +77,7 @@ use jinn_kernel::Services;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_session_msg::RetryStalledSession;
 use jinn_session_msg::TurnCompleted;
+use jinn_session_msg::TurnOutcome;
 
 /// Production tick cadence. The stall window is seconds-scale, so a
 /// 1-second heartbeat adds at most that much detection latency.
@@ -318,6 +319,13 @@ impl MsgHandler<StreamCompleted> for StallWatchdogActor {
 impl MsgHandler<TurnCompleted> for StallWatchdogActor {
     /// Stops monitoring a session whose turn ended, whatever ended it.
     ///
+    /// Ignores a non-terminal outcome. `TurnCompleted` also carries
+    /// [`TurnOutcome::RuleIntercepted`], which arrives every time a stream rule
+    /// corrects the model — and the turn is then rewound and re-dispatched, not
+    /// over. Disarming on it cleared the restart budget mid-turn, so a turn that
+    /// genuinely stalled afterwards started again from attempt one and the stall
+    /// budget could never be spent.
+    ///
     /// `StreamCompleted` is the stream's end, and a cancel can end a turn with no
     /// stream to end: a watchdog trip drops the resume the session actor had
     /// already armed a guard for, so nothing downstream of that drop publishes a
@@ -326,7 +334,7 @@ impl MsgHandler<TurnCompleted> for StallWatchdogActor {
     /// a retained entry would re-arm on the next dispatch and a spent restart
     /// budget would make the next genuine stall look like the last one.
     async fn handle(&mut self, msg: &TurnCompleted, _ctx: &mut MsgCtx<'_>) {
-        self.on_turn_end(&msg.session_id);
+        self.on_turn_end(&msg.session_id, msg.outcome);
     }
 }
 
@@ -336,7 +344,15 @@ impl StallWatchdogActor {
     /// Called on the turn-end event. Drops the timer *and* the accumulated
     /// restart budget, so a fresh turn starts from a clean slate rather than
     /// inheriting restarts spent by a turn that has ended.
-    pub fn on_turn_end(&mut self, session_id: &SessionId) {
+    ///
+    /// Takes the outcome rather than assuming the caller filtered, so the policy
+    /// holds even if a future call site forgets. A stall watchdog that disarmed on
+    /// an intercept cleared its restart budget mid-turn, so the budget could
+    /// never be spent and the stall it exists to bound went unbounded.
+    pub fn on_turn_end(&mut self, session_id: &SessionId, outcome: TurnOutcome) {
+        if !outcome.is_terminal() {
+            return;
+        }
         if self.sessions.remove(session_id).is_some() {
             tracing::debug!(
                 session_id = %session_id,
@@ -504,6 +520,46 @@ mod tests {
     )]
 
     use super::*;
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn an_intercept_outcome_does_not_disarm_the_watchdog() {
+        // Given a watchdog armed for a session whose turn a rule corrected.
+        let session = SessionId::new();
+        let mut actor = watchdog(30, 2).await;
+        actor.on_stream_start(&session, 0);
+
+        // When the intercept's TurnCompleted(RuleIntercepted) is delivered — it
+        // is published on every intercept, and the turn continues after it.
+        actor.on_turn_end(&session, TurnOutcome::RuleIntercepted);
+
+        // Then the timer survives and a later silence still trips. Disarming on
+        // an intercept cleared the restart budget mid-turn, so the budget could
+        // never be spent.
+        let actions = actor.on_tick(60_000);
+        assert!(!actions.is_empty(), "a corrected turn must stay monitored");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_terminal_turn_end_disarms_the_watchdog_and_clears_its_budget() {
+        // Given a watchdog that has already spent one of its two restarts.
+        let session = SessionId::new();
+        let mut actor = watchdog(1, 2).await;
+        actor.on_stream_start(&session, 0);
+        let _ = actor.on_tick(2_000);
+
+        // When the turn ends.
+        actor.on_turn_end(&session, TurnOutcome::Canceled);
+
+        // Then nothing fires on the silence that follows: the session ended, so
+        // its silence is not a stall.
+        let actions = actor.on_tick(60_000);
+        assert!(
+            actions.is_empty(),
+            "an ended turn must not be restarted: {actions:?}"
+        );
+    }
 
     /// A fresh actor with the given window and budget, over a private
     /// fake `Services` (struct-direct tests never publish through the

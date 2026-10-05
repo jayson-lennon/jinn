@@ -34,11 +34,32 @@ impl SessionPersistenceActor {
     pub(in crate::session_actor) fn on_send_to_llm_provider(&self, payload: &SendToLlmProvider) {
         self.state.with_session(|view| {
             let session = view.session.map().get_or_create(&payload.session_id);
+
+            // A dispatch for a terminated turn is a resume that was already
+            // queued when the turn ended, and it is ignored outright.
+            //
+            // `DispatchTurn` is a command with its own round-trip, so a resume
+            // requested moments before a cancel lands after it — as a *user*
+            // origin, which is the only origin that lifts the cancel tombstone,
+            // so origin cannot tell the two apart. Arming the guard here is what
+            // made Escape look like it needed pressing twice: the first cancel
+            // ended the turn, and this late resume re-armed a dead session, which
+            // the stall watchdog then reported as a stall 60s later.
+            //
+            // Not arming is the whole fix. The inference actor independently drops
+            // this dispatch via the watchdog latch, so nothing streams either
+            // way — but the guard lives here, and an armed guard with no stream
+            // behind it is exactly the wedge.
+            if session.is_terminated() {
+                tracing::warn!(
+                    session_id = %payload.session_id,
+                    origin = ?payload.origin,
+                    "dispatch ignored: the turn was terminated before it arrived"
+                );
+                return;
+            }
+
             session.arm_stream(payload.dispatched_at);
-            // Spent exactly once, at the turn boundary. A termination mark that
-            // outlived its turn would refuse the user's next message as a resume
-            // of a turn that no longer exists.
-            session.clear_terminated();
         });
         tracing::debug!(
             session_id = %payload.session_id,
