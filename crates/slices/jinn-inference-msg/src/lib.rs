@@ -68,6 +68,34 @@ pub struct AbortStream {
 }
 impl jinn_slices::BusMessage for AbortStream {}
 
+/// Drop the next dispatch for a session, before it starts.
+///
+/// Both existing stream-teardown commands act on a stream that is *already
+/// running*: [`CancelStream`] ends the current generation, and
+/// [`AbortStream`] ends a named one. Neither can stop a dispatch that has been
+/// prepared but not yet sent, which is the only thing left to stop when a
+/// watchdog decides a turn has looped.
+///
+/// The stream-rule watchdog needs exactly that, and the timing is structural
+/// rather than unlucky. An intercept publishes `StreamCompleted(RuleIntercept)`
+/// and `AbortStream` from inside the stream task, so the aborted generation is
+/// already gone by the time the watchdog counts the interrupt. The resume it is
+/// racing is then a three-actor chain — rewind, dispatch, assemble — which
+/// lands after any cancel the watchdog could publish in response. A
+/// `CancelStream` therefore finds no session to end and does nothing.
+///
+/// This latches instead: the next dispatch for the session is dropped and the
+/// latch is spent. Spent-on-use is the point — the user's next genuine message
+/// must dispatch normally, so a latch that persisted would silence the
+/// session rather than end one turn.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Command)]
+#[schema(description = "Drop the next dispatch for a session, before its stream starts.")]
+pub struct CancelPendingDispatch {
+    /// The session whose next dispatch should be dropped.
+    pub session_id: SessionId,
+}
+impl jinn_slices::BusMessage for CancelPendingDispatch {}
+
 /// Command to send conversation context to the LLM provider.
 ///
 /// Emitted by the dispatch layer when a turn becomes sendable.

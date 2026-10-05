@@ -10,8 +10,8 @@
 //! [`StreamCompletedReason::RuleIntercept`] increments it; a response that ran
 //! to completion ([`StreamCompletedReason::Finished`]) debits it by one, floor
 //! at zero; reaching the configured maximum trips the watchdog — a system
-//! entry naming the rule, then a [`CancelStream`], then the counter is zeroed
-//! so the same session is not re-killed immediately.
+//! entry naming the rule, then a [`CancelPendingDispatch`], then the counter is
+//! zeroed so the same session is not re-killed immediately.
 //!
 //! # Why the count is per session and consecutive
 //!
@@ -37,14 +37,25 @@
 //! that fact ends the session is a policy question, and policy that spans a
 //! whole turn belongs to an actor that sees the whole turn.
 //!
-//! # The trip lands one interrupt late, deliberately
+//! # Why the trip latches rather than cancels
 //!
-//! An interrupt ends the response and the turn re-dispatches immediately, so
-//! the completion this actor reacts to describes a generation that has already
-//! ended. Its [`CancelStream`] is undated, so it applies to whatever
-//! generation is current — which is the *resumed* one, the very turn that
-//! violated the rule again. That is the correct target: the interrupted
-//! attempt is already gone, and the resumed one is what is looping.
+//! An intercept ends the response it caught and the turn re-dispatches at once,
+//! so by the time this actor counts the interrupt there is no stream left to
+//! cancel — the generation that tripped the rule was already torn down by the
+//! very intercept that reported it. A [`jinn_inference_msg::CancelStream`]
+//! published here finds nothing to end and does nothing.
+//!
+//! Worse, it does nothing *safely*: the resume it is meant to stop is a
+//! three-actor chain (rewind, dispatch, assemble) that has not arrived yet, and
+//! the resume arrives as a user-originated send, which lifts the cancel
+//! tombstone an abort had armed. The marker would appear and the turn would
+//! resume anyway — the loop, unbounded and indefinitely, which is the one
+//! outcome this actor exists to prevent.
+//!
+//! So the trip publishes [`CancelPendingDispatch`], which latches away the
+//! *pending* resume rather than cancelling a stream that is gone. The latch is
+//! spent by that resume, so the user's next genuine message dispatches
+//! normally.
 //!
 //! This actor holds no `AppState` — its counter is actor-internal and its only
 //! outputs are bus publishes (the sanctioned shape of the watchdog family).
@@ -57,7 +68,7 @@ use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
 use jinn_core_types::SessionId;
-use jinn_inference_msg::CancelStream;
+use jinn_inference_msg::CancelPendingDispatch;
 use jinn_inference_msg::StreamCompleted;
 use jinn_inference_msg::StreamCompletedReason;
 use jinn_kernel::Services;
@@ -77,8 +88,8 @@ pub const STREAM_RULE_WATCHDOG_PATH: &str = "stream-rule-watchdog";
 pub enum StreamRuleWatchdogAction {
     /// The system entry naming the rule that looped.
     Marker(SessionId, String),
-    /// The cancel that ends the looping turn.
-    CancelStream(SessionId),
+    /// The latch that drops the looping turn's pending resume.
+    CancelPendingDispatch(SessionId),
 }
 
 /// Dependencies for [`StreamRuleWatchdogActor`].
@@ -164,8 +175,11 @@ impl StreamRuleWatchdogActor {
                         })
                         .await;
                 }
-                StreamRuleWatchdogAction::CancelStream(session_id) => {
-                    self.services.bus.publish(CancelStream { session_id }).await;
+                StreamRuleWatchdogAction::CancelPendingDispatch(session_id) => {
+                    self.services
+                        .bus
+                        .publish(CancelPendingDispatch { session_id })
+                        .await;
                 }
             }
         }
@@ -248,7 +262,7 @@ impl StreamRuleWatchdogActor {
                 session_id.clone(),
                 trip_text(self.max_failures, count),
             ),
-            StreamRuleWatchdogAction::CancelStream(session_id.clone()),
+            StreamRuleWatchdogAction::CancelPendingDispatch(session_id.clone()),
         ]
     }
 }
@@ -401,7 +415,7 @@ mod tests {
             text.contains("stream-rules"),
             "the marker must name the watchdog that tripped, got: {text:?}"
         );
-        let StreamRuleWatchdogAction::CancelStream(cancel_session) = &actions[1] else {
+        let StreamRuleWatchdogAction::CancelPendingDispatch(cancel_session) = &actions[1] else {
             panic!("second action must be the cancel, got: {actions:?}");
         };
         assert_eq!(cancel_session, &session);
