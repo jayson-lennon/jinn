@@ -471,26 +471,30 @@ async fn handle_send_to_llm_via_bus() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn handle_cancel_stream_with_no_active_stream_is_noop() {
-    // Given a test harness with an LLM actor.
+async fn a_cancel_reports_the_turns_end_even_with_no_live_stream() {
+    // Given a session whose stream the actor no longer holds — the shape of a
+    // rule-loop trip, where the intercept tore the generation down before any
+    // watchdog counted it.
     let harness = TestHarness::new().await;
     let mut actor = test_llm_actor_with_factory(
         &harness,
         FakeLlmServiceFactory::new(vec!["response".to_owned()]),
     )
     .await;
-
     let recorder = harness.spawn_recorder::<StreamCompleted>().await;
-
-    // When sending CancelStream with no active stream.
     let session_id = SessionId::new();
-    actor.cancel_stream(&(session_id.clone()).clone()).await;
 
-    // Then no StreamCompleted is emitted (nothing to cancel).
-    let completed = await_recorded(&recorder, 1, std::time::Duration::from_millis(100)).await;
-    assert!(
-        completed.is_empty(),
-        "CancelStream with no active stream should be a no-op"
+    // When the turn is cancelled.
+    actor.cancel_stream(&session_id).await;
+
+    // Then the turn's end is reported anyway. Suppressing it is what left the
+    // session stuck in its streaming phase with no turn-end signal: this actor
+    // holding no stream says nothing about the session still having a turn.
+    let completed = await_recorded(&recorder, 1, std::time::Duration::from_secs(2)).await;
+    assert_eq!(
+        completed.len(),
+        1,
+        "a cancel must report the turn's end whether or not a stream was live"
     );
 }
 
@@ -1842,31 +1846,25 @@ async fn the_latch_is_spent_by_the_dispatch_it_drops() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn a_latched_away_dispatch_publishes_no_cancel_outcome() {
-    // Given a latch armed for a session with no stream running.
+async fn a_latch_reports_the_turns_end_as_it_arms() {
+    // Given a session whose rule loop tripped.
     let harness = TestHarness::new().await;
     let mut actor = test_llm_actor(&harness).await;
     let recorder_completed = harness.spawn_recorder::<StreamCompleted>().await;
     let session_id = SessionId::new();
 
-    // When the latch is armed and the dispatch it targets is dropped.
-    actor.latch_dispatch(&session_id);
-    actor
-        .start_stream(&tombstone_payload(&session_id, StreamOrigin::User))
-        .await;
+    // When the latch is armed.
+    actor.settle_latched_turn(&session_id).await;
 
-    // Then nothing reports the turn as cancelled: a dispatch that never
-    // started has no response to end, and `outcome_from_history` reads a
-    // `Canceled` completion as a user cancel.
-    let completions = await_recorded(
-        &recorder_completed,
+    // Then the turn's end is reported: the intercept rewound the session to
+    // `Sending` in anticipation of a resume that will now never run, and the
+    // latched dispatch never starts, so nothing else would settle it.
+    let completions =
+        await_recorded(&recorder_completed, 1, std::time::Duration::from_secs(2)).await;
+    assert_eq!(
+        completions.len(),
         1,
-        std::time::Duration::from_millis(300),
-    )
-    .await;
-    assert!(
-        completions.is_empty(),
-        "a dropped dispatch must not report a cancel outcome"
+        "arming the latch must report the turn's end"
     );
 }
 

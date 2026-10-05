@@ -222,18 +222,21 @@ impl MsgHandler<CancelStream> for InferenceActor {
 impl MsgHandler<CancelPendingDispatch> for InferenceActor {
     /// Latches away the next dispatch rather than ending a running stream.
     ///
-    /// Deliberately publishes no completion. A dispatch that never starts has
-    /// no response to end, and emitting `StreamCompleted(Canceled)` here would
-    /// describe a stream the model never began — pushing a cancel entry and a
-    /// `Canceled` turn outcome for an attempt the user never saw. The turn
-    /// that is actually abandoned is the one already torn down by the
-    /// intercept, which reported itself.
+    /// Reports the turn's end as it arms the latch, because the turn being
+    /// ended is the one still in flight — not the dispatch this drops. A
+    /// watchdog tripped, the intercept has already rewound the session, and the
+    /// resume this stops is the last thing that turn was going to do. Silence
+    /// here left the session in `Sending` with its spinner lit and no turn-end
+    /// signal, so the reasoning that once favoured silence ("a dispatch that
+    /// never started has no response to end") was right about the dispatch and
+    /// wrong about the turn: the turn did start, and something else has to say
+    /// it stopped.
     #[expect(
         clippy::unused_async,
-        reason = "the MsgHandler signature is async; this handler only latches"
+        reason = "the MsgHandler signature is async; the teardown awaits its own publish"
     )]
     async fn handle(&mut self, msg: &CancelPendingDispatch, _ctx: &mut MsgCtx<'_>) {
-        self.latch_dispatch(&msg.session_id);
+        self.settle_latched_turn(&msg.session_id).await;
     }
 }
 
@@ -1145,28 +1148,76 @@ impl InferenceActor {
         );
     }
 
-    async fn cancel_stream(&mut self, session_id: &SessionId) {
-        let (dispatched_at, had_session) = self.abort_stream(session_id, None).await;
+    /// Ends a turn whose next dispatch is being latched away.
+    ///
+    /// Reports the turn's end here, when the latch is armed, rather than when
+    /// the latch is spent. The turn is genuinely over at arming time — a
+    /// watchdog tripped — and the intercept has already rewound the session to
+    /// `Sending` in anticipation of a resume that will now never run. Nothing
+    /// else settles it: the latched dispatch never starts, so it produces no
+    /// completion, and the session would sit in `Sending` with its spinner lit
+    /// and no turn-end signal.
+    ///
+    /// The dispatch is dropped silently when the latch is spent. By then this
+    /// completion has already been consumed, and emitting a second one for the
+    /// same turn would double-report its end.
+    async fn settle_latched_turn(&mut self, session_id: &SessionId) {
+        self.latch_dispatch(session_id);
+        self.publish(StreamCompleted {
+            model_used: None,
+            session_id: session_id.clone(),
+            reason: StreamCompletedReason::Canceled,
+            assistant_content: None,
+            tool_calls: None,
+            cost: None,
+            provider_completion_tokens: None,
+            provider_prompt_tokens: None,
+            cached_tokens: None,
+            thinking_content: None,
+            dispatched_at: Timestamp::now(),
+        })
+        .await;
+    }
 
-        // Only emit StreamCompleted if there was actually an active session
-        // to cancel. Avoids pushing a spurious "Cancelled" error entry when
-        // the user presses ESC with nothing streaming.
-        if had_session {
-            self.publish(StreamCompleted {
-                model_used: None,
-                session_id: session_id.clone(),
-                reason: StreamCompletedReason::Canceled,
-                assistant_content: None,
-                tool_calls: None,
-                cost: None,
-                provider_completion_tokens: None,
-                provider_prompt_tokens: None,
-                cached_tokens: None,
-                thinking_content: None,
-                dispatched_at: dispatched_at.unwrap_or_else(Timestamp::now),
-            })
-            .await;
-        }
+    async fn cancel_stream(&mut self, session_id: &SessionId) {
+        let (dispatched_at, _had_session) = self.abort_stream(session_id, None).await;
+
+        // Whether to report the turn's end is a question about the *turn*, not
+        // about this actor's stream table — and the two disagree exactly when a
+        // cancel is most needed.
+        //
+        // The tool-call watchdog's cancel works because its trip lands while a
+        // stream is still live. A rule-loop trip cannot: the intercept already
+        // tore the generation down before the watchdog counted it, so
+        // `had_session` is false on every one of those trips, and gating on it
+        // reported nothing at all. The session then sat in the phase its
+        // rewind left it, with its spinner lit and no turn-end signal.
+        //
+        // The same gate swallowed a user's Escape: the frontend settles the
+        // phase in shared state without a bus event, so if this actor held no
+        // stream the session's own completion was the only remaining report —
+        // and suppressing it left the stall watchdog holding an armed timer for
+        // a session the user had already stopped.
+        //
+        // So the report is unconditional. The stale case it was written to
+        // avoid is already filtered upstream: the ESC intent returns no
+        // `CancelStream` at all when the session is idle, so this handler only
+        // runs for a cancel someone asked for.
+        let _ = dispatched_at;
+        self.publish(StreamCompleted {
+            model_used: None,
+            session_id: session_id.clone(),
+            reason: StreamCompletedReason::Canceled,
+            assistant_content: None,
+            tool_calls: None,
+            cost: None,
+            provider_completion_tokens: None,
+            provider_prompt_tokens: None,
+            cached_tokens: None,
+            thinking_content: None,
+            dispatched_at: dispatched_at.unwrap_or_else(Timestamp::now),
+        })
+        .await;
     }
 }
 
