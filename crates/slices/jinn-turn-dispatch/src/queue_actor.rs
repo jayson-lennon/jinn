@@ -408,6 +408,28 @@ impl QueueActor {
             return;
         };
 
+        // Re-admit before publishing, against the stamp this path minted:
+        // a cancel landing in the assemble window kills the generation, and
+        // the phase actor refuses the second ask. A tool continuation
+        // racing a cancel would otherwise start a stream the watchdogs
+        // no longer watch (the cancel cleared the guard) — the same
+        // zombie shape the prepared dispatch's re-ask closes.
+        if !crate::dispatch::admit_begin_stream(
+            &self.services,
+            session_id,
+            DispatchKind::ToolContinuation,
+            stamp,
+        )
+        .await
+        .admitted
+        {
+            tracing::warn!(
+                session_id = %session_id,
+                "queue refused a tool continuation at publish: its generation was cancelled mid-assemble"
+            );
+            return;
+        }
+
         let (provider_id, model_used, reasoning_effort, endpoint_tag) =
             self.resolve_dispatch_model(session_id);
 
@@ -489,6 +511,36 @@ impl QueueActor {
             return;
         };
         let estimated_tokens = assembled.estimated_tokens();
+
+        // Re-admit before publishing. The first ask admitted the turn and
+        // the assemble window followed it; a cancel published in that
+        // window — the stream-rule watchdog's trip, which races the
+        // intercept's own resume by construction — is processed by the
+        // session actor *while* this actor was assembling, so only a
+        // second ask sees it. Without this, the resume of an interrupted
+        // generation lands one provider request past the trip, and the
+        // next rule match on that zombie stream is the extra interrupt
+        // the user finds in the log after the cancel.
+        //
+        // Resolves against the stamp the first admission minted, not the
+        // wall clock: the phase actor refuses when the record's stamp is
+        // gone (the cancel cleared it) or the generation's live stamp has
+        // moved past this one. Same ask, same shape, no new message.
+        if !crate::dispatch::admit_begin_stream(
+            &self.services,
+            session_id,
+            DispatchKind::ResumeTurn,
+            stamp,
+        )
+        .await
+        .admitted
+        {
+            tracing::warn!(
+                session_id = %session_id,
+                "queue refused a prepared dispatch at publish: its generation was cancelled mid-assemble"
+            );
+            return;
+        }
 
         // Resolve model under write lock (round-robin mutates index), then
         // record the outgoing token count against the stamp the phase

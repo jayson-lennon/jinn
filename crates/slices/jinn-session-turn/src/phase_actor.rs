@@ -436,7 +436,11 @@ pub(crate) async fn settle_stream(
 /// Asks the phase actor to cancel a turn. The reply's `admitted` is
 /// false exactly when the turn had already ended — the once-ness of a
 /// turn's end lives here, in the turn record.
-pub(crate) async fn cancel_turn(
+///
+/// Public for the queue actor's tests, which drive the cancel side of the
+/// mid-assemble race directly; the crate's own handlers call it through
+/// the same function.
+pub async fn cancel_turn(
     services: &jinn_kernel::common::services::Services,
     session_id: &SessionId,
 ) -> Result<PhaseDecision, error_stack::Report<jinn_kernel::common::phase_command::PhaseApplyError>>

@@ -1142,6 +1142,142 @@ async fn dispatch_turn_with_assembly_failure_publishes_nothing() {
     assert!(audit.of_type::<PersistSession>().is_empty());
 }
 
+#[rstest::rstest]
+#[tokio::test]
+async fn dispatch_turn_refused_when_cancel_lands_mid_assemble() {
+    // Given a live generation whose dispatch is admitted, then cancelled
+    // while the queue actor is inside its assemble ask — the window the
+    // stream-rule watchdog's trip lands in (the trip races the intercept's
+    // own resume by construction, and the session actor processes the
+    // cancel while the queue is assembling).
+    let (actor, state, audit) = create_actor().await;
+    let sid = session_id();
+    {
+        let mut state = state.write();
+        state.session_mut_or_create(&sid).begin_sending();
+    }
+    mint_live_generation(&actor.services, &sid).await;
+
+    // When the dispatch's first admission is followed by a turn-cancel
+    // before the re-admission at publish: the cancel task is spawned
+    // before the handler runs, and tokio polls it at the handler's await
+    // points (its own admission ask, then the assemble round-trip), so it
+    // delivers while the queue actor is mid-flight — after the first ask
+    // admitted the turn. Either ask that observes the cancel refuses; the
+    // property under test is that no publish survives it.
+    let cancel_handle = {
+        let services = actor.services.clone();
+        let sid = sid.clone();
+        tokio::spawn(async move {
+            jinn_session_turn::phase_actor::cancel_turn(&services, &sid)
+                .await
+                .expect("phase actor is live");
+        })
+    };
+
+    actor
+        .handle_dispatch_turn(&DispatchTurn {
+            session_id: sid.clone(),
+        })
+        .await;
+
+    cancel_handle.await.expect("cancel task joins");
+
+    // Then the dispatch was refused: no provider request, and no persist —
+    // the resumed turn of a cancelled generation never was.
+    let sends: Vec<SendToLlmProvider> = audit.of_type::<SendToLlmProvider>();
+    assert!(
+        sends.is_empty(),
+        "a cancel landing mid-assemble must refuse the prepared dispatch at publish, got {sends:?}"
+    );
+    assert!(audit.of_type::<PersistSession>().is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn readmission_refuses_after_cancel_but_admits_when_generation_live() {
+    // Given a live generation minted with a stamp, and the exact stamp it
+    // was admitted with — the one the queue actor re-asks with at publish.
+    let (actor, _state, _audit) = create_actor().await;
+    let sid = session_id();
+    let stamp = jiff::Timestamp::now();
+    {
+        let mut state = _state.write();
+        state.session_mut_or_create(&sid).begin_sending();
+    }
+    let minted = jinn_kernel::common::phase_command::apply_phase(
+        &actor.services,
+        PhaseCommand::BeginStream {
+            session_id: sid.clone(),
+            kind: DispatchKind::FreshTurn,
+            dispatched_at: stamp,
+        },
+    )
+    .await
+    .expect("phase actor is spawned by the test helpers");
+    assert!(minted.admitted, "fresh turn mints");
+
+    // When re-asking admission with the same stamp while the generation
+    // is still live (no cancel between the asks — the healthy dispatch).
+    let live =
+        crate::dispatch::admit_begin_stream(&actor.services, &sid, DispatchKind::ResumeTurn, stamp)
+            .await;
+
+    // Then the re-admission admits: it is a no-op refresh, not a second
+    // mint or a refusal.
+    assert!(
+        live.admitted,
+        "re-admission with no cancel must admit the live generation"
+    );
+
+    // When a cancel lands (the watchdog's trip) and the re-ask follows.
+    let cancelled = jinn_session_turn::phase_actor::cancel_turn(&actor.services, &sid)
+        .await
+        .expect("phase actor is live");
+    assert!(cancelled.admitted, "the cancel ends the live turn");
+    let dead =
+        crate::dispatch::admit_begin_stream(&actor.services, &sid, DispatchKind::ResumeTurn, stamp)
+            .await;
+
+    // Then the re-admission refuses: the generation is dead, and this is
+    // exactly what the queue actor's publish-site ask observes when the
+    // cancel landed mid-assemble.
+    assert!(
+        !dead.admitted,
+        "re-admission after a cancel must refuse the dead generation"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn dispatch_turn_admitted_twice_publishes_once_when_no_cancel() {
+    // Given a live generation and NO cancel: the re-admission ask must be
+    // a no-op on the phase machine (already Streaming, stamp refreshed to
+    // the same minted stamp) so the dispatch still publishes.
+    let (actor, _state, audit) = create_actor().await;
+    let sid = session_id();
+    {
+        let mut state = _state.write();
+        state.session_mut_or_create(&sid).begin_sending();
+    }
+    mint_live_generation(&actor.services, &sid).await;
+
+    // When handling DispatchTurn.
+    actor
+        .handle_dispatch_turn(&DispatchTurn {
+            session_id: sid.clone(),
+        })
+        .await;
+
+    // Then the dispatch published exactly one provider request.
+    let sends: Vec<SendToLlmProvider> = audit.of_type::<SendToLlmProvider>();
+    assert_eq!(
+        sends.len(),
+        1,
+        "re-admission with no cancel must not suppress the dispatch"
+    );
+}
+
 // ── Routing endpoint resolution ─────────────────────────────────────────
 
 /// A services set whose provider config pins `model` to `tag`.
