@@ -30,8 +30,15 @@ use serde::{Deserialize, Serialize};
 ///
 /// Two actors publishing a completion for one cancel is what produced the
 /// double-settle, so exactly one of them does.
-#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Command)]
-#[schema(description = "End a session's turn.")]
+///
+/// The kind is an event, deliberately. Two actors declare the schema — the
+/// inference actor stops the stream, the session actor reports the turn's
+/// end — and a command reaches one route per publish, round-robining
+/// between them: one press killed the stream, the next settled the phase,
+/// which is where "ESC four times" came from. An event broadcasts to every
+/// declarant, so both halves of the cancel happen on the same press.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event)]
+#[schema(description = "A session's turn was cancelled.")]
 pub struct CancelTurn {
     /// The session whose turn should be ended.
     pub session_id: SessionId,

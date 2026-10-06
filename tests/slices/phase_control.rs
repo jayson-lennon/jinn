@@ -449,3 +449,73 @@ async fn stream_token_after_cancel_does_not_reach_streaming() {
 // crates/slices/jinn-sidebar/src/sections/sessions_tests.rs
 // :: busy_session_with_idle_phase_reports_idle_in_sidebar  (demonstrated RED)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// R7 — ESC twice settles the phase to Idle (the user-facing cancel)
+// ---------------------------------------------------------------------------
+
+/// The user's cancel gesture, end to end: mid-turn, press ESC twice —
+/// once to raise the confirmation, once to confirm — and the session's
+/// phase settles to `Idle`. This is the whole observable of the cancel;
+/// every internal mechanism exists to make this true.
+///
+/// Driven through the real intent handler (`route_intent`) the way the
+/// live app receives keys, over the composed fabric, so nothing between
+/// the keypress and the phase actor can be assumed.
+#[rstest::rstest]
+#[tokio::test]
+#[timeout(Duration::from_secs(60))]
+async fn esc_esc_mid_turn_settles_the_phase_idle() {
+    // Given a composed app mid-turn: the queue actor dispatched the
+    // user's message for real, the inference actor started a stream
+    // (one token, then hung — the turn is genuinely in flight, not
+    // seeded), and the session is `Streaming`.
+    let (mut app, session_id) = composed_app(hung_factory(), 30).await;
+    app.services
+        .bus
+        .publish(EnqueueUserMessage {
+            session_id: session_id.clone(),
+            entry: ChatEntry::user("start a turn"),
+        })
+        .await;
+    let streaming = wait_until_phase(&app, &session_id, PhaseKind::Streaming).await;
+    assert!(streaming, "setup: the dispatched turn reached Streaming");
+
+    // When the user presses ESC twice: raise the cancel prompt, then
+    // confirm it.
+    app.route_intent(jinn_kernel::KernelIntent::NormalEscape);
+    assert!(
+        app.core.state.read().frontend.cancel_stream_prompt,
+        "the first ESC arms the cancel prompt"
+    );
+    app.route_intent(jinn_kernel::KernelIntent::NormalEscape);
+
+    // Then the phase settles to `Idle` — the spinner stops, the session
+    // takes new input, and nothing downstream of the cancel keeps it
+    // busy.
+    // Then the phase settles to `Idle` — the spinner stops, the session
+    // takes new input, and nothing downstream of the cancel keeps it
+    // busy.
+    let settled = wait_until_phase(&app, &session_id, PhaseKind::Idle).await;
+    assert!(
+        settled,
+        "ESC ESC must settle the phase to Idle; it is {:?}",
+        phase_of(&app, &session_id)
+    );
+
+    // And the session takes a new turn: the cancelled one is gone, not
+    // wedged — a fresh dispatch reaches Streaming again.
+    app.services
+        .bus
+        .publish(EnqueueUserMessage {
+            session_id: session_id.clone(),
+            entry: ChatEntry::user("again"),
+        })
+        .await;
+    let restreaming = wait_until_phase(&app, &session_id, PhaseKind::Streaming).await;
+    assert!(
+        restreaming,
+        "a turn after the cancel must dispatch cleanly; phase is {:?}",
+        phase_of(&app, &session_id)
+    );
+}

@@ -177,13 +177,14 @@ mod tests {
         // Mint first: the live generation is the stall guard's source of
         // truth, and the fused mint edge puts the machine in Streaming so
         // the partial entries below can register their streaming indices.
-        crate::phase_actor::admit_stream(
+        let decision = crate::phase_actor::admit_stream(
             &actor.services,
             &session_id,
             jinn_session_msg::phase_command::DispatchKind::FreshTurn,
             jiff::Timestamp::now(),
         )
         .await;
+        assert!(decision.admitted, "test seed: the stall setup mints a turn");
         {
             let mut state = actor.state.write();
             let session = state.active_session_mut();
@@ -212,13 +213,14 @@ mod tests {
         let (actor, audit) = test_actor_recording().await;
         let _ = jinn_context_assembly::service::ensure_spawned(&actor.services.trouper_system);
         let session_id = actor.state.read().session.active_session_id().clone();
-        crate::phase_actor::admit_stream(
+        let decision = crate::phase_actor::admit_stream(
             &actor.services,
             &session_id,
             jinn_session_msg::phase_command::DispatchKind::FreshTurn,
             jiff::Timestamp::now(),
         )
         .await;
+        assert!(decision.admitted, "test seed: the stall setup mints a turn");
         {
             let mut state = actor.state.write();
             let session = state.active_session_mut();
