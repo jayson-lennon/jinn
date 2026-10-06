@@ -1,8 +1,40 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Do not make edits)**
 
-## (development)
+## 2026-10-05 v1.5.0
 
 - Display bug fix from v1.4.0 applied generically so all tool calls should display properly.
+- Canceling via ESC ESC should now work properly under all circumstances.
+- Remove `command_policy` and replaced with `stream_rules`. The new rules can trigger on anything instead of just tool calls.
+
+```toml
+# old
+[[projects]]
+path = "/project/path"
+command_policy = [{ pattern = 'cargo\s+(test|t)\b.*\s-p\b', message = "Do not run tests on individual packages. Use `just test` or `cargo test --workspace` as indicated in AGENTS.md." }]
+
+# new
+[[stream_rules.entry]]
+name = 'no-bare-find-home'
+description = 'a bare find at the home root walks everything'
+
+# trigger condition
+conditions = ['\bfind\s+~(\s|$)']
+
+# where to apply (text, thinking, tool)
+scopes = ['tool:bash']
+
+# what to do when condition is met.
+# Default behavior interrupts the stream.
+# `fail_tool` will cause the interrupted tool call to be failed (only applies
+# for tool calls).
+on_trigger = 'fail_tool'
+
+# message sent to LLM
+body = 'A bare find at the home root walks your entire home directory, including caches, build trees, and dotfile folders. Search a bounded path instead: find under the project directory with `-name`, or use `rg --files -g <glob>`. If you truly need a home-wide search, scope it with `-maxdepth` and prune build directories.'
+
+# optional project-specific rule
+project = "/glob/here"
+```
 
 ## 2026-10-02 v1.4.0
 
