@@ -36,16 +36,30 @@ tool_filter = { mode = "deny", names = ["grep"] }
 # > refused anyway is better refused than merely discouraged, and the guidance
 # > becomes the error the model reads.
 #
-# > `scopes` narrows where a rule applies: `text`, `thinking`, `tool`, and
-# > `tool:<name>(<glob>)` are the whole grammar. A `fail_tool` rule must name
-# > a tool, since otherwise it would have no call to deny. `project` confines a
-# > rule to matching working directories; absent means every project, and a
-# > global rule is a floor a project-scoped one can add to but never lift.
+# > `scopes` narrows where a rule applies:
+# > - `text`: regular LLM response
+# > - `thinking`: thinking/reasoning block
+# > - `tool`: any tool call
+# > - `tool:<name>(<glob>)`: specific tool call with optional parameter matching.
+# > A `fail_tool` rule must name a tool, since otherwise it would have no call
+# > to deny. `project` confines a rule to matching working directories; absent
+# > means every project, and a global rule is a floor a project-scoped one can
+# > add to but never lift.
 #
 # > Use single-quoted strings so regex metacharacters survive without escape
 # > processing. A pattern the regex engine cannot compile is inert (logged, no
 # > block) and the engine has no lookaround, so `(?<!...)` and `(?=...)` will
 # > not work.
+#
+# > The `project` field is a single glob that matches a project. If provided,
+# > the stream_rules will only trigger when `project` glob matches the CWD of
+# > session.
+#
+# > Examples:
+# project = "/path/to/project"  # must have at least these components
+# project = "/workspace/*"      # glob
+# project = "stuff"             # any path containing `stuff`
+#
 #
 # > The rule below guards a real footgun: ripgrep is recursive already, so `-r`
 # > takes a replacement value and the combined form silently rewrites every
@@ -195,21 +209,11 @@ teardown_command = """bash -c 'git add -A && (git diff --cached --quiet || git c
 # > directly at one of these paths without first changing the active session's
 # > directory.
 #
-# > Add one block per directory. Duplicates are ignored.
+# > This section is managed jinn, but you can manually edit it as well.
+# > Duplicates are ignored.
 #
-# > A project's own rules are stream rules carrying its path in `project`,
-# > scoped to sessions whose working directory falls inside it. Give the glob
-# > the directory's own name so it resolves wherever the project is checked
-# > out.
-#
-# > [[stream_rules.entry]]
-# > name = 'workspace-test-here'
-# > description = 'per-package tests rebuild the whole workspace in this repo'
-# > conditions = ['\bcargo\s+(test|t)\b.*\s-p\b']
-# > scopes = ['tool:bash']
-# > on_trigger = 'fail_tool'
-# > project = 'jinn'
-# > body = 'A per-package test triggers a clean rebuild of the whole workspace in this repo -- run the whole-workspace command instead.'
+# [[project.entry]]
+# path = "/foo/bar"
 
 # ###########################################################################
 # MCP servers (Model Context Protocol)

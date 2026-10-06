@@ -959,6 +959,34 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    async fn a_cancel_during_the_tool_loop_settles_the_phase_idle() {
+        // Given a session in `Sending` — a tool batch (a long-running bash
+        // command) executing between stream turns, the exact shape ESC-ESC
+        // meets when the user cancels mid-tool-loop.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_sending_session(&actor).await;
+
+        // When the cancel is reported and the completion it publishes is
+        // consumed — the full chain the ESC-ESC cascade drives.
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+        };
+        actor.on_cancel_turn(&msg).await;
+        let completed = audit.of_type::<StreamCompleted>();
+        assert_eq!(completed.len(), 1, "setup: the cancel reported the turn");
+        actor.on_stream_completed(&completed[0]).await;
+
+        // Then the phase is `Idle` and no in-flight guard survives: the
+        // spinner stops, the queue drains, and the stall watchdog finds
+        // nothing to re-trigger on.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(session.phase(), PhaseKind::Idle);
+        assert!(!session.has_in_flight_stream());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
     async fn a_synchronously_settled_turn_is_reported_once_by_the_cancel() {
         // Given a session settled locally by the frontend, which never writes a
         // `"Cancelled"` entry itself — the fold does.
