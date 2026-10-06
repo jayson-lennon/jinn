@@ -25,22 +25,16 @@ impl SessionPersistenceActor {
     /// tool-loop continuation, stall retry) flows through the bus, so receipt
     /// here covers all dispatch paths — present and future. The stored
     /// timestamp is the same one the LLM actor embeds in downstream stream
-    /// events, which is exactly what the stale-generation drop in
-    /// `apply_stream_completion` compares against.
-    ///
-    /// A second dispatch for the same session simply overwrites the guard:
-    /// newest generation wins (the LLM actor aborts the superseded task),
-    /// matching the stale-completion drop semantics.
+    /// Logs dispatch receipt. The in-flight guard itself is armed by the
+    /// phase actor at admission (`BeginStream`), not here — a dispatch
+    /// that was refused never reaches the bus, and an armed guard with no
+    /// stream behind it was exactly the wedge.
     pub(in crate::session_actor) fn on_send_to_llm_provider(&self, payload: &SendToLlmProvider) {
-        self.state.with_session(|view| {
-            let session = view.session.map().get_or_create(&payload.session_id);
-            session.arm_stream(payload.dispatched_at);
-        });
         tracing::debug!(
             session_id = %payload.session_id,
             dispatched_at = %payload.dispatched_at,
             origin = ?payload.origin,
-            "in-flight-stream guard armed at dispatch receipt"
+            "dispatch receipt (guard armed by the phase actor at admission)"
         );
     }
 }
@@ -73,17 +67,19 @@ impl SessionPersistenceActor {
         &self,
         payload: &RetryStalledSession,
     ) {
-        // Take the partial streaming entries out of context — but only while
-        // a stream is genuinely in flight for this session.
-        let acted = self.state.with_session(|view| {
+        // Entry surgery first, and only while a stream is genuinely in
+        // flight: the rewind edge clears the machine's streaming indices,
+        // and they are the only record of which entries this generation
+        // owned. The gate doubles as the admission filter — a cancelled
+        // session is `Idle` with no stamp, so a dead generation never
+        // reaches the surgery.
+        let stamp = self.state.with_session(|view| {
             let session = view.session.map().get_or_create(&payload.session_id);
             if matches!(session.phase(), PhaseKind::Sending | PhaseKind::Streaming)
                 && session.has_in_flight_stream()
             {
                 // The stalled attempt's entries stay in history for the user
                 // to read; they are only excluded from the retried request.
-                // Must run before the rewind below, which drops the streaming
-                // indices it reads.
                 let excluded = session.reset_streaming_entries_for_retry();
                 // Belt-and-braces for a dangling loop the streaming indices
                 // do not cover (e.g. one left by an earlier interrupted
@@ -96,15 +92,7 @@ impl SessionPersistenceActor {
                     attempt = payload.attempt,
                     "retrying stalled turn"
                 );
-                // Rewind `Streaming → Sending` so the retried dispatch
-                // re-enters streaming through the legal path. Without this
-                // the session stays in `Streaming` and the retried first
-                // token is rejected as an invalid transition.
-                session.rewind_for_retry();
-                // The re-dispatch below emits a fresh `SendToLlmProvider`,
-                // whose receipt re-arms the stall watchdog for the new
-                // generation automatically.
-                true
+                session.stream_dispatched_at()
             } else {
                 // A rejection is worth one warn line: silent no-ops here
                 // cost hours when the watchdog and the session disagree
@@ -115,25 +103,42 @@ impl SessionPersistenceActor {
                     stream_in_flight = session.has_in_flight_stream(),
                     "stalled-stream restart refused: no in-flight stream"
                 );
-                false
+                None
             }
         });
 
-        if !acted {
+        // The gate passed but the stamp can still be `None` (a finished
+        // turn or a tool-batch wait), so the `None` case falls through as
+        // a no-op.
+        let Some(stamp) = stamp else {
+            return;
+        };
+
+        // The rewind edge is the phase actor's: `Streaming → Sending`,
+        // resolving against the stamp read above. A generation a cancel
+        // already killed is refused here, after surgery but before the
+        // dispatch — the cancelled entries stay excluded, and nothing is
+        // sent for a dead turn.
+        let decision =
+            crate::phase_actor::admit_rewind(&self.services, &payload.session_id, stamp).await;
+        if !decision.admitted {
+            tracing::warn!(
+                session_id = %payload.session_id,
+                "stalled-stream restart refused: its generation was cancelled"
+            );
             return;
         }
 
-        // The phase was rewound to `Sending` above; emit a no-op-safe
-        // phase-changed event for consistency with other dispatch paths, then
-        // re-send the assembled history.
+        // The rewind edge settled the phase to `Sending`; re-send the
+        // assembled history.
         super::super::helpers::emit_history_appended(self.bus(), &payload.session_id).await;
 
         // Hand the prepared turn to the turn-dispatch slice: it assembles
         // the prompt (summarized into the slice's warn so a misretried turn
         // is decidable from logs), resolves the model, and publishes the
-        // fresh `SendToLlmProvider` — which the session actor's own receipt
-        // arms into the in-flight-stream guard, re-arming the watchdog for
-        // the new generation automatically.
+        // fresh `SendToLlmProvider` — whose queue admission re-mints the
+        // rewound generation, re-arming the stall watchdog for it
+        // automatically.
         self.publish(DispatchTurn {
             session_id: payload.session_id.clone(),
         })
@@ -168,20 +173,27 @@ mod tests {
         // The retry path assembles through the trouper service; spawn it
         // on this actor's system (production wiring does this at boot).
         let _ = jinn_context_assembly::service::ensure_spawned(&actor.services.trouper_system);
-        let session_id = {
+        let session_id = actor.state.read().session.active_session_id().clone();
+        // Mint first: the live generation is the stall guard's source of
+        // truth, and the fused mint edge puts the machine in Streaming so
+        // the partial entries below can register their streaming indices.
+        let decision = crate::phase_actor::admit_stream(
+            &actor.services,
+            &session_id,
+            jinn_session_msg::phase_command::DispatchKind::FreshTurn,
+            jiff::Timestamp::now(),
+        )
+        .await;
+        assert!(decision.admitted, "test seed: the stall setup mints a turn");
+        {
             let mut state = actor.state.write();
             let session = state.active_session_mut();
-            session.begin_streaming();
             // A partial assistant entry created via the streaming path so it
             // registers a streaming index and is discarded on retry.
             session
                 .append_stream_token("partial", jiff::Timestamp::now())
                 .expect("append first token");
-            // Register the in-flight stream generation — the guard's source
-            // of truth.
-            session.arm_stream(jiff::Timestamp::now());
-            state.session.active_session_id().clone()
-        };
+        }
         (
             actor,
             audit,
@@ -200,10 +212,18 @@ mod tests {
     -> (SessionPersistenceActor, BusAudit, RetryStalledSession) {
         let (actor, audit) = test_actor_recording().await;
         let _ = jinn_context_assembly::service::ensure_spawned(&actor.services.trouper_system);
-        let session_id = {
+        let session_id = actor.state.read().session.active_session_id().clone();
+        let decision = crate::phase_actor::admit_stream(
+            &actor.services,
+            &session_id,
+            jinn_session_msg::phase_command::DispatchKind::FreshTurn,
+            jiff::Timestamp::now(),
+        )
+        .await;
+        assert!(decision.admitted, "test seed: the stall setup mints a turn");
+        {
             let mut state = actor.state.write();
             let session = state.active_session_mut();
-            session.begin_streaming();
             session
                 .append_stream_token("partial", jiff::Timestamp::now())
                 .expect("append first token");
@@ -216,9 +236,7 @@ mod tests {
             }
             let tool_call_index = session.history().len();
             session.begin_tool_call(tool_call_index, "call_1", "read", jiff::Timestamp::now());
-            session.arm_stream(jiff::Timestamp::now());
-            state.session.active_session_id().clone()
-        };
+        }
         (
             actor,
             audit,
@@ -338,6 +356,47 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    async fn handler_leaves_a_discarded_tool_call_looking_unfinished() {
+        // Given a stalled session whose attempt left a tool call mid-arguments.
+        let (actor, _audit, payload) = stall_setup_with_full_attempt().await;
+        let session_id = payload.session_id.clone();
+
+        // When the retry handler runs.
+        actor.on_retry_stalled_session(&payload).await;
+
+        // Then the discarded tool call carries the same signature an abandoned
+        // partial does — streamed, never finished, out of context — which is
+        // what the chat log reads to keep rendering its arguments expanded
+        // instead of collapsing them to a truncated one-liner.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        let tool_call = session
+            .history()
+            .iter()
+            .find(|e| matches!(e.kind, ChatEntryKind::ToolCall { .. }))
+            .expect("the attempt left a tool call");
+
+        assert!(
+            matches!(
+                tool_call.timing,
+                jinn_core_types::EntryTiming::Streamed { .. }
+            ),
+            "a tool call must keep Streamed timing through a discard: {:?}",
+            tool_call.timing
+        );
+        assert!(
+            tool_call.timing.finished_at().is_none(),
+            "a discarded partial must never gain a finish stamp: {:?}",
+            tool_call.timing
+        );
+        assert!(
+            !tool_call.is_in_context(),
+            "the discarded call must be out of context"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
     async fn handler_rewinds_the_phase_so_the_retry_can_stream() {
         // Given a stalled Streaming session.
         let (actor, _audit, payload) = stall_setup().await;
@@ -350,7 +409,12 @@ mod tests {
         // retried dispatch's first token an illegal transition.
         let state = actor.state.read();
         let session = state.session.get(&session_id).expect("session exists");
-        assert_eq!(session.phase(), PhaseKind::Sending);
+        assert_eq!(
+            session.phase(),
+            PhaseKind::Sending,
+            "the rewind ask must settle the phase to Sending;              stream_dispatched_at = {:?}",
+            session.stream_dispatched_at()
+        );
     }
 
     #[rstest::rstest]
@@ -393,7 +457,8 @@ mod tests {
         {
             let mut state = actor.state.write();
             let session = state.active_session_mut();
-            session.finish_streaming(true, jiff::Timestamp::now());
+            session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+            session.finish_streaming_via_machine();
         }
 
         // When the retry handler runs.
@@ -449,7 +514,7 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn dispatch_command_arms_the_stall_guard() {
+    async fn dispatch_receipt_is_a_noop_the_phase_actor_owns_the_guard() {
         // Given a session actor with no in-flight stream for the active session.
         let (actor, _audit) = test_actor_recording().await;
         let session_id = {
@@ -462,14 +527,16 @@ mod tests {
         // When the dispatch command reaches the session actor.
         actor.on_send_to_llm_provider(&payload);
 
-        // Then the session's in-flight-stream guard is armed at the command's
-        // dispatch timestamp.
+        // Then nothing was armed by the receipt: the guard is the phase
+        // actor's, armed at BeginStream admission, and a dispatch's
+        // publisher never writes session state.
         let state = actor.state.read();
         let session = state.session.get(&session_id).expect("session exists");
         assert_eq!(
             session.stream_dispatched_at(),
-            Some(dispatched_at),
-            "SendToLlmProvider receipt must arm the in-flight-stream guard"
+            None,
+            "SendToLlmProvider receipt must not arm the guard; \
+             the phase actor owns it"
         );
     }
 

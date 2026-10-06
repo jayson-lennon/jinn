@@ -50,11 +50,12 @@ pub fn extract_searchable(kind: &ChatEntryKind) -> Option<(SearchableRole, Strin
         ChatEntryKind::Error(text) => (SearchableRole::Error, text.clone()),
         ChatEntryKind::Compaction { summary, .. } => (SearchableRole::Compaction, summary.clone()),
         // Never indexed: test-era chatter, hidden reasoning, UI-only hints,
-        // and display-only citation lists.
+        // display-only citation lists, and harness-injected rule guidance.
         ChatEntryKind::Actor { .. }
         | ChatEntryKind::Thinking(_)
         | ChatEntryKind::Transient(_)
-        | ChatEntryKind::Annotation { .. } => return None,
+        | ChatEntryKind::Annotation { .. }
+        | ChatEntryKind::RuleInterrupt { .. } => return None,
     };
     Some((role, body))
 }

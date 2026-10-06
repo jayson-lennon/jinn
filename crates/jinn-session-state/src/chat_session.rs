@@ -49,6 +49,33 @@ use crate::fields::SessionProfile;
 use crate::runtime::SessionUi;
 use crate::steering_buffer::SteeringBuffer;
 
+////// The tool-result content for a call a stream rule interrupted mid-arguments.
+///
+/// The content is what the model reads instead of running the call, so it has
+/// to say two things: that the call did not happen, and what it was trying to
+/// do. The arguments ride verbatim and are labelled truncated — completing them
+/// would invent a call the model never made, and the whole point is to show
+/// the model the mistake it is about to repeat.
+///
+/// The rule is named only as a user-defined rule, never by name: the name
+/// crosses no boundary, and a generic framing keeps the result about the call
+/// rather than about jinn's configuration.
+///
+/// The fragment lives in the result's content rather than the call's arguments
+/// deliberately. Arguments are serialized arguments that every provider parses
+/// as JSON, and a truncated fragment is not JSON — Google's encoder degrades
+/// one to `{}` silently, which would leave the model a call that does nothing
+/// and no explanation of why. Result content is free text on all three
+/// providers, so this text reaches the model intact everywhere.
+fn interrupted_call_result(tool_name: &str, arguments: &str) -> String {
+    format!(
+        "This `{tool_name}` call did not run. A user-defined rule triggered \
+     and stopped the response before the call was sent.\n\n\
+     The tool call fragment provided (do not re-run as is), truncated where it was interrupted:\n\n\
+     {arguments}"
+    )
+}
+
 /// The one place an absent filter is answered at a gate.
 ///
 /// An absent filter inherits, and an inherited filter withholds nothing, so
@@ -1005,6 +1032,10 @@ impl ChatSessionState {
     /// The machine only accepts `Sending → Streaming`, so a session still in
     /// `Idle` (a caller that skipped `begin_sending`) is first transitioned to
     /// `Sending`.
+    ///
+    /// Exclusively called by the phase actor (see `apply_stream_begin`):
+    /// the validated edges live behind it, and every other caller of the
+    /// phase goes through a `PhaseCommand`.
     pub fn begin_streaming(&mut self) {
         // If Idle, first transition to Sending (some callers skip begin_sending()).
         if matches!(self.core.ephemeral.machine.kind(), PhaseKind::Idle)
@@ -1171,37 +1202,98 @@ impl ChatSessionState {
 
     /// Mark streaming as finished (normal completion).
     ///
-    /// Delegates to [`PhaseTransitions::on_stream_completed_finished`].
-    pub fn finish_streaming(&mut self, preserve_assistant: bool, dispatched_at: jiff::Timestamp) {
-        if preserve_assistant {
-            self.ensure_assistant_entry(dispatched_at);
-        }
-
-        // Set finished_at on the assistant entry.
-        if let Some(idx) = self.core.ephemeral.machine.streaming_entry_index() {
-            self.finish_streaming_entry(idx);
-        }
-
-        // Safety net: finalize any still-pending thinking entry (pure-reasoning
-        // streams that never produced a content token). Must run before the
-        // Cleared by the StreamingPhase drop in on_stream_completed_*.
-        if let Some(idx) = self.core.ephemeral.machine.streaming_thinking_entry_index() {
-            self.finish_thinking_entry(idx);
-        }
+    /// The machine edge alone: `Streaming → Idle`. Entry finalization —
+    /// the assistant entry's `finished_at`, the thinking safety net —
+    /// belongs to the session actor's completion fold, which runs before
+    /// the phase actor applies this edge.
+    ///
+    /// Exclusively called by the phase actor.
+    pub fn finish_streaming_via_machine(&mut self) {
         if let Err(e) = self.core.ephemeral.machine.on_stream_completed_finished() {
             tracing::warn!(
                 current_phase = ?self.core.ephemeral.machine.kind(),
                 err = %e,
-                "finish_streaming: machine rejected transition"
+                "finish_streaming_via_machine: machine rejected transition"
             );
         }
         // The transition above cleared every tool-call and tool-result registration.
     }
 
+    /// End the turn from either busy phase: `Streaming → Idle` or
+    /// `Sending → Idle`, dropping every tool registration.
+    ///
+    /// The machine edge behind [`PhaseCommand::StreamEndedFinished`],
+    /// which a normal completion applies from `Streaming` and a
+    /// tool-loop stop applies from `Sending`. Exclusively called by the
+    /// phase actor.
+    pub fn finish_turn_from_busy_via_machine(&mut self) {
+        match self.core.ephemeral.machine.kind() {
+            PhaseKind::Streaming => self.finish_streaming_via_machine(),
+            PhaseKind::Sending => {
+                if let Err(e) = self.core.ephemeral.machine.cancel() {
+                    tracing::warn!(
+                        current_phase = ?self.core.ephemeral.machine.kind(),
+                        err = %e,
+                        "finish_turn_from_busy_via_machine: machine rejected settle"
+                    );
+                }
+            }
+            PhaseKind::Idle => {}
+        }
+    }
+
+    /// Cancel the streaming phase via the machine's validated cancel.
+    ///
+    /// The machine edge alone: settle from either busy phase to `Idle`,
+    /// clearing every tool registration. Entry finalization belongs to
+    /// the session actor's completion fold.
+    ///
+    /// Exclusively called by the phase actor.
+    pub fn cancel_streaming_via_machine(&mut self) {
+        if let Err(e) = self.core.ephemeral.machine.cancel() {
+            tracing::warn!(
+                current_phase = ?self.core.ephemeral.machine.kind(),
+                err = %e,
+                "cancel_streaming_via_machine: machine rejected cancel"
+            );
+        }
+        // cancel() cleared every tool-call and tool-result registration.
+    }
+
+    /// Finalize the streaming entries ahead of a normal (non-cancel)
+    /// completion: ensure the assistant entry exists, stamp its
+    /// `finished_at`, and resolve any still-pending thinking entry.
+    ///
+    /// The entry half of [`Self::finish_streaming_via_machine`], run by
+    /// the session actor's completion fold before the phase actor applies
+    /// the machine edge.
+    ///
+    /// Exclusively called by the session actor's completion fold.
+    pub fn finalize_entries_for_finish(
+        &mut self,
+        preserve_assistant: bool,
+        dispatched_at: jiff::Timestamp,
+    ) {
+        if preserve_assistant {
+            self.ensure_assistant_entry(dispatched_at);
+        }
+        if let Some(idx) = self.core.ephemeral.machine.streaming_entry_index() {
+            self.finish_streaming_entry(idx);
+        }
+        if let Some(idx) = self.core.ephemeral.machine.streaming_thinking_entry_index() {
+            self.finish_thinking_entry(idx);
+        }
+    }
+
     /// Cancel streaming but keep partial text in history.
     ///
-    /// Delegates to [`PhaseTransitions::cancel`].
-    pub fn cancel_streaming(&mut self, dispatched_at: jiff::Timestamp) {
+    /// The entry half of a cancel: finalize the partial assistant entry
+    /// and any still-pending thinking entry so their durations resolve.
+    /// The machine edge is the phase actor's
+    /// [`Self::cancel_streaming_via_machine`], applied after this.
+    ///
+    /// Exclusively called by the session actor's completion fold.
+    pub fn finalize_entries_for_cancel(&mut self, dispatched_at: jiff::Timestamp) {
         self.ensure_assistant_entry(dispatched_at);
 
         // Set finished_at on the assistant entry.
@@ -1215,14 +1307,6 @@ impl ChatSessionState {
         if let Some(idx) = self.core.ephemeral.machine.streaming_thinking_entry_index() {
             self.finish_thinking_entry(idx);
         }
-        if let Err(e) = self.core.ephemeral.machine.cancel() {
-            tracing::warn!(
-                current_phase = ?self.core.ephemeral.machine.kind(),
-                err = %e,
-                "cancel_streaming: machine rejected cancel"
-            );
-        }
-        // cancel() cleared every tool-call and tool-result registration.
     }
 
     /// Cancel streaming and drain steering fragments plus queued messages back
@@ -1233,8 +1317,10 @@ impl ChatSessionState {
     /// `UserMessage` are joined with `"\n\n---\n\n"` and replace whatever was
     /// in the input box. `ToolContinuation` items are silently discarded.
     /// If nothing was drained, the input box is left untouched.
-    pub fn cancel_stream_and_drain(&mut self) {
-        self.cancel_streaming(jiff::Timestamp::now());
+    ///
+    /// The drain half only: the phase edge is the phase actor's, applied
+    /// when the cancel's `TurnCanceled` command lands.
+    pub fn drain_cancelled_work_to_input(&mut self) {
         let drained_text = self.drain_cancel_chunks().join("\n\n---\n\n");
         if !drained_text.is_empty() {
             self.update_input(|input| input.replace_all(drained_text));
@@ -1262,9 +1348,105 @@ impl ChatSessionState {
         }
     }
 
+    /// The tool calls whose arguments are still streaming, as `(tool call id,
+    /// tool name, arguments accumulated so far)`.
+    ///
+    /// The argument text is whatever the model had produced when this was
+    /// read, which mid-stream is a prefix of the real JSON and usually not
+    /// parseable. It is reported verbatim for exactly that reason: a fragment
+    /// is worth showing to the model unaltered, where repairing it would
+    /// invent content the model never wrote.
+    ///
+    /// Read from the streaming phase's index map, so this is only meaningful
+    /// while a response is in flight — and only for calls whose arguments had
+    /// started arriving. A model that opens with a tool call and is
+    /// interrupted before its first delta appears here.
+    #[must_use]
+    pub fn streaming_tool_call_fragments(&self) -> Vec<(String, String, String)> {
+        let history = &self.core.history_work.history;
+        self.core
+            .ephemeral
+            .machine
+            .active_tool_call_indices()
+            .values()
+            .filter_map(|&index| history.get(index))
+            .filter_map(|entry| match &entry.kind {
+                ChatEntryKind::ToolCall {
+                    id,
+                    name,
+                    arguments,
+                    ..
+                } => Some((id.clone(), name.clone(), arguments.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Complete the tool calls a stream rule interrupted, each paired with a
+    /// synthetic result explaining that it never ran.
+    ///
+    /// An intercepted tool call is a call the model made and never got an
+    /// answer for, because interrupting its argument stream means it is never
+    /// dispatched. Leaving it unanswered is not a neutral outcome: providers
+    /// reject a request whose `tool_calls` have no matching results, and
+    /// force-excluding it leaves the model resuming with no memory of an
+    /// attempt it will simply repeat. The synthetic result is what makes the
+    /// call both valid and legible.
+    ///
+    /// The fragment is placed immediately after its call and *before* the
+    /// interrupt's guidance entry, so the model reads the failure first and
+    /// the advice second. Guidance is treated as skippable rather than
+    /// terminating for the same reason it is not a provider message: it sits
+    /// between a call and its result without breaking the pairing.
+    ///
+    /// Returns the number of calls completed. Zero means the intercept caught
+    /// prose or reasoning rather than a tool call, which is the common case
+    /// and needs nothing here.
+    pub fn explain_interrupted_tool_calls(&mut self) -> usize {
+        let fragments = self.streaming_tool_call_fragments();
+        if fragments.is_empty() {
+            return 0;
+        }
+
+        let history = self.core.history_work.history.clone();
+        // Collected first and inserted back-to-front, so each insertion's
+        // index stays valid: inserting in place would renumber the calls that
+        // have not been paired yet.
+        let mut insertions: Vec<(usize, ChatEntry)> = Vec::with_capacity(fragments.len());
+        for (id, name, arguments) in fragments {
+            let Some(call_index) = history.iter().position(
+                |entry| matches!(&entry.kind, ChatEntryKind::ToolCall { id: t, .. } if t == &id),
+            ) else {
+                continue;
+            };
+            insertions.push((
+                call_index + 1,
+                ChatEntry::tool_result(
+                    id.clone(),
+                    name.clone(),
+                    interrupted_call_result(&name, &arguments),
+                    ToolResultStatus::Failure,
+                ),
+            ));
+        }
+
+        let completed = insertions.len();
+        for (index, entry) in insertions.into_iter().rev() {
+            self.insert_entry_at(index, entry);
+        }
+        completed
+    }
+
     /// Prepare a stalled stream for retry: take the partial entries out of
     /// context and clear the streaming bookkeeping so the retried generation
     /// starts from scratch.
+    ///
+    /// A call a stream rule interrupted is deliberately left *in* context when
+    /// it has been paired with a synthetic result: that pairing is what makes
+    /// the resumed request valid, and taking the call out of context would
+    /// leave an answered-but-absent call the model cannot read. Excluding it
+    /// was the old behaviour and it is what made a model resume blind and
+    /// re-emit the identical call.
     ///
     /// Nothing is removed. A stalled attempt's partial assistant text, thinking
     /// and tool calls stay in history exactly where the user watched them
@@ -1294,12 +1476,101 @@ impl ChatSessionState {
         let mut indices = self.collect_streaming_history_indices();
         indices.sort_unstable();
         indices.dedup();
+        // A tool call answered by a synthetic result is a finished exchange,
+        // not an abandoned attempt: it and its result stay in context so the
+        // model can read them. Dropping the call would strand an answered
+        // call the model never sees, which is the blind resume this whole
+        // method exists to avoid.
+        //
+        // The assistant entry the model was streaming when it made that call
+        // is part of the same exchange and is kept with it. Retaining the call
+        // but not its host reads to the model as a tool call that appeared out
+        // of nowhere, with no preamble to say what it was doing — and the
+        // request assembler manufactures an *empty* assistant to carry the call
+        // in that case, so the model's own words are dropped while the shape
+        // looks fine. An interrupted response is still an unfinished sentence,
+        // but the alternative is sending the model a call with no context for
+        // it, which is the failure this exclusion exists to prevent.
+        //
+        // Everything else streaming is still a partial attempt and is taken
+        // out: reasoning, and prose from an attempt that made no call at all.
+        let answered = self.tool_calls_answered_in_context();
+        let carriers = self.entries_hosting_retained_calls(&answered);
+        indices.retain(|index| {
+            let entry = self.core.history_work.history.get(*index);
+            match entry {
+                Some(entry) if answered.contains(&entry.id) || carriers.contains(&entry.id) => {
+                    false
+                }
+                _ => true,
+            }
+        });
         let excluded = self.edit_history().force_exclude_at_indices(&indices);
         if !excluded.is_empty() {
             self.update_view(|v| v.shown_ignored_blocks.extend(excluded.iter().cloned()));
         }
         self.core.ephemeral.machine.clear_streaming_indices();
         excluded
+    }
+
+    /// The assistant entries whose adjacent tool calls are in `retained`.
+    ///
+    /// Walks back from each retained call to the nearest preceding assistant
+    /// entry, which is the one it renders into: the request assembler attaches
+    /// a call to the most recent assistant message, and synthesizes an empty
+    /// one when there is none. Scanning backwards and stopping at the first
+    /// assistant mirrors that exactly, so what is kept here is the same entry
+    /// that would have carried the call.
+    fn entries_hosting_retained_calls(
+        &self,
+        retained: &HashSet<ChatEntryId>,
+    ) -> HashSet<ChatEntryId> {
+        let history = &self.core.history_work.history;
+        let mut hosts = HashSet::new();
+        for (index, entry) in history.iter().enumerate() {
+            let ChatEntryKind::ToolCall { .. } = &entry.kind else {
+                continue;
+            };
+            if !retained.contains(&entry.id) {
+                continue;
+            }
+            let host = history
+                .get(..index)
+                .unwrap_or_default()
+                .iter()
+                .rev()
+                .find(|candidate| matches!(candidate.kind, ChatEntryKind::Assistant(_)));
+            if let Some(host) = host {
+                hosts.insert(host.id.clone());
+            }
+        }
+        hosts
+    }
+
+    /// The ids of tool calls already answered by a result that is itself in
+    /// context.
+    ///
+    /// The pairing is what makes a call a finished exchange, so it is the
+    /// test: a call with an answered result belongs in the model's context
+    /// even when the attempt that produced it was abandoned mid-stream.
+    fn tool_calls_answered_in_context(&self) -> HashSet<ChatEntryId> {
+        let history = &self.core.history_work.history;
+        let answered: HashSet<&str> = history
+            .iter()
+            .filter(|entry| entry.is_in_context())
+            .filter_map(|entry| match &entry.kind {
+                ChatEntryKind::ToolResult { id, .. } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        history
+            .iter()
+            .filter(|entry| match &entry.kind {
+                ChatEntryKind::ToolCall { id, .. } => answered.contains(id.as_str()),
+                _ => false,
+            })
+            .map(|entry| entry.id.clone())
+            .collect()
     }
 
     /// Every history entry index currently tracked by the streaming phase.
@@ -1936,56 +2207,10 @@ impl ChatSessionState {
         self.core.identity.last_history_activity_at = Timestamp::now();
     }
 
-    /// Clear the sending flag (called when the first stream token arrives).
-    //
-    /// Complete the sending phase via the machine's validated transition.
-    ///
-    /// This should be called when a tool batch completes and the tool loop
-    /// is disabled. The machine reads the `tool_loop_disabled` flag and
-    /// transitions `Sending → Idle` (if set) or `Sending → Streaming` (if not).
-    ///
-    /// The caller must ensure `set_tool_loop_disabled(true)` has been called
-    /// before this method if the tool loop should be terminated.
-    pub fn finish_sending_via_machine(&mut self) {
-        if let Err(e) = self.core.ephemeral.machine.on_tool_batch_completed() {
-            tracing::warn!(
-                current_phase = ?self.core.ephemeral.machine.kind(),
-                err = %e,
-                "finish_sending_via_machine: machine rejected transition - ignoring"
-            );
-        }
-    }
-
     /// Transition to Working phase (a background operation started).
     ///
     /// Increment the busy counter. Called when a background operation starts.
     /// The count is ephemeral (not persisted).
-    pub fn begin_busy(&mut self) {
-        self.core.ephemeral.busy_count += 1;
-    }
-
-    /// Decrement the busy counter (floor at 0). Called when one background
-    /// operation completes. Returns the new count.
-    pub fn complete_busy(&mut self) -> usize {
-        self.core.ephemeral.busy_count = self.core.ephemeral.busy_count.saturating_sub(1);
-        self.core.ephemeral.busy_count
-    }
-
-    /// Hard-reset the busy counter to zero. Cancels all tracked operations.
-    pub fn cancel_busy(&mut self) {
-        self.core.ephemeral.busy_count = 0;
-    }
-
-    /// Returns the current number of active background operations.
-    pub fn busy_count(&self) -> usize {
-        self.core.ephemeral.busy_count
-    }
-
-    /// Returns `true` when any background operation is in progress.
-    pub fn is_busy(&self) -> bool {
-        self.core.ephemeral.busy_count > 0
-    }
-
     /// The current scroll offset (lines to skip from top).
     ///
     /// Returns `None` when auto-scrolled to the bottom, or `Some(n)` when
@@ -3379,8 +3604,20 @@ impl ChatSessionState {
     ///
     /// Uses `ContextOverride::ForcedExclude` rather than removing entries,
     /// preserving them for display in the UI.
+    ///
+    /// The excluded entries are also registered as an expanded ignored block,
+    /// for the same reason [`Self::reset_streaming_entries_for_retry`] does it:
+    /// an interrupted attempt is typically three entries — exactly the collapse
+    /// threshold — so exclusion alone would reduce the whole attempt to a single
+    /// "N hidden entries" line.
+    ///
+    /// Returns the ids whose context override changed.
     pub fn force_exclude_dangling_tool_calls(&mut self) -> Vec<ChatEntryId> {
-        self.edit_history().exclude_incomplete_trailing_loops()
+        let excluded = self.edit_history().exclude_incomplete_trailing_loops();
+        if !excluded.is_empty() {
+            self.update_view(|v| v.shown_ignored_blocks.extend(excluded.iter().cloned()));
+        }
+        excluded
     }
 
     /// Disable the tool loop for this session's current turn.

@@ -54,6 +54,7 @@ highlight-lang-r = ["highlight", "dep:tree-sitter-r"]
 highlight-lang-regex = ["highlight", "dep:tree-sitter-regex"]
 highlight-lang-ruby = ["highlight", "dep:tree-sitter-ruby"]
 highlight-lang-rust = ["highlight", "dep:tree-sitter-rust"]
+highlight-lang-slate = ["highlight", "dep:tree-sitter-slate"]
 highlight-lang-scala = ["highlight", "dep:tree-sitter-scala"]
 highlight-lang-solidity = ["highlight", "dep:tree-sitter-solidity"]
 highlight-lang-sql = ["highlight", "dep:tree-sitter-sequel"]
@@ -93,6 +94,7 @@ highlight-lang-all = [
     "highlight-lang-regex",
     "highlight-lang-ruby",
     "highlight-lang-rust",
+    "highlight-lang-slate",
     "highlight-lang-scala",
     "highlight-lang-solidity",
     "highlight-lang-sql",
@@ -142,6 +144,9 @@ tree-sitter-r = { version = "1.2", optional = true }
 tree-sitter-regex = { version = "0.25", optional = true }
 tree-sitter-ruby = { version = "0.23", optional = true }
 tree-sitter-rust = { version = "0.24", optional = true }
+# Slate is vendored, not published. See the install notes in
+# slate-syntax/tree-sitter-slate/README.md.
+tree-sitter-slate = { path = "/mnt/zed/repos/slate/crates/slate-syntax/tree-sitter-slate", optional = true }
 tree-sitter-scala = { version = "0.26", optional = true }
 tree-sitter-solidity = { version = "1.2", optional = true }
 tree-sitter-sequel = { version = "0.3", optional = true }

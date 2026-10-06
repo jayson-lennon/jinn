@@ -13,9 +13,12 @@
 use jinn_core_types::SessionId;
 use serde::{Deserialize, Serialize};
 
+pub mod phase_command;
 pub mod phase_machine;
 pub mod session_origin;
 mod session_seed;
+
+pub use phase_command::{DispatchKind, PhaseCommand, PhaseDecision};
 
 /// The wall-clock moment carried by [`SessionPhaseChanged`] and
 /// [`WorkStateChanged`], re-exported so a consumer publishing either event
@@ -57,11 +60,12 @@ impl PhaseKind {
     /// Whether a session in this phase is working.
     ///
     /// The single definition of "working" in the codebase: a session is busy
-    /// whenever its phase is not [`PhaseKind::Idle`]. There are deliberately
-    /// no carve-outs for a parent orchestrating subagents, an attendant
-    /// composing a report, or a turn running its tool loop — those *are* the
-    /// time the user is waiting, and a separate `is_busy` notion with four
-    /// writers already exists and disagrees with this one.
+    /// whenever its phase is not [`PhaseKind::Idle`]. The separate `is_busy`
+    /// counter that used to disagree with this one (four writers, phase-adjacent
+    /// readers) is gone — every liveness predicate reads the phase, through this
+    /// method or a `matches!` on it. There are deliberately no carve-outs for a
+    /// parent orchestrating subagents, an attendant composing a report, or a
+    /// turn running its tool loop — those *are* the time the user is waiting.
     #[must_use]
     pub const fn is_working(self) -> bool {
         !matches!(self, Self::Idle)
@@ -152,6 +156,33 @@ pub enum TurnOutcome {
     Error,
     /// The turn was cancelled by the user.
     Canceled,
+    /// A stream rule interrupted the turn and it resumed with the rule's
+    /// body.
+    ///
+    /// **This is not a terminal outcome, despite arriving on
+    /// [`TurnCompleted`].** The turn did not end — it was rewound and
+    /// re-dispatched, and a fresh generation will follow. It is reported here
+    /// rather than as its own event so a consumer can tell an intercepted
+    /// generation from a cancelled turn with one subscription, but a consumer
+    /// that *reacts to a turn ending* must exclude it. Use
+    /// [`TurnOutcome::is_terminal`] rather than matching variants by hand; the
+    /// bug this prevents is a watchdog disarming itself on an intercept and a
+    /// turn counter being cleared mid-turn, so the condition it is watching for
+    /// never accumulates.
+    RuleIntercepted,
+}
+
+impl TurnOutcome {
+    /// Whether this outcome ends the turn, and so must disarm anything
+    /// monitoring it.
+    ///
+    /// The single place this policy lives. Every watchdog that tracks a turn
+    /// asks this rather than re-deriving "which outcomes are terminal", because
+    /// the two derivations are what let a watchdog disarm on an intercept.
+    #[must_use]
+    pub fn is_terminal(self) -> bool {
+        !matches!(self, Self::RuleIntercepted)
+    }
 }
 
 /// Session archived in persistent storage.

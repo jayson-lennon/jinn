@@ -1,0 +1,27 @@
+[package]
+name = "jinn-stream-rules"
+version.workspace = true
+edition.workspace = true
+description = "The stream-rules slice: regex rules tested against the live assistant stream."
+
+[dependencies]
+jinn-core-types = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-preferences-config = { workspace = true }
+jinn-config = { workspace = true }
+# Compiling the rules' `conditions` into regexes. Already in the tree for the
+# bash command policy; a stream rule that could not compile would be inert, so
+# the same engine is the one that has to do the work.
+regex = { workspace = true }
+# The `tool:<name>(<glob>)` path pattern. Already in the tree for the tool
+# name filter, so a stream rule reuses the same glob dialect the rest of the
+# configuration speaks.
+globset = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

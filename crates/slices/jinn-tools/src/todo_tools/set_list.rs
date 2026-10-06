@@ -210,7 +210,6 @@ mod tests {
     fn make_context(state: Option<State>, session_id: Option<SessionId>) -> ToolContext {
         ToolContext {
             cwd: std::path::PathBuf::from("."),
-            command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
             config: jinn_config::testutil::config_layer(""),
             timeout: None,
             state,

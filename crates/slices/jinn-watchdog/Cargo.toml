@@ -25,6 +25,9 @@ tracing = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
+# `testutil` builds a ConfigLayer from an inline TOML document, so the
+# activation-time migration read can be tested against real files.
+jinn-config = { workspace = true }
 rstest = { workspace = true }
 jinn-kernel = { workspace = true }
 

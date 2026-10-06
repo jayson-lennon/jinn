@@ -52,7 +52,7 @@ use crate::tool_types::tool_error;
 use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
 use jinn_core_types::{ChatEntry, ChatEntryKind, ModelSelection, NameFilter, SessionId};
-use jinn_inference_msg::CancelStream;
+use jinn_inference_msg::CancelTurn;
 use jinn_session_lifecycle_msg::SessionCreated;
 use jinn_session_state::ChatSessionState;
 
@@ -376,7 +376,7 @@ async fn await_child(
         Some(budget) => match tokio::time::timeout(budget, wait).await {
             Ok(outcome) => outcome,
             Err(_) => {
-                bus.publish(CancelStream {
+                bus.publish(CancelTurn {
                     session_id: child_id,
                 })
                 .await;

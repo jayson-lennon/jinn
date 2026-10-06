@@ -37,10 +37,11 @@
 //!   `SendToLlmProvider`, `ChatEntrySubmitted`, `PersistSession`
 //! - `ToolContinuation` (queued) → normalize loop layout, assemble,
 //!   publish `SendToLlmProvider`
-//! - prepared turn → steering drain (a fragment landing between
-//!   preparation and dispatch still makes the turn), normalize loop
-//!   layout, assemble, resolve model (mutating the alloy round-robin
-//!   index), transition to Streaming, push the outgoing token record,
+//! - prepared turn → admission ask (a queued resume whose generation was
+//!   cancelled is refused at mint, publishing nothing), steering drain (a
+//!   fragment landing between preparation and dispatch still makes the
+//!   turn), normalize loop layout, assemble, resolve model (mutating the
+//!   alloy round-robin index), push the outgoing token record,
 //!   publish `SendToLlmProvider`, `PersistSession`
 //!
 //! Steering fragments are dispatched only from the idle transition and the
@@ -62,7 +63,6 @@ use jinn_core_types::model_selection::ModelSelection;
 use jinn_core_types::{ChatEntry, ChatEntryKind, ReasoningEffort, SessionId};
 use jinn_inference_msg::{SendToLlmProvider, StreamOrigin};
 use jinn_kernel::common::actor_deps::BusPublish;
-use jinn_kernel::common::phase_events::publish_phase_change;
 use jinn_kernel::common::services::Services;
 use jinn_kernel::common::services::bus_service::BusService;
 use jinn_kernel::common::state::State;
@@ -71,6 +71,7 @@ use jinn_provider_selection_msg::resolve_effort;
 use jinn_session_history_msg::HistoryAppended;
 use jinn_session_msg::PhaseKind;
 use jinn_session_msg::SessionPhaseChanged;
+use jinn_session_msg::phase_command::DispatchKind;
 use jinn_session_store_msg::PersistSession;
 use jinn_slices::AssembledPrompt;
 use jinn_token_count_msg::TokenRecord;
@@ -140,22 +141,6 @@ impl QueueActor {
         if payload.new_phase == PhaseKind::Idle {
             self.handle_idle_transition(&payload.session_id).await;
         }
-    }
-
-    /// Announces a phase change this actor's own write just made, together
-    /// with the working-state change it implies.
-    ///
-    /// Routed through the kernel's shared helper rather than publishing
-    /// `SessionPhaseChanged` here: the working-time monitor measures one
-    /// boundary, and a queue actor that published only the phase event would
-    /// leave a turn it dispatched unmeasured.
-    async fn publish_phase_change(
-        &self,
-        session_id: &SessionId,
-        old_phase: PhaseKind,
-        new_phase: PhaseKind,
-    ) {
-        publish_phase_change(self.bus(), session_id, old_phase, new_phase).await;
     }
 
     /// Handle [`DispatchTurn`] — dispatch the session's prepared turn.
@@ -228,16 +213,38 @@ impl QueueActor {
         }
     }
 
-    /// Dispatch a user message: vision gate, push to history, set title,
-    /// begin sending, publish SessionPhaseChanged (if the phase actually
-    /// changed), assemble prompt, publish SendToLlmProvider,
-    /// ChatEntrySubmitted, PersistSession.
+    /// Dispatch a user message: admission ask (a fresh turn always mints,
+    /// or the dispatch aborts with history untouched), vision gate, push
+    /// to history, set title, assemble prompt, publish
+    /// `SendToLlmProvider`, `ChatEntrySubmitted`, `PersistSession`. The
+    /// phase transition itself is the admission — this path publishes no
+    /// phase event of its own.
     async fn dispatch_user_message(
         &self,
         session_id: &SessionId,
         entry: &ChatEntry,
         origin: StreamOrigin,
     ) {
+        // Admission first, before the entry is pushed: a refused mint
+        // must leave history untouched (the caller re-queues the entry).
+        // A user message always mints a fresh generation — `FreshTurn` —
+        // so the only refusal is a dead actor, not a state refusal.
+        let stamp = jiff::Timestamp::now();
+        let decision = crate::dispatch::admit_begin_stream(
+            &self.services,
+            session_id,
+            DispatchKind::FreshTurn,
+            stamp,
+        )
+        .await;
+        if !decision.admitted {
+            tracing::warn!(
+                session_id = %session_id,
+                "queue could not reach the phase actor; dispatch aborted before the entry landed"
+            );
+            return;
+        }
+
         // Vision gate: if the entry carries attachments but the active model
         // is not confirmed image-capable, push entry + error and abort dispatch
         // (no begin_sending, no re-enqueue). Mirrors the Idle-path gate.
@@ -258,7 +265,7 @@ impl QueueActor {
             return;
         }
 
-        let (old_phase, new_phase) = {
+        {
             self.state.with_session(|view| {
                 let session = view.session.map().get_or_create(session_id);
                 if session.title().is_none() {
@@ -274,16 +281,8 @@ impl QueueActor {
                 // Normalize loop layout so committed loops never contain
                 // interstitials before assembly.
                 session.edit_history().normalize_loop_layout();
-                let old_phase = session.phase();
-                session.begin_sending();
-                (old_phase, session.phase())
             })
         };
-
-        if old_phase != new_phase {
-            self.publish_phase_change(session_id, old_phase, new_phase)
-                .await;
-        }
 
         let Some(assembled) = self.assemble(session_id, "user message").await else {
             return;
@@ -305,7 +304,7 @@ impl QueueActor {
             provider_id,
             estimated_tokens,
             tool_definitions: assembled.tool_definitions,
-            dispatched_at: jiff::Timestamp::now(),
+            dispatched_at: stamp,
         })
         .await;
 
@@ -376,6 +375,25 @@ impl QueueActor {
     /// writes, and no token record — the session actor's tool-loop path owns
     /// those for real continuations.
     async fn dispatch_resume(&self, session_id: &SessionId, origin: StreamOrigin) {
+        // Admission first: a continuation for a cancelled generation is
+        // refused here — the phase actor is the one writer, and a dead
+        // generation minted no stream. Nothing reaches the provider.
+        let stamp = jiff::Timestamp::now();
+        let decision = crate::dispatch::admit_begin_stream(
+            &self.services,
+            session_id,
+            DispatchKind::ToolContinuation,
+            stamp,
+        )
+        .await;
+        if !decision.admitted {
+            tracing::info!(
+                session_id = %session_id,
+                "queue refused a tool continuation: its generation was cancelled"
+            );
+            return;
+        }
+
         // Normalize loop layout so committed loops never contain
         // interstitials before assembly. Steering fragments are NOT drained
         // here — steering waits for its own turn at the next idle slot.
@@ -389,6 +407,28 @@ impl QueueActor {
         let Some(assembled) = self.assemble(session_id, "tool continuation").await else {
             return;
         };
+
+        // Re-admit before publishing, against the stamp this path minted:
+        // a cancel landing in the assemble window kills the generation, and
+        // the phase actor refuses the second ask. A tool continuation
+        // racing a cancel would otherwise start a stream the watchdogs
+        // no longer watch (the cancel cleared the guard) — the same
+        // zombie shape the prepared dispatch's re-ask closes.
+        if !crate::dispatch::admit_begin_stream(
+            &self.services,
+            session_id,
+            DispatchKind::ToolContinuation,
+            stamp,
+        )
+        .await
+        .admitted
+        {
+            tracing::warn!(
+                session_id = %session_id,
+                "queue refused a tool continuation at publish: its generation was cancelled mid-assemble"
+            );
+            return;
+        }
 
         let (provider_id, model_used, reasoning_effort, endpoint_tag) =
             self.resolve_dispatch_model(session_id);
@@ -406,7 +446,7 @@ impl QueueActor {
             provider_id,
             estimated_tokens,
             tool_definitions: assembled.tool_definitions,
-            dispatched_at: jiff::Timestamp::now(),
+            dispatched_at: stamp,
         })
         .await;
     }
@@ -424,6 +464,29 @@ impl QueueActor {
     /// `SendToLlmProvider` subscription — the single write point — not
     /// here.
     async fn dispatch_prepared(&self, session_id: &SessionId) {
+        // Admission first: this path dispatches a turn prepared before the
+        // queue received it (a queued resume, or a steering handoff), so it
+        // arrives as `ResumeTurn`. A cancel that landed while the turn sat
+        // queued has already killed its generation — the ask refuses, and
+        // nothing downstream of this point happens. This is the fix site
+        // for the phase flap: the phase can no longer re-enter `Streaming`
+        // behind a dead turn because the dispatch never starts.
+        let stamp = jiff::Timestamp::now();
+        let decision = crate::dispatch::admit_begin_stream(
+            &self.services,
+            session_id,
+            DispatchKind::ResumeTurn,
+            stamp,
+        )
+        .await;
+        if !decision.admitted {
+            tracing::warn!(
+                session_id = %session_id,
+                "queue refused a prepared dispatch: its generation was cancelled"
+            );
+            return;
+        }
+
         // Steer-first drain: a fragment submitted in the window between the
         // dispatching path's history push and this command's execution must
         // still make this turn (it arrived while the turn was being
@@ -449,12 +512,42 @@ impl QueueActor {
         };
         let estimated_tokens = assembled.estimated_tokens();
 
+        // Re-admit before publishing. The first ask admitted the turn and
+        // the assemble window followed it; a cancel published in that
+        // window — the stream-rule watchdog's trip, which races the
+        // intercept's own resume by construction — is processed by the
+        // session actor *while* this actor was assembling, so only a
+        // second ask sees it. Without this, the resume of an interrupted
+        // generation lands one provider request past the trip, and the
+        // next rule match on that zombie stream is the extra interrupt
+        // the user finds in the log after the cancel.
+        //
+        // Resolves against the stamp the first admission minted, not the
+        // wall clock: the phase actor refuses when the record's stamp is
+        // gone (the cancel cleared it) or the generation's live stamp has
+        // moved past this one. Same ask, same shape, no new message.
+        if !crate::dispatch::admit_begin_stream(
+            &self.services,
+            session_id,
+            DispatchKind::ResumeTurn,
+            stamp,
+        )
+        .await
+        .admitted
+        {
+            tracing::warn!(
+                session_id = %session_id,
+                "queue refused a prepared dispatch at publish: its generation was cancelled mid-assemble"
+            );
+            return;
+        }
+
         // Resolve model under write lock (round-robin mutates index), then
-        // transition → Streaming and record the outgoing token count. The
-        // record carries the resolved model (the direct-send path's former
-        // push-then-`set_last_token_model` dance, converged).
+        // record the outgoing token count against the stamp the phase
+        // actor admitted. The transition itself already happened — the
+        // admission above IS the phase write.
         let registry = self.services.provider_registry.clone();
-        let (provider_id, model_used, reasoning_effort, endpoint_tag, old_phase, new_phase) = {
+        let (provider_id, model_used, reasoning_effort, endpoint_tag) = {
             self.state.with_session(|view| {
                 let session = view.session.map().get_or_create(session_id);
                 let reasoning_effort = resolve_effort(session.profile().reasoning_effort);
@@ -474,32 +567,18 @@ impl QueueActor {
                     (ModelSelection::Single(_), Some(id)) => registry.pinned_endpoint_tag(id),
                     _ => None,
                 };
-                let old_phase = session.phase();
-                session.begin_streaming();
                 session.push_token_record(TokenRecord {
                     model_used: model_used.clone(),
-                    timestamp: jiff::Timestamp::now(),
+                    timestamp: stamp,
                     tokens_sent: estimated_tokens,
                     tokens_received: 0,
                     cost: None,
                     prompt_tokens: None,
                     cached_tokens: None,
                 });
-                (
-                    provider_id,
-                    model_used,
-                    reasoning_effort,
-                    endpoint_tag,
-                    old_phase,
-                    session.phase(),
-                )
+                (provider_id, model_used, reasoning_effort, endpoint_tag)
             })
         };
-
-        if old_phase != new_phase {
-            self.publish_phase_change(session_id, old_phase, new_phase)
-                .await;
-        }
 
         self.publish(SendToLlmProvider {
             origin: StreamOrigin::User,
@@ -512,7 +591,7 @@ impl QueueActor {
             provider_id,
             estimated_tokens,
             tool_definitions: assembled.tool_definitions,
-            dispatched_at: jiff::Timestamp::now(),
+            dispatched_at: stamp,
         })
         .await;
 

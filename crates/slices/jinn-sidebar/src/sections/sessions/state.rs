@@ -64,7 +64,7 @@ impl SessionListKey {
             title_tail,
             is_active: id == active_id,
             created_at: *session.created_at(),
-            is_idle: matches!(session.phase(), PhaseKind::Idle) && !session.is_busy(),
+            is_idle: matches!(session.phase(), PhaseKind::Idle),
             last_entry_is_error: session.history().last().is_some_and(|entry| {
                 matches!(&entry.kind, jinn_core_types::ChatEntryKind::Error(..))
             }),
@@ -137,7 +137,7 @@ pub fn sorted_open_sessions_split(
             title: session.title().unwrap_or("Untitled Session").to_owned(),
             is_active: id == active_id,
             created_at: *session.created_at(),
-            is_idle: matches!(session.phase(), PhaseKind::Idle) && !session.is_busy(),
+            is_idle: matches!(session.phase(), PhaseKind::Idle),
             last_entry_is_error: session.history().last().is_some_and(|entry| {
                 matches!(&entry.kind, jinn_core_types::ChatEntryKind::Error(..))
             }),

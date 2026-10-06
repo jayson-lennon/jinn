@@ -21,7 +21,7 @@ use crate::tool_types::ToolContext;
 use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::SessionId;
 use jinn_core_types::tool_types::{ToolCall, ToolResult};
-use jinn_inference_msg::CancelStream;
+use jinn_inference_msg::CancelTurn;
 use jinn_kernel::common::app_paths::AppPaths;
 use jinn_kernel::common::app_state::AppState;
 use jinn_kernel::common::bus::HarnessServices;
@@ -53,7 +53,6 @@ async fn task_ctx(harness: &TestHarness, state: &State, session_id: SessionId) -
     let services = harness.services().await;
     ToolContext {
         cwd: std::path::PathBuf::from("/tmp"),
-        command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
         config: jinn_config::testutil::config_layer(""),
         timeout: None,
         state: Some(state.clone()),
@@ -109,7 +108,10 @@ async fn finish_child_like_session_actor(
         child.begin_sending();
         child.begin_streaming();
         child.push_entry(ChatEntry::assistant(text));
-        child.finish_streaming(false, jiff::Timestamp::now());
+        // The old finish is now the two actor halves: the session actor's
+        // entry fold, then the phase actor's machine edge.
+        child.finalize_entries_for_finish(false, jiff::Timestamp::now());
+        child.finish_streaming_via_machine();
         old
     };
     bus.publish(SessionPhaseChanged {
@@ -134,8 +136,13 @@ async fn cancel_child_like_user(
         let child = w.session.get_mut(child_id).expect("child seeded");
         child.begin_sending();
         child.begin_streaming();
+        // The old cancel is now the production sequence: the session actor's
+        // entry fold, then the `Error("Cancelled")` entry the streaming
+        // handler pushes, then the phase actor's machine edge. Finalization
+        // must precede the error entry so it lands last in history.
+        child.finalize_entries_for_cancel(jiff::Timestamp::now());
         child.push_entry(ChatEntry::error("Cancelled"));
-        child.finish_streaming(false, jiff::Timestamp::now());
+        child.cancel_streaming_via_machine();
     }
     bus.publish(SessionPhaseChanged {
         session_id: child_id.clone(),
@@ -627,7 +634,7 @@ async fn task_timeout_cancels_child_and_fails() {
     let (state, parent_id) = parent_fixture();
     let ctx = task_ctx(&harness, &state, parent_id.clone()).await;
     let created_rec = harness.spawn_recorder::<SessionCreated>().await;
-    let cancel_rec = harness.spawn_recorder::<CancelStream>().await;
+    let cancel_rec = harness.spawn_recorder::<CancelTurn>().await;
 
     // When the child never finishes and the budget expires.
     let pending = tokio::spawn(execute(

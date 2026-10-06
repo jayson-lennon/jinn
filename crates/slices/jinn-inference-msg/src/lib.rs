@@ -1,7 +1,7 @@
 //! Inference crossing contracts.
 //!
 //! The EXPORT surface of the inference slice: the dispatch commands that
-//! start or cancel a provider stream and the stream events the actor
+//! start or end a provider stream and the stream events the actor
 //! emits while driving one. Owned by the producing slice (§1 rule 5 —
 //! remove the inference actor and these messages have no producer).
 //!
@@ -11,6 +11,10 @@
 //! coordinator's mirrored cancel request. Kernel consumers of the
 //! events: the session actor's stream/tool folds and that coordinator's
 //! stream mirror (string-based wire).
+//!
+//! [`CancelTurn`] in `cancel` is the single command for ending a turn, and
+//! [`AbortStream`] is the deliberate exception: it stops a stream *without*
+//! ending the turn, which is what a rule intercept needs.
 //!
 //! The stream-phase tool events (`ToolUseStarted`/`ToolCallReceived`/
 //! `ToolCallStreaming`) are *also* published by the inference actor but
@@ -24,6 +28,10 @@
 //! than by remembering to add a subscription. It is a *separate* event from
 //! [`StreamToken`], not a replacement: rendering still consumes tokens.
 
+mod cancel;
+
+pub use cancel::CancelTurn;
+
 use jinn_core_types::SessionId;
 use jinn_core_types::llm_message::LlmMessage;
 use jinn_core_types::tool_types::ToolCall;
@@ -31,14 +39,33 @@ use jinn_core_types::tool_types::ToolDefinition;
 use jinn_slices::SystemPrompt;
 use serde::{Deserialize, Serialize};
 
-/// Cancel the active provider stream for a session.
+/// Stop a stream because a rule matched it, without ending the turn.
+///
+/// Distinct from [`CancelTurn`]: that one *ends* the turn and reports it
+/// as cancelled, while this one only tears the provider stream down. The
+/// stream task cannot abort itself — `JoinHandle::abort` panics when called
+/// from inside the aborted task — so it publishes this and returns, and the
+/// actor performs the teardown it owns (tombstone, pending tool batches, task
+/// handle, session record).
+///
+/// The actor's reply is a `StreamCompleted(RuleIntercept)`, published by the
+/// stream task itself, so no competing `Canceled` completion is emitted.
 #[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Command)]
-#[schema(description = "Cancel the active provider stream for a session.")]
-pub struct CancelStream {
-    /// The session whose stream should be cancelled.
+#[schema(description = "Stop the current stream for a session without ending the turn.")]
+pub struct AbortStream {
+    /// The session whose stream should be torn down.
     pub session_id: SessionId,
+    /// The dispatch being aborted, so a stale abort cannot tear down the
+    /// stream that resumed after it.
+    ///
+    /// The stream task that publishes this has already returned by the time
+    /// the actor handles it, and the resumed turn's own dispatch is armed by
+    /// the time the bus delivers it — so without this stamp an abort that
+    /// arrives late would abort the resumed stream instead of the finished
+    /// one, and the session would lose both.
+    pub dispatched_at: jiff::Timestamp,
 }
-impl jinn_slices::BusMessage for CancelStream {}
+impl jinn_slices::BusMessage for AbortStream {}
 
 /// Command to send conversation context to the LLM provider.
 ///
@@ -97,7 +124,7 @@ impl jinn_slices::BusMessage for SendToLlmProvider {}
 /// Where an LLM request originated, from the tool loop's perspective.
 ///
 /// The inference actor uses this to enforce the cancel tombstone: after
-/// [`CancelStream`], further `ToolContinuation` requests are dropped until the
+/// [`CancelTurn`], further `ToolContinuation` requests are dropped until the
 /// next `User` request clears it. This closes the race where a cancel lands
 /// while a tool-loop continuation is already in flight — without the gate, the
 /// continuation re-dispatches a stream the user (or the tool-call watchdog)
@@ -125,6 +152,15 @@ pub enum StreamCompletedReason {
     ToolUse,
     /// The stream failed due to a provider error.
     Error,
+    /// A stream rule matched the output before it was published.
+    ///
+    /// Distinct from [`StreamCompletedReason::Canceled`] because the two
+    /// abort for opposite reasons and every consumer must be able to tell
+    /// them apart: a cancel is the user ending the turn, an intercept is the
+    /// harness correcting the model mid-sentence so it can continue on its
+    /// own. A consumer that reads an intercept as a cancel would end the
+    /// turn; one that reads a cancel as an intercept would retry it.
+    RuleIntercept,
 }
 
 /// Streaming response completed for a session.
@@ -306,7 +342,7 @@ mod tests {
         // Given the crossing messages.
         // When reading their schema ids.
         // Then each has a schema (compile-time proof of the impls).
-        let _ = <CancelStream as trouper::schema::Schema>::schema_id();
+        let _ = <CancelTurn as trouper::schema::Schema>::schema_id();
         let _ = <SendToLlmProvider as trouper::schema::Schema>::schema_id();
         let _ = <StreamActivity as trouper::schema::Schema>::schema_id();
         let _ = <StreamCompleted as trouper::schema::Schema>::schema_id();

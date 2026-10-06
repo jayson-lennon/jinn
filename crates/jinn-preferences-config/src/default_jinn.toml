@@ -22,82 +22,121 @@ max_output_bytes = 51200
 tool_filter = { mode = "deny", names = ["grep"] }
 
 # ---------------------------------------------------------------------------
-# Command policies
+# Stream rules
 # ---------------------------------------------------------------------------
 #
-# > A `command_policy` that applies to every session, in every directory. Same
-# > shape as a project's `command_policy`: each rule pairs a regex `pattern`
-# > (matched against the full command string) with the corrective `message`
-# > returned to the agent when it matches. The command never runs.
+# > A rule pairs regex `conditions` with a `body` of corrective guidance. The
+# > conditions are tested against what the model actually produced, so they
+# > catch a mistake however the provider happened to chunk it.
 #
-# > These rules are evaluated *before* the matching project's rules and the
-# > first match wins, so a project policy can only add blocks — it cannot lift a
-# > global one. Use this for mistakes that are never correct anywhere; keep
-# > repo-specific habits in the project's own `command_policy`.
+# > `on_trigger` decides what happens on a match. Absent, the turn is
+# > interrupted and resumed with `body` as guidance -- the model is told and
+# > tries again. `on_trigger = "fail_tool"` instead denies the matched tool call
+# > outright, which is what these shell rules use: a command that will be
+# > refused anyway is better refused than merely discouraged, and the guidance
+# > becomes the error the model reads.
+#
+# > `scopes` narrows where a rule applies:
+# > - `text`: regular LLM response
+# > - `thinking`: thinking/reasoning block
+# > - `tool`: any tool call
+# > - `tool:<name>(<glob>)`: specific tool call with optional parameter matching.
+# > A `fail_tool` rule must name a tool, since otherwise it would have no call
+# > to deny. `project` confines a rule to matching working directories; absent
+# > means every project, and a global rule is a floor a project-scoped one can
+# > add to but never lift.
 #
 # > Use single-quoted strings so regex metacharacters survive without escape
 # > processing. A pattern the regex engine cannot compile is inert (logged, no
 # > block) and the engine has no lookaround, so `(?<!...)` and `(?=...)` will
 # > not work.
 #
+# > The `project` field is a single glob that matches a project. If provided,
+# > the stream_rules will only trigger when `project` glob matches the CWD of
+# > session.
+#
+# > Examples:
+# project = "/path/to/project"  # must have at least these components
+# project = "/workspace/*"      # glob
+# project = "stuff"             # any path containing `stuff`
+#
+#
 # > The rule below guards a real footgun: ripgrep is recursive already, so `-r`
-# > takes a replacement value and `rg -rn` silently rewrites every match to
-# > `n` — and exits 0.
-[[tools.bash_command_policy]]
-pattern = 'rg -rn'
-message = 'ripgrep is already recursive and `-r` takes a replacement value, so `rg -rn` rewrites every match to `n` and still exits 0 — use `-n` alone for line numbers.'
+# > takes a replacement value and the combined form silently rewrites every
+# > match to a letter -- and exits 0.
+[[stream_rules.entry]]
+name = 'no-recursive-flag-rewrite'
+description = 'a combined ripgrep flag rewrites matches instead of listing them'
+conditions = ['rg -rn']
+scopes = ['tool:bash']
+on_trigger = 'fail_tool'
+body = 'ripgrep is already recursive and `-r` takes a replacement value, so combining it with `-n` rewrites every match instead of listing it, and still exits 0 -- use `-n` alone for line numbers.'
 
 # > The next four rules block whole-filesystem search habits. An agent that
-# > cannot find something reaches for `find /` or `ls -R /` and walks the
-# > entire machine, hanging for minutes and returning thousands of
-# > irrelevant hits.
+# > cannot find something reaches for a bare-root find or a recursive listing
+# > and walks the entire machine, hanging for minutes and returning thousands
+# > of irrelevant hits.
 # >
 # > Each pattern anchors on the command word and its search path, ending at a
-# > space or end-of-command so a *bounded* path is never caught:
-# > `find /mnt/zed/...` and `ls -R ~/code/myapp` do not match, but
-# > `find / more crap here` does. Because the regex is searched anywhere in
-# > the command string, a leading `cd <dir> &&` chain is caught too — only
-# > the argument shape is constrained, not the whole line.
-[[tools.bash_command_policy]]
-pattern = '\bfind\s+/(\s|$)'
-message = 'A bare `find /` walks the entire filesystem — it will hang for minutes and bury the answer in noise. Search a bounded root instead: `find <project-dir> -name <pattern>`, or `rg --files -g <glob>` which is recursive by default and much faster. If you truly need a system-wide search, scope it with `-maxdepth` and prune noise (`-path /proc -prune -o -path /sys -prune -o ...`).'
+# > space or end-of-command so a *bounded* path is never caught: a find under a
+# > real directory does not match, but a bare root search followed by more
+# > arguments does. Because the regex is searched anywhere in the command
+# > string, a leading `cd <dir> &&` chain is caught too -- only the argument
+# > shape is constrained, not the whole line.
+[[stream_rules.entry]]
+name = 'no-bare-find-root'
+description = 'a bare find at the filesystem root walks everything'
+conditions = ['\bfind\s+/(\s|$)']
+scopes = ['tool:bash']
+on_trigger = 'fail_tool'
+body = 'A bare find at the filesystem root walks the entire disk -- it will hang for minutes and bury the answer in noise. Search a bounded root instead: find under the project directory with `-name`, or use `rg --files -g <glob>` which is recursive by default and much faster. If you truly need a system-wide search, scope it with `-maxdepth` and prune noise.'
 
-[[tools.bash_command_policy]]
-pattern = '\bfind\s+~(\s|$)'
-message = 'A bare `find ~` walks your entire home directory, including caches, build trees, and dotfile folders. Search a bounded path instead: `find ~/code/myapp -name <pattern>`, or `rg --files -g <glob>`. If you truly need a home-wide search, scope it with `-maxdepth` and prune build directories.'
+[[stream_rules.entry]]
+name = 'no-bare-find-home'
+description = 'a bare find at the home root walks everything'
+conditions = ['\bfind\s+~(\s|$)']
+scopes = ['tool:bash']
+on_trigger = 'fail_tool'
+body = 'A bare find at the home root walks your entire home directory, including caches, build trees, and dotfile folders. Search a bounded path instead: find under the project directory with `-name`, or use `rg --files -g <glob>`. If you truly need a home-wide search, scope it with `-maxdepth` and prune build directories.'
 
-# > The `ls` rules guard the recursive flag. The flag is matched as a short
-# > cluster containing an uppercase `R` (`-R`, and combined forms like `-lR`,
-# > `-1R`, `-Rt`) or as the long `--recursive`. Lowercase `-r` is
-# > `--reverse` — it only flips sort order within one directory and dumps
-# > nothing — so it is deliberately not matched, and the uppercase `R` is why
-# > the pattern carries no `(?i)`.
+# > The listing rules guard the recursive flag. The flag is matched as a short
+# > cluster containing an uppercase `R` (and combined forms like `-lR`) or as
+# > the long `--recursive`. Lowercase `-r` is `--reverse` -- it only flips sort
+# > order within one directory and dumps nothing -- so it is deliberately not
+# > matched, and the uppercase letter is why the pattern carries no `(?i)`.
 # >
-# > Anything may sit between `ls` and the flag, and between the flag and the
-# > path: other flags, `--color=always`, quoted values. The argument run that
-# > absorbs them cannot start with the characters a bare path starts with
-# > (`/ ~ $ ' "`) and cannot cross a `;`, `&`, or `|`, which is what keeps
-# > `ls -R /usr` and `ls -R ~/code` (both bounded) from matching while
-# > stopping `ls -R ~/code && cd /` from letting the run reach into the next
-# > command.
+# > Anything may sit between the command and the flag, and between the flag and
+# > the path: other flags, colour options, quoted values. The argument run that
+# > absorbs them cannot start with the characters a bare path starts with, and
+# > cannot cross a separator or a pipe, which is what keeps a bounded path from
+# > matching while stopping a chained command from letting the run reach into
+# > the next one.
 # >
-# > The path is then a bare `/` or home reference (`~`, `$HOME`, `${HOME}`,
-# > optionally quoted, with an optional glob or trailing slash), followed by a
-# > boundary that is whitespace, a separator, a redirect, a closing paren, or
-# > end of command — never a path character. That boundary is what stops
-# > `ls -R /usr` from matching on its `ls -R /` prefix, while still catching
-# > `ls -R / 2>/dev/null | head` and `(ls -R /)`.
+# > The path is then a bare root or home reference (optionally quoted, with an
+# > optional glob or trailing slash), followed by a boundary that is
+# > whitespace, a separator, a redirect, a closing paren, or end of command --
+# > never a path character. That boundary is what stops a bounded path from
+# > matching on its bare-root prefix, while still catching a piped or
+# > parenthesised variant.
 # >
 # > These two patterns are double-quoted rather than single-quoted: the quoted
-# > path forms contain a `'`, which a literal TOML string cannot hold.
-# > Everywhere else in this file, prefer single quotes.
-[[tools.bash_command_policy]]
-pattern = "\\bls\\b\\s*(?:[^\\s;&|/~$'\\\"][^\\s;&|]*\\s+)*(-\\w*R\\w*|--recursive)\\s+(?:[^\\s;&|/~$'\\\"][^\\s;&|]*\\s+)*(?:/|'\\/'|\\\"/\\\")(?:\\*+|/+)?(?:\\s|;|&|\\||\\)|\\]|\\}|<|>|$)"
-message = 'Listing a bare `/` or `~` recursively dumps the whole filesystem or home tree into the transcript — thousands of irrelevant lines and a slow tool call. Scope it to the directory you actually care about (`ls -R <project-dir> -I target`), or search with `rg --files -g <glob>` / `fd`.'
+# > path forms contain a single quote, which a literal TOML string cannot
+# > hold. Everywhere else in this file, prefer single-quoted.
+[[stream_rules.entry]]
+name = 'no-recursive-listing-root'
+description = 'a recursive listing of the filesystem root dumps everything'
+conditions = ["\\bls\\b\\s*(?:[^\\s;&|/~$'\\\"][^\\s;&|]*\\s+)*(-\\w*R\\w*|--recursive)\\s+(?:[^\\s;&|/~$'\\\"][^\\s;&|]*\\s+)*(?:/|'\\/'|\\\"/\\\")(?:\\*+|/+)?(?:\\s|;|&|\\||\\)|\\]|\\}|<|>|$)"]
+scopes = ['tool:bash']
+on_trigger = 'fail_tool'
+body = 'Listing a bare root or home directory recursively dumps the whole tree into the transcript -- thousands of irrelevant lines and a slow tool call. Scope it to the directory you actually care about (`-I target` to skip build output), or search with `rg --files -g <glob>` / `fd`.'
 
-[[tools.bash_command_policy]]
-pattern = "\\bls\\b\\s*(?:[^\\s;&|/~$'\\\"][^\\s;&|]*\\s+)*(-\\w*R\\w*|--recursive)\\s+(?:[^\\s;&|/~$'\\\"][^\\s;&|]*\\s+)*(?:~|\\$HOME|\\\"\\$HOME\\\"|'~'|'\\$HOME'|\\$\\{HOME\\}|\\\"\\$\\{HOME\\}\\\")(?:\\*+|/+)*(?:\\s|;|&|\\||\\)|\\]|\\}|<|>|$)"
-message = 'Listing a bare `~` recursively dumps your whole home directory — caches, build trees, and dotfile folders. Scope it to the directory you actually care about (`ls -R <dir> -I target`), or search with `rg --files -g <glob>` / `fd`.'
+[[stream_rules.entry]]
+name = 'no-recursive-listing-home'
+description = 'a recursive listing of the home root dumps everything'
+conditions = ["\\bls\\b\\s*(?:[^\\s;&|/~$'\\\"][^\\s;&|]*\\s+)*(-\\w*R\\w*|--recursive)\\s+(?:[^\\s;&|/~$'\\\"][^\\s;&|]*\\s+)*(?:~|\\$HOME|\\\"\\$HOME\\\"|'~'|'\\$HOME'|\\$\\{HOME\\}|\\\"\\$\\{HOME\\}\\\")(?:\\*+|/+)*(?:\\s|;|&|\\||\\)|\\]|\\}|<|>|$)"]
+scopes = ['tool:bash']
+on_trigger = 'fail_tool'
+body = 'Listing a bare home directory recursively dumps your whole tree -- caches, build outputs, and dotfile folders. Scope it to the directory you actually care about (`-I target` to skip build output), or search with `rg --files -g <glob>` / `fd`.'
 
 # ###########################################################################
 # Chat log
@@ -170,17 +209,11 @@ teardown_command = """bash -c 'git add -A && (git diff --cached --quiet || git c
 # > directly at one of these paths without first changing the active session's
 # > directory.
 #
-# > Add one block per directory. Duplicates are ignored.
-#
-# > A project may also carry a `command_policy`: a list of blocked-command
-# > rules enforced by the bash tool for any session whose working directory
-# > falls inside the project. Each rule pairs a regex `pattern` (matched
-# > against the full command string; first match wins) with the corrective
-# > `message` returned to the agent when it matches. The command never runs.
+# > This section is managed jinn, but you can manually edit it as well.
+# > Duplicates are ignored.
 #
 # [[project.entry]]
-# path = "~/code/jinn"
-# command_policy = [{ pattern = 'cargo\s+(test|t)\b.*\s-p\b', message = "cargo test -p triggers a clean rebuild in this repo — run `just test` for the whole workspace instead." }]
+# path = "/foo/bar"
 
 # ###########################################################################
 # MCP servers (Model Context Protocol)
@@ -639,6 +672,52 @@ enabled = true
 radius = 20
 # > Only apply pruning after there are this many messages ahead of the prune target.
 min_age = 50
+
+# ###########################################################################
+# Stream rules
+# ###########################################################################
+#
+# > Unlike every other rule in this file, a stream rule is tested against the
+# > model output as it streams. When a `conditions` regex matches the output
+# > so far, jinn interrupts the turn before that output reaches the chat log
+# > and resumes it with `body` injected as guidance. The model course-corrects
+# > itself instead of the user having to type at it.
+#
+# > A rule fires at most once per session turn.
+#
+# > `scopes` decides which streams the rule is tested against:
+# >
+# >   text                      assistant prose (the default)
+# >   thinking                  reasoning output
+# >   tool                      serialized tool-call arguments
+# >   tool:edit(*.ts)           `edit` calls touching a TypeScript file
+# >
+# > Leave `scopes` out (or empty) to test prose, reasoning, and tool arguments
+# > alike. Prefer a narrow scope when the rule is about one medium — a rule
+# > about TypeScript types belongs on tool arguments, where the offending
+# > source actually appears.
+#
+# > `body` is the guidance the model resumes under. Write it as an instruction
+# > to the agent, not as an explanation to the user. A rule with an empty
+# > `body`, no usable `conditions`, or no usable `scopes` is skipped with a
+# > warning rather than interrupting a turn with nothing to say.
+#
+# > Use single-quoted strings for `conditions` so regex metacharacters survive
+# > without escape processing. A pattern the engine cannot compile is dropped
+# > with a warning; the rule's remaining patterns still apply.
+#
+# > The example below interrupts before a `: any` assertion reaches a
+# > TypeScript file. Uncomment the whole block to enable it.
+#
+# [[stream_rules.entry]]
+# name = "ts-no-any"
+# description = "Never widen a type to `any`"
+# conditions = [': any', '\bas any\b']
+# scopes = ["tool:edit(*.ts)", "tool:write(*.tsx)", "tool:multi_edit(*.ts)"]
+# body = """
+# Use `unknown`, a domain type, a generic parameter, or a type guard instead.
+# Never widen a type to `any` to make an error go away.
+# """
 
 # ###########################################################################
 # Discord integration

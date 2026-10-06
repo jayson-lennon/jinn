@@ -183,12 +183,12 @@ fn state_with_selected_row(row: usize) -> AppState {
     state
 }
 
-/// How many `CancelStream` messages a result publishes.
+/// How many `CancelTurn` messages a result publishes.
 fn cancel_count(result: &jinn_slices::route::RouteResult) -> usize {
     result
         .message_names
         .iter()
-        .filter(|name| name.ends_with("CancelStream"))
+        .filter(|name| name.ends_with("CancelTurn"))
         .count()
 }
 

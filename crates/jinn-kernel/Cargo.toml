@@ -73,6 +73,10 @@ trouper = { workspace = true }
 [dev-dependencies]
 jinn-context-assembly = { workspace = true }
 jinn-context-curation = { workspace = true }
+# The phase-command tests spawn the real phase actor at its production
+# path to verify the ask round-trip. Dev-only on purpose: a production
+# edge to the slice would invert the kernel→slice direction.
+jinn-session-turn = { workspace = true }
 # Enables the schema crate's migration-chain helpers. The `testing` feature is
 # unified into `jinn-session-schema`'s own integration tests, which is why this
 # dev-dep cannot be dropped while those tests live in that crate.

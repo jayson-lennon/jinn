@@ -16,7 +16,7 @@
 
 use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::{ChatEntryId, SessionId};
-use jinn_inference_msg::CancelStream;
+use jinn_inference_msg::CancelTurn;
 use jinn_kernel::common::state::State;
 use jinn_session_msg::PhaseKind;
 
@@ -29,7 +29,7 @@ use crate::activation;
 /// only when the reset actually changed something, which is the caller's cue
 /// that the exclusions need writing to disk.
 pub type RerunOutcome = (
-    Option<CancelStream>,
+    Option<CancelTurn>,
     Option<EnqueueUserMessage>,
     Vec<ChatEntryId>,
 );
@@ -64,15 +64,17 @@ pub fn rerun_in_state(
         return None;
     }
     let session = state.session.get_mut(attendant_id)?;
-    // Superseding a busy attendant: drop the in-flight turn locally so the
-    // seeded entry below *dispatches* rather than queueing — the enqueue
-    // handler queues anything arriving while a session is Sending/Streaming.
-    // `Esc` uses `cancel_stream_and_drain`; `R` must not, because draining
-    // steers the cancelled partial into the input box and the run about to
-    // start would carry the old turn's leftovers.
+    // Superseding a busy attendant: cancel the in-flight turn as a command
+    // so the seeded entry below *dispatches* rather than queueing — the
+    // enqueue handler queues anything arriving while a session is
+    // Sending/Streaming. The command ends the previous turn through the
+    // session actor; no phase is written synchronously here.
+    // `Esc` drains the cancelled partial into the input box through its own
+    // path; `R` must not, because the run about to start would carry the old
+    // turn's leftovers.
     let cancel = (session.phase() != PhaseKind::Idle).then(|| {
-        session.cancel_streaming(jiff::Timestamp::now());
-        CancelStream {
+        session.finalize_entries_for_cancel(jiff::Timestamp::now());
+        CancelTurn {
             session_id: attendant_id.clone(),
         }
     });

@@ -37,6 +37,9 @@ tool_pending_bg = [45, 45, 50]
 challenge_alert_bg = [255, 200, 0]
 challenge_alert_fg = [16, 16, 16]
 compaction_block_bg = [60, 50, 80]
+# Dark amber: near-black like the user block's base value but yellow-biased,
+# so harness rule guidance reads as steering rather than typed input.
+rule_interrupt_bg = [72, 61, 20]
 sources_header_bg = [74, 79, 170]
 sources_header_fg = [255, 255, 255]
 truncation_fg = [83, 83, 83]

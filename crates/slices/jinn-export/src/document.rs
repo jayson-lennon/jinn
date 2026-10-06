@@ -227,7 +227,8 @@ pub fn project_entry(entry: &ChatEntry) -> Option<ExportEntry> {
         ChatEntryKind::System(_)
         | ChatEntryKind::Error(_)
         | ChatEntryKind::Assistant(_)
-        | ChatEntryKind::Actor { .. } => (entry.yank_text(), None, false, Vec::new(), None),
+        | ChatEntryKind::Actor { .. }
+        | ChatEntryKind::RuleInterrupt { .. } => (entry.yank_text(), None, false, Vec::new(), None),
     };
 
     let lines = line_count(&body);

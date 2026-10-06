@@ -84,7 +84,7 @@ async fn trigger_does_not_cancel_the_attendants_descendants() {
     // ParentCompleted trigger, and the trigger actor live on the bus.
     let harness = TestHarness::new().await;
     let canceled = harness
-        .spawn_recorder::<jinn_inference_msg::CancelStream>()
+        .spawn_recorder::<jinn_inference_msg::CancelTurn>()
         .await;
     let state = State::new(AppState::default());
     let parent_id = {

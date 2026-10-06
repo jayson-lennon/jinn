@@ -22,10 +22,10 @@ use wherror::Error;
 // re-exported here so a consumer has one import home for `jinn.toml`
 // shapes.
 pub use crate::schemas::{
-    AutoPruneConfig, ChatLogConfig, CommandPolicyRule, CompactionConfig, CwdSelectorConfig,
-    DiscordConfig, InteractiveTermPrefs, McpServerConfig, McpServersConfig, MinimapConfig,
-    ProjectConfig, RequestRetryConfig, SessionLifecycle, SkillsConfig, StallWatchdogConfig,
-    ToolCallWatchdogConfig, ToolsConfig, TransportKind, WebSearchConfig,
+    AutoPruneConfig, ChatLogConfig, CompactionConfig, CwdSelectorConfig, DiscordConfig,
+    InteractiveTermPrefs, LegacyCommandPolicyRule, McpServerConfig, McpServersConfig,
+    MinimapConfig, ProjectConfig, RequestRetryConfig, SessionLifecycle, SkillsConfig,
+    StallWatchdogConfig, ToolCallWatchdogConfig, ToolsConfig, TransportKind, WebSearchConfig,
 };
 
 /// Canonical default `jinn.toml` embedded at compile time.

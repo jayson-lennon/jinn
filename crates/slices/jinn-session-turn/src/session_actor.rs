@@ -30,7 +30,7 @@ use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
 use jinn_chat_input_msg::{EnqueueResumeTurn, EnqueueUserMessage, SubmitSteeringMessage};
-use jinn_inference_msg::{SendToLlmProvider, StreamCompleted, StreamToken};
+use jinn_inference_msg::{CancelTurn, SendToLlmProvider, StreamCompleted, StreamToken};
 use jinn_kernel::PromptTemplatesLoaded;
 use jinn_kernel::common::actor_deps::{ActorDeps, BusPublish};
 use jinn_kernel::common::services::bus_service::BusService;
@@ -166,6 +166,11 @@ impl SessionPersistenceActor {
             // the single write point covering every `SendToLlmProvider`
             // publisher (user, queued/steered, direct, tool-loop, stall-retry).
             .handles::<SendToLlmProvider>()
+            // The cancel command is a broadcast: the inference actor stops the
+            // stream on it and this actor reports the turn's end. Splitting
+            // those two jobs across two commands is what let a partial cancel
+            // leave a session wedged with no turn-end signal.
+            .handles::<CancelTurn>()
             // Context-related.
             .handles::<PinChatEntry>()
             .handles::<UnpinChatEntry>()
@@ -274,6 +279,17 @@ impl MsgHandler<StreamToken> for SessionPersistenceActor {
 impl MsgHandler<StreamCompleted> for SessionPersistenceActor {
     async fn handle(&mut self, msg: &StreamCompleted, _ctx: &mut MsgCtx<'_>) {
         self.on_stream_completed(msg).await;
+    }
+}
+
+impl MsgHandler<CancelTurn> for SessionPersistenceActor {
+    /// The single settle entry point for a cancelled turn.
+    ///
+    /// Broadcast alongside the inference actor's own handling of the same
+    /// message, which stops the stream and publishes nothing. One actor owns
+    /// the report, so a cancel cannot settle the session twice.
+    async fn handle(&mut self, msg: &CancelTurn, _ctx: &mut MsgCtx<'_>) {
+        self.on_cancel_turn(msg).await;
     }
 }
 

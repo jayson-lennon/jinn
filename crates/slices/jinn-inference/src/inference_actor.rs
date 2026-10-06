@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,8 +8,8 @@ use jiff::Timestamp;
 use jinn_core_types::SessionId;
 use jinn_core_types::tool_types::ToolCall;
 use jinn_inference_msg::{
-    CancelStream, SendToLlmProvider, StreamActivity, StreamCompleted, StreamCompletedReason,
-    StreamOrigin, StreamToken,
+    AbortStream, CancelTurn, SendToLlmProvider, StreamActivity, StreamCompleted,
+    StreamCompletedReason, StreamToken,
 };
 use jinn_kernel::common::actor_deps::BusPublish;
 use jinn_kernel::common::services::Services;
@@ -23,7 +23,10 @@ use jinn_provider_config::LlmServiceFactoryService;
 use jinn_provider_config::StopReason;
 use jinn_provider_config::StreamEvent;
 use jinn_session_history_msg::PushChatEntry;
+use jinn_slices::StreamContext;
 use jinn_slices::SystemPrompt;
+use jinn_slices::render_rule_interrupt;
+use jinn_slices::{RuleFired, StreamRuleSession};
 use jinn_tools_msg::CancelToolBatch;
 use jinn_tools_msg::ExecuteToolBatch;
 use jinn_tools_msg::{ToolCallReceived, ToolCallStreaming, ToolUseStarted};
@@ -120,9 +123,6 @@ pub struct InferenceActor {
     tasks: HashMap<SessionId, tokio::task::JoinHandle<()>>,
     /// Per-session state.
     sessions: HashMap<SessionId, SessionData>,
-    /// Sessions tombstoned by a recent [`CancelStream`]. While tombstoned,
-    /// `ToolContinuation` sends are dropped; a `User` send clears it.
-    cancelled_sessions: HashSet<SessionId>,
 }
 
 impl jinn_kernel::common::actor_deps::BusPublish for InferenceActor {
@@ -163,13 +163,13 @@ impl InferenceActor {
                             services,
                             tasks: HashMap::new(),
                             sessions: HashMap::new(),
-                            cancelled_sessions: HashSet::new(),
                         })
                     })
                 }
             })
             .handles::<SendToLlmProvider>()
-            .handles::<CancelStream>()
+            .handles::<CancelTurn>()
+            .handles::<AbortStream>()
             .handles::<StreamCompleted>()
             .start()
     }
@@ -181,9 +181,41 @@ impl MsgHandler<SendToLlmProvider> for InferenceActor {
     }
 }
 
-impl MsgHandler<CancelStream> for InferenceActor {
-    async fn handle(&mut self, msg: &CancelStream, _ctx: &mut MsgCtx<'_>) {
-        self.cancel_stream(&msg.session_id).await;
+impl MsgHandler<AbortStream> for InferenceActor {
+    /// Tears the stream down without ending the turn.
+    ///
+    /// The stream task that published this publishes its own
+    /// `StreamCompleted(RuleIntercept)` when it returns, so this handler
+    /// completes no stream of its own — emitting one here would race a
+    /// `Canceled` completion against it.
+    #[expect(
+        clippy::unused_async,
+        reason = "the MsgHandler signature is async; the teardown awaits its own publishes"
+    )]
+    async fn handle(&mut self, msg: &AbortStream, _ctx: &mut MsgCtx<'_>) {
+        self.abort_stream(&msg.session_id, Some(msg.dispatched_at))
+            .await;
+    }
+}
+
+impl MsgHandler<CancelTurn> for InferenceActor {
+    /// Stops the stream, and publishes nothing.
+    ///
+    /// Reporting the turn's end is the session actor's job — it owns the
+    /// phase, and its `StreamCompleted(Canceled)` handler settles it. This
+    /// actor used to publish that completion itself, and the session actor
+    /// settles independently of anything published, so a cancel that both
+    /// reported and settled ran the settle twice.
+    ///
+    /// The latch is armed here rather than on the dispatch side because this
+    /// is the only actor that sees dispatches. The stream-rule watchdog's
+    /// resume is already queued by the time its interrupt is counted — the
+    /// intercept tore the generation down first — and it arrives as a
+    /// user-originated send, the only origin that lifts the tombstone this
+    /// teardown just armed. Dropping it is therefore the only way the trip
+    /// stops the loop rather than resetting its counter.
+    async fn handle(&mut self, msg: &CancelTurn, _ctx: &mut MsgCtx<'_>) {
+        self.abort_stream(&msg.session_id, None).await;
     }
 }
 
@@ -220,13 +252,32 @@ async fn publish_activity(bus: &BusService, sid: &SessionId) {
 /// handles the event, so a future [`StreamEvent`] variant cannot silently
 /// blind the watchdog. The terminal `Done`/`Error` arms publish no activity —
 /// [`StreamCompleted`] governs a stream's end.
+/// How one response's event loop came to an end.
+///
+/// Two outcomes, and the distinction matters only to the log. A response a
+/// rule interrupted has already published its `StreamCompleted(RuleIntercept)`
+/// by the time this returns, so the loop holds no budget to update and no
+/// decision left to make: whether a session that keeps violating a rule should
+/// be cancelled belongs to the stream-rule watchdog, which reads that same
+/// completion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamOutcome {
+    /// The response ran to completion: `Done`, or a terminal `Error`.
+    Completed,
+    /// A rule matched and the turn is being resumed rather than finished.
+    Interrupted,
+}
+
+/// Processes one response's stream events, returning how the stream ended.
+
 async fn process_stream_events(
     mut stream: jinn_provider::ToolStream,
     bus: &BusService,
     sid: &SessionId,
     model_id: &str,
     dispatched_at: jiff::Timestamp,
-) {
+    mut rules: Option<&mut (dyn StreamRuleSession + '_)>,
+) -> StreamOutcome {
     let mut accum = StreamAccumulator::new(model_id);
     let mut events_seen = 0usize;
 
@@ -236,14 +287,41 @@ async fn process_stream_events(
             Ok(event) => match event {
                 StreamEvent::Text(token) => {
                     publish_activity(bus, sid).await;
-                    handle_text_event(bus, sid, dispatched_at, &mut accum, token).await;
+                    let fired = handle_text_event(
+                        bus,
+                        sid,
+                        dispatched_at,
+                        &mut accum,
+                        token,
+                        rules.as_deref_mut(),
+                        StreamContext::text(),
+                    )
+                    .await;
+                    if let Some(fired) = fired {
+                        return apply_rule_match(bus, sid, &mut accum, fired, dispatched_at).await;
+                    }
                 }
                 StreamEvent::Reasoning(token) => {
                     publish_activity(bus, sid).await;
-                    handle_reasoning_event(bus, sid, dispatched_at, &mut accum, token).await;
+                    let fired = handle_reasoning_event(
+                        bus,
+                        sid,
+                        dispatched_at,
+                        &mut accum,
+                        token,
+                        rules.as_deref_mut(),
+                        StreamContext::thinking(),
+                    )
+                    .await;
+                    if let Some(fired) = fired {
+                        return apply_rule_match(bus, sid, &mut accum, fired, dispatched_at).await;
+                    }
                 }
                 StreamEvent::ToolUseStart { index, id, name } => {
                     publish_activity(bus, sid).await;
+                    // The name arrives only here, so it is recorded against
+                    // the index the argument deltas will carry.
+                    accum.tool_names.insert(index, name.clone());
                     bus.publish(ToolUseStarted {
                         session_id: sid.clone(),
                         index,
@@ -258,12 +336,35 @@ async fn process_stream_events(
                     partial_json,
                 } => {
                     publish_activity(bus, sid).await;
+                    // Tested before publishing, as on every other stream path.
+                    // A rule scoped to a tool call is tested against the
+                    // arguments as they accumulate, so the tool name the
+                    // start event recorded is what names the stream.
+                    let fired = rules.as_deref_mut().and_then(|session| {
+                        let name = accum.tool_names.get(&index).map_or("", String::as_str);
+                        session.check(&partial_json, StreamContext::tool(index, name))
+                    });
+                    // Published even when a rule fired, unlike the text and
+                    // reasoning paths. Because a tool rule accumulates, the
+                    // delta that trips it is usually the first one — dropping
+                    // it left the log showing a tool call whose arguments had
+                    // never arrived, rendering as a bare `$` with nothing in
+                    // it. The user watched the model begin this call, so the
+                    // attempt is shown up to the interrupt point.
+                    //
+                    // Showing the arguments does not run them: the tool never
+                    // executes, because `ToolUseComplete` — and with it
+                    // `ExecuteToolBatch` — is never reached once this handler
+                    // returns.
                     bus.publish(ToolCallStreaming {
                         session_id: sid.clone(),
                         index,
                         partial_json,
                     })
                     .await;
+                    if let Some(fired) = fired {
+                        return apply_rule_match(bus, sid, &mut accum, fired, dispatched_at).await;
+                    }
                 }
                 StreamEvent::ToolUseComplete { tool_call, .. } => {
                     publish_activity(bus, sid).await;
@@ -284,7 +385,7 @@ async fn process_stream_events(
                     // this arm declares no liveness.
                     handle_done_event(bus, sid, &mut accum, stop_reason, usage, dispatched_at)
                         .await;
-                    return;
+                    return StreamOutcome::Completed;
                 }
                 StreamEvent::Error { message, .. } => {
                     // Terminal: as with `Done`, no liveness is declared.
@@ -298,7 +399,7 @@ async fn process_stream_events(
                         "LLM stream error event",
                     )
                     .await;
-                    return;
+                    return StreamOutcome::Completed;
                 }
             },
             Err(e) => {
@@ -312,7 +413,7 @@ async fn process_stream_events(
                     "LLM stream chunk error",
                 )
                 .await;
-                return;
+                return StreamOutcome::Completed;
             }
         }
     }
@@ -327,6 +428,101 @@ async fn process_stream_events(
         dispatched_at,
         "LLM stream ended without a terminal event (Done/Error)",
     )
+    .await;
+    StreamOutcome::Completed
+}
+
+/// Acts on what a stream rule matched.
+///
+/// One outcome, which is the point: a match is a fact, and the loop's only
+/// response to a fact is to interrupt and resume. The matcher holds no count
+/// and no budget, so there is nothing here to branch on — a rule that keeps
+/// matching a model that keeps ignoring it has stopped being a correction, and
+/// the stream-rule watchdog is what notices and ends the session.
+async fn apply_rule_match(
+    bus: &BusService,
+    sid: &SessionId,
+    accum: &mut StreamAccumulator,
+    fired: RuleFired,
+    dispatched_at: jiff::Timestamp,
+) -> StreamOutcome {
+    intercept_and_resume(bus, sid, accum, fired, dispatched_at).await;
+    StreamOutcome::Interrupted
+}
+
+/// Ends a stream a rule interrupted, and asks for the turn to resume.
+///
+/// Three publishes, in this order:
+///
+/// 1. [`AbortStream`] — the teardown. It shares the cancel path's own teardown
+///    so the tombstone is armed exactly as a user cancel arms it, and so the
+///    aborted task is cleaned up by the one code path that already does it.
+///    A task cannot abort *itself* from inside, so the loop returns after
+///    publishing this rather than calling `JoinHandle::abort`.
+/// 2. A [`ChatEntryKind::RuleInterrupt`] entry — the guidance, entering the
+///    conversation once, ahead of the resumed request. It reaches the model as
+///    a user turn, unchanged from when this published a `User` entry; it only
+///    renders differently, so harness steering is not mistaken for typed input.
+/// 3. [`StreamCompleted`] with [`StreamCompletedReason::RuleIntercept`] —
+///    the terminal fact the session actor's resume handler acts on. It
+///    carries a reason distinct from a cancel so the turn is never reported
+///    as cancelled.
+///
+/// The partial output is deliberately *not* published: the offending delta
+/// never reached the chat log, and the earlier deltas stay visible there and
+/// are excluded from the resumed request by the session actor.
+async fn intercept_and_resume(
+    bus: &BusService,
+    sid: &SessionId,
+    accum: &mut StreamAccumulator,
+    fired: RuleFired,
+    dispatched_at: jiff::Timestamp,
+) {
+    tracing::warn!(
+        session_id = ?sid,
+        rule = %fired.name,
+        "stream rule matched; interrupting the turn before publishing"
+    );
+
+    bus.publish(jinn_session_history_msg::PushChatEntry {
+        session_id: sid.clone(),
+        entry: ChatEntry::rule_interrupt(
+            &fired.name,
+            render_rule_interrupt(&fired.name, &fired.body),
+        ),
+        pin: None,
+    })
+    .await;
+
+    // The accumulator's text is released here rather than published: it is
+    // what the user watched appear, and the session actor has already taken
+    // it out of context by the time this lands.
+    let _partial = std::mem::take(&mut accum.text);
+
+    bus.publish(StreamCompleted {
+        model_used: Some(accum.model_id.clone()),
+        session_id: sid.clone(),
+        reason: StreamCompletedReason::RuleIntercept,
+        assistant_content: None,
+        tool_calls: None,
+        cost: None,
+        provider_completion_tokens: None,
+        provider_prompt_tokens: None,
+        cached_tokens: None,
+        thinking_content: None,
+        dispatched_at,
+    })
+    .await;
+
+    // Published after the guidance and the completion, and stamped with this
+    // generation so the actor tears down the generation that just ended rather
+    // than the one this intercept resumes into. Sending it last also keeps it
+    // from cutting off the publishes above: the abort cancels the very task
+    // that issued it.
+    bus.publish(AbortStream {
+        session_id: sid.clone(),
+        dispatched_at,
+    })
     .await;
 }
 
@@ -361,6 +557,13 @@ struct StreamAccumulator {
     token_index: usize,
     model_id: String,
     parser: Box<dyn reasoning_parser::ReasoningParser>,
+    /// The name of each in-flight tool call, keyed by its index.
+    ///
+    /// Recorded from `ToolUseStart`, which is the only event that names the
+    /// tool: the argument deltas that follow carry an index and a partial
+    /// JSON fragment and nothing else. A `tool:<name>(<glob>)` scope needs
+    /// the name, and the provider will not repeat it.
+    tool_names: HashMap<usize, String>,
 }
 
 impl StreamAccumulator {
@@ -374,6 +577,7 @@ impl StreamAccumulator {
             token_index: 0,
             model_id: model_id.to_owned(),
             parser,
+            tool_names: HashMap::new(),
         }
     }
 
@@ -456,19 +660,32 @@ async fn publish_stream_completed(
 }
 
 /// Handles a `StreamEvent::Text`: parses reasoning/normal split, publishes both.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the stream handlers share one shape: bus, session, time, accumulator, payload, rules"
+)]
 async fn handle_text_event(
     bus: &BusService,
     sid: &SessionId,
     dispatched_at: jiff::Timestamp,
     accum: &mut StreamAccumulator,
     token: String,
-) {
+    mut rules: Option<&mut (dyn StreamRuleSession + '_)>,
+    ctx: StreamContext<'_>,
+) -> Option<RuleFired> {
     tracing::info!(
         session_id = ?sid,
         token_len = token.len(),
         token_preview = %token.get(..token.len().min(50)).unwrap_or_default(),
         "LLM ACTOR StreamEvent::Text"
     );
+    // Asked before any publish, so a delta that trips a rule has not yet
+    // reached the chat log.
+    if let Some(session) = rules.as_mut()
+        && let Some(fired) = session.check(&token, ctx)
+    {
+        return Some(fired);
+    }
     accum.text.push_str(&token);
     let parsed = match accum.parser.parse_reasoning_streaming_incremental(&token) {
         Ok(r) => r,
@@ -487,23 +704,36 @@ async fn handle_text_event(
             .publish_text(bus, sid, parsed.normal_text, dispatched_at)
             .await;
     }
+    None
 }
 
 /// Handles a `StreamEvent::Reasoning`: accumulates and publishes thinking text.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the stream handlers share one shape: bus, session, time, accumulator, payload, rules"
+)]
 async fn handle_reasoning_event(
     bus: &BusService,
     sid: &SessionId,
     dispatched_at: jiff::Timestamp,
     accum: &mut StreamAccumulator,
     token: String,
-) {
+    mut rules: Option<&mut (dyn StreamRuleSession + '_)>,
+    ctx: StreamContext<'_>,
+) -> Option<RuleFired> {
     tracing::info!(
         session_id = ?sid,
         token_len = token.len(),
         token_preview = %token.get(..token.len().min(50)).unwrap_or_default(),
         "LLM ACTOR StreamEvent::Reasoning"
     );
+    if let Some(session) = rules.as_mut()
+        && let Some(fired) = session.check(&token, ctx)
+    {
+        return Some(fired);
+    }
     accum.publish_thinking(bus, sid, token, dispatched_at).await;
+    None
 }
 
 /// Handles `StreamEvent::Done`: routes tool-use vs finished and publishes
@@ -580,25 +810,61 @@ async fn handle_done_event(
 impl InferenceActor {
     /// Dispatches incoming commands to the appropriate handler.
     /// Starts an LLM streaming response for a session, aborting any existing stream.
-    async fn start_stream(&mut self, payload: &SendToLlmProvider) {
-        // Cancel tombstone: a continuation arriving for a recently-cancelled
-        // session is the in-flight remnant of the tool loop losing the race
-        // against `CancelStream` — drop it silently (the `StreamCompleted(
-        // Canceled)` already ended the turn and pushed its cancel entry).
-        if payload.origin == StreamOrigin::ToolContinuation
-            && self.cancelled_sessions.contains(&payload.session_id)
-        {
-            tracing::info!(
-                session_id = ?payload.session_id,
-                "dropping tool continuation for tombstoned (cancelled) session"
-            );
-            return;
-        }
-        // A user-originated send always lifts the tombstone.
-        if payload.origin == StreamOrigin::User {
-            self.cancelled_sessions.remove(&payload.session_id);
-        }
+    /// Narrows the installed rule set to `session_id`'s project and mints the
+    /// matching state for one response.
+    ///
+    /// The project is bound *here*, once per stream, rather than per delta or
+    /// per project change mid-stream. A session's project association is
+    /// stamped at creation and does not move under a running turn, so binding
+    /// it at the mint point is sufficient and costs nothing per delta. The
+    /// working directory is deliberately not the thing matched: it moves during
+    /// a turn, and a rule bound to a moving value is a rule that changes
+    /// meaning under a running stream.
+    ///
+    /// A session with no project association gets every rule, which is the
+    /// unscoped reading rather than a narrowed one — a rule naming no project
+    /// applies everywhere, so a rule naming a project applies nowhere until
+    /// this session is stamped with one.
+    async fn resolve_rule_session(
+        &self,
+        session_id: &SessionId,
+    ) -> Option<Box<dyn StreamRuleSession + 'static>> {
+        let cell = self
+            .services
+            .slices
+            .reader::<jinn_slices::StreamRules>(&jinn_slices::stream_rules_slot())?;
 
+        // The cell handle is cloned out first: the session borrows the
+        // installed set, so the handle must outlive the local `reader` binding
+        // above.
+        let cell = cell.clone();
+
+        let project = match self.services.session_store.load_session(session_id).await {
+            Ok(Some(snapshot)) => snapshot.project().map(std::path::Path::to_path_buf),
+            Ok(None) => None,
+            Err(error) => {
+                // An unreadable store must not disable the user's rules: an
+                // unscoped session is the safe reading, since it fires the
+                // global rules and leaves project-scoped ones disarmed.
+                tracing::warn!(
+                    session_id = %session_id,
+                    ?error,
+                    "could not read the session's project; rule set left unscoped"
+                );
+                None
+            }
+        };
+
+        let guard = cell.read();
+        let set = match project {
+            Some(ref path) => guard.for_project(path),
+            None => guard.installed(),
+        };
+        set.filter(|set| !set.is_empty())
+            .map(|set| set.new_session(session_id))
+    }
+
+    async fn start_stream(&mut self, payload: &SendToLlmProvider) {
         // Read the retry policy from the configuration layer at the point
         // of use, so a reload is observed by the next turn without a restart.
         let retry_config = self
@@ -653,6 +919,10 @@ impl InferenceActor {
         // Dump the complete assembled request payload (one file per dispatch).
         self.services.request_dump.dump(payload);
 
+        // Resolved once per stream, not per delta: with no rules configured
+        // this is `None` and the stream path is byte-for-byte what it was.
+        let rules = self.resolve_rule_session(&session_id).await;
+
         let handle = tokio::spawn(run_stream(
             factory,
             bus,
@@ -663,6 +933,7 @@ impl InferenceActor {
             tools,
             dispatched_at,
             retry_config,
+            rules,
         ));
 
         // Update session state.
@@ -734,15 +1005,49 @@ impl InferenceActor {
             StreamCompletedReason::Canceled => {
                 // Already cleaned up by cancel_stream.
             }
+            StreamCompletedReason::RuleIntercept => {
+                // Already cleaned up by abort_stream, which the stream task
+                // reached through `AbortStream` before publishing this.
+            }
         }
     }
 
-    /// Cancels the active stream for a session and emits a completion event.
-    async fn cancel_stream(&mut self, session_id: &SessionId) {
-        // Arm the tombstone before anything else so any tool-loop continuation
-        // already in flight is rejected when it arrives. Cleared by the next
-        // user-originated send.
-        self.cancelled_sessions.insert(session_id.clone());
+    /// Tears a session's stream down: arms the tombstone, cancels pending
+    /// tool batches, aborts the task, and forgets the session.
+    ///
+    /// Shared by every teardown: a rule intercept needs the same work with a
+    /// *different* terminal reason. Publishing a
+    /// `CancelTurn` to get it would end the turn rather than resume it, and
+    /// would race the intercept's own `RuleIntercept` completion.
+    ///
+    /// A rule intercept carries the dispatch it is aborting, and a mismatch
+    /// means the abort is stale: the turn already resumed on a newer
+    /// generation and this one would tear down the resumed stream, leaving the
+    /// session with neither the original nor its replacement. A cancel is
+    /// always undated, so it applies to whatever generation is current.
+    ///
+    /// Returns the dispatch time of the aborted generation and whether there
+    /// was one to abort.
+    async fn abort_stream(
+        &mut self,
+        session_id: &SessionId,
+        only_dispatched_at: Option<jiff::Timestamp>,
+    ) -> (Option<jiff::Timestamp>, bool) {
+        let current = self
+            .sessions
+            .get(session_id)
+            .and_then(SessionData::dispatched_at);
+        if let Some(wanted) = only_dispatched_at
+            && current != Some(wanted)
+        {
+            tracing::warn!(
+                session_id = %session_id,
+                aborted = ?wanted,
+                current = ?current,
+                "dropping a stream-rule abort for a superseded generation"
+            );
+            return (current, false);
+        }
 
         // If there's an active session, cancel any pending tool batches.
         if self.sessions.contains_key(session_id) {
@@ -760,25 +1065,7 @@ impl InferenceActor {
             .get(session_id)
             .and_then(SessionData::dispatched_at);
         let had_session = self.sessions.remove(session_id).is_some();
-        // Only emit StreamCompleted if there was actually an active session
-        // to cancel. Avoids pushing a spurious "Cancelled" error entry when
-        // the user presses ESC with nothing streaming.
-        if had_session {
-            self.publish(StreamCompleted {
-                model_used: None,
-                session_id: session_id.clone(),
-                reason: StreamCompletedReason::Canceled,
-                assistant_content: None,
-                tool_calls: None,
-                cost: None,
-                provider_completion_tokens: None,
-                provider_prompt_tokens: None,
-                cached_tokens: None,
-                thinking_content: None,
-                dispatched_at: dispatched_at.unwrap_or_else(Timestamp::now),
-            })
-            .await;
-        }
+        (dispatched_at, had_session)
     }
 }
 
@@ -789,6 +1076,10 @@ impl InferenceActor {
 /// detection — silence on an in-flight provider stream — lives in the
 /// `jinn-watchdog` slice's stall-watchdog actor, which treats a stall like
 /// a hard server error and re-dispatches the turn.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per part of the provider request, plus the rules cell"
+)]
 async fn run_stream(
     factory: LlmServiceFactoryService,
     bus: BusService,
@@ -799,6 +1090,7 @@ async fn run_stream(
     tools: Vec<ToolDefinition>,
     dispatched_at: jiff::Timestamp,
     retry_config: RequestRetryConfig,
+    rules: Option<Box<dyn StreamRuleSession + '_>>,
 ) {
     let service = match build_streaming_service(&factory, &retry_config, &bus, &sid) {
         Ok(s) => s,
@@ -826,7 +1118,27 @@ async fn run_stream(
         }
     };
 
-    process_stream_events(stream, &bus, &sid, &model_id, dispatched_at).await;
+    let mut rules = rules;
+    let outcome = process_stream_events(
+        stream,
+        &bus,
+        &sid,
+        &model_id,
+        dispatched_at,
+        rules
+            .as_mut()
+            .map(|boxed| boxed.as_mut() as &mut (dyn StreamRuleSession + '_)),
+    )
+    .await;
+
+    // Dropping the buffers means a rule cannot see content from a response
+    // that has already ended.
+    drop(rules.take());
+    tracing::debug!(
+        session_id = %sid,
+        ?outcome,
+        "provider stream task finished"
+    );
 }
 
 /// Constructs a fresh retrying service for one streaming attempt.

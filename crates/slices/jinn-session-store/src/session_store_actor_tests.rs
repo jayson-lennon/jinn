@@ -1428,7 +1428,7 @@ async fn archive_tree_aborted_by_busy_member_reports_failure_for_every_member() 
     let mut child = ChatSessionState::new();
     let child_id = child.session_id().clone();
     child.set_parent_session(parent_session_id.clone());
-    child.begin_busy();
+    child.begin_streaming();
     parent.set_parent_session(SessionId::new());
     {
         let mut state = fixture.state.write();

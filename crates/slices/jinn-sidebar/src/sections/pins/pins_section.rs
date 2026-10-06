@@ -371,6 +371,8 @@ fn entry_prefix_and_content(kind: &ChatEntryKind) -> (&'static str, String) {
         }
         // Table entries and annotations are not shown in the pinned panel summary.
         ChatEntryKind::Compaction { .. } | ChatEntryKind::Annotation { .. } => ("", String::new()),
+        // Rule guidance shows the rule that fired, not the guidance body.
+        ChatEntryKind::RuleInterrupt { rule, .. } => ("\u{26a1} ", truncate_str(rule, 40)),
         // Thinking entries are not shown in the pinned panel summary.
         ChatEntryKind::Thinking(text) => ("", truncate_str(text, 40)),
 

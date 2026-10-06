@@ -36,6 +36,7 @@ mod chat_input;
 mod composition;
 mod dashboard;
 mod discord;
+mod phase_control;
 mod preferences;
 mod project;
 mod provider_selection;

@@ -14,6 +14,7 @@
 //! Kernel dependency (see Cargo.toml): the queue actor uses shared
 //! [`jinn_kernel::common::state::State`] and consumes session vocabulary.
 
+pub mod dispatch;
 pub mod queue_actor;
 
 use jinn_slices::SliceHost;

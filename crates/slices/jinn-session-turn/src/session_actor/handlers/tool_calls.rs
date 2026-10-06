@@ -162,9 +162,30 @@ impl SessionPersistenceActor {
         }
     }
 
-    /// Assembles the continuation prompt, transitions to streaming phase,
-    /// and emits the SendToLlmProvider command.
+    /// Assembles the continuation prompt, asks the phase actor to admit
+    /// the continuation dispatch, and emits the `SendToLlmProvider`.
+    ///
+    /// The admission ask replaces the old synchronous `begin_streaming`:
+    /// a continuation whose generation was cancelled is refused here and
+    /// publishes nothing, instead of being published and torn down
+    /// downstream by the inference actor's tombstone.
     async fn assemble_and_send_continuation(&self, session_id: &jinn_core_types::SessionId) {
+        let stamp = jiff::Timestamp::now();
+        let decision = crate::phase_actor::admit_stream(
+            &self.services,
+            session_id,
+            jinn_session_msg::phase_command::DispatchKind::ToolContinuation,
+            stamp,
+        )
+        .await;
+        if !decision.admitted {
+            tracing::info!(
+                session_id = %session_id,
+                "tool continuation refused: its generation was cancelled"
+            );
+            return;
+        }
+
         let assembled = {
             let inputs = {
                 let guard = self.state.read();
@@ -183,14 +204,13 @@ impl SessionPersistenceActor {
             }
         };
 
-        // Resolve model under write lock (round-robin mutates index), push token
-        // record, and transition phase — all in one lock acquisition.
+        // Resolve model under write lock (round-robin mutates index) and
+        // push the token record against the admitted stamp. The phase
+        // transition already happened — the admission above IS the write.
         let registry = self.services.provider_registry.clone();
-        let (provider_id, model_used, reasoning_effort, endpoint_tag, old_phase, new_phase) = {
+        let (provider_id, model_used, reasoning_effort, endpoint_tag) = {
             self.state.with_session(|view| {
                 let session = view.session.map().get_or_create(session_id);
-                let old_phase = session.phase();
-                session.begin_streaming();
 
                 let reasoning_effort = {
                     let profile = session.profile();
@@ -222,7 +242,7 @@ impl SessionPersistenceActor {
 
                 session.push_token_record(TokenRecord {
                     model_used: model_used.clone(),
-                    timestamp: jiff::Timestamp::now(),
+                    timestamp: stamp,
                     tokens_sent: assembled.estimated_tokens(),
                     tokens_received: 0,
                     cost: None,
@@ -230,18 +250,9 @@ impl SessionPersistenceActor {
                     cached_tokens: None,
                 });
 
-                (
-                    provider_id,
-                    model_used,
-                    reasoning_effort,
-                    endpoint_tag,
-                    old_phase,
-                    session.phase(),
-                )
+                (provider_id, model_used, reasoning_effort, endpoint_tag)
             })
         };
-        super::super::helpers::emit_phase_changed(self.bus(), session_id, old_phase, new_phase)
-            .await;
 
         let estimated_tokens = assembled.estimated_tokens();
 
@@ -261,7 +272,7 @@ impl SessionPersistenceActor {
             provider_id,
             estimated_tokens,
             tool_definitions: assembled.tool_definitions,
-            dispatched_at: jiff::Timestamp::now(),
+            dispatched_at: stamp,
         })
         .await;
     }
@@ -338,25 +349,26 @@ impl SessionPersistenceActor {
     ) {
         // If tool loop is disabled, end the turn instead of continuing.
         // This is used by judge verdict tools to prevent infinite tool-call loops.
-        // finish_sending_via_machine delegates to on_tool_batch_completed() which
-        // reads and clears the tool_loop_disabled flag from the machine.
-        let tool_loop_disabled = {
-            let state = self.state.read();
-            let session = state.session(session_id);
-            session.is_tool_loop_disabled()
-        };
+        // Consume-on-read: the flag is per-turn and self-clearing, the same
+        // take semantics the machine edge used to apply. A flag that survived
+        // its turn would end every later turn's continuation too.
+        let tool_loop_disabled = self.state.with_session(|view| {
+            view.session
+                .map()
+                .get_or_create(session_id)
+                .take_tool_loop_disabled()
+        });
 
         if tool_loop_disabled {
-            let (old_phase, new_phase) = {
-                self.state.with_session(|view| {
-                    let session = view.session.map().get_or_create(session_id);
-                    let old_phase = session.phase();
-                    session.finish_sending_via_machine();
-                    (old_phase, session.phase())
-                })
-            };
-            super::super::helpers::emit_phase_changed(self.bus(), session_id, old_phase, new_phase)
-                .await;
+            // The tool loop stops here: the turn ends through the phase
+            // actor (`Sending → Idle`), which publishes the transition.
+            let decision = crate::phase_actor::end_sending(&self.services, session_id).await;
+            if !decision.admitted {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "tool-loop stop refused: the turn had already ended"
+                );
+            }
             return;
         }
 
@@ -407,6 +419,14 @@ mod tests {
             let deps = {
                 let deps = harness.actor_deps().await;
                 ensure_context_assembly(&deps.services.trouper_system);
+                // The phase actor owns the phase; admission asks fail over
+                // to refused without it, and every mid-turn fixture needs a
+                // real mint.
+                let _ = crate::phase_actor::ensure_spawned(
+                    harness.system(),
+                    state.clone(),
+                    harness.bus(),
+                );
                 deps
             };
             SessionPersistenceActor::spawn(
@@ -470,6 +490,23 @@ mod tests {
         }
         let session_id = state.read().session.active_session_id().clone();
         let actor = BusActor::spawn(harness, state.clone()).await;
+        // Mint the turn the way the dispatch path would: the phase actor
+        // stamps the session, so the ToolUse completion below resolves.
+        {
+            use jinn_kernel::common::bus::HarnessServices;
+            let services = actor.harness.services().await;
+            let minted = jinn_kernel::common::phase_command::apply_phase(
+                &services,
+                jinn_session_msg::PhaseCommand::BeginStream {
+                    session_id: session_id.clone(),
+                    kind: jinn_session_msg::phase_command::DispatchKind::FreshTurn,
+                    dispatched_at: jiff::Timestamp::now(),
+                },
+            )
+            .await
+            .expect("phase actor reachable");
+            assert!(minted.admitted, "fixture mint must be admitted");
+        }
         actor
             .publish(ToolBatchCompleted {
                 session_id: session_id.clone(),
@@ -563,86 +600,145 @@ mod tests {
         }
     }
 
-    /// Puts the active session into sending phase, returning its id.
-    fn begin_sending_session(actor: &SessionPersistenceActor) -> jinn_core_types::SessionId {
-        let mut state = actor.state.write();
-        let session = state.active_session_mut();
-        session.begin_sending();
-        state.session.active_session_id().clone()
+    /// Mints a live turn for the named session through the phase actor.
+    /// The admission ask is the only writer of the phase now, so every
+    /// "session mid-turn" fixture starts here.
+    async fn mint_turn(actor: &SessionPersistenceActor, session_id: &jinn_core_types::SessionId) {
+        use jinn_kernel::common::phase_command::apply_phase;
+        use jinn_session_msg::phase_command::{DispatchKind, PhaseCommand};
+        let minted = apply_phase(
+            &actor.services,
+            PhaseCommand::BeginStream {
+                session_id: session_id.clone(),
+                kind: DispatchKind::FreshTurn,
+                dispatched_at: jiff::Timestamp::now(),
+            },
+        )
+        .await
+        .expect("phase actor reachable");
+        assert!(
+            minted.admitted,
+            "a fresh turn's mint must be admitted: {minted:?}"
+        );
+    }
+
+    /// Applies the tool-use edge for a live generation, leaving the session
+    /// in the mid-tool-loop `Sending` phase — the shape a
+    /// `StreamCompleted(ToolUse)` leaves.
+    async fn apply_tool_use_edge(
+        actor: &SessionPersistenceActor,
+        session_id: &jinn_core_types::SessionId,
+    ) {
+        use jinn_kernel::common::phase_command::apply_phase;
+        use jinn_session_msg::phase_command::PhaseCommand;
+        let ended = apply_phase(
+            &actor.services,
+            PhaseCommand::StreamEndedToolUse {
+                session_id: session_id.clone(),
+                dispatched_at: jiff::Timestamp::now(),
+            },
+        )
+        .await
+        .expect("phase actor reachable");
+        assert!(
+            ended.admitted,
+            "a live generation's tool-use edge must be admitted: {ended:?}"
+        );
+    }
+
+    /// Puts the active session into the mid-tool-loop sending phase,
+    /// returning its id.
+    async fn begin_sending_session(actor: &SessionPersistenceActor) -> jinn_core_types::SessionId {
+        let session_id = actor.state.read().session.active_session_id().clone();
+        mint_turn(actor, &session_id).await;
+        apply_tool_use_edge(actor, &session_id).await;
+        session_id
     }
 
     /// Puts the active session into sending phase with a tool call and one
     /// streamed assistant entry around it, returning its id.
-    fn begin_sending_session_with_tool_call(
+    async fn begin_sending_session_with_tool_call(
         actor: &SessionPersistenceActor,
     ) -> jinn_core_types::SessionId {
-        let mut state = actor.state.write();
-        let session = state.active_session_mut();
-        session.push_entry(ChatEntry::user("list files"));
-        session.push_entry(ChatEntry::assistant("checking"));
-        session.push_entry(ChatEntry::tool_call("tc-1", "bash", r#"{"command":"ls"}"#));
-        session.push_entry(ChatEntry::assistant("here are the files"));
-        session.begin_streaming();
-        session.finish_streaming(true, jiff::Timestamp::now());
-        session.begin_sending();
-        state.session.active_session_id().clone()
+        {
+            let mut state = actor.state.write();
+            let session = state.active_session_mut();
+            session.push_entry(ChatEntry::user("list files"));
+            session.push_entry(ChatEntry::assistant("checking"));
+            session.push_entry(ChatEntry::tool_call("tc-1", "bash", r#"{"command":"ls"}"#));
+            session.push_entry(ChatEntry::assistant("here are the files"));
+        }
+        let session_id = actor.state.read().session.active_session_id().clone();
+        mint_turn(actor, &session_id).await;
+        apply_tool_use_edge(actor, &session_id).await;
+        session_id
     }
 
     /// Puts the active session into sending phase holding a complete tool loop
     /// and a buffered steering fragment, returning its id.
-    fn seed_sending_session_with_steering_fragment(
+    async fn seed_sending_session_with_steering_fragment(
         actor: &SessionPersistenceActor,
     ) -> jinn_core_types::SessionId {
-        let mut state = actor.state.write();
-        let session = state.active_session_mut();
-        session.push_entry(ChatEntry::user("list files"));
-        session.push_entry(ChatEntry::tool_call("tc-1", "bash", r#"{"command":"ls"}"#));
-        session.push_entry(ChatEntry::assistant("checking"));
-        session.push_entry(ChatEntry::tool_result(
-            "tc-1",
-            "bash",
-            "file1.txt",
-            ToolResultStatus::Success,
-        ));
-        session.push_entry(ChatEntry::tool_result(
-            "tc-1",
-            "bash",
-            "file2.txt",
-            ToolResultStatus::Success,
-        ));
-        session
-            .steering_buffer_mut()
-            .push_fragment("stay at the foo part");
-        session.finish_streaming(true, jiff::Timestamp::now());
-        session.begin_sending();
-        state.session.active_session_id().clone()
+        {
+            let mut state = actor.state.write();
+            let session = state.active_session_mut();
+            session.push_entry(ChatEntry::user("list files"));
+            session.push_entry(ChatEntry::tool_call("tc-1", "bash", r#"{"command":"ls"}"#));
+            session.push_entry(ChatEntry::assistant("checking"));
+            session.push_entry(ChatEntry::tool_result(
+                "tc-1",
+                "bash",
+                "file1.txt",
+                ToolResultStatus::Success,
+            ));
+            session.push_entry(ChatEntry::tool_result(
+                "tc-1",
+                "bash",
+                "file2.txt",
+                ToolResultStatus::Success,
+            ));
+            session
+                .steering_buffer_mut()
+                .push_fragment("stay at the foo part");
+        }
+        let session_id = actor.state.read().session.active_session_id().clone();
+        mint_turn(actor, &session_id).await;
+        apply_tool_use_edge(actor, &session_id).await;
+        session_id
     }
 
     /// Puts the active session into sending phase with a streamed assistant
     /// entry targeted by a queued context-override mutation, returning the
     /// targeted entry id and the session id.
-    fn seed_sending_session_with_pending_mutation(
+    async fn seed_sending_session_with_pending_mutation(
         actor: &SessionPersistenceActor,
     ) -> (jinn_core_types::ChatEntryId, jinn_core_types::SessionId) {
-        let mut state = actor.state.write();
-        let session = state.active_session_mut();
-        session.push_entry(ChatEntry::user("list files"));
-        let entry = ChatEntry::assistant("checking");
-        let entry_id = entry.id.clone();
-        session.push_entry(entry);
-        session.push_entry(ChatEntry::tool_call("tc-1", "bash", r#"{"command":"ls"}"#));
-        session.push_entry(ChatEntry::assistant("here are the files"));
-        session.begin_streaming();
-        session.finish_streaming(true, jiff::Timestamp::now());
-        session.begin_sending();
-        session.queue_mutations(vec![jinn_core_types::HistoryMutation::SetContextOverride {
-            entry_id: entry_id.clone(),
-            value: jinn_core_types::ContextOverride::ForcedExclude,
-            source: ChangeSource::Internal {
-                label: "test".into(),
-            },
-        }]);
-        (entry_id, state.session.active_session_id().clone())
+        let entry_id = {
+            let mut state = actor.state.write();
+            let session = state.active_session_mut();
+            session.push_entry(ChatEntry::user("list files"));
+            let entry = ChatEntry::assistant("checking");
+            let entry_id = entry.id.clone();
+            session.push_entry(entry);
+            session.push_entry(ChatEntry::tool_call("tc-1", "bash", r#"{"command":"ls"}"#));
+            session.push_entry(ChatEntry::assistant("here are the files"));
+            entry_id
+        };
+        let session_id = actor.state.read().session.active_session_id().clone();
+        mint_turn(actor, &session_id).await;
+        apply_tool_use_edge(actor, &session_id).await;
+        {
+            let mut state = actor.state.write();
+            let session = state.active_session_mut();
+            session.queue_mutations(vec![jinn_core_types::HistoryMutation::SetContextOverride {
+                entry_id: entry_id.clone(),
+                value: jinn_core_types::ContextOverride::ForcedExclude,
+                source: ChangeSource::Internal {
+                    label: "test".into(),
+                },
+            }]);
+        }
+        (entry_id, session_id)
     }
 
     #[rstest::rstest]
@@ -650,7 +746,7 @@ mod tests {
     async fn on_tool_batch_completed_emits_send_to_llm_provider() {
         // Given a session in sending phase holding a completed tool loop.
         let (actor, audit) = test_actor_recording().await;
-        let session_id = begin_sending_session_with_tool_call(&actor);
+        let session_id = begin_sending_session_with_tool_call(&actor).await;
 
         // When the tool batch completes.
         let event = ToolBatchCompleted {
@@ -687,10 +783,38 @@ mod tests {
             session.push_entry(ChatEntry::assistant("checking"));
             session.push_entry(ChatEntry::tool_call("tc-1", "bash", r#"{"command":"ls"}"#));
             session.push_entry(ChatEntry::assistant("here are the files"));
-            session.begin_sending();
         }
         let session_id = state.read().session.active_session_id().clone();
         let actor = BusActor::spawn(harness, state).await;
+        // The continuation's admission needs a live generation: mint the turn
+        // and apply the tool-use edge, the shape a StreamCompleted(ToolUse)
+        // leaves before the next batch.
+        {
+            use jinn_kernel::common::bus::HarnessServices;
+            let services = actor.harness.services().await;
+            let mint = |kind| jinn_session_msg::PhaseCommand::BeginStream {
+                session_id: session_id.clone(),
+                kind,
+                dispatched_at: jiff::Timestamp::now(),
+            };
+            let minted = jinn_kernel::common::phase_command::apply_phase(
+                &services,
+                mint(jinn_session_msg::phase_command::DispatchKind::FreshTurn),
+            )
+            .await
+            .expect("phase actor reachable");
+            assert!(minted.admitted, "fixture mint must be admitted");
+            let ended = jinn_kernel::common::phase_command::apply_phase(
+                &services,
+                jinn_session_msg::PhaseCommand::StreamEndedToolUse {
+                    session_id: session_id.clone(),
+                    dispatched_at: jiff::Timestamp::now(),
+                },
+            )
+            .await
+            .expect("phase actor reachable");
+            assert!(ended.admitted, "fixture tool-use edge must be admitted");
+        }
 
         // When ToolBatchCompleted is published to the bus.
         let event = ToolBatchCompleted {
@@ -795,10 +919,26 @@ mod tests {
         {
             let mut s = state.write();
             let session = s.active_session_mut();
-            session.begin_streaming();
             session.buffer_tool_results(vec![tool_result("tc-1", "bash", "ok", true)]);
         }
         let actor = BusActor::spawn(harness, state).await;
+        // A live generation behind the buffered batch: the terminal
+        // ToolUse resolves against the mint's stamp.
+        {
+            use jinn_kernel::common::bus::HarnessServices;
+            let services = actor.harness.services().await;
+            let minted = jinn_kernel::common::phase_command::apply_phase(
+                &services,
+                jinn_session_msg::PhaseCommand::BeginStream {
+                    session_id: session_id.clone(),
+                    kind: jinn_session_msg::phase_command::DispatchKind::FreshTurn,
+                    dispatched_at,
+                },
+            )
+            .await
+            .expect("phase actor reachable");
+            assert!(minted.admitted, "fixture mint must be admitted");
+        }
         let terminal = terminal_tool_use_event(&session_id, dispatched_at);
 
         // When a >64-token burst is published, immediately followed by the
@@ -831,7 +971,7 @@ mod tests {
     async fn on_tool_batch_completed_transitions_session_to_sending() {
         // Given a session in sending phase.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = begin_sending_session(&actor);
+        let session_id = begin_sending_session(&actor).await;
 
         // When an empty tool batch completes.
         let event = ToolBatchCompleted {
@@ -883,12 +1023,18 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn stream_completed_tool_use_drains_buffered_tool_batch() {
-        // Given a Streaming session with a buffered ToolBatchCompleted.
+        // Given a streaming session with a live generation and a buffered
+        // ToolBatchCompleted — the batch arrived while the stream was still
+        // running, and the buffer survives outside the machine.
         let (actor, audit) = test_actor_recording().await;
         let session_id = {
+            let session_id = actor.state.read().session.active_session_id().clone();
+            mint_turn(&actor, &session_id).await;
+            session_id
+        };
+        {
             let mut state = actor.state.write();
-            let session = state.active_session_mut();
-            session.begin_streaming();
+            let session = state.session.get_mut(&session_id).expect("session exists");
             session.buffer_tool_results(vec![ToolResult {
                 tool_call_id: "tc-1".to_owned(),
                 name: "read".to_owned(),
@@ -898,8 +1044,7 @@ mod tests {
                 truncation: None,
                 pin_position: None,
             }]);
-            state.session.active_session_id().clone()
-        };
+        }
 
         // When StreamCompleted(ToolUse) arrives, transitioning Streaming → Sending.
         let event = StreamCompleted {
@@ -1030,7 +1175,9 @@ mod tests {
                 r#"{\"command\":\"ls\"}"#,
             ));
             session.begin_sending();
-            session.cancel_stream_and_drain();
+            session.finalize_entries_for_cancel(jiff::Timestamp::now());
+            session.cancel_streaming_via_machine();
+            session.drain_cancelled_work_to_input();
             state.session.active_session_id().clone()
         };
 
@@ -1084,7 +1231,9 @@ mod tests {
                 r#"{\"command\":\"ls\"}"#,
             ));
             session.begin_sending();
-            session.cancel_stream_and_drain();
+            session.finalize_entries_for_cancel(jiff::Timestamp::now());
+            session.cancel_streaming_via_machine();
+            session.drain_cancelled_work_to_input();
             state.session.active_session_id().clone()
         };
 
@@ -1125,15 +1274,15 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn on_tool_batch_completed_skips_send_when_tool_loop_disabled() {
-        // Given a sending session whose tool loop is disabled.
+        // Given a mid-tool-loop session whose tool loop is disabled — the
+        // shape a `StreamCompleted(ToolUse)` leaves before the next batch.
         let (actor, audit) = test_actor_recording().await;
-        let session_id = {
+        let session_id = begin_sending_session(&actor).await;
+        {
             let mut state = actor.state.write();
             let session = state.active_session_mut();
-            session.begin_sending();
             session.set_tool_loop_disabled();
-            state.session.active_session_id().clone()
-        };
+        }
 
         // When the tool batch completes.
         let event = ToolBatchCompleted {
@@ -1170,7 +1319,7 @@ mod tests {
     async fn on_tool_batch_completed_unaffected_without_tool_loop_disabled() {
         // Given a normal sending session holding a completed tool loop.
         let (actor, audit) = test_actor_recording().await;
-        let session_id = begin_sending_session_with_tool_call(&actor);
+        let session_id = begin_sending_session_with_tool_call(&actor).await;
 
         // When the tool batch completes.
         let event = ToolBatchCompleted {
@@ -1495,7 +1644,7 @@ mod tests {
     async fn on_tool_batch_completed_applies_pending_mutations() {
         // Given a sending session with one queued context-override mutation.
         let (actor, audit) = test_actor_recording().await;
-        let (entry_id, session_id) = seed_sending_session_with_pending_mutation(&actor);
+        let (entry_id, session_id) = seed_sending_session_with_pending_mutation(&actor).await;
 
         // When the tool batch completes.
         let event = ToolBatchCompleted {
@@ -1529,7 +1678,7 @@ mod tests {
     async fn on_tool_batch_completed_empty_mutation_queue_is_noop() {
         // Given a sending session with nothing queued for mutation application.
         let (actor, audit) = test_actor_recording().await;
-        let session_id = begin_sending_session_with_tool_call(&actor);
+        let session_id = begin_sending_session_with_tool_call(&actor).await;
 
         // When the tool batch completes.
         let event = ToolBatchCompleted {
@@ -1551,7 +1700,7 @@ mod tests {
         // Given a sending session holding a complete tool loop and a buffered
         // steering fragment the user typed while the tools ran.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_sending_session_with_steering_fragment(&actor);
+        let session_id = seed_sending_session_with_steering_fragment(&actor).await;
 
         // When the tool batch completes.
         let event = ToolBatchCompleted {

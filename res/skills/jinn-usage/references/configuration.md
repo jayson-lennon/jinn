@@ -9,7 +9,7 @@ the offer.
 
 | File             | Location                          | Contents                                                                                                                                                             |
 | ---------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jinn.toml`      | `~/.config/jinn/jinn.toml`        | User preferences: tools/skills defaults, session lifecycles, projects, MCP servers, compaction, auto-prune, web fetch/search, browser, Discord, interactive terminal |
+| `jinn.toml`      | `~/.config/jinn/jinn.toml`        | User preferences: tools/skills defaults, session lifecycles, projects, MCP servers, compaction, auto-prune, stream rules, web fetch/search, browser, Discord, interactive terminal |
 | `providers.toml` | `~/.config/jinn/providers.toml`   | Providers, API keys, base URLs, per-model metadata                                                                                                                   |
 | themes           | `~/.config/jinn/themes/*.toml`    | Color themes (picked with `<leader>sh`)                                                                                                                              |
 | personas         | `~/.config/jinn/personas/*.md`    | Persona templates (markdown + TOML frontmatter)                                                                                                                      |
@@ -115,14 +115,16 @@ setup_command = "cd <repo> && git worktree add -b <branch> ../<branch> && echo $
 teardown_command = "..."
 ```
 
-**Curated projects** (appear in the `<leader>sp` picker) — optionally with a
-command policy that blocks bash commands by regex inside that project:
+**Curated projects** (appear in the `<leader>sp` picker):
 
 ```toml
 [[project.entry]]
 path = "~/code/myapp"
-command_policy = [{ pattern = 'rm\s+-rf\s+/', message = "Never rm -rf from root here." }]
 ```
+
+A project's own rules are stream rules (see **Stream rules** below) carrying
+its path in their `project` field, so they are configured with every other
+rule rather than on the project entry.
 
 **Saved attendants** (`[[attendant.entry]]` — see `attendants.md` for the
 full field reference and the feature itself):
@@ -150,38 +152,40 @@ picker (`<leader>sa`) re-reads the document every time it opens, so a hand edit
 shows up without a restart. `name` is the key entries are matched by, so
 saving under an existing name replaces that entry in place.
 
-**Global command policy** (blocks the same commands in every directory, in
-every session). Same shape as a project's policy, and evaluated *before* the
-project's rules with first-match-wins — so a project policy can only add
-blocks, never lift a global one:
+**Blocking a command before it runs** is a stream rule (see **Stream rules**
+below) with a tool scope:
 
 ```toml
-[[tools.bash_command_policy]]
-pattern = 'git push\s+.*--force'
-message = 'Force-push main; open a PR instead.'
+[[stream_rules.entry]]
+name = 'no-force-push'
+description = 'force-pushing main rewrites published history'
+conditions = ['git push\s+.*--force']
+scopes = ['tool:bash']
+body = 'Force-pushing main rewrites published history — open a PR instead.'
 ```
 
-A match returns the `message` to the agent as a failed tool result and the
-command never runs. Use single-quoted patterns so regex metacharacters survive;
-use global rules for mistakes that are wrong everywhere, and the project
-`command_policy` for repo-specific habits. A pattern the regex engine cannot
-compile is inert (logged, no block), and there is no lookaround — `(?<!...)`
-and `(?=...)` do not work. Guards apply to the **bash tool only**; interactive
-terminals and MCP-provided tools are not policed.
+A match interrupts the response as the arguments stream, so the call is never
+dispatched and the command never runs. `body` comes back as guidance and the
+agent sees the abandoned call, explained, in the resumed request. It works for
+any tool you name a scope for — not bash alone.
 
-A fresh install ships five global rules: the `rg -rn` guard, plus four guards
-against unbounded whole-filesystem searches — `find /`, `find ~`, `ls -R /`,
-`ls -R ~`. The `find` guards match the command word and a bare `/` or `~`
-search path. The `ls` guards additionally pin the *recursive* flag: `-R` in
+> The older `[[tools.bash_command_policy]]` section is read at load time and
+> converted to exactly this form, carrying its pattern and message across, so
+> an existing file keeps working. `[[project.entry]].command_policy` becomes a
+> rule scoped with `project`. A file still carrying the old `on_trigger` key is
+> read fine — the key is ignored and the rule interrupts as normal.
+
+A fresh install ships five tool-scoped rules: the combined ripgrep-flag guard,
+plus four guards against unbounded whole-filesystem searches — a bare-root
+`find`, a bare-home `find`, and the recursive-listing equivalents for `/` and
+`~`. The listing guards additionally pin the *recursive* flag: `-R` in
 any combined cluster (`-lR`, `-1R`, `-Rt`) or `--recursive`, never lowercase
 `-r`, which is `--reverse` and only flips sort order. Both tolerate other
 flags and a leading `cd <dir> &&` chain, and still catch the root walk when it
-is dressed up as `ls -lR /`, `ls --recursive ~`, or `ls -R "$HOME"`.
-
-Bounded forms keep working: `find /mnt/zed/... -name foo`, `ls -R ~/code`, and
-even `ls -lR /usr` are all allowed, because the guard is about the *path*, not
-the flag cluster. Delete or edit the block in your `jinn.toml` if a project
-legitimately needs one.
+is dressed up. Bounded forms keep working: a `find` under a real directory,
+and a recursive listing of a bounded path, are all allowed, because the guard
+is about the *path*, not the flag cluster. Delete or edit the entries in your
+`jinn.toml` if a project legitimately needs one.
 
 **MCP servers** — see `mcp-servers.md` for the full transport matrix:
 
@@ -335,6 +339,94 @@ max_failures = 4      # tool failures before the turn cancels
 
 `max_failures` uses a simple accumulator that rises on failure and falls on
 success, so the failures need not be consecutive.
+
+**Stream rules** (regex over the assistant's output as it is produced — the
+only rule kind that can act mid-response):
+
+```toml
+[[stream_rules.entry]]
+name = "ts-no-any"                  # unique; identifies the rule in logs
+description = "Never widen a type to `any`"
+conditions = [': any', '\bas any\b']   # regexes; first match trips the rule
+scopes = ["tool:edit(*.ts)", "tool:write(*.tsx)"]
+body = """
+Use `unknown`, a domain type, or a type guard instead.
+Never widen a type to `any` to silence an error.
+"""
+```
+
+When a `conditions` regex matches the output so far, jinn stops the turn
+*before* that text reaches the chat log and resumes it with `body` injected
+as guidance — the model course-corrects itself instead of the user typing at
+it. The interrupted text stays visible in the log but is excluded from the
+resumed request, so the model does not see its own violation as context.
+
+`scopes` decides which streams the rule is tested against:
+
+| Scope token         | Matches                                       |
+| ------------------- | --------------------------------------------- |
+| `text`              | assistant prose                               |
+| `thinking`          | reasoning output                              |
+| `tool`              | any tool's serialized arguments               |
+| `tool:edit(*.ts)`   | `edit` calls touching a `.ts` file            |
+
+Omit `scopes` (or leave it empty) to test prose, reasoning, and tool
+arguments alike. Prefer a narrow scope when the rule is about one medium — a
+rule about TypeScript types belongs on tool arguments, where the offending
+source actually appears.
+
+A `tool:<name>(<glob>)` token matches when the tool name is equal and any
+path-like argument matches the glob. The glob decides **which files** the
+rule applies to; `conditions` then tests the whole argument buffer, content
+included. So `tool:edit(*.ts)` with `conditions = [': any']` fires on an edit
+that writes `any` into a `.ts` file, and stays quiet for a `.py` file.
+
+Which arguments count as paths: values under a key ending in `path`, `file`,
+`dir`, or `pattern` — `edit` uses `file_path`, `read` and `write` use `path`.
+The glob is tried against both the full path and the bare basename, so `*.ts`
+matches `src/deep/nested/x.ts`.
+
+A match does one thing: it interrupts the turn and resumes it with `body` as
+guidance. There is no second behaviour to configure. A rule scoped to
+`tool:<name>` matches that call's arguments as they arrive, and interrupting
+that call is what stops it running — so blocking a command before it executes
+is the same mechanism as catching a model mid-sentence.
+
+When a rule catches a tool call, the call is paired with a result saying it did
+not run and quoting the arguments the model had produced. The model reads its
+own failed attempt instead of resuming blind and re-emitting it.
+
+**`[watchdog.stream_rules]`** tunes how many interrupts a session may take in a
+row:
+
+```toml
+[watchdog.stream_rules]
+max_failures = 4
+```
+
+Consecutive, per session, default 4. A response that completes without an
+interrupt pays one back (floored at zero); an interrupted one does not, so
+repeats accumulate across a turn. A value of 4 means four interrupts are
+allowed and the **fifth** consecutive one cancels the stream, rather than
+correcting forever — a rule whose condition also matches the guidance it injects
+would otherwise loop. A value below 1 is treated as 1.
+
+The budget is owned by the stream-rule watchdog rather than by the matcher, so
+the trip happens after the interrupting response resumes. A `jinn.toml` still
+carrying the old `[stream_rules] max_interrupts` keeps its value for that
+launch, logs a warning naming the move, and is never rewritten.
+
+A rule that fails to compile, names no reachable stream, or has an empty `body`
+is logged and skipped rather than breaking a turn. Use single-quoted strings for
+`conditions` so regex metacharacters survive without escape processing.
+
+Note this is distinct from `[[context_curation.auto_prune.regex.rules]]`,
+which prunes completed history. A stream rule is the only one that observes
+output as it is produced.
+
+`project` is optional: a path glob selecting the sessions a rule applies in.
+Absent means every project, and a global rule is a floor a project-scoped one
+can add to but never lift.
 
 ## Coverage note
 

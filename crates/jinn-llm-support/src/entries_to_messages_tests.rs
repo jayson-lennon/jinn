@@ -572,6 +572,29 @@ fn compaction_entry_produces_user_message_with_summary() {
 }
 
 #[rstest::rstest]
+fn rule_interrupt_produces_user_message_with_its_body() {
+    // Given a rule interrupt entry carrying the guidance.
+    let entries = vec![ChatEntry::rule_interrupt(
+        "no-cat",
+        "<system-interrupt>stop using cat</system-interrupt>",
+    )];
+
+    // When converting to messages.
+    let messages = entries_to_messages(&entries);
+
+    // Then a User message carries the body verbatim, with no added prefix.
+    assert_eq!(messages.len(), 1);
+    let content = match &messages[0] {
+        LlmMessage::User { content, .. } => content.clone(),
+        other => panic!("expected User, got {other:?}"),
+    };
+    assert_eq!(
+        content,
+        "<system-interrupt>stop using cat</system-interrupt>"
+    );
+}
+
+#[rstest::rstest]
 fn ignored_user_entry_is_skipped() {
     // Given an ignored user entry.
     let entries = vec![ChatEntry::user("hello").with_ignored(true)];

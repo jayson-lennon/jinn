@@ -35,6 +35,13 @@ async-trait = { workspace = true }
 
 [dev-dependencies]
 jinn-testutil = { workspace = true }
+# Tests build a real compiled rule set to drive the stream loop with. The
+# production path resolves the matcher from the cell and never names this
+# crate — only the tests that need a concrete implementation do.
+jinn-stream-rules = { workspace = true }
+# The interception tests mint the stream-rules cell so the spawned actor
+# resolves a rule set the way production does. Same reasoning: test-only.
+jinn-cell-catalog = { workspace = true }
 
 rstest = { workspace = true }
 serde_json = { workspace = true }

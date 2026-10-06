@@ -2,7 +2,7 @@
 
 use jinn_attendant_msg::AttendantTrigger;
 use jinn_chat_input_msg::EnqueueUserMessage;
-use jinn_inference_msg::CancelStream;
+use jinn_inference_msg::CancelTurn;
 use jinn_kernel::Services;
 use jinn_kernel::common::state::State;
 use jinn_session_msg::{TurnCompleted, TurnOutcome};
@@ -49,7 +49,7 @@ impl ServiceActor for AttendantTriggerActor {
 /// The messages firing one attendant produces.
 struct Fired {
     /// Cancel the attendant's in-flight turn, if it was busy.
-    cancel: Option<CancelStream>,
+    cancel: Option<CancelTurn>,
     /// Dispatch the attendant's run.
     dispatch: Option<EnqueueUserMessage>,
     /// Write the session back if a `Reset` excluded something, so the
@@ -227,7 +227,7 @@ impl AttendantTriggerActor {
             // Sending/Streaming, so the seeded entry below waits its turn and
             // runs when the current one finishes.
             //
-            // Publishing `CancelStream` here instead produced two visible
+            // Publishing `CancelTurn` here instead produced two visible
             // faults: the running turn was aborted, leaving a "Cancelled"
             // entry in the attendant's history, and the seeded turn sat in the
             // queue where a later cancel drained it into the input box as a
@@ -235,7 +235,7 @@ impl AttendantTriggerActor {
             //
             // `R` is the opposite case and does cancel: there the user asked
             // for this question to be asked again.
-            let cancel: Option<CancelStream> = None;
+            let cancel: Option<CancelTurn> = None;
 
             // The mode decides what the run sees, not whether it happens.
             // Every mode that got past the guard above sends the template.

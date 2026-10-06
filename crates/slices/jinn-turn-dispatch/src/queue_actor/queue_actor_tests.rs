@@ -17,6 +17,11 @@
 //! `DispatchTurn` coverage. Each test constructs the actor directly
 //! (`Services::new_fake_with_bus` + `BusAudit`), calls the plain handler
 //! method, and asserts on state or the recorded bus traffic.
+//!
+//! Every dispatch asks the phase actor for admission before publishing, so
+//! the helpers spawn the real one (`jinn_session_turn::phase_actor`) on the
+//! same bus and state — production composition spawns it before any
+//! publisher runs.
 
 #![allow(
     clippy::expect_used,
@@ -37,6 +42,8 @@ use jinn_kernel::protocol::ChatEntry;
 use jinn_kernel::{ProviderEntry, ProvidersConfig};
 use jinn_session_msg::PhaseKind;
 use jinn_session_msg::SessionPhaseChanged;
+use jinn_session_msg::phase_command::DispatchKind;
+use jinn_session_msg::phase_command::PhaseCommand;
 use jinn_session_store_msg::PersistSession;
 use jinn_turn_dispatch_msg::DispatchTurn;
 use jinn_turn_dispatch_msg::QueueItem;
@@ -46,9 +53,16 @@ const PINNED_MODEL: &str = "openrouter/anthropic/claude-sonnet-4";
 
 async fn create_actor() -> (QueueActor, State, BusAudit) {
     let (bus, audit) = jinn_kernel::BusService::new_recording();
-    let services = Services::new_fake_with_bus(bus).await;
+    let services = Services::new_fake_with_bus(bus.clone()).await;
     let _ = jinn_context_assembly::service::ensure_spawned(&services.trouper_system);
     let state = State::new(AppState::default_with_scope_focus());
+    // The real phase actor answers this actor's admission asks; production
+    // composition spawns it, so tests must too, on the same bus and state.
+    let _ = jinn_session_turn::phase_actor::ensure_spawned(
+        &services.trouper_system,
+        state.clone(),
+        bus,
+    );
     (
         QueueActor {
             state: state.clone(),
@@ -61,6 +75,28 @@ async fn create_actor() -> (QueueActor, State, BusAudit) {
 
 fn session_id() -> SessionId {
     SessionId::new()
+}
+
+/// Mints a live turn generation through the real phase actor — the shape
+/// the session actor's dispatch paths produce (enqueue-resume mints
+/// `FreshTurn`) before the queue actor's prepared/resume bodies ask to
+/// join it. Without this, a `ResumeTurn`/`ToolContinuation` admission is
+/// refused under the new policy and the dispatch publishes nothing.
+async fn mint_live_generation(services: &Services, sid: &SessionId) {
+    let decision = jinn_kernel::common::phase_command::apply_phase(
+        services,
+        PhaseCommand::BeginStream {
+            session_id: sid.clone(),
+            kind: DispatchKind::FreshTurn,
+            dispatched_at: jiff::Timestamp::now(),
+        },
+    )
+    .await
+    .expect("phase actor is spawned by the test helpers");
+    assert!(
+        decision.admitted,
+        "a fresh mint is always admitted, got: {decision:?}"
+    );
 }
 
 // ── SessionPhaseChanged → Idle trigger ────────────────────────────────
@@ -108,6 +144,7 @@ async fn idle_transition_dispatches_tool_continuation() {
         let session = state.session_mut_or_create(&sid);
         session.enqueue(QueueItem::ToolContinuation);
     }
+    mint_live_generation(&actor.services, &sid).await;
 
     // When receiving SessionPhaseChanged → Idle.
     let msg = SessionPhaseChanged {
@@ -354,7 +391,7 @@ async fn queued_item_dispatches_after_steering_turn_completes() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn idle_transition_publishes_idle_to_sending_phase_change() {
+async fn idle_transition_publishes_idle_to_streaming_phase_change() {
     // Given a session in Idle with a queued user message.
     let (actor, state, audit) = create_actor().await;
     let sid = session_id();
@@ -373,14 +410,16 @@ async fn idle_transition_publishes_idle_to_sending_phase_change() {
     };
     actor.handle_session_phase_changed(&msg).await;
 
-    // Then the Idle -> Sending transition was published (not just mutated silently).
+    // Then the Idle -> Streaming transition was published — by the phase
+    // actor, whose fused admission edge mints the turn; the queue actor
+    // publishes no phase event of its own.
     let phases: Vec<SessionPhaseChanged> = audit.of_type::<SessionPhaseChanged>();
-    let sending = phases
+    let streaming = phases
         .iter()
-        .find(|p| p.old_phase == PhaseKind::Idle && p.new_phase == PhaseKind::Sending);
+        .find(|p| p.old_phase == PhaseKind::Idle && p.new_phase == PhaseKind::Streaming);
     assert!(
-        sending.is_some(),
-        "Idle -> Sending transition must be published, got: {phases:?}"
+        streaming.is_some(),
+        "Idle -> Streaming transition must be published, got: {phases:?}"
     );
 }
 
@@ -431,7 +470,7 @@ async fn dispatch_user_message_does_not_overwrite_existing_title() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn dispatch_user_message_transitions_to_sending() {
+async fn dispatch_user_message_transitions_to_streaming() {
     // Given a queue actor.
     let (actor, state, _audit) = create_actor().await;
     let sid = session_id();
@@ -442,10 +481,11 @@ async fn dispatch_user_message_transitions_to_sending() {
         .dispatch_user_message(&sid, &entry, StreamOrigin::User)
         .await;
 
-    // Then the session is in Sending phase.
+    // Then the session is in Streaming phase — the admission ask IS the
+    // phase write now, and its fused edge lands on Streaming.
     let state = state.read();
     let session = state.session(&sid);
-    assert_eq!(session.phase(), PhaseKind::Sending);
+    assert_eq!(session.phase(), PhaseKind::Streaming);
 }
 
 #[rstest::rstest]
@@ -633,6 +673,9 @@ async fn dispatch_resume_does_not_absorb_steering_fragments() {
             .steering_buffer_mut()
             .push_fragment("system note");
     }
+    // And a live generation, as the enqueue path mints before a queued
+    // resume drains at the idle slot.
+    mint_live_generation(&actor.services, &sid).await;
 
     // When dispatching a tool continuation (queued resume).
     actor.dispatch_resume(&sid, StreamOrigin::User).await;
@@ -686,9 +729,11 @@ async fn dispatch_user_message_assembles_via_service() {
 #[rstest::rstest]
 #[tokio::test]
 async fn dispatch_resume_emits_send_to_llm_provider() {
-    // Given a queue actor.
+    // Given a queue actor and a live generation (the enqueue path mints it
+    // before a queued continuation drains at the idle slot).
     let (actor, _state, audit) = create_actor().await;
     let sid = session_id();
+    mint_live_generation(&actor.services, &sid).await;
 
     // When dispatching a resume.
     actor.dispatch_resume(&sid, StreamOrigin::User).await;
@@ -709,6 +754,9 @@ async fn dispatch_resume_leaves_history_unchanged() {
         let session = state.session_mut_or_create(&sid);
         session.push_entry(ChatEntry::user("earlier turn"));
     }
+    // And a live generation, as the enqueue path mints before a queued
+    // resume drains at the idle slot.
+    mint_live_generation(&actor.services, &sid).await;
 
     // When dispatching a resume.
     actor.dispatch_resume(&sid, StreamOrigin::User).await;
@@ -723,9 +771,11 @@ async fn dispatch_resume_leaves_history_unchanged() {
 #[rstest::rstest]
 #[tokio::test]
 async fn dispatch_resume_does_not_emit_chat_entry_submitted_or_persist() {
-    // Given a queue actor.
+    // Given a queue actor and a live generation (the enqueue path mints it
+    // before a queued continuation drains at the idle slot).
     let (actor, _state, audit) = create_actor().await;
     let sid = session_id();
+    mint_live_generation(&actor.services, &sid).await;
 
     // When dispatching a resume.
     actor.dispatch_resume(&sid, StreamOrigin::User).await;
@@ -742,7 +792,7 @@ async fn dispatch_resume_does_not_emit_chat_entry_submitted_or_persist() {
 #[tokio::test]
 async fn dispatch_turn_publishes_send_to_llm_provider() {
     // Given a session whose prepared turn is ready (entry pushed by the
-    // session actor before publishing).
+    // session actor before publishing, whose enqueue path minted the turn).
     let (actor, state, audit) = create_actor().await;
     let sid = session_id();
     {
@@ -750,6 +800,7 @@ async fn dispatch_turn_publishes_send_to_llm_provider() {
         let session = state.session_mut_or_create(&sid);
         session.push_entry(ChatEntry::user("already pushed"));
     }
+    mint_live_generation(&actor.services, &sid).await;
 
     // When handling DispatchTurn.
     actor
@@ -778,6 +829,7 @@ async fn dispatch_turn_publishes_none_effort_when_session_has_no_own_effort() {
         let mut state = state.write();
         state.session_mut_or_create(&sid);
     }
+    mint_live_generation(&actor.services, &sid).await;
     {
         let mut app_state = actor.services.app_state_storage.read();
         app_state.reasoning_effort = Some(jinn_kernel::ReasoningEffort::High);
@@ -818,6 +870,7 @@ async fn dispatch_turn_publishes_sessions_own_reasoning_effort() {
         let session = state.session_mut_or_create(&sid);
         session.profile_mut().reasoning_effort = Some(jinn_kernel::ReasoningEffort::Low);
     }
+    mint_live_generation(&actor.services, &sid).await;
     {
         let mut app_state = actor.services.app_state_storage.read();
         app_state.reasoning_effort = Some(jinn_kernel::ReasoningEffort::High);
@@ -860,6 +913,7 @@ async fn dispatch_turn_drains_steering_submitted_after_preparation() {
         session.push_entry(ChatEntry::user("prepared"));
         session.steering_buffer_mut().push_fragment("late note");
     }
+    mint_live_generation(&actor.services, &sid).await;
 
     // When handling DispatchTurn.
     actor
@@ -886,16 +940,16 @@ async fn dispatch_turn_drains_steering_submitted_after_preparation() {
 #[rstest::rstest]
 #[tokio::test]
 async fn dispatch_turn_transitions_to_streaming_and_records_token_record() {
-    // Given a session the session actor already transitioned to Sending
-    // (the resume path's shape: begin_sending happened kernel-side).
+    // Given a session whose prepared turn is ready and whose generation the
+    // enqueue path minted before publishing DispatchTurn.
     let (actor, state, _audit) = create_actor().await;
     let sid = session_id();
     {
         let mut state = state.write();
         let session = state.session_mut_or_create(&sid);
         session.push_entry(ChatEntry::user("history"));
-        session.begin_sending();
     }
+    mint_live_generation(&actor.services, &sid).await;
 
     // When handling DispatchTurn.
     actor
@@ -904,7 +958,8 @@ async fn dispatch_turn_transitions_to_streaming_and_records_token_record() {
         })
         .await;
 
-    // Then the session is in Streaming phase.
+    // Then the session is in Streaming phase — the admission ask IS the
+    // phase write now.
     let state = state.read();
     let session = state.session(&sid);
     assert_eq!(session.phase(), PhaseKind::Streaming);
@@ -920,16 +975,17 @@ async fn dispatch_turn_transitions_to_streaming_and_records_token_record() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn dispatch_turn_publishes_sending_to_streaming_phase_change() {
-    // Given a Sending session (post-begin_sending resume shape).
+async fn dispatch_turn_publishes_idle_to_streaming_phase_change() {
+    // Given an Idle session whose prepared turn is ready and whose
+    // generation the enqueue path minted before publishing DispatchTurn.
     let (actor, state, audit) = create_actor().await;
     let sid = session_id();
     {
         let mut state = state.write();
         let session = state.session_mut_or_create(&sid);
         session.push_entry(ChatEntry::user("history"));
-        session.begin_sending();
     }
+    mint_live_generation(&actor.services, &sid).await;
 
     // When handling DispatchTurn.
     actor
@@ -938,21 +994,34 @@ async fn dispatch_turn_publishes_sending_to_streaming_phase_change() {
         })
         .await;
 
-    // Then the Sending -> Streaming transition was published.
+    // Then the Idle -> Streaming transition was published by the phase
+    // actor — at the enqueue path's admission mint in the Given. The
+    // DispatchTurn admission itself joins the live generation without a
+    // further event, and the queue actor publishes no phase event of its
+    // own.
     let phases: Vec<SessionPhaseChanged> = audit.of_type::<SessionPhaseChanged>();
     let streaming = phases
         .iter()
-        .find(|p| p.old_phase == PhaseKind::Sending && p.new_phase == PhaseKind::Streaming);
+        .find(|p| p.old_phase == PhaseKind::Idle && p.new_phase == PhaseKind::Streaming);
     assert!(
         streaming.is_some(),
-        "Sending -> Streaming transition must be published, got: {phases:?}"
+        "Idle -> Streaming transition must be published, got: {phases:?}"
+    );
+    // And it is the only phase transition on the bus.
+    assert_eq!(
+        phases.len(),
+        1,
+        "no queue-actor phase events, got: {phases:?}"
     );
 }
 
 #[rstest::rstest]
 #[tokio::test]
 async fn dispatch_turn_preserves_round_robin_index_mutation() {
-    // Given a session on an alloy with a round-robin strategy.
+    // Given a session on an alloy with a round-robin strategy, and the
+    // live generation the enqueue path mints before the queue receives
+    // the prepared dispatch — without it the admission ask refuses, by
+    // design (see `dispatch_turn_refused_when_no_generation_was_minted`).
     let (actor, state, audit) = create_actor().await;
     let sid = session_id();
     {
@@ -963,6 +1032,7 @@ async fn dispatch_turn_preserves_round_robin_index_mutation() {
             strategy: jinn_core_types::model_selection::AlloyStrategy::RoundRobin { index: 0 },
         };
     }
+    mint_live_generation(&actor.services, &sid).await;
 
     // When handling DispatchTurn.
     actor
@@ -993,9 +1063,10 @@ async fn dispatch_turn_preserves_round_robin_index_mutation() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn dispatch_turn_does_not_drain_stale_queue() {
+async fn dispatch_turn_refused_when_no_generation_was_minted() {
     // Given a Sending session with a queued item (busy-session sends wait
-    // for Idle; DispatchTurn must not steal them).
+    // for Idle; DispatchTurn must not steal them) and NO live generation —
+    // the DispatchTurn arrived without the enqueue path's mint behind it.
     let (actor, state, audit) = create_actor().await;
     let sid = session_id();
     {
@@ -1015,10 +1086,13 @@ async fn dispatch_turn_does_not_drain_stale_queue() {
         })
         .await;
 
-    // Then exactly one SendToLlmProvider was published (the prepared turn,
-    // not the queued item).
+    // Then the admission ask refused the prepared turn (no live generation
+    // behind it — the phase-flap fix), so nothing was published.
     let sends: Vec<SendToLlmProvider> = audit.of_type::<SendToLlmProvider>();
-    assert_eq!(sends.len(), 1);
+    assert!(
+        sends.is_empty(),
+        "a prepared dispatch with no minted generation is refused and publishes nothing"
+    );
     // And the queued item is still queued.
     let state = state.read();
     let session = state.session(&sid);
@@ -1030,10 +1104,17 @@ async fn dispatch_turn_does_not_drain_stale_queue() {
 async fn dispatch_turn_with_assembly_failure_publishes_nothing() {
     // Given a session whose assembly will fail (no service spawned).
     let (bus, audit) = jinn_kernel::BusService::new_recording();
-    let services = Services::new_fake_with_bus(bus).await;
-    // NOTE: jinn_context_assembly::service::ensure_spawned deliberately
-    // NOT called — the ask fails.
+    let services = Services::new_fake_with_bus(bus.clone()).await;
     let state = State::new(AppState::default_with_scope_focus());
+    // The real phase actor, so the admission ask succeeds and the failure
+    // under test is assembly, not admission. NOTE:
+    // jinn_context_assembly::service::ensure_spawned deliberately NOT
+    // called — that ask fails.
+    let _ = jinn_session_turn::phase_actor::ensure_spawned(
+        &services.trouper_system,
+        state.clone(),
+        bus,
+    );
     let actor = QueueActor {
         state: state.clone(),
         services,
@@ -1043,6 +1124,7 @@ async fn dispatch_turn_with_assembly_failure_publishes_nothing() {
         let mut state = state.write();
         state.session_mut_or_create(&sid).begin_sending();
     }
+    mint_live_generation(&actor.services, &sid).await;
 
     // When handling DispatchTurn.
     actor
@@ -1058,6 +1140,142 @@ async fn dispatch_turn_with_assembly_failure_publishes_nothing() {
     );
     // And no PersistSession followed.
     assert!(audit.of_type::<PersistSession>().is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn dispatch_turn_refused_when_cancel_lands_mid_assemble() {
+    // Given a live generation whose dispatch is admitted, then cancelled
+    // while the queue actor is inside its assemble ask — the window the
+    // stream-rule watchdog's trip lands in (the trip races the intercept's
+    // own resume by construction, and the session actor processes the
+    // cancel while the queue is assembling).
+    let (actor, state, audit) = create_actor().await;
+    let sid = session_id();
+    {
+        let mut state = state.write();
+        state.session_mut_or_create(&sid).begin_sending();
+    }
+    mint_live_generation(&actor.services, &sid).await;
+
+    // When the dispatch's first admission is followed by a turn-cancel
+    // before the re-admission at publish: the cancel task is spawned
+    // before the handler runs, and tokio polls it at the handler's await
+    // points (its own admission ask, then the assemble round-trip), so it
+    // delivers while the queue actor is mid-flight — after the first ask
+    // admitted the turn. Either ask that observes the cancel refuses; the
+    // property under test is that no publish survives it.
+    let cancel_handle = {
+        let services = actor.services.clone();
+        let sid = sid.clone();
+        tokio::spawn(async move {
+            jinn_session_turn::phase_actor::cancel_turn(&services, &sid)
+                .await
+                .expect("phase actor is live");
+        })
+    };
+
+    actor
+        .handle_dispatch_turn(&DispatchTurn {
+            session_id: sid.clone(),
+        })
+        .await;
+
+    cancel_handle.await.expect("cancel task joins");
+
+    // Then the dispatch was refused: no provider request, and no persist —
+    // the resumed turn of a cancelled generation never was.
+    let sends: Vec<SendToLlmProvider> = audit.of_type::<SendToLlmProvider>();
+    assert!(
+        sends.is_empty(),
+        "a cancel landing mid-assemble must refuse the prepared dispatch at publish, got {sends:?}"
+    );
+    assert!(audit.of_type::<PersistSession>().is_empty());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn readmission_refuses_after_cancel_but_admits_when_generation_live() {
+    // Given a live generation minted with a stamp, and the exact stamp it
+    // was admitted with — the one the queue actor re-asks with at publish.
+    let (actor, _state, _audit) = create_actor().await;
+    let sid = session_id();
+    let stamp = jiff::Timestamp::now();
+    {
+        let mut state = _state.write();
+        state.session_mut_or_create(&sid).begin_sending();
+    }
+    let minted = jinn_kernel::common::phase_command::apply_phase(
+        &actor.services,
+        PhaseCommand::BeginStream {
+            session_id: sid.clone(),
+            kind: DispatchKind::FreshTurn,
+            dispatched_at: stamp,
+        },
+    )
+    .await
+    .expect("phase actor is spawned by the test helpers");
+    assert!(minted.admitted, "fresh turn mints");
+
+    // When re-asking admission with the same stamp while the generation
+    // is still live (no cancel between the asks — the healthy dispatch).
+    let live =
+        crate::dispatch::admit_begin_stream(&actor.services, &sid, DispatchKind::ResumeTurn, stamp)
+            .await;
+
+    // Then the re-admission admits: it is a no-op refresh, not a second
+    // mint or a refusal.
+    assert!(
+        live.admitted,
+        "re-admission with no cancel must admit the live generation"
+    );
+
+    // When a cancel lands (the watchdog's trip) and the re-ask follows.
+    let cancelled = jinn_session_turn::phase_actor::cancel_turn(&actor.services, &sid)
+        .await
+        .expect("phase actor is live");
+    assert!(cancelled.admitted, "the cancel ends the live turn");
+    let dead =
+        crate::dispatch::admit_begin_stream(&actor.services, &sid, DispatchKind::ResumeTurn, stamp)
+            .await;
+
+    // Then the re-admission refuses: the generation is dead, and this is
+    // exactly what the queue actor's publish-site ask observes when the
+    // cancel landed mid-assemble.
+    assert!(
+        !dead.admitted,
+        "re-admission after a cancel must refuse the dead generation"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn dispatch_turn_admitted_twice_publishes_once_when_no_cancel() {
+    // Given a live generation and NO cancel: the re-admission ask must be
+    // a no-op on the phase machine (already Streaming, stamp refreshed to
+    // the same minted stamp) so the dispatch still publishes.
+    let (actor, _state, audit) = create_actor().await;
+    let sid = session_id();
+    {
+        let mut state = _state.write();
+        state.session_mut_or_create(&sid).begin_sending();
+    }
+    mint_live_generation(&actor.services, &sid).await;
+
+    // When handling DispatchTurn.
+    actor
+        .handle_dispatch_turn(&DispatchTurn {
+            session_id: sid.clone(),
+        })
+        .await;
+
+    // Then the dispatch published exactly one provider request.
+    let sends: Vec<SendToLlmProvider> = audit.of_type::<SendToLlmProvider>();
+    assert_eq!(
+        sends.len(),
+        1,
+        "re-admission with no cancel must not suppress the dispatch"
+    );
 }
 
 // ── Routing endpoint resolution ─────────────────────────────────────────
@@ -1104,9 +1322,17 @@ async fn services_pinning(model: &str, tag: Option<&str>) -> Services {
 fn actor_on(services: Services, model: &str) -> (QueueActor, State, SessionId, BusAudit) {
     let (bus, audit) = jinn_kernel::BusService::new_recording();
     let mut services = services;
-    services.bus = bus;
+    services.bus = bus.clone();
     let _ = jinn_context_assembly::service::ensure_spawned(&services.trouper_system);
     let state = State::new(AppState::default_with_scope_focus());
+    // The real phase actor answers the dispatch's admission ask; a
+    // `FreshTurn` mint is always admitted, so this only needs the actor
+    // live, on the same system the queue actor asks through.
+    let _ = jinn_session_turn::phase_actor::ensure_spawned(
+        &services.trouper_system,
+        state.clone(),
+        bus,
+    );
     let sid = session_id();
     {
         let mut state = state.write();
@@ -1194,9 +1420,14 @@ async fn dispatch_does_not_force_an_endpoint_for_an_alloy() {
     let services = services_pinning(PINNED_MODEL, Some("anthropic")).await;
     let (bus, audit) = jinn_kernel::BusService::new_recording();
     let mut services = services;
-    services.bus = bus;
+    services.bus = bus.clone();
     let _ = jinn_context_assembly::service::ensure_spawned(&services.trouper_system);
     let state = State::new(AppState::default_with_scope_focus());
+    let _ = jinn_session_turn::phase_actor::ensure_spawned(
+        &services.trouper_system,
+        state.clone(),
+        bus,
+    );
     let sid = session_id();
     {
         let mut state = state.write();

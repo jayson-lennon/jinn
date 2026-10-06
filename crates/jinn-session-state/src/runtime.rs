@@ -20,9 +20,6 @@ pub struct SessionCoreEphemeral {
     pub message_queue: TurnQueue,
     /// Most recently assembled prompt size, in tokens.
     pub cached_context_size: Option<u32>,
-    /// Number of background operations currently occupying the session.
-    #[serde(skip)]
-    pub busy_count: usize,
     /// Generation marker for the currently active inference stream.
     #[serde(skip)]
     pub stream_dispatched_at: Option<Timestamp>,

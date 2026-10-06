@@ -192,10 +192,7 @@ fn add_project(config: &jinn_preferences_config::ConfigLayer, path: std::path::P
     if projects.iter().any(|project| project.path == path) {
         return;
     }
-    projects.push(ProjectConfig {
-        path,
-        command_policy: Vec::new(),
-    });
+    projects.push(ProjectConfig { path });
     if let Err(error) = config.put_list::<ProjectConfig>(&projects) {
         tracing::warn!(err = ?error, "failed to persist the added project to jinn.toml");
     }

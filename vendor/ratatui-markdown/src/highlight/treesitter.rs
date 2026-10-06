@@ -23,6 +23,7 @@ macro_rules! lang_entry {
 }
 
 #[cfg(any(
+    feature = "highlight-lang-slate",
     feature = "highlight-lang-javascript",
     feature = "highlight-lang-c",
     feature = "highlight-lang-cpp",
@@ -42,6 +43,9 @@ fn get_lang(lang: &str) -> Option<LangEntry> {
     match lang {
         #[cfg(feature = "highlight-lang-rust")]
         "rust" => Some(lang_entry!(tree_sitter_rust)),
+
+        #[cfg(feature = "highlight-lang-slate")]
+        "slate" => Some(lang_entry!(tree_sitter_slate)),
 
         #[cfg(feature = "highlight-lang-python")]
         "python" | "py" => Some(lang_entry!(tree_sitter_python)),
@@ -532,7 +536,63 @@ mod tests {
         assert!(build_config(&entry).is_some(), "Proto query must build");
     }
 
-    // Test 8: Sequential highlight() calls never panic — the parking_lot
+    // Test 8: Slate query still valid, and real Slate source produces
+    // styled spans (audit guard).
+    #[cfg(feature = "highlight-lang-slate")]
+    #[test]
+    fn slate_query_builds_and_highlights() {
+        let entry = get_lang("slate").expect("slate entry must exist");
+        assert!(build_config(&entry).is_some(), "Slate query must build");
+
+        let hl = TreeSitterHighlighter::new();
+        let segs = hl.highlight(
+            "slate",
+            "pub fn area(w: i64, h: i64) -> i64 {\n    w * h\n}\n",
+        );
+        assert!(!segs.is_empty(), "Slate should produce styled segments");
+        assert!(
+            segs.iter().any(|s| s.style != ratatui::style::Style::default()),
+            "Slate output must contain at least one non-default style"
+        );
+    }
+
+    // Test 9: Slate's keywords, literals and names each land on a distinct
+    // style. Catches a query that compiles but matches nothing -- the failure
+    // mode a plain `!segs.is_empty()` check would miss.
+    //
+    // `StyleSegment` carries byte RANGES, not text, so the source is sliced
+    // back out to assert on which token a style actually covers.
+    #[cfg(feature = "highlight-lang-slate")]
+    #[test]
+    fn slate_distinguishes_constructs() {
+        const SRC: &str = "pub fn area(w: i64) -> i64 {\n    let n = 42;\n    n + w\n}\n";
+
+        let hl = TreeSitterHighlighter::new();
+        let segs = hl.highlight("slate", SRC);
+
+        let tokens: Vec<(String, ratatui::style::Style)> = segs
+            .iter()
+            .filter(|s| s.style != ratatui::style::Style::default())
+            .map(|s| (SRC[s.start..s.end].to_string(), s.style))
+            .collect();
+
+        for want in ["pub", "fn", "area", "let", "42"] {
+            assert!(
+                tokens.iter().any(|(t, _)| t == want),
+                "expected `{want}` to be styled; styled tokens were {:?}",
+                tokens.iter().map(|(t, _)| t).collect::<Vec<_>>()
+            );
+        }
+
+        let distinct: std::collections::HashSet<_> = tokens.iter().map(|(_, s)| *s).collect();
+        assert!(
+            distinct.len() >= 3,
+            "expected varied Slate styles, got {} distinct: {tokens:?}",
+            distinct.len()
+        );
+    }
+
+    // Test 9: Sequential highlight() calls never panic — the parking_lot
     // mutex cannot poison, so repeated use stays alive.
     #[test]
     fn sequential_highlight_calls_do_not_panic() {

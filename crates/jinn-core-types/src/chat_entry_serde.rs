@@ -197,6 +197,22 @@ impl Serialize for ChatEntryKind {
                 map.serialize_entry("Annotation", citations)?;
                 map.end()
             }
+            ChatEntryKind::RuleInterrupt { rule, body } => {
+                #[derive(Serialize)]
+                struct RuleInterruptData {
+                    rule: String,
+                    body: String,
+                }
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry(
+                    "RuleInterrupt",
+                    &RuleInterruptData {
+                        rule: rule.clone(),
+                        body: body.clone(),
+                    },
+                )?;
+                map.end()
+            }
         }
     }
 }
@@ -381,6 +397,18 @@ impl<'de> Deserialize<'de> for ChatEntryKind {
                         let citations: Vec<crate::url_citation::UrlCitation> = map.next_value()?;
                         Ok(ChatEntryKind::Annotation { citations })
                     }
+                    "RuleInterrupt" => {
+                        #[derive(Deserialize)]
+                        struct RuleInterruptData {
+                            rule: String,
+                            body: String,
+                        }
+                        let data: RuleInterruptData = map.next_value()?;
+                        Ok(ChatEntryKind::RuleInterrupt {
+                            rule: data.rule,
+                            body: data.body,
+                        })
+                    }
                     other => Err(de::Error::unknown_variant(
                         other,
                         &[
@@ -395,6 +423,7 @@ impl<'de> Deserialize<'de> for ChatEntryKind {
                             "Transient",
                             "Compaction",
                             "Annotation",
+                            "RuleInterrupt",
                         ],
                     )),
                 }

@@ -36,6 +36,11 @@ impl HarnessServices for TestHarness {
         let mut services = Services::new_fake().await;
         services.bus = self.bus();
         services.trouper_system = self.system().clone();
+        // The bridge captured `new_fake`'s own bus at construction; left
+        // alone it publishes route-action closures into a system no actor
+        // ever joined. Rebuild it over the harness bus so a published
+        // closure and a direct publish land on the same fabric.
+        services.bridge = crate::common::bridge::Bridge::new(services.bus.clone());
         services
     }
 

@@ -184,7 +184,6 @@ mod tests {
     fn test_ctx() -> ToolContext {
         ToolContext {
             cwd: PathBuf::from("/tmp"),
-            command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
             config: jinn_config::testutil::config_layer(""),
             timeout: None,
             state: None,
@@ -544,7 +543,6 @@ mod tests {
 
         let ctx = ToolContext {
             cwd: PathBuf::from("/tmp"),
-            command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
             config: jinn_config::testutil::config_layer(""),
             timeout: None,
             state: Some(state),
@@ -605,7 +603,6 @@ mod tests {
 
         let ctx = ToolContext {
             cwd: PathBuf::from("/tmp"),
-            command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
             config: jinn_config::testutil::config_layer(""),
             timeout: None,
             state: Some(state),

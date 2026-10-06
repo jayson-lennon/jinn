@@ -78,9 +78,8 @@ impl StreamingIndicatorElement {
         let phase = session.phase();
         let origin = session.origin();
 
-        let is_busy = session.is_busy();
         let is_phase_busy = matches!(phase, PhaseKind::Sending | PhaseKind::Streaming);
-        let is_spinning = is_busy || is_phase_busy;
+        let is_spinning = is_phase_busy;
 
         let kind = KindLabel::of(
             origin,
@@ -100,7 +99,7 @@ impl StreamingIndicatorElement {
         // edge. `to_line` reads the same state the widget's render would, so
         // the glyph still steps every frame.
         let busy = is_spinning.then(|| {
-            let text = if is_busy {
+            let text = if matches!(phase, PhaseKind::Sending) {
                 " Working..."
             } else {
                 " Streaming..."
@@ -251,13 +250,43 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn renders_streaming_label_during_sending_phase() {
-        // Given a session in Sending phase.
+    fn renders_working_label_during_sending_phase() {
+        // Given a session in Sending phase — a turn waiting on its tool
+        // loop, which is work the user watches.
         use jinn_testutil::{buffer_row, setup_term};
 
         let mut element = StreamingIndicatorElement::new();
         let mut state = AppState::default();
         state.active_session_mut().begin_sending();
+        let (mut terminal, area) = setup_term(30, 1);
+
+        // When rendering the element.
+        terminal
+            .draw(|frame| {
+                let slices = jinn_slices::Slices::new();
+                let overlay_views = jinn_slices::OverlayViews::new();
+                let ctx = RenderCtx::new_with_default_config(&state, &slices, &overlay_views);
+                element.render(frame, area, &ctx);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let row = buffer_row(&buffer, 0, 30);
+
+        // Then the label shows "Working...".
+        assert!(
+            row.contains("Working..."),
+            "expected Working..., got: {row}"
+        );
+    }
+
+    #[rstest::rstest]
+    fn renders_streaming_label_during_streaming_phase() {
+        // Given a session in Streaming phase.
+        use jinn_testutil::{buffer_row, setup_term};
+
+        let mut element = StreamingIndicatorElement::new();
+        let mut state = AppState::default();
+        state.active_session_mut().begin_streaming();
         let (mut terminal, area) = setup_term(30, 1);
 
         // When rendering the element.
@@ -310,13 +339,14 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn renders_working_for_marking_busy_when_idle() {
-        // Given a session with busy counter set but phase Idle.
+    fn renders_working_during_sending_phase() {
+        // Given a session in the Sending phase — the tool-loop wait, where
+        // "working" is what the user watches.
         use jinn_testutil::{buffer_row, setup_term};
 
         let mut element = StreamingIndicatorElement::new();
         let mut state = AppState::default();
-        state.active_session_mut().begin_busy();
+        state.active_session_mut().begin_sending();
         let (mut terminal, area) = setup_term(30, 1);
 
         // When rendering the element.
@@ -476,7 +506,6 @@ mod tests {
     fn busy_attendant_session_shows_the_kind_label() {
         // Given a busy attendant session.
         let mut state = state_with_origin(SessionOrigin::Attendant);
-        state.active_session_mut().begin_busy();
 
         // When the indicator row is rendered.
         let text = row_text(&state, 40);
@@ -491,9 +520,9 @@ mod tests {
 
     #[rstest::rstest]
     fn busy_attendant_session_keeps_the_spinner_text_at_the_left_edge() {
-        // Given a busy attendant session.
+        // Given a busy attendant session — mid-turn in the phase sense.
         let mut state = state_with_origin(SessionOrigin::Attendant);
-        state.active_session_mut().begin_busy();
+        state.active_session_mut().begin_streaming();
 
         // When the indicator row is rendered.
         let text = row_text(&state, 40);
@@ -503,7 +532,7 @@ mod tests {
         // writes its glyph and a trailing space, then the label's own leading
         // space: the text therefore starts at column two.
         assert!(
-            text.contains(" Working...") && text.find(" Working...") == Some(2),
+            text.contains(" Streaming...") && text.find(" Streaming...") == Some(2),
             "the busy text must sit right after the spinner glyph, got: {text}"
         );
     }
@@ -517,7 +546,7 @@ mod tests {
         use jinn_testutil::setup_term;
 
         let mut state = state_with_origin(SessionOrigin::Attendant);
-        state.active_session_mut().begin_busy();
+        state.active_session_mut().begin_streaming();
         let mut element = StreamingIndicatorElement::new();
         let (mut terminal, area) = setup_term(40, 1);
 

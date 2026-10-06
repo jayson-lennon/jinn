@@ -167,7 +167,7 @@ async fn cancel_lifecycle_command_is_noop_without_running_child() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn builtin_setup_completes_session_busy_state() {
+async fn builtin_setup_completes_with_setup_completed() {
     // Given a running lifecycle actor with a successful builtin setup.
     let mut registry = BuiltinRegistry::new();
     registry.register(
@@ -193,22 +193,12 @@ async fn builtin_setup_completes_session_busy_state() {
         .await;
 
     // When the builtin setup command finishes.
-    let _ = await_recorded(&completed_recorder, 1, Duration::from_secs(1)).await;
-    let completed = poll_until(|| async {
-        !fixture
-            .state
-            .read()
-            .session
-            .get(&session_id)
-            .expect("session")
-            .is_busy()
-    })
-    .await;
+    let completed = await_recorded(&completed_recorder, 1, Duration::from_secs(1)).await;
 
-    // Then the session is no longer busy.
+    // Then the completion event carried the session.
     assert!(
-        completed,
-        "builtin setup should complete session busy state"
+        completed.iter().any(|m| m.session_id == session_id),
+        "builtin setup should report SessionSetupCompleted for its session"
     );
 }
 
@@ -300,7 +290,7 @@ async fn teardown_tree_aborted_by_busy_member_reports_failure_for_every_member()
     let mut child = ChatSessionState::new();
     let child_id = child.session_id().clone();
     child.set_parent_session(root.clone());
-    child.begin_busy();
+    child.begin_streaming();
     {
         let mut state = fixture.state.write();
         state.session.insert(parent);

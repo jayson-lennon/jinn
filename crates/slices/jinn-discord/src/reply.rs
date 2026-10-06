@@ -35,6 +35,10 @@ pub fn read_final_reply(history: &[ChatEntry]) -> Option<FinalReply> {
             // user's turn with no model output before going idle.
             ChatEntryKind::User { .. } => return None,
             // Skip intermediate scaffolding entries.
+            // A rule interrupt is skipped rather than treated as the user's
+            // own input: an intercepted turn still produces a reply, and
+            // returning `None` here would report it to Discord as a turn that
+            // generated nothing.
             ChatEntryKind::System(_)
             | ChatEntryKind::Actor { .. }
             | ChatEntryKind::Thinking(_)
@@ -42,7 +46,8 @@ pub fn read_final_reply(history: &[ChatEntry]) -> Option<FinalReply> {
             | ChatEntryKind::ToolResult { .. }
             | ChatEntryKind::Transient(_)
             | ChatEntryKind::Compaction { .. }
-            | ChatEntryKind::Annotation { .. } => {}
+            | ChatEntryKind::Annotation { .. }
+            | ChatEntryKind::RuleInterrupt { .. } => {}
         }
     }
     None
@@ -84,5 +89,39 @@ mod tests {
         let reply = read_final_reply(&history);
         // Then nothing is returned.
         assert_eq!(reply, None);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn history_ending_in_rule_interrupt_does_not_hide_the_reply() {
+        // Given a turn that was interrupted by a rule and then answered.
+        let history = vec![
+            ChatEntry::user("list the files"),
+            ChatEntry::rule_interrupt("no-cat", "stop using cat"),
+            ChatEntry::assistant("here are the files"),
+            ChatEntry::rule_interrupt("no-cat", "and stop using cat"),
+        ];
+        // When reading the final reply.
+        let reply = read_final_reply(&history);
+        // Then the assistant reply is returned: an interrupt is harness
+        // steering, not the user speaking, so it must not act as a barrier.
+        assert_eq!(
+            reply,
+            Some(FinalReply::Assistant("here are the files".to_owned()))
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn rule_interrupt_before_the_last_reply_is_skipped() {
+        // Given a turn whose reply precedes the interrupt.
+        let history = vec![
+            ChatEntry::rule_interrupt("no-cat", "stop using cat"),
+            ChatEntry::assistant("done"),
+        ];
+        // When reading the final reply.
+        let reply = read_final_reply(&history);
+        // Then the earlier assistant text is still found.
+        assert_eq!(reply, Some(FinalReply::Assistant("done".to_owned())));
     }
 }

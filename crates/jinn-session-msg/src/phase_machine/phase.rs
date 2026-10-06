@@ -45,9 +45,6 @@ pub struct StreamingPhase {
     pub streaming_entry_index: Option<usize>,
     /// Index into history for the entry currently receiving thinking tokens.
     pub streaming_thinking_entry_index: Option<usize>,
-    /// When `true`, the next stream-completion boundary transitions to `Idle`
-    /// instead of continuing the tool loop. Set by `soft_cancel()`.
-    pub soft_cancel_requested: bool,
 }
 
 /// The current session phase with per-phase state.

@@ -169,7 +169,6 @@ impl SessionLifecycleActor {
         self.state.with_session(|view| {
             let session = view.session.map().get_mut(session_id)?;
             let args = session.lifecycle_args().to_vec();
-            session.begin_busy();
             Some(if args.is_empty() {
                 command.to_owned()
             } else {
@@ -252,9 +251,10 @@ impl SessionLifecycleActor {
         let busy = {
             let state = self.state.read();
             members.iter().any(|id| {
-                state.session.get(id).is_some_and(|session| {
-                    session.is_busy() || !matches!(session.phase(), PhaseKind::Idle)
-                })
+                state
+                    .session
+                    .get(id)
+                    .is_some_and(|session| !matches!(session.phase(), PhaseKind::Idle))
             })
         };
         if busy {

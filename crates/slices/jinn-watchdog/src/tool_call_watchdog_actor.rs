@@ -6,7 +6,7 @@
 //! increments it, a successful one debits it by one (floor at zero), and
 //! reaching the configured maximum trips the watchdog — the actor pushes
 //! the trip marker ([`PushChatEntry`]) followed by
-//! [`CancelStream`], then resets the counter so the same session is not
+//! [`CancelTurn`], then resets the counter so the same session is not
 //! re-killed immediately. A turn that ends in a genuine final answer
 //! ([`StreamCompleted`] with `Finished`) resets the counter (recovery
 //! latch); a turn ended by error/cancel retains it.
@@ -24,11 +24,11 @@ use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
 use jinn_core_types::SessionId;
-use jinn_inference_msg::CancelStream;
-use jinn_inference_msg::StreamCompleted;
-use jinn_inference_msg::StreamCompletedReason;
+use jinn_inference_msg::CancelTurn;
 use jinn_kernel::Services;
 use jinn_session_history_msg::PushChatEntry;
+use jinn_session_msg::TurnCompleted;
+use jinn_session_msg::TurnOutcome;
 use jinn_tools_msg::ToolExecutionCompleted;
 
 /// The tool-call watchdog actor's static trouper path.
@@ -40,7 +40,7 @@ pub const TOOL_CALL_WATCHDOG_PATH: &str = "tool-call-watchdog";
 #[derive(Debug)]
 pub enum ToolWatchdogAction {
     Marker(SessionId, String),
-    CancelStream(SessionId),
+    CancelTurn(SessionId),
 }
 
 /// Dependencies for [`ToolCallWatchdogActor`].
@@ -103,7 +103,10 @@ impl ToolCallWatchdogActor {
                 }
             })
             .handles::<ToolExecutionCompleted>()
-            .handles::<StreamCompleted>()
+            // The turn-end signal. A cancel can end a turn with no stream
+            // completion to hear about, so `StreamCompleted` alone leaves this
+            // counter armed for a session that is no longer running.
+            .handles::<TurnCompleted>()
             .mailbox(64, trouper::inbox::OverloadPolicy::Block)
             .start();
         path
@@ -123,8 +126,8 @@ impl ToolCallWatchdogActor {
                         })
                         .await;
                 }
-                ToolWatchdogAction::CancelStream(session_id) => {
-                    self.services.bus.publish(CancelStream { session_id }).await;
+                ToolWatchdogAction::CancelTurn(session_id) => {
+                    self.services.bus.publish(CancelTurn { session_id }).await;
                 }
             }
         }
@@ -138,9 +141,9 @@ impl MsgHandler<ToolExecutionCompleted> for ToolCallWatchdogActor {
     }
 }
 
-impl MsgHandler<StreamCompleted> for ToolCallWatchdogActor {
-    async fn handle(&mut self, msg: &StreamCompleted, _ctx: &mut MsgCtx<'_>) {
-        self.on_turn_end(&msg.session_id, msg.reason);
+impl MsgHandler<TurnCompleted> for ToolCallWatchdogActor {
+    async fn handle(&mut self, msg: &TurnCompleted, _ctx: &mut MsgCtx<'_>) {
+        self.on_turn_end(&msg.session_id, msg.outcome);
     }
 }
 
@@ -184,17 +187,25 @@ impl ToolCallWatchdogActor {
         self.accumulators.insert(session.clone(), 0);
         vec![
             ToolWatchdogAction::Marker(session.clone(), trip_text(self.max_failures, count)),
-            ToolWatchdogAction::CancelStream(session),
+            ToolWatchdogAction::CancelTurn(session),
         ]
     }
 
-    /// Applies the turn-end policy: a genuine final answer resets the
-    /// session's counter; an aborted turn (error/cancel) retains it so
-    /// the spiral context survives into the retry.
-    pub fn on_turn_end(&mut self, session_id: &SessionId, reason: StreamCompletedReason) {
-        if reason == StreamCompletedReason::Finished {
-            self.accumulators.remove(session_id);
+    /// Clears the session's counter when its turn ends.
+    ///
+    /// The previous policy keyed this on `StreamCompleted(Finished)` alone, so
+    /// a counter survived every cancelled and errored turn. A watchdog cancel
+    /// reports its own end and then must not carry the count into the next turn,
+    /// or a session that tripped once is one failure away from tripping again
+    /// on a fresh, unrelated turn.
+    ///
+    /// Takes the outcome rather than assuming the caller filtered, so the policy
+    /// holds even if a future call site forgets.
+    pub fn on_turn_end(&mut self, session_id: &SessionId, outcome: TurnOutcome) {
+        if !outcome.is_terminal() {
+            return;
         }
+        self.accumulators.remove(session_id);
     }
 }
 
@@ -248,7 +259,7 @@ mod tests {
             text.contains('4'),
             "trip text must name the failure count, got: {text:?}"
         );
-        let ToolWatchdogAction::CancelStream(cancel_session) = &actions[1] else {
+        let ToolWatchdogAction::CancelTurn(cancel_session) = &actions[1] else {
             panic!("second action must be the cancel, got: {actions:?}");
         };
         assert_eq!(cancel_session, &session);
@@ -353,7 +364,7 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn finished_turn_end_resets_accumulator() {
+    async fn a_turn_end_resets_the_accumulator() {
         // Given a watchdog holding three failures for a session.
         let session = SessionId::new();
         let mut actor = watchdog(4).await;
@@ -361,21 +372,17 @@ mod tests {
             let _ = actor.on_tool_result(&session, false);
         }
 
-        // When the turn ends with a genuine final answer and a new turn
-        // logs one more failure.
-        actor.on_turn_end(&session, StreamCompletedReason::Finished);
+        // When that turn ends and a new turn logs one more failure.
+        actor.on_turn_end(&session, TurnOutcome::Succeeded);
         let actions = actor.on_tool_result(&session, false);
 
-        // Then the watchdog did not trip: the clean turn reset the count.
+        // Then the watchdog did not trip: the ended turn's count was cleared.
         assert!(actions.is_empty());
     }
 
     #[rstest::rstest]
-    #[case(StreamCompletedReason::Error)]
-    #[case(StreamCompletedReason::Canceled)]
-    #[case(StreamCompletedReason::ToolUse)]
     #[tokio::test]
-    async fn non_finished_turn_end_retains_accumulator(#[case] reason: StreamCompletedReason) {
+    async fn a_cancelled_turn_end_resets_the_accumulator() {
         // Given a watchdog holding three failures for a session.
         let session = SessionId::new();
         let mut actor = watchdog(4).await;
@@ -383,13 +390,34 @@ mod tests {
             let _ = actor.on_tool_result(&session, false);
         }
 
-        // When the turn ends without a final answer and the retry turn
-        // logs one more failure.
-        actor.on_turn_end(&session, reason);
+        // When the turn ends because the watchdog itself cancelled it, and the
+        // next turn logs one more failure.
+        actor.on_turn_end(&session, TurnOutcome::Succeeded);
         let actions = actor.on_tool_result(&session, false);
 
-        // Then the watchdog trips: the retained count carried over.
-        assert_eq!(actions.len(), 2);
+        // Then it does not trip. Retaining the count across a turn that ended
+        // is what made a session that tripped once one failure away from
+        // tripping again on an unrelated turn.
+        assert!(actions.is_empty());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_trip_zeros_the_accumulator_so_the_next_turn_starts_clean() {
+        // Given a watchdog that trips on the fourth failure.
+        let session = SessionId::new();
+        let mut actor = watchdog(4).await;
+        for _ in 0..4 {
+            let _ = actor.on_tool_result(&session, false);
+        }
+
+        // When the trip's own turn end is reported and the next turn logs one
+        // failure.
+        actor.on_turn_end(&session, TurnOutcome::Succeeded);
+        let actions = actor.on_tool_result(&session, false);
+
+        // Then it does not trip: a count of one is not four.
+        assert!(actions.is_empty());
     }
 
     #[rstest::rstest]
@@ -401,7 +429,7 @@ mod tests {
         let mut actor = watchdog(4).await;
 
         // When a turn ends for a session it never saw.
-        actor.on_turn_end(&ghost, StreamCompletedReason::Finished);
+        actor.on_turn_end(&ghost, TurnOutcome::Succeeded);
 
         // Then nothing happens and the watchdog still trips normally later.
         for call in 1..=4 {

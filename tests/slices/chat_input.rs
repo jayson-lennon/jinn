@@ -1966,12 +1966,12 @@ fn enter_normal_mode_does_not_cancel_stream() {
         jinn_kernel::common::render_ctx::empty_config_layer(),
     );
 
-    // Then no CancelStream command is emitted.
+    // Then no CancelTurn command is emitted.
     assert!(
         !result
             .message_names
             .iter()
-            .any(|n| n.contains("CancelStream"))
+            .any(|n| n.contains("CancelTurn"))
     );
 }
 
@@ -2054,12 +2054,12 @@ fn enter_normal_mode_with_queue_emits_no_cancel_stream() {
         jinn_kernel::common::render_ctx::empty_config_layer(),
     );
 
-    // Then no CancelStream command is emitted.
+    // Then no CancelTurn command is emitted.
     assert!(
         !result
             .message_names
             .iter()
-            .any(|n| n.contains("CancelStream"))
+            .any(|n| n.contains("CancelTurn"))
     );
 }
 

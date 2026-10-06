@@ -1,7 +1,8 @@
 //! Tool call entry rendering - supports streaming, collapsed, and expanded modes.
 //!
-//! **Bash tools** always render as a single line: `$ <command>`, extracted from
-//! JSON arguments, truncated to content width.
+//! **Bash tools** render as `$ <command>`, extracted from JSON arguments and
+//! split across one row per command line, so a heredoc or chained command is
+//! readable rather than collapsed into a single line.
 //!
 //! **Non-bash tools** have three rendering modes:
 //!
@@ -92,24 +93,27 @@ fn to_lines_task(name: &str, arguments: &str, ctx: &RenderContext) -> Vec<Line<'
     lines
 }
 
-/// Bash tool call: single line `$ <command>`, truncated to content width.
+/// Bash tool call: `$ <command>`, one row per command line.
+///
+/// The command is unescaped and split on real newlines, so a heredoc or a
+/// chained command renders across several rows instead of collapsing into one
+/// unreadable line. Falls back to the raw arguments when the JSON is
+/// incomplete — the streaming case, where the arguments are a valid prefix.
 fn to_lines_bash(arguments: &str, ctx: &RenderContext) -> Vec<Line<'static>> {
     let display_text = format_bash_display(arguments);
-    let truncated = truncate_to_width(&display_text, ctx.content_width as usize);
+    let text = super::shared::unescape_newlines(&display_text);
+    let all_lines: Vec<&str> = text.split('\n').collect();
 
-    let fg = ctx.theme.primary_text;
-    let bg = status_background(ctx);
-    let style = match bg {
-        Some(bg_color) => Style::default().fg(fg).bg(bg_color),
-        None => Style::default().fg(fg),
-    };
-
-    let mut lines = vec![Line::from(Span::styled(truncated, style))];
-
-    if let (Some(bg_color), Some(first_line)) = (bg, lines.first_mut()) {
-        pad_line_to_width(first_line, ctx.content_width, Style::default().bg(bg_color));
+    let style = content_style(ctx, ctx.theme.primary_text);
+    let mut lines = Vec::with_capacity(all_lines.len());
+    for line_text in &all_lines {
+        lines.push(Line::from(Span::styled(
+            truncate_to_width(line_text, ctx.content_width as usize),
+            style,
+        )));
     }
 
+    pad_lines(&mut lines, ctx);
     lines
 }
 
@@ -316,55 +320,67 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn bash_is_single_line() {
-        // Given a bash tool call with multi-line arguments.
+    fn bash_renders_a_multiline_command_across_rows() {
+        // Given a bash call whose command spans several lines.
         let ctx = render_context(6, false);
-        let args = "line 1\\nline 2\\nline 3";
+        let args = r#"{"command":"cat <<EOF\nline 1\nline 2\nEOF"}"#;
 
         // When converting to lines.
         let lines = to_lines("bash", args, &ctx);
 
-        // Then there is exactly one line.
+        // Then each command line gets its own row.
+        let rows: Vec<String> = lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.clone()).collect())
+            .collect();
         assert_eq!(
-            lines.len(),
-            1,
-            "bash tool call should always be a single line, got {}",
-            lines.len()
+            rows.len(),
+            4,
+            "a four-line command should render four rows, got {rows:?}"
+        );
+        assert!(
+            rows[0].starts_with("$ cat <<EOF"),
+            "first row should carry the $ prefix and first command line, got {:?}",
+            rows[0]
+        );
+        assert!(
+            rows[1].starts_with("line 1") && rows[3].starts_with("EOF"),
+            "continuation rows should carry the command verbatim, got {rows:?}"
         );
     }
 
     #[rstest::rstest]
-    fn bash_streaming_still_single_line() {
-        // Given a bash tool call in streaming mode.
+    fn bash_streaming_renders_a_partial_command() {
+        // Given a bash call interrupted mid-arguments, with the JSON still open.
         let ctx = streaming_context(6);
+        let args = r#"{"command":"grep -r hello"#;
 
         // When converting to lines.
-        let lines = to_lines("bash", r#"{"command":"ls"}"#, &ctx);
+        let lines = to_lines("bash", args, &ctx);
 
-        // Then there is exactly one line.
-        assert_eq!(
-            lines.len(),
-            1,
-            "bash should still be single line during streaming, got {}",
-            lines.len()
+        // Then the partial command is shown, not a bare `$`.
+        let rows: Vec<String> = lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.clone()).collect())
+            .collect();
+        assert!(
+            rows[0].contains("grep"),
+            "a partial bash command should render its content, got {:?}",
+            rows[0]
         );
     }
 
     #[rstest::rstest]
-    fn bash_expanded_still_single_line() {
-        // Given a bash tool call in expanded mode.
+    fn bash_expanded_renders_a_multiline_command() {
+        // Given an expanded bash call with a multiline command.
         let ctx = expanded_context();
+        let args = r#"{"command":"a\nb"}"#;
 
         // When converting to lines.
-        let lines = to_lines("bash", r#"{"command":"ls"}"#, &ctx);
+        let lines = to_lines("bash", args, &ctx);
 
-        // Then there is exactly one line.
-        assert_eq!(
-            lines.len(),
-            1,
-            "bash should still be single line when expanded, got {}",
-            lines.len()
-        );
+        // Then both lines render.
+        assert_eq!(lines.len(), 2, "expanded bash should render both rows");
     }
 
     #[rstest::rstest]

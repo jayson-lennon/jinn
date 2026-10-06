@@ -32,7 +32,6 @@ fn call(name: &str, arguments: &str) -> ToolCall {
 async fn ctx(harness: &TestHarness, state: &State, session_id: SessionId) -> ToolContext {
     ToolContext {
         cwd: std::path::PathBuf::from("/tmp"),
-        command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
         config: jinn_config::testutil::config_layer(""),
         timeout: None,
         state: Some(state.clone()),

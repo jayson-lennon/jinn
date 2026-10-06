@@ -13,7 +13,7 @@
 //! impls.
 //!
 //! The crate stays otherwise narrow: streaming-side vocabulary
-//! (`SendToLlmProvider`, `CancelStream`, `StreamToken`, `StreamCompleted`)
+//! (`SendToLlmProvider`, `CancelTurn`, `StreamToken`, `StreamCompleted`)
 //! stays in the kernel.
 
 pub mod queue_item;

@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use jinn_context_assembly_msg::ContextOverrideChanged;
 use jinn_core_types::SessionId;
 use jinn_core_types::tool_types::ToolCall;
-use jinn_inference_msg::{StreamCompleted, StreamCompletedReason, StreamToken};
+use jinn_inference_msg::{CancelTurn, StreamCompleted, StreamCompletedReason, StreamToken};
 use jinn_kernel::common::actor_deps::BusPublish;
 use jinn_kernel::protocol::{ChatEntry, ChatEntryId, ChatEntryKind};
 use jinn_llm_support::token_estimator::{TiktokenCounter, TokenCounter};
@@ -23,6 +23,111 @@ use super::super::SessionPersistenceActor;
 use jinn_session_msg::PhaseKind;
 
 impl SessionPersistenceActor {
+    /// Ends a turn and reports its end — the one routine that terminates a turn.
+    ///
+    /// Every path that ends a turn without a provider stream to end goes through
+    /// here: a person pressing Escape, a watchdog giving up, a subagent teardown,
+    /// an attendant rerun. There is no second way to report a turn's end, which is
+    /// what makes the report reliable enough to hang a phase transition on.
+    ///
+    /// Unconditional, and that is load-bearing. A watchdog cancel lands *after*
+    /// this actor already published the resume it is meant to stop:
+    /// `on_send_to_llm_provider` arms the in-flight guard on receipt of every
+    /// `SendToLlmProvider`, including the one the intercept re-dispatches. The
+    /// inference actor then drops that resume, because it is the only actor that
+    /// can know the dispatch was latched away. Nothing downstream of that drop
+    /// ever runs — no provider, no completion, no settle — so the guard is never
+    /// cleared and the phase is never left. The session sits `Streaming` with a
+    /// stream that does not exist, and the stall watchdog re-triggers on the
+    /// silence.
+    ///
+    /// Skipping the report "because the phase already looks done" is what
+    /// produced that wedge. The phase is the thing that is broken, so it cannot
+    /// be the evidence that the turn is over.
+    ///
+    /// Re-reporting is safe when the caller settled the phase synchronously
+    /// first, which the frontend's Escape path does: `apply_stream_completion`
+    /// entering an already-`Idle` session is a no-op for the phase, because
+    /// `machine.cancel()` rejects it, and this actor is the *only* publisher of
+    /// a `StreamCompleted(Canceled)`. Both halves are serialized through this
+    /// actor, so whichever order they arrive in, exactly one settle happens.
+    pub(in crate::session_actor) async fn terminate_turn(&self, msg: &CancelTurn) {
+        // A turn ends once. The once-ness lives in the phase actor's turn
+        // record: `TurnCanceled` on an already-ended turn replies with a
+        // refusal, and this handler publishes nothing on it. The record
+        // replaced the session-local termination mark — the mark was a
+        // second copy of the same fact, readable by components that had no
+        // business deciding with it.
+        //
+        // Skipping on the phase instead was wrong twice over. It skipped the
+        // report for a busy session whose turn had genuinely ended — the wedge
+        // this exists to close. And where the phase *was* `Idle`, it was `Idle`
+        // for two different reasons: a caller that settled synchronously before
+        // publishing, and a turn this routine already reported. The first needs
+        // a report (its `"Cancelled"` entry has not been written yet); the second
+        // must not have one, or the fold pushes a duplicate onto history.
+        let decision = match crate::phase_actor::cancel_turn(&self.services, &msg.session_id).await
+        {
+            Ok(decision) => decision,
+            Err(report) => {
+                tracing::error!(
+                    session_id = %msg.session_id,
+                    ?report,
+                    "cancel ask failed; the turn-end report cannot be stamped"
+                );
+                return;
+            }
+        };
+        if !decision.admitted {
+            tracing::debug!(
+                session_id = %msg.session_id,
+                "CancelTurn for an already-ended turn; not reporting twice"
+            );
+            return;
+        }
+
+        // Terminated-before-arrival is the half of termination the phase cannot
+        // express, so it gets its own record — the one set above.
+        //
+        // `CancelTurn` and a stream-rule intercept race by construction: the
+        // watchdog counts an interrupt that the intercept itself reported, and
+        // the intercept's completion is published from inside the stream task
+        // that the cancel is tearing down. In a real run the intercept's handler
+        // lands *after* the cancel's, and the cancel settles the session — which
+        // rewinds it to a busy phase with a live guard, so every check the
+        // intercept performs passes. It then resumes a turn nobody is running,
+        // re-arming the in-flight guard on a dead session, which is exactly what
+        // the stall watchdog re-triggers on.
+
+        // The stamp must be the session's own live generation, not `now()`. A
+        // fresh stamp on a session with a live generation sorts *before* it, and
+        // the stale-generation guard drops the report on arrival — closing the
+        // wedge by reproducing it. The decision carries the generation's stamp;
+        // a session with no live generation has nothing to settle, so the
+        // current time is both correct and sufficient.
+        let dispatched_at = decision.stream_stamp.unwrap_or_else(jiff::Timestamp::now);
+
+        self.publish(StreamCompleted {
+            model_used: None,
+            session_id: msg.session_id.clone(),
+            reason: StreamCompletedReason::Canceled,
+            assistant_content: None,
+            tool_calls: None,
+            cost: None,
+            provider_completion_tokens: None,
+            provider_prompt_tokens: None,
+            cached_tokens: None,
+            thinking_content: None,
+            dispatched_at,
+        })
+        .await;
+    }
+
+    /// Handles a cancel request by terminating the turn it names.
+    pub(in crate::session_actor) async fn on_cancel_turn(&self, msg: &CancelTurn) {
+        self.terminate_turn(msg).await;
+    }
+
     /// Appends a streaming token to the session's assistant entry,
     /// or to the thinking entry if the token is flagged as reasoning.
     pub(in crate::session_actor) fn on_stream_token(&self, event: &StreamToken) {
@@ -30,10 +135,13 @@ impl SessionPersistenceActor {
             let session = view.session.map().get_or_create(&event.session_id);
             match session.phase() {
                 PhaseKind::Streaming => {}
-                PhaseKind::Sending => {
-                    // Defensive: stream token arrived without phase transition.
-                    session.begin_streaming();
-                }
+                // No defensive arm in `Sending`: a token there belongs to a
+                // generation whose dispatch was refused or torn down, and
+                // arming `Streaming` for it would back the phase with no
+                // live generation. The token is appended only when the
+                // phase actor has already admitted the stream — the entry
+                // index below exists exactly then.
+                PhaseKind::Sending => {}
                 PhaseKind::Idle => {
                     tracing::warn!(
                         phase = ?session.phase(),
@@ -92,57 +200,61 @@ impl SessionPersistenceActor {
             event.reason,
             StreamCompletedReason::Finished
                 | StreamCompletedReason::Error
-                | StreamCompletedReason::Canceled,
+                | StreamCompletedReason::Canceled
+                | StreamCompletedReason::RuleIntercept,
         );
+
+        // A rule intercept does not end the turn: the stream was stopped so
+        // the offending output could be taken out of context and the turn
+        // re-dispatched with the rule's body.
+        //
+        // Handled before the completion fold, which would otherwise finalize
+        // the streaming entries and clear the in-flight-stream guard — the
+        // two things the resume needs to tell a live intercept from a stale
+        // one, and the entries it must exclude from the resumed request.
+        // Falling through would also read the resulting phase transition as a
+        // turn end and report the turn as finished.
+        if event.reason == StreamCompletedReason::RuleIntercept {
+            self.on_rule_intercept(&event.session_id, event.reason, event.dispatched_at)
+                .await;
+            return;
+        }
 
         // Count output tokens outside the lock (may spawn_blocking).
         let output_tokens = resolve_output_tokens(self.counter, event).await;
 
-        // Mutate session state under the write lock, capturing what changed.
-        // A `None` return means the completion was from a superseded stream
-        // generation and was dropped — emit nothing.
-        let Some(state_change) = self.apply_stream_completion(event, output_tokens) else {
+        // Entry work under the write lock: push reason-specific entries,
+        // finalize token accounting, sweep dangling tool calls on hard
+        // cancel, drain queued messages on error/cancel. A `None` return
+        // means the completion was from a superseded stream generation and
+        // was dropped — emit nothing, settle nothing.
+        let Some(fold) = self.apply_stream_completion(event, output_tokens) else {
             tracing::debug!(
                 session_id = %event.session_id,
                 "StreamCompleted dropped (stale generation); skipping downstream events"
             );
             return;
         };
-
-        // Emit ContextOverrideChanged for entries swept by dangling-tool-call
-        // exclusion or pending worker mutations. Outside the write lock.
-        self.emit_override_changes(&event.session_id, state_change.changed_overrides)
+        self.emit_override_changes(&event.session_id, fold.changed_overrides)
             .await;
 
-        super::super::helpers::emit_phase_changed(
-            self.bus(),
+        // The settle edge is the phase actor's: the fold only does entry
+        // work, and the generation's terminal edge (`Streaming → Idle` for
+        // Finished/Error, the fuse through `Sending` for a ToolUse whose
+        // tool loop keeps the turn) resolves against the same stamp the
+        // fold just checked. A refused settle means a racing cancel already
+        // ended the generation — the fold's entries still land, and the
+        // outcome below reads the phase the actor left.
+        let decision = crate::phase_actor::settle_stream(
+            &self.services,
             &event.session_id,
-            state_change.old_phase,
-            state_change.new_phase,
+            event.reason,
+            event.dispatched_at,
         )
         .await;
 
-        // Cancel-consumed-by-frontend: the synchronous ESC-cancel path
-        // (`cancel_stream_and_drain` in the intent handler) transitions the phase
-        // `Streaming → Idle` directly in the shared `State` without emitting a
-        // bus event. By the time this `StreamCompleted(Canceled)` arrives, the
-        // phase is already `Idle`, so `emit_phase_changed` above correctly
-        // skipped the `Idle → Idle` no-op. But subscribers (discord bridge, queue
-        // actor, history workers) still need a turn-end signal — and history is now
-        // complete with the `Error("Cancelled")` entry pushed by
-        // `apply_completion_entries`. Force-publish so they learn the turn ended.
-        if state_change.reason == StreamCompletedReason::Canceled
-            && state_change.old_phase == PhaseKind::Idle
-            && state_change.new_phase == PhaseKind::Idle
-        {
-            super::super::helpers::publish_phase_changed(
-                self.bus(),
-                &event.session_id,
-                PhaseKind::Idle,
-                PhaseKind::Idle,
-            )
-            .await;
-        }
+        // The phases around the outcome gate are the decision's: the actor
+        // is the sole writer, and it published the transition itself.
 
         // Publish the turn outcome. Exactly once per dispatched turn:
         // a ToolUse completion transitions to `Sending` (the tool loop
@@ -150,24 +262,23 @@ impl SessionPersistenceActor {
         // `Idle → Idle` cancel race resolves to `Canceled` — the user
         // already ended the turn before this completion landed, and a
         // turn the user cancelled must never look like a success.
-        let outcome: Option<TurnOutcome> = if state_change.old_phase == PhaseKind::Idle
-            && state_change.new_phase == PhaseKind::Idle
-        {
-            Some(TurnOutcome::Canceled)
-        } else if state_change.new_phase != PhaseKind::Idle {
-            // Still busy (tool loop). Not a turn end.
-            None
-        } else {
-            let last_entry = self.state.with_session(|view| {
-                view.session
-                    .map()
-                    .get_or_create(&event.session_id)
-                    .history()
-                    .last()
-                    .cloned()
-            });
-            Some(outcome_from_history(last_entry))
-        };
+        let outcome: Option<TurnOutcome> =
+            if decision.old_phase == PhaseKind::Idle && decision.new_phase == PhaseKind::Idle {
+                Some(TurnOutcome::Canceled)
+            } else if decision.new_phase != PhaseKind::Idle {
+                // Still busy (tool loop). Not a turn end.
+                None
+            } else {
+                let last_entry = self.state.with_session(|view| {
+                    view.session
+                        .map()
+                        .get_or_create(&event.session_id)
+                        .history()
+                        .last()
+                        .cloned()
+                });
+                Some(outcome_from_history(last_entry))
+            };
         if let Some(outcome) = outcome {
             self.bus()
                 .publish(TurnCompleted {
@@ -238,10 +349,10 @@ impl SessionPersistenceActor {
         &self,
         event: &StreamCompleted,
         output_tokens: Option<u32>,
-    ) -> Option<StreamCompletionStateChange> {
+    ) -> Option<StreamCompletionFold> {
         let mut changed_overrides: Vec<ChatEntryId> = Vec::new();
         self.state
-            .with_session(|view| -> Option<StreamCompletionStateChange> {
+            .with_session(|view| -> Option<StreamCompletionFold> {
                 let session = view.session.map().get_or_create(&event.session_id);
 
                 // Stale-generation guard: reject terminal events from an aborted prior
@@ -260,35 +371,28 @@ impl SessionPersistenceActor {
                     );
                     return None;
                 }
-                // This generation is now consumed.
-                session.clear_stream_generation();
 
-                let old_phase = session.phase();
-
-                // Hard cancel: settles the session from either busy phase, and
-                // runs *before* the terminal entry is pushed. That ordering
-                // mirrors the frontend's Escape path — `cancel_streaming`
-                // finalizes partial entries and clears the streaming indices,
-                // then the "Cancelled" entry lands last in history so
-                // `outcome_from_history` derives `Canceled`. Routing this
-                // through `finish_streaming` instead would only accept
-                // `Streaming`, wedging a descendant cancelled mid-tool-loop
-                // with its spinner still on and no turn-end signal published.
+                // Hard cancel: finalizes the partial entries so the terminal
+                // entry lands last in history — finalization must precede
+                // `apply_completion_entries` for `outcome_from_history` to
+                // derive `Canceled`. The machine edge itself (the settle to
+                // `Idle`) is the phase actor's, applied by the cancel that
+                // preceded this completion.
                 if event.reason == StreamCompletedReason::Canceled {
-                    session.cancel_streaming(event.dispatched_at);
+                    session.finalize_entries_for_cancel(event.dispatched_at);
                 }
 
                 apply_completion_entries(session, event, output_tokens);
 
-                // Normal completion, error, and tool use all arrive from
-                // `Streaming`. `Canceled` is excluded: it was already settled
-                // by the hard cancel above.
+                // Normal completion, error, and tool use: finalize the
+                // entries the same way. The machine edge is the phase
+                // actor's `StreamEndedFinished`/`StreamEndedToolUse`.
                 if event.reason != StreamCompletedReason::Canceled {
                     let preserve_assistant = matches!(
                         event.reason,
                         StreamCompletedReason::Finished | StreamCompletedReason::ToolUse,
                     );
-                    session.finish_streaming(preserve_assistant, event.dispatched_at);
+                    session.finalize_entries_for_finish(preserve_assistant, event.dispatched_at);
                 }
 
                 // Hard cancel: force-exclude dangling tool calls left by the interrupted stream.
@@ -311,11 +415,10 @@ impl SessionPersistenceActor {
                     }
                 }
 
-                // Tool use means the conversation continues - always transition to sending
-                // so the tool loop runs.
-                if event.reason == StreamCompletedReason::ToolUse {
-                    session.begin_sending();
-                }
+                // Tool use means the conversation continues. The
+                // `Streaming → Sending` edge is the phase actor's
+                // `StreamEndedToolUse`, applied before the tool batch
+                // dispatch asks its own `BeginStream(ToolContinuation)`.
 
                 // When returning to Idle on error/cancel, drain queued messages back to
                 // the input buffer so the user can review and retry.
@@ -329,12 +432,9 @@ impl SessionPersistenceActor {
                     }
                 }
 
-                Some(StreamCompletionStateChange {
-                    old_phase,
-                    new_phase: session.phase(),
-                    reason: event.reason,
-                    changed_overrides,
-                })
+                // The phase is not read here: the settle decision the
+                // caller asks for next carries what the fold needs.
+                Some(StreamCompletionFold { changed_overrides })
             })
     }
 
@@ -351,21 +451,11 @@ impl SessionPersistenceActor {
     }
 }
 
-/// Before/after phase and changed-entry IDs captured while mutating session state
-/// under the write lock during stream completion. Consumed by the caller to emit
-/// events outside the lock.
-///
-/// Carries the completion `reason` so the caller can detect the cancel-consumed-
-/// by-frontend case: the synchronous ESC-cancel path (`cancel_stream_and_drain`)
-/// transitions the phase `Streaming → Idle` directly in the shared `State` without
-/// arrives, the phase is already `Idle`, so `emit_phase_changed` would skip the
-/// `Idle → Idle` no-op, so subscribers (discord bridge, queue actor, history workers)
-/// would never learn the turn ended. The caller detects this case via `reason`
-/// and force-publishes so the turn-end signal reaches the bus.
-struct StreamCompletionStateChange {
-    old_phase: PhaseKind,
-    new_phase: PhaseKind,
-    reason: StreamCompletedReason,
+/// Changed-entry IDs captured while mutating session state under the write
+/// lock during stream completion, for the override-change broadcast outside
+/// the lock. Phase facts are not here: the phase actor owns them, and the
+/// settle decision carries what the caller needs.
+struct StreamCompletionFold {
     changed_overrides: Vec<ChatEntryId>,
 }
 
@@ -527,7 +617,7 @@ mod tests {
     use super::super::super::helpers::{
         test_actor, test_actor_recording, test_actor_with_store_recording,
     };
-    use jinn_inference_msg::{StreamCompleted, StreamCompletedReason, StreamToken};
+    use jinn_inference_msg::{CancelTurn, StreamCompleted, StreamCompletedReason, StreamToken};
     use jinn_kernel::protocol::{ChangeSource, ChatEntry, ChatEntryKind};
     use jinn_session_history_msg::CitationsReceived;
     use jinn_session_msg::PhaseKind;
@@ -618,28 +708,66 @@ mod tests {
         }
     }
 
-    /// Puts the active session into streaming phase, returning its id.
-    fn begin_streaming_session(actor: &SessionPersistenceActor) -> jinn_core_types::SessionId {
-        let mut state = actor.state.write();
-        let session = state.active_session_mut();
-        session.begin_streaming();
-        state.session.active_session_id().clone()
+    /// Puts the active session mid-turn: the phase actor mints the turn
+    /// generation (`FreshTurn`), applying the fused
+    /// `Idle → Sending → Streaming` edge and arming the in-flight-stream
+    /// guard — the same write production's dispatch path makes before the
+    /// first token can arrive. Returns the session id.
+    ///
+    /// Seeding the machine directly (`session.begin_streaming()`) would leave
+    /// the phase actor's turn record empty, so every completion the test
+    /// drives would resolve against no stamp and be refused.
+    async fn begin_streaming_session(
+        actor: &SessionPersistenceActor,
+    ) -> jinn_core_types::SessionId {
+        let session_id = actor.state.read().session.active_session_id().clone();
+        let minted = jinn_kernel::common::phase_command::apply_phase(
+            &actor.services,
+            jinn_session_msg::PhaseCommand::BeginStream {
+                session_id: session_id.clone(),
+                kind: jinn_session_msg::phase_command::DispatchKind::FreshTurn,
+                dispatched_at: jiff::Timestamp::now(),
+            },
+        )
+        .await
+        .expect("phase actor reachable");
+        assert!(
+            minted.admitted,
+            "a fresh turn's mint must be admitted: {minted:?}"
+        );
+        session_id
     }
 
-    /// Puts the active session into sending phase - the mid-tool-loop state a
-    /// descendant occupies when a cascade cancel lands on it while a tool call
-    /// is still running - returning its id.
-    fn begin_sending_session(actor: &SessionPersistenceActor) -> jinn_core_types::SessionId {
-        let mut state = actor.state.write();
-        let session = state.active_session_mut();
-        session.begin_sending();
-        state.session.active_session_id().clone()
+    /// Puts the active session into the mid-tool-loop `Sending` phase — the
+    /// shape a `StreamEndedToolUse` completion leaves — by minting the turn
+    /// through the phase actor and then applying the tool-use edge through
+    /// the same actor. Returns the session id.
+    ///
+    /// Both edges are the phase actor's now; a session dropped into `Sending`
+    /// by hand has no turn record behind it and every later completion is
+    /// refused at resolution.
+    async fn begin_sending_session(actor: &SessionPersistenceActor) -> jinn_core_types::SessionId {
+        let session_id = begin_streaming_session(actor).await;
+        let ended = jinn_kernel::common::phase_command::apply_phase(
+            &actor.services,
+            jinn_session_msg::PhaseCommand::StreamEndedToolUse {
+                session_id: session_id.clone(),
+                dispatched_at: jiff::Timestamp::now(),
+            },
+        )
+        .await
+        .expect("phase actor reachable");
+        assert!(
+            ended.admitted,
+            "a live generation's tool-use edge must be admitted: {ended:?}"
+        );
+        session_id
     }
 
     /// Puts the active session into streaming phase with one queued
     /// context-override mutation, returning the targeted entry id and the
     /// session id.
-    fn seed_streaming_session_with_pending_mutation(
+    async fn seed_streaming_session_with_pending_mutation(
         actor: &SessionPersistenceActor,
         assistant_text: &str,
     ) -> (jinn_core_types::ChatEntryId, jinn_core_types::SessionId) {
@@ -662,7 +790,7 @@ mod tests {
 
     /// Puts the active session into streaming phase with a token record
     /// pending finalization, returning its id.
-    fn seed_streaming_session_with_token_record(
+    async fn seed_streaming_session_with_token_record(
         actor: &SessionPersistenceActor,
     ) -> jinn_core_types::SessionId {
         let mut state = actor.state.write();
@@ -685,7 +813,7 @@ mod tests {
     async fn on_stream_completed_error_stops_streaming() {
         // Given a session in streaming phase.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = begin_streaming_session(&actor);
+        let session_id = begin_streaming_session(&actor).await;
 
         // When the stream completes with an error.
         let event = stream_completed(
@@ -779,6 +907,360 @@ mod tests {
         );
     }
 
+    // ------------------------------------------------------------------
+    // CancelTurn — the single settle entry point for a cancelled turn
+    // ------------------------------------------------------------------
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn cancel_turn_settles_a_streaming_session_to_idle() {
+        // Given a session streaming.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor).await;
+
+        // When the turn is cancelled.
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+        };
+        actor.on_cancel_turn(&msg).await;
+
+        // Then the session reports the turn's end.
+        let completed = audit.of_type::<StreamCompleted>();
+        assert_eq!(
+            completed.len(),
+            1,
+            "a cancel must report the turn's end exactly once"
+        );
+        assert_eq!(completed[0].reason, StreamCompletedReason::Canceled);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn cancel_turn_reports_the_turns_end_for_a_sending_session() {
+        // Given a session in sending phase — the shape a stream-rule watchdog
+        // trip lands on, where the intercept rewound the session while it
+        // prepared a resume that the trip now cancels.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_sending_session(&actor).await;
+
+        // When the turn is cancelled.
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+        };
+        actor.on_cancel_turn(&msg).await;
+
+        // Then the turn's end is reported rather than suppressed for want of a
+        // live stream: `finish_streaming` would refuse a `Sending` session, so
+        // this is the path that would otherwise wedge it.
+        let completed = audit.of_type::<StreamCompleted>();
+        assert_eq!(completed.len(), 1, "a sending session has a turn to end");
+        assert_eq!(completed[0].reason, StreamCompletedReason::Canceled);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_cancel_during_the_tool_loop_settles_the_phase_idle() {
+        // Given a session in `Sending` — a tool batch (a long-running bash
+        // command) executing between stream turns, the exact shape ESC-ESC
+        // meets when the user cancels mid-tool-loop.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_sending_session(&actor).await;
+
+        // When the cancel is reported and the completion it publishes is
+        // consumed — the full chain the ESC-ESC cascade drives.
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+        };
+        actor.on_cancel_turn(&msg).await;
+        let completed = audit.of_type::<StreamCompleted>();
+        assert_eq!(completed.len(), 1, "setup: the cancel reported the turn");
+        actor.on_stream_completed(&completed[0]).await;
+
+        // Then the phase is `Idle` and no in-flight guard survives: the
+        // spinner stops, the queue drains, and the stall watchdog finds
+        // nothing to re-trigger on.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(session.phase(), PhaseKind::Idle);
+        assert!(!session.has_in_flight_stream());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_synchronously_settled_turn_is_reported_once_by_the_cancel() {
+        // Given a session settled locally by the frontend, which never writes a
+        // `"Cancelled"` entry itself — the fold does.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor).await;
+        actor
+            .state
+            .write()
+            .session
+            .get_mut(&session_id)
+            .expect("session exists")
+            .finalize_entries_for_cancel(jiff::Timestamp::now());
+        actor
+            .state
+            .write()
+            .session
+            .get_mut(&session_id)
+            .expect("session exists")
+            .cancel_streaming_via_machine();
+        audit.clear();
+
+        // When the command it published lands.
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+        };
+        actor.on_cancel_turn(&msg).await;
+
+        // Then the end is still reported: the entry that tells the user the turn
+        // was cancelled has not been written yet, and the phase being `Idle` is
+        // not evidence that it has.
+        let completed = audit.of_type::<StreamCompleted>();
+        assert_eq!(
+            completed.len(),
+            1,
+            "a caller that settles locally leaves the entry unwritten; skipping \
+             on the phase would lose it. got {completed:?}"
+        );
+        assert_eq!(completed[0].reason, StreamCompletedReason::Canceled);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_cancel_after_a_synchronous_settle_leaves_the_phase_idle() {
+        // Given a streaming session, cancelled the way the frontend's Escape
+        // path does — settle locally, then publish the command, which the bus
+        // broadcasts back to this actor.
+        let (actor, _audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor).await;
+        {
+            let mut state = actor.state.write();
+            state
+                .session
+                .get_mut(&session_id)
+                .expect("session exists")
+                .finalize_entries_for_cancel(jiff::Timestamp::now());
+            state
+                .session
+                .get_mut(&session_id)
+                .expect("session exists")
+                .cancel_streaming_via_machine();
+        }
+
+        // When the command lands and its report is consumed.
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+        };
+        actor.on_cancel_turn(&msg).await;
+        actor
+            .on_stream_completed(&stream_completed(
+                &session_id,
+                StreamCompletedReason::Canceled,
+                None,
+                None,
+                None,
+                None,
+            ))
+            .await;
+
+        // Then the session is still idle: the second report found nothing to
+        // settle, which is what the phase machine's rejection buys.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(session.phase(), PhaseKind::Idle);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_cancel_carries_the_live_generation_stamp() {
+        // Given a streaming session whose live generation carries the phase
+        // actor's stream stamp (the mint's `dispatched_at`).
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor).await;
+        let live_stamp = actor
+            .state
+            .read()
+            .session
+            .get(&session_id)
+            .expect("session exists")
+            .stream_dispatched_at()
+            .expect("the mint stamps the session");
+
+        // When the turn is cancelled.
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+        };
+        actor.on_cancel_turn(&msg).await;
+
+        // Then the completion carries that stamp. A freshly-timestamped one
+        // would sort before the live generation and be dropped by the stale
+        // guard, leaving the session never settled.
+        let completed = audit.of_type::<StreamCompleted>();
+        assert_eq!(completed.len(), 1);
+        assert_eq!(
+            completed[0].dispatched_at, live_stamp,
+            "the report must carry the live generation, or the stale guard \
+             drops it and the session never settles"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // The watchdog-trip wedge: cancel after the resume was already dispatched
+    // ------------------------------------------------------------------
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_cancel_after_the_resume_was_dispatched_still_settles_the_turn() {
+        // Given a session whose intercept armed the in-flight guard by
+        // publishing a resume — the state a watchdog trip lands on. The resume
+        // is then dropped downstream, so nothing else will ever complete.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor).await;
+        {
+            let mut state = actor.state.write();
+            let session = state.session.get_mut(&session_id).expect("session exists");
+            session.arm_stream(jiff::Timestamp::now());
+        }
+        assert!(
+            actor
+                .state
+                .read()
+                .session
+                .get(&session_id)
+                .expect("session exists")
+                .has_in_flight_stream(),
+            "precondition: a stream is genuinely in flight"
+        );
+
+        // When the watchdog cancels the turn.
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+        };
+        actor.on_cancel_turn(&msg).await;
+
+        // Then the turn's end is still reported — reporting nothing here is what
+        // left the session wedged in a busy phase with the stall watchdog's
+        // timer still armed.
+        let completed = audit.of_type::<StreamCompleted>();
+        assert_eq!(
+            completed.len(),
+            1,
+            "a cancel must report the end even when the resume it stops was \
+             already dispatched; nothing downstream of the drop will"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_cancel_clears_the_in_flight_guard_it_terminated() {
+        // Given the same armed-guard state, with the report consumed.
+        let (actor, _audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor).await;
+        let dispatched_at = jiff::Timestamp::now();
+        {
+            let mut state = actor.state.write();
+            let session = state.session.get_mut(&session_id).expect("session exists");
+            session.arm_stream(dispatched_at);
+        }
+
+        // When the cancel is reported and its completion is consumed.
+        actor
+            .on_cancel_turn(&CancelTurn {
+                session_id: session_id.clone(),
+            })
+            .await;
+        actor
+            .on_stream_completed(&StreamCompleted {
+                model_used: None,
+                session_id: session_id.clone(),
+                reason: StreamCompletedReason::Canceled,
+                assistant_content: None,
+                tool_calls: None,
+                cost: None,
+                provider_completion_tokens: None,
+                provider_prompt_tokens: None,
+                cached_tokens: None,
+                thinking_content: None,
+                dispatched_at,
+            })
+            .await;
+
+        // Then the guard is cleared and the session is idle, so the stall
+        // watchdog's retry finds nothing in flight and stands down.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(session.phase(), PhaseKind::Idle);
+        assert!(
+            !session.has_in_flight_stream(),
+            "a terminated turn must leave no in-flight guard behind, or the \
+             stall watchdog re-triggers against a stream that does not exist"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_second_cancel_for_the_same_turn_reports_nothing() {
+        // Given a streaming session already terminated by a cancel.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor).await;
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+        };
+        actor.on_cancel_turn(&msg).await;
+        audit.clear();
+
+        // When the same cancel is delivered again — the frontend settles
+        // locally and publishes, and the bus delivers it back.
+        actor.on_cancel_turn(&msg).await;
+
+        // Then nothing more is reported. The termination record is what decides,
+        // not the phase: a second report would push a second `"Cancelled"`
+        // entry onto history, because the entry is written by the fold and the
+        // fold's entry push is not itself idempotent.
+        let completed = audit.of_type::<StreamCompleted>();
+        assert!(completed.is_empty(), "a turn ends once; got {completed:?}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn cancelling_a_session_that_never_ran_leaves_the_phase_untouched() {
+        // Given a session that never ran a turn.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = actor.state.read().session.active_session_id().clone();
+
+        // When a cancel arrives for it.
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+        };
+        actor.on_cancel_turn(&msg).await;
+        actor
+            .on_stream_completed(&stream_completed(
+                &session_id,
+                StreamCompletedReason::Canceled,
+                None,
+                None,
+                None,
+                None,
+            ))
+            .await;
+
+        // Then the phase is untouched — a cancel never *starts* a turn. The
+        // report is still published, because "was never running" is not "already
+        // ended", and only this routine may claim otherwise.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(session.phase(), PhaseKind::Idle);
+        assert_eq!(
+            audit.of_type::<StreamCompleted>().len(),
+            1,
+            "a session that never ran is not already-terminated, so the \
+             routine reports it as ended rather than leaving the mark to \
+             silently suppress a later real cancel"
+        );
+    }
+
     #[rstest::rstest]
     #[tokio::test]
     async fn on_stream_completed_canceled_reason_drains_queue_to_input_buffer() {
@@ -821,7 +1303,7 @@ mod tests {
         // Given a session in sending phase - a descendant mid-tool-loop when a
         // cascade cancel lands on it.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = begin_sending_session(&actor);
+        let session_id = begin_sending_session(&actor).await;
 
         // When the stream completes because it was canceled.
         let event = stream_completed(
@@ -845,7 +1327,7 @@ mod tests {
     async fn on_stream_completed_canceled_publishes_phase_change_from_sending() {
         // Given a session in sending phase when a cascade cancel lands on it.
         let (actor, audit) = test_actor_recording().await;
-        let session_id = begin_sending_session(&actor);
+        let session_id = begin_sending_session(&actor).await;
 
         // When the stream completes because it was canceled.
         let event = stream_completed(
@@ -874,7 +1356,7 @@ mod tests {
     async fn on_stream_completed_canceled_publishes_canceled_outcome_from_sending() {
         // Given a session in sending phase when a cascade cancel lands on it.
         let (actor, audit) = test_actor_recording().await;
-        let session_id = begin_sending_session(&actor);
+        let session_id = begin_sending_session(&actor).await;
 
         // When the stream completes because it was canceled.
         let event = stream_completed(
@@ -970,11 +1452,12 @@ mod tests {
         let (actor, audit) = test_actor_recording().await;
         let session_id = {
             let mut state = actor.state.write();
-            let session = state.active_session_mut();
-            session.push_entry(ChatEntry::user("hello"));
-            session.begin_streaming();
+            state
+                .active_session_mut()
+                .push_entry(ChatEntry::user("hello"));
             state.session.active_session_id().clone()
         };
+        begin_streaming_session(&actor).await;
 
         // When the stream completes normally.
         let event = stream_completed(
@@ -1001,11 +1484,12 @@ mod tests {
         let (actor, audit) = test_actor_recording().await;
         let session_id = {
             let mut state = actor.state.write();
-            let session = state.active_session_mut();
-            session.push_entry(ChatEntry::user("hello"));
-            session.begin_streaming();
+            state
+                .active_session_mut()
+                .push_entry(ChatEntry::user("hello"));
             state.session.active_session_id().clone()
         };
+        begin_streaming_session(&actor).await;
 
         // When the stream completes with an error.
         let event = stream_completed(
@@ -1032,11 +1516,12 @@ mod tests {
         let (actor, audit) = test_actor_recording().await;
         let session_id = {
             let mut state = actor.state.write();
-            let session = state.active_session_mut();
-            session.push_entry(ChatEntry::user("hello"));
-            session.begin_streaming();
+            state
+                .active_session_mut()
+                .push_entry(ChatEntry::user("hello"));
             state.session.active_session_id().clone()
         };
+        begin_streaming_session(&actor).await;
 
         // When the stream completes because it was canceled.
         let event = stream_completed(
@@ -1058,41 +1543,59 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn on_stream_completed_canceled_after_sync_cancel_publishes_phase_change() {
-        // Given a session the frontend already canceled synchronously: the
-        // ESC-confirm path drives `Streaming → Idle` straight in the shared
-        // `State` (`cancel_stream_and_drain`) without emitting a bus event, so
-        // subscribers still lack a turn-end signal by the time the provider's
-        // `StreamCompleted(Canceled)` arrives.
+    async fn a_cancel_publishes_the_settle_even_when_the_report_races_it() {
+        // Given a streaming session whose cancel and whose completion race:
+        // the cancel asks the phase actor's `TurnCanceled` (the settle, which
+        // publishes the transition), and the provider's `StreamCompleted(
+        // Canceled)` lands afterwards — the order ESC produces when the
+        // frontend reports the turn while the stream is still unwinding.
         let (actor, audit) = test_actor_recording().await;
-        let session_id = {
-            let mut state = actor.state.write();
-            let session = state.active_session_mut();
-            session.push_entry(ChatEntry::user("hello"));
-            session.begin_streaming();
-            session.cancel_stream_and_drain();
-            assert_eq!(session.phase(), PhaseKind::Idle);
-            state.session.active_session_id().clone()
-        };
+        let session_id = begin_streaming_session(&actor).await;
+        let stamp = actor
+            .state
+            .read()
+            .session
+            .get(&session_id)
+            .expect("session exists")
+            .stream_dispatched_at()
+            .expect("the mint stamps the session");
 
-        // When the canceled stream completes after that synchronous cancel.
-        let event = stream_completed(
-            &session_id,
-            StreamCompletedReason::Canceled,
-            None,
-            None,
-            None,
-            None,
-        );
+        // When the cancel is applied and the canceled stream completes after it.
+        actor
+            .on_cancel_turn(&CancelTurn {
+                session_id: session_id.clone(),
+            })
+            .await;
+        let event = StreamCompleted {
+            model_used: None,
+            session_id: session_id.clone(),
+            reason: StreamCompletedReason::Canceled,
+            assistant_content: None,
+            tool_calls: None,
+            cost: None,
+            provider_completion_tokens: None,
+            provider_prompt_tokens: None,
+            cached_tokens: None,
+            thinking_content: None,
+            dispatched_at: stamp,
+        };
         actor.on_stream_completed(&event).await;
 
-        // Then a SessionPhaseChanged is published despite the Idle→Idle no-op.
+        // Then the settle was announced by the phase actor — the mint's
+        // going-busy announcement and the cancel's settle announcement, and
+        // nothing from the completion (its generation was already ended, so
+        // the settle ask was refused and published nothing further).
         let phase_events = audit.of_type::<SessionPhaseChanged>();
-        assert!(
-            phase_events.iter().any(|e| e.new_phase == PhaseKind::Idle),
-            "expected SessionPhaseChanged(Idle) after cancel consumed by frontend; got: {:?}",
+        assert_eq!(
+            phase_events.len(),
+            2,
+            "one busy announcement, one settle announcement; got: {:?}",
             audit.names()
         );
+        assert_eq!(phase_events[0].old_phase, PhaseKind::Idle);
+        assert_eq!(phase_events[0].new_phase, PhaseKind::Streaming);
+        assert_eq!(phase_events[1].old_phase, PhaseKind::Streaming);
+        assert_eq!(phase_events[1].new_phase, PhaseKind::Idle);
     }
 
     #[rstest::rstest]
@@ -1150,7 +1653,7 @@ mod tests {
     async fn on_stream_token_appends_text_to_assistant_entry() {
         // Given a session in streaming phase.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = begin_streaming_session(&actor);
+        let session_id = begin_streaming_session(&actor).await;
 
         // When two content tokens stream in.
         actor.on_stream_token(&content_token(&session_id, 0, "Hello"));
@@ -1175,7 +1678,7 @@ mod tests {
     async fn on_stream_token_keeps_phase_as_streaming() {
         // Given a session in streaming phase.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = begin_streaming_session(&actor);
+        let session_id = begin_streaming_session(&actor).await;
 
         // When a content token streams in.
         actor.on_stream_token(&content_token(&session_id, 0, "hi"));
@@ -1192,8 +1695,10 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn on_stream_token_corrects_sending_phase_to_streaming() {
-        // Given a session in sending phase, ahead of the first token.
+    async fn a_token_in_sending_neither_arms_the_phase_nor_writes_history() {
+        // Given a session in sending phase, ahead of the first token — the
+        // shape of a dispatch whose admission was refused or whose generation
+        // was torn down.
         let (actor, _audit) = test_actor_recording().await;
         let session_id = {
             let mut state = actor.state.write();
@@ -1206,13 +1711,19 @@ mod tests {
         // When a content token streams in.
         actor.on_stream_token(&content_token(&session_id, 0, "response"));
 
-        // Then the phase is corrected to Streaming.
+        // Then the phase is untouched and no assistant entry was created for
+        // the stray token: arming Streaming here would back the phase with
+        // no live generation, which is the R6 wedge.
         let state = actor.state.read();
         let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(
+            session.phase(),
+            PhaseKind::Sending,
+            "a token with no live generation must not arm the phase"
+        );
         assert!(
-            matches!(session.phase(), PhaseKind::Streaming),
-            "expected Streaming phase after correction from Sending, got {:?}",
-            session.phase()
+            session.streaming_entry_index().is_none(),
+            "no streaming entry may exist behind a refused dispatch"
         );
     }
 
@@ -1317,7 +1828,7 @@ mod tests {
     async fn on_stream_completed_does_not_count_tokens_on_error() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor);
+        let session_id = seed_streaming_session_with_token_record(&actor).await;
 
         // When the stream completes with an error.
         let event = stream_completed(
@@ -1384,7 +1895,7 @@ mod tests {
     async fn on_stream_completed_tool_use_counts_tool_call_arguments() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor);
+        let session_id = seed_streaming_session_with_token_record(&actor).await;
 
         // When the stream completes requesting a tool call with long arguments.
         let event = stream_completed(
@@ -1420,11 +1931,12 @@ mod tests {
         let (actor, _audit) = test_actor_recording().await;
         let session_id = {
             let mut state = actor.state.write();
-            let session = state.active_session_mut();
-            session.push_entry(ChatEntry::user("hello"));
-            session.begin_streaming();
+            state
+                .active_session_mut()
+                .push_entry(ChatEntry::user("hello"));
             state.session.active_session_id().clone()
         };
+        begin_streaming_session(&actor).await;
         actor.on_stream_token(&content_token(&session_id, 0, "world"));
 
         // When the stream completes normally.
@@ -1504,11 +2016,12 @@ mod tests {
         let (actor, _audit) = test_actor_recording().await;
         let session_id = {
             let mut state = actor.state.write();
-            let session = state.active_session_mut();
-            session.push_entry(ChatEntry::user("hello"));
-            session.begin_streaming();
+            state
+                .active_session_mut()
+                .push_entry(ChatEntry::user("hello"));
             state.session.active_session_id().clone()
         };
+        begin_streaming_session(&actor).await;
 
         // When the stream completes normally.
         let event = stream_completed(
@@ -1537,7 +2050,7 @@ mod tests {
         // Given a streaming session with one queued context-override mutation.
         let (actor, audit) = test_actor_recording().await;
         let (entry_id, session_id) =
-            seed_streaming_session_with_pending_mutation(&actor, "response");
+            seed_streaming_session_with_pending_mutation(&actor, "response").await;
 
         // When the stream completes normally.
         let event = stream_completed(
@@ -1570,7 +2083,7 @@ mod tests {
         // Given a streaming session with one queued context-override mutation.
         let (actor, _audit) = test_actor_recording().await;
         let (entry_id, session_id) =
-            seed_streaming_session_with_pending_mutation(&actor, "partial");
+            seed_streaming_session_with_pending_mutation(&actor, "partial").await;
 
         // When the stream completes with an error.
         let event = stream_completed(
@@ -1652,7 +2165,7 @@ mod tests {
         // Given a streaming session with one queued context-override mutation.
         let (actor, _audit) = test_actor_recording().await;
         let (entry_id, session_id) =
-            seed_streaming_session_with_pending_mutation(&actor, "checking");
+            seed_streaming_session_with_pending_mutation(&actor, "checking").await;
 
         // When the stream completes requesting a tool call.
         let event = stream_completed(
@@ -1685,7 +2198,7 @@ mod tests {
     async fn on_stream_completed_provider_tokens_used_directly() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor);
+        let session_id = seed_streaming_session_with_token_record(&actor).await;
 
         // When the stream completes with a provider completion-token report.
         let event = stream_completed(
@@ -1709,7 +2222,7 @@ mod tests {
     async fn on_stream_completed_local_fallback_includes_thinking() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor);
+        let session_id = seed_streaming_session_with_token_record(&actor).await;
 
         // When the stream completes with thinking content and no provider report.
         let event = stream_completed(
@@ -1737,7 +2250,7 @@ mod tests {
     async fn on_stream_completed_local_fallback_without_thinking_backward_compat() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor);
+        let session_id = seed_streaming_session_with_token_record(&actor).await;
 
         // When the stream completes with text only and no provider report.
         let event = stream_completed(
@@ -1764,7 +2277,7 @@ mod tests {
     async fn on_stream_completed_provider_tokens_preferred_over_local() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor);
+        let session_id = seed_streaming_session_with_token_record(&actor).await;
 
         // When the stream completes with both a provider report and long thinking.
         let event = stream_completed(
@@ -1788,7 +2301,7 @@ mod tests {
     async fn on_stream_completed_takes_max_when_provider_undercounts() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor);
+        let session_id = seed_streaming_session_with_token_record(&actor).await;
 
         // When the stream completes with text and no provider report.
         let event = stream_completed(
@@ -1818,7 +2331,7 @@ mod tests {
     async fn on_stream_completed_takes_max_when_provider_overcounts() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor);
+        let session_id = seed_streaming_session_with_token_record(&actor).await;
 
         // When the stream completes with a provider count far above the local one.
         let event = stream_completed(
@@ -1844,7 +2357,7 @@ mod tests {
 
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor);
+        let session_id = seed_streaming_session_with_token_record(&actor).await;
 
         // When the stream completes with text and no provider report.
         let content = "hello world this is a test";
@@ -2558,11 +3071,12 @@ mod tests {
         let (actor, audit) = test_actor_recording().await;
         let session_id = {
             let mut state = actor.state.write();
-            let session = state.active_session_mut();
-            session.push_entry(ChatEntry::user("hello"));
-            session.begin_streaming();
+            state
+                .active_session_mut()
+                .push_entry(ChatEntry::user("hello"));
             state.session.active_session_id().clone()
         };
+        begin_streaming_session(&actor).await;
 
         // When a ToolUse stream completes with no pending batch buffered.
         let event = StreamCompleted {
@@ -2630,11 +3144,12 @@ mod tests {
         let (actor, audit) = test_actor_recording().await;
         let session_id = {
             let mut state = actor.state.write();
-            let session = state.active_session_mut();
-            session.push_entry(ChatEntry::user("hello"));
-            session.begin_streaming();
+            state
+                .active_session_mut()
+                .push_entry(ChatEntry::user("hello"));
             state.session.active_session_id().clone()
         };
+        begin_streaming_session(&actor).await;
 
         // When the stream finishes.
         let event = stream_completed(
@@ -2666,9 +3181,9 @@ mod tests {
             let session = state.active_session_mut();
             session.push_entry(ChatEntry::user("hello"));
             session.push_entry(ChatEntry::error("provider unreachable"));
-            session.begin_streaming();
             state.session.active_session_id().clone()
         };
+        begin_streaming_session(&actor).await;
 
         // When the stream completes with an error.
         let event = stream_completed(
@@ -2694,11 +3209,12 @@ mod tests {
         let (actor, audit) = test_actor_recording().await;
         let session_id = {
             let mut state = actor.state.write();
-            let session = state.active_session_mut();
-            session.push_entry(ChatEntry::user("hello"));
-            session.begin_streaming();
+            state
+                .active_session_mut()
+                .push_entry(ChatEntry::user("hello"));
             state.session.active_session_id().clone()
         };
+        begin_streaming_session(&actor).await;
 
         // When the stream completes because it was canceled.
         let event = stream_completed(
@@ -2728,11 +3244,12 @@ mod tests {
         let (actor, audit) = test_actor_recording().await;
         let session_id = {
             let mut state = actor.state.write();
-            let session = state.active_session_mut();
-            session.push_entry(ChatEntry::user("hello"));
-            session.begin_streaming();
+            state
+                .active_session_mut()
+                .push_entry(ChatEntry::user("hello"));
             state.session.active_session_id().clone()
         };
+        begin_streaming_session(&actor).await;
 
         // When the stream completes because the model requested tools.
         let event = stream_completed(

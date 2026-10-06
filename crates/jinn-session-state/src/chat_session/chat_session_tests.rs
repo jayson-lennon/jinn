@@ -249,7 +249,8 @@ fn finish_streaming_clears_streaming_state() {
         .expect("ok");
 
     // When finishing streaming.
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then is_streaming is false and text is preserved.
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -269,7 +270,8 @@ fn cancel_streaming_keeps_partial_text() {
         .expect("ok");
 
     // When cancelling streaming.
-    session.cancel_streaming(jiff::Timestamp::now());
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
 
     // Then is_streaming is false but partial text is kept.
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -714,26 +716,26 @@ fn begin_sending_is_noop_when_streaming() {
 }
 
 #[rstest::rstest]
-fn finish_sending_via_machine_transitions_to_idle_when_disabled() {
+fn finish_turn_from_busy_settles_sending_to_idle() {
     // Given a session that is sending with tool_loop_disabled set.
     let mut session = ChatSessionState::new();
     session.begin_sending();
     session.set_tool_loop_disabled();
 
-    // When finishing sending via machine.
-    session.finish_sending_via_machine();
+    // When the turn is finished from the busy phase.
+    session.finish_turn_from_busy_via_machine();
 
-    // Then the session is Idle (tool_loop_disabled triggered Sending → Idle).
+    // Then the session is Idle (the tool-loop stop settled Sending → Idle).
     assert_eq!(session.phase(), PhaseKind::Idle);
 }
 
 #[rstest::rstest]
-fn finish_sending_via_machine_is_noop_when_not_sending() {
+fn finish_turn_from_busy_is_noop_when_idle() {
     // Given a session that is not sending.
     let mut session = ChatSessionState::new();
 
-    // When calling finish_sending_via_machine.
-    session.finish_sending_via_machine();
+    // When the turn is finished from the busy phase.
+    session.finish_turn_from_busy_via_machine();
 
     // Then phase stays Idle (no panic, just a logged warning).
     assert_eq!(session.phase(), PhaseKind::Idle);
@@ -780,7 +782,8 @@ fn cancel_streaming_returns_to_idle() {
     assert_eq!(session.phase(), PhaseKind::Streaming);
 
     // When cancelling streaming.
-    session.cancel_streaming(jiff::Timestamp::now());
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
 
     // Then the session is idle.
     assert_eq!(session.phase(), PhaseKind::Idle);
@@ -794,12 +797,14 @@ fn cancel_streaming_from_sending_phase_returns_to_idle() {
     let mut session = ChatSessionState::new();
     session.begin_sending();
     session.begin_streaming();
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
     session.begin_sending();
     assert_eq!(session.phase(), PhaseKind::Sending);
 
     // When cancelling streaming (user presses ESC during tool execution).
-    session.cancel_streaming(jiff::Timestamp::now());
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
 
     // Then the session returns to idle.
     assert_eq!(session.phase(), PhaseKind::Idle);
@@ -819,7 +824,8 @@ fn finish_streaming_returns_to_idle() {
         .set_streaming_entry_index(idx);
 
     // When finishing streaming.
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then the session is idle.
     assert_eq!(session.phase(), PhaseKind::Idle);
@@ -981,7 +987,8 @@ fn finish_streaming_clears_tool_call_indices() {
     session.begin_tool_call(0, "call_1", "echo", jiff::Timestamp::now());
 
     // When finishing streaming.
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then the tool call indices are cleared (entries remain in history).
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -996,7 +1003,8 @@ fn cancel_streaming_clears_tool_call_indices() {
     session.begin_tool_call(0, "call_1", "echo", jiff::Timestamp::now());
 
     // When cancelling streaming.
-    session.cancel_streaming(jiff::Timestamp::now());
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
 
     // Then the tool call indices are cleared (entries remain in history).
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -1723,7 +1731,8 @@ fn finish_streaming_clears_thinking_entry_index() {
         .expect("ok");
 
     // When finishing streaming.
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then the thinking entry index is cleared.
     assert_eq!(session.streaming_thinking_entry_index(), None);
@@ -1749,7 +1758,8 @@ fn cancel_streaming_preserves_partial_thinking() {
         .expect("ok");
 
     // When cancelling streaming.
-    session.cancel_streaming(jiff::Timestamp::now());
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
 
     // Then the partial thinking text is preserved.
     assert_eq!(session.streaming_thinking_entry_index(), None);
@@ -1765,7 +1775,8 @@ fn finish_streaming_without_preserve_skips_assistant_entry() {
     session.begin_streaming();
 
     // When finishing streaming without preserving assistant.
-    session.finish_streaming(false, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(false, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then no assistant entry was created.
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -1779,7 +1790,8 @@ fn finish_streaming_with_preserve_creates_assistant_entry() {
     session.begin_streaming();
 
     // When finishing streaming with preserving assistant.
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then an empty assistant entry was created.
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -1797,7 +1809,8 @@ fn finish_streaming_without_preserve_keeps_existing_assistant() {
         .expect("ok");
 
     // When finishing streaming without preserving assistant.
-    session.finish_streaming(false, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(false, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then the existing assistant entry is still there (ensure_assistant_entry was a no-op since entry already existed).
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -3076,7 +3089,8 @@ fn is_tool_call_streaming_returns_false_after_finish_streaming() {
     let entry_id = session.history()[1].id.clone();
 
     // When finishing streaming.
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then the tool call entry is no longer streaming.
     assert!(
@@ -3800,8 +3814,43 @@ fn force_exclude_mixed_complete_and_incomplete() {
 
 #[rstest::rstest]
 #[test]
-fn force_exclude_no_tool_calls_is_noop() {
+fn force_exclude_registers_dangling_loops_as_an_expanded_ignored_block() {
+    // Given an interrupted attempt whose dangling loop chunk is at least the
+    // collapse threshold, so exclusion alone would hide the whole attempt.
+    let mut session = ChatSessionState::new();
+    session.push_entry(ChatEntry::user("run it"));
+    session.push_entry(ChatEntry::assistant(""));
+    session.push_entry(ChatEntry::tool_call("tc-1", "bash", r#"{"command":"ls"}"#));
+    session.push_entry(ChatEntry::tool_call("tc-2", "read", r#"{"file":"a.rs"}"#));
+
+    // When force-excluding dangling tool calls.
+    let excluded = session.force_exclude_dangling_tool_calls();
+
+    // Then every excluded entry is registered as a shown ignored block.
+    let shown = session.shown_ignored_blocks_snapshot();
+    for id in &excluded {
+        assert!(shown.contains(id), "excluded entry {id:?} is not shown");
+    }
+}
+
+#[rstest::rstest]
+#[test]
+fn force_exclude_leaves_ignored_blocks_untouched_when_nothing_is_dangling() {
     // Given a history with no tool calls.
+    let mut session = ChatSessionState::new();
+    session.push_entry(ChatEntry::user("hello"));
+    session.push_entry(ChatEntry::assistant("hi"));
+
+    // When force-excluding dangling tool calls.
+    session.force_exclude_dangling_tool_calls();
+
+    // Then no ignored block is registered.
+    assert!(session.shown_ignored_blocks_snapshot().is_empty());
+}
+
+#[rstest::rstest]
+#[test]
+fn force_exclude_no_tool_calls_is_noop() {
     let mut session = ChatSessionState::new();
     session.push_entry(ChatEntry::user("hello"));
     session.push_entry(ChatEntry::assistant("hi"));
@@ -3829,7 +3878,9 @@ fn cancel_stream_and_drain_puts_user_display_text_in_input() {
     )));
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains the drained display texts joined by the cancel separator.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -3847,7 +3898,9 @@ fn cancel_stream_and_drain_discards_non_user_items() {
     )));
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then only user display text appears in the input buffer.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -3862,7 +3915,9 @@ fn cancel_stream_and_drain_with_empty_queue_leaves_input_empty() {
     assert_eq!(session.queue_len(), 0);
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer remains empty.
     assert!(session.with_input(|i| i.text().is_empty(), || true));
@@ -3876,7 +3931,9 @@ fn cancel_stream_and_drain_skips_tool_continuation() {
     session.enqueue(jinn_turn_dispatch_msg::QueueItem::ToolContinuation);
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then input buffer is empty (ToolContinuation was silently discarded).
     assert!(session.with_input(|i| i.text().is_empty(), || true));
@@ -3899,7 +3956,9 @@ fn cancel_stream_and_drain_uses_display_not_expanded() {
     )));
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains the display text, not expanded.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -3919,7 +3978,9 @@ fn cancel_stream_and_drain_puts_steering_in_input() {
         .push_fragment("frag2".to_owned());
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains both fragments joined by the cancel separator.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -3936,7 +3997,9 @@ fn cancel_stream_and_drain_single_steering_fragment_no_separator() {
         .push_fragment("frag1".to_owned());
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains the fragment with no separator.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -3953,7 +4016,9 @@ fn cancel_stream_and_drain_clears_steering_buffer() {
         .push_fragment("frag1".to_owned());
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the steering buffer is empty.
     assert!(
@@ -3977,7 +4042,9 @@ fn cancel_stream_and_drain_flattens_steering_and_queue() {
     )));
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains all units flattened, steering first, joined by the cancel separator.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -3994,7 +4061,9 @@ fn cancel_stream_and_drain_both_empty_leaves_input_unchanged() {
     assert!(session.steering_buffer().is_empty());
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer is left unchanged.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -4011,7 +4080,9 @@ fn cancel_stream_and_drain_single_queue_message_no_separator() {
     )));
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains the single message with no separator.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -4029,7 +4100,9 @@ fn cancel_stream_and_drain_steering_with_only_tool_continuation() {
     session.enqueue(jinn_turn_dispatch_msg::QueueItem::ToolContinuation);
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains only the steering fragment (continuation discarded).
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -6738,7 +6811,8 @@ fn cancel_streaming_leaves_the_input_draft_where_the_user_typed_it() {
 
     // When the turn is cancelled the way a trigger supersedes one — the
     // plain phase transition, not the Esc drain.
-    session.cancel_streaming(jiff::Timestamp::now());
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
 
     // Then the session is Idle, so the enqueue that follows dispatches
     // rather than queueing behind a still-hot phase.
@@ -6757,7 +6831,7 @@ fn cancel_streaming_leaves_the_input_draft_where_the_user_typed_it() {
 fn a_queued_message_is_handed_back_to_the_user_as_an_editable_draft() {
     // Given a streaming session attached to the chat-input cell, with a
     // seeded turn already sitting in the queue. This is the state a trigger
-    // produces when it publishes `CancelStream` without also dropping the
+    // produces when it publishes `CancelTurn` without also dropping the
     // phase: the enqueue sees a hot session and queues instead of
     // dispatching.
     let slices = jinn_slices::Slices::new();
@@ -6776,7 +6850,9 @@ fn a_queued_message_is_handed_back_to_the_user_as_an_editable_draft() {
     )));
 
     // When a cancel drains the session the way the Esc path does.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the seeded turn surfaces as editable draft text instead of
     // having run. This is what a user sees when an attendant is triggered
@@ -6923,4 +6999,273 @@ fn a_history_removal_ahead_of_a_streaming_tool_call_does_not_strand_its_delta() 
     } else {
         panic!("expected a ToolCall entry");
     }
+}
+
+/// A session mid-response with a tool call whose arguments are still arriving.
+fn streaming_tool_call_session(id: &str, name: &str) -> ChatSessionState {
+    let mut session = ChatSessionState::new();
+    session.begin_sending();
+    session.begin_streaming();
+    session.begin_tool_call(0, id, name, jiff::Timestamp::now());
+    session
+        .append_tool_call_delta(0, r#"{"command":"rm -rf "#)
+        .expect("append argument delta");
+    session
+}
+
+#[rstest::rstest]
+fn an_interrupted_call_is_paired_with_a_result() {
+    // Given a session interrupted mid-arguments.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+
+    // When the interrupted call is explained.
+    let completed = session.explain_interrupted_tool_calls();
+
+    // Then exactly one call is completed, by a result carrying its id.
+    assert_eq!(completed, 1);
+    let result = session
+        .history()
+        .iter()
+        .find_map(|e| match &e.kind {
+            ChatEntryKind::ToolResult { id, .. } if id == "tc_1" => Some(e),
+            _ => None,
+        })
+        .expect("a result for the interrupted call");
+    assert!(
+        matches!(
+            result.kind,
+            ChatEntryKind::ToolResult {
+                status: jinn_core_types::ToolResultStatus::Failure,
+                ..
+            }
+        ),
+        "the call did not run, so the result is a failure"
+    );
+}
+
+#[rstest::rstest]
+fn an_interrupted_calls_result_sits_next_to_its_call() {
+    // Given a session interrupted mid-arguments.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+
+    // When the interrupted call is explained.
+    session.explain_interrupted_tool_calls();
+
+    // Then the result immediately follows the call it answers.
+    let kinds: Vec<&str> = session.history().iter().map(ChatEntry::kind_str).collect();
+    let call_at = kinds
+        .iter()
+        .position(|k| *k == "tool_call")
+        .expect("the call is in history");
+    assert_eq!(kinds.get(call_at + 1).copied(), Some("tool_result"));
+}
+
+#[rstest::rstest]
+fn an_interrupted_result_quotes_the_arguments_truncated() {
+    // Given a session interrupted mid-arguments.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+
+    // When the interrupted call is explained.
+    session.explain_interrupted_tool_calls();
+
+    // Then the result carries the fragment verbatim, labelled as truncated.
+    let content = session
+        .history()
+        .iter()
+        .find_map(|e| match &e.kind {
+            ChatEntryKind::ToolResult { id, content, .. } if id == "tc_1" => Some(content.clone()),
+            _ => None,
+        })
+        .expect("a result for the interrupted call");
+    assert!(
+        content.contains(r#"{"command":"rm -rf "#),
+        "the fragment must survive byte-for-byte, got: {content}"
+    );
+    assert!(
+        content.contains("truncated"),
+        "the fragment must be labelled as incomplete, got: {content}"
+    );
+}
+
+#[rstest::rstest]
+fn an_interrupted_result_names_the_tool() {
+    // Given a session interrupted mid-arguments.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+
+    // When the interrupted call is explained.
+    session.explain_interrupted_tool_calls();
+
+    // Then the result names the tool that did not run.
+    let content = session
+        .history()
+        .iter()
+        .find_map(|e| match &e.kind {
+            ChatEntryKind::ToolResult { id, content, .. } if id == "tc_1" => Some(content.clone()),
+            _ => None,
+        })
+        .expect("a result for the interrupted call");
+    assert!(content.contains("bash"), "got: {content}");
+}
+
+#[rstest::rstest]
+fn explaining_a_prose_interrupt_completes_nothing() {
+    // Given a session streaming prose with no tool call.
+    let mut session = ChatSessionState::new();
+    session.begin_sending();
+    session.begin_streaming();
+    session
+        .append_stream_token("some prose", jiff::Timestamp::now())
+        .expect("append prose");
+    let before = session.history().len();
+
+    // When the intercept explains interrupted calls.
+    let completed = session.explain_interrupted_tool_calls();
+
+    // Then nothing was added, because there was no call to explain.
+    assert_eq!(completed, 0);
+    assert_eq!(session.history().len(), before);
+}
+
+#[rstest::rstest]
+fn an_interrupted_call_stays_in_context_on_retry() {
+    // Given a session whose tool call has been paired with a result.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+    session.explain_interrupted_tool_calls();
+
+    // When the attempt is prepared for retry.
+    session.reset_streaming_entries_for_retry();
+
+    // Then the call is still in context, so the model can read its failure.
+    assert!(
+        session.history().iter().any(
+            |e| matches!(&e.kind, ChatEntryKind::ToolCall { id, .. } if id == "tc_1")
+                && e.is_in_context()
+        ),
+        "an explained call must stay in the resumed request"
+    );
+}
+
+#[rstest::rstest]
+fn an_answered_call_is_kept_with_the_prose_that_introduced_it() {
+    // Given a session with partial prose beside an explained tool call.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+    session
+        .append_stream_token("I will now run ", jiff::Timestamp::now())
+        .expect("append prose");
+    session.explain_interrupted_tool_calls();
+
+    // When the attempt is prepared for retry.
+    session.reset_streaming_entries_for_retry();
+
+    // Then the prose stays too: it is the sentence that introduced the call,
+    // and keeping the call without it hands the model a call with no
+    // explanation of what it was doing.
+    assert!(
+        session.history().iter().any(
+            |e| matches!(&e.kind, ChatEntryKind::Assistant(t) if t.contains("I will now"))
+                && e.is_in_context()
+        ),
+        "the prose introducing a retained call must stay in the resumed request"
+    );
+}
+
+#[rstest::rstest]
+fn prose_with_no_retained_call_is_still_excluded_on_retry() {
+    // Given a session whose only partial output is prose.
+    let mut session = streaming_session();
+    session
+        .append_stream_token("I will now think about this", jiff::Timestamp::now())
+        .expect("append prose");
+
+    // When the attempt is prepared for retry.
+    session.reset_streaming_entries_for_retry();
+
+    // Then it is an abandoned attempt with nothing completed to pair against,
+    // so it stays out as it always has.
+    assert!(
+        session.history().iter().all(
+            |e| !matches!(&e.kind, ChatEntryKind::Assistant(t) if t.contains("think about"))
+                || !e.is_in_context()
+        ),
+        "an attempt that made no call is still excluded"
+    );
+}
+
+#[rstest::rstest]
+fn reasoning_beside_a_retained_call_is_still_excluded_on_retry() {
+    // Given a session that thought, then made a call the rule interrupted.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+    session.explain_interrupted_tool_calls();
+    session.reset_streaming_entries_for_retry();
+
+    // Then an empty assistant host is retained but adds nothing: the call is
+    // carried by a synthesized empty assistant, which is what the assembler
+    // would have done regardless.
+    assert!(
+        session.history().iter().any(
+            |e| matches!(&e.kind, ChatEntryKind::ToolCall { id, .. } if id == "tc_1")
+                && e.is_in_context()
+        ),
+        "the call and its result stay"
+    );
+}
+
+#[rstest::rstest]
+fn an_unanswered_call_is_still_excluded_on_retry() {
+    // Given a session interrupted mid-arguments with nothing explaining it.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+
+    // When the attempt is prepared for retry.
+    session.reset_streaming_entries_for_retry();
+
+    // Then the dangling call is taken out of context, as before: providers
+    // reject a request whose calls have no results.
+    assert!(
+        session.history().iter().all(
+            |e| !matches!(&e.kind, ChatEntryKind::ToolCall { id, .. } if id == "tc_1")
+                || !e.is_in_context()
+        ),
+        "an unanswered call cannot be sent to a provider"
+    );
+}
+
+#[rstest::rstest]
+fn an_interrupted_call_reaches_the_model_with_its_own_prose() {
+    // Given a session interrupted mid-arguments, explained and prepared for retry.
+    let mut session = streaming_tool_call_session("tc_1", "bash");
+    session
+        .append_stream_token("I will now run ", jiff::Timestamp::now())
+        .expect("append prose");
+    session.explain_interrupted_tool_calls();
+    session.reset_streaming_entries_for_retry();
+
+    // When the resumed request is assembled from what stayed in context.
+    let kept: Vec<jinn_core_types::ChatEntry> = session
+        .history()
+        .iter()
+        .filter(|e| e.is_in_context())
+        .cloned()
+        .collect();
+    let messages = jinn_llm_support::entries_to_messages::entries_to_messages(&kept);
+
+    // Then the assistant message carries both the model's own words and the
+    // call it made, rather than arriving as a bare tool call from nowhere.
+    let assistant = messages.iter().find_map(|m| match m {
+        jinn_provider::LlmMessage::Assistant {
+            content,
+            tool_calls,
+        } => Some((content, tool_calls)),
+        _ => None,
+    });
+    let (content, tool_calls) = assistant.expect("an assistant message");
+    assert_eq!(
+        content, "I will now run ",
+        "the model's preamble must survive"
+    );
+    assert!(
+        tool_calls
+            .as_ref()
+            .is_some_and(|calls| calls.iter().any(|c| c.id == "tc_1")),
+        "the interrupted call must ride on the same message"
+    );
 }

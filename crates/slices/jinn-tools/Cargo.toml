@@ -55,6 +55,11 @@ jinn-session-init-msg = { workspace = true }
 # harnesses seed their registry through the same list production boot uses.
 jinn-cell-catalog = { workspace = true }
 jinn-testutil = { workspace = true }
+# The denial tests build a real compiled rule set to install into the
+# stream-rules cell. Production only ever speaks the `jinn-slices` vocabulary,
+# so this stays a dev-dependency rather than a crate edge -- same reasoning as
+# jinn-inference's dev-dependency on the same crate.
+jinn-stream-rules = { workspace = true }
 
 toml = { workspace = true }
 jinn-token-count-msg = { workspace = true }

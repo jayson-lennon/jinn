@@ -95,9 +95,6 @@ pub fn failed(
 pub struct ToolContext {
     /// Working directory for resolving relative paths.
     pub cwd: PathBuf,
-    /// Compiled blocked-command rules for the project containing [`Self::cwd`],
-    /// if any. Only `bash` consults it; an empty policy matches nothing.
-    pub command_policy: jinn_tools_msg::CompiledCommandPolicy,
     /// Optional execution timeout.
     pub timeout: Option<Duration>,
     /// Shared application state (only available for tools that need it).
@@ -179,7 +176,6 @@ mod tests {
         // Given a ToolContext with known values.
         let ctx = ToolContext {
             cwd: PathBuf::from("/tmp/test"),
-            command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
             timeout: Some(std::time::Duration::from_secs(30)),
             state: None,
             config: jinn_config::testutil::config_layer(""),

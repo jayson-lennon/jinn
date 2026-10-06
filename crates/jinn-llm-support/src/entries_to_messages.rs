@@ -171,6 +171,15 @@ pub fn entries_to_messages(entries: &[ChatEntry]) -> Vec<LlmMessage> {
             }
             // Annotations are display-only and never enter LLM context.
             ChatEntryKind::Annotation { .. } => {}
+            // Rule guidance is sent as a plain user turn, unprefixed: the body
+            // is already the rendered `<system-interrupt>` block, so this is
+            // byte-identical to the prompt shape the entry had as a `User`.
+            ChatEntryKind::RuleInterrupt { body, .. } => {
+                messages.push(LlmMessage::User {
+                    content: body.clone(),
+                    attachments: Vec::new(),
+                });
+            }
         }
     }
 

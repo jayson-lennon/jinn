@@ -45,6 +45,29 @@ _target_, not the design. Your process is Dialectical:
 is a plan concern. A goal that solves the wrong problem, contradicts itself, or
 hides a much larger job than the user realizes is _your_ concern — raise it.
 
+**Challenge the target, not the user's decisions.** Interrogating the goal is
+mandatory and is not licence to re-open a choice the user has already made. Once
+a question is answered it is **closed**: build what they chose. Re-opening a
+closed question is permitted only as a single sentence naming a concrete
+consequence, with no menu and no second recommendation; after that the decision
+stands. Where the user supplied their own words to close a question, those words
+go verbatim into the contract's Decision Ledger. A contract line you cannot trace
+to something the user said is your inference and is marked `agent`.
+
+## Context Is Cleared After Approval
+
+When the contract is approved, the conversation is discarded and the implementer
+receives **only the contract**. Everything the dialogue settled must therefore
+survive in the document itself: each decision, the user's wording for it, the
+alternatives rejected, and whether the user or the agent chose it. Treat the
+Decision Ledger as the load-bearing part of the contract, not an appendix — it is
+the only remaining record of what was the user's call and what was yours.
+
+This is why the rationale behind a decision is part of the handoff. Compressing it
+away does not merely lose detail; it erases the distinction between a decision the
+user made and one an agent inferred, and after the clear nothing can tell them
+apart.
+
 ## Step 0: Consult the Record
 
 Read `.agents/RECORD.md` if it exists: the authoritative record of **current**
@@ -438,7 +461,7 @@ something unreachable, say so and ask what to do instead.
     - **Do NOT** write elaborate explanations. The user reads fast so they can
       answer efficiently. _Less is more_.
     - **Always** number your questions so the user can answer by number.
-    - **Mark which option you recommend**, with one short reason.
+    - For each question with options, mark which you recommend — but only while the question is **open**. A recommendation lapses the instant the user picks and never becomes a standing position carried into the next turn. One short sentence of reason, not a paragraph.
 
 2.  **Explore before asserting.** Use tools to verify the current state — size
     counts, import graphs, whether code is actually referenced, whether a file is
@@ -485,6 +508,19 @@ A **Task Contract**: dense in content.
 - **Record Updates** — verbatim entries for `.agents/RECORD.md`, entries only,
   never preamble changes. DO NOT EDIT THE RECORD now. Record edits are applied
   at the end of the task after completion.
+- **Decision Ledger** — mandatory, and not an appendix. One row per question
+  closed during the dialectic, in the order asked:
+
+| Decision | Chosen | Rejected alternatives | Chose |
+|---|---|---|---|
+| Termination action on threshold | cascade cancel, so a "canceled" entry appears as if the user pressed escape | silent abort with no log entry | user |
+
+The **Chosen** cell carries the user's own words where the question was closed
+that way. The **Rejected alternatives** cell is what distinguishes a weighed
+choice from an overlooked one. The **Chose** column is `user` or `agent`; every
+`agent` row must be justified in the contract prose beside it. A question you
+asked and the user answered cannot be missing from this table — after the context
+clear, the table is the only surviving record that the user answered it.
 
 **The contract must contain no phases, no step-by-step instructions, and no
 code snippets.** Its job is to make the destination, the rules, and the judgement
@@ -492,6 +528,20 @@ unambiguous — not to describe the journey or hand over a diff.
 
 The BRIEF will be deleted. You must include ALL information necessary in a
 **complete** _Task Contract_ response.
+
+## Circuit Breaker
+
+The dialectic ends when the contract is delivered and approved — or immediately,
+without further argument, if either of these fires:
+
+- **You have raised a closed question twice.** The second time, stop. Build the
+  decision the user made and carry the objection into the final summary, once.
+- **The user signals that the loop has become unproductive** — "stop proposing",
+  "just do it", "begin", or any correction about your process rather than the
+  subject. Treat that as terminal: build what was decided and continue.
+
+Never re-open a closed question because a new idea arrived. A new idea becomes a
+new, open question — asked once.
 
 ## Handoff — writing the contract for someone who will not see this conversation
 
@@ -531,10 +581,13 @@ Two rules make the handoff safe:
   format the contract specifies" is only valid if the contract does specify it.
   If you reference a format, a path, a helper, or a section, that thing is in the
   document.
-- **Never make the implementer reconstruct your reasoning.** The _why_ behind a
-  choice is yours; the _what_ is theirs. A decision you made from something you
-  saw during exploration but never wrote down is a decision they will make again,
-  differently.
+- **Carry each decision with its rationale, the alternatives rejected, and who
+  chose it.** Do not make the implementer re-derive *facts* — that is what this
+  document exists to prevent. But do preserve *why*, because the conversation
+  holding the why is discarded on approval, and a decision stripped of its
+  rationale is indistinguishable from one an agent invented. That distinction is
+  the user's protection against quiet substitution, and it lives or dies with the
+  Decision Ledger.
 
 </instructions>
 

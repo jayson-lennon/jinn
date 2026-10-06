@@ -639,18 +639,8 @@ impl ToolOrchestratorActor {
         let max_output_lines = tools.max_output_lines;
         let max_output_bytes = tools.max_output_bytes;
         let timeout = std::time::Duration::from_secs(tools.default_timeout_secs);
-        let command_policy = {
-            use jinn_tools_msg::CompiledCommandPolicy;
-            let rules = crate::command_policy::resolve_rules(
-                &self.services.config,
-                &cwd,
-                self.services.paths.home_dir(),
-            );
-            CompiledCommandPolicy::compile(&rules)
-        };
         ToolContext {
             cwd,
-            command_policy,
             timeout: Some(timeout),
             state: Some(self.state.clone()),
             config: self.services.config.clone(),
@@ -1107,7 +1097,6 @@ mod timeout_tests {
     fn empty_ctx() -> ToolContext {
         ToolContext {
             cwd: PathBuf::from("/tmp"),
-            command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
             config: jinn_config::testutil::config_layer(""),
             timeout: None,
             state: None,
@@ -1362,7 +1351,6 @@ mod panic_safety_tests {
             tool_call.clone(),
             super::ToolContext {
                 cwd: std::path::PathBuf::from("/tmp"),
-                command_policy: jinn_tools_msg::CompiledCommandPolicy::default(),
                 config: jinn_config::testutil::config_layer(""),
                 timeout: None,
                 state: None,

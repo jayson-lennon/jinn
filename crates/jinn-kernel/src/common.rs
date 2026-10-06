@@ -9,6 +9,7 @@ pub mod bridge;
 pub mod bus;
 pub mod core;
 pub mod frontend_projection;
+pub mod phase_command;
 pub mod phase_events;
 pub mod render_ctx;
 pub mod request_dump;

@@ -37,7 +37,7 @@ pub fn validate_session_close(state: &AppState) -> Result<(), SessionCloseError>
         .session
         .get(&id)
         .ok_or(SessionCloseError::NoSelection)?;
-    if session.is_busy() || !matches!(session.phase(), PhaseKind::Idle) {
+    if !matches!(session.phase(), PhaseKind::Idle) {
         return Err(SessionCloseError::SessionBusy);
     }
     Ok(())
