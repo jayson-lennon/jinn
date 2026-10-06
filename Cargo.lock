@@ -1944,7 +1944,7 @@ dependencies = [
 
 [[package]]
 name = "jinn"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -2057,7 +2057,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-app-state"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-cell-catalog",
  "jinn-chat-input-msg",
@@ -2089,7 +2089,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-attendant"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jiff",
@@ -2131,7 +2131,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-attendant-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jiff",
  "jinn-core-types",
@@ -2145,7 +2145,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-boot"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jiff",
@@ -2172,7 +2172,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-boot-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-provider-config",
  "jinn-slices",
@@ -2184,7 +2184,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-cell-catalog"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-attendant-msg",
  "jinn-chat-input-msg",
@@ -2213,7 +2213,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-chat-input"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jinn-attendant-msg",
@@ -2241,7 +2241,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-chat-input-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-core-types",
  "jinn-slices",
@@ -2254,7 +2254,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-chat-log-view"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "error-stack",
@@ -2296,7 +2296,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-chat-log-view-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-core-types",
  "jinn-slices",
@@ -2310,7 +2310,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-citations"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "form_urlencoded",
@@ -2330,7 +2330,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-cli"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "clap",
  "clap-verbosity-flag",
@@ -2345,7 +2345,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-common"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "dirs",
  "error-stack",
@@ -2364,7 +2364,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-config"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jinn-common",
@@ -2380,7 +2380,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-context"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "fuzzy-matcher",
@@ -2399,7 +2399,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-context-assembly"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jinn-attendant-msg",
@@ -2427,7 +2427,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-context-assembly-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-context",
  "jinn-core-types",
@@ -2441,7 +2441,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-context-curation"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "error-stack",
@@ -2474,7 +2474,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-context-curation-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-core-types",
  "jinn-session-state",
@@ -2487,7 +2487,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-core-types"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
  "globset",
@@ -2502,7 +2502,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-cwd"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "dirs",
  "error-stack",
@@ -2521,7 +2521,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-cwd-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "dirs",
  "jinn-core-types",
@@ -2533,7 +2533,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-dashboard"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jinn-core-types",
@@ -2557,7 +2557,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-dashboard-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-core-types",
  "jinn-slices",
@@ -2566,7 +2566,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-discord"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "daow",
@@ -2617,7 +2617,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-export"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
  "error-stack",
@@ -2641,7 +2641,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-export-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-core-types",
  "jinn-slices",
@@ -2653,7 +2653,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-inference"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "error-stack",
@@ -2684,7 +2684,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-inference-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jiff",
  "jinn-core-types",
@@ -2698,7 +2698,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-install"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "include_dir",
@@ -2713,7 +2713,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-kernel"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "ctor",
@@ -2788,7 +2788,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-llm-support"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "derive_more",
  "error-stack",
@@ -2809,7 +2809,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-mcp"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "axum",
  "ctor",
@@ -2830,7 +2830,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-mcp-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "error-stack",
@@ -2849,7 +2849,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-mcp-slice"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "ctor",
@@ -2888,7 +2888,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-persona"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jinn-app-state",
@@ -2913,7 +2913,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-persona-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-picker",
  "jinn-selection-widget",
@@ -2927,7 +2927,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-picker"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-config",
  "jinn-core-types",
@@ -2943,7 +2943,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-preferences"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "dirs",
  "error-stack",
@@ -2972,7 +2972,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-preferences-config"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "dirs",
  "error-stack",
@@ -2996,14 +2996,14 @@ dependencies = [
 
 [[package]]
 name = "jinn-preferences-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-slices",
 ]
 
 [[package]]
 name = "jinn-project"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-common",
  "jinn-config",
@@ -3027,7 +3027,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-project-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "dirs",
  "jinn-common",
@@ -3043,7 +3043,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-provider"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3068,7 +3068,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-provider-config"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "dirs",
  "error-stack",
@@ -3089,7 +3089,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-provider-selection"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "humantime",
@@ -3122,7 +3122,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-provider-selection-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jiff",
  "jinn-core-types",
@@ -3141,7 +3141,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-quake-bar"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jiff",
@@ -3161,7 +3161,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-quake-bar-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-slices",
  "rstest",
@@ -3170,7 +3170,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-scope-focus"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-slices",
  "rstest",
@@ -3179,7 +3179,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-selection-widget"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "fuzzy-matcher",
  "jinn-testutil",
@@ -3190,7 +3190,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-session-history"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-core-types",
  "jinn-kernel",
@@ -3203,7 +3203,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-session-history-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-core-types",
  "jinn-slices",
@@ -3241,7 +3241,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-session-init-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-context",
  "jinn-core-types",
@@ -3254,7 +3254,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-session-lifecycle"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jinn-cell-catalog",
@@ -3289,7 +3289,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-session-lifecycle-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jinn-core-types",
@@ -3312,7 +3312,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-session-list"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jiff",
  "jinn-core-types",
@@ -3323,7 +3323,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-session-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jiff",
  "jinn-config",
@@ -3353,7 +3353,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-session-state"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "error-stack",
@@ -3386,7 +3386,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-session-store"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "daow",
@@ -3435,7 +3435,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-session-store-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jiff",
  "jinn-core-types",
@@ -3453,7 +3453,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-session-turn"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "error-stack",
@@ -3494,7 +3494,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-sidebar"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "error-stack",
@@ -3543,7 +3543,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-sidebar-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jiff",
  "jinn-core-types",
@@ -3557,7 +3557,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-skills"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jinn-cell-catalog",
@@ -3582,7 +3582,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-skills-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-core-types",
  "jinn-picker",
@@ -3599,7 +3599,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-slices"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "derive_more",
  "error-stack",
@@ -3627,7 +3627,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-status-bar"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "dirs",
  "jiff",
@@ -3650,7 +3650,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-status-bar-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-core-types",
  "jinn-slices",
@@ -3659,7 +3659,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-stream-rules"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "globset",
  "jinn-config",
@@ -3674,7 +3674,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-term"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "futures",
@@ -3709,7 +3709,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-term-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "jinn-core-types",
@@ -3725,7 +3725,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-testutil"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jinn-slices",
@@ -3739,7 +3739,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-theme"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anstyle",
  "anstyle-lossy",
@@ -3755,7 +3755,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-theme-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-core-types",
  "jinn-picker",
@@ -3767,7 +3767,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-theme-slice"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jinn-app-state",
@@ -3791,7 +3791,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-token-count"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jinn-cell-catalog",
@@ -3813,7 +3813,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-token-count-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "dashmap 6.2.1",
  "jiff",
@@ -3827,7 +3827,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-tools"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3881,7 +3881,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-tools-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jiff",
  "jinn-config",
@@ -3903,7 +3903,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-tui"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "arboard",
  "crossterm",
@@ -3951,7 +3951,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-turn-dispatch"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jiff",
@@ -3979,7 +3979,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-turn-dispatch-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jinn-core-types",
  "jinn-slices",
@@ -3992,7 +3992,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-watchdog"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jinn-config",
@@ -4013,7 +4013,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-work-time"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "error-stack",
  "jiff",
@@ -4030,7 +4030,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-work-time-msg"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "jiff",
  "jinn-core-types",
