@@ -13,9 +13,12 @@
 use jinn_core_types::SessionId;
 use serde::{Deserialize, Serialize};
 
+pub mod phase_command;
 pub mod phase_machine;
 pub mod session_origin;
 mod session_seed;
+
+pub use phase_command::{DispatchKind, PhaseCommand, PhaseDecision};
 
 /// The wall-clock moment carried by [`SessionPhaseChanged`] and
 /// [`WorkStateChanged`], re-exported so a consumer publishing either event
@@ -57,11 +60,12 @@ impl PhaseKind {
     /// Whether a session in this phase is working.
     ///
     /// The single definition of "working" in the codebase: a session is busy
-    /// whenever its phase is not [`PhaseKind::Idle`]. There are deliberately
-    /// no carve-outs for a parent orchestrating subagents, an attendant
-    /// composing a report, or a turn running its tool loop — those *are* the
-    /// time the user is waiting, and a separate `is_busy` notion with four
-    /// writers already exists and disagrees with this one.
+    /// whenever its phase is not [`PhaseKind::Idle`]. The separate `is_busy`
+    /// counter that used to disagree with this one (four writers, phase-adjacent
+    /// readers) is gone — every liveness predicate reads the phase, through this
+    /// method or a `matches!` on it. There are deliberately no carve-outs for a
+    /// parent orchestrating subagents, an attendant composing a report, or a
+    /// turn running its tool loop — those *are* the time the user is waiting.
     #[must_use]
     pub const fn is_working(self) -> bool {
         !matches!(self, Self::Idle)

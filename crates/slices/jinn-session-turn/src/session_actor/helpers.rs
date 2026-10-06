@@ -1,41 +1,6 @@
 use jinn_core_types::SessionId;
 use jinn_kernel::BusService;
-use jinn_kernel::common::phase_events::publish_phase_change;
 use jinn_session_history_msg::HistoryAppended;
-use jinn_session_msg::PhaseKind;
-
-/// Emit a `SessionPhaseChanged` event if the phase actually changed.
-///
-/// Call this outside the write lock with the before/after phases captured inside.
-pub(in crate::session_actor) async fn emit_phase_changed(
-    bus: &BusService,
-    session_id: &SessionId,
-    old_phase: impl Into<PhaseKind>,
-    new_phase: impl Into<PhaseKind>,
-) {
-    let old_phase = old_phase.into();
-    let new_phase = new_phase.into();
-    if old_phase == new_phase {
-        return;
-    }
-    publish_phase_change(bus, session_id, old_phase, new_phase).await;
-}
-
-/// Publishes a phase change and its working-state consequence unconditionally.
-///
-/// For the cancel race, where the transition already happened synchronously
-/// in shared state and subscribers still need to learn the turn ended. The
-/// working flag is derived from the new phase, so an `Idle → Idle` force
-/// publish carries `working: false` and closes nothing a subscriber had
-/// already closed.
-pub(in crate::session_actor) async fn publish_phase_changed(
-    bus: &BusService,
-    session_id: &SessionId,
-    old_phase: PhaseKind,
-    new_phase: PhaseKind,
-) {
-    publish_phase_change(bus, session_id, old_phase, new_phase).await;
-}
 
 /// Emit a `HistoryAppended` event.
 ///
@@ -83,12 +48,20 @@ pub(crate) async fn test_actor_recording() -> (
     use jinn_token_count_msg::HistoryWorkerChatEntryTokenCache;
 
     let (bus, audit) = jinn_kernel::common::services::BusService::new_recording();
-    let services = jinn_kernel::common::services::Services::new_fake_with_bus(bus).await;
+    let services = jinn_kernel::common::services::Services::new_fake_with_bus(bus.clone()).await;
     ensure_context_assembly(&services.trouper_system);
+
+    // The phase actor: the sole phase writer, and the one every turn-path
+    // publisher asks (the session actor's cancel, intercept, and retry
+    // handlers; the queue actor). Production composition spawns it beside
+    // the session actor over the same `State` — the harness must too, or
+    // every admission ask errors and the handler refuses.
+    let state = State::new(AppState::default_with_scope_focus());
+    let _phase = crate::phase_actor::ensure_spawned(&services.trouper_system, state.clone(), bus);
 
     (
         super::SessionPersistenceActor {
-            state: State::new(AppState::default_with_scope_focus()),
+            state,
             services,
             counter: TiktokenCounter::o200k_base(),
             token_cache: HistoryWorkerChatEntryTokenCache::default(),

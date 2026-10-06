@@ -24,7 +24,7 @@ use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
 use jinn_core_types::SessionId;
-use jinn_inference_msg::{CancelCause, CancelTurn};
+use jinn_inference_msg::CancelTurn;
 use jinn_kernel::Services;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_session_msg::TurnCompleted;
@@ -127,13 +127,7 @@ impl ToolCallWatchdogActor {
                         .await;
                 }
                 ToolWatchdogAction::CancelTurn(session_id) => {
-                    self.services
-                        .bus
-                        .publish(CancelTurn {
-                            session_id,
-                            cause: CancelCause::Turn,
-                        })
-                        .await;
+                    self.services.bus.publish(CancelTurn { session_id }).await;
                 }
             }
         }

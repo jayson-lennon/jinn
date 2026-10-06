@@ -58,13 +58,8 @@ impl SessionLifecycleActor {
     ) {
         self.lifecycle_child = None;
         let session_exists = {
-            self.state.with_session(|view| {
-                let Some(session) = view.session.map().get_mut(&payload.session_id) else {
-                    return false;
-                };
-                session.complete_busy();
-                true
-            })
+            self.state
+                .with_session(|view| view.session.map().contains(&payload.session_id))
         };
         if !session_exists {
             return;

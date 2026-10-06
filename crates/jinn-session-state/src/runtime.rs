@@ -20,28 +20,9 @@ pub struct SessionCoreEphemeral {
     pub message_queue: TurnQueue,
     /// Most recently assembled prompt size, in tokens.
     pub cached_context_size: Option<u32>,
-    /// Number of background operations currently occupying the session.
-    #[serde(skip)]
-    pub busy_count: usize,
     /// Generation marker for the currently active inference stream.
     #[serde(skip)]
     pub stream_dispatched_at: Option<Timestamp>,
-    /// Whether the turn this session was running has been terminated.
-    ///
-    /// Set when a `CancelTurn` ends a turn, and cleared when a new turn
-    /// dispatches. It exists because the phase cannot express "already ended"
-    /// on its own: a cancel settles a session to `Idle`, but a stream-rule
-    /// intercept whose completion was published from inside the torn-down
-    /// stream task arrives *after* the settle and finds the session back in a
-    /// busy phase with a live guard — the intercept rewound it. Every check it
-    /// performs then passes, so it resumes a turn nobody is running and
-    /// re-arms the guard on a dead session.
-    ///
-    /// Cleared at dispatch rather than at settle, so it is spent exactly once:
-    /// it must not outlive the turn it terminated, or the user's next message
-    /// would be refused.
-    #[serde(skip)]
-    pub terminated: bool,
     /// Deduplicated context overrides waiting for an accumulation threshold.
     #[serde(skip)]
     pub accumulated_overrides: MutationAccumulator,

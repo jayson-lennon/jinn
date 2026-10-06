@@ -10,7 +10,6 @@
 use jinn_attendant_msg::AttendantBehavior;
 use jinn_kernel::common::app_state::AppState;
 use jinn_kernel::common::state::State;
-use jinn_session_msg::PhaseKind;
 use jinn_session_state::ChatSessionState;
 
 use crate::rerun::{rerun, rerun_blocked_reason};
@@ -203,7 +202,7 @@ fn reset_exclusions_survive_a_restart() {
 
 #[rstest::rstest]
 #[test]
-fn rerun_on_a_busy_attendant_drops_its_own_phase_so_the_seed_dispatches() {
+fn rerun_on_a_busy_attendant_cancels_before_it_dispatches_the_seed() {
     // Given a reset attendant whose turn is mid-flight.
     let (state, id) = state_with_attendant(AttendantBehavior::Reset);
     {
@@ -213,21 +212,23 @@ fn rerun_on_a_busy_attendant_drops_its_own_phase_so_the_seed_dispatches() {
     }
 
     // When the attendant is re-run.
-    let _ = rerun(&state, &id).expect("rerun allowed");
+    let (cancel, dispatch, _reset) = rerun(&state, &id).expect("rerun allowed");
 
-    // Then its own phase is back to Idle.
+    // Then the cancel and the seed are both produced, and the cancel is
+    // named before the dispatch.
     //
-    // This is the invariant the enqueue handler depends on: a session that
-    // is still `Sending`/`Streaming` *queues* an incoming user message
-    // instead of dispatching it, so leaving the phase hot would make `R`
-    // silently queue the seed rather than run it. The frontend owns its own
-    // session's phase (the same contract `Esc` relies on), and the session
-    // actor owns the descendants' — hence the cascade publishes messages
-    // rather than writing their phases.
-    let guard = state.read();
-    assert_eq!(
-        guard.session.get(&id).expect("attendant").phase(),
-        PhaseKind::Idle
+    // The phase settles when the session actor applies the cancel command
+    // — nothing writes a phase synchronously any more — so what `R`
+    // guarantees here is message order: the enqueue handler queues a user
+    // message that arrives while the session is still `Sending`/
+    // `Streaming`, and only the cancel applied ahead of it in the bus
+    // order makes the seed dispatch instead of queue behind a dead turn.
+    // The settle itself is the session actor's, covered by the cancel
+    // tests there.
+    assert_eq!(cancel.expect("busy session cancels").session_id, id);
+    assert!(
+        dispatch.is_some(),
+        "the seeded run dispatches after the cancel"
     );
 }
 

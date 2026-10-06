@@ -130,7 +130,7 @@ pub use jinn_provider_selection_msg::{
 // (kernel→msg direction, skills precedent); re-exported here so the
 // long-standing `jinn_kernel::X` paths keep resolving.
 pub use jinn_inference_msg::{
-    CancelCause, CancelTurn, SendToLlmProvider, StreamCompleted, StreamCompletedReason,
-    StreamOrigin, StreamToken,
+    CancelTurn, SendToLlmProvider, StreamCompleted, StreamCompletedReason, StreamOrigin,
+    StreamToken,
 };
 pub use jinn_session_init_msg::{PromptTemplate, PromptTemplatesLoaded, RescanPromptTemplates};

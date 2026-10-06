@@ -38,27 +38,23 @@
 //! that fact ends the session is a policy question, and policy that spans a
 //! whole turn belongs to an actor that sees the whole turn.
 //!
-//! # Why the trip latches rather than cancels
+//! # Why the trip ends the turn rather than a stream
 //!
 //! An intercept ends the response it caught and the turn re-dispatches at once,
 //! so by the time this actor counts the interrupt there is no stream left to
 //! cancel — the generation that tripped the rule was already torn down by the
-//! very intercept that reported it. A plain [`CancelCause::Turn`] published
-//! here finds nothing to end and does nothing.
+//! very intercept that reported it. A plain [`CancelTurn`] published here finds
+//! nothing to end and does nothing.
 //!
 //! Worse, it does nothing *safely*: the resume it is meant to stop is a
-//! three-actor chain (rewind, dispatch, assemble) that has not arrived yet, and
-//! the resume arrives as a user-originated send, which lifts the cancel
-//! tombstone an abort had armed. The marker would appear and the turn would
-//! resume anyway — the loop, unbounded and indefinitely, which is the one
-//! outcome this actor exists to prevent.
+//! three-actor chain (rewind, dispatch, assemble) that has not arrived yet. The
+//! marker would appear and the turn would resume anyway — the loop, unbounded
+//! and indefinitely, which is the one outcome this actor exists to prevent.
 //!
-//! So the trip publishes [`CancelTurn`] with
-//! [`CancelCause::TurnAndQueuedDispatch`], which ends the turn *and* latches
-//! away the *pending* resume rather than relying on cancelling a stream that
-//! is gone. The latch
-//! is spent by that resume, so the user's next genuine message dispatches
-//! normally.
+//! So the trip publishes [`CancelTurn`], which the phase actor applies as the
+//! turn's end: the dead generation is recorded, the *pending* resume is refused
+//! at its admission ask (a resume may only join a live generation), and the
+//! user's next genuine message mints a fresh turn and dispatches normally.
 //!
 //! This actor holds no `AppState` — its counter is actor-internal and its only
 //! outputs are bus publishes (the sanctioned shape of the watchdog family).
@@ -71,7 +67,6 @@ use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
 use jinn_core_types::SessionId;
-use jinn_inference_msg::CancelCause;
 use jinn_inference_msg::CancelTurn;
 use jinn_inference_msg::StreamCompleted;
 use jinn_inference_msg::StreamCompletedReason;
@@ -188,13 +183,7 @@ impl StreamRuleWatchdogActor {
                         .await;
                 }
                 StreamRuleWatchdogAction::CancelTurn(session_id) => {
-                    self.services
-                        .bus
-                        .publish(CancelTurn {
-                            session_id,
-                            cause: CancelCause::TurnAndQueuedDispatch,
-                        })
-                        .await;
+                    self.services.bus.publish(CancelTurn { session_id }).await;
                 }
             }
         }

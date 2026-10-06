@@ -4,7 +4,7 @@ use crate::common::app_state::AppState;
 use crate::protocol::{IntentResult, KernelIntent};
 use jinn_chat_input_msg::ChatInputBoxState;
 use jinn_core_types::SessionId;
-use jinn_inference_msg::{CancelCause, CancelTurn};
+use jinn_inference_msg::CancelTurn;
 
 use super::validator;
 
@@ -31,16 +31,14 @@ pub fn handle_toggle_whichkey(state: &mut AppState) -> IntentResult {
 /// Handles the Interrupt intent.
 ///
 /// When `target` is `None`, clears the input buffer.
-/// When `target` is `Some(id)`, cancels the targeted session's stream
-/// (for headless/scripted use).
+/// When `target` is `Some(id)`, cancels the targeted session's turn
+/// (for headless/scripted use). The cancel is a command: the session
+/// actor applies it, and the phase settles when it lands — this handler
+/// writes no session state synchronously.
 pub fn handle_interrupt(state: &mut AppState, target: Option<&SessionId>) -> IntentResult {
     if let Some(id) = target {
-        state
-            .session_mut(id)
-            .cancel_streaming(jiff::Timestamp::now());
         return IntentResult::new_message(CancelTurn {
             session_id: id.clone(),
-            cause: CancelCause::Turn,
         });
     }
 
@@ -188,10 +186,11 @@ mod tests {
         // When handling Interrupt targeting the second session.
         let result = super::handle_interrupt(&mut state, Some(&second_id));
 
-        // Then the targeted session's stream is cancelled.
+        // Then the targeted session's phase is untouched — the cancel is
+        // the phase actor's, applied when the command lands.
         assert!(matches!(
             state.session.get_unchecked(&second_id).phase(),
-            PhaseKind::Idle
+            PhaseKind::Streaming
         ));
         // And a CancelTurn message is returned for that session.
         assert_eq!(result.messages.len(), 1);

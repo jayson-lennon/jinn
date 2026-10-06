@@ -68,11 +68,11 @@ use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
 use jinn_core_types::SessionId;
+use jinn_inference_msg::CancelTurn;
 use jinn_inference_msg::SendToLlmProvider;
 use jinn_inference_msg::StreamActivity;
 use jinn_inference_msg::StreamCompleted;
 use jinn_inference_msg::StreamCompletedReason;
-use jinn_inference_msg::{CancelCause, CancelTurn};
 use jinn_kernel::Services;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_session_msg::RetryStalledSession;
@@ -261,13 +261,7 @@ impl StallWatchdogActor {
                     self.services.bus.publish(command).await;
                 }
                 StallAction::CancelTurn(session_id) => {
-                    self.services
-                        .bus
-                        .publish(CancelTurn {
-                            session_id,
-                            cause: CancelCause::Turn,
-                        })
-                        .await;
+                    self.services.bus.publish(CancelTurn { session_id }).await;
                 }
             }
         }

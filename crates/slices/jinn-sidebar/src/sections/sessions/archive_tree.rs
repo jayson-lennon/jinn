@@ -53,9 +53,10 @@ pub fn archive_tree_members(state: &AppState) -> Result<Vec<SessionId>, ArchiveT
     }
     let members = descendant_closure(&root, &parent_links(state));
     if !members.iter().all(|id| {
-        state.session.get(id).is_some_and(|session| {
-            matches!(session.phase(), jinn_session_msg::PhaseKind::Idle) && !session.is_busy()
-        })
+        state
+            .session
+            .get(id)
+            .is_some_and(|session| matches!(session.phase(), jinn_session_msg::PhaseKind::Idle))
     }) {
         return Err(ArchiveTreeError::SubtreeBusy);
     }

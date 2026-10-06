@@ -27,10 +27,8 @@ use jinn_turn_dispatch_msg::DispatchTurn;
 /// Decision returned after inspecting session state in `EnqueueUserMessage`.
 enum EnqueueAction {
     /// Session is idle - the entry is pushed and the turn is dispatched
-    /// via the turn-dispatch slice. Carries the phase observed before the
-    /// write so the `Idle → Sending` edge is published from the transition
-    /// that actually happened rather than a hardcoded literal.
-    DispatchDirectly { old_phase: PhaseKind },
+    /// via the turn-dispatch slice, behind a phase-admission ask.
+    DispatchDirectly,
     /// Session is busy - message was queued.
     Queued,
 }
@@ -48,18 +46,6 @@ impl SessionPersistenceActor {
         // `push_entry` re-runs it harmlessly.
         let mut entry = payload.entry.clone();
         let pending_paths = self.expand_user_entry(&payload.session_id, &mut entry);
-
-        // A person starting a new turn spends any termination mark from the
-        // previous one. This is the only place it is spent, deliberately: it is
-        // the one boundary that means "the user asked for a turn" rather than
-        // "the harness is continuing one", and a mark that outlived its turn
-        // would refuse the user's next message.
-        self.state.with_session(|view| {
-            view.session
-                .map()
-                .get_or_create(&payload.session_id)
-                .clear_terminated();
-        });
 
         // Resolve `@path` image attachments: read bytes off the async runtime
         // (`spawn_blocking`), classify each as native / needs-conversion /
@@ -88,22 +74,7 @@ impl SessionPersistenceActor {
             self.state.with_session(|view| {
                 let session = view.session.map().get_or_create(&payload.session_id);
                 match session.phase() {
-                    PhaseKind::Idle => {
-                        // Normal path: set title, push entry, begin_sending.
-                        let old_phase = session.phase();
-                        if session.title().is_none() {
-                            let title = match &entry.kind {
-                                ChatEntryKind::User { display, .. } => {
-                                    display.lines().next().unwrap_or("").to_owned()
-                                }
-                                _ => String::new(),
-                            };
-                            session.set_title(title);
-                        }
-                        session.push_entry(entry.clone());
-                        session.begin_sending();
-                        EnqueueAction::DispatchDirectly { old_phase }
-                    }
+                    PhaseKind::Idle => EnqueueAction::DispatchDirectly,
                     PhaseKind::Sending | PhaseKind::Streaming => {
                         session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
                             entry.clone(),
@@ -115,7 +86,41 @@ impl SessionPersistenceActor {
         };
 
         match action {
-            EnqueueAction::DispatchDirectly { old_phase } => {
+            EnqueueAction::DispatchDirectly => {
+                // Admission before the entry lands: a user message mints a
+                // fresh generation (`FreshTurn`), so the only refusal is a
+                // dead phase actor — in which case history stays untouched
+                // and the message is silently dropped with an error log.
+                let decision = crate::phase_actor::admit_stream(
+                    &self.services,
+                    &payload.session_id,
+                    jinn_session_msg::phase_command::DispatchKind::FreshTurn,
+                    jiff::Timestamp::now(),
+                )
+                .await;
+                if !decision.admitted {
+                    tracing::error!(
+                        session_id = %payload.session_id,
+                        "user message dropped: the phase actor refused a fresh mint"
+                    );
+                    return;
+                }
+
+                {
+                    self.state.with_session(|view| {
+                        let session = view.session.map().get_or_create(&payload.session_id);
+                        if session.title().is_none() {
+                            let title = match &entry.kind {
+                                ChatEntryKind::User { display, .. } => {
+                                    display.lines().next().unwrap_or("").to_owned()
+                                }
+                                _ => String::new(),
+                            };
+                            session.set_title(title);
+                        }
+                        session.push_entry(entry.clone());
+                    });
+                }
                 super::super::helpers::emit_history_appended(self.bus(), &payload.session_id).await;
 
                 self.publish(ChatEntrySubmitted {
@@ -127,22 +132,11 @@ impl SessionPersistenceActor {
                 self.save_active_session(&payload.session_id).await;
 
                 // Hand the prepared turn to the turn-dispatch slice: it
-                // drains steering, normalizes loop layout, assembles, and
-                // publishes SendToLlmProvider. That path publishes the *next*
-                // edge (`Sending → Streaming`) from its own
-                // begin_streaming write, so the `Idle → Sending` edge that
-                // happened above — inside the same write lock, before this
-                // point — has to be published here or it is never announced
-                // at all. A subscriber watching for a session to start
-                // working would otherwise see it go busy with no event.
-                super::super::helpers::publish_phase_changed(
-                    self.bus(),
-                    &payload.session_id,
-                    old_phase,
-                    PhaseKind::Sending,
-                )
-                .await;
-
+                // admits the stream with the phase actor, drains steering,
+                // normalizes loop layout, assembles, and publishes
+                // `SendToLlmProvider`. The `Idle → Sending → Streaming`
+                // edges are the admission's; this path publishes no phase
+                // event of its own.
                 self.publish(DispatchTurn {
                     session_id: payload.session_id.clone(),
                 })
@@ -318,8 +312,8 @@ impl SessionPersistenceActor {
     /// EnqueueResumeTurn: re-send current history without adding a new user entry.
     ///
     /// - If the session is `Idle`, push a UI-only `System` "↻ session resumed"
-    ///   marker, transition Idle → Sending, and hand the prepared turn to the
-    ///   turn-dispatch slice. Adds no `User` entry.
+    ///   marker, ask the phase actor to mint a fresh generation, and hand the
+    ///   prepared turn to the turn-dispatch slice. Adds no `User` entry.
     /// - If the session is busy (`Sending`/`Streaming`), silently ignored. We do
     ///   not queue resumes — the existing stream is the source of truth.
     ///
@@ -341,27 +335,32 @@ impl SessionPersistenceActor {
             return;
         }
 
-        // Push UI-only resume marker and transition Idle → Sending.
-        let marker = ChatEntry::system("\u{21bb} session resumed");
-        let (old_phase, new_phase) = {
-            self.state.with_session(|view| {
-                let session = view.session.map().get_or_create(&payload.session_id);
-                session.push_entry(marker.clone());
-                let old_phase = session.phase();
-                session.begin_sending();
-                (old_phase, session.phase())
-            })
-        };
-
-        if old_phase != new_phase {
-            super::super::helpers::publish_phase_changed(
-                self.bus(),
-                &payload.session_id,
-                old_phase,
-                new_phase,
-            )
-            .await;
+        // Admission first: a resume is a fresh turn (a generation the
+        // cancel killed stays dead), so `FreshTurn`. Refused → the marker
+        // never lands and nothing dispatches.
+        let decision = crate::phase_actor::admit_stream(
+            &self.services,
+            &payload.session_id,
+            jinn_session_msg::phase_command::DispatchKind::FreshTurn,
+            jiff::Timestamp::now(),
+        )
+        .await;
+        if !decision.admitted {
+            tracing::error!(
+                session_id = %payload.session_id,
+                "resume dropped: the phase actor refused a fresh mint"
+            );
+            return;
         }
+
+        // Push UI-only resume marker.
+        let marker = ChatEntry::system("\u{21bb} session resumed");
+        self.state.with_session(|view| {
+            view.session
+                .map()
+                .get_or_create(&payload.session_id)
+                .push_entry(marker.clone());
+        });
 
         super::super::helpers::emit_history_appended(self.bus(), &payload.session_id).await;
 
@@ -373,9 +372,9 @@ impl SessionPersistenceActor {
 
         self.save_active_session(&payload.session_id).await;
 
-        // Hand the prepared turn to the turn-dispatch slice: it drains
-        // steering, assembles, resolves the model, transitions → Streaming,
-        // and publishes SendToLlmProvider.
+        // Hand the prepared turn to the turn-dispatch slice: it admits the
+        // stream with the phase actor, drains steering, assembles, resolves
+        // the model, and publishes `SendToLlmProvider`.
         self.publish(DispatchTurn {
             session_id: payload.session_id.clone(),
         })
@@ -464,14 +463,8 @@ mod tests {
         jinn_kernel::common::state::State,
         BusAudit,
     ) {
-        let state = jinn_kernel::common::state::State::new(
-            jinn_kernel::common::app_state::AppState::default(),
-        );
         let (actor, audit) = super::super::super::helpers::test_actor_recording().await;
-        let actor = super::super::super::SessionPersistenceActor {
-            state: state.clone(),
-            ..actor
-        };
+        let state = actor.state.clone();
         (actor, state, audit)
     }
 
@@ -494,11 +487,13 @@ mod tests {
             })
             .await;
 
-        // Then the entry is in history and the phase moved to Sending (the
-        // turn is prepared; the turn-dispatch slice completes it).
+        // Then the entry is in history and the phase moved to Streaming — the
+        // admission ask applies the fused `Idle → Sending → Streaming` edge
+        // (the turn is prepared and its generation minted; the turn-dispatch
+        // slice publishes the provider request).
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Sending);
+        assert_eq!(session.phase(), PhaseKind::Streaming);
         assert_eq!(session.history().len(), 1);
         assert!(
             matches!(&session.history()[0].kind, ChatEntryKind::User { display, .. } if display == "hello world"),
@@ -518,7 +513,7 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn direct_dispatch_publishes_the_idle_to_sending_edge() {
+    async fn direct_dispatch_announces_the_session_going_busy() {
         // Given an idle session.
         let (actor, state, audit) = create_actor().await;
         let session_id = {
@@ -535,16 +530,16 @@ mod tests {
             })
             .await;
 
-        // Then the Idle -> Sending edge is announced. The write happens in
-        // this handler, and the turn-dispatch slice publishes only the *next*
-        // edge, so without this the transition is never published at all and
-        // a subscriber watches the session go busy with no event.
+        // Then the session going busy is announced: the admission ask applies
+        // the fused `Idle → Sending → Streaming` edge and the phase actor
+        // publishes it, so a subscriber never watches the session go busy
+        // with no event.
         let phases = audit.of_type::<jinn_session_msg::SessionPhaseChanged>();
         assert!(
             phases
                 .iter()
-                .any(|p| p.old_phase == PhaseKind::Idle && p.new_phase == PhaseKind::Sending),
-            "expected SessionPhaseChanged(Idle -> Sending); got: {phases:?}"
+                .any(|p| p.old_phase == PhaseKind::Idle && p.new_phase == PhaseKind::Streaming),
+            "expected SessionPhaseChanged(Idle -> Streaming); got: {phases:?}"
         );
     }
 
@@ -721,10 +716,11 @@ mod tests {
             })
             .await;
 
-        // Then the turn was prepared (history has the entry, phase is Sending).
+        // Then the turn was prepared (history has the entry, the admission
+        // fused the phase to Streaming).
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Sending);
+        assert_eq!(session.phase(), PhaseKind::Streaming);
     }
 
     // A minimal PNG (8x8) used by the multimodal enqueue tests below.
@@ -836,7 +832,7 @@ mod tests {
         // for dispatch (the slice completes it).
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Sending);
+        assert_eq!(session.phase(), PhaseKind::Streaming);
         drop(guard);
         assert!(
             audit.contains_name("DispatchTurn"),
@@ -921,7 +917,7 @@ mod tests {
         // text-only message dispatches even to an unknown model.
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Sending);
+        assert_eq!(session.phase(), PhaseKind::Streaming);
         drop(guard);
         assert!(
             audit.contains_name("DispatchTurn"),
@@ -987,14 +983,15 @@ mod tests {
             "expected a DispatchTurn handoff for resume from Idle"
         );
 
-        // And the session is now in Sending phase (prepared; the slice
-        // completes the transition).
+        // And the session is now in Streaming phase — the admission ask
+        // fused `Idle → Sending → Streaming` when it minted the generation
+        // behind the prepared handoff.
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
         assert_eq!(
             session.phase(),
-            PhaseKind::Sending,
-            "phase should be Sending after the prepared resume handoff"
+            PhaseKind::Streaming,
+            "phase should be Streaming after the prepared resume handoff"
         );
 
         // And no item was queued (we dispatched inline, not via the queue).
@@ -1054,7 +1051,7 @@ mod tests {
         // Then the turn was prepared and handed off for dispatch.
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Sending);
+        assert_eq!(session.phase(), PhaseKind::Streaming);
         drop(guard);
         assert!(
             audit.contains_name("DispatchTurn"),
@@ -1111,7 +1108,7 @@ mod tests {
         // Then the turn was prepared and handed off for dispatch.
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Sending);
+        assert_eq!(session.phase(), PhaseKind::Streaming);
         drop(guard);
         assert!(
             audit.contains_name("DispatchTurn"),
@@ -1213,7 +1210,7 @@ mod tests {
         // Then it prepares with exactly one attachment and the nonexistent token stays literal.
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Sending);
+        assert_eq!(session.phase(), PhaseKind::Streaming);
         let expanded = last_user_expanded(session).expect("user entry");
         assert!(
             expanded.contains("@/nonexistent/x"),
@@ -1262,7 +1259,7 @@ mod tests {
         // Then it prepares with exactly one attachment and the non-image token stays literal.
         let guard = state.read();
         let session = guard.session.get(&session_id).expect("session");
-        assert_eq!(session.phase(), PhaseKind::Sending);
+        assert_eq!(session.phase(), PhaseKind::Streaming);
         let expanded = last_user_expanded(session).expect("user entry");
         assert!(
             expanded.contains(&format!("@{}", notes.to_string_lossy())),

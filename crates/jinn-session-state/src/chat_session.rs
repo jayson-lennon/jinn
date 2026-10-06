@@ -1032,6 +1032,10 @@ impl ChatSessionState {
     /// The machine only accepts `Sending → Streaming`, so a session still in
     /// `Idle` (a caller that skipped `begin_sending`) is first transitioned to
     /// `Sending`.
+    ///
+    /// Exclusively called by the phase actor (see `apply_stream_begin`):
+    /// the validated edges live behind it, and every other caller of the
+    /// phase goes through a `PhaseCommand`.
     pub fn begin_streaming(&mut self) {
         // If Idle, first transition to Sending (some callers skip begin_sending()).
         if matches!(self.core.ephemeral.machine.kind(), PhaseKind::Idle)
@@ -1198,37 +1202,98 @@ impl ChatSessionState {
 
     /// Mark streaming as finished (normal completion).
     ///
-    /// Delegates to [`PhaseTransitions::on_stream_completed_finished`].
-    pub fn finish_streaming(&mut self, preserve_assistant: bool, dispatched_at: jiff::Timestamp) {
-        if preserve_assistant {
-            self.ensure_assistant_entry(dispatched_at);
-        }
-
-        // Set finished_at on the assistant entry.
-        if let Some(idx) = self.core.ephemeral.machine.streaming_entry_index() {
-            self.finish_streaming_entry(idx);
-        }
-
-        // Safety net: finalize any still-pending thinking entry (pure-reasoning
-        // streams that never produced a content token). Must run before the
-        // Cleared by the StreamingPhase drop in on_stream_completed_*.
-        if let Some(idx) = self.core.ephemeral.machine.streaming_thinking_entry_index() {
-            self.finish_thinking_entry(idx);
-        }
+    /// The machine edge alone: `Streaming → Idle`. Entry finalization —
+    /// the assistant entry's `finished_at`, the thinking safety net —
+    /// belongs to the session actor's completion fold, which runs before
+    /// the phase actor applies this edge.
+    ///
+    /// Exclusively called by the phase actor.
+    pub fn finish_streaming_via_machine(&mut self) {
         if let Err(e) = self.core.ephemeral.machine.on_stream_completed_finished() {
             tracing::warn!(
                 current_phase = ?self.core.ephemeral.machine.kind(),
                 err = %e,
-                "finish_streaming: machine rejected transition"
+                "finish_streaming_via_machine: machine rejected transition"
             );
         }
         // The transition above cleared every tool-call and tool-result registration.
     }
 
+    /// End the turn from either busy phase: `Streaming → Idle` or
+    /// `Sending → Idle`, dropping every tool registration.
+    ///
+    /// The machine edge behind [`PhaseCommand::StreamEndedFinished`],
+    /// which a normal completion applies from `Streaming` and a
+    /// tool-loop stop applies from `Sending`. Exclusively called by the
+    /// phase actor.
+    pub fn finish_turn_from_busy_via_machine(&mut self) {
+        match self.core.ephemeral.machine.kind() {
+            PhaseKind::Streaming => self.finish_streaming_via_machine(),
+            PhaseKind::Sending => {
+                if let Err(e) = self.core.ephemeral.machine.cancel() {
+                    tracing::warn!(
+                        current_phase = ?self.core.ephemeral.machine.kind(),
+                        err = %e,
+                        "finish_turn_from_busy_via_machine: machine rejected settle"
+                    );
+                }
+            }
+            PhaseKind::Idle => {}
+        }
+    }
+
+    /// Cancel the streaming phase via the machine's validated cancel.
+    ///
+    /// The machine edge alone: settle from either busy phase to `Idle`,
+    /// clearing every tool registration. Entry finalization belongs to
+    /// the session actor's completion fold.
+    ///
+    /// Exclusively called by the phase actor.
+    pub fn cancel_streaming_via_machine(&mut self) {
+        if let Err(e) = self.core.ephemeral.machine.cancel() {
+            tracing::warn!(
+                current_phase = ?self.core.ephemeral.machine.kind(),
+                err = %e,
+                "cancel_streaming_via_machine: machine rejected cancel"
+            );
+        }
+        // cancel() cleared every tool-call and tool-result registration.
+    }
+
+    /// Finalize the streaming entries ahead of a normal (non-cancel)
+    /// completion: ensure the assistant entry exists, stamp its
+    /// `finished_at`, and resolve any still-pending thinking entry.
+    ///
+    /// The entry half of [`Self::finish_streaming_via_machine`], run by
+    /// the session actor's completion fold before the phase actor applies
+    /// the machine edge.
+    ///
+    /// Exclusively called by the session actor's completion fold.
+    pub fn finalize_entries_for_finish(
+        &mut self,
+        preserve_assistant: bool,
+        dispatched_at: jiff::Timestamp,
+    ) {
+        if preserve_assistant {
+            self.ensure_assistant_entry(dispatched_at);
+        }
+        if let Some(idx) = self.core.ephemeral.machine.streaming_entry_index() {
+            self.finish_streaming_entry(idx);
+        }
+        if let Some(idx) = self.core.ephemeral.machine.streaming_thinking_entry_index() {
+            self.finish_thinking_entry(idx);
+        }
+    }
+
     /// Cancel streaming but keep partial text in history.
     ///
-    /// Delegates to [`PhaseTransitions::cancel`].
-    pub fn cancel_streaming(&mut self, dispatched_at: jiff::Timestamp) {
+    /// The entry half of a cancel: finalize the partial assistant entry
+    /// and any still-pending thinking entry so their durations resolve.
+    /// The machine edge is the phase actor's
+    /// [`Self::cancel_streaming_via_machine`], applied after this.
+    ///
+    /// Exclusively called by the session actor's completion fold.
+    pub fn finalize_entries_for_cancel(&mut self, dispatched_at: jiff::Timestamp) {
         self.ensure_assistant_entry(dispatched_at);
 
         // Set finished_at on the assistant entry.
@@ -1242,14 +1307,6 @@ impl ChatSessionState {
         if let Some(idx) = self.core.ephemeral.machine.streaming_thinking_entry_index() {
             self.finish_thinking_entry(idx);
         }
-        if let Err(e) = self.core.ephemeral.machine.cancel() {
-            tracing::warn!(
-                current_phase = ?self.core.ephemeral.machine.kind(),
-                err = %e,
-                "cancel_streaming: machine rejected cancel"
-            );
-        }
-        // cancel() cleared every tool-call and tool-result registration.
     }
 
     /// Cancel streaming and drain steering fragments plus queued messages back
@@ -1260,8 +1317,10 @@ impl ChatSessionState {
     /// `UserMessage` are joined with `"\n\n---\n\n"` and replace whatever was
     /// in the input box. `ToolContinuation` items are silently discarded.
     /// If nothing was drained, the input box is left untouched.
-    pub fn cancel_stream_and_drain(&mut self) {
-        self.cancel_streaming(jiff::Timestamp::now());
+    ///
+    /// The drain half only: the phase edge is the phase actor's, applied
+    /// when the cancel's `TurnCanceled` command lands.
+    pub fn drain_cancelled_work_to_input(&mut self) {
         let drained_text = self.drain_cancel_chunks().join("\n\n---\n\n");
         if !drained_text.is_empty() {
             self.update_input(|input| input.replace_all(drained_text));
@@ -2148,56 +2207,10 @@ impl ChatSessionState {
         self.core.identity.last_history_activity_at = Timestamp::now();
     }
 
-    /// Clear the sending flag (called when the first stream token arrives).
-    //
-    /// Complete the sending phase via the machine's validated transition.
-    ///
-    /// This should be called when a tool batch completes and the tool loop
-    /// is disabled. The machine reads the `tool_loop_disabled` flag and
-    /// transitions `Sending → Idle` (if set) or `Sending → Streaming` (if not).
-    ///
-    /// The caller must ensure `set_tool_loop_disabled(true)` has been called
-    /// before this method if the tool loop should be terminated.
-    pub fn finish_sending_via_machine(&mut self) {
-        if let Err(e) = self.core.ephemeral.machine.on_tool_batch_completed() {
-            tracing::warn!(
-                current_phase = ?self.core.ephemeral.machine.kind(),
-                err = %e,
-                "finish_sending_via_machine: machine rejected transition - ignoring"
-            );
-        }
-    }
-
     /// Transition to Working phase (a background operation started).
     ///
     /// Increment the busy counter. Called when a background operation starts.
     /// The count is ephemeral (not persisted).
-    pub fn begin_busy(&mut self) {
-        self.core.ephemeral.busy_count += 1;
-    }
-
-    /// Decrement the busy counter (floor at 0). Called when one background
-    /// operation completes. Returns the new count.
-    pub fn complete_busy(&mut self) -> usize {
-        self.core.ephemeral.busy_count = self.core.ephemeral.busy_count.saturating_sub(1);
-        self.core.ephemeral.busy_count
-    }
-
-    /// Hard-reset the busy counter to zero. Cancels all tracked operations.
-    pub fn cancel_busy(&mut self) {
-        self.core.ephemeral.busy_count = 0;
-    }
-
-    /// Returns the current number of active background operations.
-    pub fn busy_count(&self) -> usize {
-        self.core.ephemeral.busy_count
-    }
-
-    /// Returns `true` when any background operation is in progress.
-    pub fn is_busy(&self) -> bool {
-        self.core.ephemeral.busy_count > 0
-    }
-
     /// The current scroll offset (lines to skip from top).
     ///
     /// Returns `None` when auto-scrolled to the bottom, or `Some(n)` when
@@ -3731,37 +3744,6 @@ impl ChatSessionState {
     #[must_use]
     pub fn has_in_flight_stream(&self) -> bool {
         self.core.ephemeral.stream_dispatched_at.is_some()
-    }
-
-    /// Record that the turn this session was running has been terminated.
-    ///
-    /// Call this from the terminate routine, before anything settles. A
-    /// stream-rule intercept whose completion was published from inside the
-    /// stream task the cancel tore down arrives after the settle, when the
-    /// session already looks busy again; this is what tells it the turn it is
-    /// about to resume is not running.
-    pub fn mark_terminated(&mut self) {
-        self.core.ephemeral.terminated = true;
-    }
-
-    /// Return whether this session's current turn has already been terminated.
-    ///
-    /// A handler that would *resume* a turn must refuse when this is true:
-    /// resuming a terminated turn re-arms the in-flight guard on a session
-    /// nothing will ever complete, which is what a watchdog then reports as a
-    /// stall.
-    #[must_use]
-    pub fn is_terminated(&self) -> bool {
-        self.core.ephemeral.terminated
-    }
-
-    /// Clear the terminated mark, spent by the next dispatch.
-    ///
-    /// Spent exactly once, on the turn boundary: the mark must not outlive the
-    /// turn it ended, or the user's next message would be refused as a resume of
-    /// a turn that no longer exists.
-    pub fn clear_terminated(&mut self) {
-        self.core.ephemeral.terminated = false;
     }
 
     /// Buffer tool results that arrived before their stream completion.

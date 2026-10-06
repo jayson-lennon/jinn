@@ -1902,7 +1902,10 @@ fn waiting_line_disappears_when_child_finishes_without_manual_invalidation() {
     // When the child finishes (Idle) and the render re-runs with no cache
     // invalidation.
     let child = state.session.get_mut(&child_id).expect("child");
-    child.finish_streaming(false, jiff::Timestamp::now());
+    // The old finish is now the two actor halves: the session actor's entry
+    // fold, then the phase actor's machine edge.
+    child.finalize_entries_for_finish(false, jiff::Timestamp::now());
+    child.finish_streaming_via_machine();
     terminal
         .draw(|frame| {
             let slices = jinn_slices::Slices::new();
@@ -2276,7 +2279,8 @@ fn completed_tool_call_renders_collapsed_after_streaming_finishes() {
         .expect("append delta");
     state
         .active_session_mut()
-        .finish_streaming(true, jiff::Timestamp::now());
+        .finalize_entries_for_finish(true, jiff::Timestamp::now());
+    state.active_session_mut().finish_streaming_via_machine();
 
     // When rendering.
     let rows = rendered_content_rows(&state, 40, 10);

@@ -189,6 +189,31 @@ fn navigate_down_moves_cursor_without_switching() {
     assert_eq!(*state.session.active_session_id(), original_active);
 }
 
+/// R5: the sidebar's idle indicator must answer from the phase alone.
+///
+/// The busy counter that used to disagree with the phase is gone, so the
+/// surviving claim is its converse: a session working in the phase sense
+/// is not idle, with nothing else to override it.
+#[rstest::rstest]
+fn working_phase_session_is_not_idle_in_sidebar() {
+    // Given a session mid-turn in the phase sense.
+    let mut state = state_with_sessions(1);
+    state.session.active_session_mut().begin_streaming();
+
+    // When the sidebar derives its session list.
+    let sessions = sorted_open_sessions(&state);
+
+    // Then the session is not idle: the phase is the only answer.
+    let active = sessions
+        .iter()
+        .find(|e| e.id == state.session.active_session_id().clone())
+        .expect("active session is listed");
+    assert!(
+        !active.is_idle,
+        "a Streaming session must not report idle: the phase is the only liveness signal"
+    );
+}
+
 #[rstest::rstest]
 fn navigate_up_moves_cursor_without_switching() {
     // Given state with 3 sessions, cursor at index 2.
@@ -487,25 +512,25 @@ fn sorted_sessions_count_matches_hashmap() {
 }
 
 #[rstest::rstest]
-fn busy_session_is_not_idle() {
-    // Given a session that has active busy operations.
+fn busy_phase_session_is_not_idle() {
+    // Given a session whose turn is mid-flight.
     let mut state = AppState::default_with_scope_focus();
-    state.active_session_mut().begin_busy();
+    state.active_session_mut().begin_streaming();
 
     // When collecting sorted open sessions.
     let sessions = sorted_open_sessions(&state);
 
-    // Then the session entry is not idle (busy_count > 0 shows throbber).
+    // Then the session entry is not idle (the throbber shows).
     assert_eq!(sessions.len(), 1);
     assert!(
         !sessions[0].is_idle,
-        "busy session should show throbber in sidebar"
+        "a session in a busy phase should show throbber in sidebar"
     );
 }
 
 #[rstest::rstest]
-fn idle_and_not_busy_is_idle() {
-    // Given a session with no busy operations and phase Idle.
+fn idle_phase_is_idle() {
+    // Given a session at rest in the phase sense.
     let state = AppState::default_with_scope_focus();
 
     // When collecting sorted open sessions.
@@ -513,18 +538,18 @@ fn idle_and_not_busy_is_idle() {
 
     // Then the session entry is idle.
     assert_eq!(sessions.len(), 1);
-    assert!(
-        sessions[0].is_idle,
-        "idle session with no busy ops should be idle"
-    );
+    assert!(sessions[0].is_idle, "an Idle session should be idle");
 }
 
 #[rstest::rstest]
-fn working_complete_returns_to_idle() {
-    // Given a session that was working but completed.
+fn settled_turn_returns_to_idle() {
+    // Given a session that was mid-turn and has settled.
     let mut state = AppState::default_with_scope_focus();
-    state.active_session_mut().begin_busy();
-    state.active_session_mut().complete_busy();
+    {
+        let session = state.active_session_mut();
+        session.begin_streaming();
+        session.finish_streaming_via_machine();
+    }
 
     // When collecting sorted open sessions.
     let sessions = sorted_open_sessions(&state);
@@ -817,7 +842,7 @@ fn close_session_rejected_when_working_phase() {
         .frontend
         .scope_push(jinn_sidebar_msg::SidebarSectionId::Sessions.focus_scope());
     cursor_to_row(&mut state, 0);
-    state.active_session_mut().begin_busy();
+    state.active_session_mut().begin_streaming();
 
     // When validating close.
     let result = validate_session_close(&state);
@@ -1064,8 +1089,8 @@ fn teardown_only_is_noop_when_session_busy() {
     state
         .active_session_mut()
         .set_lifecycle_args(vec!["my-branch".to_owned()]);
-    // Mark the session busy so close validation rejects it.
-    state.active_session_mut().begin_busy();
+    // Put the session mid-turn so close validation rejects it.
+    state.active_session_mut().begin_streaming();
     cursor_to_row(&mut state, 0);
     state
         .frontend
@@ -2290,7 +2315,7 @@ fn archive_tree_members_rejects_when_a_descendant_is_busy() {
         .session
         .get_mut(&grandchild_id)
         .expect("grandchild")
-        .begin_busy();
+        .begin_streaming();
     focus_sessions_and_select(&mut state, "tree root");
 
     // When resolving the archive-tree members.
@@ -2304,7 +2329,11 @@ fn archive_tree_members_rejects_when_a_descendant_is_busy() {
 fn archive_tree_members_rejects_when_selection_is_busy() {
     // Given a tree whose selected root itself is busy.
     let (mut state, [root_id, ..]) = state_with_archive_tree();
-    state.session.get_mut(&root_id).expect("root").begin_busy();
+    state
+        .session
+        .get_mut(&root_id)
+        .expect("root")
+        .begin_streaming();
     focus_sessions_and_select(&mut state, "tree root");
 
     // When resolving the archive-tree members.
@@ -2439,7 +2468,7 @@ fn archive_tree_arm_sets_busy_prompt_when_subtree_busy() {
         .session
         .get_mut(&grandchild_id)
         .expect("grandchild")
-        .begin_busy();
+        .begin_streaming();
     focus_sessions_and_select(&mut state, "tree root");
 
     // When handling the first archive-tree press.
@@ -2511,7 +2540,7 @@ fn archive_tree_confirm_after_member_became_busy_switches_to_busy_prompt() {
         .session
         .get_mut(&grandchild_id)
         .expect("grandchild")
-        .begin_busy();
+        .begin_streaming();
 
     // When handling a second archive-tree press (confirm).
     let result = IntentHandler::handle(
@@ -2618,7 +2647,7 @@ fn teardown_tree_arm_sets_busy_prompt_when_subtree_busy() {
         .session
         .get_mut(&grandchild_id)
         .expect("grandchild")
-        .begin_busy();
+        .begin_streaming();
     focus_sessions_and_select(&mut state, "tree root");
 
     // When handling the first teardown-tree press.
@@ -3621,7 +3650,7 @@ fn archive_tree_with_busy_member_marks_nothing() {
     let mut child = ChatSessionState::new();
     child.set_parent_session(parent_id.clone());
     let child_id = child.session_id().clone();
-    child.begin_busy();
+    child.begin_streaming();
     state.session.insert(child);
     state
         .frontend

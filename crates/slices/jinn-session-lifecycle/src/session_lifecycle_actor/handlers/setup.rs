@@ -16,19 +16,10 @@ impl SessionLifecycleActor {
         &mut self,
         payload: &RunSessionSetup,
     ) {
-        {
-            self.state.with_session(|view| {
-                if let Some(session) = view.session.map().get_mut(&payload.session_id) {
-                    session.begin_busy();
-                }
-            });
-        }
-
         match &payload.lifecycle_command {
             Some(jinn_preferences_config::schemas::LifecycleCommand::Builtin(id)) => {
                 self.run_builtin_setup(&payload.session_id, id, &payload.args)
                     .await;
-                self.complete_busy(&payload.session_id);
             }
             Some(jinn_preferences_config::schemas::LifecycleCommand::Shell(_)) | None => {
                 self.spawn_shell_setup(payload).await;
@@ -41,7 +32,6 @@ impl SessionLifecycleActor {
         payload: &FinishSessionSetup,
     ) {
         self.lifecycle_child = None;
-        self.complete_busy(&payload.session_id);
 
         match (&payload.cwd, &payload.error) {
             (Some(cwd), None) => {
@@ -119,7 +109,6 @@ impl SessionLifecycleActor {
         {
             Ok(pair) => pair,
             Err(error) => {
-                self.complete_busy(&payload.session_id);
                 let error = format!("Failed to start setup command: {error}");
                 self.publish(PushChatEntry {
                     session_id: payload.session_id.clone(),
@@ -253,14 +242,6 @@ impl SessionLifecycleActor {
             || state.session.default_cwd().clone(),
             |session| session.cwd().to_path_buf(),
         )
-    }
-
-    pub(super) fn complete_busy(&self, session_id: &jinn_core_types::SessionId) {
-        self.state.with_session(|view| {
-            if let Some(session) = view.session.map().get_mut(session_id) {
-                session.complete_busy();
-            }
-        });
     }
 }
 

@@ -34,7 +34,6 @@ fn bash_batch_state() -> (State, jinn_core_types::SessionId) {
             "bash",
             r#"{"command":"echo loop-continues"}"#,
         ));
-        session.begin_sending();
     }
     let session_id = state.read().session.active_session_id().clone();
     (state, session_id)
@@ -221,7 +220,42 @@ async fn tool_batch_completed_over_the_bus_continues_the_tool_loop() {
             builtin_filter: Some(vec!["bash".to_owned()]),
         },
     );
-    spawn_session_actor(&harness, state).await;
+    spawn_session_actor(&harness, state.clone()).await;
+
+    // The live generation and the mid-tool-loop shape. Production mints at
+    // dispatch (the phase actor applies the fused streaming edge) and the
+    // `StreamCompleted(ToolUse)` settle leaves the session in `Sending` —
+    // the phase the batch handler's buffer-or-process gate reads. Minting
+    // the fused edge *without* the tool-use edge would leave the session in
+    // `Streaming`, and the batch would be buffered as an early arrival
+    // nothing ever drains. Without the mint the continuation's admission
+    // ask refuses and the loop ends here.
+    {
+        use jinn_kernel::common::bus::HarnessServices;
+        let services = harness.services().await;
+        use jinn_session_msg::phase_command::DispatchKind;
+        let minted = jinn_kernel::common::phase_command::apply_phase(
+            &services,
+            jinn_session_msg::PhaseCommand::BeginStream {
+                session_id: session_id.clone(),
+                kind: DispatchKind::FreshTurn,
+                dispatched_at: jiff::Timestamp::now(),
+            },
+        )
+        .await
+        .expect("phase actor reachable");
+        assert!(minted.admitted, "fixture mint must be admitted");
+        let settled = jinn_kernel::common::phase_command::apply_phase(
+            &services,
+            jinn_session_msg::PhaseCommand::StreamEndedToolUse {
+                session_id: session_id.clone(),
+                dispatched_at: jiff::Timestamp::now(),
+            },
+        )
+        .await
+        .expect("phase actor reachable");
+        assert!(settled.admitted, "fixture tool-use edge must be admitted");
+    }
 
     // When the batch is dispatched over the bus (the orchestrator executes the
     // builtin and publishes ToolBatchCompleted itself).

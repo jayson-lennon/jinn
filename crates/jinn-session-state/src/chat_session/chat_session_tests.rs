@@ -249,7 +249,8 @@ fn finish_streaming_clears_streaming_state() {
         .expect("ok");
 
     // When finishing streaming.
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then is_streaming is false and text is preserved.
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -269,7 +270,8 @@ fn cancel_streaming_keeps_partial_text() {
         .expect("ok");
 
     // When cancelling streaming.
-    session.cancel_streaming(jiff::Timestamp::now());
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
 
     // Then is_streaming is false but partial text is kept.
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -714,26 +716,26 @@ fn begin_sending_is_noop_when_streaming() {
 }
 
 #[rstest::rstest]
-fn finish_sending_via_machine_transitions_to_idle_when_disabled() {
+fn finish_turn_from_busy_settles_sending_to_idle() {
     // Given a session that is sending with tool_loop_disabled set.
     let mut session = ChatSessionState::new();
     session.begin_sending();
     session.set_tool_loop_disabled();
 
-    // When finishing sending via machine.
-    session.finish_sending_via_machine();
+    // When the turn is finished from the busy phase.
+    session.finish_turn_from_busy_via_machine();
 
-    // Then the session is Idle (tool_loop_disabled triggered Sending → Idle).
+    // Then the session is Idle (the tool-loop stop settled Sending → Idle).
     assert_eq!(session.phase(), PhaseKind::Idle);
 }
 
 #[rstest::rstest]
-fn finish_sending_via_machine_is_noop_when_not_sending() {
+fn finish_turn_from_busy_is_noop_when_idle() {
     // Given a session that is not sending.
     let mut session = ChatSessionState::new();
 
-    // When calling finish_sending_via_machine.
-    session.finish_sending_via_machine();
+    // When the turn is finished from the busy phase.
+    session.finish_turn_from_busy_via_machine();
 
     // Then phase stays Idle (no panic, just a logged warning).
     assert_eq!(session.phase(), PhaseKind::Idle);
@@ -780,7 +782,8 @@ fn cancel_streaming_returns_to_idle() {
     assert_eq!(session.phase(), PhaseKind::Streaming);
 
     // When cancelling streaming.
-    session.cancel_streaming(jiff::Timestamp::now());
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
 
     // Then the session is idle.
     assert_eq!(session.phase(), PhaseKind::Idle);
@@ -794,12 +797,14 @@ fn cancel_streaming_from_sending_phase_returns_to_idle() {
     let mut session = ChatSessionState::new();
     session.begin_sending();
     session.begin_streaming();
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
     session.begin_sending();
     assert_eq!(session.phase(), PhaseKind::Sending);
 
     // When cancelling streaming (user presses ESC during tool execution).
-    session.cancel_streaming(jiff::Timestamp::now());
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
 
     // Then the session returns to idle.
     assert_eq!(session.phase(), PhaseKind::Idle);
@@ -819,7 +824,8 @@ fn finish_streaming_returns_to_idle() {
         .set_streaming_entry_index(idx);
 
     // When finishing streaming.
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then the session is idle.
     assert_eq!(session.phase(), PhaseKind::Idle);
@@ -981,7 +987,8 @@ fn finish_streaming_clears_tool_call_indices() {
     session.begin_tool_call(0, "call_1", "echo", jiff::Timestamp::now());
 
     // When finishing streaming.
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then the tool call indices are cleared (entries remain in history).
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -996,7 +1003,8 @@ fn cancel_streaming_clears_tool_call_indices() {
     session.begin_tool_call(0, "call_1", "echo", jiff::Timestamp::now());
 
     // When cancelling streaming.
-    session.cancel_streaming(jiff::Timestamp::now());
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
 
     // Then the tool call indices are cleared (entries remain in history).
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -1723,7 +1731,8 @@ fn finish_streaming_clears_thinking_entry_index() {
         .expect("ok");
 
     // When finishing streaming.
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then the thinking entry index is cleared.
     assert_eq!(session.streaming_thinking_entry_index(), None);
@@ -1749,7 +1758,8 @@ fn cancel_streaming_preserves_partial_thinking() {
         .expect("ok");
 
     // When cancelling streaming.
-    session.cancel_streaming(jiff::Timestamp::now());
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
 
     // Then the partial thinking text is preserved.
     assert_eq!(session.streaming_thinking_entry_index(), None);
@@ -1765,7 +1775,8 @@ fn finish_streaming_without_preserve_skips_assistant_entry() {
     session.begin_streaming();
 
     // When finishing streaming without preserving assistant.
-    session.finish_streaming(false, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(false, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then no assistant entry was created.
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -1779,7 +1790,8 @@ fn finish_streaming_with_preserve_creates_assistant_entry() {
     session.begin_streaming();
 
     // When finishing streaming with preserving assistant.
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then an empty assistant entry was created.
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -1797,7 +1809,8 @@ fn finish_streaming_without_preserve_keeps_existing_assistant() {
         .expect("ok");
 
     // When finishing streaming without preserving assistant.
-    session.finish_streaming(false, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(false, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then the existing assistant entry is still there (ensure_assistant_entry was a no-op since entry already existed).
     assert_ne!(session.phase(), PhaseKind::Streaming);
@@ -3076,7 +3089,8 @@ fn is_tool_call_streaming_returns_false_after_finish_streaming() {
     let entry_id = session.history()[1].id.clone();
 
     // When finishing streaming.
-    session.finish_streaming(true, jiff::Timestamp::now());
+    session.finalize_entries_for_finish(true, jiff::Timestamp::now());
+    session.finish_streaming_via_machine();
 
     // Then the tool call entry is no longer streaming.
     assert!(
@@ -3864,7 +3878,9 @@ fn cancel_stream_and_drain_puts_user_display_text_in_input() {
     )));
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains the drained display texts joined by the cancel separator.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -3882,7 +3898,9 @@ fn cancel_stream_and_drain_discards_non_user_items() {
     )));
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then only user display text appears in the input buffer.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -3897,7 +3915,9 @@ fn cancel_stream_and_drain_with_empty_queue_leaves_input_empty() {
     assert_eq!(session.queue_len(), 0);
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer remains empty.
     assert!(session.with_input(|i| i.text().is_empty(), || true));
@@ -3911,7 +3931,9 @@ fn cancel_stream_and_drain_skips_tool_continuation() {
     session.enqueue(jinn_turn_dispatch_msg::QueueItem::ToolContinuation);
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then input buffer is empty (ToolContinuation was silently discarded).
     assert!(session.with_input(|i| i.text().is_empty(), || true));
@@ -3934,7 +3956,9 @@ fn cancel_stream_and_drain_uses_display_not_expanded() {
     )));
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains the display text, not expanded.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -3954,7 +3978,9 @@ fn cancel_stream_and_drain_puts_steering_in_input() {
         .push_fragment("frag2".to_owned());
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains both fragments joined by the cancel separator.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -3971,7 +3997,9 @@ fn cancel_stream_and_drain_single_steering_fragment_no_separator() {
         .push_fragment("frag1".to_owned());
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains the fragment with no separator.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -3988,7 +4016,9 @@ fn cancel_stream_and_drain_clears_steering_buffer() {
         .push_fragment("frag1".to_owned());
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the steering buffer is empty.
     assert!(
@@ -4012,7 +4042,9 @@ fn cancel_stream_and_drain_flattens_steering_and_queue() {
     )));
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains all units flattened, steering first, joined by the cancel separator.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -4029,7 +4061,9 @@ fn cancel_stream_and_drain_both_empty_leaves_input_unchanged() {
     assert!(session.steering_buffer().is_empty());
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer is left unchanged.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -4046,7 +4080,9 @@ fn cancel_stream_and_drain_single_queue_message_no_separator() {
     )));
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains the single message with no separator.
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -4064,7 +4100,9 @@ fn cancel_stream_and_drain_steering_with_only_tool_continuation() {
     session.enqueue(jinn_turn_dispatch_msg::QueueItem::ToolContinuation);
 
     // When cancelling and draining.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the input buffer contains only the steering fragment (continuation discarded).
     let text = session.with_input(|i| i.text().to_owned(), String::new);
@@ -6773,7 +6811,8 @@ fn cancel_streaming_leaves_the_input_draft_where_the_user_typed_it() {
 
     // When the turn is cancelled the way a trigger supersedes one — the
     // plain phase transition, not the Esc drain.
-    session.cancel_streaming(jiff::Timestamp::now());
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
 
     // Then the session is Idle, so the enqueue that follows dispatches
     // rather than queueing behind a still-hot phase.
@@ -6811,7 +6850,9 @@ fn a_queued_message_is_handed_back_to_the_user_as_an_editable_draft() {
     )));
 
     // When a cancel drains the session the way the Esc path does.
-    session.cancel_stream_and_drain();
+    session.finalize_entries_for_cancel(jiff::Timestamp::now());
+    session.cancel_streaming_via_machine();
+    session.drain_cancelled_work_to_input();
 
     // Then the seeded turn surfaces as editable draft text instead of
     // having run. This is what a user sees when an attendant is triggered

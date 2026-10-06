@@ -174,24 +174,6 @@ impl SessionPhaseMachine {
             old_streaming,
         })
     }
-
-    /// Set soft cancel flag on the current `Streaming` phase.
-    ///
-    /// Does NOT transition - the flag is checked at the next stream-completion
-    /// boundary (`on_stream_completed_tool_use` or `on_stream_completed_finished`).
-    /// At that point, the transition goes to `Idle` instead of `Sending`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TransitionError`] if not in `Streaming`.
-    pub fn soft_cancel(&mut self) -> Result<(), TransitionError> {
-        self.validate(PhaseKind::Streaming)?;
-        if let Phase::Streaming(ref mut streaming) = self.phase {
-            streaming.soft_cancel_requested = true;
-        }
-        Ok(())
-    }
-
     // ── Phase data accessors ────────────────────────────────────────────
 
     /// Read-only access to `StreamingPhase` data, if currently streaming.

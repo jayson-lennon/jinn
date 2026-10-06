@@ -44,6 +44,16 @@ fn assert_from(err: &TransitionError, expected_from: PhaseKind) {
     assert_eq!(err.from, expected_from, "error from phase mismatch");
 }
 
+/// Advance the tool-use handoff: stream completion followed by the loop's
+/// re-dispatch, the fused `Streaming → Idle → Sending` path a tool-use
+/// burst takes.
+fn fuse_tool_use_completion(m: &mut SessionPhaseMachine) {
+    m.on_stream_completed_finished()
+        .expect("tool-use burst should complete");
+    m.on_dispatch_message()
+        .expect("the tool loop should re-dispatch");
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SECTION 1: Valid transitions
 // ═══════════════════════════════════════════════════════════════════════════
@@ -81,24 +91,6 @@ fn sending_to_streaming_on_first_token() {
 
 #[rstest::rstest]
 #[test]
-fn streaming_to_sending_on_tool_use() {
-    // Given a machine in Streaming.
-    let mut m = streaming_machine();
-
-    // When stream completes with tool use.
-    let outcome = m.on_stream_completed_tool_use().expect("should succeed");
-
-    // Then the transition is Streaming → Sending.
-    assert_eq!(outcome.old_phase, PhaseKind::Streaming);
-    assert_eq!(outcome.new_phase, PhaseKind::Sending);
-    assert!(
-        m.streaming_phase().is_none(),
-        "streaming data should be gone"
-    );
-}
-
-#[rstest::rstest]
-#[test]
 fn streaming_to_idle_on_finished() {
     // Given a machine in Streaming.
     let mut m = streaming_machine();
@@ -113,34 +105,6 @@ fn streaming_to_idle_on_finished() {
         m.streaming_phase().is_none(),
         "streaming data should be gone"
     );
-}
-
-#[rstest::rstest]
-#[test]
-fn streaming_to_idle_on_error() {
-    // Given a machine in Streaming.
-    let mut m = streaming_machine();
-
-    // When stream completes with error.
-    let outcome = m.on_stream_completed_error().expect("should succeed");
-
-    // Then the transition is Streaming → Idle.
-    assert_eq!(outcome.old_phase, PhaseKind::Streaming);
-    assert_eq!(outcome.new_phase, PhaseKind::Idle);
-}
-
-#[rstest::rstest]
-#[test]
-fn streaming_to_idle_on_canceled() {
-    // Given a machine in Streaming.
-    let mut m = streaming_machine();
-
-    // When stream is canceled.
-    let outcome = m.on_stream_completed_canceled().expect("should succeed");
-
-    // Then the transition is Streaming → Idle.
-    assert_eq!(outcome.old_phase, PhaseKind::Streaming);
-    assert_eq!(outcome.new_phase, PhaseKind::Idle);
 }
 
 #[rstest::rstest]
@@ -190,55 +154,6 @@ fn cancel_during_streaming() {
 
 #[rstest::rstest]
 #[test]
-fn soft_cancel_sets_flag() {
-    // Given a machine in Streaming.
-    let mut m = streaming_machine();
-
-    // When soft cancel is called.
-    m.soft_cancel().expect("should succeed");
-
-    // Then the flag is set on the streaming phase.
-    assert!(
-        m.streaming_phase()
-            .expect("should be streaming")
-            .soft_cancel_requested
-    );
-    // And the phase is still Streaming (no transition).
-    assert_eq!(m.kind(), PhaseKind::Streaming);
-}
-
-#[rstest::rstest]
-#[test]
-fn soft_cancel_deferred_to_finished() {
-    // Given a machine in Streaming with soft cancel requested.
-    let mut m = streaming_machine();
-    m.soft_cancel().expect("soft cancel should succeed");
-
-    // When stream completes normally.
-    let outcome = m.on_stream_completed_finished().expect("should succeed");
-
-    // Then the transition is Streaming → Idle.
-    assert_eq!(outcome.old_phase, PhaseKind::Streaming);
-    assert_eq!(outcome.new_phase, PhaseKind::Idle);
-}
-
-#[rstest::rstest]
-#[test]
-fn soft_cancel_deferred_to_tool_use() {
-    // Given a machine in Streaming with soft cancel requested.
-    let mut m = streaming_machine();
-    m.soft_cancel().expect("soft cancel should succeed");
-
-    // When stream completes with tool use.
-    let outcome = m.on_stream_completed_tool_use().expect("should succeed");
-
-    // Then the transition goes to Idle (not Sending) because soft cancel was set.
-    assert_eq!(outcome.old_phase, PhaseKind::Streaming);
-    assert_eq!(outcome.new_phase, PhaseKind::Idle);
-}
-
-#[rstest::rstest]
-#[test]
 fn first_token_creates_default_streaming_state() {
     // Given a machine in Sending.
     let mut m = sending_machine();
@@ -250,7 +165,6 @@ fn first_token_creates_default_streaming_state() {
     let sp = m.streaming_phase().expect("should be streaming");
     assert!(sp.streaming_entry_index.is_none());
     assert!(sp.streaming_thinking_entry_index.is_none());
-    assert!(!sp.soft_cancel_requested);
     // And the tool tracking maps, which are machine-level, are untouched by
     // the edge.
     assert!(m.active_tool_call_indices().is_empty());
@@ -416,28 +330,6 @@ fn cancel_during_sending() {
     assert!(result.old_streaming.streaming_entry_index.is_none());
 }
 
-#[rstest::rstest]
-#[test]
-fn reject_soft_cancel_while_idle() {
-    // Given a machine in Idle.
-    let mut m = idle_machine();
-    // When requesting a soft cancel.
-    let err = m.soft_cancel().unwrap_err();
-    // Then the transition is rejected and the error reports Idle as the from phase.
-    assert_from(&err, PhaseKind::Idle);
-}
-
-#[rstest::rstest]
-#[test]
-fn reject_soft_cancel_while_sending() {
-    // Given a machine in Sending.
-    let mut m = sending_machine();
-    // When requesting a soft cancel.
-    let err = m.soft_cancel().unwrap_err();
-    // Then the transition is rejected and the error reports Sending as the from phase.
-    assert_from(&err, PhaseKind::Sending);
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // SECTION 3: Tool loop cycles
 // ═══════════════════════════════════════════════════════════════════════════
@@ -446,15 +338,16 @@ fn reject_soft_cancel_while_sending() {
 #[test]
 fn full_tool_loop_cycle() {
     // Given a fresh machine in Idle.
-    // Idle → Sending → Streaming → Sending → Streaming → Idle
+    // Idle → Sending → Streaming → Idle → Sending → Streaming → Idle
     let mut m = SessionPhaseMachine::new();
 
-    // When running the whole tool loop: dispatch, stream, tool use, tool batch, second stream.
+    // When running the whole tool loop: dispatch, stream, the fused tool-use
+    // handoff, tool batch, second stream, finish.
     m.on_dispatch_message().expect("dispatch 1");
     assert_eq!(m.kind(), PhaseKind::Sending);
     m.on_first_token().expect("first token 1");
     assert_eq!(m.kind(), PhaseKind::Streaming);
-    m.on_stream_completed_tool_use().expect("tool use 1");
+    fuse_tool_use_completion(&mut m);
     assert_eq!(m.kind(), PhaseKind::Sending);
     m.on_tool_batch_completed().expect("tool batch");
     assert_eq!(m.kind(), PhaseKind::Streaming);
@@ -483,31 +376,13 @@ fn tool_loop_with_cancel_mid_stream() {
 
 #[rstest::rstest]
 #[test]
-fn tool_loop_with_soft_cancel_at_boundary() {
-    // Given a machine streaming with a soft cancel requested.
-    // Idle → Sending → Streaming → soft_cancel() → on_stream_completed_tool_use() → Idle
-    let mut m = SessionPhaseMachine::new();
-    m.on_dispatch_message().expect("dispatch");
-    m.on_first_token().expect("first token");
-    m.soft_cancel().expect("soft cancel");
-
-    // When the tool-use stream completes after the soft cancel.
-    let outcome = m.on_stream_completed_tool_use().expect("tool use");
-
-    // Then the outcome goes to Idle, not Sending, and the machine is Idle.
-    assert_eq!(outcome.new_phase, PhaseKind::Idle);
-    assert_eq!(m.kind(), PhaseKind::Idle);
-}
-
-#[rstest::rstest]
-#[test]
 fn tool_loop_disabled_mid_cycle() {
     // Given a machine in Sending after a tool use, with tool_loop_disabled set.
     // Idle → Sending → Streaming → Sending(tool_loop_disabled=true) → Idle
     let mut m = SessionPhaseMachine::new();
     m.on_dispatch_message().expect("dispatch");
     m.on_first_token().expect("first token");
-    m.on_stream_completed_tool_use().expect("tool use");
+    fuse_tool_use_completion(&mut m);
     m.set_tool_loop_disabled();
 
     // When the tool batch completes.
@@ -554,14 +429,14 @@ fn tool_call_tracking_survives_the_tool_use_handoff_when_the_loop_continues() {
     let mut m = streaming_machine();
     m.active_tool_call_indices_mut().insert(3, 15);
 
-    // When the stream ends in tool use, handing off to the next burst.
-    let outcome = m
-        .on_stream_completed_tool_use()
-        .expect("tool use should succeed");
+    // When the stream ends in tool use, handing off to the next burst through
+    // the fused completion-and-re-dispatch path.
+    fuse_tool_use_completion(&mut m);
 
     // Then the phase advanced but the registration was dropped, because that
-    // burst's calls were all finalized before this edge fired.
-    assert_eq!(outcome.new_phase, PhaseKind::Sending);
+    // burst's calls were all finalized by the turn-end clear before the
+    // re-dispatch.
+    assert_eq!(m.kind(), PhaseKind::Sending);
     assert!(m.active_tool_call_indices().is_empty());
 }
 
@@ -597,26 +472,6 @@ fn sending_phase_tracks_tool_loop_disabled() {
     // Then on_tool_batch_completed reads it and goes to Idle.
     let outcome = m.on_tool_batch_completed().expect("tool batch");
     assert_eq!(outcome.new_phase, PhaseKind::Idle);
-}
-
-#[rstest::rstest]
-#[test]
-fn soft_cancel_flag_consumed_on_transition() {
-    // Given a machine in Streaming with soft cancel set.
-    let mut m = streaming_machine();
-    m.soft_cancel().expect("soft cancel");
-    assert!(
-        m.streaming_phase()
-            .expect("streaming")
-            .soft_cancel_requested
-    );
-
-    // When transition happens.
-    m.on_stream_completed_finished().expect("finished");
-
-    // Then the flag is gone (the StreamingPhase was dropped).
-    assert!(m.streaming_phase().is_none());
-    assert_eq!(m.kind(), PhaseKind::Idle);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -732,7 +587,8 @@ fn tool_call_registration_survives_a_round_trip_through_both_busy_phases() {
 
     // When the turn crosses the Sending -> Streaming boundary and back.
     m.on_first_token().expect("first token should succeed");
-    m.on_stream_completed_error().expect("error should succeed");
+    m.on_stream_completed_finished()
+        .expect("finish should succeed");
 
     // Then the registration is cleared by the turn end, which is the point of
     // clearing it — a *new* burst must start from a clean slate.

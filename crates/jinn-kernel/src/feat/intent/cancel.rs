@@ -57,7 +57,7 @@ use jinn_core_types::SessionId;
 #[must_use]
 pub fn subtree_has_running_work(state: &AppState, session_id: &SessionId) -> bool {
     if let Some(session) = state.try_session(session_id)
-        && (session.is_busy() || !matches!(session.phase(), jinn_session_msg::PhaseKind::Idle))
+        && !matches!(session.phase(), jinn_session_msg::PhaseKind::Idle)
     {
         return true;
     }
@@ -103,8 +103,7 @@ fn child_is_running(
     match session.origin() {
         jinn_session_msg::SessionOrigin::Subagent => true,
         jinn_session_msg::SessionOrigin::Attendant => {
-            session.is_busy()
-                || !matches!(session.phase(), jinn_session_msg::PhaseKind::Idle)
+            !matches!(session.phase(), jinn_session_msg::PhaseKind::Idle)
                 || descendant_has_running_work(state, child_id, visited)
         }
         jinn_session_msg::SessionOrigin::Fork | jinn_session_msg::SessionOrigin::User => false,
@@ -169,38 +168,32 @@ pub(crate) fn try_handle_cancel_stream_prompt(
 
     let session_id = state.session.active_session_id().clone();
 
-    // Check busy state before resetting. Busy and phase are separate: a
-    // lifecycle command in flight sets the counter while the phase is still
-    // `Idle`, and either one means there is the session's own work to stop.
-    let was_busy = state.active_session().is_busy();
-    let has_own_turn = was_busy
-        || !matches!(
-            state.active_session().phase(),
-            jinn_session_msg::PhaseKind::Idle
-        );
+    // The phase is the only liveness signal: a lifecycle command in flight
+    // holds a busy phase like any turn does, so a non-`Idle` phase is the
+    // session's own work to stop.
+    let has_own_turn = !matches!(
+        state.active_session().phase(),
+        jinn_session_msg::PhaseKind::Idle
+    );
 
     // An idle session's own turn already produced nothing to salvage, so the
     // cascade reaches down into its running descendants and leaves the parent
-    // alone. Sending it a `CancelTurn` would be actively harmful: the
-    // inference actor tombstones a session id before it checks for a live
-    // stream, which would drop this session's `ToolContinuation` sends until
-    // its next user message. Cancelling it inline would drain its steering
-    // fragments and queue over a draft the user is typing.
+    // alone. Sending it a `CancelTurn` would be actively harmful: it would end
+    // a turn that does not exist and report a phantom settle. Cancelling it
+    // inline would drain its steering fragments and queue over a draft the
+    // user is typing.
     let result = if has_own_turn {
-        // Cancel busy background operations (lifecycle, etc.).
-        if was_busy {
-            state.active_session_mut().cancel_busy();
-        }
+        // The ESC ESC cascade is final: the commands below are the cancel,
+        // and nothing downstream can prevent, defer, or override it. The
+        // phase settles when the session actor applies the cancel's
+        // `TurnCanceled` — this path writes no session state synchronously.
 
-        // Cancel stream.
-        state.active_session_mut().cancel_stream_and_drain();
         let mut result = IntentResult::empty().with_message(jinn_inference_msg::CancelTurn {
             session_id: session_id.clone(),
-            cause: jinn_inference_msg::CancelCause::Turn,
         });
 
         // Also cancel any running lifecycle command.
-        if was_busy {
+        if has_own_turn {
             result = result.with_message(jinn_session_lifecycle_msg::CancelLifecycleCommand {
                 session_id: session_id.clone(),
             });
@@ -259,7 +252,6 @@ pub fn cascade_descendants(
                 result = result
                     .with_message(jinn_inference_msg::CancelTurn {
                         session_id: child_id.clone(),
-                        cause: jinn_inference_msg::CancelCause::Turn,
                     })
                     .merge(cascade_descendants(state, &child_id, visited));
             }
@@ -632,9 +624,12 @@ mod tests {
         state.frontend.cancel_stream_prompt = true;
 
         // When that session's own turn finishes and the escape confirms.
+        // The old finish is now the two actor halves: the session actor's
+        // entry fold, then the phase actor's machine edge.
         state
             .active_session_mut()
-            .finish_streaming(false, jiff::Timestamp::now());
+            .finalize_entries_for_finish(false, jiff::Timestamp::now());
+        state.active_session_mut().finish_streaming_via_machine();
         let result = IntentHandler::handle(
             &KernelIntent::NormalEscape,
             &mut state,
@@ -657,10 +652,13 @@ mod tests {
         state.active_session_mut().begin_streaming();
         state.frontend.cancel_stream_prompt = true;
 
-        // When the turn finishes and the app polls.
+        // When the turn finishes and the app polls. The old finish is now
+        // the two actor halves: the session actor's entry fold, then the
+        // phase actor's machine edge.
         state
             .active_session_mut()
-            .finish_streaming(false, jiff::Timestamp::now());
+            .finalize_entries_for_finish(false, jiff::Timestamp::now());
+        state.active_session_mut().finish_streaming_via_machine();
         disarm_stale_cancel_prompt(&mut state);
 
         // Then the flag is cleared, not merely hidden.
@@ -841,7 +839,6 @@ mod tests {
             .get_mut(&attendant)
             .expect("attendant")
             .begin_streaming();
-        state.active_session_mut().begin_busy();
         state.active_session_mut().begin_streaming();
         state.frontend.cancel_stream_prompt = true;
 
@@ -869,7 +866,6 @@ mod tests {
             .get_mut(&attendant)
             .expect("attendant")
             .begin_streaming();
-        state.active_session_mut().begin_busy();
         state.active_session_mut().begin_streaming();
         state.frontend.cancel_stream_prompt = true;
 

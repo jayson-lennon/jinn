@@ -661,9 +661,11 @@ async fn a_finished_turn_dismisses_the_cancel_stream_prompt() {
     let app = armed_app().await;
     {
         let mut state = app.core.state.write();
-        state
-            .active_session_mut()
-            .finish_streaming(false, jiff::Timestamp::now());
+        {
+            let session = state.active_session_mut();
+            session.finalize_entries_for_finish(false, jiff::Timestamp::now());
+            session.finish_streaming_via_machine();
+        }
     }
 
     // When escape is pressed against the stale prompt.
@@ -796,9 +798,11 @@ async fn an_idle_session_suppresses_the_cancel_prompt() {
     let mut app = app_with_cancel_prompt_armed().await;
     {
         let mut state = app.core.state.write();
-        state
-            .active_session_mut()
-            .finish_streaming(false, jiff::Timestamp::now());
+        {
+            let session = state.active_session_mut();
+            session.finalize_entries_for_finish(false, jiff::Timestamp::now());
+            session.finish_streaming_via_machine();
+        }
     }
 
     // When the chat tab renders that frame.
@@ -881,11 +885,14 @@ async fn a_session_with_nothing_running_shows_no_cancel_prompt() {
     let (mut app, attendant) = app_with_idle_session_and_running_attendant().await;
     {
         let mut state = app.core.state.write();
-        state
-            .session
-            .get_mut(&attendant)
-            .expect("the attendant inserted by the fixture")
-            .finish_streaming(false, jiff::Timestamp::now());
+        {
+            let session = state
+                .session
+                .get_mut(&attendant)
+                .expect("the attendant inserted by the fixture");
+            session.finalize_entries_for_finish(false, jiff::Timestamp::now());
+            session.finish_streaming_via_machine();
+        }
     }
 
     // When the chat tab renders that frame.
@@ -910,9 +917,11 @@ async fn the_cancel_prompt_disarms_when_the_turn_ends_without_a_keystroke() {
     let app = app_with_cancel_prompt_armed().await;
     {
         let mut state = app.core.state.write();
-        state
-            .active_session_mut()
-            .finish_streaming(false, jiff::Timestamp::now());
+        {
+            let session = state.active_session_mut();
+            session.finalize_entries_for_finish(false, jiff::Timestamp::now());
+            session.finish_streaming_via_machine();
+        }
     }
 
     // When the app ticks, as the 100ms poll loop does.

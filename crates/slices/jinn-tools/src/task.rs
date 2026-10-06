@@ -52,7 +52,7 @@ use crate::tool_types::tool_error;
 use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
 use jinn_core_types::{ChatEntry, ChatEntryKind, ModelSelection, NameFilter, SessionId};
-use jinn_inference_msg::{CancelCause, CancelTurn};
+use jinn_inference_msg::CancelTurn;
 use jinn_session_lifecycle_msg::SessionCreated;
 use jinn_session_state::ChatSessionState;
 
@@ -378,7 +378,6 @@ async fn await_child(
             Err(_) => {
                 bus.publish(CancelTurn {
                     session_id: child_id,
-                    cause: CancelCause::Turn,
                 })
                 .await;
                 ChildOutcome::TimedOut(budget.as_secs())

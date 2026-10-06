@@ -1,5 +1,5 @@
 use super::machine::{SessionPhaseMachine, TransitionError, TransitionOutcome};
-use super::phase::{IdlePhase, Phase, PhaseKind, SendingPhase, StreamingPhase};
+use super::phase::{Phase, PhaseKind, SendingPhase, StreamingPhase};
 
 /// Transition methods for [`SessionPhaseMachine`].
 ///
@@ -7,7 +7,7 @@ use super::phase::{IdlePhase, Phase, PhaseKind, SendingPhase, StreamingPhase};
 /// The machine validates the current phase and returns [`TransitionError`]
 /// if the transition is not valid from the current state.
 ///
-/// `cancel()` and `soft_cancel()` are on the machine itself because they
+/// `cancel()` is on the machine itself because it
 /// need direct access to private phase data.
 pub trait PhaseTransitions {
     /// `Idle → Sending` - a message has been dispatched to the LLM.
@@ -24,36 +24,12 @@ pub trait PhaseTransitions {
     /// Returns [`TransitionError`] if not in `Sending`.
     fn on_first_token(&mut self) -> Result<TransitionOutcome, TransitionError>;
 
-    /// `Streaming → Sending` - stream ended with tool use (continue tool loop).
-    ///
-    /// If `soft_cancel_requested` was set on the `StreamingPhase`, transitions
-    /// to `Idle` instead of continuing the tool loop.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TransitionError`] if not in `Streaming`.
-    fn on_stream_completed_tool_use(&mut self) -> Result<TransitionOutcome, TransitionError>;
-
     /// `Streaming → Idle` - stream ended normally (no tool use).
     ///
     /// # Errors
     ///
     /// Returns [`TransitionError`] if not in `Streaming`.
     fn on_stream_completed_finished(&mut self) -> Result<TransitionOutcome, TransitionError>;
-
-    /// `Streaming → Idle` - stream ended with an error.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TransitionError`] if not in `Streaming`.
-    fn on_stream_completed_error(&mut self) -> Result<TransitionOutcome, TransitionError>;
-
-    /// `Streaming → Idle` - stream was canceled by the user.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TransitionError`] if not in `Streaming`.
-    fn on_stream_completed_canceled(&mut self) -> Result<TransitionOutcome, TransitionError>;
 
     /// `Streaming → Sending` - a stalled generation is being retried.
     ///
@@ -93,33 +69,7 @@ impl PhaseTransitions for SessionPhaseMachine {
         )
     }
 
-    fn on_stream_completed_tool_use(&mut self) -> Result<TransitionOutcome, TransitionError> {
-        let soft_cancel = self
-            .streaming_phase()
-            .is_some_and(|sp| sp.soft_cancel_requested);
-
-        let next = if soft_cancel {
-            Phase::Idle(IdlePhase)
-        } else {
-            Phase::Sending(SendingPhase)
-        };
-        let outcome = self.transition(PhaseKind::Streaming, next)?;
-        // The burst is over: every tool call in it has already been finalized
-        // by `ToolCallReceived`, so its registration is spent. Clearing here is
-        // what `StreamingPhase`'s drop used to do.
-        self.clear_tool_tracking();
-        Ok(outcome)
-    }
-
     fn on_stream_completed_finished(&mut self) -> Result<TransitionOutcome, TransitionError> {
-        self.end_turn_to_idle(PhaseKind::Streaming)
-    }
-
-    fn on_stream_completed_error(&mut self) -> Result<TransitionOutcome, TransitionError> {
-        self.end_turn_to_idle(PhaseKind::Streaming)
-    }
-
-    fn on_stream_completed_canceled(&mut self) -> Result<TransitionOutcome, TransitionError> {
         self.end_turn_to_idle(PhaseKind::Streaming)
     }
 

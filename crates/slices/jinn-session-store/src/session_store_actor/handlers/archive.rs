@@ -37,8 +37,7 @@ impl SessionStoreActor {
             let state = self.state.read();
             members.iter().any(|id| {
                 state.session.get(id).is_some_and(|session| {
-                    session.is_busy()
-                        || !matches!(session.phase(), jinn_session_msg::PhaseKind::Idle)
+                    !matches!(session.phase(), jinn_session_msg::PhaseKind::Idle)
                 })
             })
         };

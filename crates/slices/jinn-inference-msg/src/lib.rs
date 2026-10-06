@@ -30,7 +30,7 @@
 
 mod cancel;
 
-pub use cancel::{CancelCause, CancelTurn};
+pub use cancel::CancelTurn;
 
 use jinn_core_types::SessionId;
 use jinn_core_types::llm_message::LlmMessage;

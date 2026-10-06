@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,7 +9,7 @@ use jinn_core_types::SessionId;
 use jinn_core_types::tool_types::ToolCall;
 use jinn_inference_msg::{
     AbortStream, CancelTurn, SendToLlmProvider, StreamActivity, StreamCompleted,
-    StreamCompletedReason, StreamOrigin, StreamToken,
+    StreamCompletedReason, StreamToken,
 };
 use jinn_kernel::common::actor_deps::BusPublish;
 use jinn_kernel::common::services::Services;
@@ -123,18 +123,6 @@ pub struct InferenceActor {
     tasks: HashMap<SessionId, tokio::task::JoinHandle<()>>,
     /// Per-session state.
     sessions: HashMap<SessionId, SessionData>,
-    /// Sessions tombstoned by a recent [`CancelTurn`]. While tombstoned,
-    /// `ToolContinuation` sends are dropped; a `User` send clears it.
-    cancelled_sessions: HashSet<SessionId>,
-    /// Sessions whose next dispatch is to be dropped by
-    /// [`CancelTurn`] with a latching cause, spent as soon as it is honoured.
-    ///
-    /// The complement of [`Self::cancelled_sessions`], which guards a stream
-    /// that is running: this one guards the window *before* one starts, and
-    /// exists because a watchdog's cancel can arrive while the generation it
-    /// means to stop has already been torn down by the intercept that
-    /// prompted the watchdog.
-    dispatch_cancelled_sessions: HashSet<SessionId>,
 }
 
 impl jinn_kernel::common::actor_deps::BusPublish for InferenceActor {
@@ -175,8 +163,6 @@ impl InferenceActor {
                             services,
                             tasks: HashMap::new(),
                             sessions: HashMap::new(),
-                            cancelled_sessions: HashSet::new(),
-                            dispatch_cancelled_sessions: HashSet::new(),
                         })
                     })
                 }
@@ -230,10 +216,6 @@ impl MsgHandler<CancelTurn> for InferenceActor {
     /// stops the loop rather than resetting its counter.
     async fn handle(&mut self, msg: &CancelTurn, _ctx: &mut MsgCtx<'_>) {
         self.abort_stream(&msg.session_id, None).await;
-
-        if msg.cause.latches_queued_dispatch() {
-            self.latch_dispatch(&msg.session_id);
-        }
     }
 }
 
@@ -883,43 +865,6 @@ impl InferenceActor {
     }
 
     async fn start_stream(&mut self, payload: &SendToLlmProvider) {
-        // A latched-away dispatch is dropped on any origin, unlike the cancel
-        // tombstone below, which only guards continuations.
-        //
-        // The latch is spent here rather than cleared by a later user send:
-        // it was armed for one specific dispatch — the resume racing the
-        // watchdog that armed it — and surviving to intercept a second one
-        // would silence the user's next real message. A resume arrives as a
-        // `User` send (the intercept path has no other way past the cancel
-        // tombstone), so it cannot be told apart from one by origin alone, and
-        // spending on first sight is what makes the latch safe.
-        if self.dispatch_cancelled_sessions.remove(&payload.session_id) {
-            tracing::warn!(
-                session_id = %payload.session_id,
-                origin = ?payload.origin,
-                "dropping a dispatch latched away by a watchdog"
-            );
-            return;
-        }
-
-        // Cancel tombstone: a continuation arriving for a recently-cancelled
-        // session is the in-flight remnant of the tool loop losing the race
-        // against `CancelTurn` — drop it silently (the `StreamCompleted(
-        // Canceled)` already ended the turn and pushed its cancel entry).
-        if payload.origin == StreamOrigin::ToolContinuation
-            && self.cancelled_sessions.contains(&payload.session_id)
-        {
-            tracing::info!(
-                session_id = ?payload.session_id,
-                "dropping tool continuation for tombstoned (cancelled) session"
-            );
-            return;
-        }
-        // A user-originated send always lifts the tombstone.
-        if payload.origin == StreamOrigin::User {
-            self.cancelled_sessions.remove(&payload.session_id);
-        }
-
         // Read the retry policy from the configuration layer at the point
         // of use, so a reload is observed by the next turn without a restart.
         let retry_config = self
@@ -1104,11 +1049,6 @@ impl InferenceActor {
             return (current, false);
         }
 
-        // Arm the tombstone before anything else so any tool-loop continuation
-        // already in flight is rejected when it arrives. Cleared by the next
-        // user-originated send.
-        self.cancelled_sessions.insert(session_id.clone());
-
         // If there's an active session, cancel any pending tool batches.
         if self.sessions.contains_key(session_id) {
             self.publish(CancelToolBatch {
@@ -1126,20 +1066,6 @@ impl InferenceActor {
             .and_then(SessionData::dispatched_at);
         let had_session = self.sessions.remove(session_id).is_some();
         (dispatched_at, had_session)
-    }
-
-    /// Drops the next dispatch for a session, before it starts.
-    ///
-    /// The pure seam of [`MsgHandler<CancelTurn>`]'s latch arm, split out so
-    /// the latch's lifecycle is testable without a `MsgCtx` — the watchdog
-    /// family's convention, and the reason its decision methods are separately
-    /// testable from its publishing.
-    fn latch_dispatch(&mut self, session_id: &SessionId) {
-        self.dispatch_cancelled_sessions.insert(session_id.clone());
-        tracing::warn!(
-            session_id = %session_id,
-            "latched away the next dispatch; the pending resume will not start"
-        );
     }
 }
 

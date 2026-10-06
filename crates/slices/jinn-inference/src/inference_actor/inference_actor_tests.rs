@@ -97,6 +97,7 @@ use super::*;
 use crate::session::SessionState;
 use test_fakes::{ErroringLlmFactory, HangingLlmFactory};
 
+use jinn_inference_msg::StreamOrigin;
 use jinn_provider::FakeLlmServiceFactory;
 use jinn_testutil::bus_harness::{TestHarness, await_recorded};
 
@@ -108,8 +109,6 @@ async fn test_llm_actor_standalone() -> InferenceActor {
         services,
         tasks: HashMap::new(),
         sessions: HashMap::new(),
-        cancelled_sessions: HashSet::new(),
-        dispatch_cancelled_sessions: HashSet::new(),
     }
 }
 
@@ -139,8 +138,6 @@ fn test_llm_actor_with_services(
         services,
         tasks: HashMap::new(),
         sessions: HashMap::new(),
-        cancelled_sessions: HashSet::new(),
-        dispatch_cancelled_sessions: HashSet::new(),
     }
 }
 
@@ -497,121 +494,6 @@ async fn a_cancel_does_not_report_the_turns_end() {
         "the inference actor must not report the turn's end: the session \
          actor does, and two publishers is a double settle. got: {completed:?}"
     );
-}
-
-/// Builds a minimal `SendToLlmProvider` for tombstone tests.
-fn tombstone_payload(session_id: &SessionId, origin: StreamOrigin) -> SendToLlmProvider {
-    SendToLlmProvider {
-        model_used: None,
-        reasoning_effort: None,
-        endpoint_tag: None,
-        session_id: session_id.clone(),
-        messages: vec![],
-        system_prompt: SystemPrompt::default(),
-        tool_definitions: vec![],
-        provider_id: None,
-        estimated_tokens: 0,
-        origin,
-        dispatched_at: jiff::Timestamp::now(),
-    }
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn tool_continuation_after_cancel_is_dropped() {
-    // Given a harness with an LLM actor and one queued stream response.
-    let harness = TestHarness::new().await;
-    let mut actor = test_llm_actor_with_factory(
-        &harness,
-        FakeLlmServiceFactory::new(vec!["should never stream".to_owned()]),
-    )
-    .await;
-    let recorder_tokens = harness.spawn_recorder::<StreamToken>().await;
-    let recorder_completed = harness.spawn_recorder::<StreamCompleted>().await;
-
-    let session_id = SessionId::new();
-
-    // When the session is cancelled.
-    actor.abort_stream(&session_id, None).await;
-    // And an in-flight tool continuation arrives afterwards.
-    actor
-        .start_stream(&tombstone_payload(
-            &session_id,
-            StreamOrigin::ToolContinuation,
-        ))
-        .await;
-
-    // Then the continuation is dropped: no tokens stream and no completion fires.
-    let tokens = await_recorded(&recorder_tokens, 0, std::time::Duration::from_millis(300)).await;
-    let completions = await_recorded(
-        &recorder_completed,
-        0,
-        std::time::Duration::from_millis(300),
-    )
-    .await;
-    assert!(
-        tokens.is_empty() && completions.is_empty(),
-        "cancelled session must not accept a tool continuation: tokens={tokens:?} completions={completions:?}"
-    );
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn user_send_after_cancel_clears_tombstone() {
-    // Given a harness with an LLM actor and one queued stream response.
-    let harness = TestHarness::new().await;
-    let mut actor = test_llm_actor_with_factory(
-        &harness,
-        FakeLlmServiceFactory::new(vec!["fresh turn".to_owned()]),
-    )
-    .await;
-    let recorder_completed = harness.spawn_recorder::<StreamCompleted>().await;
-
-    let session_id = SessionId::new();
-
-    // When the session is cancelled.
-    actor.abort_stream(&session_id, None).await;
-    // And the user then sends a new message.
-    actor
-        .start_stream(&tombstone_payload(&session_id, StreamOrigin::User))
-        .await;
-
-    // Then the user turn streams to completion — the tombstone is lifted.
-    let completed = await_recorded(&recorder_completed, 1, std::time::Duration::from_secs(5)).await;
-    let found = completed
-        .iter()
-        .any(|sc| sc.reason == StreamCompletedReason::Finished);
-    assert!(found, "user send after cancel should stream normally");
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn continuation_allowed_without_cancel() {
-    // Given a harness with an LLM actor and one queued stream response.
-    let harness = TestHarness::new().await;
-    let mut actor = test_llm_actor_with_factory(
-        &harness,
-        FakeLlmServiceFactory::new(vec!["tool loop turn".to_owned()]),
-    )
-    .await;
-    let recorder_completed = harness.spawn_recorder::<StreamCompleted>().await;
-
-    let session_id = SessionId::new();
-
-    // When a tool continuation arrives with no prior cancel.
-    actor
-        .start_stream(&tombstone_payload(
-            &session_id,
-            StreamOrigin::ToolContinuation,
-        ))
-        .await;
-
-    // Then it streams to completion — the tool loop is unaffected.
-    let completed = await_recorded(&recorder_completed, 1, std::time::Duration::from_secs(5)).await;
-    let found = completed
-        .iter()
-        .any(|sc| sc.reason == StreamCompletedReason::Finished);
-    assert!(found, "tool continuation without cancel should stream");
 }
 
 #[rstest::rstest]
@@ -1507,10 +1389,6 @@ async fn a_stale_abort_does_not_tear_down_the_resumed_generation() {
         actor.sessions.contains_key(&sid),
         "the live generation must survive a stale abort"
     );
-    assert!(
-        !actor.cancelled_sessions.contains(&sid),
-        "a dropped abort must not arm the tombstone for a live stream"
-    );
 }
 
 #[rstest::rstest]
@@ -1530,12 +1408,11 @@ async fn an_abort_for_the_live_generation_tears_it_down() {
     // When an abort stamped with that dispatch arrives.
     let (dispatched_at, acted) = actor.abort_stream(&sid, Some(live)).await;
 
-    // Then the generation is torn down and the tombstone armed, so a
-    // continuation in flight cannot resurrect the dead generation.
+    // Then the generation is torn down, so a continuation in flight cannot
+    // resurrect the dead generation.
     assert!(acted);
     assert_eq!(dispatched_at, Some(live));
     assert!(!actor.sessions.contains_key(&sid));
-    assert!(actor.cancelled_sessions.contains(&sid));
 }
 
 #[rstest::rstest]
@@ -1666,7 +1543,7 @@ async fn a_rule_fires_for_content_split_across_a_thousand_chunks() {
 async fn actor_with_rule_set(
     set: std::sync::Arc<dyn jinn_slices::StreamRuleSet>,
 ) -> InferenceActor {
-    let mut services = jinn_kernel::common::services::Services::new_fake().await;
+    let services = jinn_kernel::common::services::Services::new_fake().await;
     jinn_cell_catalog::register_all_cells(&services.slices);
     let Some(cell) = services
         .slices
@@ -1780,166 +1657,6 @@ async fn a_configuration_with_no_usable_rule_mints_no_session() {
 }
 
 // ------------------------------------------------------------------
-// Latched-away dispatch: the stream-rule watchdog's trip
-// ------------------------------------------------------------------
-
-#[rstest::rstest]
-#[tokio::test]
-async fn a_latched_away_dispatch_never_streams() {
-    // Given a watchdog trip latched the session while the resume it targets
-    // was still being dispatched.
-    let harness = TestHarness::new().await;
-    let mut actor = test_llm_actor_with_factory(
-        &harness,
-        FakeLlmServiceFactory::new(vec!["should never stream".to_owned()]),
-    )
-    .await;
-    let recorder_tokens = harness.spawn_recorder::<StreamToken>().await;
-    let session_id = SessionId::new();
-
-    actor.latch_dispatch(&session_id);
-
-    // When the pending resume arrives — as a user send, the only origin the
-    // intercept path can use past the cancel tombstone.
-    actor
-        .start_stream(&tombstone_payload(&session_id, StreamOrigin::User))
-        .await;
-
-    // Then it is dropped: this is the loop this latch exists to stop.
-    let tokens = await_recorded(&recorder_tokens, 1, std::time::Duration::from_millis(300)).await;
-    assert!(
-        tokens.is_empty(),
-        "a latched-away dispatch must not stream, or the loop never ends"
-    );
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn the_latch_is_spent_by_the_dispatch_it_drops() {
-    // Given a latch armed against one dispatch, and a factory that would
-    // stream if the actor asked it to.
-    let harness = TestHarness::new().await;
-    let mut actor = test_llm_actor_with_factory(
-        &harness,
-        FakeLlmServiceFactory::new(vec!["the user speaks again".to_owned()]),
-    )
-    .await;
-    let recorder_tokens = harness.spawn_recorder::<StreamToken>().await;
-    let session_id = SessionId::new();
-    actor.latch_dispatch(&session_id);
-    actor
-        .start_stream(&tombstone_payload(&session_id, StreamOrigin::User))
-        .await;
-
-    // When the user's next genuine message dispatches.
-    actor
-        .start_stream(&tombstone_payload(&session_id, StreamOrigin::User))
-        .await;
-
-    // Then it streams: a latch that outlived its target would silence the
-    // session instead of ending one turn. The assertion is that tokens arrive
-    // at all, not how many — the factory replays its whole token vector per
-    // call, so a count would measure the fake rather than the latch.
-    let tokens = await_recorded(&recorder_tokens, 1, std::time::Duration::from_secs(2)).await;
-    assert!(
-        !tokens.is_empty(),
-        "the latch must be spent by the dispatch it dropped"
-    );
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn arming_a_latch_arms_it_without_reporting_the_turns_end() {
-    // Given a session whose rule loop tripped.
-    let harness = TestHarness::new().await;
-    let mut actor = test_llm_actor(&harness).await;
-    let recorder_completed = harness.spawn_recorder::<StreamCompleted>().await;
-    let session_id = SessionId::new();
-
-    // When the latch is armed.
-    actor.latch_dispatch(&session_id);
-
-    // Then the turn's end is *not* reported here. The session actor reports it,
-    // from the `CancelTurn` that armed the latch — this actor's share is the
-    // teardown and the latch, nothing more.
-    let completions = await_recorded(
-        &recorder_completed,
-        1,
-        std::time::Duration::from_millis(300),
-    )
-    .await;
-    assert!(
-        completions.is_empty(),
-        "arming the latch must not publish a completion: the session actor \
-         owns that report. got: {completions:?}"
-    );
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn arming_a_latch_latches_the_queued_dispatch() {
-    // Given a session whose rule loop tripped.
-    let harness = TestHarness::new().await;
-    let mut actor = test_llm_actor_with_factory(
-        &harness,
-        FakeLlmServiceFactory::new(vec!["the user speaks again".to_owned()]),
-    )
-    .await;
-    let recorder_tokens = harness.spawn_recorder::<StreamToken>().await;
-    let session_id = SessionId::new();
-
-    // When the latch is armed.
-    actor.latch_dispatch(&session_id);
-
-    // Then the next dispatch is dropped — observable as the dispatch itself
-    // never streaming, which is the only thing the latch exists to cause.
-    actor
-        .start_stream(&tombstone_payload(&session_id, StreamOrigin::User))
-        .await;
-
-    // And the dispatch after that one streams normally.
-    actor
-        .start_stream(&tombstone_payload(&session_id, StreamOrigin::User))
-        .await;
-
-    let tokens = await_recorded(&recorder_tokens, 1, std::time::Duration::from_millis(300)).await;
-    assert!(
-        !tokens.is_empty(),
-        "the latch must be spent by the dispatch it dropped, so the next \
-         attempt streams normally"
-    );
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn a_latch_does_not_silence_another_session() {
-    // Given a latch armed against one session.
-    let harness = TestHarness::new().await;
-    let mut actor = test_llm_actor_with_factory(
-        &harness,
-        FakeLlmServiceFactory::new(vec!["unrelated session streams".to_owned()]),
-    )
-    .await;
-    let recorder_tokens = harness.spawn_recorder::<StreamToken>().await;
-    let tripped = SessionId::new();
-    let other = SessionId::new();
-
-    actor.latch_dispatch(&tripped);
-
-    // When an unrelated session dispatches.
-    actor
-        .start_stream(&tombstone_payload(&other, StreamOrigin::User))
-        .await;
-
-    // Then it streams: the latch is per session.
-    let tokens = await_recorded(&recorder_tokens, 1, std::time::Duration::from_secs(2)).await;
-    assert!(
-        !tokens.is_empty(),
-        "a latch must not silence another session"
-    );
-}
-
-// ------------------------------------------------------------------
 // The loop the watchdog exists to stop, end to end
 // ------------------------------------------------------------------
 
@@ -1975,41 +1692,7 @@ async fn looping_actor(harness: &TestHarness) -> InferenceActor {
         services,
         tasks: HashMap::new(),
         sessions: HashMap::new(),
-        cancelled_sessions: HashSet::new(),
-        dispatch_cancelled_sessions: HashSet::new(),
     }
-}
-
-#[rstest::rstest]
-#[tokio::test]
-async fn a_trip_stops_the_loop_it_is_bound_to_stop() {
-    // Given a rule that matches every response, and a watchdog trip that has
-    // latched the session.
-    let harness = TestHarness::new().await;
-    let mut actor = looping_actor(&harness).await;
-    let session_id = SessionId::new();
-    let recorder_completed = harness.spawn_recorder::<StreamCompleted>().await;
-
-    // When the resume the trip is racing tries to dispatch.
-    actor.latch_dispatch(&session_id);
-    actor
-        .start_stream(&tombstone_payload(&session_id, StreamOrigin::User))
-        .await;
-
-    // Then the loop stops: no further response runs. This is the assertion
-    // the bug needed and did not have — every test that preceded it asserted
-    // only that a trip *published* something, which is true of the broken
-    // version too.
-    let completions = await_recorded(
-        &recorder_completed,
-        1,
-        std::time::Duration::from_millis(300),
-    )
-    .await;
-    assert!(
-        completions.is_empty(),
-        "a trip must stop the loop, not merely announce it"
-    );
 }
 
 #[rstest::rstest]
@@ -2022,9 +1705,7 @@ async fn an_unlatched_session_keeps_streaming_through_intercepts() {
     let recorder_completed = harness.spawn_recorder::<StreamCompleted>().await;
 
     // When a response dispatches.
-    actor
-        .start_stream(&tombstone_payload(&session_id, StreamOrigin::User))
-        .await;
+    actor.start_stream(&dispatch_for(&session_id)).await;
 
     // Then it is intercepted and reports that reason — the latch is what stops
     // the loop, not the interception itself, which is what keeps this from
