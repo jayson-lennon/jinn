@@ -14,6 +14,7 @@ jinn-session-list = { workspace = true }
 jinn-session-msg = { workspace = true }
 jinn-session-state = { workspace = true }
 jinn-session-store-msg = { workspace = true }
+jinn-common = { workspace = true }
 jinn-preferences-config = { workspace = true }
 jinn-term-msg = { workspace = true }
 jinn-theme = { workspace = true }

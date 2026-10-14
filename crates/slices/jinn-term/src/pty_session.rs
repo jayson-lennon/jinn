@@ -116,6 +116,10 @@ struct ExitSlot(std::sync::Mutex<Option<TermExitInfo>>);
 /// a concurrent `try_wait` on the same handle.
 struct ExitWatcher {
     slot: ExitSlot,
+    /// Set the moment `wait()` returns, before the slot is published — the
+    /// screen task polls this on its idle tick to learn the child died on
+    /// platforms whose pty never delivers EOF to the master (ConPTY).
+    exited: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ExitWatcher {
@@ -126,8 +130,10 @@ impl ExitWatcher {
     /// Returns an error if the watcher thread cannot be spawned (resource
     /// exhaustion); the child handle is dropped un-reaped in that case.
     fn start(mut child: Box<dyn Child + Send + Sync>) -> Result<Arc<Self>, Report<PtyError>> {
+        let exited = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let watcher = Arc::new(Self {
             slot: ExitSlot(std::sync::Mutex::new(None)),
+            exited: Arc::clone(&exited),
         });
         let handle = Arc::downgrade(&watcher);
         // The thread upgrades the handle only while publishing; when the
@@ -146,6 +152,9 @@ impl ExitWatcher {
                         }
                     }
                 };
+                // Publish "dead" before the status: a poller that sees the
+                // flag but a still-empty slot retries — never the reverse.
+                exited.store(true, std::sync::atomic::Ordering::SeqCst);
                 if let Some(watcher) = handle.upgrade()
                     && let Ok(mut slot) = watcher.slot.0.lock()
                 {
@@ -166,6 +175,16 @@ impl ExitWatcher {
     fn exit(&self) -> Option<TermExitInfo> {
         let guard = self.slot.0.lock().ok()?;
         guard.clone()
+    }
+
+    /// Whether the child process has terminated (reaped or not).
+    fn child_dead(&self) -> bool {
+        self.exited.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The shared "child terminated" flag (see [`Self::child_dead`]).
+    fn child_dead_flag(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        Arc::clone(&self.exited)
     }
 }
 
@@ -217,7 +236,11 @@ impl PtySession {
         let (tx, rx): (OutputTx, OutputRx) = tokio::sync::mpsc::unbounded_channel();
         let pump = spawn_read_pump(reader, tx)?;
 
-        let mut cmd = CommandBuilder::new("bash");
+        // The command is shell syntax, so the child is always a shell: the
+        // shared resolver picks a proven-existing POSIX shell per platform
+        // (Unix: bare `bash`; Windows: git-bash — bare `bash` there resolves
+        // to System32's WSL launcher, which routes commands into a VM).
+        let mut cmd = CommandBuilder::new(jinn_common::shell::resolve_shell());
         cmd.arg("-c");
         cmd.arg(command);
         cmd.cwd(cwd);
@@ -248,7 +271,7 @@ impl PtySession {
         // dedicated thread, reaping the process the instant it exits.
         let exit_watcher = ExitWatcher::start(child)?;
 
-        let screen = new_screen_handle(size.rows, size.cols);
+        let screen = new_screen_handle(size.rows, size.cols, Some(exit_watcher.child_dead_flag()));
         // The pty writer is shared: the coordinator writes agent input
         // through `PtySession::write`, the screen task writes query replies.
         screen.install_writer(Box::new(SharedWriter {
@@ -340,6 +363,18 @@ impl PtySession {
         self.exit_watcher.exit()
     }
 
+    /// Whether the child process has terminated, exit status aside.
+    ///
+    /// True strictly earlier than [`Self::try_wait`] returning `Some`: the
+    /// watcher sets this flag the moment `wait()` returns, while the status
+    /// itself is published a beat later. Consumers that only need "dead"
+    /// (the screen task's idle-exit path) poll this and never block on the
+    /// status.
+    #[must_use]
+    pub fn child_dead(&self) -> bool {
+        self.exit_watcher.child_dead()
+    }
+
     /// The child's exit info, waiting until it terminates.
     ///
     /// The watcher thread has already reaped the process by this point —
@@ -420,11 +455,17 @@ impl Write for SharedWriter {
     }
 }
 
-/// Creates the shared screen state for a fresh session.
-fn new_screen_handle(rows: u16, cols: u16) -> ScreenHandle {
+/// Creates the shared screen state for a fresh session, carrying the exit
+/// watcher's "child terminated" flag so the screen task can learn the child
+/// died without a pty EOF (which ConPTY never delivers to the master).
+fn new_screen_handle(
+    rows: u16,
+    cols: u16,
+    child_dead: Option<Arc<std::sync::atomic::AtomicBool>>,
+) -> ScreenHandle {
     let (version_tx, version_rx) = tokio::sync::watch::channel(0);
     let shared = SharedTerminal::new(Emulator::new(rows, cols, TRANSCRIPT_LINES), version_tx);
-    ScreenHandle::new(shared, version_rx)
+    ScreenHandle::with_child_dead(shared, version_rx, child_dead)
 }
 
 impl Drop for PtySession {

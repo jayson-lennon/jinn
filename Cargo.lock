@@ -3685,6 +3685,7 @@ dependencies = [
  "error-stack",
  "futures",
  "jinn-chat-input-msg",
+ "jinn-common",
  "jinn-config",
  "jinn-core-types",
  "jinn-kernel",

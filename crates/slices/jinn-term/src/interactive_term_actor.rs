@@ -674,6 +674,13 @@ mod tests {
     use jinn_kernel::common::bus::HarnessServices;
     use jinn_testutil::bus_harness::TestHarness;
 
+    // Windows: ConPTY children are git-bash processes whose startup
+    // (~250–300 ms) exceeds the 150 ms window the Unix tests tune for, so a
+    // silent startup would settle as "quiet" before the program ever runs.
+    // 400 ms is the production default quiet window.
+    #[cfg(windows)]
+    const QUIET: Duration = Duration::from_millis(400);
+    #[cfg(not(windows))]
     const QUIET: Duration = Duration::from_millis(150);
     const CAP: Duration = Duration::from_secs(2);
 
@@ -681,6 +688,7 @@ mod tests {
     /// `marker`. A candidate must be a real `/sleep` binary; transient pid
     /// slots between readdir and open are skipped, and a zombie is already
     /// dead (the group kill worked) so it is not an orphan.
+    #[cfg(unix)]
     fn find_sleep_orphans(marker: &str) -> Vec<String> {
         let mut found = Vec::new();
         let entries = std::fs::read_dir("/proc").expect("/proc is readable");
@@ -1240,16 +1248,19 @@ mod tests {
     #[tokio::test]
     async fn in_flight_send_sees_mid_wait_takeover() {
         // Given a coordinator with a program that trickles output over a second.
+        // Windows: the 400 ms quiet window exceeds the 250 ms tick gap, so the
+        // spawn settle runs to its cap — the trickle must outlive that wait.
+        #[cfg(windows)]
+        let trickle = "for i in $(seq 1 16); do echo tick-$i; sleep 0.25; done";
+        #[cfg(not(windows))]
+        let trickle = "for i in 1 2 3 4 5 6; do echo tick-$i; sleep 0.25; done";
         let harness = TestHarness::new().await;
         let controls = TermControls::default();
         let (actor, _system) = spawn_coordinator(&harness, controls.clone()).await;
         let chat = jinn_core_types::SessionId::new();
         {
             let outcome = actor
-                .ask::<_, SpawnTermOutcome>(spawn_msg(
-                    chat.clone(),
-                    "for i in 1 2 3 4 5 6; do echo tick-$i; sleep 0.25; done",
-                ))
+                .ask::<_, SpawnTermOutcome>(spawn_msg(chat.clone(), trickle))
                 .await;
             let SpawnTermOutcome::Started { .. } = outcome else {
                 panic!("expected Started");
@@ -1359,7 +1370,11 @@ mod tests {
             })
             .await;
 
-        // Then the kill reports a signal exit.
+        // Then the kill reports the process was terminated:
+        // Unix reports the group signal; Windows has no signal concept in its
+        // exit status (TerminateProcess always reports an exit code), and the
+        // code is 1 precisely because the kill ended a program that was
+        // blocking on input and could not have exited on its own.
         let KillTermOutcome::Killed {
             transcript_tail,
             exited,
@@ -1368,7 +1383,10 @@ mod tests {
         else {
             panic!("expected Killed");
         };
+        #[cfg(unix)]
         assert!(exited.signal.is_some());
+        #[cfg(windows)]
+        assert_eq!(exited.code, 1);
         let _ = transcript_tail;
     }
 
@@ -1707,6 +1725,10 @@ mod tests {
 
     // ── v2: one terminal per chat session ──────────────────────────────────
 
+    /// Windows has no `/proc` — the orphan scan is Unix process semantics,
+    /// so the fixture's kill-scoping half is covered on Windows by
+    /// [`Self::spawn_kill_previous_is_scoped_to_own_session`].
+    #[cfg(unix)]
     #[rstest::rstest]
     #[tokio::test]
     async fn respawn_same_chat_session_kills_the_previous_terminal() {

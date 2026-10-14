@@ -75,6 +75,9 @@ pub struct ScreenHandle {
     writer: Arc<Mutex<Box<dyn std::io::Write + Send>>>,
     version: tokio::sync::watch::Receiver<u64>,
     pump_closed: Arc<AtomicBool>,
+    /// The exit watcher's "child terminated" flag, shared with the pty
+    /// session; `None` for a bare handle not backed by a spawned child.
+    child_dead: Option<Arc<AtomicBool>>,
 }
 
 impl ScreenHandle {
@@ -82,11 +85,27 @@ impl ScreenHandle {
     /// version receiver.
     #[must_use]
     pub fn new(shared: SharedTerminal, version: tokio::sync::watch::Receiver<u64>) -> Self {
+        Self::with_child_dead(shared, version, None)
+    }
+
+    /// [`ScreenHandle::new`] carrying the child's "terminated" flag — the
+    /// pty session's exit watcher sets it the moment `wait()` returns.
+    ///
+    /// The screen task polls it on its idle tick: on a ConPTY the master
+    /// never sees EOF after the child exits, so the child's death is the
+    /// only portable end-of-output signal there.
+    #[must_use]
+    pub fn with_child_dead(
+        shared: SharedTerminal,
+        version: tokio::sync::watch::Receiver<u64>,
+        child_dead: Option<Arc<AtomicBool>>,
+    ) -> Self {
         Self {
             shared: Arc::new(Mutex::new(shared)),
             writer: Arc::new(Mutex::new(Box::new(std::io::sink()))),
             version,
             pump_closed: Arc::new(AtomicBool::new(false)),
+            child_dead,
         }
     }
 
@@ -111,6 +130,15 @@ impl ScreenHandle {
     #[must_use]
     pub fn pump_closed(&self) -> bool {
         self.pump_closed.load(Ordering::SeqCst)
+    }
+
+    /// Whether the pty child has terminated, when a watcher flag is
+    /// attached; `false` for bare handles with no child behind them.
+    #[must_use]
+    pub fn child_dead(&self) -> bool {
+        self.child_dead
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::SeqCst))
     }
 
     /// Writes bytes to the pty (query replies from the screen task).
@@ -201,12 +229,33 @@ pub(crate) fn spawn_screen_task(
         // Seed the change tracker with the current screen so pre-existing
         // content is not republished as a delta.
         let mut previous_screen = handle.lock().emulator.plain_text();
+        // Set once the child's death has been observed but before the final
+        // drain tick — the exit may race one last output burst past the
+        // `wait()` return, and on EOF-first platforms the pump channel
+        // closing is already that final drain.
+        let mut child_dead_seen_at: Option<tokio::time::Instant> = None;
         loop {
+            // Idle-exit: a platform whose pty never delivers EOF to the
+            // master (ConPTY) still signals the child's death through the
+            // exit watcher. Once seen, allow one further full quiet tick so
+            // output racing the `wait()` return is parsed and published,
+            // then finish exactly as an EOF would have.
+            if child_dead_seen_at.is_none() && handle.child_dead() {
+                child_dead_seen_at = Some(tokio::time::Instant::now());
+            }
             // Wait for the first chunk of a burst (or idle-tick out).
             let first = match tokio::time::timeout(SCREEN_TICK, rx.recv()).await {
                 Ok(Some(chunk)) => chunk,
-                Ok(None) => break,      // pump closed: the program exited.
-                Err(_tick) => continue, // idle: nothing buffered.
+                Ok(None) => break, // pump closed: the program exited.
+                Err(_tick) => {
+                    // Quiet: finish once the post-death drain tick elapsed.
+                    if let Some(seen_at) = child_dead_seen_at
+                        && seen_at.elapsed() >= SCREEN_TICK
+                    {
+                        break;
+                    }
+                    continue;
+                }
             };
             let mut batch = vec![first];
             while let Ok(chunk) = rx.try_recv() {

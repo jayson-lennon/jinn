@@ -86,11 +86,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    #![allow(
-        clippy::expect_used,
-        clippy::panic,
-        reason = "test code"
-    )]
+    #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
     use super::{resolve_shell, resolve_shell_from};
     use std::path::PathBuf;
 
