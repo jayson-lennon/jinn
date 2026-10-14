@@ -13,7 +13,6 @@ use std::path::{Path, PathBuf};
 
 use error_stack::{Report, ResultExt as _};
 use jiff::Timestamp;
-use jinn_common::app_info::APP_NAME;
 use jinn_provider::{InputModalities, ModelInfo};
 use serde::{Deserialize, Serialize};
 use wherror::Error;
@@ -168,13 +167,11 @@ impl Default for ModelCache {
 
 /// Returns the path to the model cache file.
 ///
-/// Uses `dirs::cache_dir()` → `~/.cache/jinn/model_cache.json`.
+/// Derives from [`AppPaths`] (`~/.cache/jinn/model_cache.json`), so the
+/// `JINN_PATHS_ROOT` override is honored here too.
 #[must_use]
 pub fn cache_path() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(APP_NAME)
-        .join("model_cache.json")
+    jinn_common::app_paths::AppPaths::default().cache_path()
 }
 
 #[cfg(test)]

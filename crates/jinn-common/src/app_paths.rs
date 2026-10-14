@@ -1,8 +1,9 @@
 //! Application filesystem paths - single source of truth for all directory locations.
 //!
 //! [`AppPaths`] holds every base directory the application needs. It is computed
-//! once at init time: [`AppPaths::default()`] for production (from `dirs::*`),
-//! [`AppPaths::new_in()`] for tests (from a temp root).
+//! once at init time: [`AppPaths::default()`] for production (from `dirs::*`,
+//! honoring the [`PATHS_ROOT_ENV`] override), [`AppPaths::new_in()`] for tests
+//! (from a temp root).
 //!
 //! All domain code that needs a filesystem path must read it from the injected
 //! `AppPaths` instance - never from `dirs::*` free functions directly.
@@ -38,10 +39,12 @@ impl BrowserProfileMode {
 /// Application filesystem paths.
 ///
 /// Stores app-specific directories (not platform directories). For production,
-/// these are derived from `dirs::*`. For tests, from a single temp root.
+/// these are derived from `dirs::*` — or from a single root directory when
+/// [`PATHS_ROOT_ENV`] is set (see [`AppPaths::default()`]). For tests, from a
+/// single temp root via [`AppPaths::new_in`].
 ///
 /// Construct once at init and share via `Services.paths`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[expect(clippy::struct_field_names, reason = "names match domain terminology")]
 pub struct AppPaths {
     /// `~/.config/jinn` - providers.toml, prompts/, personas/, themes/, jinn.toml
@@ -63,8 +66,34 @@ pub struct AppPaths {
     system_data_dir: PathBuf,
 }
 
+/// Environment variable that, when set, rebinds every [`AppPaths`] base
+/// under one root directory.
+///
+/// Read once, at construction of [`AppPaths::default()`]; no other code in
+/// the workspace reads the environment for path derivation. When set, the
+/// layout matches [`AppPaths::new_in`] exactly: `config/`, `data/`,
+/// `cache/`, `state/` subdirectories, `home` is the root itself, and
+/// system data lives at `root/share`.
+///
+/// Its purpose is test isolation: integration tests that spawn the `jinn`
+/// binary point this at a temp root so no run ever writes to the real
+/// user config, data, or home directories. On Linux, where `dirs`
+/// already honors `XDG_CONFIG_HOME`/`XDG_DATA_HOME`, the override wins
+/// there too, keeping one behavior across platforms.
+pub const PATHS_ROOT_ENV: &str = "JINN_PATHS_ROOT";
+
 impl Default for AppPaths {
     fn default() -> Self {
+        match std::env::var_os(PATHS_ROOT_ENV) {
+            Some(root) => Self::new_in(Path::new(&root)),
+            None => Self::from_platform_dirs(),
+        }
+    }
+}
+
+impl AppPaths {
+    /// Creates paths derived from the platform's per-user directories.
+    fn from_platform_dirs() -> Self {
         Self {
             config_dir: dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")),
             data_dir: dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")),
@@ -76,9 +105,7 @@ impl Default for AppPaths {
             system_data_dir: PathBuf::from("/usr/share/jinn"),
         }
     }
-}
 
-impl AppPaths {
     /// Creates paths derived from a single root directory (for tests).
     ///
     /// All subdirectories are nested under `root/` so that a single
@@ -347,6 +374,144 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
+
+    /// Serializes every test that mutates [`PATHS_ROOT_ENV`], and restores the
+    /// prior value on drop so one test's override never leaks into another.
+    ///
+    /// The lock must be held before the env is touched (edition 2024 makes
+    /// `set_var`/`remove_var` unsafe because the environment is process-global).
+    static PATHS_ROOT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Restores [`PATHS_ROOT_ENV`] to `value`, clearing it when `None`.
+    ///
+    /// Must only be called while `PATHS_ROOT_LOCK` is held.
+    fn restore_paths_root_env(value: Option<&std::ffi::OsStr>) {
+        match value {
+            Some(value) => {
+                // SAFETY: PATHS_ROOT_LOCK is held by the caller, so no other
+                // test mutates or observes the environment mid-restore.
+                unsafe { std::env::set_var(PATHS_ROOT_ENV, value) };
+            }
+            None => {
+                // SAFETY: PATHS_ROOT_LOCK is held by the caller (see above).
+                unsafe { std::env::remove_var(PATHS_ROOT_ENV) };
+            }
+        }
+    }
+
+    /// Guard that sets [`PATHS_ROOT_ENV`] and restores the prior value on drop.
+    struct PathsRootEnvGuard {
+        /// Held for the lifetime of the guard, serializing env mutation.
+        _lock: std::sync::MutexGuard<'static, ()>,
+        /// The value to restore (None clears the variable).
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl PathsRootEnvGuard {
+        /// Sets `JINN_PATHS_ROOT` to `root`, remembering what was there.
+        fn set(root: &Path) -> Self {
+            let lock = PATHS_ROOT_LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let previous = std::env::var_os(PATHS_ROOT_ENV);
+            // SAFETY: the lock is held before any env mutation, so no other
+            // test mutates or observes the environment concurrently.
+            unsafe { std::env::set_var(PATHS_ROOT_ENV, root) };
+            Self {
+                _lock: lock,
+                previous,
+            }
+        }
+    }
+
+    impl Drop for PathsRootEnvGuard {
+        fn drop(&mut self) {
+            // The lock guard outlives this body (field drop order), so the
+            // restore stays serialized.
+            restore_paths_root_env(self.previous.as_deref());
+        }
+    }
+
+    #[rstest::rstest]
+    fn default_honors_paths_root_env_for_every_base() {
+        // Given a set JINN_PATHS_ROOT.
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let _guard = PathsRootEnvGuard::set(root.path());
+
+        // When constructing the default AppPaths.
+        let paths = AppPaths::default();
+
+        // Then every base rebinds under the root with the new_in layout:
+        // config/data/cache/state subdirs, home as the root, share for
+        // system data.
+        assert_eq!(paths.config_dir(), root.path().join("config"));
+        assert_eq!(paths.data_dir(), root.path().join("data"));
+        let cache_parent = root.path().join("cache").join("jinn");
+        assert_eq!(paths.cache_path().parent(), Some(cache_parent.as_path()));
+        let state_parent = root.path().join("state").join("jinn");
+        assert_eq!(
+            paths.state_file_path().parent(),
+            Some(state_parent.as_path())
+        );
+        assert_eq!(paths.home_dir(), root.path());
+        assert_eq!(paths.system_data_dir(), root.path().join("share"));
+    }
+
+    #[rstest::rstest]
+    fn default_with_paths_root_env_matches_new_in() {
+        // Given a set JINN_PATHS_ROOT.
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let _guard = PathsRootEnvGuard::set(root.path());
+
+        // When constructing the default and a new_in AppPaths from the
+        // same root.
+        let via_env = AppPaths::default();
+        let via_new_in = AppPaths::new_in(root.path());
+
+        // Then they are identical — the override is exactly the new_in
+        // layout, not a variant of it.
+        assert_eq!(via_env, via_new_in);
+    }
+
+    #[rstest::rstest]
+    fn default_without_paths_root_env_uses_platform_dirs() {
+        // Given no JINN_PATHS_ROOT in the environment (set then clear, both
+        // under the lock, so the test is hermetic against ambient env).
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let _guard = PathsRootEnvGuard::set(root.path());
+        let _cleared = ClearPathsRootGuard::new();
+
+        // When constructing the default AppPaths.
+        let paths = AppPaths::default();
+
+        // Then the system data dir keeps its platform default (the marker
+        // that distinguishes the platform layout from the override layout).
+        assert_eq!(paths.system_data_dir(), Path::new("/usr/share/jinn"));
+    }
+
+    /// Guard that clears [`PATHS_ROOT_ENV`] for its lifetime, restoring on
+    /// drop. The PATHS_ROOT lock must already be held by the caller.
+    struct ClearPathsRootGuard {
+        /// The value to restore (None leaves the variable cleared).
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl ClearPathsRootGuard {
+        fn new() -> Self {
+            let previous = std::env::var_os(PATHS_ROOT_ENV);
+            // SAFETY: the caller holds PATHS_ROOT_LOCK across this guard's
+            // lifetime, serializing env mutation against other tests.
+            unsafe { std::env::remove_var(PATHS_ROOT_ENV) };
+            Self { previous }
+        }
+    }
+
+    impl Drop for ClearPathsRootGuard {
+        fn drop(&mut self) {
+            // The outer PathsRootEnvGuard's lock is still held here.
+            restore_paths_root_env(self.previous.as_deref());
+        }
+    }
 
     #[rstest::rstest]
     fn workflows_dir_sits_beside_personas_under_config() {

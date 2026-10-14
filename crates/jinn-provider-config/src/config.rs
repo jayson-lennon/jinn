@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use error_stack::{Report, ResultExt as _};
-use jinn_common::app_info::APP_NAME;
+use jinn_common::app_paths::AppPaths;
 use serde::{Deserialize, Serialize};
 use wherror::Error;
 
@@ -158,13 +158,11 @@ const fn default_true() -> bool {
 
 /// Returns the path to the provider config file.
 ///
-/// Uses `dirs::config_dir()` → `~/.config/jinn/providers.toml`.
+/// Derives from [`AppPaths`] (`~/.config/jinn/providers.toml`), so the
+/// `JINN_PATHS_ROOT` override is honored here too.
 #[must_use]
 pub fn config_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(APP_NAME)
-        .join("providers.toml")
+    AppPaths::default().config_path()
 }
 
 /// Loads the provider config from disk.
@@ -715,8 +713,13 @@ target = "ollama/llama3""#;
         // When reading it.
         let path = config_path();
 
-        // Then it ends with jinn/providers.toml.
-        assert!(path.to_string_lossy().ends_with("jinn/providers.toml"));
+        // Then it ends with jinn/providers.toml, separator-portably.
+        assert_eq!(
+            path.ancestors()
+                .find(|a| a.ends_with("jinn"))
+                .map(|a| path.strip_prefix(a).map(|p| p.to_path_buf())),
+            Some(Ok(Path::new("providers.toml").to_path_buf()))
+        );
     }
 
     #[rstest::rstest]

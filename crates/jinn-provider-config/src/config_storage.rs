@@ -44,7 +44,7 @@ pub trait ConfigStorage: Send + Sync + 'static {
 /// Filesystem-backed config storage.
 ///
 /// Reads from and writes to `providers.toml` at a configurable path.
-/// Production uses `dirs::config_dir()`.
+/// Production derives the default path from `AppPaths`.
 pub struct FilesystemConfigStorage {
     /// Path to the config file.
     path: PathBuf,

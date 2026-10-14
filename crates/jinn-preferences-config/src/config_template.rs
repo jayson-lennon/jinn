@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use error_stack::{Report, ResultExt as _};
-use jinn_common::app_info::{APP_NAME, PREFS_FILE_NAME};
+use jinn_common::app_paths::AppPaths;
 use wherror::Error;
 
 // Every section type lives in `crate::schemas` — one module per section,
@@ -61,13 +61,11 @@ pub enum UserPreferencesError {
 
 /// Returns the path to the user's `jinn.toml`.
 ///
-/// Uses `dirs::config_dir()` → `~/.config/jinn/jinn.toml`.
+/// Derives from [`AppPaths`] (`~/.config/jinn/jinn.toml`), so the
+/// `JINN_PATHS_ROOT` override is honored here too.
 #[must_use]
 pub fn preferences_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(APP_NAME)
-        .join(PREFS_FILE_NAME)
+    AppPaths::default().preferences_path()
 }
 
 /// Writes the canonical default template to `path`, creating parents.

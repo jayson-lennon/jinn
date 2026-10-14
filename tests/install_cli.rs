@@ -1,10 +1,17 @@
 //! CLI-level integration tests for `jinn install` and `jinn config init`.
 //!
-//! Runs the real dispatch against a temp XDG environment and asserts the
-//! on-disk result: resource files and the write-once `jinn.toml` and
-//! `stream_rules.toml` semantics (created only when absent for install;
-//! an existing file is never modified, even with `--force` — `config init
-//! --force` is the overwrite path for both).
+//! Runs the real binary against an isolated path root (every jinn base
+//! directory — config, data, cache, state, home — rebinding under one temp
+//! directory via `JINN_PATHS_ROOT`) and asserts the on-disk result:
+//! resource files and the write-once `jinn.toml` and `stream_rules.toml`
+//! semantics (created only when absent for install; an existing file is
+//! never modified, even with `--force` — `config init --force` is the
+//! overwrite path for both).
+//!
+//! The `XDG_*` variables stay set for Linux parity: there the `dirs` crate
+//! reads them directly, and `JINN_PATHS_ROOT` wins over both, so one code
+//! path covers every platform. On Windows `dirs` ignores `XDG_*` entirely,
+//! which is exactly why the root override exists.
 
 use std::path::PathBuf;
 
@@ -15,14 +22,24 @@ fn jinn_bin() -> PathBuf {
         .expect("CARGO_BIN_EXE_jinn not set — integration test must run via cargo test")
 }
 
-/// Runs `jinn <args...>` inside the temp XDG environment.
+/// Runs `jinn <args...>` with every path base rebound under the temp root.
+///
+/// `JINN_PATHS_ROOT` rebinds config/data/cache/state/home under `root` (the
+/// `AppPaths` override seam), so install/config-init targets, the log file,
+/// and the skills directory all land inside the temp tree. The XDG variables
+/// are set to the same root's subdirectories for platforms where `dirs`
+/// honors them; the root override takes precedence either way.
 fn run_jinn(
     bin: &std::path::Path,
     config: &std::path::Path,
     data: &std::path::Path,
     args: &[&str],
 ) -> std::process::Output {
+    let root = config
+        .parent()
+        .expect("config dir always has a parent temp root");
     std::process::Command::new(bin)
+        .env("JINN_PATHS_ROOT", root)
         .env("XDG_CONFIG_HOME", config)
         .env("XDG_DATA_HOME", data)
         .arg("--db-path")
@@ -274,8 +291,11 @@ fn config_init_without_force_skips_an_existing_stream_rules_file() {
     );
 }
 
-// A temp HOME whose subdirectories carry the XDG roots; the guard keeps the
-// temp dir alive for the duration of the test.
+// A temp root whose `config/` and `data/` subdirectories carry the XDG
+// locations; the guard keeps the temp dir alive for the duration of the
+// test. `run_jinn` points `JINN_PATHS_ROOT` at the root itself, so every
+// jinn path base — including home, and therefore `.agents/skills` —
+// rebinds inside this tree and the run touches nothing real.
 fn temp_env() -> (PathBuf, tempfile::TempDir) {
     let dir = tempfile::TempDir::new().expect("temp dir");
     (dir.path().to_path_buf(), dir)

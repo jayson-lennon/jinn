@@ -16,7 +16,6 @@ toml = { workspace = true }
 toml_edit = { workspace = true }
 jiff = { workspace = true }
 parking_lot = { workspace = true }
-dirs = { workspace = true }
 tracing = { workspace = true }
 error-stack = { workspace = true }
 wherror = { workspace = true }

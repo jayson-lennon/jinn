@@ -2977,7 +2977,6 @@ dependencies = [
 name = "jinn-preferences-config"
 version = "1.6.1"
 dependencies = [
- "dirs",
  "error-stack",
  "jinn-attendant-msg",
  "jinn-common",
@@ -3073,7 +3072,6 @@ dependencies = [
 name = "jinn-provider-config"
 version = "1.6.1"
 dependencies = [
- "dirs",
  "error-stack",
  "jiff",
  "jinn-common",
