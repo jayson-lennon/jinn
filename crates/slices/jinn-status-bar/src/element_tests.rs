@@ -847,11 +847,17 @@ fn render_shows_tilde_substitution_for_path_under_home() {
         .unwrap();
     let buffer = terminal.backend().buffer().clone();
 
-    // Then only the home-directory prefix is replaced by "~".
+    // Then only the home-directory prefix is replaced by "~", with the
+    // platform's native separators after it (PathBuf-built expectation).
+    let expected = std::path::Path::new("~")
+        .join("projects")
+        .join("my-app")
+        .display()
+        .to_string();
     let row0 = buffer_row(&buffer, 0, 80);
     assert!(
-        row0.trim_start().starts_with("~/projects/my-app"),
-        "expected ~/projects/my-app in cwd line, got: {row0}"
+        row0.trim_start().starts_with(&expected),
+        "expected {expected} in cwd line, got: {row0}"
     );
 }
 

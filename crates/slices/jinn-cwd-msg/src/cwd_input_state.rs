@@ -40,17 +40,52 @@ pub enum CwdResolution {
     NotADir(String),
 }
 
-/// Expands a leading `~` or `~/` into the user's home directory.
+/// The directory `~` expands against.
 ///
-/// Returns `None` when home cannot be determined (no `HOME`). Paths without a
-/// leading `~` are returned unchanged.
-fn expand_tilde(raw: &str) -> Option<PathBuf> {
+/// `jinn-cwd-msg` is a contract crate — it may not depend on any slice
+/// implementation crate, so the process's home is read here (the only
+/// environment read in the crate) and threaded explicitly into
+/// [`resolve_cwd_input_with_home`] by the call sites that know the process
+/// context. Tests inject a temp home the same way.
+///
+/// The read is per call, not cached at startup: this is the resolver a popup
+/// confirm dispatches through, and a fresh read matches how the rest of the
+/// popup path works (the seeded text was itself just derived from a live
+/// `shorten_path` call).
+#[must_use]
+pub fn tilde_home() -> PathBuf {
+    dirs::home_dir().unwrap_or_default()
+}
+
+/// Expands a leading `~` (or `~/`) into `home`.
+///
+/// Paths without a leading `~` are returned unchanged. Accepts both `~/` and
+/// the platform's native separator after the tilde (`~\` on Windows), since
+/// the popup seeds itself with the native-separator form
+/// [`jinn_common::shorten_path`] produces.
+fn expand_tilde(raw: &str, home: &Path) -> Option<PathBuf> {
     if raw == "~" {
-        dirs::home_dir()
-    } else if let Some(rest) = raw.strip_prefix("~/") {
-        dirs::home_dir().map(|home| home.join(rest))
+        Some(home.to_path_buf())
+    } else if let Some(rest) = strip_tilde_prefix(raw) {
+        Some(home.join(rest))
     } else {
         Some(PathBuf::from(raw))
+    }
+}
+
+/// Strips the `~` marker plus its following separator from `raw`, returning
+/// the remainder.
+///
+/// `is_separator` is platform-aware: on Unix only `/` counts, so `~\foo`
+/// stays a literal path; on Windows both `/` and `\` count, so the
+/// native-separator form [`jinn_common::shorten_path`] seeds the popup with
+/// (`~\code\jinn`) expands too.
+fn strip_tilde_prefix(raw: &str) -> Option<&str> {
+    let rest = raw.strip_prefix('~')?;
+    let mut chars = rest.chars();
+    match chars.next() {
+        Some(sep) if std::path::is_separator(sep) => Some(chars.as_str()),
+        _ => None,
     }
 }
 
@@ -90,6 +125,10 @@ fn normalize_lexically(path: &Path) -> PathBuf {
 /// Otherwise performs `~` expansion, joins relative paths against `current_cwd`,
 /// canonicalizes, and verifies the result is an existing directory.
 ///
+/// `~` expands against the process's home directory (via [`tilde_home`]);
+/// callers that already hold a home (tests) pass it through
+/// [`resolve_cwd_input_with_home`] instead.
+///
 /// # Errors
 ///
 /// This function is infallible by construction - FS failures (path missing,
@@ -100,13 +139,31 @@ fn normalize_lexically(path: &Path) -> PathBuf {
 /// error I can fix by typing more."
 #[must_use]
 pub fn resolve_cwd_input(raw: &str, current_cwd: &Path) -> CwdResolution {
+    resolve_cwd_input_with_home(raw, current_cwd, &tilde_home())
+}
+
+/// Resolves a raw cwd input string against `current_cwd`, expanding `~`
+/// against the caller-supplied `home`.
+///
+/// Same semantics as [`resolve_cwd_input`]; the home is explicit so tests
+/// inject a temp home without touching the process environment, and so the
+/// expansion never depends on how `dirs` reads the platform's home on any
+/// given OS.
+///
+/// # Errors
+///
+/// Infallible by construction, like [`resolve_cwd_input`]: failures collapse
+/// to [`CwdResolution::NotADir`].
+#[must_use]
+pub fn resolve_cwd_input_with_home(raw: &str, current_cwd: &Path, home: &Path) -> CwdResolution {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return CwdResolution::Empty;
     }
 
-    // Tilde expansion falls back to the literal path when home is unavailable.
-    let candidate = match expand_tilde(trimmed) {
+    // Tilde expansion falls back to the literal path when the input does not
+    // start with `~` plus a separator (or a bare `~`).
+    let candidate = match expand_tilde(trimmed, home) {
         Some(p) => p,
         None => PathBuf::from(trimmed),
     };
@@ -246,53 +303,62 @@ mod tests {
         assert_eq!(res, CwdResolution::Ok(canonicalize(&parent)));
     }
 
-    /// Serializes HOME mutation across the suite: rstest runs tests on
-    /// parallel threads, and two tests racing `set_var`/`remove_var` on
-    /// HOME make expansion nondeterministically read the wrong value.
-    static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     #[rstest]
     fn tilde_expands_to_home() {
-        // Given a locked HOME pointing at a temp dir containing the target.
-        let _guard = HOME_LOCK.lock().unwrap();
+        // Given a temp home containing the target directory.
         let home = tempdir().unwrap();
         let name = format!("jinn_cwd_test_{}", std::process::id());
         let target = home.path().join(&name);
         fs::create_dir_all(&target).unwrap();
-        // SAFETY: guarded by HOME_LOCK so no other test mutates HOME concurrently.
-        unsafe {
-            std::env::set_var("HOME", home.path());
-        }
 
-        // When resolving `~/<name>` from an unrelated cwd.
-        let res = resolve_cwd_input(&format!("~/{name}"), Path::new("/some/unrelated/cwd"));
+        // When resolving `~/<name>` from an unrelated cwd against that home.
+        let res = resolve_cwd_input_with_home(
+            &format!("~/{name}"),
+            Path::new("/some/unrelated/cwd"),
+            home.path(),
+        );
 
-        // Then it expands to the directory under HOME.
+        // Then it expands to the directory under the temp home — never
+        // touching the real home.
         assert_eq!(res, CwdResolution::Ok(canonicalize(&target)));
-        // SAFETY: see above.
-        unsafe {
-            std::env::remove_var("HOME");
-        }
     }
 
     #[rstest]
     fn bare_tilde_resolves_to_home() {
-        // Given a locked HOME pointing at a temp dir.
-        let _guard = HOME_LOCK.lock().unwrap();
+        // Given a temp home.
         let home = tempdir().unwrap();
-        // SAFETY: guarded by HOME_LOCK so no other test mutates HOME concurrently.
-        unsafe {
-            std::env::set_var("HOME", home.path());
-        }
 
-        // When resolving a bare `~` from an unrelated cwd.
-        let res = resolve_cwd_input("~", Path::new("/some/unrelated/cwd"));
+        // When resolving a bare `~` from an unrelated cwd against that home.
+        let res = resolve_cwd_input_with_home("~", Path::new("/some/unrelated/cwd"), home.path());
 
-        // Then it resolves to HOME itself.
+        // Then it resolves to the temp home itself.
         assert_eq!(res, CwdResolution::Ok(canonicalize(home.path())));
-        // SAFETY: see above.
-        unsafe {
-            std::env::remove_var("HOME");
+    }
+
+    #[rstest]
+    fn native_separator_tilde_input_resolves() {
+        // Given a temp home containing the target directory.
+        let home = tempdir().unwrap();
+        let name = format!("jinn_cwd_test_{}", std::process::id());
+        let target = home.path().join(&name);
+        fs::create_dir_all(&target).unwrap();
+
+        // When resolving `~\<name>` (the native-separator form the popup
+        // seeds itself with on Windows) from an unrelated cwd.
+        let input = Path::new("~").join(&name);
+        let res = resolve_cwd_input_with_home(
+            &input.to_string_lossy(),
+            Path::new("/some/unrelated/cwd"),
+            home.path(),
+        );
+
+        // Then on platforms where `\` is a separator (Windows) it expands to
+        // the directory under the temp home; on Unix the input is a literal
+        // relative path, which does not exist there, so NotADir.
+        if std::path::is_separator('\\') {
+            assert_eq!(res, CwdResolution::Ok(canonicalize(&target)));
+        } else {
+            assert!(matches!(res, CwdResolution::NotADir(_)), "{res:?}");
         }
     }
 

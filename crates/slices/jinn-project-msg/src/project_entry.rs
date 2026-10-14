@@ -140,8 +140,14 @@ mod tests {
         let entry = ProjectEntry::new(home.join("code").join("jinn"), default_theme());
 
         // When reading its display label.
-        // Then the display label is tilde-compressed.
-        assert_eq!(entry.display_label(), "~/code/jinn");
+        // Then the display label is tilde-compressed with native separators
+        // (PathBuf-built: `~/code/jinn` on Unix, `~\code\jinn` on Windows).
+        let expected = std::path::Path::new("~")
+            .join("code")
+            .join("jinn")
+            .display()
+            .to_string();
+        assert_eq!(entry.display_label(), expected);
     }
 
     #[rstest::rstest]
