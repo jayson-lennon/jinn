@@ -371,18 +371,20 @@ impl EditIntentChar for DynamicIntent {
 /// byte payload. Every other `Scope::Input` key — including all the other
 /// chat input keys — arrives through that slice's route rows instead.
 ///
-/// Modified characters are declined, so they resolve to nothing: the
-/// which-key state dismisses and the key inserts no text. This is what
-/// makes a pasted newline a noop rather than a `j` — in raw mode the
-/// terminal reports the newline byte (`0x0A`) as Ctrl+J, and without the
-/// guard the catch-all would insert that `j`. The guard also keeps unbound
-/// chords (`<c-x>`, `<M-q>`) from inserting text instead of falling
-/// through, mirroring the chat-input slice's own key hook, which only
-/// claims unmodified chars.
+/// Ctrl- or alt-modified characters are declined, so they resolve to
+/// nothing: the which-key state dismisses and the key inserts no text.
+/// This is what makes a pasted newline a noop rather than a `j` — in raw
+/// mode the terminal reports the newline byte (`0x0A`) as Ctrl+J, and
+/// without the guard the catch-all would insert that `j`. The guard also
+/// keeps unbound chords (`<c-x>`, `<M-q>`) from inserting text instead of
+/// falling through, mirroring the chat-input slice's own key hook, which
+/// claims exactly the chars with no ctrl or alt held. Shift alone is not
+/// a chord — the glyph already carries its case — so a shifted char
+/// still inserts.
 pub fn bind_chat_input_catch_all(keymap: &mut Keymap<KeyEvent, Scope, KernelIntent, KeyCategory>) {
     keymap.scope(Scope::Input, |b| {
         b.catch_all(|key: KeyEvent| match key.key {
-            Key::Char(c) if key.modifiers.is_none() => {
+            Key::Char(c) if !key.modifiers.ctrl && !key.modifiers.alt => {
                 Some(KernelIntent::Dynamic(DynamicIntent::with_bytes(
                     jinn_chat_input_msg::chat_input_scope(),
                     "insert-char",
@@ -393,6 +395,36 @@ pub fn bind_chat_input_catch_all(keymap: &mut Keymap<KeyEvent, Scope, KernelInte
             _ => None,
         });
     });
+}
+
+/// Resolves a key through the which-key state, with a shifted-variant
+/// fallback.
+///
+/// Terminals that report native modifier state (the Windows console;
+/// kitty-protocol terminals) deliver e.g. Shift+Left as `Left` with shift
+/// set. Explicit shifted rows (like `<s-enter>`) match first, and a
+/// catch-all hit wins too — but a shifted event whose plain form is bound
+/// would otherwise resolve to nothing and be silently swallowed. After a
+/// miss, and only after a miss that left no chord sequence pending, the
+/// key is retried with shift cleared so a shifted variant behaves as its
+/// unshifted form.
+pub fn handle_key_with_shift_fallback(
+    state: &mut crate::app::WhichKeyInstance,
+    key: KeyEvent,
+) -> Option<KernelIntent> {
+    let shift_only = key.modifiers.shift && !key.modifiers.ctrl && !key.modifiers.alt;
+    let base = key.key.clone();
+    if let Some(intent) = state.handle_key(key) {
+        return Some(intent);
+    }
+    if shift_only && !state.is_pending() {
+        let unshifted = KeyEvent {
+            key: base,
+            modifiers: jinn_kernel::Modifiers::none(),
+        };
+        return state.handle_key(unshifted);
+    }
+    None
 }
 
 #[cfg(test)]
@@ -472,5 +504,26 @@ mod tests {
         };
         assert_eq!(intent.action, "insert-char");
         assert_eq!(intent.bytes, b"a");
+    }
+
+    #[rstest::rstest]
+    fn shift_modified_char_in_the_input_scope_resolves_to_insert_char() {
+        // Given the Input scope's keymap state.
+        let mut state = input_scope_state();
+
+        // When a char arrives with shift set (terminals that do not
+        // pre-shift the glyph report it this way).
+        let intent = state.handle_key(KeyEvent {
+            key: Key::Char('G'),
+            modifiers: jinn_kernel::Modifiers::shift(),
+        });
+
+        // Then it resolves to the box's insert-char intent carrying the
+        // glyph — shift is not a chord the box declines.
+        let KernelIntent::Dynamic(intent) = intent.expect("shifted char must insert") else {
+            panic!("expected a dynamic insert-char intent");
+        };
+        assert_eq!(intent.action, "insert-char");
+        assert_eq!(intent.bytes, b"G");
     }
 }

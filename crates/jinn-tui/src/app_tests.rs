@@ -254,6 +254,126 @@ fn key<'a>(notation: &'a str) -> jinn_kernel::KeyEvent {
 }
 
 #[rstest::rstest]
+fn raw_shift_enter_binding_parses_and_resolves() {
+    // Given a bare keymap holding one shifted binding in the Input scope.
+    let mut km: ratatui_which_key::Keymap<
+        jinn_kernel::KeyEvent,
+        Scope,
+        jinn_kernel::protocol::KernelIntent,
+        crate::keymap::KeyCategory,
+    > = ratatui_which_key::Keymap::new();
+    km.bind(
+        "<s-enter>",
+        jinn_kernel::protocol::KernelIntent::Quit,
+        crate::keymap::KeyCategory::General,
+        Scope::Input,
+    );
+    let mut wk = WhichKeyInstance::new(km, Scope::Input);
+
+    // When pressing Shift+Enter exactly as the notation parses it
+    // (bare form — parse_notation takes no angle brackets).
+    let parsed = key("s-enter");
+
+    // And the parse is Enter with shift and nothing else.
+    assert!(parsed.modifiers.shift);
+    assert!(!parsed.modifiers.ctrl);
+    assert!(!parsed.modifiers.alt);
+
+    // Then the raw binding resolves without any spread in the way.
+    let intent = wk.handle_key(parsed);
+    assert!(intent.is_some(), "raw <s-enter> binding must resolve");
+}
+
+#[rstest::rstest]
+fn shift_enter_in_the_input_scope_resolves_to_insert_newline_shift() {
+    // Given the keymap with the box's rows and hook bound, in the Input
+    // scope the box resolves keys in.
+    let mut wk = keymap_with_chat_input_at(Scope::Input);
+
+    // When pressing Shift+Enter — the box's explicit newline chord.
+    let intent = wk.handle_key(jinn_kernel::KeyEvent {
+        key: jinn_kernel::Key::Enter,
+        modifiers: jinn_kernel::Modifiers::shift(),
+    });
+
+    // Then it resolves to the box's insert-newline-shift action.
+    let jinn_kernel::protocol::KernelIntent::Dynamic(intent) =
+        intent.expect("Shift+Enter must resolve")
+    else {
+        panic!("expected a dynamic intent");
+    };
+    assert_eq!(intent.action, "insert-newline-shift");
+}
+
+#[rstest::rstest]
+fn ctrl_enter_in_the_input_scope_resolves_to_insert_newline_ctrl() {
+    // Given the keymap with the box's rows and hook bound, in the Input
+    // scope the box resolves keys in.
+    let mut wk = keymap_with_chat_input_at(Scope::Input);
+
+    // When pressing Ctrl+Enter — the box's other newline chord.
+    let intent = wk.handle_key(jinn_kernel::KeyEvent {
+        key: jinn_kernel::Key::Enter,
+        modifiers: jinn_kernel::Modifiers::ctrl(),
+    });
+
+    // Then it resolves to the box's insert-newline-ctrl action.
+    let jinn_kernel::protocol::KernelIntent::Dynamic(intent) =
+        intent.expect("Ctrl+Enter must resolve")
+    else {
+        panic!("expected a dynamic intent");
+    };
+    assert_eq!(intent.action, "insert-newline-ctrl");
+}
+
+#[rstest::rstest]
+fn shift_arrow_in_the_input_scope_resolves_to_cursor_motion() {
+    // Given the keymap with the box's rows and hook bound, in the Input
+    // scope the box resolves keys in.
+    let mut wk = keymap_with_chat_input_at(Scope::Input);
+
+    // When pressing Shift+Left through the production dispatch helper.
+    let intent = crate::keymap_gen::handle_key_with_shift_fallback(
+        &mut wk,
+        jinn_kernel::KeyEvent {
+            key: jinn_kernel::Key::Left,
+            modifiers: jinn_kernel::Modifiers::shift(),
+        },
+    );
+
+    // Then it resolves to the same cursor motion as plain Left — a
+    // shifted variant of a bound key must not be swallowed.
+    assert!(intent.is_some(), "Shift+Left must not be swallowed");
+}
+
+#[rstest::rstest]
+fn shift_char_in_the_input_scope_resolves_to_insert_char() {
+    // Given the keymap with the box's rows and hook bound, in the Input
+    // scope the box resolves keys in.
+    let mut wk = keymap_with_chat_input_at(Scope::Input);
+
+    // When a printable char arrives with shift set — the form terminals
+    // that do not pre-shift the glyph report — through the production
+    // dispatch helper.
+    let intent = crate::keymap_gen::handle_key_with_shift_fallback(
+        &mut wk,
+        jinn_kernel::KeyEvent {
+            key: jinn_kernel::Key::Char('G'),
+            modifiers: jinn_kernel::Modifiers::shift(),
+        },
+    );
+
+    // Then it resolves to the box's insert-char intent carrying the
+    // glyph — shift alone is not a chord the box declines.
+    let jinn_kernel::protocol::KernelIntent::Dynamic(intent) =
+        intent.expect("shifted char must insert")
+    else {
+        panic!("expected a dynamic insert-char intent");
+    };
+    assert_eq!(intent.action, "insert-char");
+}
+
+#[rstest::rstest]
 #[case::normal(Scope::Normal)]
 #[case::input(Scope::Input)]
 #[case::sidebar_sessions(Scope::Dynamic(jinn_slices::SliceScopeId::navigation(

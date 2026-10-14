@@ -101,7 +101,10 @@ impl HeadlessApp {
                 drop(state_read);
                 which_key.set_scope(scope);
 
-                if let Some(intent) = which_key.handle_key(key) {
+                if let Some(intent) = jinn_tui::keymap_gen::handle_key_with_shift_fallback(
+                    &mut which_key,
+                    key,
+                ) {
                     // Process the intent through the IntentHandler.
                     let mut state = self.core.state.write();
                     let result = IntentHandler::handle(
