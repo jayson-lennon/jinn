@@ -675,7 +675,18 @@ mod tests {
     #[tokio::test]
     async fn execute_resolves_cwd() {
         // Given a bash tool call that prints the working directory.
+        //
+        // git-bash (the Windows shell resolution) reports cwd in MSYS mount
+        // form (`/tmp/...` for %TEMP%), which cannot be derived from the
+        // fixture's Windows path; `pwd -W` prints the same directory in
+        // forward-slash Windows form, which is derivable (backslashes →
+        // slashes). Unix `pwd` prints the plain path, so it asserts as-is.
         let dir = tempfile::tempdir().expect("create temp dir");
+        #[cfg(windows)]
+        let (pwd_command, expected_cwd) =
+            ("pwd -W", dir.path().to_string_lossy().replace('\\', "/"));
+        #[cfg(not(windows))]
+        let (pwd_command, expected_cwd) = ("pwd", dir.path().to_string_lossy().into_owned());
         let ctx = ToolContext {
             cwd: dir.path().to_owned(),
             config: jinn_config::testutil::config_layer(""),
@@ -700,7 +711,7 @@ mod tests {
             id: "call_4".to_owned(),
             name: "bash".to_owned(),
             arguments: serde_json::json!({
-                "command": "pwd"
+                "command": pwd_command
             })
             .to_string(),
         };
@@ -708,9 +719,14 @@ mod tests {
         // When executing the bash tool.
         let result = execute(call, ctx).await;
 
-        // Then the output shows the CWD.
+        // Then the output shows the CWD in the shell-normalized form the run
+        // actually produces.
         assert!(result.success);
-        assert!(result.content.contains(dir.path().to_str().unwrap()));
+        assert!(
+            result.content.contains(expected_cwd.as_str()),
+            "expected cwd {expected_cwd} in output: {}",
+            result.content
+        );
     }
 
     #[rstest::rstest]

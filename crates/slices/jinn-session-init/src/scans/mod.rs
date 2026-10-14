@@ -25,11 +25,17 @@ pub use workflows::scan_workflows;
 use jinn_context::PromptTemplateStore;
 use jinn_context::env_context::ContextFile;
 
-/// Relative location of project skills under a project root.
-pub const SKILLS_SUBDIR: &str = ".agents/skills";
+/// Relative location of project skills under a project root, as path
+/// segments joined natively by [`walk::project_skills_dirs`].
+///
+/// The segments are joined one component at a time (not as a single
+/// `/`-separated string) so a Windows root never acquires a
+/// mixed-separator tail such as `C:\proj\.agents/skills`.
+pub const SKILLS_SUBDIR: &[&str] = &[".agents", "skills"];
 
-/// Relative location of project prompts under a project root.
-pub const PROMPTS_SUBDIR: &str = ".agents/prompts";
+/// Relative location of project prompts under a project root, as path
+/// segments joined natively by [`walk::project_prompts_dirs`].
+pub const PROMPTS_SUBDIR: &[&str] = &[".agents", "prompts"];
 
 /// Candidate project context filenames, checked in order.
 pub const CONTEXT_FILE_CANDIDATES: &[&str] = &["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];

@@ -237,7 +237,7 @@ mod tests {
         body: &str,
     ) -> (tempfile::TempDir, State, SessionId, ToolContext) {
         let tmp = tempfile::tempdir().expect("create temp dir");
-        let skill_dir = tmp.path().join(".agents/skills").join(name);
+        let skill_dir = tmp.path().join(".agents").join("skills").join(name);
         std::fs::create_dir_all(&skill_dir).expect("create skill dir");
         let skill_file = skill_dir.join("SKILL.md");
         std::fs::write(
@@ -338,7 +338,7 @@ mod tests {
         // dir and fail. Post-fix, it resolves from the session's discovered set.
         let (tmp, _state, _session_id, ctx) =
             project_skill("proj-skill", "a project skill", "project body");
-        let skill_dir = tmp.path().join(".agents/skills/proj-skill");
+        let skill_dir = tmp.path().join(".agents").join("skills").join("proj-skill");
         let call = skill_call("proj-skill");
 
         // When executing.
@@ -370,7 +370,11 @@ mod tests {
     async fn execute_result_header_carries_base_dir() {
         // Given a project-local skill seeded with a distinct base_dir.
         let (tmp, _state, _session_id, ctx) = project_skill("header-skill", "d", "body");
-        let skill_dir = tmp.path().join(".agents/skills/header-skill");
+        let skill_dir = tmp
+            .path()
+            .join(".agents")
+            .join("skills")
+            .join("header-skill");
         let call = skill_call("header-skill");
 
         // When executing.
