@@ -7,6 +7,9 @@ publish.workspace = true
 [dependencies]
 # Core types: SessionId keys every command and event.
 jinn-core-types = { workspace = true }
+# Plain-form path canonicalization (`canonicalize_display`) for the bounded
+# project walk — cwd and home must compare in the same non-verbatim form.
+jinn-common = { workspace = true }
 jinn-context = { workspace = true }
 jinn-skills-msg = { workspace = true }
 jinn-skills = { workspace = true }

@@ -2527,6 +2527,7 @@ name = "jinn-cwd-msg"
 version = "1.6.1"
 dependencies = [
  "dirs",
+ "jinn-common",
  "jinn-core-types",
  "jinn-slices",
  "rstest",
@@ -3219,6 +3220,7 @@ name = "jinn-session-init"
 version = "0.116.1"
 dependencies = [
  "error-stack",
+ "jinn-common",
  "jinn-context",
  "jinn-core-types",
  "jinn-kernel",

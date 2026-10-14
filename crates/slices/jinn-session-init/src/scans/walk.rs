@@ -17,6 +17,8 @@
 
 use std::path::{Path, PathBuf};
 
+use jinn_common::canonicalize_display;
+
 use super::vcs::is_vcs_root;
 use super::{CONTEXT_FILE_CANDIDATES, PROMPTS_SUBDIR, SKILLS_SUBDIR};
 
@@ -79,14 +81,19 @@ fn collect_bounded(cwd: &Path, home: &Path) -> Vec<PathBuf> {
     dirs
 }
 
-/// Canonicalizes `path`, falling back to the input on failure.
+/// Canonicalizes `path` into jinn's plain path form, falling back to the
+/// input on failure.
 ///
 /// Discovery must be robust to nonexistent or non-canonical paths (e.g. a cwd
-/// that was just typed and not yet entered). When `canonicalize` fails we use the
-/// literal input so the walk proceeds against the given path rather than
-/// aborting.
+/// that was just typed and not yet entered). Canonicalization goes through
+/// [`jinn_common::canonicalize_display`] so cwd and home land in the same
+/// (non-verbatim) form — on Windows, std's canonicalization returns verbatim
+/// `\\?\`-prefixed paths that never compare equal to the plain parents the
+/// walk rebuilds, so the home bound would never fire. When canonicalization
+/// fails we use the literal input so the walk proceeds against the given path
+/// rather than aborting.
 fn canonicalize_or_input(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    canonicalize_display(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// Returns the `.agents/skills` directory under each project dir for `cwd`.

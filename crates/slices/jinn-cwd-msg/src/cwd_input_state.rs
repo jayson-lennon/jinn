@@ -119,10 +119,12 @@ pub fn resolve_cwd_input(raw: &str, current_cwd: &Path) -> CwdResolution {
         current_cwd.join(&candidate)
     };
 
-    // Canonicalize resolves `..`, `.`, and symlinks. A failure here means the
-    // path doesn't exist - treat as NotADir so the footer shows the error.
+    // Canonicalize resolves `..`, `.`, and symlinks, into jinn's plain path
+    // form (no Windows verbatim `\\?\` prefix) so the result is comparable,
+    // storable, and displayable. A failure here means the path doesn't exist
+    // - treat as NotADir so the footer shows the error.
     let normalized = normalize_lexically(&absolute);
-    let Ok(canonical) = std::fs::canonicalize(&normalized) else {
+    let Ok(canonical) = jinn_common::canonicalize_display(&normalized) else {
         return CwdResolution::NotADir(absolute.display().to_string());
     };
 
@@ -306,8 +308,10 @@ mod tests {
         assert_eq!(res, CwdResolution::Ok(canonicalize(dir.path())));
     }
 
-    /// Helper: canonicalize without dragging `std::fs::canonicalize` into every test.
+    /// Helper: canonicalize without dragging the shared canonicalizer into
+    /// every test. Uses the same plain-form helper the resolver uses, so
+    /// expectations match the resolver's non-verbatim output on Windows.
     fn canonicalize(p: &Path) -> PathBuf {
-        std::fs::canonicalize(p).expect("test fixture dir must canonicalize")
+        jinn_common::canonicalize_display(p).expect("test fixture dir must canonicalize")
     }
 }

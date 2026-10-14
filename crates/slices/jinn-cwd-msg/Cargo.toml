@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 [dependencies]
 dirs = { workspace = true }
+# Plain-form path canonicalization (`canonicalize_display`): resolved cwd
+# paths are stored as projects, published as session cwd, and shown in popup
+# footers — all must be free of the Windows verbatim `\\?\` prefix.
+jinn-common = { workspace = true }
 jinn-core-types = { workspace = true }
 jinn-slices = { workspace = true }
 serde = { workspace = true }
