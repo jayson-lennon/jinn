@@ -4,8 +4,26 @@
 //! they guard is a *missing line in a file no behavioural test executes* —
 //! the reasoning-effort picker shipped broken exactly that way, wired into
 //! the test harness but not into production. A behavioural test would need
-//! a full app boot; reading the boot list does not, and holds even while
-//! the tree does not compile.
+//! a full app boot; reading the boot list does not, and holds even while the
+//! tree does not compile.
+
+use std::path::Path;
+
+/// The boot list's own file, which the outside-the-boot-list walk skips.
+///
+/// Walked paths carry the platform's separator (`src\bootstrap\slices.rs` on
+/// Windows), so files are matched by their trailing path components rather
+/// than by a string suffix — `Path::ends_with` compares components and
+/// accepts either separator.
+fn is_boot_list(path: &str) -> bool {
+    Path::new(path).ends_with(Path::new("bootstrap/slices.rs"))
+}
+
+/// A file documented to compose slices outside the boot list.
+fn is_documented_exception(path: &str) -> bool {
+    Path::new(path).ends_with(Path::new("app/builder.rs"))
+        || Path::new(path).ends_with(Path::new("bootstrap/ui.rs"))
+}
 
 /// The producers block is written before the independents block.
 ///
@@ -139,7 +157,7 @@ fn slice_activations_are_not_called_outside_the_boot_list() {
     // Given every production source file outside the boot list.
     let mut offenders = Vec::new();
     for path in production_sources() {
-        if path.ends_with("bootstrap/slices.rs") {
+        if is_boot_list(&path) {
             continue;
         }
         let Ok(source) = std::fs::read_to_string(&path) else {
@@ -157,7 +175,7 @@ fn slice_activations_are_not_called_outside_the_boot_list() {
 
     // Then only documented exceptions call an activation.
     for offender in offenders {
-        let allowed = offender.contains("app/builder.rs") || offender.contains("bootstrap/ui.rs");
+        let allowed = is_documented_exception(&offender);
         assert!(
             allowed,
             "slice activation called outside the boot list: {offender}"

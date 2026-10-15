@@ -261,12 +261,18 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn execute_no_pin_on_dir_creation_failure() {
-        // Given a path inside /proc where create_dir_all will fail.
+        // Given a regular file where the plan's parent directory would have
+        // to be created — create_dir_all fails on the existing file.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let blocking_file = dir.path().join("blocked");
+        std::fs::write(&blocking_file, "a file, not a directory").expect("create blocking file");
+        let file_path = blocking_file.join("plan.md");
+
         let call = ToolCall {
             id: "call_4".to_owned(),
             name: "save_plan".to_owned(),
             arguments: serde_json::json!({
-                "path": "/proc/nonexistent_dir/impossible_plan.md",
+                "path": file_path.to_string_lossy(),
                 "content": "will fail"
             })
             .to_string(),
