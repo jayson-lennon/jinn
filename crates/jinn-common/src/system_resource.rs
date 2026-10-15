@@ -164,7 +164,15 @@ mod tests {
         }
 
         // When loading the system resource.
-        let _result = load_system_resource("_compaction.md", &user_dir, &system_dir);
+        #[cfg_attr(unix, expect(unused_variables, reason = "Unix asserts below"))]
+        #[cfg_attr(
+            windows,
+            expect(
+                unused_variables,
+                reason = "Windows skips the unreadable-file assertion"
+            )
+        )]
+        let result = load_system_resource("_compaction.md", &user_dir, &system_dir);
 
         // Then an error is returned (on Unix, permission denied prevents reading).
         #[cfg(unix)]
