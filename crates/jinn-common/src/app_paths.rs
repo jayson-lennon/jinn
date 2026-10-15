@@ -658,7 +658,12 @@ mod tests {
 
     #[rstest::rstest]
     fn default_system_data_dir_is_usr_share() {
-        // Given a default AppPaths.
+        // Given a default AppPaths, constructed with no ambient override —
+        // the lock is held so a parallel test's transient JINN_PATHS_ROOT
+        // cannot leak into this construction.
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let _guard = PathsRootEnvGuard::set(root.path());
+        let _cleared = ClearPathsRootGuard::new();
         let paths = AppPaths::default();
 
         // When reading the system data dir.
@@ -683,7 +688,12 @@ mod tests {
 
     #[rstest::rstest]
     fn default_system_skills_dir_is_usr_share() {
-        // Given a default AppPaths.
+        // Given a default AppPaths, constructed with no ambient override —
+        // the lock is held so a parallel test's transient JINN_PATHS_ROOT
+        // cannot leak into this construction.
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let _guard = PathsRootEnvGuard::set(root.path());
+        let _cleared = ClearPathsRootGuard::new();
         let paths = AppPaths::default();
 
         // When reading the system skills dir.
