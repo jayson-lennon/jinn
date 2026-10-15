@@ -288,7 +288,9 @@ impl TuiApp {
                 jinn_kernel::protocol::CwdRoot::Session => {
                     self.core.state.read().active_session().cwd().to_owned()
                 }
-                jinn_kernel::protocol::CwdRoot::Home => dirs::home_dir().unwrap_or_default(),
+                jinn_kernel::protocol::CwdRoot::Home => {
+                    jinn_kernel::AppPaths::default().home_dir().to_path_buf()
+                }
             };
             self.suspend
                 .request(SuspendAction::ChangeCwd { search_root });

@@ -3916,7 +3916,6 @@ dependencies = [
  "crossterm",
  "derive_more",
  "dialoguer",
- "dirs",
  "error-stack",
  "futures",
  "jinn-cell-catalog",

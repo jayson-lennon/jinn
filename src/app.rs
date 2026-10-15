@@ -308,11 +308,7 @@ pub(crate) fn seed_config_template(path: &std::path::Path) {
 /// Returns an error if the HTTP request fails, the response is not valid JSON,
 /// or the file cannot be written.
 async fn fetch_models() -> Result<(), Report<AppError>> {
-    use jinn_kernel::common::app_info::APP_NAME;
-    let target_path = dirs::cache_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(APP_NAME)
-        .join("models.dev.json");
+    let target_path = jinn_kernel::AppPaths::default().models_dev_user_path();
     fetch_models_from_url("https://models.dev/api.json", target_path).await
 }
 

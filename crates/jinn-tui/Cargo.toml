@@ -33,7 +33,6 @@ derive_more = { workspace = true }
 unicode-segmentation = { workspace = true }
 dialoguer = { workspace = true }
 arboard = { workspace = true }
-dirs = { workspace = true }
 tracing = { workspace = true }
 
 serde = { workspace = true }
