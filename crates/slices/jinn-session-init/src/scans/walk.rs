@@ -451,9 +451,12 @@ mod tests {
         let tmp = tempfile::tempdir().expect("temp dir");
         let real = tmp.path().join("real");
         std::fs::create_dir(&real).expect("mkdir");
-        let _link = tmp.path().join("link");
         #[cfg(unix)]
-        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+        let link = {
+            let link = tmp.path().join("link");
+            std::os::unix::fs::symlink(&real, &link).expect("symlink");
+            link
+        };
         #[cfg(not(unix))]
         let link = real.clone(); // symlink test is unix-only; no-op elsewhere.
 
