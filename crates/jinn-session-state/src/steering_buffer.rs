@@ -268,7 +268,7 @@ mod tests {
         let fragments = buf.drain_fragments();
 
         // Then an empty vec is returned.
-        assert!(fragments.is_empty());
+        assert_eq!(fragments, [] as [std::string::String; 0]);
     }
 
     #[rstest::rstest]

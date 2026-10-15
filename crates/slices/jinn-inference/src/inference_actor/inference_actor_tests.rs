@@ -1277,7 +1277,7 @@ fn dispatch_for(session_id: &SessionId) -> SendToLlmProvider {
         endpoint_tag: None,
         session_id: session_id.clone(),
         messages: vec![],
-        system_prompt: Default::default(),
+        system_prompt: SystemPrompt::default(),
         provider_id: None,
         tool_definitions: vec![],
         estimated_tokens: 0,

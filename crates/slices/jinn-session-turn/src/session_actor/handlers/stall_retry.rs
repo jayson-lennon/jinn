@@ -29,6 +29,10 @@ impl SessionPersistenceActor {
     /// phase actor at admission (`BeginStream`), not here — a dispatch
     /// that was refused never reaches the bus, and an armed guard with no
     /// stream behind it was exactly the wedge.
+    #[expect(
+        clippy::unused_self,
+        reason = "kept as an inherent method: callers read it as one of the actor's message-receipt handlers, alongside its siblings"
+    )]
     pub(in crate::session_actor) fn on_send_to_llm_provider(&self, payload: &SendToLlmProvider) {
         tracing::debug!(
             session_id = %payload.session_id,

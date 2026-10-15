@@ -213,11 +213,11 @@ fn confirm_invalid_dir_stays_open_without_publishing() {
     let mut cx = ctx_with_config(&mut state, &slices, &config);
     let result = confirm_project_add(&mut cx, &cell);
     assert!(result.messages.is_empty());
-    assert!(
+    assert_eq!(
         config
             .get_list::<jinn_preferences_config::schemas::ProjectConfig>()
-            .expect("section reads")
-            .is_empty()
+            .expect("section reads"),
+        [] as [jinn_preferences_config::config_template::ProjectConfig; 0]
     );
 }
 

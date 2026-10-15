@@ -74,7 +74,7 @@ mod tests {
 
         // Then the bot is disabled by default.
         assert!(!config.enabled);
-        assert!(config.authorized_users.is_empty());
+        assert_eq!(config.authorized_users, [] as [std::string::String; 0]);
     }
 
     #[rstest::rstest]
@@ -161,6 +161,9 @@ mod tests {
         let parsed: Wrapper = toml::from_str(toml_str).expect("parse");
 
         // Then the allow-list is empty (which denies everybody).
-        assert!(parsed.discord.authorized_users.is_empty());
+        assert_eq!(
+            parsed.discord.authorized_users,
+            [] as [std::string::String; 0]
+        );
     }
 }

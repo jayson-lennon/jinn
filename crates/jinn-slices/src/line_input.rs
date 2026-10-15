@@ -173,7 +173,7 @@ mod tests {
 
         // When inspecting its text and cursor.
         // Then it is empty with cursor at 0.
-        assert!(li.input.is_empty());
+        assert_eq!(li.input, "");
         assert_eq!(li.cursor_pos, 0);
     }
 

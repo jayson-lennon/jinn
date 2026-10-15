@@ -63,13 +63,13 @@ pub fn tilde_home() -> PathBuf {
 /// the platform's native separator after the tilde (`~\` on Windows), since
 /// the popup seeds itself with the native-separator form
 /// [`jinn_common::shorten_path`] produces.
-fn expand_tilde(raw: &str, home: &Path) -> Option<PathBuf> {
+fn expand_tilde(raw: &str, home: &Path) -> PathBuf {
     if raw == "~" {
-        Some(home.to_path_buf())
+        home.to_path_buf()
     } else if let Some(rest) = strip_tilde_prefix(raw) {
-        Some(home.join(rest))
+        home.join(rest)
     } else {
-        Some(PathBuf::from(raw))
+        PathBuf::from(raw)
     }
 }
 
@@ -163,10 +163,7 @@ pub fn resolve_cwd_input_with_home(raw: &str, current_cwd: &Path, home: &Path) -
 
     // Tilde expansion falls back to the literal path when the input does not
     // start with `~` plus a separator (or a bare `~`).
-    let candidate = match expand_tilde(trimmed, home) {
-        Some(p) => p,
-        None => PathBuf::from(trimmed),
-    };
+    let candidate = expand_tilde(trimmed, home);
 
     // Relative paths resolve against the current session cwd; absolute paths
     // and home-expanded paths pass through unchanged.

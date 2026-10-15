@@ -630,7 +630,7 @@ mod tests {
         let result = handle_select_next(&mut state);
 
         // Then no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -660,7 +660,7 @@ mod tests {
         let result = handle_select_prev(&mut state);
 
         // Then no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -693,7 +693,7 @@ mod tests {
         let result = handle_pin_selected(&mut state);
 
         // Then no commands.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -762,7 +762,7 @@ mod tests {
         let result = handle_expand_tool_entry(&mut state);
 
         // Then no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -856,7 +856,7 @@ mod tests {
         let result = handle_expand_tool_entry(&mut state);
 
         // Then no change.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -872,7 +872,7 @@ mod tests {
         let result = handle_expand_tool_entry(&mut state);
 
         // Then no change.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -910,7 +910,7 @@ mod tests {
         let result = handle_expand_tool_entry(&mut state);
 
         // Then no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -955,7 +955,7 @@ mod tests {
         let result = handle_fork_from_entry(&mut state);
 
         // Then no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -967,7 +967,7 @@ mod tests {
         let result = handle_fork_from_entry(&mut state);
 
         // Then no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -1031,7 +1031,7 @@ mod tests {
         let result = handle_yank_selected(&mut state);
 
         // Then no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -1044,7 +1044,7 @@ mod tests {
 
         // Then yank_text is not set and no commands are emitted.
         assert!(state.frontend.signals_snapshot().yank_text.is_none());
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -1138,7 +1138,7 @@ mod tests {
         let result = handle_toggle_ignored_block(&mut state);
 
         // Then no commands are emitted and no state change.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -1154,7 +1154,7 @@ mod tests {
         let result = handle_toggle_ignored_block(&mut state);
 
         // Then no commands emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -1577,7 +1577,7 @@ mod tests {
         let result = handle_reset_selected(&mut state);
 
         // Then no events are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -1611,7 +1611,7 @@ mod tests {
         let result = handle_reset_selected(&mut state);
 
         // Then no events are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
     #[rstest::rstest]
     fn handle_reset_sweep_skips_pinned_entry() {
@@ -1646,7 +1646,7 @@ mod tests {
             ContextOverride::Default
         );
         // And the middle press (the skip) emits no events.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -1793,7 +1793,7 @@ mod tests {
         // And sweep state is stored (ready if more entries appear).
         assert!(state.active_session_mut().take_ignore_sweep().is_some());
         // And commands are returned.
-        assert!(!result.message_names.is_empty());
+        assert_ne!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -1892,7 +1892,7 @@ mod tests {
             ContextOverride::Default
         );
         // And no commands returned (no-op: pinned at bottom).
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2579,7 +2579,7 @@ mod jump_compaction_tests {
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2594,7 +2594,7 @@ mod jump_compaction_tests {
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
         assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2610,7 +2610,7 @@ mod jump_compaction_tests {
 
         // Then it is a no-op: nothing newer than the last entry exists.
         assert!(state.active_session().selected_cursor_id().is_none());
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2644,7 +2644,7 @@ mod jump_compaction_tests {
 
         // Then it is a no-op.
         assert_eq!(state.active_session().selected_cursor_id(), before);
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2663,7 +2663,7 @@ mod jump_compaction_tests {
 
         // Then it is a no-op.
         assert_eq!(state.active_session().selected_cursor_id(), before);
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2676,7 +2676,7 @@ mod jump_compaction_tests {
 
         // Then it is a no-op without panic.
         assert!(state.active_session().selected_cursor_id().is_none());
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2689,7 +2689,7 @@ mod jump_compaction_tests {
 
         // Then it is a no-op without panic.
         assert!(state.active_session().selected_cursor_id().is_none());
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     /// Build history user,A,user,B where A and B are pinned entries.
@@ -2753,7 +2753,7 @@ mod jump_compaction_tests {
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2768,7 +2768,7 @@ mod jump_compaction_tests {
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
         assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2787,7 +2787,7 @@ mod jump_compaction_tests {
 
         // Then it is a no-op.
         assert_eq!(state.active_session().selected_cursor_id(), before);
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2806,7 +2806,7 @@ mod jump_compaction_tests {
 
         // Then it is a no-op.
         assert_eq!(state.active_session().selected_cursor_id(), before);
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2834,7 +2834,7 @@ mod jump_compaction_tests {
 
         // Then it is a no-op without panic.
         assert!(state.active_session().selected_cursor_id().is_none());
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     /// Build history user,A,user,B where A and B are Sources (annotation) entries.
@@ -2916,7 +2916,7 @@ mod jump_compaction_tests {
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
         assert_eq!(state.active_session().selected_cursor_id(), Some(b_id));
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2931,7 +2931,7 @@ mod jump_compaction_tests {
 
         // Then the cursor is unchanged (no wrap) and no commands emitted.
         assert_eq!(state.active_session().selected_cursor_id(), Some(a_id));
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2944,7 +2944,7 @@ mod jump_compaction_tests {
 
         // Then it is a no-op without panic.
         assert!(state.active_session().selected_cursor_id().is_none());
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2957,7 +2957,7 @@ mod jump_compaction_tests {
 
         // Then it is a no-op without panic.
         assert!(state.active_session().selected_cursor_id().is_none());
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2971,7 +2971,7 @@ mod jump_compaction_tests {
         let result = handle_jump_next_entry(&mut state, jinn_core_types::ChatEntry::is_compaction);
 
         // Then no commands or events are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -2985,7 +2985,7 @@ mod jump_compaction_tests {
         let result = handle_jump_prev_entry(&mut state, jinn_core_types::ChatEntry::is_compaction);
 
         // Then no commands or events are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     /// Build a history where a collapsed ignored block sits BETWEEN two
@@ -3283,7 +3283,7 @@ mod new_session_from_entry_tests {
         );
 
         // Then the result is empty and the active session is unchanged.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         assert_eq!(state.session.active_session_id(), &old_id);
     }
 
@@ -3304,7 +3304,7 @@ mod new_session_from_entry_tests {
         );
 
         // Then the result is empty and the active session is unchanged.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         assert_eq!(state.session.active_session_id(), &old_id);
     }
 

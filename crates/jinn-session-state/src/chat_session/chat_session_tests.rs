@@ -181,7 +181,7 @@ fn push_entry_email_at_is_not_treated_as_attachment() {
     else {
         panic!("expected a user entry");
     };
-    assert!(attachments.is_empty());
+    assert_eq!(attachments.as_slice(), []);
     assert_eq!(expanded, "contact foo@bar.com");
 }
 
@@ -2273,7 +2273,7 @@ fn serde_defaults_lifecycle_fields_when_missing() {
 
     // Then lifecycle fields default to None/empty.
     assert!(back.lifecycle_name().is_none());
-    assert!(back.lifecycle_args().is_empty());
+    assert_eq!(back.lifecycle_args(), [] as [std::string::String; 0]);
 }
 
 #[rstest::rstest]
@@ -2321,7 +2321,7 @@ fn begin_tool_result_creates_pending_entry() {
         } => {
             assert_eq!(id, "call_1");
             assert_eq!(name, "bash");
-            assert!(content.is_empty());
+            assert_eq!(content, "");
             assert_eq!(*status, ToolResultStatus::Pending);
         }
         other => panic!("expected ToolResult, got {other:?}"),
@@ -2557,7 +2557,7 @@ fn begin_tool_result_in_sending_creates_a_pending_entry() {
             ..
         } => {
             assert_eq!(id, "call_1");
-            assert!(content.is_empty());
+            assert_eq!(content, "");
             assert_eq!(*status, ToolResultStatus::Pending);
         }
         other => panic!("expected ToolResult, got {other:?}"),
@@ -5086,7 +5086,7 @@ fn profile_mut_returns_mutable_reference() {
 fn restore_token_ledger_sets_records() {
     // Given a session with no token records.
     let mut session = ChatSessionState::new();
-    assert!(session.token_ledger().is_empty());
+    assert_eq!(session.token_ledger(), []);
 
     // When restoring a token ledger.
     let records = vec![TokenRecord {
@@ -5360,7 +5360,7 @@ fn discovered_skills_default_empty() {
 
     // When its discovered sets are read.
     // Then the skill, prompt-template, and context-file sets are all empty.
-    assert!(session.discovered_skills().is_empty());
+    assert_eq!(session.discovered_skills(), []);
     assert!(session.discovered_prompt_templates().is_empty());
     assert!(session.discovered_context_files().is_empty());
 }
@@ -6332,7 +6332,10 @@ fn view_reads_default_without_the_cell() {
     // Then every view field reads as its default.
     assert_eq!(scroll_offset, None);
     assert!(!session.has_saved_history_position());
-    assert!(session.visual_items_snapshot().is_empty());
+    assert_eq!(
+        session.visual_items_snapshot(),
+        [] as [jinn_chat_log_view_msg::VisualItem; 0]
+    );
 }
 
 #[rstest::rstest]
@@ -6785,7 +6788,10 @@ fn attendant_fields_default_when_absent_from_persisted_blob() {
         core.attendant.trigger,
         jinn_attendant_msg::AttendantTrigger::Manual
     );
-    assert!(core.attendant.reports.is_empty());
+    assert_eq!(
+        core.attendant.reports,
+        [] as [jinn_attendant_msg::AttendantReport; 0]
+    );
     assert_eq!(
         core.attendant.seed_template,
         jinn_attendant_msg::default_seed_template()
@@ -7026,10 +7032,7 @@ fn an_interrupted_call_is_paired_with_a_result() {
     let result = session
         .history()
         .iter()
-        .find_map(|e| match &e.kind {
-            ChatEntryKind::ToolResult { id, .. } if id == "tc_1" => Some(e),
-            _ => None,
-        })
+        .find(|e| matches!(&e.kind, ChatEntryKind::ToolResult { id, .. } if id == "tc_1"))
         .expect("a result for the interrupted call");
     assert!(
         matches!(

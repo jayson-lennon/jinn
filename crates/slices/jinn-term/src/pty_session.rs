@@ -545,17 +545,21 @@ mod tests {
         clippy::indexing_slicing,
         reason = "test code"
     )]
+    #[cfg(unix)]
     use std::time::Duration;
 
+    #[cfg(unix)]
     use super::*;
 
     /// Test timeout for child-process waits; keeps a wedged pty from hanging
     /// the suite past tokio's default 10s test timeout.
+    #[cfg(unix)]
     fn wait_timeout() -> Duration {
         Duration::from_secs(5)
     }
 
     /// The spawn size used by these tests.
+    #[cfg(unix)]
     fn default_size() -> PtySize {
         PtySize {
             rows: 24,
@@ -566,6 +570,7 @@ mod tests {
     }
 
     /// Screen wiring writing into a throwaway state (no bus subscribers).
+    #[cfg(unix)]
     async fn wiring() -> ScreenWiring {
         let harness = jinn_testutil::bus_harness::TestHarness::new().await;
         let state = jinn_kernel::common::state::State::new(

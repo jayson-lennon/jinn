@@ -52,9 +52,9 @@ mod tests {
             lines.len()
         );
         // And the first line is the top pad.
-        assert!(lines[0].spans.is_empty());
+        assert_eq!(lines[0].spans, [] as [ratatui::prelude::Span<'_>; 0]);
         // And the last line has content (not a bottom pad).
-        assert!(!lines[1].spans.is_empty());
+        assert_ne!(lines[1].spans, [] as [ratatui::prelude::Span<'_>; 0]);
     }
 
     #[rstest::rstest]

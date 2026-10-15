@@ -180,7 +180,7 @@ mod tests {
         let events1 = parser.feed(b"data: {\"hel");
 
         // Then no event is produced yet.
-        assert!(events1.is_empty());
+        assert_eq!(events1, [] as [crate::openai_compat::sse::SseEvent; 0]);
 
         // And when the completing chunk arrives.
         let events2 = parser.feed(b"lo\":true}\n\n");
@@ -241,6 +241,6 @@ mod tests {
         let events = parser.finish();
 
         // Then no events are produced.
-        assert!(events.is_empty());
+        assert_eq!(events, [] as [crate::openai_compat::sse::SseEvent; 0]);
     }
 }

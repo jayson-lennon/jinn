@@ -937,7 +937,10 @@ mod tests {
         let loaded: ChatEntry = serde_json::from_value(json).expect("deserialize legacy");
 
         // Then the history loads empty.
-        assert!(loaded.context_history.is_empty());
+        assert_eq!(
+            loaded.context_history,
+            [] as [crate::chat_entry::ContextChangeEvent; 0]
+        );
         // The override itself is preserved.
         assert_eq!(loaded.context_override(), ContextOverride::ForcedExclude);
     }

@@ -294,6 +294,6 @@ mod tests {
         let visible = visible_session_tree(entries, &HashMap::new());
 
         // Then no row is emitted because the malformed graph has no root.
-        assert!(visible.is_empty());
+        assert_eq!(visible, [] as [SessionEntry; 0]);
     }
 }

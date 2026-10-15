@@ -278,13 +278,13 @@ mod tests {
         let auto_prune = config.get::<AutoPruneConfig>().expect("section reads");
         assert_eq!(auto_prune.accumulation_threshold_tokens, 25_000);
         // And no message is published — the write is the effect.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         // And the popup closes.
         assert_eq!(
             result.scope_signal,
             Some(ScopeSignal::PopIf(pruner_accumulation_scope()))
         );
-        assert!(cell.read().text.input.is_empty());
+        assert_eq!(cell.read().text.input, "");
     }
 
     #[rstest::rstest]
@@ -304,7 +304,7 @@ mod tests {
         let result = confirm_pruner_accumulation(&mut ctx, &cell);
 
         // Then it consumes Enter without publishing or closing.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         assert!(result.scope_signal.is_none());
         assert_eq!(cell.read().text.input, "4294967296");
     }

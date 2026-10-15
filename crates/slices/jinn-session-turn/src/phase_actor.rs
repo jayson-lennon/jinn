@@ -117,7 +117,11 @@ impl SessionPhaseActor {
     ///
     /// Returns the decision, and the pre/post phases to publish when
     /// they differ. A refusal applies nothing and publishes nothing.
-    async fn apply(&mut self, command: &PhaseCommand) -> PhaseDecision {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per PhaseCommand variant: admission policy and machine edge belong beside each other, and the fused edges are the point"
+    )]
+    fn apply(&mut self, command: &PhaseCommand) -> PhaseDecision {
         let session_id = command.session_id().clone();
         let record = self.turns.entry(session_id.clone()).or_default();
 
@@ -322,9 +326,9 @@ fn refused(record: &TurnRecord, state: &State, session_id: &SessionId) -> PhaseD
 }
 
 impl MsgHandler<PhaseCommand> for SessionPhaseActor {
-    async fn handle(&mut self, command: &PhaseCommand, ctx: &mut MsgCtx<'_>) {
-        let session_id = command.session_id().clone();
-        let decision = self.apply(command).await;
+    async fn handle(&mut self, msg: &PhaseCommand, ctx: &mut MsgCtx<'_>) {
+        let session_id = msg.session_id().clone();
+        let decision = self.apply(msg);
         ctx.reply(decision.clone());
         self.publish_if_changed(&session_id, &decision).await;
     }
@@ -440,6 +444,10 @@ pub(crate) async fn settle_stream(
 /// Public for the queue actor's tests, which drive the cancel side of the
 /// mid-assemble race directly; the crate's own handlers call it through
 /// the same function.
+///
+/// # Errors
+///
+/// Returns the phase actor's ask error when the actor cannot be reached.
 pub async fn cancel_turn(
     services: &jinn_kernel::common::services::Services,
     session_id: &SessionId,
@@ -483,6 +491,10 @@ pub(crate) async fn admit_rewind(
     }
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "activation surface: spawn takes ownership of the handles it moves into the actor; State and BusService are both Arc-backed and cheap to clone"
+)]
 pub fn spawn(system: &trouper::system::ActorSystem, state: State, bus: BusService) -> ActorPath {
     trouper::builder::spawn_service_builder::<SessionPhaseActor>(system)
         .at(ActorPath::new(SESSION_PHASE_PATH))

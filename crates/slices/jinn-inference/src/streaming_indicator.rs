@@ -505,7 +505,7 @@ mod tests {
     #[rstest::rstest]
     fn busy_attendant_session_shows_the_kind_label() {
         // Given a busy attendant session.
-        let mut state = state_with_origin(SessionOrigin::Attendant);
+        let state = state_with_origin(SessionOrigin::Attendant);
 
         // When the indicator row is rendered.
         let text = row_text(&state, 40);

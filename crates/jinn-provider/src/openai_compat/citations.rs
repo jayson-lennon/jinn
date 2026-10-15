@@ -149,7 +149,7 @@ mod tests {
         ));
 
         // Then draining yields nothing.
-        assert!(acc.drain().is_empty());
+        assert_eq!(acc.drain(), [] as [crate::stream_event::StreamEvent; 0]);
     }
 
     #[rstest::rstest]
@@ -164,7 +164,7 @@ mod tests {
         }));
 
         // Then draining yields nothing rather than an unusable citation.
-        assert!(acc.drain().is_empty());
+        assert_eq!(acc.drain(), [] as [crate::stream_event::StreamEvent; 0]);
     }
 
     #[rstest::rstest]
@@ -208,7 +208,7 @@ mod tests {
 
         // Then only the first drain carries the batch.
         assert_eq!(first.len(), 1);
-        assert!(second.is_empty());
+        assert_eq!(second, [] as [crate::stream_event::StreamEvent; 0]);
     }
 
     #[rstest::rstest]
@@ -217,6 +217,6 @@ mod tests {
         let mut acc = CitationAccumulator::default();
 
         // When it is drained, nothing is emitted.
-        assert!(acc.drain().is_empty());
+        assert_eq!(acc.drain(), [] as [crate::stream_event::StreamEvent; 0]);
     }
 }

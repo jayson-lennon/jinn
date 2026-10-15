@@ -340,7 +340,7 @@ mod tests {
         // Then the two chunks are concatenated.
         assert_eq!(full, "hello world");
         // And no non-paste event remains.
-        assert!(remaining.is_empty());
+        assert_eq!(remaining, []);
     }
 
     #[rstest::rstest]
@@ -353,7 +353,7 @@ mod tests {
 
         // Then all chunks merge in their original order.
         assert_eq!(full, "abcde");
-        assert!(remaining.is_empty());
+        assert_eq!(remaining, []);
     }
 
     #[rstest::rstest]
@@ -383,7 +383,7 @@ mod tests {
 
         // Then the empty chunks contribute nothing and the data merges in.
         assert_eq!(full, "data");
-        assert!(remaining.is_empty());
+        assert_eq!(remaining, []);
     }
 
     #[rstest::rstest]
@@ -394,7 +394,7 @@ mod tests {
 
         // Then the initial text is returned unchanged with no remainder.
         assert_eq!(full, "only");
-        assert!(remaining.is_empty());
+        assert_eq!(remaining, []);
     }
 
     #[rstest::rstest]
@@ -410,6 +410,6 @@ mod tests {
         // Then the result is byte-for-byte equal to the concatenation.
         assert_eq!(full.len(), expected.len());
         assert_eq!(full, expected);
-        assert!(remaining.is_empty());
+        assert_eq!(remaining, []);
     }
 }

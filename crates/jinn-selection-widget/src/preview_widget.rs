@@ -617,6 +617,6 @@ mod tests {
         let lines = item.preview_lines(40);
 
         // Then no lines are returned.
-        assert!(lines.is_empty());
+        assert_eq!(lines, [] as [ratatui::prelude::Line<'_>; 0]);
     }
 }

@@ -74,7 +74,7 @@ mod tests {
         let projects = layer.get_list::<ProjectConfig>().expect("list reads");
 
         // Then it is empty rather than an error.
-        assert!(projects.is_empty());
+        assert_eq!(projects, [] as [ProjectConfig; 0]);
     }
 
     #[rstest::rstest]

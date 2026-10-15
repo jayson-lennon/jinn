@@ -355,7 +355,7 @@ fn place_help(input: &HelpPlacementInput) -> u16 {
     }
 }
 
-impl<'a> HelpCard<'a> {
+impl HelpCard<'_> {
     /// Draws the card: clear its area, lay the border, then the text inside it.
     ///
     /// The border goes down before the text so it paints the card's surface;

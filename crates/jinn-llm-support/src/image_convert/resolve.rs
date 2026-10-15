@@ -247,7 +247,7 @@ mod tests {
         let outcome = result.expect("resolve");
         assert_eq!(outcome.attachments.len(), 1);
         assert_eq!(outcome.attachments[0].media_type(), "image/png");
-        assert!(outcome.degraded.is_empty());
+        assert_eq!(outcome.degraded, [] as [jinn_core_types::ResolvedToken; 0]);
     }
 
     #[rstest::rstest]
@@ -271,7 +271,7 @@ mod tests {
         let outcome = result.expect("resolve");
         assert_eq!(outcome.attachments.len(), 1);
         assert_eq!(outcome.attachments[0].media_type(), "image/png");
-        assert!(outcome.degraded.is_empty());
+        assert_eq!(outcome.degraded, [] as [jinn_core_types::ResolvedToken; 0]);
     }
 
     #[rstest::rstest]
@@ -324,7 +324,7 @@ mod tests {
 
         // Then it degrades: no error, no attachment, path in degraded set.
         let outcome = result.expect("resolve");
-        assert!(outcome.attachments.is_empty());
+        assert_eq!(outcome.attachments, [] as [jinn_core_types::Attachment; 0]);
         assert_eq!(outcome.degraded.len(), 1);
         assert_eq!(outcome.degraded[0].abs, path);
     }
@@ -341,7 +341,7 @@ mod tests {
 
         // Then it degrades: no error, no attachment, path in degraded set.
         let outcome = result.expect("resolve");
-        assert!(outcome.attachments.is_empty());
+        assert_eq!(outcome.attachments, [] as [jinn_core_types::Attachment; 0]);
         assert_eq!(outcome.degraded.len(), 1);
         assert_eq!(outcome.degraded[0].abs, path);
     }
@@ -368,7 +368,7 @@ mod tests {
         assert_eq!(outcome.attachments.len(), 2);
         assert_eq!(outcome.attachments[0].media_type(), "image/png");
         assert_eq!(outcome.attachments[1].media_type(), "image/png");
-        assert!(outcome.degraded.is_empty());
+        assert_eq!(outcome.degraded, [] as [jinn_core_types::ResolvedToken; 0]);
     }
 
     #[rstest::rstest]

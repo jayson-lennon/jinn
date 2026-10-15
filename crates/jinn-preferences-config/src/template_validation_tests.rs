@@ -198,7 +198,7 @@ fn shipped_rules_fixture_fields_are_unknown_to_the_production_list() {
     let Ok(rules) = rules else {
         panic!("production deserialization must ignore the fixture fields: {rules:?}");
     };
-    assert!(!rules.is_empty());
+    assert_ne!(rules, [] as [StreamRuleConfig; 0]);
 }
 
 #[rstest::rstest]

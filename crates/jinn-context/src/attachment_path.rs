@@ -312,7 +312,7 @@ mod tests {
         let result = scan_at_paths(text, &dummy_ctx());
 
         // Then no paths were collected and text is unchanged.
-        assert!(result.pending_paths.is_empty());
+        assert_eq!(result.pending_paths, [] as [PendingPath; 0]);
         assert_eq!(result.rewritten_text, text);
     }
 
@@ -557,7 +557,7 @@ mod tests {
             second.rewritten_text, first.rewritten_text,
             "re-scanning reverted text must be a no-op"
         );
-        assert!(second.pending_paths.is_empty());
+        assert_eq!(second.pending_paths, [] as [PendingPath; 0]);
     }
 
     #[rstest::rstest]
@@ -605,6 +605,6 @@ mod tests {
 
         // Then the email is still not matched (text unchanged, nothing collected).
         assert_eq!(result.rewritten_text, text);
-        assert!(result.pending_paths.is_empty());
+        assert_eq!(result.pending_paths, [] as [PendingPath; 0]);
     }
 }

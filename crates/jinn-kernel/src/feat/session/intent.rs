@@ -139,7 +139,7 @@ mod tests {
         let result = handle_refresh_models(&mut state);
 
         // Then no commands.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]

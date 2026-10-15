@@ -184,7 +184,7 @@ mod tests {
         actor.handle_work_state_changed(&idle(&id, at(10)));
 
         // Then no interval was invented for it.
-        assert!(cell.read().intervals(&id).is_empty());
+        assert_eq!(cell.read().intervals(&id), []);
     }
 
     #[rstest::rstest]

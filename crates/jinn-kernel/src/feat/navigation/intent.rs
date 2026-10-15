@@ -84,7 +84,7 @@ mod tests {
         let result = handle_edit_input(&mut state);
 
         // Then no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -101,7 +101,7 @@ mod tests {
             Some(jinn_slices::cwd_root::CwdRoot::Session)
         );
         // And no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -118,6 +118,6 @@ mod tests {
             Some(jinn_slices::cwd_root::CwdRoot::Home)
         );
         // And no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 }

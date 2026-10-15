@@ -225,11 +225,11 @@ mod tests {
         // Then there are 3 lines total (pad + content + pad).
         assert_eq!(lines.len(), 3);
         // And the first line is blank.
-        assert!(lines[0].spans.is_empty());
+        assert_eq!(lines[0].spans, [] as [ratatui::prelude::Span<'_>; 0]);
         // And the middle line has content.
         assert_eq!(lines[1].spans[0].content, "hello");
         // And the last line is blank.
-        assert!(lines[2].spans.is_empty());
+        assert_eq!(lines[2].spans, [] as [ratatui::prelude::Span<'_>; 0]);
     }
 
     #[rstest::rstest]
@@ -242,8 +242,8 @@ mod tests {
 
         // Then there are 2 lines (top pad + bottom pad).
         assert_eq!(lines.len(), 2);
-        assert!(lines[0].spans.is_empty());
-        assert!(lines[1].spans.is_empty());
+        assert_eq!(lines[0].spans, [] as [ratatui::prelude::Span<'_>; 0]);
+        assert_eq!(lines[1].spans, [] as [ratatui::prelude::Span<'_>; 0]);
     }
 
     #[rstest::rstest]
@@ -256,7 +256,7 @@ mod tests {
 
         // Then there are 2 lines (pad + content).
         assert_eq!(lines.len(), 2);
-        assert!(lines[0].spans.is_empty());
+        assert_eq!(lines[0].spans, [] as [ratatui::prelude::Span<'_>; 0]);
         assert_eq!(lines[1].spans[0].content, "hello");
     }
 
@@ -271,7 +271,7 @@ mod tests {
         // Then there are 2 lines (content + pad).
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].spans[0].content, "hello");
-        assert!(lines[1].spans.is_empty());
+        assert_eq!(lines[1].spans, [] as [ratatui::prelude::Span<'_>; 0]);
     }
 
     #[rstest::rstest]

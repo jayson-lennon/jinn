@@ -192,7 +192,7 @@ mod tests {
         // Then the new fields default to None / empty.
         assert_eq!(def.name, "file_read");
         assert_eq!(def.prompt_snippet, None);
-        assert!(def.prompt_guidelines.is_empty());
+        assert_eq!(def.prompt_guidelines, [] as [std::string::String; 0]);
     }
 
     #[rstest::rstest]

@@ -268,7 +268,7 @@ mod tests {
 
         // Then nothing is written and the call succeeds.
         assert!(result.is_ok());
-        assert!(writer.bytes.is_empty());
+        assert_eq!(writer.bytes, [] as [u8; 0]);
     }
 
     #[cfg(windows)]
@@ -282,6 +282,6 @@ mod tests {
 
         // Then nothing is written and the call succeeds.
         assert!(result.is_ok());
-        assert!(writer.bytes.is_empty());
+        assert_eq!(writer.bytes, [] as [u8; 0]);
     }
 }

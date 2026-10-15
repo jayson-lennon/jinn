@@ -231,7 +231,7 @@ mod tests {
         state.reset();
 
         // Then the filter is empty and the highlight is back at the top.
-        assert!(state.selection.filter().is_empty());
+        assert_eq!(state.selection.filter(), "");
         assert_eq!(
             state
                 .selection

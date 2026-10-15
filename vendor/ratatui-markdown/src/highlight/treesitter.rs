@@ -334,6 +334,12 @@ fn config_cache() -> &'static Mutex<
         Arc<tree_sitter_highlight::HighlightConfiguration>,
     >,
 > {
+    // The cache mirrors the vendored upstream shape; introducing a type
+    // alias here would diverge from the code this crate tracks.
+    #[allow(
+        clippy::type_complexity,
+        reason = "vendored code: the nested map mirrors the upstream crate's cache shape"
+    )]
     static CACHE: OnceLock<
         Mutex<
             HashMap<

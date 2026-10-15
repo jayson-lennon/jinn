@@ -220,7 +220,11 @@ fn dispatch_paste_row(
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::missing_docs_in_private_items, reason = "test code")]
+    #![allow(
+        clippy::expect_used,
+        clippy::missing_docs_in_private_items,
+        reason = "test code"
+    )]
     use super::*;
     use jinn_slices::FocusScope;
 
@@ -269,7 +273,7 @@ mod tests {
         );
 
         // Then the paste did not fall through to the chat input box.
-        assert!(chat_input_text(&state).is_empty());
+        assert_eq!(chat_input_text(&state), "");
     }
 
     #[rstest::rstest]
@@ -290,7 +294,7 @@ mod tests {
         );
 
         // Then no message was published.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -311,7 +315,7 @@ mod tests {
         );
 
         // Then the text was not re-offered to the chat input box.
-        assert!(chat_input_text(&state).is_empty());
+        assert_eq!(chat_input_text(&state), "");
     }
 
     #[rstest::rstest]
@@ -404,7 +408,7 @@ mod tests {
         );
 
         // Then no message was published.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -427,7 +431,7 @@ mod tests {
         );
 
         // Then the text did not fall through to the chat input box.
-        assert!(chat_input_text(&state).is_empty());
+        assert_eq!(chat_input_text(&state), "");
     }
 
     fn chat_input_text(state: &AppState) -> String {

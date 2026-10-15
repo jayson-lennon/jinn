@@ -121,6 +121,7 @@ fn is_drive_path(rest: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
     use super::canonicalize_display;
 
     #[rstest::rstest]

@@ -499,7 +499,7 @@ mod tests {
 
         // Then it is empty rather than an error — first-save needs no
         // special case.
-        assert!(entries.is_empty());
+        assert_eq!(entries, [] as [AttendantEntryConfig; 0]);
     }
 
     #[rstest::rstest]
@@ -523,7 +523,7 @@ mod tests {
         assert_eq!(e.seed_template, jinn_attendant_msg::default_seed_template());
         assert_eq!(e.configured_model(), None);
         assert_eq!(e.persona_name, None);
-        assert!(e.pins.is_empty());
+        assert_eq!(e.pins, [] as [AttendantPinConfig; 0]);
     }
 
     #[rstest::rstest]

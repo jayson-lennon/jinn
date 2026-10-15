@@ -597,6 +597,10 @@ fn truncate_entry_text(entry: &mut jinn_core_types::ChatEntry, text: &str) {
         | jinn_core_types::ChatEntryKind::Annotation { .. } => {}
         // Rule guidance is a short authored block, bounded well under the
         // preview limit, so there is nothing to trim.
+        #[expect(
+            clippy::match_same_arms,
+            reason = "arms kept separate: each names a distinct entry kind with its own justification for needing no trim"
+        )]
         jinn_core_types::ChatEntryKind::RuleInterrupt { .. } => {}
     }
 }

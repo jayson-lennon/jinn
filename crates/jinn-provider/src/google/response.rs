@@ -212,7 +212,7 @@ mod tests {
         let events = parse_single("not json");
 
         // Then no events are produced.
-        assert!(events.is_empty());
+        assert_eq!(events, [] as [crate::stream_event::StreamEvent; 0]);
     }
 
     #[rstest::rstest]
@@ -227,7 +227,7 @@ mod tests {
         let events = parser.handle_done();
 
         // Then no further events are produced.
-        assert!(events.is_empty());
+        assert_eq!(events, [] as [crate::stream_event::StreamEvent; 0]);
     }
 
     #[rstest::rstest]

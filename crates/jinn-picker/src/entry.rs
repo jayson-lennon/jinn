@@ -514,7 +514,10 @@ mod tests {
         // Then defaults apply: empty label, raw empty row, no preview, no key.
         assert_eq!(items[0].display_label(), "");
         assert_eq!(items[0].render_row(false).to_string(), "");
-        assert!(items[0].preview_lines(80).is_empty());
+        assert_eq!(
+            items[0].preview_lines(80),
+            [] as [ratatui::prelude::Line<'_>; 0]
+        );
         assert_eq!(items[0].cache_key(), None);
     }
 }

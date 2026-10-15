@@ -70,7 +70,11 @@ impl SessionPersistenceActor {
         // under the surgery gate below.
         _dispatched_at: jiff::Timestamp,
     ) {
-        debug_assert_eq!(reason, StreamCompletedReason::RuleIntercept);
+        debug_assert_eq!(
+            reason,
+            StreamCompletedReason::RuleIntercept,
+            "only a rule intercept reaches the rewind handler"
+        );
 
         // Entry surgery first: the rewind edge below clears the machine's
         // tool-call index map, and it is the only record of which calls

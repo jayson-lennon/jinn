@@ -527,7 +527,7 @@ mod tests {
         // Then the message states the threshold, so the user can see which
         // configured number was crossed.
         assert!(
-            text.contains("2"),
+            text.contains('2'),
             "the trip text must name the maximum, got: {text:?}"
         );
     }

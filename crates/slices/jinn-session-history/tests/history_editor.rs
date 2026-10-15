@@ -99,7 +99,7 @@ fn worker_exclude_refused_for_pinned_member() {
     );
 
     // Then nothing changed (pin wins).
-    assert!(changed.is_empty());
+    assert_eq!(changed, [] as [jinn_core_types::ChatEntryId; 0]);
     assert!(
         session.history()[1..4]
             .iter()
@@ -129,7 +129,7 @@ fn worker_include_refused_for_user_excluded_chunk() {
     );
 
     // Then nothing changed (user exclude wins).
-    assert!(changed.is_empty());
+    assert_eq!(changed, [] as [jinn_core_types::ChatEntryId; 0]);
     assert_eq!(
         session.history()[1].context_override(),
         ContextOverride::ForcedExclude
@@ -152,7 +152,7 @@ fn user_exclude_refused_for_pinned_chunk() {
     );
 
     // Then nothing changed (pin beats user exclude).
-    assert!(changed.is_empty());
+    assert_eq!(changed, [] as [jinn_core_types::ChatEntryId; 0]);
     assert!(
         session.history()[1..4]
             .iter()

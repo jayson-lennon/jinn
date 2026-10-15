@@ -448,7 +448,7 @@ mod tests {
         let result = handle_isolate_selected(&mut state);
 
         // Then nothing is emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -461,7 +461,7 @@ mod tests {
         let result = handle_isolate_selected(&mut state);
 
         // Then nothing is emitted and no override changed.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         assert!(
             overrides(&state)
                 .iter()

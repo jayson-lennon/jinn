@@ -717,7 +717,7 @@ target = "ollama/llama3""#;
         assert_eq!(
             path.ancestors()
                 .find(|a| a.ends_with("jinn"))
-                .map(|a| path.strip_prefix(a).map(|p| p.to_path_buf())),
+                .map(|a| path.strip_prefix(a).map(Path::to_path_buf)),
             Some(Ok(Path::new("providers.toml").to_path_buf()))
         );
     }
@@ -1162,7 +1162,7 @@ strategy = "round_robin""#;
         let config = load_config_from(&path).expect("load");
 
         // Then the endpoint defaults are an empty list (every model auto-routes).
-        assert!(config.endpoint_defaults.is_empty());
+        assert_eq!(config.endpoint_defaults, [] as [EndpointDefault; 0]);
     }
 
     #[rstest::rstest]

@@ -152,7 +152,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             Err(content) => ToolResult {
                 tool_call_id: call.id,
                 name: call.name,
-                content: content,
+                content,
                 success: false,
                 full_content: None,
                 truncation: None,

@@ -314,6 +314,6 @@ mod tests {
         let registered = slots.registered();
 
         // Then nothing is registered.
-        assert!(registered.is_empty());
+        assert_eq!(registered, [] as [Region; 0]);
     }
 }

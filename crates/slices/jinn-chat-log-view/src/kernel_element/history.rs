@@ -199,6 +199,10 @@ struct StreamedLines {
     /// The wrapped line count they occupy.
     wrapped_count: u32,
     /// The rendered lines themselves.
+    #[expect(
+        clippy::rc_buffer,
+        reason = "Arc keeps cloning a rendered entry's line buffer O(1) where a plain Vec would deep-copy every line on each cache hit"
+    )]
     lines: Arc<Vec<Line<'static>>>,
     /// When they were rendered.
     rendered_at: Instant,
@@ -232,6 +236,10 @@ impl ChatLogElement {
     /// `None` whenever there is no previous render to reuse, which sends the
     /// caller down the real render path — suppression is an optimisation and
     /// must never be the reason an entry has no lines to paint.
+    #[expect(
+        clippy::rc_buffer,
+        reason = "Arc keeps cloning a rendered entry's line buffer O(1) where a plain Vec would deep-copy every line on each cache hit"
+    )]
     pub(crate) fn reusable_stream_lines(
         &self,
         id: &ChatEntryId,
@@ -241,6 +249,10 @@ impl ChatLogElement {
     }
 
     /// Record the streaming entry's rendering, stamped with this instant.
+    #[expect(
+        clippy::rc_buffer,
+        reason = "Arc keeps cloning a rendered entry's line buffer O(1) where a plain Vec would deep-copy every line on each cache hit"
+    )]
     fn record_stream_lines(
         &mut self,
         id: ChatEntryId,
@@ -615,6 +627,10 @@ struct HistoryRender<'a> {
     /// The streaming entry's rendering, set only on a frame that actually
     /// rendered it. Read back by [`Self::stream_rendered`] so the caller can
     /// carry it into the next frame.
+    #[expect(
+        clippy::rc_buffer,
+        reason = "Arc keeps cloning a rendered entry's line buffer O(1) where a plain Vec would deep-copy every line on each cache hit"
+    )]
     stream_rendered: Option<(u32, Arc<Vec<Line<'static>>>)>,
 }
 
@@ -718,6 +734,10 @@ impl<'a> HistoryRender<'a> {
     ///
     /// Consumed by the caller so it can carry the lines into the next frame.
     /// `None` on a frame that reused the previous rendering instead.
+    #[expect(
+        clippy::rc_buffer,
+        reason = "Arc keeps cloning a rendered entry's line buffer O(1) where a plain Vec would deep-copy every line on each cache hit"
+    )]
     fn stream_rendered(&mut self) -> Option<(u32, Arc<Vec<Line<'static>>>)> {
         self.stream_rendered.take()
     }
@@ -749,6 +769,10 @@ impl<'a> HistoryRender<'a> {
     /// being re-rendered: its line range is still recorded, so scroll state,
     /// the minimap, and the scrollbar stay in step with the entries around it.
     #[expect(clippy::expect_used, reason = "infallible")]
+    #[expect(
+        clippy::rc_buffer,
+        reason = "Arc keeps cloning a rendered entry's line buffer O(1) where a plain Vec would deep-copy every line on each cache hit"
+    )]
     fn compute_line_ranges(
         &mut self,
         cache: &mut EntryLineCache,
@@ -772,15 +796,14 @@ impl<'a> HistoryRender<'a> {
                     // did change, which is the whole reason for throttling.
                     if let (Some(throttle_id), Some((wrapped_count, lines))) =
                         (streaming_id, throttled)
+                        && entry.id == *throttle_id
                     {
-                        if entry.id == *throttle_id {
-                            let start = wrapped_cursor;
-                            let end = wrapped_cursor + wrapped_count;
-                            self.entry_line_ranges.push((start, end));
-                            wrapped_cursor = end;
-                            self.cached_lines.insert(vi_idx, Arc::clone(lines));
-                            continue;
-                        }
+                        let start = wrapped_cursor;
+                        let end = wrapped_cursor + wrapped_count;
+                        self.entry_line_ranges.push((start, end));
+                        wrapped_cursor = end;
+                        self.cached_lines.insert(vi_idx, Arc::clone(lines));
+                        continue;
                     }
 
                     // Variant hash covers status-derived look inputs; a

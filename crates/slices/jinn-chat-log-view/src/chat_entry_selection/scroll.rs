@@ -171,7 +171,7 @@ mod tests {
         let result = handle_scroll_up(&mut state);
 
         // Then no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -188,7 +188,7 @@ mod tests {
         let result = handle_scroll_down(&mut state);
 
         // Then scroll offset is non-zero (was at bottom, now scrolled up from bottom).
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -206,7 +206,7 @@ mod tests {
         let result = handle_mouse_scroll_up(&mut state);
 
         // Then no message is emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -223,7 +223,7 @@ mod tests {
         let result = handle_mouse_scroll_down(&mut state);
 
         // Then no message is emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -259,7 +259,7 @@ mod tests {
         let result = handle_scroll_to_top(&mut state);
 
         // Then no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -295,7 +295,7 @@ mod tests {
         let result = handle_scroll_to_bottom(&mut state);
 
         // Then no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]

@@ -254,7 +254,7 @@ mod tests {
         let ids = resolver.resolve(&anchor, &candidates);
 
         // Then the sibling is excluded.
-        assert!(ids.is_empty());
+        assert_eq!(ids, [] as [jinn_core_types::SessionId; 0]);
     }
 
     #[rstest::rstest]
@@ -268,7 +268,7 @@ mod tests {
         let ids = resolver.resolve(&anchor, &candidates);
 
         // Then /a/jinn-old is NOT treated as a descendant of /a/jinn.
-        assert!(ids.is_empty());
+        assert_eq!(ids, [] as [jinn_core_types::SessionId; 0]);
     }
 
     #[rstest::rstest]
@@ -319,7 +319,7 @@ mod tests {
         let ids = resolver.resolve(&anchor, &candidates);
 
         // Then the stale session is excluded.
-        assert!(ids.is_empty());
+        assert_eq!(ids, [] as [jinn_core_types::SessionId; 0]);
     }
 
     #[rstest::rstest]

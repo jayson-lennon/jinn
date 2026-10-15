@@ -83,6 +83,10 @@ fn stream_rule_max_failures(config: &jinn_preferences_config::ConfigLayer) -> u8
 /// and injected into the actors. Nonsensical values (zero window / zero
 /// budget / zero maximum) are floored by the config accessors — the
 /// inherited parse-clamp semantics.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "activation surface matches the sibling slices' convention; Services is an Arc-backed handle, cheap to clone"
+)]
 pub fn activate(host: &mut SliceHost<'_, RenderFacts>, _state: &State, services: Services) {
     let stall_cfg = services
         .config

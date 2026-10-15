@@ -193,7 +193,7 @@ mod tests {
         );
 
         // Then the result is empty.
-        assert!(items.is_empty());
+        assert_eq!(items, [] as [VisualItem; 0]);
     }
 
     #[rstest::rstest]

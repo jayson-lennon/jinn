@@ -88,7 +88,7 @@ mod tests {
 
         // Then the filter is gone and the highlight is back on the first
         // row, so a fresh open never inherits the last one's narrowing.
-        assert!(state.selection.filter().is_empty());
+        assert_eq!(state.selection.filter(), "");
         assert_eq!(highlighted_name(&state).as_deref(), Some("alpha"));
     }
 

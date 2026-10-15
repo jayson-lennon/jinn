@@ -406,7 +406,6 @@ mod tests {
 
     /// Empty slice registry + route table for handler tests that don't
     /// exercise slices or route rows.
-
     fn empty_routes() -> jinn_slices::route::KeyRoutes {
         jinn_slices::route::KeyRoutes::new()
     }

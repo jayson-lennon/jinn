@@ -418,7 +418,7 @@ async fn backspacing_removes_the_last_filter_character() {
 
     // Then the filter is empty again.
     let filter = cell.read().selection.filter().to_owned();
-    assert!(filter.is_empty());
+    assert_eq!(filter, "");
 }
 
 // ── Republish ────────────────────────────────────────────────────────────

@@ -987,7 +987,7 @@ mod tests {
 
         // When reading the rule's default fields.
         // Then the tool name default is a usable tool name.
-        assert!(!rule.tool_name.is_empty());
+        assert_ne!(rule.tool_name, "");
         // And keep_last is at least 1 (a rule must keep something).
         assert!(rule.keep_last >= 1);
     }

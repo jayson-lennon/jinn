@@ -373,7 +373,7 @@ mod tests {
         assert_eq!(id, PickerId::new("t1"));
         assert!(title.is_none());
         assert_eq!(kind, crate::widget::WidgetKind::List);
-        assert!(binds.is_empty());
+        assert_eq!(binds, [] as [BindRow; 0]);
         assert_eq!(tail, Tail::Standard);
     }
 

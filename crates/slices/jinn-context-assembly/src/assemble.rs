@@ -981,7 +981,10 @@ mod tests {
         let result = assemble_prompt(&guard, &session_id, &counter());
 
         // Then web search is absent from tool definitions AND the system prompt block.
-        assert!(result.tool_definitions.is_empty());
+        assert_eq!(
+            result.tool_definitions,
+            [] as [jinn_core_types::ToolDefinition; 0]
+        );
         let system = result.system_prompt.to_string();
         assert!(
             !system.contains("Web search (OpenRouter)"),

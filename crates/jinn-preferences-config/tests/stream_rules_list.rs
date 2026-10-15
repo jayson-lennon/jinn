@@ -74,7 +74,7 @@ fn absent_scopes_read_as_empty() {
     let rules = config.get_list::<StreamRuleConfig>().expect("rules read");
 
     // Then its scopes are empty, which means every stream.
-    assert!(rules[0].scopes.is_empty());
+    assert_eq!(rules[0].scopes, [] as [std::string::String; 0]);
 }
 
 #[rstest::rstest]

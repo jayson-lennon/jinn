@@ -1291,7 +1291,7 @@ async fn session_without_lifecycle_loads_as_none() {
 
     // Then lifecycle fields are None/empty.
     assert_eq!(loaded.lifecycle_name(), None);
-    assert!(loaded.lifecycle_args().is_empty());
+    assert_eq!(loaded.lifecycle_args(), [] as [std::string::String; 0]);
 }
 
 #[rstest::rstest]
@@ -2949,7 +2949,7 @@ async fn dirty_session_ids_skips_unparseable_marker() {
     let ids = store.dirty_session_ids().await.expect("dirty ids");
 
     // Then the corrupt marker is not returned (it could never be reindexed).
-    assert!(ids.is_empty());
+    assert_eq!(ids, [] as [jinn_core_types::SessionId; 0]);
 }
 
 #[rstest::rstest]

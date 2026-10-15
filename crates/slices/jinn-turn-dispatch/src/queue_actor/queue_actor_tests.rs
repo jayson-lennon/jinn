@@ -1198,11 +1198,11 @@ async fn dispatch_turn_refused_when_cancel_lands_mid_assemble() {
 async fn readmission_refuses_after_cancel_but_admits_when_generation_live() {
     // Given a live generation minted with a stamp, and the exact stamp it
     // was admitted with — the one the queue actor re-asks with at publish.
-    let (actor, _state, _audit) = create_actor().await;
+    let (actor, state, _audit) = create_actor().await;
     let sid = session_id();
     let stamp = jiff::Timestamp::now();
     {
-        let mut state = _state.write();
+        let mut state = state.write();
         state.session_mut_or_create(&sid).begin_sending();
     }
     let minted = jinn_kernel::common::phase_command::apply_phase(
@@ -1254,10 +1254,10 @@ async fn dispatch_turn_admitted_twice_publishes_once_when_no_cancel() {
     // Given a live generation and NO cancel: the re-admission ask must be
     // a no-op on the phase machine (already Streaming, stamp refreshed to
     // the same minted stamp) so the dispatch still publishes.
-    let (actor, _state, audit) = create_actor().await;
+    let (actor, state, audit) = create_actor().await;
     let sid = session_id();
     {
-        let mut state = _state.write();
+        let mut state = state.write();
         state.session_mut_or_create(&sid).begin_sending();
     }
     mint_live_generation(&actor.services, &sid).await;

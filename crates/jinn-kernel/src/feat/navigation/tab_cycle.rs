@@ -69,7 +69,11 @@ pub fn tab_scopes(slices: &jinn_slices::Slices) -> Vec<jinn_slices::SliceScopeId
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::missing_docs_in_private_items, reason = "test code")]
+    #![allow(
+        clippy::expect_used,
+        clippy::missing_docs_in_private_items,
+        reason = "test code"
+    )]
     use super::*;
     use crate::protocol::KernelIntent;
     use jinn_slices::FocusScope;

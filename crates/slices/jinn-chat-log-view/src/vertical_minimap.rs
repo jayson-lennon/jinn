@@ -381,7 +381,7 @@ mod tests {
         // Then no arrow is produced.
         assert!(arrow.is_none());
         // And the minimap column is blank.
-        assert!(rows[0].trim().is_empty());
+        assert_eq!(rows[0].trim(), "");
     }
 
     #[rstest::rstest]

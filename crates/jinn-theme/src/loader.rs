@@ -199,7 +199,10 @@ mod tests {
 
         // Then it returns Ok with an empty list.
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert_eq!(
+            result.unwrap(),
+            [] as [(std::string::String, std::path::PathBuf); 0]
+        );
     }
 
     #[rstest::rstest]

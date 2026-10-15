@@ -327,7 +327,7 @@ mod tests {
 
         // Then content is empty.
         assert!(result.truncated);
-        assert!(result.content.is_empty());
+        assert_eq!(result.content, "");
         let meta = result.meta.unwrap();
         assert_eq!(meta.truncated_by, TruncatedBy::Bytes);
         assert_eq!(meta.output_lines, 0);
@@ -343,7 +343,7 @@ mod tests {
 
         // Then it passes through unchanged.
         assert!(!result.truncated);
-        assert!(result.content.is_empty());
+        assert_eq!(result.content, "");
     }
 
     #[rstest::rstest]
@@ -415,7 +415,7 @@ mod tests {
 
         // Then it passes through unchanged.
         assert!(!result.truncated);
-        assert!(result.content.is_empty());
+        assert_eq!(result.content, "");
     }
 
     #[rstest::rstest]
@@ -428,7 +428,7 @@ mod tests {
 
         // Then a partial tail of the line is returned.
         assert!(result.truncated);
-        assert!(!result.content.is_empty());
+        assert_ne!(result.content, "");
         assert!(result.content.len() <= 100);
         let meta = result.meta.unwrap();
         assert_eq!(meta.truncated_by, TruncatedBy::Bytes);
@@ -528,7 +528,7 @@ mod tests {
         assert!(result.len() < s.len()); // Something was truncated
         assert!(std::str::from_utf8(result.as_bytes()).is_ok());
         assert_ne!(result, "xyzzy");
-        assert!(!result.is_empty());
+        assert_ne!(result, "");
     }
 
     #[rstest::rstest]
@@ -554,7 +554,7 @@ mod tests {
 
         // Then it IS truncated to empty.
         assert!(result.truncated);
-        assert!(result.content.is_empty());
+        assert_eq!(result.content, "");
     }
 
     #[rstest::rstest]

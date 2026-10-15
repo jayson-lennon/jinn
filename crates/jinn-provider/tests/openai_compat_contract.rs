@@ -622,7 +622,7 @@ async fn base_url_override_routes_to_correct_host() {
     let events: Vec<StreamEvent> = stream.filter_map(|r| async move { r.ok() }).collect().await;
 
     // Then events are received from the overridden host.
-    assert!(!events.is_empty());
+    assert_ne!(events, [] as [jinn_provider::StreamEvent; 0]);
 }
 
 // ---------------------------------------------------------------------------

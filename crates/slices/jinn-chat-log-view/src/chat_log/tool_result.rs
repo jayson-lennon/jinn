@@ -1054,7 +1054,7 @@ mod tests {
 
         // Then every span sits on the alert background; text spans use the
         // dark alert foreground (the padding span only carries the bg).
-        assert!(!lines.is_empty());
+        assert_ne!(lines, [] as [ratatui::prelude::Line<'_>; 0]);
         for line in &lines {
             for span in &line.spans {
                 assert_eq!(span.style.bg, Some(theme.challenge_alert_bg));

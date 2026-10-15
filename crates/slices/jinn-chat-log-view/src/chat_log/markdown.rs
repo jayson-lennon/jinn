@@ -120,6 +120,7 @@ mod tests {
         reason = "test code"
     )]
 
+    use std::fmt::Write as _;
     use std::time::{Duration, Instant};
 
     use ratatui_markdown::highlight::CodeHighlighter;
@@ -259,9 +260,13 @@ mod tests {
 
     /// A realistic single rust code block: forty statements inside a function.
     fn rust_code_block() -> String {
-        let body: String = (0..40)
-            .map(|i| format!("    let step_{i} = compute({i}, &config, items.as_slice());\n"))
-            .collect();
+        let body: String = (0..40).fold(String::new(), |mut acc, i| {
+            let _ = writeln!(
+                acc,
+                "    let step_{i} = compute({i}, &config, items.as_slice());"
+            );
+            acc
+        });
         format!("```rust\nfn compute() {{\n{body}}}\n```\n")
     }
 
@@ -269,7 +274,7 @@ mod tests {
     fn response_of(blocks: usize, bytes: usize) -> String {
         const PROSE: &str = "Some explanatory prose about the design decisions involved here.\n\n";
         let code = rust_code_block();
-        let mut md: String = (0..blocks).map(|_| code.as_str()).collect();
+        let mut md: String = std::iter::repeat_n(code.as_str(), blocks).collect();
         while md.len() < bytes.saturating_sub(code.len()) {
             md.push_str(PROSE);
         }

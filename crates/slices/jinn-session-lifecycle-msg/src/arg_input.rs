@@ -71,7 +71,7 @@ mod tests {
         // Then the lifecycle and template are retained with empty input.
         assert_eq!(state.lifecycle_name, name);
         assert_eq!(state.template, template);
-        assert!(state.text.input.is_empty());
+        assert_eq!(state.text.input, "");
         assert_eq!(state.text.cursor_pos, 0);
     }
 

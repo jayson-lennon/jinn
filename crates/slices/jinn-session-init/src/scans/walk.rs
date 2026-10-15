@@ -355,7 +355,7 @@ mod tests {
         assert_eq!(dirs.len(), 3);
         assert!(
             dirs.iter()
-                .all(|d| d.ends_with(&Path::new(".agents").join("skills")))
+                .all(|d| d.ends_with(Path::new(".agents").join("skills")))
         );
     }
 
@@ -372,7 +372,7 @@ mod tests {
         assert_eq!(dirs.len(), 3);
         assert!(
             dirs.iter()
-                .all(|d| d.ends_with(&Path::new(".agents").join("prompts")))
+                .all(|d| d.ends_with(Path::new(".agents").join("prompts")))
         );
     }
 
@@ -451,7 +451,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("temp dir");
         let real = tmp.path().join("real");
         std::fs::create_dir(&real).expect("mkdir");
-        let link = tmp.path().join("link");
+        let _link = tmp.path().join("link");
         #[cfg(unix)]
         std::os::unix::fs::symlink(&real, &link).expect("symlink");
         #[cfg(not(unix))]

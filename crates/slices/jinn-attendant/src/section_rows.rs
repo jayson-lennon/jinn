@@ -301,6 +301,6 @@ mod tests {
         // And an otherwise identical state without the attendant has none.
         let mut empty = AppState::default_with_scope_focus();
         empty.session.insert(ChatSessionState::new());
-        assert!(attendant_rows(&empty).is_empty());
+        assert_eq!(attendant_rows(&empty), [] as [AttendantRow; 0]);
     }
 }

@@ -303,7 +303,7 @@ mod tests {
         assert!(audit.is_empty());
         assert_eq!(audit.len(), 0);
         // And no message names are recorded.
-        assert!(audit.names().is_empty());
+        assert_eq!(audit.names(), [] as [std::string::String; 0]);
     }
 
     #[rstest::rstest]
@@ -388,7 +388,7 @@ mod tests {
         let betas: Vec<Beta> = audit.of_type::<Beta>();
 
         // Then nothing comes back.
-        assert!(betas.is_empty());
+        assert_eq!(betas, [] as [Beta; 0]);
     }
 
     /// A `MakeWriter` capturing formatted log output for assertions.

@@ -252,6 +252,6 @@ mod tests {
         let visible = find_visible_indices(&ranges, 0, 0, 10);
 
         // Then nothing is visible.
-        assert!(visible.is_empty());
+        assert_eq!(visible, [] as [usize; 0]);
     }
 }

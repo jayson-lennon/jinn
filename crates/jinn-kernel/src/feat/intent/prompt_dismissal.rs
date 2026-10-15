@@ -251,6 +251,6 @@ mod tests {
         );
 
         // Then result is empty.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 }

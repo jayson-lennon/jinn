@@ -450,7 +450,7 @@ fn reset_clears_everything() {
     state.reset();
 
     // Then filter is empty, selection is 0, cursor is 0, scroll_offset is 0.
-    assert!(state.filter().is_empty());
+    assert_eq!(state.filter(), "");
     assert_eq!(state.selection(), 0);
     assert_eq!(state.cursor_pos(), 0);
     assert_eq!(state.scroll_offset(), 0);
@@ -632,7 +632,7 @@ fn reset_clears_filter_but_keeps_items() {
     state.reset();
 
     // Then filter is empty but items are still present.
-    assert!(state.filter().is_empty());
+    assert_eq!(state.filter(), "");
     assert_eq!(state.items().len(), 3);
     assert_eq!(state.filtered_count(), 3);
 }
@@ -699,7 +699,7 @@ fn multi_term_filter_unions_highlight_indices() {
     assert_eq!(state.filtered_count(), 1);
     let indices = state.filtered_match_indices(0).unwrap();
     // Should contain indices from both "hlo" matching "hello" and "wor" matching "world".
-    assert!(!indices.is_empty());
+    assert_ne!(indices, [] as [usize; 0]);
 }
 
 #[rstest::rstest]
@@ -933,7 +933,7 @@ fn filtered_match_indices_returns_exact_byte_positions() {
     // Then match indices contain the exact byte positions.
     assert_eq!(state.filtered_count(), 1);
     let indices = state.filtered_match_indices(0).unwrap();
-    assert!(!indices.is_empty());
+    assert_ne!(indices, [] as [usize; 0]);
     // 'h' is at byte 0, 'l' is at byte 2 or 3 depending on matcher.
     assert!(indices.contains(&0)); // 'h' is always at position 0
     assert!(indices.iter().any(|&i| (2..=3).contains(&i))); // 'l' at position 2 or 3

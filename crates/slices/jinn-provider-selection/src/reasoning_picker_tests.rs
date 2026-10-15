@@ -546,7 +546,7 @@ async fn confirming_with_no_selection_writes_nothing() {
 
     // Then nothing was written, emitted, or closed.
     assert_eq!(wired.session_effort(), None);
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
     assert!(result.scope_signal.is_none());
 }
 

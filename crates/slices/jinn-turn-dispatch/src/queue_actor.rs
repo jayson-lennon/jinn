@@ -281,7 +281,7 @@ impl QueueActor {
                 // Normalize loop layout so committed loops never contain
                 // interstitials before assembly.
                 session.edit_history().normalize_loop_layout();
-            })
+            });
         };
 
         let Some(assembled) = self.assemble(session_id, "user message").await else {

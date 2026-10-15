@@ -550,7 +550,7 @@ mod tests {
         let result = paths.resolve_theme_paths();
 
         // Then the result is empty.
-        assert!(result.is_empty());
+        assert_eq!(result, [] as [(std::string::String, std::path::PathBuf); 0]);
     }
 
     #[rstest::rstest]

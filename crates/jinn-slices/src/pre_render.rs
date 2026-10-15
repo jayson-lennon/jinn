@@ -301,7 +301,7 @@ mod tests {
 
         // Then nothing ran and nothing published.
         assert!(publishes.is_empty());
-        assert!(state.order.is_empty());
+        assert_eq!(state.order, [] as [&str; 0]);
     }
 
     #[rstest::rstest]

@@ -28,7 +28,10 @@ fn metadata_carries_no_intervals_by_default() {
     let metadata = metadata();
 
     // Then it records none.
-    assert!(metadata.working_intervals.is_empty());
+    assert_eq!(
+        metadata.working_intervals,
+        [] as [jinn_core_types::WorkingInterval; 0]
+    );
 }
 
 #[rstest::rstest]
@@ -46,7 +49,10 @@ fn metadata_written_before_working_time_existed_still_loads() {
         serde_json::from_value(value).expect("pre-working-time metadata");
 
     // Then the load succeeds with none recorded, rather than failing.
-    assert!(metadata.working_intervals.is_empty());
+    assert_eq!(
+        metadata.working_intervals,
+        [] as [jinn_core_types::WorkingInterval; 0]
+    );
 }
 
 #[rstest::rstest]
@@ -98,7 +104,10 @@ fn a_snapshot_captured_from_a_session_carries_no_intervals() {
 
     // Then the snapshot carries none: working time lives in the work-time
     // cell, and the core must not become a second copy with a second writer.
-    assert!(snapshot.metadata.working_intervals.is_empty());
+    assert_eq!(
+        snapshot.metadata.working_intervals,
+        [] as [jinn_core_types::WorkingInterval; 0]
+    );
 }
 
 #[rstest::rstest]
@@ -112,7 +121,10 @@ fn a_fork_does_not_inherit_the_parents_working_time() {
 
     // Then the child starts with none of its own, rather than being billed for
     // the parent's history.
-    assert!(child.metadata.working_intervals.is_empty());
+    assert_eq!(
+        child.metadata.working_intervals,
+        [] as [jinn_core_types::WorkingInterval; 0]
+    );
 }
 
 #[rstest::rstest]

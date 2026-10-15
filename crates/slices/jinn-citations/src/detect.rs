@@ -414,7 +414,10 @@ mod tests {
 
         // When extracting citations.
         // Then nothing is found (not JSON).
-        assert!(citations_from_result_content(content).is_empty());
+        assert_eq!(
+            citations_from_result_content(content),
+            [] as [jinn_core_types::UrlCitation; 0]
+        );
     }
 
     #[rstest::rstest]
@@ -423,10 +426,13 @@ mod tests {
         // Given JSON with a URL but no title pairing.
         // When extracting citations.
         // Then nothing is found.
-        assert!(citations_from_result_content(r#"{"url":"https://a.example"}"#).is_empty());
-        assert!(
-            citations_from_result_content(r#"{"results":[{"url":"https://a.example"}]}"#)
-                .is_empty()
+        assert_eq!(
+            citations_from_result_content(r#"{"url":"https://a.example"}"#),
+            [] as [jinn_core_types::UrlCitation; 0]
+        );
+        assert_eq!(
+            citations_from_result_content(r#"{"results":[{"url":"https://a.example"}]}"#),
+            [] as [jinn_core_types::UrlCitation; 0]
         );
     }
 
@@ -436,11 +442,11 @@ mod tests {
         // Given a result object with an ftp url.
         // When extracting citations.
         // Then nothing is found.
-        assert!(
+        assert_eq!(
             citations_from_result_content(
                 r#"{"results":[{"url":"ftp://files.example","title":"F"}]}"#
-            )
-            .is_empty()
+            ),
+            [] as [jinn_core_types::UrlCitation; 0]
         );
     }
 
@@ -611,7 +617,10 @@ mod tests {
 
         // When extracting citations.
         // Then nothing is found — the http(s) guard applies to the alias.
-        assert!(citations_from_result_content(&content).is_empty());
+        assert_eq!(
+            citations_from_result_content(&content),
+            [] as [jinn_core_types::UrlCitation; 0]
+        );
     }
 
     #[rstest::rstest]
@@ -626,8 +635,14 @@ mod tests {
         // Then every payload is inert — unknown shapes yield nothing and
         // valid unwrapped entries inside arrays still parse normally.
         assert_eq!(citations_from_result_content(scalar_result).len(), 1);
-        assert!(citations_from_result_content(plain_text).is_empty());
-        assert!(citations_from_result_content(number_string).is_empty());
+        assert_eq!(
+            citations_from_result_content(plain_text),
+            [] as [jinn_core_types::UrlCitation; 0]
+        );
+        assert_eq!(
+            citations_from_result_content(number_string),
+            [] as [jinn_core_types::UrlCitation; 0]
+        );
     }
 
     // ── web-search carve-out ─────────────────────────────────────────────

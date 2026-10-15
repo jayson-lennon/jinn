@@ -221,7 +221,7 @@ fn reset_context_is_idempotent() {
     let changed = reset_context(&mut session);
 
     // Then nothing changes — already-excluded entries are no-ops.
-    assert!(changed.is_empty());
+    assert_eq!(changed, [] as [jinn_core_types::ChatEntryId; 0]);
 }
 
 #[rstest::rstest]

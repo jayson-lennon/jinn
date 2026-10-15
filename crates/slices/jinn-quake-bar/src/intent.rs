@@ -397,7 +397,7 @@ mod tests {
                 .is_some_and(|name| name.ends_with("SubmitQuakeBarCommand"))
         );
         // And the input buffer is empty.
-        assert!(cell.read().input.text.input.is_empty());
+        assert_eq!(cell.read().input.text.input, "");
     }
 
     #[rstest::rstest]
@@ -420,7 +420,7 @@ mod tests {
         );
 
         // Then no command was emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]

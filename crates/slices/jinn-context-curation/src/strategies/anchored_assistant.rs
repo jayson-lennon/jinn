@@ -1183,7 +1183,7 @@ mod tests {
 
         // When collecting anchors.
         // Then the anchor list is empty.
-        assert!(collect_anchor_indices(&[]).is_empty());
+        assert_eq!(collect_anchor_indices(&[]), [] as [usize; 0]);
     }
 
     #[rstest::rstest]

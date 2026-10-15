@@ -55,7 +55,7 @@ pub enum DispatchKind {
 ///   and its generation dies.
 /// - `InterceptRewind` — a rule intercept rewinds for the re-dispatch
 ///   (`Streaming → Sending`), generation stays live.
-
+///
 /// The phase actor's static trouper path. The actor spawns here and
 /// every ask targets here; the constant lives in the contract crate so
 /// publishers never name a slice implementation crate.

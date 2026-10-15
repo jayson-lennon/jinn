@@ -164,7 +164,7 @@ mod tests {
         }
 
         // When loading the system resource.
-        let result = load_system_resource("_compaction.md", &user_dir, &system_dir);
+        let _result = load_system_resource("_compaction.md", &user_dir, &system_dir);
 
         // Then an error is returned (on Unix, permission denied prevents reading).
         #[cfg(unix)]

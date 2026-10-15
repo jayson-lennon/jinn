@@ -656,7 +656,7 @@ fn escape_restores_original_values_and_pops() {
     let result = fx.press("attendant-properties-leave");
 
     // Then nothing persists.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
     // And the session keeps its open-time values.
     assert_eq!(
         fx.session_values(),

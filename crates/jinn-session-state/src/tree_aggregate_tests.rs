@@ -847,12 +847,8 @@ fn empty_pre_dispatch_child_contributes_zeros_but_counts() {
 // would bill the shared second once per member.
 
 /// A frozen node carrying only working intervals, for archive tests.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "test helper builds the struct literal it names"
-)]
 fn frozen_with_working(
-    id: SessionId,
+    id: &SessionId,
     parent: Option<SessionId>,
     intervals: Vec<WorkingInterval>,
 ) -> FrozenTreeNode {
@@ -955,7 +951,7 @@ fn archiving_a_member_does_not_change_the_trees_working_time() {
     let mut frozen = HashMap::new();
     frozen.insert(
         child_id.clone(),
-        frozen_with_working(child_id, Some(parent_id.clone()), vec![shared]),
+        frozen_with_working(&child_id, Some(parent_id.clone()), vec![shared]),
     );
 
     // When aggregating again.
@@ -973,11 +969,7 @@ fn a_frozen_member_alone_still_contributes_its_working_time() {
     let mut frozen = HashMap::new();
     frozen.insert(
         root_id.clone(),
-        frozen_with_working(
-            root_id.clone(),
-            None,
-            vec![WorkingInterval::closed(at(0), at(42))],
-        ),
+        frozen_with_working(&root_id, None, vec![WorkingInterval::closed(at(0), at(42))]),
     );
 
     // When aggregating.

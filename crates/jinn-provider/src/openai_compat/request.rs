@@ -741,7 +741,7 @@ mod tests {
         let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
 
         // Then request messages is empty.
-        assert!(req.messages.is_empty());
+        assert_eq!(req.messages, [] as [serde_json::Value; 0]);
     }
 
     #[rstest::rstest]

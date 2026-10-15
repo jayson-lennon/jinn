@@ -41,7 +41,7 @@ pub fn definition() -> ToolDefinition {
 }
 
 /// Resolves a path against the CWD if relative, returns absolute as-is.
-
+///
 /// Executes the `write` built-in tool.
 pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
     Box::pin(async move {

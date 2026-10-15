@@ -189,13 +189,13 @@ fn include_latest_pair(
     if let Some(call) = history.get(latest.index)
         && may_force_include(call)
     {
-        mutations.push(include_mutation(call.id.clone(), worker_name));
+        mutations.push(include_mutation(&call.id, worker_name));
     }
     if let Some((result_idx, result_entry_id)) = result_map.get(&latest.tool_call_id)
         && let Some(result) = history.get(*result_idx)
         && may_force_include(result)
     {
-        mutations.push(include_mutation(result_entry_id.clone(), worker_name));
+        mutations.push(include_mutation(result_entry_id, worker_name));
     }
     mutations
 }
@@ -238,9 +238,9 @@ fn prune_superseded_pair(
                 // User (or foreign worker) include — leave the half alone.
                 continue;
             }
-            mutations.push(demote_mutation(id.clone(), worker_name));
+            mutations.push(demote_mutation(id, worker_name));
         }
-        mutations.push(exclude_mutation(id.clone(), worker_name));
+        mutations.push(exclude_mutation(id, worker_name));
     }
     mutations
 }
@@ -278,7 +278,7 @@ fn prune_older_pairs(
             .get(call_info.index)
             .is_some_and(jinn_core_types::ChatEntry::is_protected_from_prune)
         {
-            mutations.push(exclude_mutation(call_info.entry_id.clone(), worker_name));
+            mutations.push(exclude_mutation(&call_info.entry_id, worker_name));
         }
 
         // Prune the corresponding ToolResult if it exists and isn't protected.
@@ -287,7 +287,7 @@ fn prune_older_pairs(
                 .get(*result_idx)
                 .is_some_and(jinn_core_types::ChatEntry::is_protected_from_prune)
         {
-            mutations.push(exclude_mutation(result_entry_id.clone(), worker_name));
+            mutations.push(exclude_mutation(result_entry_id, worker_name));
         }
     }
 
@@ -295,18 +295,18 @@ fn prune_older_pairs(
 }
 
 /// A worker-sourced `ForcedInclude` mutation.
-fn include_mutation(entry_id: jinn_core_types::ChatEntryId, worker_name: &str) -> HistoryMutation {
-    override_mutation(&entry_id, ContextOverride::ForcedInclude, worker_name)
+fn include_mutation(entry_id: &jinn_core_types::ChatEntryId, worker_name: &str) -> HistoryMutation {
+    override_mutation(entry_id, ContextOverride::ForcedInclude, worker_name)
 }
 
 /// A worker-sourced `Default` mutation (demotes an include this worker owns).
-fn demote_mutation(entry_id: jinn_core_types::ChatEntryId, worker_name: &str) -> HistoryMutation {
-    override_mutation(&entry_id, ContextOverride::Default, worker_name)
+fn demote_mutation(entry_id: &jinn_core_types::ChatEntryId, worker_name: &str) -> HistoryMutation {
+    override_mutation(entry_id, ContextOverride::Default, worker_name)
 }
 
 /// A worker-sourced `ForcedExclude` mutation.
-fn exclude_mutation(entry_id: jinn_core_types::ChatEntryId, worker_name: &str) -> HistoryMutation {
-    prune_mutation(&entry_id, worker_name)
+fn exclude_mutation(entry_id: &jinn_core_types::ChatEntryId, worker_name: &str) -> HistoryMutation {
+    prune_mutation(entry_id, worker_name)
 }
 
 impl TodoAutoPruneWorker {

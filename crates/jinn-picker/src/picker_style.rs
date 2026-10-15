@@ -126,7 +126,7 @@ mod tests {
 
         // Then only the name portion is populated.
         assert_eq!(name, vec![1..3]);
-        assert!(desc.is_empty());
+        assert_eq!(desc, [] as [std::ops::Range<usize>; 0]);
     }
 
     #[rstest::rstest]
@@ -140,7 +140,7 @@ mod tests {
         let (name, desc) = split_match_indices(&indices, 4);
 
         // Then only the remapped description portion is populated.
-        assert!(name.is_empty());
+        assert_eq!(name, [] as [std::ops::Range<usize>; 0]);
         assert_eq!(desc, vec![0..9]);
     }
 }

@@ -201,7 +201,10 @@ fn an_untitled_attendant_cannot_be_saved() {
 
     // Then nothing is written — a session with no title has no identity to
     // save under.
-    assert!(fx.saved().is_empty());
+    assert_eq!(
+        fx.saved(),
+        [] as [jinn_preferences_config::schemas::AttendantEntryConfig; 0]
+    );
 }
 
 #[rstest::rstest]

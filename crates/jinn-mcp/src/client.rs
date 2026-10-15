@@ -652,7 +652,7 @@ mod tests {
 
         // When reading its tail.
         // Then its tail is empty.
-        assert!(buf.tail().is_empty());
+        assert_eq!(buf.tail(), "");
     }
 
     #[rstest::rstest]

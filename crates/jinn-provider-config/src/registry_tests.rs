@@ -1091,5 +1091,8 @@ fn clear_endpoint_default_on_an_unpinned_model_is_a_no_op() {
     registry.clear_endpoint_default("openrouter/anthropic/claude");
 
     // Then nothing is added or removed.
-    assert!(registry.config().endpoint_defaults.is_empty());
+    assert_eq!(
+        registry.config().endpoint_defaults,
+        [] as [EndpointDefault; 0]
+    );
 }

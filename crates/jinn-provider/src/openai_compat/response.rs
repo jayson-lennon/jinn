@@ -370,7 +370,7 @@ mod tests {
         let events = parse_single(json);
 
         // Then no events are produced.
-        assert!(events.is_empty());
+        assert_eq!(events, [] as [crate::stream_event::StreamEvent; 0]);
     }
 
     #[rstest::rstest]
@@ -438,7 +438,7 @@ mod tests {
         let events = parse_single(json);
 
         // Then no events are produced.
-        assert!(events.is_empty());
+        assert_eq!(events, [] as [crate::stream_event::StreamEvent; 0]);
     }
 
     #[rstest::rstest]
@@ -493,7 +493,7 @@ mod tests {
         let json = r#"{"id":"x","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#;
         let events_data = parser.parse_data(json);
         // Done is deferred - parse_data returns no Done event.
-        assert!(events_data.is_empty());
+        assert_eq!(events_data, [] as [crate::stream_event::StreamEvent; 0]);
 
         // When [DONE] sentinel arrives.
         let events_done = parser.handle_done();
@@ -560,7 +560,7 @@ mod tests {
 
         // And a second [DONE] is a no-op.
         let events2 = parser.handle_done();
-        assert!(events2.is_empty());
+        assert_eq!(events2, [] as [crate::stream_event::StreamEvent; 0]);
     }
 
     #[rstest::rstest]
@@ -603,7 +603,7 @@ mod tests {
         let events = parse_single("not json");
 
         // Then no events are produced.
-        assert!(events.is_empty());
+        assert_eq!(events, [] as [crate::stream_event::StreamEvent; 0]);
     }
 
     #[rstest::rstest]
@@ -613,7 +613,7 @@ mod tests {
         let events = parse_single(r#"{"id":"x"}"#);
 
         // Then no events are produced.
-        assert!(events.is_empty());
+        assert_eq!(events, [] as [crate::stream_event::StreamEvent; 0]);
     }
 
     #[rstest::rstest]
@@ -647,7 +647,7 @@ mod tests {
         // When parsing the chunk then calling handle_done.
         let events_data = parser.parse_data(json);
         // Done is deferred.
-        assert!(events_data.is_empty());
+        assert_eq!(events_data, [] as [crate::stream_event::StreamEvent; 0]);
 
         let events_done = parser.handle_done();
 
@@ -670,7 +670,7 @@ mod tests {
 
         // When parsing the chunk then calling handle_done.
         let events_data = parser.parse_data(json);
-        assert!(events_data.is_empty());
+        assert_eq!(events_data, [] as [crate::stream_event::StreamEvent; 0]);
 
         let events_done = parser.handle_done();
 
@@ -813,9 +813,9 @@ mod tests {
         let events_done = parser.handle_done();
 
         // Then neither chunk emits directly; Done stays deferred and pending.
-        assert!(events1.is_empty());
+        assert_eq!(events1, [] as [crate::stream_event::StreamEvent; 0]);
         // And the second chunk adds no events - it enriches the pending Done.
-        assert!(events2.is_empty());
+        assert_eq!(events2, [] as [crate::stream_event::StreamEvent; 0]);
         // And the [DONE] sentinel flushes a single enriched Done.
         assert_eq!(events_done.len(), 1);
 

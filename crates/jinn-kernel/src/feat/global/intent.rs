@@ -103,7 +103,7 @@ mod tests {
 
         // Then the quit latch is set.
         assert!(state.frontend.quit());
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -116,7 +116,7 @@ mod tests {
 
         // Then the toggle_whichkey signal is set.
         assert!(state.frontend.signals_snapshot().toggle_whichkey);
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
     #[rstest::rstest]
     fn interrupt_clears_buffer_when_non_empty() {
@@ -133,7 +133,7 @@ mod tests {
                 .active_session()
                 .with_input(jinn_chat_input_msg::ChatInputBoxState::is_empty, || true)
         );
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -150,7 +150,7 @@ mod tests {
                 .active_session()
                 .with_input(jinn_chat_input_msg::ChatInputBoxState::is_empty, || true)
         );
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -163,7 +163,7 @@ mod tests {
         let result = handle_interrupt(&mut state);
 
         // Then no CancelTurn command is emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         // And the session is still streaming.
         assert!(matches!(
             state.active_session().phase(),
@@ -221,7 +221,7 @@ mod tests {
                 .active_session()
                 .with_input(jinn_chat_input_msg::ChatInputBoxState::is_empty, || true)
         );
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         assert!(maybe_intent.is_none());
     }
 
@@ -240,7 +240,7 @@ mod tests {
                 .active_session()
                 .with_input(jinn_chat_input_msg::ChatInputBoxState::is_empty, || true)
         );
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         assert!(maybe_intent.is_none());
         assert_eq!(state.frontend.scope(), FocusScope::Input);
     }
@@ -261,7 +261,7 @@ mod tests {
         // Then nothing happens: the kernel does not close it, and it does not
         // claim the filter either. Every real picker clears its own filter in
         // its own scope, so the kernel staying out of it is the contract.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         assert!(maybe_intent.is_none());
         // And the scope is untouched, so the slice's own key stays in charge.
         assert!(state.frontend.is_picker());

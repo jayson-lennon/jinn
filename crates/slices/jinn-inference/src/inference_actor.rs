@@ -188,10 +188,6 @@ impl MsgHandler<AbortStream> for InferenceActor {
     /// `StreamCompleted(RuleIntercept)` when it returns, so this handler
     /// completes no stream of its own — emitting one here would race a
     /// `Canceled` completion against it.
-    #[expect(
-        clippy::unused_async,
-        reason = "the MsgHandler signature is async; the teardown awaits its own publishes"
-    )]
     async fn handle(&mut self, msg: &AbortStream, _ctx: &mut MsgCtx<'_>) {
         self.abort_stream(&msg.session_id, Some(msg.dispatched_at))
             .await;
@@ -269,7 +265,10 @@ enum StreamOutcome {
 }
 
 /// Processes one response's stream events, returning how the stream ended.
-
+#[expect(
+    clippy::too_many_lines,
+    reason = "the event loop mirrors the provider's StreamEvent enum arm for arm; splitting it would separate each arm's activity publish from its domain message"
+)]
 async fn process_stream_events(
     mut stream: jinn_provider::ToolStream,
     bus: &BusService,
@@ -660,10 +659,6 @@ async fn publish_stream_completed(
 }
 
 /// Handles a `StreamEvent::Text`: parses reasoning/normal split, publishes both.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the stream handlers share one shape: bus, session, time, accumulator, payload, rules"
-)]
 async fn handle_text_event(
     bus: &BusService,
     sid: &SessionId,
@@ -708,10 +703,6 @@ async fn handle_text_event(
 }
 
 /// Handles a `StreamEvent::Reasoning`: accumulates and publishes thinking text.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the stream handlers share one shape: bus, session, time, accumulator, payload, rules"
-)]
 async fn handle_reasoning_event(
     bus: &BusService,
     sid: &SessionId,
@@ -1005,6 +996,10 @@ impl InferenceActor {
             StreamCompletedReason::Canceled => {
                 // Already cleaned up by cancel_stream.
             }
+            #[expect(
+                clippy::match_same_arms,
+                reason = "arms kept separate: each comment names the distinct path that already cleaned the session up"
+            )]
             StreamCompletedReason::RuleIntercept => {
                 // Already cleaned up by abort_stream, which the stream task
                 // reached through `AbortStream` before publishing this.

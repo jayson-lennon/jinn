@@ -437,7 +437,7 @@ mod tests {
         state.remove("doomed");
 
         // Then it is gone from the list, not merely unlisted.
-        assert!(names(&state).is_empty());
+        assert_eq!(names(&state), [] as [&str; 0]);
     }
 
     #[rstest::rstest]

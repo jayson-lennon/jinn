@@ -67,6 +67,7 @@ mod tests {
 
     /// Builds a shell command with isolated stdio and terminal detachment,
     /// the standard shape used by every jinn spawn site.
+    #[cfg(unix)]
     fn isolated_sh(script: &str) -> std::process::Command {
         let mut cmd = std::process::Command::new("sh");
         cmd.arg("-c")

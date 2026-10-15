@@ -642,7 +642,7 @@ mod tests {
         // Then it reports having no parameters.
         assert!(!tmpl.has_params());
         // And its parameter list is empty.
-        assert!(tmpl.params().is_empty());
+        assert_eq!(tmpl.params(), []);
         // And its parameter count is zero.
         assert_eq!(tmpl.param_count(), 0);
     }
@@ -1891,7 +1891,7 @@ mod tests {
         // When tokenizing.
         let spans = tokenize_spans("");
         // Then no spans are produced.
-        assert!(spans.is_empty());
+        assert_eq!(spans, [] as [Span; 0]);
     }
 
     #[rstest::rstest]

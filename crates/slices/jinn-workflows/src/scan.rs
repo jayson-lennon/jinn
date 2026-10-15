@@ -107,7 +107,7 @@ mod tests {
         let workflows = scan_workflows(dir.path());
 
         // Then nothing is admitted.
-        assert!(workflows.is_empty());
+        assert_eq!(workflows, [] as [jinn_workflows_msg::Workflow; 0]);
     }
 
     #[rstest::rstest]
@@ -120,7 +120,7 @@ mod tests {
         let workflows = scan_workflows(dir.path());
 
         // Then nothing is admitted.
-        assert!(workflows.is_empty());
+        assert_eq!(workflows, [] as [jinn_workflows_msg::Workflow; 0]);
     }
 
     #[rstest::rstest]
@@ -138,7 +138,7 @@ mod tests {
         let workflows = scan_workflows(dir.path());
 
         // Then neither is admitted.
-        assert!(workflows.is_empty());
+        assert_eq!(workflows, [] as [jinn_workflows_msg::Workflow; 0]);
     }
 
     #[rstest::rstest]
@@ -190,7 +190,7 @@ mod tests {
         let workflows = scan_workflows(dir);
 
         // Then the result is empty, not an error.
-        assert!(workflows.is_empty());
+        assert_eq!(workflows, [] as [jinn_workflows_msg::Workflow; 0]);
     }
 
     #[rstest::rstest]

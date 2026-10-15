@@ -325,7 +325,7 @@ async fn the_open_action_alone_seeds_no_rows() {
 
     // Then nothing is shown yet: the scope stack has one writer, and the rows
     // come from the scope-enter hook the kernel fires on the push.
-    assert!(wired.all_names().is_empty());
+    assert_eq!(wired.all_names(), [] as [std::string::String; 0]);
 }
 
 #[rstest::rstest]

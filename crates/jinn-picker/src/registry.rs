@@ -595,7 +595,7 @@ mod tests {
         let outcome = spec.run_action("<x>", &mut ctx);
 
         // Then nothing ran and nothing closes.
-        assert!(outcome.message_names.is_empty());
+        assert_eq!(outcome.message_names, [] as [&str; 0]);
         assert!(!outcome.close);
     }
 

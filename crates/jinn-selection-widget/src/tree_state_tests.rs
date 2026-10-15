@@ -95,9 +95,9 @@ fn child_match_includes_ancestors() {
     assert_eq!(state.filtered_item(1).unwrap().id, "b");
     assert_eq!(state.filtered_item(2).unwrap().id, "c");
     // A and B have no match indices; C has match bytes.
-    assert!(state.filtered_match_indices(0).unwrap().is_empty());
-    assert!(state.filtered_match_indices(1).unwrap().is_empty());
-    assert!(!state.filtered_match_indices(2).unwrap().is_empty());
+    assert_eq!(state.filtered_match_indices(0).unwrap(), [] as [usize; 0]);
+    assert_eq!(state.filtered_match_indices(1).unwrap(), [] as [usize; 0]);
+    assert_ne!(state.filtered_match_indices(2).unwrap(), [] as [usize; 0]);
 }
 
 #[rstest::rstest]
@@ -251,7 +251,7 @@ fn reset_clears_filter_and_restores_full_tree() {
     state.reset();
 
     // Then filter is cleared and all items visible.
-    assert!(state.filter().is_empty());
+    assert_eq!(state.filter(), "");
     assert_eq!(state.filtered_count(), 2);
     assert_eq!(state.selection(), 0);
 }

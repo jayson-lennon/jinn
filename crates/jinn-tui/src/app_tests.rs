@@ -2,6 +2,7 @@
     clippy::expect_used,
     clippy::indexing_slicing,
     clippy::needless_lifetimes,
+    clippy::panic,
     reason = "test file, panics are acceptable"
 )]
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};

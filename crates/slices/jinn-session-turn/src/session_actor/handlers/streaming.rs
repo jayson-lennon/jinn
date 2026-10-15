@@ -141,6 +141,10 @@ impl SessionPersistenceActor {
                 // live generation. The token is appended only when the
                 // phase actor has already admitted the stream — the entry
                 // index below exists exactly then.
+                #[expect(
+                    clippy::match_same_arms,
+                    reason = "arms kept separate: `Streaming` is the healthy path and `Sending` is deliberately tolerated, not defended"
+                )]
                 PhaseKind::Sending => {}
                 PhaseKind::Idle => {
                     tracing::warn!(
@@ -767,7 +771,7 @@ mod tests {
     /// Puts the active session into streaming phase with one queued
     /// context-override mutation, returning the targeted entry id and the
     /// session id.
-    async fn seed_streaming_session_with_pending_mutation(
+    fn seed_streaming_session_with_pending_mutation(
         actor: &SessionPersistenceActor,
         assistant_text: &str,
     ) -> (jinn_core_types::ChatEntryId, jinn_core_types::SessionId) {
@@ -790,7 +794,7 @@ mod tests {
 
     /// Puts the active session into streaming phase with a token record
     /// pending finalization, returning its id.
-    async fn seed_streaming_session_with_token_record(
+    fn seed_streaming_session_with_token_record(
         actor: &SessionPersistenceActor,
     ) -> jinn_core_types::SessionId {
         let mut state = actor.state.write();
@@ -1828,7 +1832,7 @@ mod tests {
     async fn on_stream_completed_does_not_count_tokens_on_error() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor).await;
+        let session_id = seed_streaming_session_with_token_record(&actor);
 
         // When the stream completes with an error.
         let event = stream_completed(
@@ -1895,7 +1899,7 @@ mod tests {
     async fn on_stream_completed_tool_use_counts_tool_call_arguments() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor).await;
+        let session_id = seed_streaming_session_with_token_record(&actor);
 
         // When the stream completes requesting a tool call with long arguments.
         let event = stream_completed(
@@ -2050,7 +2054,7 @@ mod tests {
         // Given a streaming session with one queued context-override mutation.
         let (actor, audit) = test_actor_recording().await;
         let (entry_id, session_id) =
-            seed_streaming_session_with_pending_mutation(&actor, "response").await;
+            seed_streaming_session_with_pending_mutation(&actor, "response");
 
         // When the stream completes normally.
         let event = stream_completed(
@@ -2083,7 +2087,7 @@ mod tests {
         // Given a streaming session with one queued context-override mutation.
         let (actor, _audit) = test_actor_recording().await;
         let (entry_id, session_id) =
-            seed_streaming_session_with_pending_mutation(&actor, "partial").await;
+            seed_streaming_session_with_pending_mutation(&actor, "partial");
 
         // When the stream completes with an error.
         let event = stream_completed(
@@ -2165,7 +2169,7 @@ mod tests {
         // Given a streaming session with one queued context-override mutation.
         let (actor, _audit) = test_actor_recording().await;
         let (entry_id, session_id) =
-            seed_streaming_session_with_pending_mutation(&actor, "checking").await;
+            seed_streaming_session_with_pending_mutation(&actor, "checking");
 
         // When the stream completes requesting a tool call.
         let event = stream_completed(
@@ -2198,7 +2202,7 @@ mod tests {
     async fn on_stream_completed_provider_tokens_used_directly() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor).await;
+        let session_id = seed_streaming_session_with_token_record(&actor);
 
         // When the stream completes with a provider completion-token report.
         let event = stream_completed(
@@ -2222,7 +2226,7 @@ mod tests {
     async fn on_stream_completed_local_fallback_includes_thinking() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor).await;
+        let session_id = seed_streaming_session_with_token_record(&actor);
 
         // When the stream completes with thinking content and no provider report.
         let event = stream_completed(
@@ -2250,7 +2254,7 @@ mod tests {
     async fn on_stream_completed_local_fallback_without_thinking_backward_compat() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor).await;
+        let session_id = seed_streaming_session_with_token_record(&actor);
 
         // When the stream completes with text only and no provider report.
         let event = stream_completed(
@@ -2277,7 +2281,7 @@ mod tests {
     async fn on_stream_completed_provider_tokens_preferred_over_local() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor).await;
+        let session_id = seed_streaming_session_with_token_record(&actor);
 
         // When the stream completes with both a provider report and long thinking.
         let event = stream_completed(
@@ -2301,7 +2305,7 @@ mod tests {
     async fn on_stream_completed_takes_max_when_provider_undercounts() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor).await;
+        let session_id = seed_streaming_session_with_token_record(&actor);
 
         // When the stream completes with text and no provider report.
         let event = stream_completed(
@@ -2331,7 +2335,7 @@ mod tests {
     async fn on_stream_completed_takes_max_when_provider_overcounts() {
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor).await;
+        let session_id = seed_streaming_session_with_token_record(&actor);
 
         // When the stream completes with a provider count far above the local one.
         let event = stream_completed(
@@ -2357,7 +2361,7 @@ mod tests {
 
         // Given a streaming session with a token record pending finalization.
         let (actor, _audit) = test_actor_recording().await;
-        let session_id = seed_streaming_session_with_token_record(&actor).await;
+        let session_id = seed_streaming_session_with_token_record(&actor);
 
         // When the stream completes with text and no provider report.
         let content = "hello world this is a test";

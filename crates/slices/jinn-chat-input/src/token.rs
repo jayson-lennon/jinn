@@ -121,7 +121,7 @@ pub(crate) fn is_valid_hash_trigger_position(input: &ChatInputBoxState) -> bool 
     if pos == 0 {
         return true;
     }
-    matches!(input.grapheme_at(pos - 1), Some(" ") | Some("\n"))
+    matches!(input.grapheme_at(pos - 1), Some(" " | "\n"))
 }
 
 /// Checks whether a freshly-typed `@` sits where activating is correct.
@@ -138,7 +138,7 @@ pub(crate) fn is_valid_at_trigger_position(input: &ChatInputBoxState) -> bool {
     if prev == Some("@") {
         return false;
     }
-    matches!(prev, Some(" ") | Some("\n"))
+    matches!(prev, Some(" " | "\n"))
 }
 
 /// Checks whether a freshly-typed `/` sits where activating is correct.

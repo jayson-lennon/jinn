@@ -44,7 +44,7 @@ async fn fake_service_empty_tokens() {
     let tokens: Vec<String> = stream.map(|r| r.expect("token")).collect().await;
 
     // Then no tokens are produced.
-    assert!(tokens.is_empty());
+    assert_eq!(tokens, [] as [std::string::String; 0]);
 }
 
 #[rstest::rstest]
@@ -621,7 +621,7 @@ async fn scripted_queue_tool_call_uses_tooluse_stop_reason() {
     let (text, reason) = collect_tool_stream(stream).await;
 
     // Then the stop reason is ToolUse (so the tool loop fires the handler).
-    assert!(text.is_empty());
+    assert_eq!(text, "");
     assert_eq!(reason, Some(StopReason::ToolUse));
 }
 

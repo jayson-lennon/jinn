@@ -400,7 +400,7 @@ async fn open_starts_with_an_empty_list() {
 
     // Then the list is empty: discovery is async, so the popup opens blank
     // and fills in when the actor publishes.
-    assert!(wired.visible().is_empty());
+    assert_eq!(wired.visible(), [] as [std::string::String; 0]);
 }
 
 #[rstest::rstest]
@@ -769,7 +769,7 @@ async fn tab_does_nothing_in_single_mode() {
     wired.fire("toggle-provider-picker");
 
     // Then nothing is checked: there is no set to add to.
-    assert!(wired.checked().is_empty());
+    assert_eq!(wired.checked(), [] as [std::string::String; 0]);
 }
 
 #[rstest::rstest]
@@ -786,7 +786,7 @@ async fn leaving_alloy_clears_every_check() {
     wired.fire("toggle-provider-picker-alloy");
 
     // Then no row is checked any more.
-    assert!(wired.checked().is_empty());
+    assert_eq!(wired.checked(), [] as [std::string::String; 0]);
 }
 
 #[rstest::rstest]

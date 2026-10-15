@@ -111,7 +111,7 @@ mod tests {
         let result = format_skills_for_prompt(&skills, &std::collections::HashSet::new());
 
         // Then the result is empty.
-        assert!(result.is_empty());
+        assert_eq!(result, "");
     }
 
     #[rstest::rstest]

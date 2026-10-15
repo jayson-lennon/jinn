@@ -191,7 +191,7 @@ mod tests {
         let skills = scan_skills(dir.path());
 
         // Then no skills are found.
-        assert!(skills.is_empty());
+        assert_eq!(skills, [] as [jinn_skills_msg::Skill; 0]);
     }
 
     #[rstest::rstest]
@@ -210,7 +210,7 @@ mod tests {
         let skills = scan_skills(dir.path());
 
         // Then no skills are found.
-        assert!(skills.is_empty());
+        assert_eq!(skills, [] as [jinn_skills_msg::Skill; 0]);
     }
 
     #[rstest::rstest]
@@ -224,7 +224,7 @@ mod tests {
         let skills = scan_skills(dir.path());
 
         // Then no skills are found.
-        assert!(skills.is_empty());
+        assert_eq!(skills, [] as [jinn_skills_msg::Skill; 0]);
     }
 
     #[rstest::rstest]
@@ -236,7 +236,7 @@ mod tests {
         let skills = scan_skills(dir);
 
         // Then no skills are found.
-        assert!(skills.is_empty());
+        assert_eq!(skills, [] as [jinn_skills_msg::Skill; 0]);
     }
 
     #[rstest::rstest]
@@ -255,7 +255,7 @@ mod tests {
         let skills = scan_skills(dir.path());
 
         // Then no skills are found.
-        assert!(skills.is_empty());
+        assert_eq!(skills, [] as [jinn_skills_msg::Skill; 0]);
     }
 
     #[rstest::rstest]

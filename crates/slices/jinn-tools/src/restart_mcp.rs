@@ -97,7 +97,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
                 return failed(
                     tool_call_id,
                     tool_name,
-                    &format!(
+                    format!(
                         "MCP restart timed out after {ASK_TIMEOUT:?} with no reply from the coordinator. \
                          **STOP and wait for user instruction.**"
                     ),

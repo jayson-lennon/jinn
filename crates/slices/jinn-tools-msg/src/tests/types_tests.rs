@@ -409,7 +409,7 @@ fn clear_empties_all_phases() {
     // Then no phases remain.
     assert!(list.is_empty());
     // And the phase slice is empty.
-    assert!(list.phases().is_empty());
+    assert_eq!(list.phases(), []);
 }
 
 #[rstest::rstest]
@@ -1199,7 +1199,7 @@ fn set_phase_from_input_replaces_first_matching_description() {
     assert_eq!(list.phases()[0].tasks()[0].status(), TaskStatus::Completed);
     // And the second duplicate phase remains untouched and empty.
     assert_eq!(list.phases()[1].description(), "Build");
-    assert!(list.phases()[1].tasks().is_empty());
+    assert_eq!(list.phases()[1].tasks(), []);
 }
 
 #[rstest::rstest]
