@@ -343,8 +343,11 @@ mod tests {
         let target = home.path().join(&name);
         fs::create_dir_all(&target).unwrap();
 
-        // When resolving `~\<name>` (the native-separator form the popup
-        // seeds itself with on Windows) from an unrelated cwd.
+        // When resolving the input the popup seeds — the native-separator
+        // form after `~` — from an unrelated cwd. `Path::join` emits the
+        // platform's own separator, so this is `~\name` on Windows (the
+        // reseeded native form) and `~/name` on Unix (the plain tilde
+        // form); both must resolve to the directory under the temp home.
         let input = Path::new("~").join(&name);
         let res = resolve_cwd_input_with_home(
             &input.to_string_lossy(),
@@ -352,14 +355,8 @@ mod tests {
             home.path(),
         );
 
-        // Then on platforms where `\` is a separator (Windows) it expands to
-        // the directory under the temp home; on Unix the input is a literal
-        // relative path, which does not exist there, so NotADir.
-        if std::path::is_separator('\\') {
-            assert_eq!(res, CwdResolution::Ok(canonicalize(&target)));
-        } else {
-            assert!(matches!(res, CwdResolution::NotADir(_)), "{res:?}");
-        }
+        // Then it expands to the directory under the temp home.
+        assert_eq!(res, CwdResolution::Ok(canonicalize(&target)));
     }
 
     #[rstest]
