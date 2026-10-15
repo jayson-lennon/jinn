@@ -498,3 +498,10 @@ Entries are added or amended **only with human approval**.
 - (tools) The task tool accepts a `model` argument naming an expanded provider/model id or a configured alias, validated against the provider registry before the child session is created; an unknown name fails the call without spawning.
 - (tools) A task-tool subagent spawned without `model` inherits the parent's whole ModelSelection, alloy included; a valid `model` becomes Single on the child.
 - (config) A provider alias resolves through one registry resolver to its target expanded id, an expanded id resolves to itself, and a name that is both resolves as the expanded id.
+
+- (arch) All application filesystem paths derive from AppPaths, whose default constructor is the only configuration-source reader of dirs::* and honors a JINN_PATHS_ROOT env override read once at startup; the remaining dirs readers are display-layer home lookups (path tilde compression) that take an injected home.
+- (windows) Canonicalized paths are stripped of Windows verbatim \?\ prefixes by one shared helper before they are stored, compared, or displayed.
+- (tools) Shell resolution for command execution is one shared helper preferring git-bash on Windows, used by both the bash tool and the session-lifecycle command runner.
+- (term) PTY liveness on Windows is driven by observed child exit, not read-EOF: ConPTY's master read never returns EOF while the master handle is alive, so the ExitWatcher publishes child death and the screen task drains one quiet tick before finishing; Unix still settles on EOF first.
+- (testing) The workspace test suite passes on both Windows and Linux; tests requiring Unix process semantics are cfg(unix)-gated, and PTY tests run a portable Windows subset.
+- (testing) Integration tests that spawn the jinn binary point it at a temp root through JINN_PATHS_ROOT, so no test writes to the real user config, data, or home directories.
