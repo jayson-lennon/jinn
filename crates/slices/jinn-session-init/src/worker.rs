@@ -30,10 +30,10 @@
 //! subscribe to.
 
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+use parking_lot::Mutex;
 use trouper::actor::ActorPath;
 use trouper::actor::{MsgHandler, ServiceActor};
 use trouper::context::MsgCtx;
@@ -541,7 +541,7 @@ impl SessionDiscoveryWorker {
                     // missing. Their tasks keep going (the waiter never
                     // cancels), so late resources still land.
                     let missing = {
-                        let done = finished.lock().expect("settle outcome lock");
+                        let done = finished.lock();
                         RESOURCES
                             .iter()
                             .filter(|(resource, _)| !done.iter().any(|(done, _)| done == *resource))
@@ -613,10 +613,7 @@ impl SettleWaiter {
         handle: tokio::task::JoinHandle<ResourceOutcome>,
     ) -> ResourceOutcome {
         let outcome = join_outcome(handle).await;
-        self.finished
-            .lock()
-            .expect("settle outcome lock")
-            .push((resource, outcome.clone()));
+        self.finished.lock().push((resource, outcome.clone()));
         outcome
     }
 }
@@ -647,7 +644,6 @@ fn snapshot_of_finished(finished: &Mutex<Vec<(Resource, ResourceOutcome)>>) -> D
     let pull = |resource: Resource| {
         finished
             .lock()
-            .expect("settle outcome lock")
             .iter()
             .find(|(done, _)| *done == resource)
             .map(|(_, outcome)| outcome.clone())

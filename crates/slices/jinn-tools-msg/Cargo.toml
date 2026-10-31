@@ -11,6 +11,7 @@ jinn-preferences-config = { workspace = true }
 jinn-selection-widget = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-theme = { workspace = true }
+parking_lot = { workspace = true }
 ratatui = { workspace = true }
 trouper = { workspace = true }
 serde = { workspace = true }

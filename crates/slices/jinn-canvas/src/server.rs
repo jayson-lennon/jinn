@@ -17,7 +17,7 @@
 //! the spawned server task holds.
 
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use axum::Router;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -25,6 +25,7 @@ use axum::extract::{Path as AxPath, Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
+use parking_lot::RwLock;
 use serde::Deserialize;
 use tokio::sync::broadcast;
 
@@ -52,55 +53,20 @@ pub struct ServerShared {
 
 impl ServerShared {
     /// Reads the currently served artifact path.
-    ///
-    /// # Panics
-    ///
-    /// Only if the lock is poisoned, which cannot happen: no writer can
-    /// panic while holding it (the swap is a plain assignment).
-    ///
-    /// # Panics
-    ///
-    /// Panics only on a poisoned lock, which the plain-assignment writer
-    /// makes unreachable.
-    /// Panics only if the lock is poisoned, which cannot happen: no
-    /// writer can panic while holding it (the swap is a plain assignment).
     #[must_use = "the read artifact path is the point of the call"]
-    #[expect(
-        clippy::expect_used,
-        reason = "poisoned lock is unreachable: the swap is a plain assignment"
-    )]
     pub fn artifact(&self) -> PathBuf {
-        self.artifact.read().expect("artifact lock").clone()
+        self.artifact.read().clone()
     }
 
     /// Swaps the served artifact (the re-target path).
-    ///
-    /// # Panics
-    ///
-    /// Panics only if the lock is poisoned, which cannot happen: no
-    /// writer can panic while holding it (the swap is a plain assignment).
-    #[expect(
-        clippy::expect_used,
-        reason = "poisoned lock is unreachable: the swap is a plain assignment"
-    )]
     pub fn set_artifact(&self, artifact: PathBuf) {
-        *self.artifact.write().expect("artifact lock") = artifact;
+        *self.artifact.write() = artifact;
     }
 
     /// Swaps the live watcher handle (drop old, install new). The one
     /// writer of the slot; watchers are replaced, never accumulated.
-    ///
-    /// # Panics
-    ///
-    /// Panics only if the lock is poisoned, which cannot happen: the
-    /// swap is a plain assignment and no writer can panic while holding
-    /// the lock.
-    #[expect(
-        clippy::expect_used,
-        reason = "poisoned lock is unreachable: the swap is a plain assignment"
-    )]
     pub fn swap_watcher(&self, watcher: Arc<notify::RecommendedWatcher>) {
-        *self.watcher.write().expect("watcher lock") = Some(watcher);
+        *self.watcher.write() = Some(watcher);
     }
 }
 
@@ -124,9 +90,9 @@ pub fn router(shared: ServerShared) -> Router {
 pub fn shared_for(artifact: &std::path::Path) -> ServerShared {
     let (reload_tx, _) = tokio::sync::broadcast::channel(64);
     ServerShared {
-        artifact: Arc::new(std::sync::RwLock::new(artifact.to_path_buf())),
+        artifact: Arc::new(RwLock::new(artifact.to_path_buf())),
         reload_tx,
-        watcher: Arc::new(std::sync::RwLock::new(None)),
+        watcher: Arc::new(RwLock::new(None)),
     }
 }
 

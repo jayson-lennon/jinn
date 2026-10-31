@@ -96,9 +96,9 @@ pub fn render_reasoning_picker(frame: &mut Frame<'_>, area: Rect, facts: &Render
     };
 
     // The widget solves the layout and reports it; the guard ends before the
-    // cell write because `TypedCell` is a plain RwLock and a same-thread
-    // write-while-read would deadlock. The layout is `Copy`, so it outlives
-    // the guard cleanly.
+    // cell write because `TypedCell`'s `parking_lot::RwLock` is not
+    // reentrant and a same-thread write-while-read would deadlock. The
+    // layout is `Copy`, so it outlives the guard cleanly.
     let layout = {
         let guard = cell.read();
         jinn_selection_widget::SelectionWidget::new(&guard.selection)

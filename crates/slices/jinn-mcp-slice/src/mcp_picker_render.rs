@@ -285,8 +285,8 @@ pub fn render_mcp_picker(frame: &mut Frame<'_>, area: Rect, facts: &RenderFacts)
     // cursor moves rather than jumping back to the top each time. The widget
     // picks its split mode from the popup width and reports the list pane's
     // results rect either way — the slice re-derives none of it. The guard
-    // must drop before the cell write below: `TypedCell` is a plain `RwLock`,
-    // and a same-thread write-while-read deadlocks.
+    // must drop before the cell write below: `TypedCell`'s `parking_lot::RwLock`
+    // is not reentrant, and a same-thread write-while-read deadlocks.
     let layout = {
         let state = &guard;
         jinn_selection_widget::PreviewSelectionWidget::new(&state.selection)

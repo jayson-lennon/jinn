@@ -263,9 +263,10 @@ pub fn render_endpoint_picker(frame: &mut Frame<'_>, area: Rect, facts: &RenderF
     // widget has no pane to draw it in, so the rows rendered bare.
     //
     // The widget solves the layout — its wide/narrow split included — and
-    // reports it; the guard ends before the cell write because `TypedCell` is
-    // a plain RwLock and a same-thread write-while-read would deadlock. The
-    // layout is `Copy`, so it outlives the guard cleanly.
+    // reports it; the guard ends before the cell write because `TypedCell`'s
+    // `parking_lot::RwLock` is not reentrant and a same-thread
+    // write-while-read would deadlock. The layout is `Copy`, so it outlives
+    // the guard cleanly.
     let (layout, report) = {
         let guard = cell.read();
         let mut report = None;

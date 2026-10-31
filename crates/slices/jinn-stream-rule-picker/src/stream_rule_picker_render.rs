@@ -77,9 +77,9 @@ pub fn render_stream_rule_picker(frame: &mut Frame<'_>, area: Rect, facts: &Rend
 /// The shared construction for the render fn and its tests: both must build
 /// the identical widget (same two footer lines) so the layout a test reports
 /// is the layout a frame actually drew. The read guard dies inside the block —
-/// before the render fn writes the cell — because the std `RwLock` behind
-/// [`TypedCell`](jinn_slices::cell::TypedCell) is not reentrant; the layout
-/// (`Copy`) outlives it.
+/// before the render fn writes the cell — because the `parking_lot::RwLock`
+/// behind [`TypedCell`](jinn_slices::cell::TypedCell) is not reentrant; the
+/// layout (`Copy`) outlives it.
 pub(crate) fn render_widget_from_state(
     cell: &jinn_slices::cell::TypedCell<StreamRulePickerState>,
     frame: &mut Frame<'_>,

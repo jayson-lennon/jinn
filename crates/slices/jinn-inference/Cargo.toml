@@ -6,6 +6,7 @@ description = "The inference slice: the actor that drives LLM provider streams."
 
 [dependencies]
 wherror = { workspace = true }
+parking_lot = { workspace = true }
 throbber-widgets-tui = { workspace = true }
 ratatui = { workspace = true }
 jinn-session-msg = { workspace = true }

@@ -16,6 +16,7 @@ jinn-canvas-msg = { workspace = true }
 jinn-config = { workspace = true }
 axum = { version = "0.8", features = ["ws"] }
 notify = "8.2"
+parking_lot = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 wherror = { workspace = true }

@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 marked-path = { workspace = true }
+parking_lot = { workspace = true }
 # Core types: SessionId keys every command and event.
 jinn-core-types = { workspace = true }
 # Plain-form path canonicalization (`canonicalize_display`) for the bounded

@@ -37,9 +37,8 @@
 //! vectors captured from the model itself.
 
 use marked_path::{Absolute, MarkedPathAccess, MarkedPathBuf};
+use parking_lot::Mutex;
 use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::PoisonError;
 use std::time::Instant;
 
 use candle_core::{Device, Tensor};
@@ -325,10 +324,7 @@ impl CandleEmbedder {
     fn ensure_initialized(&self) -> Result<Arc<LoadedModel>, Report<EmbedError>> {
         // The lock is held across the (potentially long) init: every embed
         // needs the same model, so waiting callers are the correct behavior.
-        let mut slot = self
-            .model_cell
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let mut slot = self.model_cell.lock();
         if let Some(loaded) = slot.as_ref() {
             return Ok(Arc::clone(loaded));
         }

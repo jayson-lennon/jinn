@@ -28,10 +28,11 @@
 //! the child to exit if one was spawned.
 
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use error_stack::{Report, ResultExt};
+use parking_lot::Mutex;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use rmcp::model::{CallToolRequestParams, CallToolResult};
 use rmcp::service::{RoleClient, RunningService, ServiceExt};
@@ -352,10 +353,7 @@ impl McpClient {
             // If the child has already exited, surface the captured output.
             match child.try_wait() {
                 Ok(Some(_status)) => {
-                    let captured = buffer
-                        .lock()
-                        .map(|b| b.tail().to_owned())
-                        .unwrap_or_default();
+                    let captured = buffer.lock().tail().to_owned();
                     return Err(Report::new(McpClientError)
                         .attach("HTTP MCP server process exited before connecting")
                         .attach(captured));
@@ -506,10 +504,7 @@ impl McpClient {
     /// May be empty if the server hasn't written anything to stderr.
     #[must_use]
     pub fn stderr_tail(&self) -> String {
-        self.stderr_buffer
-            .lock()
-            .map(|buf| buf.tail().to_owned())
-            .unwrap_or_default()
+        self.stderr_buffer.lock().tail().to_owned()
     }
 
     /// Returns `true` when the underlying transport has closed (the server
@@ -631,7 +626,8 @@ where
     tokio::spawn(async move {
         let mut lines = tokio::io::BufReader::new(stream).lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            if let Ok(mut buf) = buffer.lock() {
+            {
+                let mut buf = buffer.lock();
                 buf.append_line(&line);
             }
         }
@@ -711,17 +707,11 @@ mod tests {
 
         // And once both streams have arrived, the buffer captures them.
         let captured = jinn_testutil::wait::poll_until_async(Duration::from_secs(5), || {
-            half.buffer.lock().is_ok_and(|b| {
-                let tail = b.tail().to_owned();
-                tail.contains("stdout-line") && tail.contains("stderr-line")
-            })
+            let tail = half.buffer.lock().tail().to_owned();
+            tail.contains("stdout-line") && tail.contains("stderr-line")
         })
         .await;
-        let tail = half
-            .buffer
-            .lock()
-            .map(|b| b.tail().to_owned())
-            .unwrap_or_default();
+        let tail = half.buffer.lock().tail().to_owned();
         assert!(captured, "both streams captured: {tail}");
         assert!(tail.contains("stdout-line"), "stdout captured: {tail}");
         assert!(tail.contains("stderr-line"), "stderr captured: {tail}");

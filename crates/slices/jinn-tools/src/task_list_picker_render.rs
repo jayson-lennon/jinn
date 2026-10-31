@@ -110,8 +110,8 @@ pub fn render_task_list_picker(frame: &mut Frame<'_>, area: Rect, facts: &Render
     // Render the tree and take the layout back — `inner.height` is the true
     // visible row count, chrome and footer block included in the widget's own
     // arithmetic, so the slice mirrors nothing. The guard must drop before the
-    // cell write below: `TypedCell` is a plain `RwLock`, and a same-thread
-    // write-while-read deadlocks.
+    // cell write below: `TypedCell`'s `parking_lot::RwLock` is not reentrant,
+    // and a same-thread write-while-read deadlocks.
     let layout = {
         let state = &guard;
         jinn_selection_widget::TreePickerWidget::new(&state.tree)

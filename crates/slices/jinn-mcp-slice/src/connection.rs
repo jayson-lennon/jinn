@@ -612,7 +612,7 @@ async fn publish_log(deps: &ActorDeps, session_id: &SessionId, server: &str, tai
 /// (see [`McpActor::on_stop`]).
 fn spawn_stderr_debounce(
     shutdown: Arc<AtomicBool>,
-    stderr_buffer: std::sync::Arc<std::sync::Mutex<jinn_mcp::McpStderrBuffer>>,
+    stderr_buffer: Arc<Mutex<jinn_mcp::McpStderrBuffer>>,
     deps: ActorDeps,
     session_id: SessionId,
     server_name: String,
@@ -624,10 +624,7 @@ fn spawn_stderr_debounce(
             if shutdown.load(Ordering::SeqCst) {
                 break;
             }
-            let tail = stderr_buffer
-                .lock()
-                .map(|buf| buf.tail().to_owned())
-                .unwrap_or_default();
+            let tail = stderr_buffer.lock().tail().to_owned();
             if let Some(tail) = next_tail(&tail, &last_tail) {
                 publish_log(&deps, &session_id, &server_name, &tail).await;
                 last_tail = tail;
@@ -649,7 +646,7 @@ fn spawn_stderr_debounce(
 fn spawn_liveness_watch(
     liveness_shutdown: Arc<AtomicBool>,
     probe: jinn_mcp::LivenessProbe,
-    stderr_buffer: std::sync::Arc<std::sync::Mutex<jinn_mcp::McpStderrBuffer>>,
+    stderr_buffer: Arc<Mutex<jinn_mcp::McpStderrBuffer>>,
     stderr_task_shutdown: Arc<AtomicBool>,
     deps: ActorDeps,
     session_id: SessionId,
@@ -665,10 +662,7 @@ fn spawn_liveness_watch(
                 // Stop the stderr-debounce first so its next poll cannot
                 // republish stale content over the final tail we publish here.
                 stderr_task_shutdown.store(true, Ordering::SeqCst);
-                let tail = stderr_buffer
-                    .lock()
-                    .map(|buf| buf.tail().to_owned())
-                    .unwrap_or_default();
+                let tail = stderr_buffer.lock().tail().to_owned();
                 publish_status(&deps, &session_id, &server_name, McpConnectionStatus::Dead).await;
                 publish_log(&deps, &session_id, &server_name, &tail).await;
                 break;

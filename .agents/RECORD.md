@@ -638,3 +638,4 @@ Entries are added or amended **only with human approval**.
 - (arch) A slice is an integration unit with an activate or actor-install invoked by composition, and every slice implementation crate lives under crates/slices/*.
 - (arch) jinn-cli, jinn-install, jinn-mcp-overgraph, and jinn-tui are entrypoint infrastructure at the crates/* level, not slices: composition never integrates them.
 - (arch) jinn-session-history is shared library code at the crates/* level: HistoryEditor has no actor, cell, or activate, and jinn-session-state imports it directly.
+- (arch) Every production lock is a parking_lot primitive; std::sync::{RwLock, Mutex} survive only in test code.

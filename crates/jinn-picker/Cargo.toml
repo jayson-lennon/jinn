@@ -9,6 +9,7 @@ jinn-selection-widget = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-core-types = { workspace = true }
 jinn-theme = { workspace = true }
+parking_lot = { workspace = true }
 ratatui = { workspace = true }
 
 [dev-dependencies]

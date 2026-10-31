@@ -6,15 +6,11 @@
 //! The confirmed-cancel cascade reads the registry to find the running
 //! subagents a cancel must stop.
 
-#![allow(
-    clippy::expect_used,
-    reason = "poisoned registry lock is unrecoverable, matching session_map.rs"
-)]
-
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use jinn_core_types::SessionId;
+use parking_lot::Mutex;
 
 /// Shared map of parent session → set of in-flight child sessions.
 ///
@@ -28,27 +24,14 @@ pub struct TaskSpawnRegistry {
 
 impl TaskSpawnRegistry {
     /// Records a parent→child pair for an in-flight `spawn_subagent` call.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the registry lock is poisoned.
     pub fn register(&self, parent: SessionId, child: SessionId) {
-        self.inner
-            .lock()
-            .expect("task spawn registry poisoned")
-            .entry(parent)
-            .or_default()
-            .insert(child);
+        self.inner.lock().entry(parent).or_default().insert(child);
     }
 
     /// Removes a parent→child pair. Idempotent: removing an unknown pair
     /// (or one already removed) is a no-op.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the registry lock is poisoned.
     pub fn unregister(&self, parent: &SessionId, child: &SessionId) {
-        let mut map = self.inner.lock().expect("task spawn registry poisoned");
+        let mut map = self.inner.lock();
         if let Some(children) = map.get_mut(parent) {
             children.remove(child);
             if children.is_empty() {
@@ -58,15 +41,8 @@ impl TaskSpawnRegistry {
     }
 
     /// Whether the given session has at least one in-flight `spawn_subagent` call.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the registry lock is poisoned.
     pub fn has_in_flight(&self, parent: &SessionId) -> bool {
-        self.inner
-            .lock()
-            .expect("task spawn registry poisoned")
-            .contains_key(parent)
+        self.inner.lock().contains_key(parent)
     }
 
     /// The child sessions currently running under `parent`.
@@ -74,14 +50,9 @@ impl TaskSpawnRegistry {
     /// Presence in this map *means* the call is in flight: the guard's
     /// `Drop` unregisters, so a completed call's child never appears. The
     /// empty result therefore reads "no running subagents", not "unknown".
-    ///
-    /// # Panics
-    ///
-    /// Panics if the registry lock is poisoned.
     pub fn children_of(&self, parent: &SessionId) -> Vec<SessionId> {
         self.inner
             .lock()
-            .expect("task spawn registry poisoned")
             .get(parent)
             .map(|children| children.iter().cloned().collect())
             .unwrap_or_default()

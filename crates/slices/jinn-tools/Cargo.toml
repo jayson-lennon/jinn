@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 marked-path = { workspace = true }
+parking_lot = { workspace = true }
 jinn-config = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
 jinn-bot = { workspace = true }

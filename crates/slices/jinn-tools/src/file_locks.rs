@@ -19,9 +19,10 @@
 //! timed-out tool task cannot strand it.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use marked_path::{Absolute, MarkedPathBuf};
+use parking_lot::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::OwnedMutexGuard;
 
@@ -35,9 +36,6 @@ type LockMap = HashMap<MarkedPathBuf<Absolute>, Arc<AsyncMutex<()>>>;
 static LOCKS: OnceLock<Mutex<LockMap>> = OnceLock::new();
 
 /// Returns the map, initializing it on first use.
-///
-/// A poisoned map is recovered into: the mutex only guards table
-/// bookkeeping, so the map is always structurally valid.
 fn locks() -> &'static Mutex<LockMap> {
     LOCKS.get_or_init(|| Mutex::new(HashMap::new()))
 }
@@ -53,9 +51,7 @@ pub(crate) async fn acquire(path: &MarkedPathBuf<Absolute>) -> PathLock {
     // the map lock before awaiting so no sync guard is ever held across an
     // await.
     let mutex = {
-        let mut map = locks()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut map = locks().lock();
         Arc::clone(map.entry(path.clone()).or_default())
     };
     mutex.lock_owned().await

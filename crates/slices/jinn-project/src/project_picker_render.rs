@@ -81,7 +81,7 @@ pub fn render_project_picker(frame: &mut Frame<'_>, area: Rect, facts: &RenderFa
     };
 
     // The widget reports the layout it actually solved; the guard must end
-    // before the write below (`TypedCell` is a plain `RwLock`, which is not
+    // before the write below (`TypedCell`'s `parking_lot::RwLock` is not
     // reentrant on the same thread).
     let layout = {
         let guard = cell.read();

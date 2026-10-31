@@ -41,7 +41,7 @@ pub fn activate(
     // The streaming indicator's own screen region. The element holds
     // throbber animation state, so the draw function keeps exactly one
     // instance behind interior mutability.
-    let element = std::sync::Mutex::new(streaming_indicator::StreamingIndicatorElement::new());
+    let element = parking_lot::Mutex::new(streaming_indicator::StreamingIndicatorElement::new());
     host.slices()
         .register_render_slot::<jinn_kernel::common::app_state::AppState>(
             jinn_slices::Region::StreamingIndicator,
@@ -50,25 +50,8 @@ pub fn activate(
                       target: jinn_slices::DrawTarget,
                       ctx: &dyn jinn_slices::DrawContext<jinn_kernel::common::app_state::AppState>,
                       _rects: &mut Vec<ratatui::layout::Rect>| {
-                    // A poisoned lock means a previous draw panicked
-                    // while holding it. Recovering the guard is correct
-                    // here: the element's only state is an animation
-                    // step, so a poisoned one is still a valid one to
-                    // draw with, and rendering nothing would silently
-                    // drop the indicator for the rest of the session.
-                    match element.lock() {
-                        Ok(mut guard) => {
-                            streaming_indicator::paint(&mut guard, frame, target.area, ctx);
-                        }
-                        Err(poisoned) => {
-                            streaming_indicator::paint(
-                                &mut poisoned.into_inner(),
-                                frame,
-                                target.area,
-                                ctx,
-                            );
-                        }
-                    }
+                    let mut guard = element.lock();
+                    streaming_indicator::paint(&mut guard, frame, target.area, ctx);
                 },
             ),
         );

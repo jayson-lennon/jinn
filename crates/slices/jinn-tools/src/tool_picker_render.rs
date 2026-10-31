@@ -90,8 +90,8 @@ pub fn tool_status(state: &ToolPickerState, theme: &Theme) -> Line<'static> {
 ///
 /// The state is read under one guard that spans footer construction and the
 /// widget's render, and the cell's `results_viewport` is written only after
-/// that guard drops — `TypedCell` is a plain RwLock, and same-thread
-/// write-while-read deadlocks.
+/// that guard drops — `TypedCell`'s `parking_lot::RwLock` is not reentrant,
+/// and same-thread write-while-read deadlocks.
 pub fn render_tool_picker(frame: &mut Frame<'_>, area: Rect, facts: &RenderFacts) {
     let Some(cell) = facts.slices.reader(&jinn_tools_msg::tool_picker_slot()) else {
         return;

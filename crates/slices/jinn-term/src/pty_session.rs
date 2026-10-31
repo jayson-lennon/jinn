@@ -29,6 +29,7 @@ fn exit_info_from_status(status: &portable_pty::ExitStatus) -> TermExitInfo {
 
 use error_stack::Report;
 pub use jinn_term_msg::TermExitInfo;
+use parking_lot::Mutex;
 use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use wherror::Error;
 
@@ -103,7 +104,7 @@ pub struct PtySession {
 
 /// The reaped exit status of a pty child, shared between the watcher thread
 /// and the session.
-struct ExitSlot(std::sync::Mutex<Option<TermExitInfo>>);
+struct ExitSlot(Mutex<Option<TermExitInfo>>);
 
 /// Owns the pty child on a dedicated thread, blocking in `wait()`.
 ///
@@ -132,7 +133,7 @@ impl ExitWatcher {
     fn start(mut child: Box<dyn Child + Send + Sync>) -> Result<Arc<Self>, Report<PtyError>> {
         let exited = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let watcher = Arc::new(Self {
-            slot: ExitSlot(std::sync::Mutex::new(None)),
+            slot: ExitSlot(Mutex::new(None)),
             exited: Arc::clone(&exited),
         });
         let handle = Arc::downgrade(&watcher);
@@ -155,10 +156,8 @@ impl ExitWatcher {
                 // Publish "dead" before the status: a poller that sees the
                 // flag but a still-empty slot retries — never the reverse.
                 exited.store(true, std::sync::atomic::Ordering::SeqCst);
-                if let Some(watcher) = handle.upgrade()
-                    && let Ok(mut slot) = watcher.slot.0.lock()
-                {
-                    *slot = Some(status);
+                if let Some(watcher) = handle.upgrade() {
+                    *watcher.slot.0.lock() = Some(status);
                 }
                 // Releasing `child` here (thread teardown) is what actually
                 // drops the child handle after reaping.
@@ -173,7 +172,7 @@ impl ExitWatcher {
 
     /// The child's exit info once reaped; `None` while still running.
     fn exit(&self) -> Option<TermExitInfo> {
-        let guard = self.slot.0.lock().ok()?;
+        let guard = self.slot.0.lock();
         guard.clone()
     }
 

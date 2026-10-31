@@ -84,8 +84,8 @@ pub fn render_persona_picker(frame: &mut Frame<'_>, area: Rect, facts: &RenderFa
     let keybind = jinn_picker::keybind_line(&binds, jinn_picker::Tail::Standard, &palette);
 
     // Render under the read guard, then publish the layout after the block
-    // ends: `TypedCell` is a plain RwLock, and a same-thread write while the
-    // read guard is alive deadlocks.
+    // ends: `TypedCell`'s `parking_lot::RwLock` is not reentrant, and a
+    // same-thread write while the read guard is alive deadlocks.
     let layout = {
         let guard = cell.read();
         let state: &PersonaPickerState = &guard;

@@ -11,6 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use parking_lot::RwLock;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::Line;
@@ -347,7 +348,7 @@ impl std::ops::Deref for SpecHandle {
 /// normal operation.
 #[derive(Clone, Default)]
 pub struct PickerRegistry {
-    specs: std::sync::Arc<std::sync::RwLock<HashMap<&'static str, Arc<dyn ErasedPickerSpec>>>>,
+    specs: Arc<RwLock<HashMap<&'static str, Arc<dyn ErasedPickerSpec>>>>,
 }
 
 impl std::fmt::Debug for PickerRegistry {
@@ -355,11 +356,7 @@ impl std::fmt::Debug for PickerRegistry {
         f.debug_struct("PickerRegistry")
             .field(
                 "ids",
-                &self
-                    .specs
-                    .read()
-                    .map(|specs| specs.keys().copied().collect::<Vec<_>>())
-                    .unwrap_or_default(),
+                &self.specs.read().keys().copied().collect::<Vec<_>>(),
             )
             .finish()
     }
@@ -417,7 +414,8 @@ impl PickerRegistry {
             on_close,
             selection_change,
         };
-        if let Ok(mut specs) = self.specs.write() {
+        {
+            let mut specs = self.specs.write();
             specs.insert(id.as_str(), Arc::new(typed));
         }
     }
@@ -425,7 +423,7 @@ impl PickerRegistry {
     /// Looks a spec up by id string (intents carry runtime `String`s).
     #[must_use]
     pub fn get(&self, id: &str) -> Option<SpecHandle> {
-        self.specs.read().ok()?.get(id).cloned().map(SpecHandle)
+        self.specs.read().get(id).cloned().map(SpecHandle)
     }
 
     /// Builds widget items from domain entries via the registered spec's
@@ -446,7 +444,7 @@ impl PickerRegistry {
     #[must_use]
     pub fn clone_shallow(&self) -> Self {
         Self {
-            specs: std::sync::Arc::clone(&self.specs),
+            specs: Arc::clone(&self.specs),
         }
     }
 
@@ -455,16 +453,15 @@ impl PickerRegistry {
     pub fn all(&self) -> Vec<SpecHandle> {
         self.specs
             .read()
-            .map(|specs| specs.values().cloned().map(SpecHandle).collect())
-            .unwrap_or_default()
+            .values()
+            .cloned()
+            .map(SpecHandle)
+            .collect()
     }
 
     /// Every registered spec id.
     pub fn ids(&self) -> Vec<&'static str> {
-        self.specs
-            .read()
-            .map(|specs| specs.keys().copied().collect())
-            .unwrap_or_default()
+        self.specs.read().keys().copied().collect()
     }
 }
 
