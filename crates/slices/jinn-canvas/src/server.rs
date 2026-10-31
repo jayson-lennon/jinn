@@ -99,23 +99,19 @@ pub fn shared_for(artifact: &MarkedPathBuf<Absolute>) -> ServerShared {
 
 /// Canonicalizes `path` into the typed, classic-spelled form every
 /// artifact consumer reads (file read, watcher parent, status line,
-/// outcome). marked-path 0.5.1's `CanonicalPath::from_path` is broken on
-/// Windows — it strips the verbatim prefix off the canonicalize output and
-/// then requires the result to equal that still-verbatim input, which can
-/// never hold — so the canonicalize-plus-strip composition lives here
-/// instead, matching what `jinn_common::canonicalize_display` does for the
-/// crates that depend on it.
+/// outcome) — `CanonicalPath` canonicalizes, proves existence, and strips
+/// the Windows verbatim prefix, and `into_marked` hands the pipeline a
+/// `MarkedPathBuf<Absolute>`.
 ///
 /// # Errors
 ///
-/// Propagates the [`io::Error`] from [`std::fs::canonicalize`], or
-/// `InvalidData` when the resolved path is not absolute (the typed wrap).
+/// Propagates the [`marked_path::PathError`] — `Io` when the path does not
+/// exist or cannot be read, `NotAbsolute` if the resolved path somehow
+/// carries no absolute form.
 pub(crate) fn canonical_artifact(
     path: &std::path::Path,
-) -> std::io::Result<MarkedPathBuf<Absolute>> {
-    let verbatim = std::fs::canonicalize(path)?;
-    MarkedPathBuf::<Absolute>::new(marked_path::strip_verbatim_prefix(verbatim))
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+) -> Result<MarkedPathBuf<Absolute>, marked_path::PathError> {
+    marked_path::CanonicalPath::from_path(path).map(marked_path::CanonicalPath::into_marked)
 }
 
 /// `GET /` — the artifact with the reload snippet injected, read fresh

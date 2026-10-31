@@ -643,4 +643,4 @@ Entries are added or amended **only with human approval**.
 - (arch) jinn-cli, jinn-install, jinn-mcp-overgraph, and jinn-tui are entrypoint infrastructure at the crates/* level, not slices: composition never integrates them.
 - (arch) jinn-session-history is shared library code at the crates/* level: HistoryEditor has no actor, cell, or activate, and jinn-session-state imports it directly.
 - (arch) Every production lock is a parking_lot primitive; std::sync::{RwLock, Mutex} survive only in test code.
-- (canvas) Canvas artifact paths are canonicalized through `server::canonical_artifact` (std canonicalize plus the verbatim-prefix strip), so the canvas tool result and dashboard row never carry a Windows verbatim prefix and always agree; marked-path 0.5.1's `CanonicalPath::from_path` is avoided — its round-trip check cannot hold on Windows.
+- (canvas) Canvas artifact paths are canonicalized through `server::canonical_artifact` (marked-path's `CanonicalPath`), so the canvas tool result and dashboard row never carry a Windows verbatim prefix and always agree.

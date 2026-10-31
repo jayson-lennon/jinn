@@ -395,7 +395,7 @@ humantime = "2"
 # DX
 ctor = "0.4"
 derive_more = { version = "2", features = ["debug", "display"] }
-marked-path = "0.5.1"
+marked-path = "0.6.0"
 rstest = "0.26"
 tempfile = "3"
 

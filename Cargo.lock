@@ -5225,9 +5225,9 @@ checksum = "fc04a4c58212d57930a24bf47d3fa87485264a3a054e9c10e042eb373573ad3c"
 
 [[package]]
 name = "marked-path"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6e646130a10c16f6693e79e5ae16235281fdeaba9487682430df5ce8d498c2d"
+checksum = "f5fa3cb0fda761db79fd90124951209f7b4ef020b1c03f4979e1474306a96ce6"
 dependencies = [
  "dunce",
  "serde",
