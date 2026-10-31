@@ -32,6 +32,14 @@ struct ActorFixture {
     harness: TestHarness,
     state: State,
     store: Arc<SqliteSessionStore>,
+    /// The persisted-preferences service, from the actor's own `Services` —
+    /// the seeded builder reads the model and reasoning effort through it,
+    /// so tests that assert the seed's profile write through this.
+    app_state_storage: jinn_preferences_config::AppStateStorageService,
+    /// The configuration layer, from the same `Services` — the seeded
+    /// builder derives its filters and MCP enablement from it, so tests
+    /// that assert the seed's content write through this.
+    config: jinn_config::ConfigLayer,
     /// The status bar's cell, taken from the *same* `Slices` the actor holds.
     ///
     /// `HarnessServices::services` mints a fresh `Services` — and so a fresh
@@ -55,6 +63,12 @@ impl ActorFixture {
     /// The library entries currently in the cell.
     fn library_entries(&self) -> Vec<jinn_session_store_msg::SessionSummary> {
         self.library_cell.update(|library| library.entries.clone())
+    }
+
+    /// The actor's configuration layer, for tests that seed config sections
+    /// the seeded builder reads.
+    fn services_config(&self) -> &jinn_config::ConfigLayer {
+        &self.config
     }
 }
 
@@ -95,6 +109,8 @@ async fn actor_fixture() -> ActorFixture {
         .reader::<jinn_session_store_msg::LibraryState>(&jinn_session_store_msg::library_slot())
         .expect("the cell catalog registers the library slot");
     let state = State::new(AppState::default());
+    let app_state_storage = services.app_state_storage.clone();
+    let config = services.config.clone();
     let actor_path = SessionStoreActor::spawn(
         harness.system(),
         SessionStoreActorDeps {
@@ -112,6 +128,8 @@ async fn actor_fixture() -> ActorFixture {
         harness,
         state,
         store,
+        app_state_storage,
+        config,
         status_bar,
         work_time,
         actor_path,
@@ -3281,4 +3299,481 @@ async fn library_cell_fills_at_startup() {
     let entries = fixture.library_entries();
     assert_eq!(entries.len(), 1, "only members list, got: {entries:?}");
     assert_eq!(entries[0].title, "shelved member");
+}
+
+// ── The Sessions list is never empty ─────────────────────────────────────
+//
+// A store-actor mutation that would leave no listed session — a library move
+// of the last listed one, a close/archive of it while only members remain —
+// first inserts a fresh seeded session, so the sidebar's Sessions list never
+// renders its empty placeholder through normal operation.
+
+/// Seeds the persisted preferences the seeded builder reads, and returns the
+/// model selection those preferences carry.
+fn seed_persisted_preferences(fixture: &ActorFixture) -> jinn_core_types::ModelSelection {
+    let model = jinn_core_types::ModelSelection::Single("ollama/llama3".to_owned());
+    let mut app_state = fixture.app_state_storage.read();
+    app_state.last_model = Some(model.clone());
+    app_state.reasoning_effort = Some(jinn_core_types::ReasoningEffort::High);
+    fixture
+        .app_state_storage
+        .save(&app_state)
+        .expect("persist preferences");
+    model
+}
+
+/// Inserts one live listed session, saves it to the store, and returns its id.
+async fn insert_listed_session(fixture: &ActorFixture, title: &str) -> SessionId {
+    let session_id = SessionId::new();
+    let mut live = ChatSessionState::new();
+    live.set_session_id(session_id.clone());
+    live.set_title(title.to_owned());
+    live.mark_interacted();
+    live.push_entry(jinn_core_types::ChatEntry::user("work"));
+    fixture.state.with_session(|view| {
+        view.session.map().insert(live.clone());
+    });
+    fixture
+        .store
+        .save(&live.capture_snapshot())
+        .await
+        .expect("save session");
+    session_id
+}
+
+/// Marks every map resident except `keep` a library member.
+fn flag_all_but_one_as_members(fixture: &ActorFixture, keep: &SessionId) {
+    fixture.state.with_session(|view| {
+        let members: Vec<SessionId> = view
+            .session
+            .map()
+            .iter()
+            .map(|(id, _)| id.clone())
+            .filter(|id| id != keep)
+            .collect();
+        for id in members {
+            view.session
+                .map()
+                .get_mut(&id)
+                .expect("resident still in the map")
+                .set_in_library(true);
+        }
+    });
+}
+
+/// Counts the sessions the sidebar's Sessions list would show.
+fn listed_count(fixture: &ActorFixture) -> usize {
+    fixture
+        .state
+        .read()
+        .session
+        .iter()
+        .filter(|(_, session)| session.is_listed())
+        .count()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn library_move_of_the_last_listed_session_inserts_a_fresh_one() {
+    // Given a fixture whose only listed session is about to move into the
+    // library, with persisted preferences for the seeded builder to carry.
+    let fixture = actor_fixture().await;
+    let model = seed_persisted_preferences(&fixture);
+    let session_id = insert_listed_session(&fixture, "the only listed one").await;
+    flag_all_but_one_as_members(&fixture, &session_id);
+
+    // When the membership command moves it into the library.
+    fixture
+        .harness
+        .publish(SetSessionLibrary {
+            session_id: session_id.clone(),
+            in_library: true,
+        })
+        .await;
+    let moved = jinn_testutil::wait::poll_until_async_fn(Duration::from_secs(2), || async {
+        fixture
+            .state
+            .read()
+            .session
+            .get(&session_id)
+            .is_some_and(jinn_session_state::ChatSessionState::in_library)
+    })
+    .await;
+    assert!(moved, "the move must land before the repair is checked");
+
+    // Then a fresh session keeps the list non-empty, carrying the persisted
+    // model selection and reasoning effort.
+    let state = fixture.state.read();
+    assert!(
+        state.session.iter().any(|(_, session)| session.is_listed()),
+        "the Sessions list must never be empty after a library move"
+    );
+    let fresh = state
+        .session
+        .iter()
+        .map(|(_, session)| session)
+        .find(|session| session.is_listed())
+        .expect("a listed session exists");
+    assert_eq!(fresh.profile().model, model);
+    assert_eq!(
+        fresh.profile().reasoning_effort,
+        Some(jinn_core_types::ReasoningEffort::High)
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_library_move_that_leaves_others_listed_inserts_nothing() {
+    // Given two listed sessions beyond the fixture's opening resident, and
+    // the opening resident flagged into the library so the two are the only
+    // listed ones.
+    let fixture = actor_fixture().await;
+    let first = insert_listed_session(&fixture, "first").await;
+    let second = insert_listed_session(&fixture, "second").await;
+    let opening = {
+        let state = fixture.state.read();
+        state.session.active_session_id().clone()
+    };
+    flag_all_but_two_as_members(&fixture, &first, &second);
+
+    // When only the first moves into the library.
+    fixture
+        .harness
+        .publish(SetSessionLibrary {
+            session_id: first.clone(),
+            in_library: true,
+        })
+        .await;
+    jinn_testutil::wait::await_inbox_drained(
+        fixture.harness.system(),
+        &fixture.actor_path,
+        Duration::from_secs(10),
+    )
+    .await;
+
+    // Then the list still shows the second and the map gained no session.
+    let state = fixture.state.read();
+    assert_eq!(listed_count(&fixture), 1);
+    assert!(state.session.contains(&second));
+    assert_eq!(state.session.session_count(), 3);
+    assert!(state.session.contains(&opening), "no session was inserted");
+}
+
+/// Marks every map resident a library member except `first` and `second`.
+fn flag_all_but_two_as_members(fixture: &ActorFixture, first: &SessionId, second: &SessionId) {
+    fixture.state.with_session(|view| {
+        let members: Vec<SessionId> = view
+            .session
+            .map()
+            .iter()
+            .map(|(id, _)| id.clone())
+            .filter(|id| id != first && id != second)
+            .collect();
+        for id in members {
+            view.session
+                .map()
+                .get_mut(&id)
+                .expect("resident still in the map")
+                .set_in_library(true);
+        }
+    });
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_library_move_repair_keeps_the_active_session_on_the_moved_member() {
+    // Given a fixture whose only listed session is active and about to move.
+    let fixture = actor_fixture().await;
+    let session_id = insert_listed_session(&fixture, "being read").await;
+    fixture.state.with_session(|view| {
+        view.session.map().set_active(session_id.clone());
+    });
+    flag_all_but_one_as_members(&fixture, &session_id);
+
+    // When the move lands.
+    fixture
+        .harness
+        .publish(SetSessionLibrary {
+            session_id: session_id.clone(),
+            in_library: true,
+        })
+        .await;
+    jinn_testutil::wait::await_inbox_drained(
+        fixture.harness.system(),
+        &fixture.actor_path,
+        Duration::from_secs(10),
+    )
+    .await;
+
+    // Then the active session is still the moved member: moving it to the
+    // Library is not a navigation act.
+    assert_eq!(
+        fixture.state.read().session.active_session_id(),
+        &session_id
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archive_of_the_last_listed_session_inserts_a_fresh_active_one() {
+    // Given a fixture whose only listed session is the active one, and a
+    // recorder for the removal announcement.
+    let fixture = actor_fixture().await;
+    let removed = fixture
+        .harness
+        .spawn_recorder::<jinn_session_msg::SessionRemoved>()
+        .await;
+    let model = seed_persisted_preferences(&fixture);
+    let session_id = insert_listed_session(&fixture, "last visible").await;
+    fixture.state.with_session(|view| {
+        view.session.map().set_active(session_id.clone());
+    });
+    flag_all_but_one_as_members(&fixture, &session_id);
+
+    // When the archive command lands.
+    fixture
+        .harness
+        .publish(ArchiveSession {
+            session_id: session_id.clone(),
+        })
+        .await;
+    let announcements = await_recorded(&removed, 1, Duration::from_secs(2)).await;
+    assert_eq!(announcements.len(), 1);
+
+    // Then a fresh session is listed, is the active session, and carries the
+    // persisted model selection.
+    let state = fixture.state.read();
+    assert!(
+        !state.session.contains(&session_id),
+        "the archived session must be gone from the map"
+    );
+    let fresh = state
+        .session
+        .iter()
+        .map(|(_, session)| session)
+        .find(|session| session.is_listed())
+        .expect("the repair must leave a listed session");
+    assert_eq!(state.session.active_session_id(), fresh.session_id());
+    assert_eq!(fresh.profile().model, model);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn archive_that_leaves_others_listed_inserts_nothing_and_keeps_active() {
+    // Given three listed sessions beyond the fixture's opening resident —
+    // the opening resident is flagged into the library, so the map has
+    // listed residents for its own retarget to pick and the repair must not
+    // fire.
+    let fixture = actor_fixture().await;
+    let active = insert_listed_session(&fixture, "active").await;
+    let _other_a = insert_listed_session(&fixture, "other a").await;
+    let _other_b = insert_listed_session(&fixture, "other b").await;
+    let opening = {
+        let state = fixture.state.read();
+        state.session.active_session_id().clone()
+    };
+    {
+        fixture.state.with_session(|view| {
+            view.session
+                .map()
+                .get_mut(&opening)
+                .expect("opening resident")
+                .set_in_library(true);
+        });
+    }
+    fixture.state.with_session(|view| {
+        view.session.map().set_active(active.clone());
+    });
+
+    // When the active session is archived.
+    fixture
+        .harness
+        .publish(ArchiveSession {
+            session_id: active.clone(),
+        })
+        .await;
+    let removed = jinn_testutil::wait::poll_until_async_fn(Duration::from_secs(2), || async {
+        !fixture.state.read().session.contains(&active)
+    })
+    .await;
+    assert!(removed, "the archived session must leave the map");
+
+    // Then nothing was inserted: the two remaining listed sessions cover
+    // the list. (Where the map's own retarget lands the active id among its
+    // residents is the map's documented nondeterministic choice, not this
+    // repair's subject.)
+    let state = fixture.state.read();
+    assert_eq!(state.session.session_count(), 3);
+    assert_eq!(listed_count(&fixture), 2);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_tree_archive_of_members_and_listed_sessions_never_publishes_into_an_empty_list() {
+    // Given a parent whose child is a library member: archiving the tree
+    // removes the parent first, then the child — and between the two
+    // removals only the repair insert can keep the list non-empty.
+    let fixture = actor_fixture().await;
+    let parent_id = insert_listed_session(&fixture, "tree parent").await;
+    let child_id = SessionId::new();
+    let mut child = ChatSessionState::new_child(&parent_id, true);
+    child.set_session_id(child_id.clone());
+    child.set_title("member child".to_owned());
+    child.mark_interacted();
+    child.set_in_library(true);
+    fixture.state.with_session(|view| {
+        view.session.map().insert(child);
+    });
+    // The map's opening resident is also flagged, so the parent is the last
+    // listed session the tree archive removes.
+    flag_all_but_one_as_members(&fixture, &parent_id);
+    fixture.state.with_session(|view| {
+        view.session.map().set_active(parent_id.clone());
+    });
+
+    // When the tree archive lands, each member is announced separately.
+    let removed = fixture
+        .harness
+        .spawn_recorder::<jinn_session_msg::SessionRemoved>()
+        .await;
+    fixture
+        .harness
+        .publish(ArchiveSessionTree {
+            root: parent_id.clone(),
+        })
+        .await;
+    let announcements = await_recorded(&removed, 2, Duration::from_secs(2)).await;
+    assert_eq!(announcements.len(), 2, "each member is announced once");
+
+    // Then the fresh session exists by the time the last announcement is
+    // processed, and it is listed and active.
+    let state = fixture.state.read();
+    assert!(
+        !state.session.contains(&parent_id) && !state.session.contains(&child_id),
+        "both tree members must be gone"
+    );
+    let fresh = state
+        .session
+        .iter()
+        .map(|(_, session)| session)
+        .find(|session| session.is_listed())
+        .expect("a listed session survives the tree archive");
+    assert_eq!(state.session.active_session_id(), fresh.session_id());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_repair_insert_publishes_no_session_created_and_writes_no_persistence() {
+    // Given a fixture whose archive will trigger the repair, with a recorder
+    // for the creation announcement.
+    let fixture = actor_fixture().await;
+    let created = fixture
+        .harness
+        .spawn_recorder::<jinn_session_lifecycle_msg::SessionCreated>()
+        .await;
+    let session_id = insert_listed_session(&fixture, "triggers repair").await;
+    flag_all_but_one_as_members(&fixture, &session_id);
+
+    // When the archive that empties the visible list lands.
+    fixture
+        .harness
+        .publish(ArchiveSession {
+            session_id: session_id.clone(),
+        })
+        .await;
+    let archived = jinn_testutil::wait::poll_until_async_fn(Duration::from_secs(2), || async {
+        !fixture.state.read().session.contains(&session_id)
+    })
+    .await;
+    assert!(archived, "the archive must land");
+
+    // Then the repair inserted in memory only: nothing announced the new
+    // session as created, and no snapshot for it exists in the store.
+    let created_messages = await_recorded(&created, 0, Duration::from_millis(200)).await;
+    assert!(
+        created_messages.is_empty(),
+        "a repair insert must not publish SessionCreated"
+    );
+    let fresh_id = {
+        let state = fixture.state.read();
+        state
+            .session
+            .iter()
+            .map(|(id, session)| (id.clone(), session.is_listed()))
+            .find(|(_, listed)| *listed)
+            .map(|(id, _)| id)
+    };
+    let fresh_id = fresh_id.expect("a listed session exists");
+    let stored = fixture
+        .store
+        .load_session(&fresh_id)
+        .await
+        .expect("store read");
+    assert!(
+        stored.is_none(),
+        "a repair-inserted session must not be persisted"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_repair_publishes_enablement_only_when_the_seed_auto_enables_servers() {
+    // Given a fixture with an auto-enabled MCP server configured, whose
+    // archive will trigger the repair.
+    let fixture = actor_fixture().await;
+    let enablement = fixture
+        .harness
+        .spawn_recorder::<jinn_mcp_msg::McpEnablementChanged>()
+        .await;
+    let servers: std::collections::BTreeMap<_, _> = [(
+        "alpha".to_owned(),
+        jinn_preferences_config::schemas::mcp::McpServerConfig {
+            auto_enable: true,
+            ..Default::default()
+        },
+    )]
+    .into();
+    fixture
+        .services_config()
+        .put::<jinn_preferences_config::schemas::mcp::McpServersConfig>(
+            &jinn_preferences_config::schemas::mcp::McpServersConfig(servers),
+        )
+        .expect("write mcp config");
+    let session_id = insert_listed_session(&fixture, "triggers seed").await;
+    flag_all_but_one_as_members(&fixture, &session_id);
+
+    // When the archive that empties the visible list lands.
+    fixture
+        .harness
+        .publish(ArchiveSession {
+            session_id: session_id.clone(),
+        })
+        .await;
+    let announcements = await_recorded(&enablement, 1, Duration::from_secs(2)).await;
+
+    // Then an enablement event names the repair-inserted session: the fresh
+    // seed is live, listed, and carries the auto-enabled server. (The map's
+    // own replacement path announces its built session separately; that
+    // pre-existing publish is not this test's subject.)
+    let listed_ids: std::collections::BTreeSet<SessionId> = {
+        let state = fixture.state.read();
+        state
+            .session
+            .iter()
+            .filter(|(_, session)| session.is_listed())
+            .map(|(id, _)| id.clone())
+            .collect()
+    };
+    assert!(
+        announcements
+            .iter()
+            .any(|event| listed_ids.contains(&event.session_id)),
+        "the repair's enablement must name a live listed session, got {announcements:?}"
+    );
+    let repaired = announcements
+        .iter()
+        .find(|event| listed_ids.contains(&event.session_id))
+        .expect("one event names the listed session");
+    let enabled: std::collections::BTreeSet<_> = ["alpha".to_owned()].into();
+    assert_eq!(repaired.enabled, enabled);
 }

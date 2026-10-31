@@ -6,6 +6,7 @@
 - Fix: Stream errors now change the session state from streaming to idle
 - `y` (yank session ID) now works in the Library section
 - `i` (focus then enter Insert mode) now works in the Library section
+- It should no longer be possible to have an empty session list in the sidebar
 
 ## 2026-10-29 v1.13.0
 

@@ -106,11 +106,10 @@ pub fn session_list_key(state: &AppState) -> Vec<SessionListKey> {
         .session
         .iter()
         .filter(|(_, session)| {
-            session.session_state() == jinn_session_store_msg::SessionState::Loaded
-                // Library members are *moved*, not bookmarked: the Sessions
-                // tree must not list them. The flag rides the key so the
-                // memoized tree rebuilds on every membership change.
-                && !session.in_library()
+            // The shared predicate: a listed session is loaded and not a
+            // Library member. The flag also rides the key so the memoized
+            // tree rebuilds on every membership change.
+            session.is_listed()
         })
         .map(|(id, session)| {
             let has_live_term = state
@@ -136,10 +135,10 @@ pub fn sorted_open_sessions_split(
     let entries = session
         .iter()
         .filter(|(_, session)| {
-            session.session_state() == jinn_session_store_msg::SessionState::Loaded
-                // Same rule `session_list_key` applies: a library member is
-                // hidden from the Sessions list, loaded or not.
-                && !session.in_library()
+            // Same rule `session_list_key` applies, through the same shared
+            // predicate: a library member is hidden from the Sessions list,
+            // loaded or not.
+            session.is_listed()
         })
         .map(|(id, session)| SessionEntry {
             kind: SessionEntryKind::Session,
@@ -222,10 +221,7 @@ fn session_tree_nodes(state: &AppState) -> Vec<jinn_session_list::SessionTreeNod
     state
         .session
         .iter()
-        .filter(|(_, session)| {
-            session.session_state() == jinn_session_store_msg::SessionState::Loaded
-                && !session.in_library()
-        })
+        .filter(|(_, session)| session.is_listed())
         .map(|(id, session)| jinn_session_list::SessionTreeNode {
             id: id.clone(),
             created_at: *session.created_at(),

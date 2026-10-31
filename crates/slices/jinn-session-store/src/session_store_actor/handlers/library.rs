@@ -23,6 +23,14 @@ impl SessionStoreActor {
     /// The session map write happens through the same single-writer path as
     /// every other live mutation — this actor is the only writer of the
     /// session map, so an in-memory flag changed anywhere else would race it.
+    ///
+    /// A move *into* the library hides the moved session's row, so before the
+    /// announcement goes out the handler checks what the change does to the
+    /// Sessions list: if no session would remain listed, a fresh seeded one
+    /// joins the map first, and the event publishes into a non-empty list.
+    /// (A move *out* only re-adds a row and never empties anything.)
+    /// The active session stays on the moved member — the user is looking at
+    /// it, and moving it to the Library is not a navigation act.
     pub(crate) async fn handle_set_session_library(&self, payload: &SetSessionLibrary) {
         if let Err(error) = self
             .services
@@ -41,9 +49,17 @@ impl SessionStoreActor {
         // The store actor is the session map's single writer, so the
         // in-memory mirror happens here: a loaded session's flag flips in
         // place through the same mutation path every other live write uses.
+        // The emptiness repair runs in the same write lock: the event below
+        // must never announce a removal that left the visible list empty.
+        let mut repair_enablement = None;
         self.state.with_session(|view| {
             if let Some(session) = view.session.map().get_mut(&payload.session_id) {
                 session.set_in_library(payload.in_library);
+            }
+            if payload.in_library && !view.session.map().iter().any(|(_, s)| s.is_listed()) {
+                let (fresh, enablement) = self.build_seeded_fresh_session();
+                view.session.map().insert(fresh);
+                repair_enablement = enablement;
             }
         });
         self.publish(SessionLibraryMembershipChanged {
@@ -51,6 +67,9 @@ impl SessionStoreActor {
             in_library: payload.in_library,
         })
         .await;
+        if let Some(enablement) = repair_enablement {
+            self.publish(enablement).await;
+        }
         // Detached: the write is durable and announced; the section's rows
         // refresh from the back of this actor's own inbox rather than
         // stalling every queued store message behind a scan.

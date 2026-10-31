@@ -3167,6 +3167,51 @@ fn session_state_can_be_set_to_archived() {
 }
 
 #[rstest::rstest]
+fn a_new_session_is_listed() {
+    // Given a new session.
+    let session = ChatSessionState::new();
+
+    // When asking whether the Sessions list would show it.
+    // Then it is listed: loaded and not a library member.
+    assert!(session.is_listed());
+}
+
+#[rstest::rstest]
+fn a_library_member_is_not_listed() {
+    // Given a loaded session moved into the library.
+    let mut session = ChatSessionState::new();
+    session.set_in_library(true);
+
+    // When asking whether the Sessions list would show it.
+    // Then it is not: membership hides it while it stays live in memory.
+    assert!(!session.is_listed());
+}
+
+#[rstest::rstest]
+fn an_archived_session_is_not_listed() {
+    // Given a session archived out of memory.
+    let mut session = ChatSessionState::new();
+    session.set_session_state(SessionState::Archived);
+
+    // When asking whether the Sessions list would show it.
+    // Then it is not: only loaded sessions are listed.
+    assert!(!session.is_listed());
+}
+
+#[rstest::rstest]
+fn clearing_library_membership_relists_a_loaded_session() {
+    // Given a loaded library member.
+    let mut session = ChatSessionState::new();
+    session.set_in_library(true);
+
+    // When the membership flag clears.
+    session.set_in_library(false);
+
+    // Then the session is listed again.
+    assert!(session.is_listed());
+}
+
+#[rstest::rstest]
 fn session_state_can_be_set_back_to_loaded_from_archived() {
     // Given a session in Archived state.
     let mut session = ChatSessionState::new();

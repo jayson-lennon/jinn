@@ -165,6 +165,11 @@ impl SessionStoreActor {
             // user was reading.
             let was_active = self.state.read().session.active_session_id() == session_id;
             let (removed_parent, mcp_enablement) = self.remove_and_replace(session_id);
+            // Between this member's removal and its announcements: the
+            // sidebar state actor reconciles on every `SessionRemoved`, so a
+            // removal that would leave nothing listed repairs before the
+            // first event can announce an empty list.
+            let repair_enablement = self.repair_empty_sessions_list();
             self.publish(SessionRemoved {
                 session_id: session_id.clone(),
                 removed_parent,
@@ -180,6 +185,9 @@ impl SessionStoreActor {
             })
             .await;
             if let Some(enablement) = mcp_enablement {
+                self.publish(enablement).await;
+            }
+            if let Some(enablement) = repair_enablement {
                 self.publish(enablement).await;
             }
         }
@@ -305,26 +313,7 @@ impl SessionStoreActor {
         Option<SessionId>,
         Option<jinn_mcp_msg::McpEnablementChanged>,
     ) {
-        let (fresh_session, enablement) = {
-            let app_state = self.services.app_state_storage.read();
-            let mut profile = SessionProfile::from_model_selection(
-                app_state.last_model.clone().unwrap_or_default(),
-            );
-            profile.reasoning_effort = app_state.reasoning_effort;
-            let seed = SessionSeed::from_config(&self.services.config);
-            profile.tool_filter.clone_from(&seed.tool_filter);
-            profile.skill_filter.clone_from(&seed.skill_filter);
-
-            let mut fresh = ChatSessionState::new_with_profile(profile);
-            fresh.set_enabled_mcp_servers(seed.enabled_mcp.clone());
-            let enablement =
-                seed.has_auto_enabled_mcp()
-                    .then(|| jinn_mcp_msg::McpEnablementChanged {
-                        session_id: fresh.session_id().clone(),
-                        enabled: seed.enabled_mcp,
-                    });
-            (fresh, enablement)
-        };
+        let (fresh_session, enablement) = self.build_seeded_fresh_session();
 
         let removed_parent = self
             .state
@@ -338,5 +327,69 @@ impl SessionStoreActor {
                 .remove_and_replace(session_id, fresh_session);
         });
         (removed_parent, enablement)
+    }
+
+    /// Builds a fresh session carrying the caller's standing preferences:
+    /// the persisted model and reasoning effort, and the configuration's
+    /// tool/skill filters and auto-enabled MCP servers.
+    ///
+    /// Returns the session and, when the configuration auto-enables at least
+    /// one MCP server, the enablement event announcing that seed — published
+    /// by the caller adjacent to the insert, the way the archive loop does.
+    pub(crate) fn build_seeded_fresh_session(
+        &self,
+    ) -> (ChatSessionState, Option<jinn_mcp_msg::McpEnablementChanged>) {
+        let app_state = self.services.app_state_storage.read();
+        let mut profile =
+            SessionProfile::from_model_selection(app_state.last_model.clone().unwrap_or_default());
+        profile.reasoning_effort = app_state.reasoning_effort;
+        let seed = SessionSeed::from_config(&self.services.config);
+        profile.tool_filter.clone_from(&seed.tool_filter);
+        profile.skill_filter.clone_from(&seed.skill_filter);
+
+        let mut fresh = ChatSessionState::new_with_profile(profile);
+        fresh.set_enabled_mcp_servers(seed.enabled_mcp.clone());
+        let enablement = seed
+            .has_auto_enabled_mcp()
+            .then(|| jinn_mcp_msg::McpEnablementChanged {
+                session_id: fresh.session_id().clone(),
+                enabled: seed.enabled_mcp,
+            });
+        (fresh, enablement)
+    }
+
+    /// Inserts a fresh seeded session when nothing is listed anymore, and
+    /// makes it the active session.
+    ///
+    /// A removal can hide the last visible row without emptying the map: the
+    /// remaining residents may all be Library members. The map's own guard
+    /// only fires on an empty map, so this caller-side check is what keeps
+    /// the sidebar's Sessions list non-empty. The inserted session becomes
+    /// active explicitly — the map's retarget for the removal is left to
+    /// whichever resident `HashMap` iteration yields, and landing the user
+    /// on an invisible member is exactly what this repair exists to prevent.
+    ///
+    /// The insert is in-memory only: no persistence write and no
+    /// `SessionCreated` publish, matching the map-empty replacement path —
+    /// an un-interacted session is not persisted on archive anyway, and the
+    /// `SessionCreated` listeners (skills scanning, MCP reconciliation) have
+    /// no session-creation to act on here.
+    ///
+    /// Returns the enablement event to publish for the inserted seed, if any.
+    pub(crate) fn repair_empty_sessions_list(&self) -> Option<jinn_mcp_msg::McpEnablementChanged> {
+        let nothing_listed = {
+            let state = self.state.read();
+            !state.session.iter().any(|(_, session)| session.is_listed())
+        };
+        if !nothing_listed {
+            return None;
+        }
+        let (fresh, enablement) = self.build_seeded_fresh_session();
+        let fresh_id = fresh.session_id().clone();
+        self.state.with_session(|view| {
+            view.session.map().insert(fresh);
+            view.session.map().set_active(fresh_id);
+        });
+        enablement
     }
 }

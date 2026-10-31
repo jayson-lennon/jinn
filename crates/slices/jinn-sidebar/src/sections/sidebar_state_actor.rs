@@ -748,4 +748,48 @@ mod tests {
             Some(ids[1].clone())
         );
     }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_cursor_lands_on_the_repair_inserted_session_when_the_last_listed_row_moves() {
+        // Given the fixture's single listed session with the cursor on it —
+        // the move-about-to-empty-the-list shape — and the store's repair
+        // having inserted a fresh session, the way the store actor runs it:
+        // flag flipped and fresh session inserted before the event publishes.
+        let actor = test_actor();
+        let ids = insert_sessions(&actor, 1);
+        place_cursor_on_row(&actor, 0);
+        let repair_id = {
+            let mut state = actor.state.write();
+            let mut fresh = ChatSessionState::new();
+            fresh.set_title("the fresh one".to_owned());
+            state.session.insert(fresh.clone());
+            fresh.session_id().clone()
+        };
+
+        // When the move and its announcement land.
+        {
+            let mut state = actor.state.write();
+            state
+                .session
+                .get_mut(&ids[0])
+                .expect("fixture session")
+                .set_in_library(true);
+        }
+        actor.handle_library_membership_changed(&SessionLibraryMembershipChanged {
+            session_id: ids[0].clone(),
+            in_library: true,
+        });
+
+        // Then the cursor names the repair-inserted session — the only row
+        // the list has. Without the insert the list would be empty and the
+        // reconciliation would clear the cursor to nothing.
+        let state = actor.state.read();
+        assert_eq!(
+            state
+                .frontend
+                .with_sections(|s| s.sessions.selected_id.clone(), || None),
+            Some(repair_id)
+        );
+    }
 }
