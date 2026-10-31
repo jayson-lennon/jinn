@@ -49,6 +49,7 @@ async fn ctx(
         max_output_bytes: None,
         dispatched_at: jiff::Timestamp::now(),
         mcp_coordinator: None,
+        canvas_server: None,
         interactive_term: None,
         task_spawns: None,
         session_store: None,

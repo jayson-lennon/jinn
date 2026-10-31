@@ -104,6 +104,14 @@ pub struct Services {
     pub mcp_coordinator:
         Arc<std::sync::OnceLock<std::sync::Arc<dyn jinn_mcp_msg::McpCoordinatorHandle>>>,
 
+    /// Canvas serving handle, exposed to the tool layer (the `canvas`
+    /// tool) after the canvas slice's activation spawns its actor and
+    /// mints the implementation. Unset until then; the tool's graceful
+    /// error path covers the gap.
+    #[debug(skip)]
+    pub canvas_server:
+        Arc<std::sync::OnceLock<std::sync::Arc<dyn jinn_canvas_msg::CanvasServerHandle>>>,
+
     /// Interactive-term coordinator handle, exposed to the tool layer
     /// (the `interactive_term*` tools) after actor wiring spawns the
     /// term slice's coordinator and mints the implementation.
@@ -232,6 +240,7 @@ impl Services {
             bus,
             bridge,
             mcp_coordinator: Arc::new(std::sync::OnceLock::new()),
+            canvas_server: Arc::new(std::sync::OnceLock::new()),
             interactive_term: Arc::new(std::sync::OnceLock::new()),
             request_dump: RequestDumpService::default(),
             task_spawns: jinn_tools_msg::TaskSpawnRegistry::default(),
@@ -301,6 +310,7 @@ impl Services {
             bus,
             bridge,
             mcp_coordinator: Arc::new(std::sync::OnceLock::new()),
+            canvas_server: Arc::new(std::sync::OnceLock::new()),
             interactive_term: Arc::new(std::sync::OnceLock::new()),
             request_dump: RequestDumpService::default(),
             task_spawns: jinn_tools_msg::TaskSpawnRegistry::default(),

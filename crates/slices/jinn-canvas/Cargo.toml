@@ -1,0 +1,57 @@
+[package]
+name = "jinn-canvas"
+version.workspace = true
+edition.workspace = true
+description = "The canvas slice: the serving actor — one HTML artifact per process over loopback HTTP with embedded vendored viz libraries and WebSocket live reload."
+
+[dependencies]
+# The canvas slice is a leaf: jinn-preferences-config ([canvas] schema),
+# jinn-slices (SliceHost, BusService, ServiceStatusUpdate),
+# jinn-canvas-msg (the serve contract). No kernel, no other slice's
+# implementation crate; the only workspace consumer is the jinn binary
+# (composition) and jinn-install (the offline guard on the vendor css).
+jinn-preferences-config = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-canvas-msg = { workspace = true }
+jinn-config = { workspace = true }
+axum = { version = "0.8", features = ["ws"] }
+notify = "8.2"
+tokio = { workspace = true }
+serde = { workspace = true }
+wherror = { workspace = true }
+error-stack = { workspace = true }
+tracing = { workspace = true }
+marked-path = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+trouper = { workspace = true }
+
+# Dev-time vendor fetcher (`just canvas-vendor-update`). Flate2 and sha2
+# exist only for the `vendor-fetch` feature so the shipped binary never
+# carries them; the fetcher binary is built only through the recipe.
+flate2 = { version = "1", optional = true }
+sha2 = { version = "0.10", optional = true }
+
+[build-dependencies]
+# The build script verifies every manifest row against the bytes on disk
+# (the pin gate) and generates the embedded asset table.
+sha2 = "0.10"
+toml = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+jinn-testutil = { workspace = true }
+# Test-side gzip decoding for the committed-gzip vendor assets; never a
+# production dependency (the server forwards compressed bytes verbatim).
+flate2 = "1"
+
+[features]
+vendor-fetch = ["dep:flate2", "dep:sha2"]
+
+[[bin]]
+name = "canvas-vendor-fetch"
+path = "src/bin/canvas_vendor_fetch.rs"
+required-features = ["vendor-fetch"]
+
+[lints]
+workspace = true

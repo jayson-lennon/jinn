@@ -84,6 +84,7 @@ async fn spawn_subagent_ctx_with(
         max_output_bytes: None,
         dispatched_at: jiff::Timestamp::now(),
         mcp_coordinator: None,
+        canvas_server: None,
         interactive_term: None,
         task_spawns: Some(services.task_spawns.clone()),
         session_store: Some(services.session_store.clone()),

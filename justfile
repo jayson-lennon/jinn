@@ -281,6 +281,14 @@ install-defaults:
     @echo "Workflows installed to ~/.config/jinn/workflows/"
     @echo "Skills installed to ~/.agents/skills/"
 
+# Refresh the canvas vendor set: re-downloads every pinned library dist,
+# re-gzips deterministically, and rewrites the sha256 manifest the build
+# verifies. Run after bumping a version in the fetcher's VENDOR_SOURCES —
+# never edit vendored files by hand.
+canvas-vendor-update:
+    cargo build -p jinn-canvas --features vendor-fetch --bin canvas-vendor-fetch
+    ./target/debug/canvas-vendor-fetch crates/slices/jinn-canvas/resources/vendor
+
 # Push main (and its annotated tags) to GitHub. git-primary: origin IS the
 # GitHub repo the old fossil→git mirror used to populate, so syncing is a push.
 sync-github:

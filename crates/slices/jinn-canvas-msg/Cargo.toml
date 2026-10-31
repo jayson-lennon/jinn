@@ -1,0 +1,18 @@
+[package]
+name = "jinn-canvas-msg"
+version.workspace = true
+edition.workspace = true
+description = "The canvas slice's contract: the serve command, its outcome, and the server handle trait."
+
+[dependencies]
+async-trait = { workspace = true }
+jinn-slices = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+trouper = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[lints]
+workspace = true

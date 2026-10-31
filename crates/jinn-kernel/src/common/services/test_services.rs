@@ -309,6 +309,7 @@ impl TestServices {
             bus,
             bridge,
             mcp_coordinator: Arc::new(std::sync::OnceLock::new()),
+            canvas_server: Arc::new(std::sync::OnceLock::new()),
             interactive_term: Arc::new(std::sync::OnceLock::new()),
             request_dump: crate::common::request_dump::RequestDumpService::default(),
             task_spawns: jinn_tools_msg::TaskSpawnRegistry::default(),

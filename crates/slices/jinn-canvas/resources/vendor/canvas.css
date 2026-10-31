@@ -1,0 +1,74 @@
+/* canvas.css — jinn's baseline stylesheet for canvas artifacts.
+ *
+ * Served at /vendor/canvas.css. Link it, don't copy it: the server keeps it
+ * current across jinn versions. It carries no component styles and no
+ * resets beyond the box model — only the design tokens an artifact needs to
+ * look native in light and dark terminals. Everything here is overridable
+ * by artifact-local CSS.
+ */
+
+:root {
+  /* Light theme tokens; dark overrides below via prefers-color-scheme. */
+  --jinn-bg: #ffffff;
+  --jinn-bg-raised: #f6f6f4;
+  --jinn-fg: #1a1a1a;
+  --jinn-fg-muted: #6b6b6b;
+  --jinn-accent: #4f6bed;
+  --jinn-border: #d9d9d4;
+  --jinn-danger: #c2413b;
+  --jinn-ok: #2e7d4f;
+
+  /* Semantic aliases artifacts should prefer over raw tokens. */
+  --jinn-chart-grid: #e4e4df;
+  --jinn-chart-text: var(--jinn-fg-muted);
+
+  /* Spacing scale — use multiples of --jinn-space rather than ad-hoc px. */
+  --jinn-space: 4px;
+
+  /* System font stack: zero bytes, zero CORS, native on every platform. */
+  --jinn-font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --jinn-font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --jinn-bg: #141414;
+    --jinn-bg-raised: #1e1e1e;
+    --jinn-fg: #e8e8e8;
+    --jinn-fg-muted: #9a9a9a;
+    --jinn-accent: #7d90f5;
+    --jinn-border: #3a3a3a;
+    --jinn-danger: #e0625c;
+    --jinn-ok: #58b98a;
+
+    --jinn-chart-grid: #2e2e2e;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: calc(var(--jinn-space) * 4);
+  background: var(--jinn-bg);
+  color: var(--jinn-fg);
+  font-family: var(--jinn-font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--jinn-font-mono);
+}
+
+/* Chart.js reads these when an artifact passes them as colors; keeping them
+ * on :root means a palette swap needs no JS at all. */
+[data-jinn-chart] {
+  color: var(--jinn-chart-text);
+}

@@ -195,7 +195,9 @@ impl App {
                     }
                     // `jinn mcp noop` falls through to a normal startup: the
                     // variant remains for argv-shape compatibility; the real
-                    // bundled servers were intercepted in `prepare`.
+                    // bundled servers were intercepted in `prepare`. Canvas
+                    // commands are intercepted the same way; this arm is
+                    // unreachable for them.
                     Commands::Tui | Commands::Mcp { .. } => {
                         let dump_requests = resolve_dump_requests(cli.dump_requests.as_deref())?;
                         let app_paths = jinn_kernel::AppPaths::default();

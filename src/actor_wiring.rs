@@ -166,6 +166,7 @@ impl ActorSystemBuilder {
             bridge: bridge.clone(),
             trouper_system,
             mcp_coordinator: std::sync::Arc::new(std::sync::OnceLock::new()),
+            canvas_server: std::sync::Arc::new(std::sync::OnceLock::new()),
             interactive_term: std::sync::Arc::new(std::sync::OnceLock::new()),
             request_dump: jinn_kernel::common::request_dump::RequestDumpService::new(dump_requests),
             task_spawns,

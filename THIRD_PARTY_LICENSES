@@ -60,3 +60,49 @@ Required attribution, verbatim:
 Benchmark questions and answers are the property of their respective
 creators; the seed files ship the ECI scores and normalization metadata
 only, not benchmark items.
+
+---
+
+## Canvas vendor libraries (embedded, served at `/vendor/`)
+
+- **Location:** `crates/slices/jinn-canvas/resources/vendor/` — each
+  library's license file ships inside its directory, byte-verbatim from
+  the upstream distribution, embedded by the same `include_bytes!`
+  table as the library itself and served at `/vendor/<lib>/LICENSE`.
+  Versions are pinned row-by-row in `vendor-manifest.toml` beside them.
+- **Licenses:** per library below. All permit redistribution and
+  conveys the license text with the copy — which the served tree does
+  by construction.
+
+| Library | npm package | Version | License | Upstream |
+|---|---|---|---|---|
+| Chart.js | `chart.js` | 4.6.1 | MIT | https://github.com/chartjs/Chart.js |
+| D3 | `d3` | 7.9.0 | ISC | https://github.com/d3/d3 |
+| highlight.js | `@highlightjs/cdn-assets` | 11.12.0 | BSD-3-Clause | https://github.com/highlightjs/highlight.js |
+| KaTeX (+fonts) | `katex` | 0.19.1 | MIT | https://github.com/KaTeX/KaTeX |
+| Mermaid | `mermaid` | 12.2.0 | MIT | https://github.com/mermaid-js/mermaid |
+| Observable Plot | `@observablehq/plot` | 0.6.17 | ISC | https://github.com/observablehq/plot |
+| p5.js | `p5` | 1.11.13 | LGPL-2.1 | https://github.com/processing/p5.js |
+| Preact + htm | `preact`, `htm` | 3.1.1 | Apache-2.0 (both) | https://github.com/preactjs/preact, https://github.com/developit/htm |
+| uPlot | `uplot` | 1.6.32 | MIT | https://github.com/leeoniya/uPlot |
+| Vega | `vega` | 6.4.0 | BSD-3-Clause | https://github.com/vega/vega |
+| Vega-Lite | `vega-lite` | 6.5.0 | BSD-3-Clause | https://github.com/vega/vega-lite |
+| vega-embed | `vega-embed` | 7.3.0 | BSD-3-Clause | https://github.com/vega/vega-embed |
+| Vue | `vue` | 3.5.44 | MIT | https://github.com/vuejs/core |
+| matter.js | `matter-js` | 0.20.0 | MIT | https://github.com/liabru/matter-js |
+| three.js (+addons) | `three` | 0.185.0 | MIT | https://github.com/mrdoob/three.js |
+
+`canvas.css` in the same tree is jinn's own work (AGPL-3.0, like the
+rest of jinn) — it is authored, not vendored, and carries no upstream
+license file.
+
+Preact/htm note: the served `preact/` directory holds the
+`@download/preact-standalone` bundle (preact + htm + hooks compiled
+together) and one Apache-2.0 license file covering both works; the
+distribution's license file is the bundled one, kept verbatim.
+
+three.js note: the served `three/` directory holds the minified core
+module build plus a subtree of addon modules (controls, loaders,
+parametric geometries, buffer/skeleton utilities) under
+`three/addons/`, all from the single `three` npm package; one MIT
+license file covers core and addons alike.

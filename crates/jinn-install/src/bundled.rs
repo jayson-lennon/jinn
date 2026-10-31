@@ -351,4 +351,76 @@ mod tests {
             "stale singleton claim reintroduced into mcp-servers.md"
         );
     }
+
+    /// Pins the canvas offline guarantee (invariant 6): the shipped canvas
+    /// skill and the slice's embedded template and stylesheet must name no
+    /// fetchable remote resource. XML namespace URLs are identifiers, not
+    /// fetches, so `http://www.w3.org/...` shapes are excluded — see the
+    /// trap in the canvas contract.
+    #[rstest::rstest]
+    #[test]
+    fn shipped_canvas_files_name_no_remote_resources() {
+        // Given every shipped text file the canvas feature authors.
+        let catalogue = bundled_catalogue().expect("derive catalogue");
+        let skill_texts = catalogue
+            .iter()
+            .filter(|b| b.kind == Kind::Skill && b.relative.as_path().starts_with("canvas/"))
+            .filter_map(|b| {
+                RESOURCES
+                    .get_file(format!("skills/{}", b.relative))
+                    .map(|f| String::from_utf8_lossy(f.contents()).into_owned())
+            })
+            .collect::<Vec<_>>();
+        assert!(!skill_texts.is_empty(), "canvas skill must ship");
+        let mut texts = skill_texts;
+        // The artifact skeleton is now itself a shipped skill reference:
+        // scan it with the rest of the skill tree.
+        texts.push(
+            RESOURCES
+                .get_file("skills/canvas/references/artifact-template.md")
+                .map(|f| String::from_utf8_lossy(f.contents()).into_owned())
+                .expect("the canvas artifact template ships as a skill reference"),
+        );
+        texts
+            .push(String::from_utf8_lossy(jinn_canvas::vendor::authored_css_source()).into_owned());
+
+        // When scanning each text for fetch-shaped remote URLs.
+        // (xmlns/xlink namespace identifiers are excluded by their shapes.)
+        let violations: Vec<String> = texts
+            .iter()
+            .flat_map(|text| remote_resource_urls(text))
+            .collect();
+
+        // Then no shipped canvas text names one.
+        assert!(
+            violations.is_empty(),
+            "canvas shipped text names a remote resource: {violations:?}"
+        );
+    }
+
+    /// Collects http(s) URLs in src/href/fetch-shaped contexts, skipping
+    /// XML namespace identifiers (`xmlns="…"`, `xlink:href="http://www.w3.org/…"`).
+    fn remote_resource_urls(text: &str) -> Vec<String> {
+        let occurrences = text
+            .match_indices("http://")
+            .chain(text.match_indices("https://"));
+        occurrences
+            .filter_map(|(idx, needle)| {
+                let before = text.get(..idx)?;
+                // XML namespace identifiers are names, not fetches;
+                // template comments mention URL shapes only as prose.
+                let namespace_context = before.ends_with("xmlns=")
+                    || before.ends_with("xmlns:")
+                    || before.ends_with("xlink:href=\"")
+                    || before.trim_end().ends_with("<!--");
+                if namespace_context {
+                    return None;
+                }
+                let after = text.get(idx..)?;
+                let end = after.find(['"', ')', ' ', '\n']).unwrap_or(after.len());
+                let url = after.get(..end)?;
+                (needle.starts_with("http")).then(|| url.to_owned())
+            })
+            .collect()
+    }
 }

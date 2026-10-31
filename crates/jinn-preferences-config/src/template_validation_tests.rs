@@ -36,7 +36,8 @@ use jinn_common::template_check::collect_toml_key_paths;
 use crate::config_template::{DEFAULT_CONFIG, STREAM_RULES_TEMPLATE};
 use crate::registration::register_all_sections;
 use crate::schemas::{
-    DiscordConfig, McpServersConfig, StreamRuleConfig, StreamRuleFileEntry, parse_stream_rules_file,
+    CanvasConfig, DiscordConfig, McpServersConfig, StreamRuleConfig, StreamRuleFileEntry,
+    parse_stream_rules_file,
 };
 
 /// The template with every `(uncomment below to activate)` region expanded.
@@ -366,5 +367,34 @@ fn template_ships_overgraph_as_a_disabled_singleton_builtin() {
     assert!(
         !DEFAULT_CONFIG.contains("only applies for `local_http`"),
         "stale singleton claim reintroduced into default_jinn.toml"
+    );
+}
+
+/// The shipped `[canvas]` section is active and binds loopback port 0:
+/// an OS-assigned ephemeral port per running jinn instance, so two
+/// instances never fight over one fixed port (end state: multi-instance
+/// isolation). An explicit configured value still wins — the schema
+/// keeps whatever a user wrote.
+#[rstest::rstest]
+#[test]
+fn template_ships_canvas_as_loopback_port_zero() {
+    // Given the shipped template parsed as a config layer.
+    let config = jinn_config::testutil::config_layer(DEFAULT_CONFIG);
+    register_all_sections(&config);
+
+    // When reading the canvas section.
+    let canvas = config.get::<CanvasConfig>().expect("canvas section parses");
+
+    // Then the shipped bind is loopback port 0.
+    assert_eq!(canvas.bind, "127.0.0.1:0");
+    let addr = canvas.parse_bind().expect("shipped bind parses");
+    assert!(addr.ip().is_loopback());
+    assert_eq!(addr.port(), 0);
+
+    // And the template's canvas comment promises the per-instance port
+    // model, not the retired fixed-port one.
+    assert!(
+        !DEFAULT_CONFIG.contains("jinn canvas serve"),
+        "retired CLI surface named in default_jinn.toml"
     );
 }

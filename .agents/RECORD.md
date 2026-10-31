@@ -625,3 +625,13 @@ Entries are added or amended **only with human approval**.
 - (sidebar) The "Session ID yanked" banner renders in the sessions, bots, and library sections, anchored above the focused section's cursor row.
 - (sidebar) The close-session and archive-tree prompts render only for the sessions section and anchor to the sessions cursor row.
 - (sidebar) The library section binds `i` to the shared activate-and-insert handler, landing in Input over a Normal base like the sessions and bots sections.
+- (canvas) The canvas HTTP server runs inside the running jinn instance on the canvas actor, bound lazily on the first `canvas` tool call; no detached canvas process exists, and pages die with the session.
+- (canvas) The `canvas` tool serves an artifact file and its result text carries the bind URL for the agent to echo to the user; a second serve swaps the served file on the live listener at the same URL, so at most one canvas server exists per jinn instance.
+- (canvas) The canvas actor publishes its dashboard row status as `server offline` when idle and `http://<bind> (<path>)` when serving; a refused serve lands as an error-toned note on the same row.
+- (canvas) Editing the served file or any file in its directory hot-reloads connected browsers over WebSocket; the watcher filters to write-shaped filesystem events so the server's own file reads never trigger a reload loop.
+- (canvas) Charting, diagram, math, physics, and widget JavaScript libraries are embedded pre-gzipped in the jinn binary and served from `/vendor/`, so canvas artifacts render with no network access.
+- (canvas) The canvas reload script is injected into the served artifact's HTML response only; artifact files on disk are never modified by the server.
+- (canvas) The artifact skeleton ships inside the canvas skill's references, not in the binary.
+- (config) The `[canvas]` config section ships active in `default_jinn.toml` with bind defaulting to `127.0.0.1:0` (OS-assigned per instance); an explicit value wins.
+- (skills) The canvas skill teaches the write-serve-edit workflow (file tools, then the `canvas` tool, then free editing) and which vendored library fits a given visual.
+- (tools) The `canvas` tool is a built-in that reaches the canvas actor through a handle stored in `Services.canvas_server`; the actor answers the serve ask with the resolved URL, and a missing path resolves against the session's working directory.

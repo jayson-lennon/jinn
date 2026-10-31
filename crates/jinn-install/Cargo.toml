@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Seeding of the bundled default resources: themes, personas, prompts, and skills."
 
 [dependencies]
+jinn-canvas = { workspace = true }
 marked-path = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-preferences-config = { workspace = true }

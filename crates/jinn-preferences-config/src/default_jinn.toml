@@ -113,6 +113,18 @@ min_collapse_count = 3
 skill_filter = { mode = "deny", names = ["phased-task-loop"] }
 
 # ###########################################################################
+# Canvas
+# ###########################################################################
+# > Where the canvas server binds when the agent serves an artifact with
+# > the `canvas` tool. Host:port as one value. Port 0 (the default) asks
+# > the OS for an ephemeral port, so two running jinn instances never
+# > fight over one port; the resolved URL comes back in the tool result.
+# >
+# > The bind must be a loopback address — the canvas server has no
+# > authentication, so it never listens on an exposed interface.
+bind = "127.0.0.1:0"
+
+# ###########################################################################
 # Session lifecycle commands
 # ###########################################################################
 # > Lifecycle commands run at session startup and teardown. They allow you to

@@ -153,6 +153,12 @@ pub struct ToolContext {
     /// `services.mcp_coordinator` at dispatch time. `None` in tests and for
     /// every tool that doesn't need it.
     pub mcp_coordinator: Option<std::sync::Arc<dyn jinn_mcp_msg::McpCoordinatorHandle>>,
+    /// Canvas serving handle — `Some` only for the `canvas` tool, which
+    /// asks the canvas actor to serve (or re-target) an artifact and
+    /// relays the resolved URL. Resolved from `services.canvas_server`
+    /// at dispatch time. `None` in tests and for every tool that
+    /// doesn't need it.
+    pub canvas_server: Option<std::sync::Arc<dyn jinn_canvas_msg::CanvasServerHandle>>,
     /// Interactive-term coordinator handle — `Some` only for the
     /// `interactive_term*` tools, which ask the coordinator to spawn/drive
     /// PTY sessions. Resolved from `services.interactive_term` at dispatch
@@ -223,6 +229,7 @@ mod tests {
             dispatched_at: jiff::Timestamp::now(),
             turn: crate::tool_types::test_turn(),
             mcp_coordinator: None,
+            canvas_server: None,
             interactive_term: None,
             task_spawns: None,
             session_store: None,

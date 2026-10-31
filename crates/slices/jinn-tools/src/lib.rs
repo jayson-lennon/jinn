@@ -17,6 +17,7 @@ pub use jinn_tools_msg::BoxedToolFuture;
 
 pub mod bash;
 pub mod bot_tools;
+pub mod canvas;
 pub mod capabilities;
 pub mod tell_session;
 

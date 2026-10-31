@@ -435,6 +435,27 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
         ctx.state().clone(),
     );
 
+    // The canvas slice spawns its dormant serving actor and hands the
+    // tool-facing handle to the kernel's Services slot. Dormant means
+    // no listener, no watcher, no filesystem work here — nothing starts
+    // until the first `canvas` tool call — so ordering carries no
+    // behavioural weight beyond the actor's spawn announcement reaching
+    // the dashboard (which any position after Block 0 satisfies). The
+    // Tools slice above resolves no canvas value; the `canvas` tool
+    // reads the handle at dispatch time, long after this returns.
+    let config_snapshot = ctx.services().config.clone();
+    let bus_snapshot = ctx.services().bus.clone();
+    let canvas_slot = ctx.services().canvas_server.clone();
+    jinn_canvas::activate(
+        &mut ctx.host(),
+        &config_snapshot,
+        bus_snapshot,
+        &move |handle| {
+            let _ = canvas_slot.set(handle);
+        },
+    )
+    .map_err(|report| ActivateError::Canvas(format!("{report:?}")))?;
+
     // The discord slice resolves `[discord]` (fail-fast on a malformed
     // section) and parks the gateway channels for the frontend spawn.
     let services_snapshot = ctx.services().clone();
@@ -458,6 +479,13 @@ pub enum ActivateError {
     /// The discord section was present but malformed.
     #[error(debug)]
     Discord(#[from] jinn_config::ConfigSectionError),
+    /// The `[canvas]` section failed to read or its bind did not parse.
+    /// Fatal: every later `canvas` tool call would refuse with the same
+    /// sentence, so launch stops where the cause is visible. The report
+    /// rides as rendered text — the unit struct carries no payload to
+    /// clone.
+    #[error(debug)]
+    Canvas(String),
     /// A producer slice's cell was absent when a consumer resolved it.
     ///
     /// The three producers in Block 1 register these cells, so a missing

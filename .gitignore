@@ -44,3 +44,4 @@ worktrees/*
 .jinn-autocoder-trash/*
 .issues/*
 .autodev.ledger.md
+*.html

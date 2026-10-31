@@ -22,6 +22,9 @@ jinn-session-store-msg = { workspace = true }
 # references slice families only through `-msg` crates.
 jinn-work-time-msg = { workspace = true }
 jinn-mcp-msg = { workspace = true }
+# The canvas slice's serve contract: the kernel's Services carries the
+# canvas actor's handle slot (mcp_coordinator shape) for the tool layer.
+jinn-canvas-msg = { workspace = true }
 # Internal deps
 jinn-common = { workspace = true }
 jinn-cell-catalog = { workspace = true }

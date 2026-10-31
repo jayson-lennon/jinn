@@ -155,6 +155,7 @@ mod tests {
 
             dispatched_at: jiff::Timestamp::now(),
             mcp_coordinator: None,
+            canvas_server: None,
             interactive_term: None,
             task_spawns: None,
             session_store: None,
@@ -322,6 +323,7 @@ mod tests {
 
             dispatched_at: jiff::Timestamp::now(),
             mcp_coordinator: None,
+            canvas_server: None,
             interactive_term: None,
             task_spawns: None,
             session_store: None,
@@ -915,6 +917,7 @@ mod tests {
 
             dispatched_at: jiff::Timestamp::now(),
             mcp_coordinator: None,
+            canvas_server: None,
             interactive_term: None,
             task_spawns: None,
             session_store: None,
@@ -972,6 +975,7 @@ mod tests {
 
             dispatched_at: jiff::Timestamp::now(),
             mcp_coordinator: None,
+            canvas_server: None,
             interactive_term: None,
             task_spawns: None,
             session_store: None,

@@ -23,6 +23,7 @@
 
 pub mod auto_prune;
 pub mod bot;
+pub mod canvas;
 pub mod chat_log;
 pub mod compaction;
 pub mod cwd_selector;
@@ -51,6 +52,7 @@ pub use auto_prune::{
     ToolAgeWindowAutoPruneConfig, TrivialAssistantAutoPruneConfig,
 };
 pub use bot::{BotEntryConfig, BotPinConfig, BotPinRole};
+pub use canvas::{CanvasBindError, CanvasConfig, DEFAULT_CANVAS_BIND};
 pub use chat_log::ChatLogConfig;
 pub use compaction::CompactionConfig;
 pub use cwd_selector::CwdSelectorConfig;

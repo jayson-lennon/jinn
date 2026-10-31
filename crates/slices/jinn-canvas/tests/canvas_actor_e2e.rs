@@ -1,0 +1,732 @@
+//! End-to-end tests for the in-process canvas actor, driven through the
+//! same handle the `canvas` tool holds.
+//!
+//! Every test spawns a real [`CanvasActor`] on a test trouper system,
+//! asks through the minted [`CanvasServerHandle`], and asserts at the
+//! HTTP/WS surface with the hand-rolled loopback client the detached
+//! e2e used — rehosted on the in-process path. The bind is port `0`
+//! (the shipped default), so no test ever fights a real port.
+
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::missing_panics_doc,
+    reason = "test harness: a failed expect aborts the test loudly"
+)]
+
+use std::io::Read as _;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+use jinn_canvas::canvas_actor::{CanvasActor, CanvasActorDeps, canvas_server_handle};
+use jinn_canvas_msg::CanvasServerHandle;
+use jinn_testutil::bus_harness::{TestHarness, await_recorded};
+use marked_path::MarkedPathAccess as _;
+
+/// A spawned canvas actor wired to the harness fabric, with its
+/// tool-facing handle and the artifact directory it serves from.
+struct ActorFixture {
+    handle: Arc<dyn CanvasServerHandle>,
+    /// Collects every `ServiceStatusUpdate` the actor publishes, via
+    /// the harness's declarant recorder.
+    statuses: jinn_testutil::bus_harness::Recorder<jinn_slices::ServiceStatusUpdate>,
+    dir: jinn_testutil::JinnTempDir,
+    /// Keeps the recorder's tap actor alive.
+    _harness: TestHarness,
+}
+
+/// Spawns the actor at a port-0 bind, the shipped default.
+async fn spawn_actor() -> ActorFixture {
+    let harness = TestHarness::new().await;
+    let statuses = harness
+        .spawn_recorder::<jinn_slices::ServiceStatusUpdate>()
+        .await;
+    let handle = CanvasActor::spawn(
+        harness.system(),
+        &CanvasActorDeps {
+            bind: "127.0.0.1:0".parse::<SocketAddr>().expect("bind parses"),
+            bus: harness.bus(),
+        },
+    );
+    ActorFixture {
+        handle: canvas_server_handle(harness.system().clone(), handle),
+        statuses,
+        dir: jinn_testutil::retained_tempdir(),
+        _harness: harness,
+    }
+}
+
+impl ActorFixture {
+    /// Writes an artifact into the fixture's directory.
+    fn seed(&self, name: &str, contents: &str) -> PathBuf {
+        let path = self.dir.path.join(name).expect("name join keeps root");
+        std::fs::write(path.as_path(), contents).expect("seed artifact");
+        path.as_path().to_path_buf()
+    }
+
+    /// Waits for a status publication naming the canvas row that is not
+    /// the spawn-time baseline. The spawn handshake publishes
+    /// `server offline` before any ask can land, so the publication a
+    /// serve produced is the first non-offline one.
+    async fn next_serve_status(&self) -> jinn_slices::ServiceStatusUpdate {
+        // Drain whatever has landed; retry until a non-offline status
+        // shows up or the bound expires.
+        let deadline = tokio::time::Instant::now() + STATUS_TIMEOUT;
+        loop {
+            let updates = await_recorded(&self.statuses, 1, STATUS_TIMEOUT).await;
+            if let Some(found) = updates.iter().find(|u| {
+                u.name == "canvas" && u.status_message.as_deref() != Some("server offline")
+            }) {
+                return found.clone();
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "no canvas serve status arrived; offline baseline only"
+            );
+        }
+    }
+}
+
+/// How long any single blocking read may hold the connection.
+const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Runs a blocking closure on the blocking pool: the single-threaded
+/// test runtime thread is the one that polls the trouper tasks and the
+/// axum server task — no socket I/O may park it, or the response being
+/// waited for can never be produced (and a blocked thread fires no
+/// timers, so even the test timeout would hang).
+async fn off_runtime<R>(io: impl FnOnce() -> R + Send + 'static) -> R
+where
+    R: Send + 'static,
+{
+    tokio::task::spawn_blocking(io)
+        .await
+        .expect("blocking task joins")
+}
+
+/// A loopback HTTP/1.0 GET returning the raw response bytes.
+async fn http_get(bind: SocketAddr, path: &str) -> Vec<u8> {
+    let request = format!("GET {path} HTTP/1.0\r\nHost: localhost\r\n\r\n");
+    off_runtime(move || {
+        use std::io::Write as _;
+        let mut stream = std::net::TcpStream::connect_timeout(&bind, Duration::from_secs(5))
+            .expect("canvas server reachable");
+        stream
+            .set_read_timeout(Some(HTTP_READ_TIMEOUT))
+            .expect("read timeout applies");
+        stream
+            .write_all(request.as_bytes())
+            .expect("request written");
+        let mut body = Vec::new();
+        stream.read_to_end(&mut body).expect("response read");
+        body
+    })
+    .await
+}
+
+/// Extracts the body from a raw HTTP response (first `\r\n\r\n` split).
+fn body_of(raw: &[u8]) -> String {
+    let idx = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .expect("response headers terminate");
+    String::from_utf8_lossy(
+        raw.get(idx + 4..)
+            .expect("headers terminate within the response"),
+    )
+    .into_owned()
+}
+
+/// Writes `contents` to `path` via temp-file + rename — the atomic-save
+/// pattern editors actually produce.
+fn atomic_write(path: &std::path::Path, contents: &str) {
+    let tmp = path.with_extension("html.tmp");
+    std::fs::write(&tmp, contents).expect("temp file written");
+    std::fs::rename(&tmp, path).expect("rename into place");
+}
+
+/// How long a status publication may take to cross the fabric.
+const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The URL from a successful outcome, parsed back to its socket address.
+fn bind_of_url(url: &str) -> SocketAddr {
+    url.strip_prefix("http://")
+        .expect("the URL carries the http scheme")
+        .parse::<SocketAddr>()
+        .expect("the URL's authority is a socket address")
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn first_serve_answers_the_url_with_the_artifact_injected() {
+    // Given a dormant canvas actor and an artifact on disk.
+    let fixture = spawn_actor().await;
+    let artifact = fixture.seed(
+        "chart.html",
+        "<html><head><title>v1</title></head><body>v1</body></html>",
+    );
+
+    // When asking the actor to serve it (the tool's ask).
+    let outcome = fixture
+        .handle
+        .serve(artifact.to_string_lossy().into_owned())
+        .await
+        .expect("the round trip completes");
+
+    // Then the outcome carries the http-schemed URL and the canonical path.
+    assert!(outcome.ok, "serve refused: {}", outcome.error);
+    assert!(
+        outcome.url.starts_with("http://127.0.0.1:"),
+        "{}",
+        outcome.url
+    );
+    assert!(outcome.artifact.ends_with("chart.html"));
+
+    // And the served page is the artifact with the reload snippet
+    // injected — the content a browser at that URL renders.
+    let bind = bind_of_url(&outcome.url);
+    let body = body_of(&http_get(bind, "/").await);
+    assert!(body.contains("<title>v1</title>"));
+    assert!(body.contains("new WebSocket"));
+    // And the file on disk is untouched — injection is response-only.
+    let on_disk = std::fs::read(&artifact).expect("artifact readable");
+    assert_eq!(
+        String::from_utf8_lossy(&on_disk),
+        "<html><head><title>v1</title></head><body>v1</body></html>"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn first_serve_publishes_the_serving_status_with_scheme_and_path() {
+    // Given a dormant canvas actor and an artifact on disk.
+    let fixture = spawn_actor().await;
+    let artifact = fixture.seed("chart.html", "<html><head></head></html>");
+
+    // When serving it and waiting for the actor's status publication.
+    let outcome = fixture
+        .handle
+        .serve(artifact.to_string_lossy().into_owned())
+        .await
+        .expect("the round trip completes");
+    let update = fixture.next_serve_status().await;
+
+    // Then the row reads `http://<bind> (<path>)` — the link-shaped
+    // contract string.
+    assert_eq!(update.name, "canvas");
+    let status = update.status_message.expect("serving status set");
+    assert_eq!(
+        status,
+        format!("{} ({})", outcome.url, outcome.artifact),
+        "status must be scheme'd URL, space, path in parens"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn atomic_save_edit_pushes_a_reload_to_a_connected_ws_client() {
+    // Given a serving actor and a WebSocket client subscribed to /ws.
+    let fixture = spawn_actor().await;
+    let artifact = fixture.seed(
+        "chart.html",
+        "<html><head><title>v1</title></head><body>v1</body></html>",
+    );
+    let outcome = fixture
+        .handle
+        .serve(artifact.to_string_lossy().into_owned())
+        .await
+        .expect("serve succeeds");
+    let bind = bind_of_url(&outcome.url);
+    let ws = ws_connect(bind).await;
+    ws_send_handshake_done(&ws).await;
+
+    // When editing the artifact atomically.
+    atomic_write(
+        &artifact,
+        "<html><head><title>v2</title></head><body>v2</body></html>",
+    );
+
+    // Then the client receives the reload message.
+    let frame = ws_read_frame(&ws).await;
+    assert_eq!(frame, "reload");
+
+    // And a fresh GET now serves the edited content.
+    let body = body_of(&http_get(bind, "/").await);
+    assert!(body.contains("<title>v2</title>"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn second_serve_retargets_the_same_bind_without_restart() {
+    // Given a serving actor with a connected WS client.
+    let fixture = spawn_actor().await;
+    let first = fixture.seed("chart.html", "<html><head><title>v1</title></head></html>");
+    let outcome = fixture
+        .handle
+        .serve(first.to_string_lossy().into_owned())
+        .await
+        .expect("serve succeeds");
+    let bind = bind_of_url(&outcome.url);
+    let ws = ws_connect(bind).await;
+    ws_send_handshake_done(&ws).await;
+
+    // When serving a second artifact through the same handle.
+    let second = fixture.seed("second.html", "<html><head><title>r2</title></head></html>");
+    let retarget = fixture
+        .handle
+        .serve(second.to_string_lossy().into_owned())
+        .await
+        .expect("the round trip completes");
+
+    // Then the URL is the same bind — the listener never restarted.
+    assert_eq!(retarget.url, outcome.url, "same bind across serves");
+    assert!(retarget.artifact.ends_with("second.html"));
+
+    // And the connected browser was told to reload, and the fresh GET
+    // serves the second artifact.
+    assert_eq!(ws_read_frame(&ws).await, "reload");
+    let body = body_of(&http_get(bind, "/").await);
+    assert!(body.contains("<title>r2</title>"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn refused_serve_names_the_cause_and_publishes_the_error_note() {
+    // Given a dormant canvas actor.
+    let fixture = spawn_actor().await;
+    let missing = fixture.dir.path.join("nope.html").expect("join");
+
+    // When serving a path that does not exist.
+    let outcome = fixture
+        .handle
+        .serve(missing.to_string_lossy().into_owned())
+        .await
+        .expect("the round trip completes (the refusal is a real reply)");
+
+    // Then the outcome carries the cause and the fix, not a success.
+    assert!(!outcome.ok);
+    assert!(
+        outcome.error.contains("existing HTML file"),
+        "{}",
+        outcome.error
+    );
+    assert!(outcome.error.contains("fix:"), "{}", outcome.error);
+
+    // And the dashboard row carries the refusal as an error-toned note.
+    let update = fixture.next_serve_status().await;
+    assert_eq!(
+        update.status_message.as_deref(),
+        Some(outcome.error.as_str())
+    );
+    assert_eq!(update.note_tone, Some(jinn_slices::NoteTone::Error));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn sibling_file_write_pushes_a_reload_too() {
+    // Given a serving actor with a connected WS client.
+    let fixture = spawn_actor().await;
+    let artifact = fixture.seed("chart.html", "<html><head></head></html>");
+    let outcome = fixture
+        .handle
+        .serve(artifact.to_string_lossy().into_owned())
+        .await
+        .expect("serve succeeds");
+    let bind = bind_of_url(&outcome.url);
+    let ws = ws_connect(bind).await;
+    ws_send_handshake_done(&ws).await;
+
+    // When a sibling file in the same directory is written.
+    let sibling = fixture.seed("data.json", "{}");
+    atomic_write(&sibling, "{\"v\":2}");
+
+    // Then the client still receives the reload — the watch is
+    // directory-scoped.
+    assert_eq!(ws_read_frame(&ws).await, "reload");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn vendor_route_serves_the_gzip_marked_stylesheet() {
+    // Given a serving actor.
+    let fixture = spawn_actor().await;
+    let artifact = fixture.seed("chart.html", "<html><head></head></html>");
+    let outcome = fixture
+        .handle
+        .serve(artifact.to_string_lossy().into_owned())
+        .await
+        .expect("serve succeeds");
+    let bind = bind_of_url(&outcome.url);
+
+    // When fetching the authored stylesheet through the vendor route.
+    let raw = http_get(bind, "/vendor/canvas.css").await;
+    let head = String::from_utf8_lossy(&raw).into_owned();
+
+    // Then the response carries the stylesheet's pinned type.
+    assert!(
+        head.contains("text/css"),
+        "{}",
+        head.lines().next().unwrap_or("")
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn vendor_route_serves_three_core_with_gzip_marking() {
+    // Given a serving actor.
+    let fixture = spawn_actor().await;
+    let artifact = fixture.seed("scene.html", "<html><head></head></html>");
+    let outcome = fixture
+        .handle
+        .serve(artifact.to_string_lossy().into_owned())
+        .await
+        .expect("serve succeeds");
+    let bind = bind_of_url(&outcome.url);
+
+    // When fetching the three.js core module build through the vendor
+    // route.
+    let raw = http_get(bind, "/vendor/three/three.module.min.js").await;
+    let head = String::from_utf8_lossy(&raw).into_owned();
+    let status = head.lines().next().unwrap_or("");
+
+    // Then it serves 200, typed as JavaScript, gzip-marked — the shape a
+    // browser's module loader requires of an import-map target.
+    assert!(status.contains("200"), "{status}");
+    assert!(head.contains("text/javascript"), "{status}");
+    assert!(head.to_ascii_lowercase().contains("content-encoding: gzip"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn vendor_route_serves_three_addons_at_their_import_map_paths() {
+    // Given a serving actor.
+    let fixture = spawn_actor().await;
+    let artifact = fixture.seed("scene.html", "<html><head></head></html>");
+    let outcome = fixture
+        .handle
+        .serve(artifact.to_string_lossy().into_owned())
+        .await
+        .expect("serve succeeds");
+    let bind = bind_of_url(&outcome.url);
+
+    // When fetching each addon at the exact path the artifact import
+    // map and the addons' own relative imports resolve to.
+    for path in [
+        "/vendor/three/three.core.min.js",
+        "/vendor/three/addons/controls/OrbitControls.js",
+        "/vendor/three/addons/loaders/GLTFLoader.js",
+        "/vendor/three/addons/loaders/STLLoader.js",
+        "/vendor/three/addons/loaders/OBJLoader.js",
+        "/vendor/three/addons/controls/PointerLockControls.js",
+        "/vendor/three/addons/geometries/ParametricGeometry.js",
+        "/vendor/three/addons/geometries/ParametricFunctions.js",
+        "/vendor/three/addons/utils/BufferGeometryUtils.js",
+        "/vendor/three/addons/utils/SkeletonUtils.js",
+    ] {
+        let raw = http_get(bind, path).await;
+        let head = String::from_utf8_lossy(&raw).into_owned();
+        let status = head.lines().next().unwrap_or("");
+
+        // Then each serves 200 with the JavaScript type — a miss here
+        // means the import map points at nothing.
+        assert!(status.contains("200"), "{path}: {status}");
+        assert!(head.contains("text/javascript"), "{path}: {status}");
+    }
+}
+
+// -- WebSocket test client (hand-rolled; the server accepts any WS
+//    upgrade axum accepts, and the client below speaks just enough RFC
+//    6455 for one text frame).
+
+async fn ws_connect(bind: SocketAddr) -> std::net::TcpStream {
+    // Fixed key per RFC 6455 example; the server only needs a well-formed upgrade.
+    let key = "dGhlIHNhbXBsZSBub25jZQ==";
+    let request = format!(
+        "GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+    );
+    off_runtime(move || {
+        use std::io::Write as _;
+        let mut stream = std::net::TcpStream::connect_timeout(&bind, Duration::from_secs(5))
+            .expect("ws connect");
+        // Read deadlines on every blocking read below: without one, a
+        // missing frame would fail with an opaque timeout error instead
+        // of a clear one.
+        stream
+            .set_read_timeout(Some(WS_READ_TIMEOUT))
+            .expect("read timeout applies");
+        stream
+            .write_all(request.as_bytes())
+            .expect("handshake written");
+        stream.flush().expect("handshake flushed");
+        stream
+    })
+    .await
+}
+
+/// How long any single blocking read may hold the connection.
+const WS_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Runs a blocking read on the blocking pool: the reads below must
+/// never park the single-threaded test runtime, which is the very
+/// thread that has to poll the trouper tasks producing the frames.
+async fn blocking_read<R>(
+    stream: &std::net::TcpStream,
+    read: impl FnOnce(&mut std::net::TcpStream) -> std::io::Result<R> + Send + 'static,
+) -> R
+where
+    R: Send + 'static,
+{
+    let mut owned = stream
+        .try_clone()
+        .expect("the ws socket clones for the blocking pool");
+    off_runtime(move || read(&mut owned).expect("blocking read completes")).await
+}
+
+async fn ws_send_handshake_done(stream: &std::net::TcpStream) {
+    let reply = blocking_read(stream, |s| {
+        let mut buf = [0u8; 1024];
+        let read = std::io::Read::read(s, &mut buf)?;
+        String::from_utf8_lossy(buf.get(..read).expect("read fills within buffer")).into_owned();
+        Ok(
+            String::from_utf8_lossy(buf.get(..read).expect("read fills within buffer"))
+                .into_owned(),
+        )
+    })
+    .await;
+    assert!(reply.contains("101"), "upgrade refused: {reply}");
+}
+
+/// Reads one server frame (server frames are unmasked per RFC 6455) and
+/// returns its UTF-8 payload.
+async fn ws_read_frame(stream: &std::net::TcpStream) -> String {
+    let header = blocking_read(stream, |s| {
+        let mut header = [0u8; 2];
+        std::io::Read::read_exact(s, &mut header).map(|()| header)
+    })
+    .await;
+    let len = (header[1] & 0x7f) as usize;
+    let payload_bytes = blocking_read(stream, move |s| {
+        let mut payload_bytes = vec![0u8; len];
+        std::io::Read::read_exact(s, &mut payload_bytes).map(|()| payload_bytes)
+    })
+    .await;
+    String::from_utf8(payload_bytes).expect("text frame")
+}
+
+// -- Headless-browser smoke test for the vendored three.js set.
+//
+// This is the one test that proves the whole chain a 3D artifact rides:
+// the shipped template's commented import-map block, the `/vendor/three`
+// routes, and the addon import graph resolving inside a real browser's
+// module loader. It spawns headless Chromium pointed at the served
+// artifact and fails loudly when Chromium is absent — the browser is a
+// required dependency for the machine this test exists for, per the
+// workspace's dependency-absent rule (no skips).
+
+/// A headless Chromium binary, or a loud failure naming the dependency.
+#[expect(
+    clippy::panic,
+    reason = "test harness: a missing browser must fail the test naming it"
+)]
+fn chromium_required() -> String {
+    let candidates = [
+        "chromium",
+        "chromium-browser",
+        "google-chrome",
+        "google-chrome-stable",
+    ];
+    for name in candidates {
+        let probe = std::process::Command::new(name).arg("--version").output();
+        if probe.is_ok_and(|out| out.status.success()) {
+            return name.to_owned();
+        }
+    }
+    panic!(
+        "REQUIRED DEPENDENCY MISSING: a Chromium/Chrome binary. This test loads the \
+         served three.js artifact in a real browser module loader, which no stub can \
+         stand in for. Install chromium (Arch), chromium-browser (Debian/Ubuntu), or \
+         google-chrome, and rerun."
+    )
+}
+
+/// The three.js loading pattern exactly as the shipped artifact template
+/// teaches it: import map, then a module script. The module renders a
+/// lit scene (OrbitControls + a ParametricGeometry addon import, so the
+/// whole addon import graph must resolve), reads pixels back off the
+/// WebGL canvas, and stamps everything it proved into a DOM node — the
+/// one channel headless `--dump-dom` can carry back to the test. A
+/// classic-script error handler writes the failure shape when the module
+/// dies, so a broken vendored tree fails the assert, not the dump.
+fn three_js_artifact() -> String {
+    let template = include_str!("../../../../res/skills/canvas/references/artifact-template.md");
+    // The template is the shipped doc; assert the loading pattern it
+    // teaches is present before proving it works — a drift between the
+    // doc and this test must fail here, loudly.
+    assert!(
+        template.contains("\"three\": \"/vendor/three/three.module.min.js\""),
+        "the shipped template must teach the three.js import map"
+    );
+    assert!(
+        template.contains("/vendor/three/addons/controls/OrbitControls.js"),
+        "the shipped template must teach the OrbitControls addon import"
+    );
+    r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>three smoke</title>
+  <script>
+    // Classic script: runs even when the module graph fails to resolve,
+    // so the dump always carries a verdict node.
+    window.addEventListener('error', function () {
+      if (!document.getElementById('three-result')) {
+        var r = document.createElement('div');
+        r.id = 'three-result';
+        r.dataset.state = 'module-error';
+        document.body.appendChild(r);
+      }
+    });
+  </script>
+  <script type="importmap">
+  {
+    "imports": { "three": "/vendor/three/three.module.min.js" },
+    "scopes": { "/vendor/three/": { "three": "/vendor/three/three.module.min.js" } }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from '/vendor/three/addons/controls/OrbitControls.js';
+    import { ParametricGeometry } from '/vendor/three/addons/geometries/ParametricGeometry.js';
+    import { klein } from '/vendor/three/addons/geometries/ParametricFunctions.js';
+
+    const container = document.getElementById('root');
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(320, 240);
+    container.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111111);
+    const camera = new THREE.PerspectiveCamera(50, 320 / 240, 0.1, 100);
+    camera.position.set(2, 1.5, 3);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    const key = new THREE.DirectionalLight(0xffffff, 1.2);
+    key.position.set(4, 6, 3);
+    scene.add(key);
+
+    // The addon import graph must resolve end to end: ParametricGeometry
+    // pulls ParametricFunctions; OrbitControls imports bare `three`.
+    const geo = new ParametricGeometry(klein, 24, 8);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+        color: 0x4a9edd, side: THREE.DoubleSide,
+    }));
+    scene.add(mesh);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    function frame() {
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    frame();
+
+    // Pixel readback over the center: a rendered lit scene is not one
+    // flat color (background + shaded surface differ).
+    const gl = renderer.getContext();
+    const px = new Uint8Array(4 * 400);
+    gl.readPixels(120, 80, 20, 20, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const distinct = new Set(px).size;
+
+    const result = document.createElement('div');
+    result.id = 'three-result';
+    result.dataset.state = 'ready';
+    result.dataset.revision = THREE.REVISION;
+    result.dataset.vertices = String(geo.attributes.position.count);
+    result.dataset.painted = String(distinct > 1);
+    result.dataset.distinct = String(distinct);
+    document.body.appendChild(result);
+
+    // The live loop proves OrbitControls damping update + render survive
+    // repeated frames without throwing.
+    function animate() {
+      controls.update();
+      mesh.rotation.y += 0.01;
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    animate();
+  </script>
+</head>
+<body><div id="root"></div></body>
+</html>
+"#
+    .to_owned()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn served_three_js_artifact_renders_in_a_real_browser() {
+    // Given the required browser and a serving actor.
+    let browser = chromium_required();
+    let fixture = spawn_actor().await;
+    let artifact = fixture.seed("three-smoke.html", &three_js_artifact());
+    let outcome = fixture
+        .handle
+        .serve(artifact.to_string_lossy().into_owned())
+        .await
+        .expect("serve succeeds");
+    let url = outcome.url.trim_end_matches('/').to_owned();
+
+    // When headless Chromium loads the artifact, runs the module graph
+    // under the virtual-time budget, and dumps the settled DOM.
+    let dump = off_runtime(move || {
+        let profile = jinn_testutil::tempdir();
+        let profile_dir = profile.dir.path().to_path_buf();
+        let output = std::process::Command::new(&browser)
+            .args([
+                "--headless=new",
+                "--no-sandbox",
+                "--disable-gpu-sandbox",
+                "--disable-dev-shm-usage",
+                &format!("--user-data-dir={}", profile_dir.display()),
+                "--virtual-time-budget=15000",
+                "--timeout=30000",
+                "--dump-dom",
+                &url,
+            ])
+            .output()
+            .expect("chromium spawns");
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    })
+    .await;
+
+    // Then the verdict node exists, says ready, and every claim on it is
+    // backed: the module graph resolved (state ready, not module-error),
+    // geometry built, pixels painted, and the REVISION matches the pin.
+    assert!(
+        dump.contains(r#"id="three-result""#),
+        "the artifact never wrote its verdict node — module did not run; \
+         dump: {dump}"
+    );
+    assert!(
+        dump.contains(r#"data-state="ready""#),
+        "module graph failed (no ready verdict); dump: {dump}"
+    );
+    assert!(
+        dump.contains(r#"data-painted="true""#),
+        "the scene never painted distinct pixels; dump verdict: {dump}"
+    );
+    let vertices: usize = dump
+        .split(r#"data-vertices=""#)
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    assert!(
+        vertices > 0,
+        "ParametricGeometry built no vertices; dump verdict: {dump}"
+    );
+}
