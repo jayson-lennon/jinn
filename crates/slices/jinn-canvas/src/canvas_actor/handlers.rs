@@ -126,8 +126,11 @@ fn validate(bind: SocketAddr, path: &std::path::Path) -> Result<ServeRequest, Se
             ),
         ));
     }
-    let artifact = match marked_path::CanonicalPath::from_path(path) {
-        Ok(artifact) => artifact.into_marked(),
+    // Canonicalize through the shared helper — the watcher parent, the
+    // file read, the status line, and the outcome all read the classic
+    // spelling a user recognizes.
+    let artifact = match server::canonical_artifact(path) {
+        Ok(artifact) => artifact,
         Err(e) => {
             return Err(ServeRefusal::new(
                 CanvasServeError::ArtifactRead,

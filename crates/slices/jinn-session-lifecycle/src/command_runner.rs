@@ -190,6 +190,35 @@ pub type SpawnTeardownResult = Result<
     Report<LifecycleCommandError>,
 >;
 
+/// Drains both output pipes to EOF concurrently.
+///
+/// Reading the pipes one after the other deadlocks: a script that writes
+/// more to stderr than the OS pipe buffer holds blocks on its next stderr
+/// write, never reaches exit, and the first pipe never delivers EOF — the
+/// reader waits forever and the lifecycle never completes. Concurrent
+/// drains are what [`tokio::process::Command::output`] does internally;
+/// the spawn variants must do the same because they own the child.
+async fn drain_output(
+    stdout_pipe: Option<impl tokio::io::AsyncRead + Unpin>,
+    stderr_pipe: Option<impl tokio::io::AsyncRead + Unpin>,
+) -> (Vec<u8>, Vec<u8>) {
+    use tokio::io::AsyncReadExt as _;
+
+    async fn drain(pipe: Option<impl tokio::io::AsyncRead + Unpin>) -> Vec<u8> {
+        let mut buf = Vec::new();
+        if let Some(mut pipe) = pipe {
+            // A read error ends the drain with what was captured; a lost
+            // pipe is not a lifecycle failure, and the exit status below
+            // is the verdict.
+            let _ = pipe.read_to_end(&mut buf).await;
+        }
+        buf
+    }
+
+    let (stdout, stderr) = tokio::join!(drain(stdout_pipe), drain(stderr_pipe));
+    (stdout, stderr)
+}
+
 /// Spawns a setup command and returns a cancel handle and a joinable reader task.
 ///
 /// The shell process is spawned with `cwd` as its working directory so the
@@ -223,6 +252,12 @@ pub fn spawn_setup_command(
             .arg("-c")
             .arg(command)
             .current_dir(cwd.as_path())
+            // No inherited console input: without this the child inherits
+            // jinn's stdin handle, and on Windows the msys2 bash behind a
+            // TUI console contends on it — the script can stall forever
+            // before its first byte of output. Null is also the honest
+            // contract: a lifecycle script has nothing to read.
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
@@ -255,25 +290,10 @@ pub fn spawn_setup_command(
     // jinn's process dir instead of the session dir.
     let cwd = cwd.clone();
     let handle = tokio::spawn(async move {
-        use tokio::io::AsyncReadExt;
-
-        // Read stdout.
-        let stdout_bytes = if let Some(mut pipe) = stdout_pipe {
-            let mut buf = Vec::new();
-            let _ = pipe.read_to_end(&mut buf).await;
-            buf
-        } else {
-            Vec::new()
-        };
-
-        // Read stderr.
-        let stderr_bytes = if let Some(mut pipe) = stderr_pipe {
-            let mut buf = Vec::new();
-            let _ = pipe.read_to_end(&mut buf).await;
-            buf
-        } else {
-            Vec::new()
-        };
+        // Both pipes drain concurrently (see `drain_output`): a
+        // sequential drain deadlocks once a script out-writes either
+        // pipe buffer.
+        let (stdout_bytes, stderr_bytes) = drain_output(stdout_pipe, stderr_pipe).await;
 
         // Wait for exit. The reader owns the Child by value (no lock). When the
         // cancel path SIGKILLs the process group, wait() resolves with a
@@ -375,6 +395,9 @@ pub fn spawn_teardown_command(
             .arg("-c")
             .arg(command)
             .current_dir(cwd.as_path())
+            // Same no-inherited-console-input contract as
+            // `spawn_setup_command` — see the comment there.
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
@@ -398,25 +421,10 @@ pub fn spawn_teardown_command(
     let stderr_pipe = child.stderr.take();
 
     let handle = tokio::spawn(async move {
-        use tokio::io::AsyncReadExt;
-
-        // Read stdout.
-        let stdout_bytes = if let Some(mut pipe) = stdout_pipe {
-            let mut buf = Vec::new();
-            let _ = pipe.read_to_end(&mut buf).await;
-            buf
-        } else {
-            Vec::new()
-        };
-
-        // Read stderr.
-        let stderr_bytes = if let Some(mut pipe) = stderr_pipe {
-            let mut buf = Vec::new();
-            let _ = pipe.read_to_end(&mut buf).await;
-            buf
-        } else {
-            Vec::new()
-        };
+        // Both pipes drain concurrently (see `drain_output`): a
+        // sequential drain deadlocks once a script out-writes either
+        // pipe buffer.
+        let (stdout_bytes, stderr_bytes) = drain_output(stdout_pipe, stderr_pipe).await;
 
         // Wait for exit (reader owns the Child by value; no lock). When the
         // cancel path SIGKILLs the process group, wait() resolves naturally.

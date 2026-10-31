@@ -444,22 +444,30 @@ fn boot_reconcile_writes_bundled_files_and_a_complete_manifest() {
     // And every manifest entry names a file that now exists on disk: the
     // kind directory selects the destination root, and the remainder joins
     // beneath it typed, exactly as the installer resolves destinations.
+    // The key parses as a path, so the kind/remainder split works on every
+    // platform's key spelling.
     for key in entries.keys() {
-        let (kind_dir, rest) = key
-            .split_once('/')
-            .expect("manifest keys carry a kind directory");
-        let root = match kind_dir {
+        let key_path = std::path::Path::new(key);
+        let mut components = key_path.components();
+        let kind_dir = components
+            .next()
+            .expect("manifest keys carry a kind directory")
+            .as_os_str()
+            .to_string_lossy()
+            .into_owned();
+        let rest = components.as_path().to_owned();
+        let root = match kind_dir.as_str() {
             "themes" | "personas" | "prompts" | "workflows" => root.config.join("jinn"),
             "skills" => home.join(".agents"),
             other => panic!("unexpected manifest entry kind: {other:?}"),
         }
         .expect("typed parent joins a bare name");
-        let subdirs = match kind_dir {
-            "skills" => ["skills"],
-            _ => [kind_dir],
+        let segments: Vec<&std::path::Path> = match kind_dir.as_str() {
+            "skills" => vec![std::path::Path::new("skills"), rest.as_path()],
+            _ => vec![std::path::Path::new(kind_dir.as_str()), rest.as_path()],
         };
         let disk = root
-            .join_all(subdirs.into_iter().chain(std::iter::once(rest)))
+            .join_all(segments)
             .expect("typed destination joins the entry remainder");
         assert!(disk.exists(), "manifest entry {key} names no written file");
     }

@@ -97,6 +97,27 @@ pub fn shared_for(artifact: &MarkedPathBuf<Absolute>) -> ServerShared {
     }
 }
 
+/// Canonicalizes `path` into the typed, classic-spelled form every
+/// artifact consumer reads (file read, watcher parent, status line,
+/// outcome). marked-path 0.5.1's `CanonicalPath::from_path` is broken on
+/// Windows — it strips the verbatim prefix off the canonicalize output and
+/// then requires the result to equal that still-verbatim input, which can
+/// never hold — so the canonicalize-plus-strip composition lives here
+/// instead, matching what `jinn_common::canonicalize_display` does for the
+/// crates that depend on it.
+///
+/// # Errors
+///
+/// Propagates the [`io::Error`] from [`std::fs::canonicalize`], or
+/// `InvalidData` when the resolved path is not absolute (the typed wrap).
+pub(crate) fn canonical_artifact(
+    path: &std::path::Path,
+) -> std::io::Result<MarkedPathBuf<Absolute>> {
+    let verbatim = std::fs::canonicalize(path)?;
+    MarkedPathBuf::<Absolute>::new(marked_path::strip_verbatim_prefix(verbatim))
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
 /// `GET /` — the artifact with the reload snippet injected, read fresh
 /// on every request so edits land without a restart.
 async fn serve_artifact(State(shared): State<Arc<ServerShared>>) -> Response {
@@ -258,8 +279,8 @@ async fn reload_handler(
         // The swap stores the canonical, classic-spelled path — the same
         // form the serve path stores — so every reader (file read, watcher
         // parent, status line) sees one spelling.
-        let canonical = match marked_path::CanonicalPath::from_path(&path) {
-            Ok(canonical) => canonical.into_marked(),
+        let canonical = match canonical_artifact(&path) {
+            Ok(canonical) => canonical,
             Err(e) => {
                 return (
                     StatusCode::NOT_FOUND,
