@@ -607,10 +607,10 @@ fn write_manifest_atomic(
 ) -> Result<(), io::Error> {
     let serialized = serialize_manifest(manifest)?;
 
-    if let Ok(existing) = std::fs::read(path) {
-        if existing == serialized.as_bytes() {
-            return Ok(());
-        }
+    if let Ok(existing) = std::fs::read(path)
+        && existing == serialized.as_bytes()
+    {
+        return Ok(());
     }
 
     if let Some(parent) = path.parent() {
@@ -682,6 +682,18 @@ mod tests {
     const ALPHA_V2: &[u8] = b"alpha-contents-v2";
     const BETA_V1: &[u8] = b"beta-contents-v1";
 
+    /// Spells a `res/`-relative manifest key the way production does —
+    /// through the typed relative path, whose separators are the platform's
+    /// own. Every lookup and crafted entry goes through this, so a fixture
+    /// can never pin a key to one platform's spelling.
+    fn key(res_relative: &str) -> String {
+        MarkedPathBuf::<Relative>::new(res_relative)
+            .expect("fixture key is a valid relative path")
+            .as_path()
+            .to_string_lossy()
+            .into_owned()
+    }
+
     /// A reconciliation environment: five destination roots (themes and
     /// skills are the two the fixtures exercise) plus a state dir holding
     /// the manifest path.
@@ -742,17 +754,14 @@ mod tests {
             reconcile(&self.destinations, expected, &self.manifest_path)
         }
 
-        /// The full destination path of a `res/`-relative fixture path.
+        /// The full destination path of a `res/`-relative fixture path,
+        /// resolved the way the reconciler resolves destinations.
         fn disk_path(&self, res_relative: &str) -> std::path::PathBuf {
-            let themes_prefix = self.themes_root.as_path().to_string_lossy().into_owned();
-            let skills_prefix = self.skills_root.as_path().to_string_lossy().into_owned();
-            if let Some(rest) = res_relative.strip_prefix("themes/") {
-                std::path::PathBuf::from(format!("{themes_prefix}/{rest}"))
-            } else if let Some(rest) = res_relative.strip_prefix("skills/") {
-                std::path::PathBuf::from(format!("{skills_prefix}/{rest}"))
-            } else {
-                panic!("fixture only maps themes/ and skills/ paths: {res_relative}")
-            }
+            let typed = MarkedPathBuf::<Relative>::new(res_relative).expect("relative path");
+            resolve_destination(&self.destinations, &typed.as_marked_path())
+                .expect("fixture path names a shipped kind")
+                .as_path()
+                .to_path_buf()
         }
 
         /// Writes bytes to a fixture path on disk, creating parents.
@@ -783,14 +792,15 @@ mod tests {
                 .collect()
         }
 
-        /// Crafts a manifest on disk from raw (path, hash) pairs.
+        /// Crafts a manifest on disk from raw (path, hash) pairs, spelling
+        /// each path key the way production does.
         fn craft_manifest(&self, entries: &[(&str, &str)]) {
             let document = ManifestDocument {
                 version: MANIFEST_VERSION,
                 files: entries
                     .iter()
                     .map(|(path, hash)| ManifestEntry {
-                        path: (*path).to_owned(),
+                        path: key(path),
                         sha256: (*hash).to_owned(),
                     })
                     .collect(),
@@ -819,9 +829,12 @@ mod tests {
         assert_eq!(report.counts().created, 2);
         // And the manifest tracks both under their shipped hashes.
         let manifest = fixture.manifest_on_disk();
-        assert_eq!(manifest.get("themes/alpha.toml"), Some(&hash_hex(ALPHA_V2)));
         assert_eq!(
-            manifest.get("skills/beta/SKILL.md"),
+            manifest.get(&key("themes/alpha.toml")),
+            Some(&hash_hex(ALPHA_V2))
+        );
+        assert_eq!(
+            manifest.get(&key("skills/beta/SKILL.md")),
             Some(&hash_hex(BETA_V1))
         );
     }
@@ -847,7 +860,10 @@ mod tests {
         assert_eq!(fixture.read_disk("themes/alpha.toml"), ALPHA_V2);
         // And the manifest carries the shipped hashes.
         let manifest = fixture.manifest_on_disk();
-        assert_eq!(manifest.get("themes/alpha.toml"), Some(&hash_hex(ALPHA_V2)));
+        assert_eq!(
+            manifest.get(&key("themes/alpha.toml")),
+            Some(&hash_hex(ALPHA_V2))
+        );
     }
 
     #[rstest::rstest]
@@ -886,7 +902,10 @@ mod tests {
         assert_eq!(report.counts().overwritten_stale, 1);
         // And the entry now records the shipped hash.
         let manifest = fixture.manifest_on_disk();
-        assert_eq!(manifest.get("themes/alpha.toml"), Some(&hash_hex(ALPHA_V2)));
+        assert_eq!(
+            manifest.get(&key("themes/alpha.toml")),
+            Some(&hash_hex(ALPHA_V2))
+        );
     }
 
     #[rstest::rstest]
@@ -906,7 +925,7 @@ mod tests {
         assert_eq!(report.counts().kept_user_edited, 1);
         // And the entry is dropped: the file is user-owned from here on.
         let manifest = fixture.manifest_on_disk();
-        assert!(!manifest.contains_key("themes/alpha.toml"));
+        assert!(!manifest.contains_key(&key("themes/alpha.toml")));
     }
 
     #[rstest::rstest]
@@ -929,7 +948,7 @@ mod tests {
         assert_eq!(report.counts().kept_user_edited, 1);
         // And no entry was minted for the file.
         let manifest = fixture.manifest_on_disk();
-        assert!(!manifest.contains_key("themes/alpha.toml"));
+        assert!(!manifest.contains_key(&key("themes/alpha.toml")));
         // While the untouched sibling (absent on disk) was written and tracked.
         assert_eq!(report.counts().created, 1);
     }
@@ -954,7 +973,7 @@ mod tests {
         assert_eq!(report.counts().deleted_obsolete, 1);
         // And the entry is gone from the manifest.
         let manifest = fixture.manifest_on_disk();
-        assert!(!manifest.contains_key("themes/gone.toml"));
+        assert!(!manifest.contains_key(&key("themes/gone.toml")));
     }
 
     #[rstest::rstest]
@@ -975,7 +994,7 @@ mod tests {
         assert_eq!(report.counts().kept_orphan, 1);
         // And the entry is forgotten.
         let manifest = fixture.manifest_on_disk();
-        assert!(!manifest.contains_key("themes/gone.toml"));
+        assert!(!manifest.contains_key(&key("themes/gone.toml")));
     }
 
     #[rstest::rstest]
@@ -996,7 +1015,7 @@ mod tests {
             0
         );
         let manifest = fixture.manifest_on_disk();
-        assert!(!manifest.contains_key("themes/gone.toml"));
+        assert!(!manifest.contains_key(&key("themes/gone.toml")));
     }
 
     // ---- Idempotence and manifest meaning -------------------------------
@@ -1092,9 +1111,12 @@ mod tests {
         // shipped hash — a bijection between entries and jinn-written files.
         let manifest = fixture.manifest_on_disk();
         assert_eq!(manifest.len(), expected.len(), "entry per written file");
-        assert_eq!(manifest.get("themes/alpha.toml"), Some(&hash_hex(ALPHA_V2)));
         assert_eq!(
-            manifest.get("skills/beta/SKILL.md"),
+            manifest.get(&key("themes/alpha.toml")),
+            Some(&hash_hex(ALPHA_V2))
+        );
+        assert_eq!(
+            manifest.get(&key("skills/beta/SKILL.md")),
             Some(&hash_hex(BETA_V1))
         );
         // And every entry names a file the reconcile wrote (the entry keys
@@ -1150,7 +1172,10 @@ mod tests {
         );
         // And the manifest was rewritten in the shipped-image shape.
         let manifest = fixture.manifest_on_disk();
-        assert_eq!(manifest.get("themes/alpha.toml"), Some(&hash_hex(ALPHA_V2)));
+        assert_eq!(
+            manifest.get(&key("themes/alpha.toml")),
+            Some(&hash_hex(ALPHA_V2))
+        );
     }
 
     #[rstest::rstest]
@@ -1236,9 +1261,12 @@ mod tests {
         assert_eq!(report.counts().reclaimed, 1);
         // And the manifest tracks every shipped file again.
         let manifest = fixture.manifest_on_disk();
-        assert_eq!(manifest.get("themes/alpha.toml"), Some(&hash_hex(ALPHA_V2)));
         assert_eq!(
-            manifest.get("skills/beta/SKILL.md"),
+            manifest.get(&key("themes/alpha.toml")),
+            Some(&hash_hex(ALPHA_V2))
+        );
+        assert_eq!(
+            manifest.get(&key("skills/beta/SKILL.md")),
             Some(&hash_hex(BETA_V1))
         );
     }

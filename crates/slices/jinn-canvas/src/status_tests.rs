@@ -84,9 +84,11 @@ fn temp_dir_rendering_is_absolute_for_the_status_path() {
     let message = serving_message("http://127.0.0.1:40000", canonical.as_path());
 
     // Then the absolute path rides in the message — the row shows where
-    // the served file lives, not the spelling the caller used.
+    // the served file lives, not the spelling the caller used. The tail
+    // names the file separator-neutrally: the canonical spelling is the
+    // platform's own.
     assert!(
-        message.starts_with("http://127.0.0.1:40000 (") && message.ends_with("/chart.html)"),
+        message.starts_with("http://127.0.0.1:40000 (") && message.ends_with("chart.html)"),
         "{message}"
     );
 }

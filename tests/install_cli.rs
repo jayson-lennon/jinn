@@ -17,7 +17,7 @@
 //! path covers every platform. On Windows `dirs` ignores `XDG_*` entirely,
 //! which is exactly why the root override exists.
 
-use marked_path::{Absolute, MarkedPathAccess, MarkedPathBuf};
+use marked_path::{Absolute, MarkedPathAccess, MarkedPathBuf, Relative};
 use sha2::Digest;
 use std::path::PathBuf;
 
@@ -121,29 +121,92 @@ fn sha256_hex(bytes: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// Spells a `res/`-relative key the way production does — through the typed
+/// relative path, whose separators are the platform's own
+/// (`themes/default.toml` on Unix, `themes\default.toml` on Windows). Every
+/// manifest lookup and crafted entry goes through this, so a test can never
+/// pin a key to one platform's spelling.
+fn res_key(res_relative: &str) -> String {
+    MarkedPathBuf::<Relative>::new(res_relative)
+        .expect("res-relative key is a valid relative path")
+        .as_path()
+        .to_string_lossy()
+        .into_owned()
+}
+
 /// The manifest as (path → sha256) pairs, parsed from disk.
 fn manifest_entries(path: &MarkedPathBuf<Absolute>) -> std::collections::BTreeMap<String, String> {
-    let text = std::fs::read_to_string(path.as_path()).expect("read manifest");
-    let value: toml::Table = toml::from_str(&text).expect("manifest parses");
-    assert_eq!(value.get("version"), Some(&toml::Value::from(1)));
-    let files = value
-        .get("file")
-        .and_then(toml::Value::as_array)
-        .expect("manifest carries a file array");
-    files
-        .iter()
-        .map(|entry| {
-            let path = entry
-                .get("path")
-                .and_then(toml::Value::as_str)
-                .expect("entry names a path");
-            let hash = entry
-                .get("sha256")
-                .and_then(toml::Value::as_str)
-                .expect("entry names a hash");
-            (path.to_owned(), hash.to_owned())
-        })
-        .collect()
+    ManifestDoc::read(path).entries
+}
+
+/// The on-disk manifest as an editable document: the `[[file]]` entries as
+/// (path → sha256), re-serialized whole on write. Crafting mutates the entry
+/// map and serializes the result, so an edit either lands on its named
+/// entry or fails the test — a text-level rewrite can silently miss.
+struct ManifestDoc {
+    entries: std::collections::BTreeMap<String, String>,
+}
+
+impl ManifestDoc {
+    /// Parses the manifest at `path`.
+    fn read(path: &MarkedPathBuf<Absolute>) -> Self {
+        let text = std::fs::read_to_string(path.as_path()).expect("read manifest");
+        let value: toml::Table = toml::from_str(&text).expect("manifest parses");
+        assert_eq!(value.get("version"), Some(&toml::Value::from(1)));
+        let files = value
+            .get("file")
+            .and_then(toml::Value::as_array)
+            .expect("manifest carries a file array");
+        let entries = files
+            .iter()
+            .map(|entry| {
+                let entry_path = entry
+                    .get("path")
+                    .and_then(toml::Value::as_str)
+                    .expect("entry names a path");
+                let hash = entry
+                    .get("sha256")
+                    .and_then(toml::Value::as_str)
+                    .expect("entry names a hash");
+                (entry_path.to_owned(), hash.to_owned())
+            })
+            .collect();
+        Self { entries }
+    }
+
+    /// Overwrites one tracked entry's hash; the entry must already exist.
+    fn set_hash(&mut self, key: &str, hash: &str) {
+        assert!(
+            self.entries.contains_key(key),
+            "crafted edit targets a manifest entry that does not exist: {key}"
+        );
+        self.entries.insert(key.to_owned(), hash.to_owned());
+    }
+
+    /// Adds a crafted entry; the key must not be tracked yet.
+    fn insert(&mut self, key: &str, hash: &str) {
+        let previous = self.entries.insert(key.to_owned(), hash.to_owned());
+        assert!(previous.is_none(), "crafted entry already tracked: {key}");
+    }
+
+    /// Serializes the document back over the manifest at `path`.
+    fn write(&self, path: &MarkedPathBuf<Absolute>) {
+        let files: Vec<toml::Value> = self
+            .entries
+            .iter()
+            .map(|(entry_path, hash)| {
+                let mut entry = toml::Table::new();
+                entry.insert("path".into(), toml::Value::from(entry_path.as_str()));
+                entry.insert("sha256".into(), toml::Value::from(hash.as_str()));
+                toml::Value::Table(entry)
+            })
+            .collect();
+        let mut document = toml::Table::new();
+        document.insert("version".into(), toml::Value::from(1));
+        document.insert("file".into(), toml::Value::from(files));
+        let serialized = toml::to_string(&document).expect("manifest serializes");
+        std::fs::write(path.as_path(), serialized).expect("write manifest");
+    }
 }
 
 #[rstest::rstest]
@@ -374,39 +437,30 @@ fn boot_reconcile_writes_bundled_files_and_a_complete_manifest() {
     );
     let theme_bytes = std::fs::read(theme_path.as_path()).expect("read written theme");
     assert_eq!(
-        entries.get("themes/default.toml"),
+        entries.get(&res_key("themes/default.toml")),
         Some(&sha256_hex(&theme_bytes)),
         "the manifest records the written theme under its hash"
     );
-    // And every manifest entry names a file that now exists on disk.
+    // And every manifest entry names a file that now exists on disk: the
+    // kind directory selects the destination root, and the remainder joins
+    // beneath it typed, exactly as the installer resolves destinations.
     for key in entries.keys() {
-        let disk = match key.split_once('/') {
-            Some(("themes", rest)) => root
-                .config
-                .join_all(["jinn", "themes"])
-                .and_then(|d| d.join(rest))
-                .expect("joins"),
-            Some(("personas", rest)) => root
-                .config
-                .join_all(["jinn", "personas"])
-                .and_then(|d| d.join(rest))
-                .expect("joins"),
-            Some(("prompts", rest)) => root
-                .config
-                .join_all(["jinn", "prompts"])
-                .and_then(|d| d.join(rest))
-                .expect("joins"),
-            Some(("workflows", rest)) => root
-                .config
-                .join_all(["jinn", "workflows"])
-                .and_then(|d| d.join(rest))
-                .expect("joins"),
-            Some(("skills", rest)) => home
-                .join_all([".agents", "skills"])
-                .and_then(|d| d.join(rest))
-                .expect("joins"),
+        let (kind_dir, rest) = key
+            .split_once('/')
+            .expect("manifest keys carry a kind directory");
+        let root = match kind_dir {
+            "themes" | "personas" | "prompts" | "workflows" => root.config.join("jinn"),
+            "skills" => home.join(".agents"),
             other => panic!("unexpected manifest entry kind: {other:?}"),
+        }
+        .expect("typed parent joins a bare name");
+        let subdirs = match kind_dir {
+            "skills" => ["skills"],
+            _ => [kind_dir],
         };
+        let disk = root
+            .join_all(subdirs.into_iter().chain(std::iter::once(rest)))
+            .expect("typed destination joins the entry remainder");
         assert!(disk.exists(), "manifest entry {key} names no written file");
     }
 }
@@ -489,7 +543,7 @@ fn boot_reconcile_keeps_a_user_edited_bundled_file() {
     // And the entry was dropped: the file is user-owned now.
     let entries = manifest_entries(&manifest_path(&home));
     assert!(
-        !entries.contains_key("themes/default.toml"),
+        !entries.contains_key(&res_key("themes/default.toml")),
         "the edited file must be untracked"
     );
 }
@@ -516,12 +570,11 @@ fn boot_reconcile_heals_a_tracked_stale_file() {
         .expect("write stale theme");
     let stale_hash = sha256_hex(b"stale bytes from an older binary");
     let manifest_file = manifest_path(&home);
-    let rewritten = rewrite_manifest_entry(
-        &std::fs::read_to_string(manifest_file.as_path()).expect("read manifest"),
-        "themes/default.toml",
-        &stale_hash,
-    );
-    std::fs::write(manifest_file.as_path(), &rewritten).expect("write crafted manifest");
+    {
+        let mut doc = ManifestDoc::read(&manifest_file);
+        doc.set_hash(&res_key("themes/default.toml"), &stale_hash);
+        doc.write(&manifest_file);
+    }
 
     // When launching again.
     let next = run_jinn(
@@ -545,31 +598,9 @@ fn boot_reconcile_heals_a_tracked_stale_file() {
     // And the manifest records the shipped hash again.
     let entries = manifest_entries(&manifest_file);
     assert_eq!(
-        entries.get("themes/default.toml"),
+        entries.get(&res_key("themes/default.toml")),
         Some(&sha256_hex(&shipped))
     );
-}
-
-/// Rewrites the `sha256` of one manifest entry in its TOML text, matching
-/// the entry by its path line and patching the next sha256 line.
-fn rewrite_manifest_entry(raw: &str, entry_path: &str, new_hash: &str) -> String {
-    let mut out = Vec::new();
-    let mut in_target = false;
-    for line in raw.lines() {
-        if line.trim() == "[[file]]" {
-            in_target = false;
-        }
-        if line.trim_start().starts_with("path = ") {
-            in_target = line.contains(&format!("\"{entry_path}\""));
-        }
-        if in_target && line.trim_start().starts_with("sha256 = ") {
-            out.push(format!("sha256 = \"{new_hash}\""));
-        } else {
-            out.push(line.to_owned());
-        }
-    }
-    out.push(String::new());
-    out.join("\n")
 }
 
 #[rstest::rstest]
@@ -602,21 +633,19 @@ fn boot_reconcile_deletes_an_owned_unshipped_file_and_keeps_an_edited_one() {
         .expect("seed edited legacy theme");
 
     let manifest_file = manifest_path(&home);
-    let raw = std::fs::read_to_string(manifest_file.as_path()).expect("read manifest");
-    let crafted = rewrite_manifest_entry(&raw, "themes/default.toml", "placeholder")
-        .replace(
-            "[[file]]\npath = \"themes/default.toml\"\nsha256 = \"placeholder\"",
-            &format!(
-                "[[file]]\npath = \"themes/gone.toml\"\nsha256 = \"{}\"\n[[file]]\npath = \"themes/default.toml\"\nsha256 = \"{}\"",
-                sha256_hex(b"what jinn once wrote"),
-                manifest_entries(&manifest_file).get("themes/default.toml").expect("entry exists")
-            ),
-        )
-        + &format!(
-            "[[file]]\npath = \"themes/custom-legacy.toml\"\nsha256 = \"{}\"\n",
-            sha256_hex(b"placeholder-not-what-is-on-disk")
+    {
+        let mut doc = ManifestDoc::read(&manifest_file);
+        doc.set_hash(&res_key("themes/default.toml"), "placeholder");
+        doc.insert(
+            &res_key("themes/gone.toml"),
+            &sha256_hex(b"what jinn once wrote"),
         );
-    std::fs::write(manifest_file.as_path(), &crafted).expect("write crafted manifest");
+        doc.insert(
+            &res_key("themes/custom-legacy.toml"),
+            &sha256_hex(b"placeholder-not-what-is-on-disk"),
+        );
+        doc.write(&manifest_file);
+    }
 
     // When launching again.
     let next = run_jinn(
@@ -640,10 +669,10 @@ fn boot_reconcile_deletes_an_owned_unshipped_file_and_keeps_an_edited_one() {
     );
     // And both entries are forgotten.
     let entries = manifest_entries(&manifest_file);
-    assert!(!entries.contains_key("themes/gone.toml"));
-    assert!(!entries.contains_key("themes/custom-legacy.toml"));
+    assert!(!entries.contains_key(&res_key("themes/gone.toml")));
+    assert!(!entries.contains_key(&res_key("themes/custom-legacy.toml")));
     // While the shipped theme is still tracked.
-    assert!(entries.contains_key("themes/default.toml"));
+    assert!(entries.contains_key(&res_key("themes/default.toml")));
 }
 
 #[rstest::rstest]
@@ -693,7 +722,7 @@ fn install_builtins_overwrites_user_edits_and_reclaims_them() {
     // And the manifest tracks the file again.
     let entries = manifest_entries(&manifest_path(&home));
     assert_eq!(
-        entries.get("themes/default.toml"),
+        entries.get(&res_key("themes/default.toml")),
         Some(&sha256_hex(&shipped))
     );
 

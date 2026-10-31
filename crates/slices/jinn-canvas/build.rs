@@ -65,6 +65,14 @@ fn main() {
         let served = str_field(asset, "served");
         let sha = str_field(asset, "sha256");
 
+        // Served paths are emitted verbatim into the generated
+        // `include_bytes!` literal, so a backslash here would become an
+        // invalid escape sequence on the Windows side of the build.
+        assert!(
+            !served.contains('\\'),
+            "vendor manifest served paths must use forward slashes: {served}"
+        );
+
         // Reject duplicates so one served path can never shadow another.
         assert!(
             !seen.iter().any(|s| s == served),
@@ -101,10 +109,19 @@ fn main() {
             "    VendorAsset"
         };
         let close_row = if bytes.len() > 1_000_000 { " }," } else { "," };
+
+        // The file path is emitted as a `concat!` of `CARGO_MANIFEST_DIR`
+        // and the forward-slashed served path, never as a rendered
+        // absolute path: `Path::display` produces backslashes on Windows,
+        // which are invalid escape sequences inside a string literal.
+        // `env!` resolves against this crate — the generated file lives in
+        // `OUT_DIR`, not beside the assets — and the literal stays
+        // machine-independent, so the table is reproducible across
+        // checkouts. `concat!`/`env!` are eager, so the tokens fold to one
+        // string before `include_bytes!` reads it.
         let _ = writeln!(
             table,
-            "{open_row} {{\n        path: \"{served}\",\n        bytes: include_bytes!(\"{}\"),\n        encoding: \"{encoding}\",\n        content_type: \"{content_type}\",\n    }}{close_row}",
-            file_path.display()
+            "{open_row} {{\n        path: \"{served}\",\n        bytes: include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/resources/vendor/{served}\")),\n        encoding: \"{encoding}\",\n        content_type: \"{content_type}\",\n    }}{close_row}"
         );
     }
 
@@ -127,10 +144,11 @@ fn main() {
     // read is the existence check — a missing stylesheet fails the build.
     let css_path = vendor_dir.join("canvas.css");
     let _ = fs::read(&css_path).expect("resources/vendor/canvas.css is authored and must exist");
+    // Same emission rule as the manifest rows above: a `concat!` against
+    // `CARGO_MANIFEST_DIR`, never a rendered local path.
     let _ = writeln!(
         table,
-        "    VendorAsset {{\n        path: \"canvas.css\",\n        bytes: include_bytes!(\"{}\"),\n        encoding: \"identity\",\n        content_type: \"text/css; charset=utf-8\",\n    }},",
-        css_path.display()
+        "    VendorAsset {{\n        path: \"canvas.css\",\n        bytes: include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/resources/vendor/canvas.css\")),\n        encoding: \"identity\",\n        content_type: \"text/css; charset=utf-8\",\n    }},"
     );
     let _ = writeln!(table, "];\n");
 

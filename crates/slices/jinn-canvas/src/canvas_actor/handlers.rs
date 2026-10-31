@@ -14,10 +14,10 @@
 //! validation failure with a transport one.
 
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
 
 use jinn_canvas_msg::CanvasCommand;
 use jinn_canvas_msg::CanvasServeOutcome;
+use marked_path::{Absolute, MarkedPathAccess, MarkedPathBuf};
 use trouper::context::MsgCtx;
 
 use crate::canvas_actor::CanvasActor;
@@ -49,7 +49,7 @@ pub(crate) async fn handle_serve(
     msg: &CanvasCommand,
     ctx: &mut MsgCtx<'_>,
 ) {
-    let path = PathBuf::from(&msg.path);
+    let path = std::path::PathBuf::from(&msg.path);
     let request = match validate(actor.bind, &path) {
         Ok(request) => request,
         Err(refusal) => {
@@ -63,15 +63,18 @@ pub(crate) async fn handle_serve(
     // the live branch's swap touches the state, the fresh branch's bind
     // touches nothing, and the publication below borrows the actor
     // alone. `ServingOutcome` carries the new state when one was born.
+    // The canonical artifact binding outlives both branches so the
+    // dashboard status publishes the same spelling the outcome carries.
+    let ServeRequest { bind, artifact } = request;
     let live = actor.server.is_some();
     let outcome = if live {
         let Some(state) = actor.server.as_mut() else {
             // `live` was read one statement above.
             return;
         };
-        Ok((retarget(state, &request.artifact), None))
+        Ok((retarget(state, &artifact), None))
     } else {
-        establish(request)
+        establish(bind, &artifact)
             .await
             .map(|(outcome, state)| (outcome, Some(state)))
     };
@@ -81,7 +84,13 @@ pub(crate) async fn handle_serve(
             if let Some(state) = new_state {
                 actor.server = Some(state);
             }
-            actor.publish_serving(&outcome.url, path.as_path()).await;
+            // The status rides the outcome's own path binding — the same
+            // typed path `CanvasServeOutcome::served` formatted — so the
+            // row and the tool result can never disagree, spelling
+            // included.
+            actor
+                .publish_serving(&outcome.url, artifact.as_path())
+                .await;
             ctx.reply(outcome);
         }
         Err(refusal) => {
@@ -95,15 +104,19 @@ pub(crate) async fn handle_serve(
 struct ServeRequest {
     /// The configured bind (pre-refused when not loopback).
     bind: SocketAddr,
-    /// The canonical artifact path.
-    artifact: PathBuf,
+    /// The canonical artifact path — absolute, symlink-resolved, spelled
+    /// with the platform's classic separators.
+    artifact: MarkedPathBuf<Absolute>,
 }
 
 /// Validates the artifact (exists, canonicalizes) and the bind
 /// (loopback). Pure checks — no actor state touched, no server started.
-fn validate(bind: SocketAddr, path: &Path) -> Result<ServeRequest, ServeRefusal> {
+fn validate(bind: SocketAddr, path: &std::path::Path) -> Result<ServeRequest, ServeRefusal> {
     // Artifact: must be an existing file, canonicalized before storing —
-    // the watcher re-arm and the injection both read the canonical form.
+    // the watcher re-arm, the injection, and the status line all read the
+    // canonical form, and the typed path strips the Windows verbatim
+    // prefix canonicalization produces, so every consumer sees the
+    // classic spelling a user recognizes.
     if !path.is_file() {
         return Err(ServeRefusal::new(
             CanvasServeError::ArtifactMissing,
@@ -113,8 +126,8 @@ fn validate(bind: SocketAddr, path: &Path) -> Result<ServeRequest, ServeRefusal>
             ),
         ));
     }
-    let artifact = match path.canonicalize() {
-        Ok(artifact) => artifact,
+    let artifact = match marked_path::CanonicalPath::from_path(path) {
+        Ok(artifact) => artifact.into_marked(),
         Err(e) => {
             return Err(ServeRefusal::new(
                 CanvasServeError::ArtifactRead,
@@ -144,11 +157,11 @@ fn validate(bind: SocketAddr, path: &Path) -> Result<ServeRequest, ServeRefusal>
 /// task. Returns the outcome plus the serving state to store — the
 /// caller owns the actor, so the state lands there.
 async fn establish(
-    request: ServeRequest,
+    bind: SocketAddr,
+    artifact: &MarkedPathBuf<Absolute>,
 ) -> Result<(CanvasServeOutcome, ServingState), ServeRefusal> {
     // Port 0 asks the OS here, at serve time, so the URL in the reply is
     // the truth.
-    let bind = request.bind;
     let listener = match tokio::net::TcpListener::bind(bind).await {
         Ok(listener) => listener,
         Err(e) => {
@@ -168,14 +181,13 @@ async fn establish(
         }
     };
 
-    let artifact = request.artifact;
-    let shared = server::shared_for(&artifact);
+    let shared = server::shared_for(artifact);
 
     // Arm the watcher before the listener accepts: a browser that loads
     // the page before the watch exists would miss the first edit's
     // reload. Failure degrades to no-live-reload — the artifact still
     // serves — surfaced as a warning, not a refusal.
-    arm_watcher(&shared, &artifact);
+    arm_watcher(&shared, artifact);
 
     let shared_for_task = shared.clone();
     // The task is detached deliberately: it lives as long as the
@@ -192,13 +204,16 @@ async fn establish(
         bind: resolved,
         shared,
     };
-    Ok((CanvasServeOutcome::served(url, resolved, &artifact), state))
+    Ok((
+        CanvasServeOutcome::served(url, resolved, artifact.as_path()),
+        state,
+    ))
 }
 
 /// Later serves: swap the artifact and re-arm the watcher on the live
 /// server; the bind never changes, so the URL a user already has keeps
 /// working. Synchronous: the swap touches locks and broadcasts only.
-fn retarget(state: &mut ServingState, artifact: &Path) -> CanvasServeOutcome {
+fn retarget(state: &mut ServingState, artifact: &MarkedPathBuf<Absolute>) -> CanvasServeOutcome {
     let url = format!("http://{}", state.bind);
 
     // Swap the artifact first so a reload arriving mid-swap serves the
@@ -206,23 +221,23 @@ fn retarget(state: &mut ServingState, artifact: &Path) -> CanvasServeOutcome {
     // watcher drops with the swap: watchers must be replaced, never
     // accumulated, or every edit broadcasts once per accumulated
     // watcher.
-    state.shared.set_artifact(artifact.to_path_buf());
+    state.shared.set_artifact(artifact.clone());
     arm_watcher(&state.shared, artifact);
 
     // Every connected browser follows the swap; a lost receiver means
     // no browser is connected.
     let _ = state.shared.reload_tx.send(());
 
-    CanvasServeOutcome::served(url, state.bind, artifact)
+    CanvasServeOutcome::served(url, state.bind, artifact.as_path())
 }
 
 /// Establishes the directory watch for `artifact`'s parent, storing the
 /// handle in `shared`'s swap slot.
-fn arm_watcher(shared: &server::ServerShared, artifact: &Path) {
+fn arm_watcher(shared: &server::ServerShared, artifact: &MarkedPathBuf<Absolute>) {
     let Some(dir) = artifact.parent() else {
         return;
     };
-    match watcher::establish(dir, shared.reload_tx.clone()) {
+    match watcher::establish(dir.as_path(), shared.reload_tx.clone()) {
         Ok(handle) => {
             shared.swap_watcher(handle);
         }

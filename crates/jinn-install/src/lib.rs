@@ -424,7 +424,8 @@ mod tests {
     }
 
     /// The expected catalogue is derived from the embedded tree: every path
-    /// is res-relative with a kind directory, and the set is non-empty.
+    /// classifies to a resource kind — the same component-wise classifier
+    /// the write path uses — and the set is non-empty.
     #[rstest::rstest]
     #[test]
     fn expected_catalogue_covers_every_embedded_file() {
@@ -432,22 +433,28 @@ mod tests {
         // When deriving the expected set.
         let expected = expected_catalogue().expect("derive expected set");
 
-        // Then it is non-empty and every path carries a known kind prefix.
+        // Then it is non-empty and every path names a known kind.
         assert!(!expected.is_empty(), "the embedded tree is not empty");
-        let kinds = ["themes/", "personas/", "prompts/", "workflows/", "skills/"];
         for file in &expected {
-            let path = file.path.as_path().to_string_lossy().into_owned();
+            let (_kind, _rest) =
+                bundled::res_relative_parts(file.path.as_path()).unwrap_or_else(|| {
+                    panic!(
+                        "expected path names no resource kind: {}",
+                        file.path.as_path().display()
+                    )
+                });
             assert!(
-                kinds.iter().any(|kind| path.starts_with(kind)),
-                "expected path lacks a kind prefix: {path}"
+                !file.bytes.is_empty(),
+                "{} ships empty",
+                file.path.as_path().display()
             );
-            assert!(!file.bytes.is_empty(), "{path} ships empty");
         }
     }
 
-    /// The expected catalogue's paths carry kind prefixes that match the
-    /// `AppPaths`-derived destination roots — the reconciliation write path
-    /// depends on the two derivations agreeing.
+    /// The expected catalogue's paths resolve under the `AppPaths`-derived
+    /// destination roots exactly as the reconciliation write path resolves
+    /// them — kind classifier, then typed join — so the two derivations
+    /// provably agree.
     #[rstest::rstest]
     #[test]
     fn expected_catalogue_paths_resolve_under_kind_roots() {
@@ -457,30 +464,32 @@ mod tests {
             &root.path.as_marked_path(),
         ));
         let expected = expected_catalogue().expect("derive expected set");
-        let root_names = [
-            destinations.themes(),
-            destinations.personas(),
-            destinations.prompts(),
-            destinations.workflows(),
-            destinations.skills(),
-        ]
-        .map(|root| {
-            root.file_name()
-                .and_then(|name| name.to_str())
-                .expect("named kind root")
-                .to_owned()
-        });
 
-        // When checking every expected path against the root names.
-        // Then each path's first component names one of the roots — the
-        // `res/` kind directories and the destination subdirectories agree.
+        // When resolving every expected path through the kind classifier and
+        // the kind's destination root.
+        // Then each resolution succeeds and lands beneath that kind's root —
+        // the `res/` kind directories and the destination roots agree.
         for file in &expected {
-            let key = file.path.as_path().to_string_lossy().into_owned();
+            let (kind, rest) =
+                bundled::res_relative_parts(file.path.as_path()).unwrap_or_else(|| {
+                    panic!(
+                        "expected path names no resource kind: {}",
+                        file.path.as_path().display()
+                    )
+                });
+            let resolved = kind.root(&destinations).join(rest).unwrap_or_else(|error| {
+                panic!(
+                    "expected path {} does not resolve under its kind root: {error}",
+                    file.path.as_path().display()
+                )
+            });
             assert!(
-                root_names
-                    .iter()
-                    .any(|name| key.starts_with(format!("{name}/").as_str())),
-                "expected path {key} resolves under no kind root ({root_names:?})"
+                resolved
+                    .as_path()
+                    .starts_with(kind.root(&destinations).as_path()),
+                "{} resolves outside the {} root",
+                resolved.as_path().display(),
+                kind.dir_name()
             );
         }
     }

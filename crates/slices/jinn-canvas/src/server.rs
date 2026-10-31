@@ -16,7 +16,6 @@
 //! request/response half of the server plus the shared [`ServerShared`]
 //! the spawned server task holds.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::Router;
@@ -25,6 +24,7 @@ use axum::extract::{Path as AxPath, Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
+use marked_path::{Absolute, MarkedPathAccess, MarkedPathBuf};
 use parking_lot::RwLock;
 use serde::Deserialize;
 use tokio::sync::broadcast;
@@ -36,10 +36,11 @@ pub const RELOAD_SNIPPET: &str = r#"<script>(function(){var ws;function open(){w
 /// State shared across the server's request handlers and the watcher.
 #[derive(Clone)]
 pub struct ServerShared {
-    /// Absolute path of the artifact being served. Behind a lock because
-    /// a re-target swaps it while requests are in flight; the lock is
-    /// never held across an await.
-    pub artifact: Arc<RwLock<PathBuf>>,
+    /// Absolute path of the artifact being served — canonical and spelled
+    /// with the platform's classic separators (no Windows verbatim
+    /// prefix). Behind a lock because a re-target swaps it while requests
+    /// are in flight; the lock is never held across an await.
+    pub artifact: Arc<RwLock<MarkedPathBuf<Absolute>>>,
     /// Reload broadcast: the payload is irrelevant (any message means
     /// "reload"); capacity bounds a burst of edits.
     pub reload_tx: broadcast::Sender<()>,
@@ -54,12 +55,12 @@ pub struct ServerShared {
 impl ServerShared {
     /// Reads the currently served artifact path.
     #[must_use = "the read artifact path is the point of the call"]
-    pub fn artifact(&self) -> PathBuf {
+    pub fn artifact(&self) -> MarkedPathBuf<Absolute> {
         self.artifact.read().clone()
     }
 
     /// Swaps the served artifact (the re-target path).
-    pub fn set_artifact(&self, artifact: PathBuf) {
+    pub fn set_artifact(&self, artifact: MarkedPathBuf<Absolute>) {
         *self.artifact.write() = artifact;
     }
 
@@ -87,10 +88,10 @@ pub fn router(shared: ServerShared) -> Router {
 /// the reload broadcast (capacity bounds a burst of edits), the empty
 /// watcher slot (the actor arms it before the listener accepts).
 #[must_use]
-pub fn shared_for(artifact: &std::path::Path) -> ServerShared {
+pub fn shared_for(artifact: &MarkedPathBuf<Absolute>) -> ServerShared {
     let (reload_tx, _) = tokio::sync::broadcast::channel(64);
     ServerShared {
-        artifact: Arc::new(RwLock::new(artifact.to_path_buf())),
+        artifact: Arc::new(RwLock::new(artifact.clone())),
         reload_tx,
         watcher: Arc::new(RwLock::new(None)),
     }
@@ -100,13 +101,12 @@ pub fn shared_for(artifact: &std::path::Path) -> ServerShared {
 /// on every request so edits land without a restart.
 async fn serve_artifact(State(shared): State<Arc<ServerShared>>) -> Response {
     let path = shared.artifact();
-    match std::fs::read(&path) {
+    match std::fs::read(path.as_path()) {
         Ok(bytes) => Html(inject_reload_snippet(&bytes, RELOAD_SNIPPET)).into_response(),
         Err(e) => (
             StatusCode::NOT_FOUND,
             format!(
-                "canvas artifact unreadable: {} ({e})\nfix: recreate the file and run serve again\n",
-                path.display()
+                "canvas artifact unreadable: {path} ({e})\nfix: recreate the file and run serve again\n",
             ),
         )
             .into_response(),
@@ -247,7 +247,7 @@ async fn reload_handler(
     State(shared): State<Arc<ServerShared>>,
 ) -> Response {
     if let Some(artifact) = query.artifact {
-        let path = PathBuf::from(artifact);
+        let path = std::path::PathBuf::from(artifact);
         if !path.is_file() {
             return (
                 StatusCode::NOT_FOUND,
@@ -255,8 +255,11 @@ async fn reload_handler(
             )
                 .into_response();
         }
-        let canonical = match path.canonicalize() {
-            Ok(canonical) => canonical,
+        // The swap stores the canonical, classic-spelled path — the same
+        // form the serve path stores — so every reader (file read, watcher
+        // parent, status line) sees one spelling.
+        let canonical = match marked_path::CanonicalPath::from_path(&path) {
+            Ok(canonical) => canonical.into_marked(),
             Err(e) => {
                 return (
                     StatusCode::NOT_FOUND,
@@ -273,7 +276,7 @@ async fn reload_handler(
         // watchers must be replaced, never accumulated, or every edit
         // broadcasts once per accumulated watcher.
         if let Some(dir) = canonical.parent() {
-            match crate::watcher::establish(dir, shared.reload_tx.clone()) {
+            match crate::watcher::establish(dir.as_path(), shared.reload_tx.clone()) {
                 Ok(watcher) => {
                     shared.swap_watcher(watcher);
                 }
