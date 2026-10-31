@@ -39,6 +39,9 @@ pub fn handle_interrupt(state: &mut AppState, target: Option<&SessionId>) -> Int
     if let Some(id) = target {
         return IntentResult::new_message(CancelTurn {
             session_id: id.clone(),
+            // Not ESC-ESC semantics: buffered work re-dispatches after the
+            // settle, so nothing here dumps over an idle target's draft.
+            drain_buffers_to_input: false,
         });
     }
 

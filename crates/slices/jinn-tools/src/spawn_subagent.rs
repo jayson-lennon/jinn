@@ -467,6 +467,9 @@ async fn await_child(
             Err(_) => {
                 bus.publish(CancelTurn {
                     session_id: child_id,
+                    // A timeout stop is not ESC-ESC: buffered work
+                    // re-dispatches after the settle.
+                    drain_buffers_to_input: false,
                 })
                 .await;
                 ChildOutcome::TimedOut(budget.as_secs())

@@ -71,6 +71,23 @@ impl SessionPersistenceActor {
             return;
         };
 
+        // A confirmed ESC-ESC asks that the turn's buffered work — the
+        // steering buffer and the turn queue — come back as input-box text
+        // at the settle, instead of re-dispatching after it. The request is
+        // latched on the session here and consumed by the settle's `Cancel`
+        // arm, because the settle can trail this message: `StartedAndSettled`
+        // settles inline, but a `Started` drain waits for the stream ack, and
+        // anything the user enqueues behind this cancel must be dumped with
+        // the rest rather than dispatched.
+        if msg.drain_buffers_to_input {
+            self.state.with_session(|view| {
+                view.session
+                    .map()
+                    .get_or_create(&msg.session_id)
+                    .request_cancel_drain();
+            });
+        }
+
         // The drain is armed. Open tool calls get a synthesized cancellation
         // from the orchestrator (`CancelToolBatch`), so the work set empties
         // without waiting on a tool that cannot be aborted; the stream's own
@@ -383,6 +400,31 @@ impl SessionPersistenceActor {
                     .await;
             }
             jinn_kernel::common::turn_ledger::Next::Cancel => {
+                // The ESC-ESC drain request, if this settle is the one the
+                // flagged cancel armed, applies here — after the last
+                // enqueue behind the cancel has landed and before the
+                // `Idle` phase change sends the queue actor in. Draining
+                // empties the buffers, so the idle transition finds nothing
+                // to re-dispatch. An unflagged cancel (bot re-run, a
+                // watchdog, a cascade child, the interrupt intent) takes
+                // nothing, and its buffered work re-dispatches as before.
+                // One `take` covers both settle routes — the inline
+                // `StartedAndSettled` and this one — so a stale request
+                // cannot outlive its settle.
+                let drain_requested = self.state.with_session(|view| {
+                    view.session
+                        .map()
+                        .get_or_create(session_id)
+                        .take_pending_cancel_drain()
+                });
+                if drain_requested {
+                    self.state.with_session(|view| {
+                        view.session
+                            .map()
+                            .get_or_create(session_id)
+                            .drain_cancelled_work_to_input();
+                    });
+                }
                 let (old, new) = self.state.with_session(|view| {
                     let session = view.session.map().get_or_create(session_id);
                     session.sweep_pending_tool_results_to_failure();
@@ -740,6 +782,7 @@ mod tests {
     use super::super::super::helpers::{
         test_actor, test_actor_recording, test_actor_with_store_recording,
     };
+    use jinn_core_types::SessionId;
     use jinn_inference_msg::{CancelTurn, StreamCompleted, StreamCompletedReason, StreamToken};
     use jinn_kernel::protocol::{ChangeSource, ChatEntry, ChatEntryKind};
     use jinn_session_history_msg::CitationsReceived;
@@ -1079,6 +1122,8 @@ mod tests {
         // When the turn is cancelled.
         let msg = CancelTurn {
             session_id: session_id.clone(),
+            // A bare fixture cancel is not ESC-ESC: nothing drains.
+            drain_buffers_to_input: false,
         };
         actor.on_cancel_turn(&msg).await;
 
@@ -1109,6 +1154,8 @@ mod tests {
         // round-trip) retires the stream and runs the settle in-line.
         let msg = CancelTurn {
             session_id: session_id.clone(),
+            // A bare fixture cancel is not ESC-ESC: nothing drains.
+            drain_buffers_to_input: false,
         };
         actor.on_cancel_turn(&msg).await;
         actor
@@ -1145,6 +1192,8 @@ mod tests {
         // runs in-line.
         let msg = CancelTurn {
             session_id: session_id.clone(),
+            // A bare fixture cancel is not ESC-ESC: nothing drains.
+            drain_buffers_to_input: false,
         };
         actor.on_cancel_turn(&msg).await;
         actor
@@ -1199,6 +1248,8 @@ mod tests {
         // When the command it published lands.
         let msg = CancelTurn {
             session_id: session_id.clone(),
+            // A bare fixture cancel is not ESC-ESC: nothing drains.
+            drain_buffers_to_input: false,
         };
         actor.on_cancel_turn(&msg).await;
 
@@ -1240,6 +1291,8 @@ mod tests {
         // When the command lands and its report is consumed.
         let msg = CancelTurn {
             session_id: session_id.clone(),
+            // A bare fixture cancel is not ESC-ESC: nothing drains.
+            drain_buffers_to_input: false,
         };
         actor.on_cancel_turn(&msg).await;
         actor
@@ -1280,6 +1333,8 @@ mod tests {
         // When the turn is cancelled.
         let msg = CancelTurn {
             session_id: session_id.clone(),
+            // A bare fixture cancel is not ESC-ESC: nothing drains.
+            drain_buffers_to_input: false,
         };
         actor.on_cancel_turn(&msg).await;
 
@@ -1326,6 +1381,8 @@ mod tests {
         // When the watchdog cancels the turn.
         let msg = CancelTurn {
             session_id: session_id.clone(),
+            // A bare fixture cancel is not ESC-ESC: nothing drains.
+            drain_buffers_to_input: false,
         };
         actor.on_cancel_turn(&msg).await;
 
@@ -1360,6 +1417,8 @@ mod tests {
         actor
             .on_cancel_turn(&CancelTurn {
                 session_id: session_id.clone(),
+                // A bare fixture cancel is not ESC-ESC: nothing drains.
+                drain_buffers_to_input: false,
             })
             .await;
         let completed = audit.of_type::<StreamCompleted>();
@@ -1388,6 +1447,8 @@ mod tests {
         let session_id = begin_streaming_session(&actor).await;
         let msg = CancelTurn {
             session_id: session_id.clone(),
+            // A bare fixture cancel is not ESC-ESC: nothing drains.
+            drain_buffers_to_input: false,
         };
         actor.on_cancel_turn(&msg).await;
         audit.clear();
@@ -1414,6 +1475,8 @@ mod tests {
         // When a cancel arrives for it.
         let msg = CancelTurn {
             session_id: session_id.clone(),
+            // A bare fixture cancel is not ESC-ESC: nothing drains.
+            drain_buffers_to_input: false,
         };
         actor.on_cancel_turn(&msg).await;
         actor
@@ -1507,6 +1570,268 @@ mod tests {
         let state = actor.state.read();
         let session = state.session.get(&session_id).expect("session exists");
         assert_eq!(session.phase(), PhaseView::Idle);
+    }
+
+    // ------------------------------------------------------------------
+    // ESC-ESC buffer drain — the flagged cancel dumps buffered work into
+    // the input box at the settle instead of re-dispatching it
+    // ------------------------------------------------------------------
+
+    /// Seeds one queued user message onto the streaming session.
+    fn seed_queued_message(actor: &SessionPersistenceActor, session_id: &SessionId, text: &str) {
+        let mut state = actor.state.write();
+        state
+            .session
+            .get_mut(session_id)
+            .expect("session exists")
+            .enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+                ChatEntry::user(text),
+            )));
+    }
+
+    /// Seeds one steering fragment onto the named session.
+    fn seed_steering_fragment(actor: &SessionPersistenceActor, session_id: &SessionId, text: &str) {
+        let mut state = actor.state.write();
+        state
+            .session
+            .get_mut(session_id)
+            .expect("session exists")
+            .steering_buffer_mut()
+            .push_fragment(text);
+    }
+    /// Builds a drain-flagged `CancelTurn` — the shape the confirmed ESC-ESC
+    /// publishes.
+    fn drain_flagged_cancel(session_id: &SessionId) -> CancelTurn {
+        CancelTurn {
+            session_id: session_id.clone(),
+            drain_buffers_to_input: true,
+        }
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn drain_flagged_cancel_dumps_steering_and_queue_to_input_at_settle() {
+        // Given a streaming session holding one steering fragment and one
+        // queued user message.
+        let (actor, _audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor).await;
+        seed_steering_fragment(&actor, &session_id, "steer this");
+        seed_queued_message(&actor, &session_id, "queued work");
+
+        // When the flagged cancel is applied — the full chain: the drain
+        // arms, the completion retires the stream, and the settle runs.
+        actor
+            .on_cancel_turn(&drain_flagged_cancel(&session_id))
+            .await;
+        actor
+            .on_stream_completed(&stream_completed(
+                &actor,
+                &session_id,
+                StreamCompletedReason::Canceled,
+                None,
+                None,
+                None,
+                None,
+            ))
+            .await;
+
+        // Then both buffers landed in the input box, steering first, joined
+        // by the drain helper's separator, and the buffers are empty.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(
+            session.with_input(|i| i.text().to_owned(), String::new),
+            "steer this\n\n---\n\nqueued work"
+        );
+        assert_eq!(session.queue_len(), 0);
+        assert!(session.steering_buffer().is_empty());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn drain_flagged_cancel_through_the_started_and_settled_route_dumps_too() {
+        // Given a streaming session holding a queued message whose stream is
+        // already retired — the shape the inline `StartedAndSettled` route
+        // settles: `begin_cancel` finds an empty work set and settles
+        // inside `terminate_turn` itself, never passing through the
+        // completion ack.
+        let (actor, _audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor).await;
+        seed_queued_message(&actor, &session_id, "queued work");
+        let live = actor
+            .services
+            .turn_ledger
+            .live(&session_id)
+            .expect("live turn");
+        actor
+            .services
+            .turn_ledger
+            .ack_stream_ended(
+                &session_id,
+                &live.turn,
+                &live.stream.expect("in-flight stream"),
+                jinn_kernel::common::turn_ledger::Next::Continue,
+            )
+            .expect("the retired stream leaves the turn live");
+
+        // When the flagged cancel is applied (no completion is driven: this
+        // route settles inline).
+        actor
+            .on_cancel_turn(&drain_flagged_cancel(&session_id))
+            .await;
+
+        // Then the queued message is in the input box — the latch covered
+        // the settle route that never passes through the completion ack.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(
+            session.with_input(|i| i.text().to_owned(), String::new),
+            "queued work"
+        );
+        assert_eq!(session.queue_len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn unflagged_cancel_keeps_the_queue_for_redispatch() {
+        // Given a streaming session holding a queued message.
+        let (actor, _audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor).await;
+        seed_queued_message(&actor, &session_id, "queued work");
+
+        // When an unflagged cancel — the shape every non-ESC publisher
+        // sends — is applied through the same chain.
+        actor
+            .on_cancel_turn(&CancelTurn {
+                session_id: session_id.clone(),
+                // A bare fixture cancel is not ESC-ESC: nothing drains.
+                drain_buffers_to_input: false,
+            })
+            .await;
+        actor
+            .on_stream_completed(&stream_completed(
+                &actor,
+                &session_id,
+                StreamCompletedReason::Canceled,
+                None,
+                None,
+                None,
+                None,
+            ))
+            .await;
+
+        // Then the queue survives for the idle transition to re-dispatch.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(session.queue_len(), 1);
+        assert_eq!(
+            session.with_input(|i| i.text().to_owned(), String::new),
+            "",
+            "an unflagged cancel must not drain the queue into the input box"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn cancel_with_nothing_to_drain_leaves_the_input_untouched() {
+        // Given a streaming session whose user had typed a fresh draft —
+        // and no buffered work at all.
+        let (actor, _audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor).await;
+        actor
+            .state
+            .write()
+            .session
+            .get_mut(&session_id)
+            .expect("session exists")
+            .update_input(|input| input.insert_text("a draft the user is typing"));
+
+        // When the flagged cancel is applied through the same chain —
+        // nothing to drain, so the helper's empty-drain rule applies.
+        actor
+            .on_cancel_turn(&drain_flagged_cancel(&session_id))
+            .await;
+        actor
+            .on_stream_completed(&stream_completed(
+                &actor,
+                &session_id,
+                StreamCompletedReason::Canceled,
+                None,
+                None,
+                None,
+                None,
+            ))
+            .await;
+
+        // Then the draft is still the user's.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(
+            session.with_input(|i| i.text().to_owned(), String::new),
+            "a draft the user is typing"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_stale_drain_request_does_not_outlive_its_settle() {
+        // Given a streaming session whose first cancel was flagged and has
+        // already settled.
+        let (actor, _audit) = test_actor_recording().await;
+        let session_id = begin_streaming_session(&actor).await;
+        actor
+            .on_cancel_turn(&drain_flagged_cancel(&session_id))
+            .await;
+        actor
+            .on_stream_completed(&stream_completed(
+                &actor,
+                &session_id,
+                StreamCompletedReason::Canceled,
+                None,
+                None,
+                None,
+                None,
+            ))
+            .await;
+        // And a second turn is running with a queued message — the next
+        // cancel, whatever publishes it, is not the flagged one.
+        let second = jinn_kernel::common::turn_ledger::mint_dispatch_with_stamp(
+            &actor.services,
+            &actor.state,
+            &session_id,
+            jinn_kernel::common::turn_ledger::MintKind::FreshTurn,
+            jiff::Timestamp::now(),
+        )
+        .await
+        .expect("the second turn's mint must be admitted");
+        let _ = second;
+        seed_queued_message(&actor, &session_id, "queued work");
+
+        // When an unflagged cancel settles that second turn.
+        actor
+            .on_cancel_turn(&CancelTurn {
+                session_id: session_id.clone(),
+                // A bare fixture cancel is not ESC-ESC: nothing drains.
+                drain_buffers_to_input: false,
+            })
+            .await;
+        actor
+            .on_stream_completed(&stream_completed(
+                &actor,
+                &session_id,
+                StreamCompletedReason::Canceled,
+                None,
+                None,
+                None,
+                None,
+            ))
+            .await;
+
+        // Then the queue survives: the first cancel's drain request cannot
+        // dump a later turn's buffers.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(session.queue_len(), 1);
     }
 
     #[rstest::rstest]
@@ -1767,6 +2092,8 @@ mod tests {
         actor
             .on_cancel_turn(&CancelTurn {
                 session_id: session_id.clone(),
+                // A bare fixture cancel is not ESC-ESC: nothing drains.
+                drain_buffers_to_input: false,
             })
             .await;
         let completed = audit.of_type::<StreamCompleted>();

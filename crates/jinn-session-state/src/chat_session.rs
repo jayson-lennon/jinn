@@ -3829,6 +3829,18 @@ impl ChatSessionState {
         self.core.ephemeral.is_tool_loop_disabled()
     }
 
+    /// Request a buffer drain at this turn's cancel settle.
+    ///
+    pub fn request_cancel_drain(&mut self) {
+        self.core.ephemeral.request_cancel_drain();
+    }
+
+    /// Take the pending-cancel-drain request, clearing it.
+    ///
+    pub fn take_pending_cancel_drain(&mut self) -> bool {
+        self.core.ephemeral.take_pending_cancel_drain()
+    }
+
     /// Resolve a [`ChatEntryId`] to its current index in history.
     ///
     /// Returns `None` if the entry no longer exists.

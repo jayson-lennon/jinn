@@ -125,7 +125,15 @@ impl ToolCallWatchdogActor {
                         .await;
                 }
                 ToolWatchdogAction::CancelTurn(session_id) => {
-                    self.services.bus.publish(CancelTurn { session_id }).await;
+                    self.services
+                        .bus
+                        .publish(CancelTurn {
+                            session_id,
+                            // A watchdog stop is not ESC-ESC: buffered work
+                            // re-dispatches after the settle.
+                            drain_buffers_to_input: false,
+                        })
+                        .await;
                 }
             }
         }

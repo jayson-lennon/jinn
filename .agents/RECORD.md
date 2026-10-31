@@ -425,7 +425,9 @@ Entries are added or amended **only with human approval**.
 - (kernel) Every bus message is published through its own spawned task, so a Vec of messages is not an ordered sequence; two messages that depend on each other (push then pin) must be one message, because the second silently no-ops when it arrives first.
 - (sidebar) The sidebar's section order is stated in three places — the nav chain, the layout's registration table, and the live registration — and a test pins all three to the same order, since nothing stops them drifting apart otherwise.
 - (bot) The parent-completed trigger never cancels a running bot: a busy bot's in-flight turn is real work, so the trigger's seeded turn queues behind it. Cancelling there aborted a turn the user was waiting on and left a "Cancelled" entry behind.
-- (session) A message enqueued while a session is Sending/Streaming waits in its queue, and a later cancel drains that queue into the input box as editable draft text — so a message that was meant to run can surface as a draft the user never sent.
+- (turn-ledger) A message enqueued while a session is busy waits in its turn queue, and an ESC-ESC cancel drains the queue and the steering buffer into the input box as editable draft text — a message that was meant to run can surface as a draft the user never sent.
+- (turn-ledger) The ESC-ESC cancel dumps the session's steering buffer and turn queue into the input box as one editable draft, steered fragments first.
+- (cancel) A cancel from any publisher other than ESC-ESC leaves buffered steering and queue work in place to re-dispatch after the settle.
 - (bot) A bot's seed is its template with <prior_report> and <parent_id> tokens substituted; the renderer appends nothing and an empty template still dispatches a run.
 - (bot) A bot's <parent_id> token substitutes the parent's id, or "unavailable" when the bot has no parent.
 - (bot) A bot's behavior governs context only: reset force-excludes every non-pinned entry so the run sees pins alone, preserve appends to the conversation as it stands. A behavior never decides whether a run happens.

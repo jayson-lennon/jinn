@@ -42,6 +42,18 @@ use serde::{Deserialize, Serialize};
 pub struct CancelTurn {
     /// The session whose turn should be ended.
     pub session_id: SessionId,
+    /// Whether the cancelled turn's buffered work — the steering buffer and
+    /// the turn queue — should be drained into the input box as editable
+    /// draft text at the settle, instead of re-dispatching after it.
+    ///
+    /// Off by default. Exactly one publisher sets it: the user-confirmed
+    /// ESC-ESC cancel. Every other publisher — the bot's manual re-run, the
+    /// watchdogs, the cascade's child stops, the interrupt intent — wants
+    /// the buffered work to re-dispatch after the settle, so it keeps the
+    /// wire default and the field carries no cause information they would
+    /// have to set correctly.
+    #[serde(default)]
+    pub drain_buffers_to_input: bool,
 }
 
 impl jinn_slices::BusMessage for CancelTurn {}

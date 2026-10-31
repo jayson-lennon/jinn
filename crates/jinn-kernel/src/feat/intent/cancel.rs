@@ -185,8 +185,14 @@ pub(crate) fn try_handle_cancel_stream_prompt(
         // phase settles when the session actor applies the cancel's
         // `TurnCanceled` — this path writes no session state synchronously.
 
+        // This is the one publisher that drains: the confirm gesture means
+        // "stop and give me back what I was about to send", so the cancel
+        // carries the drain request for the session actor to apply at the
+        // settle. Every other `CancelTurn` publisher wants buffered work to
+        // re-dispatch after the settle and leaves the flag off.
         let mut result = IntentResult::empty().with_message(jinn_inference_msg::CancelTurn {
             session_id: session_id.clone(),
+            drain_buffers_to_input: true,
         });
 
         // Also cancel any running lifecycle command.
@@ -248,6 +254,10 @@ pub fn cascade_descendants(
                 result = result
                     .with_message(jinn_inference_msg::CancelTurn {
                         session_id: child_id.clone(),
+                        // A child stopped by the cascade does not dump over
+                        // whatever its own input box holds — only the
+                        // confirmed ESC-ESC on the session itself drains.
+                        drain_buffers_to_input: false,
                     })
                     .merge(cascade_descendants(state, &child_id, visited));
             }

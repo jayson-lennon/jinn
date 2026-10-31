@@ -184,7 +184,16 @@ impl StreamRuleWatchdogActor {
                         .await;
                 }
                 StreamRuleWatchdogAction::CancelTurn(session_id) => {
-                    self.services.bus.publish(CancelTurn { session_id }).await;
+                    self.services
+                        .bus
+                        .publish(CancelTurn {
+                            session_id,
+                            // A watchdog stop is not ESC-ESC: buffered work
+                            // re-dispatches after the settle — the rule's
+                            // own resume depends on it.
+                            drain_buffers_to_input: false,
+                        })
+                        .await;
                 }
             }
         }

@@ -76,6 +76,9 @@ pub fn rerun_in_state(
         session.finalize_entries_for_cancel(jiff::Timestamp::now());
         CancelTurn {
             session_id: bot_id.clone(),
+            // Not ESC-ESC semantics: the run about to start must carry the
+            // old turn's leftovers, so nothing drains into the input box.
+            drain_buffers_to_input: false,
         }
     });
     let (entry, reset) = activation::prepare_manual_run(session);

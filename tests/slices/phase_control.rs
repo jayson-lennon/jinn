@@ -104,7 +104,7 @@ where
     let services = harness.services().await;
     services.llm_service.swap(std::sync::Arc::new(factory));
 
-    let state = jinn_kernel::State::new(jinn_kernel::AppState::default());
+    let state = jinn_kernel::State::new(jinn_kernel::AppState::default_with_scope_focus());
     services
         .config
         .put::<StallWatchdogConfig>(&StallWatchdogConfig {
@@ -279,6 +279,7 @@ async fn publish_cancel(app: &TuiApp, session_id: &SessionId) {
         .bus
         .publish(CancelTurn {
             session_id: session_id.clone(),
+            drain_buffers_to_input: false,
         })
         .await;
 }
@@ -648,8 +649,123 @@ async fn esc_esc_mid_turn_settles_the_phase_idle() {
 }
 
 // ---------------------------------------------------------------------------
-// Cancel-drain convergence (TM-9 / TM-11 / TM-12)
+// ESC-ESC buffer dump — the confirmed cancel hands the buffered work back
 // ---------------------------------------------------------------------------
+
+/// The full ESC-ESC dump, end to end: mid-turn with a steering fragment and
+/// a queued message buffered, press ESC twice — raise the confirmation,
+/// confirm — and the input box holds both texts (steering first, joined by
+/// the drain helper's separator), exactly one `TurnCompleted(Canceled)` is
+/// published, the phase settles `Idle`, and no provider request fires for
+/// the drained content: the buffers are empty when the queue actor's idle
+/// transition reads them, so there is nothing to re-dispatch.
+#[rstest::rstest]
+#[tokio::test]
+#[timeout(Duration::from_secs(60))]
+async fn esc_esc_mid_turn_dumps_steering_and_queue_into_the_input() {
+    // Given a composed app mid-turn (a real dispatched turn hung on the
+    // provider), with one steering fragment submitted behind it and one
+    // message queued, plus a `TurnCompleted` tap. Provider-request absence
+    // is asserted through the buffer-empty reads: an empty steering buffer
+    // and empty queue give the idle transition nothing to dispatch, which
+    // is the mechanism the no-request fact rides.
+    let (mut app, session_id, _recorder, turns) =
+        composed_app_with_recorders(hung_factory(), 30, TurnCompletedTap).await;
+    app.services
+        .bus
+        .publish(EnqueueUserMessage {
+            session_id: session_id.clone(),
+            entry: ChatEntry::user("start a turn"),
+        })
+        .await;
+    let streaming = wait_until_phase(&app, &session_id, PhaseView::Streaming).await;
+    assert!(streaming, "setup: the dispatched turn reached Streaming");
+    app.services
+        .bus
+        .publish(jinn_chat_input_msg::SubmitSteeringMessage {
+            session_id: session_id.clone(),
+            text: "steer it".to_owned(),
+        })
+        .await;
+    app.services
+        .bus
+        .publish(EnqueueUserMessage {
+            session_id: session_id.clone(),
+            entry: ChatEntry::user("queued work"),
+        })
+        .await;
+
+    // When the user presses ESC twice: raise the cancel prompt, then
+    // confirm it.
+    app.route_intent(jinn_kernel::KernelIntent::NormalEscape);
+    assert!(
+        app.core.state.read().frontend.cancel_stream_prompt,
+        "the first ESC arms the cancel prompt"
+    );
+    app.route_intent(jinn_kernel::KernelIntent::NormalEscape);
+    let settled = wait_until_phase(&app, &session_id, PhaseView::Idle).await;
+    assert!(
+        settled,
+        "ESC ESC must settle the phase to Idle; it is {:?}",
+        phase_of(&app, &session_id)
+    );
+
+    // Then both buffered texts are the input box's draft, steering first.
+    // Polled rather than read once: the dump runs in the session actor's
+    // settle, which the phase event trails.
+    let deadline = tokio::time::Instant::now() + WAIT;
+    let draft = loop {
+        let text = app
+            .core
+            .state
+            .read()
+            .session
+            .get(&session_id)
+            .map_or(String::new(), |s| {
+                s.with_input(|i| i.text().to_owned(), String::new)
+            });
+        if text.contains("steer it") && text.contains("queued work") {
+            break text;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            break text;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(
+        draft, "steer it\n\n---\n\nqueued work",
+        "the confirmed cancel must dump the steering buffer and the queue \
+         into the input box, steering first"
+    );
+
+    // And the buffers are empty — the dump drained them, so the idle
+    // transition has nothing to re-dispatch, and no provider request can
+    // fire for the drained content.
+    let (queue_len, steering_len) = app
+        .core
+        .state
+        .read()
+        .session
+        .get(&session_id)
+        .map_or((usize::MAX, usize::MAX), |s| {
+            (s.queue_len(), s.steering_buffer().len())
+        });
+    assert_eq!(queue_len, 0, "the queue was dumped, not kept");
+    assert_eq!(steering_len, 0, "the steering buffer was dumped, not kept");
+
+    // And exactly one cancelled-turn report was published, after the
+    // recorder has stopped changing — "exactly one" means "one will have
+    // come", not "one so far".
+    jinn_testutil::wait::await_settled(&turns, Duration::from_millis(300), Duration::from_secs(10))
+        .await;
+    let reports = turns.drain();
+    assert_eq!(
+        reports.len(),
+        1,
+        "the cancelled turn reports exactly once; got {reports:?}"
+    );
+    assert_eq!(reports[0].outcome, TurnOutcome::Canceled);
+}
 
 /// A busy session (a hung stream) cancelled via `CancelTurn` settles to
 /// `Idle` exactly once: one `TurnCompleted(Canceled)` is published — the
@@ -700,12 +816,103 @@ async fn cancel_reports_canceled_exactly_once_and_settles() {
     );
 }
 
-/// A message enqueued while the cancel drain is still in flight does not
-/// dispatch into the dying turn and is not dropped by it: it dispatches
-/// exactly once, whatever the interleaving — queued through the drain (the
-/// idle transition picks it up after the settle) or dispatched directly
-/// when it lands after the settle. The one forbidden outcome is zero or
-/// two dispatches.
+/// A message enqueued while an ESC-ESC cancel drain is still in flight is
+/// dumped with the rest — it was meant to ride the cancelled turn, and the
+/// confirmed cancel hands buffered work back instead of running it. The
+/// raced enqueue lands in the input box alongside whatever was already
+/// buffered, and no provider request fires for it.
+///
+/// A message enqueued **after** the settle has its own coverage in
+/// [`user_message_after_cancel_dispatches_exactly_one_turn`]: it starts
+/// exactly one turn, whatever the ordering.
+#[rstest::rstest]
+#[tokio::test]
+#[timeout(Duration::from_secs(60))]
+async fn enqueued_while_the_esc_esc_drain_is_in_flight_is_dumped_not_dispatched() {
+    // Given a composed app mid-turn — a real dispatched turn hung on the
+    // provider — so the ESC-ESC gesture has a live turn to cancel. The
+    // factory hangs, so the drain has a real stream abort to ride and a
+    // real settle to race against.
+    let (mut app, session_id, recorder, _turns) =
+        composed_app_with_recorders(hung_factory(), 30, TurnCompletedTap).await;
+    app.services
+        .bus
+        .publish(EnqueueUserMessage {
+            session_id: session_id.clone(),
+            entry: ChatEntry::user("start a turn"),
+        })
+        .await;
+    let streaming = wait_until_phase(&app, &session_id, PhaseView::Streaming).await;
+    assert!(streaming, "setup: the dispatched turn reached Streaming");
+
+    // When the ESC-ESC cancel lands and the user's next message is enqueued
+    // right behind it — the publishes race, so the enqueue may land
+    // mid-drain or after the settle; the dump contract must not care which.
+    // Driven through the real intent handler: the confirmed branch is the
+    // only publisher of a drain-flagged cancel.
+    app.route_intent(jinn_kernel::KernelIntent::NormalEscape);
+    app.route_intent(jinn_kernel::KernelIntent::NormalEscape);
+    app.services
+        .bus
+        .publish(EnqueueUserMessage {
+            session_id: session_id.clone(),
+            entry: ChatEntry::user("raced into the drain"),
+        })
+        .await;
+
+    // Then the raced message is the input box's draft — dumped, not
+    // dispatched. But the session must be `Idle` first: a draft produced by
+    // the dump only proves the drain ran, and the settle is what proves the
+    // race window closed. The recorder's pre-cancel request (the turn's own
+    // dispatch) is drained first, so only post-cancel traffic counts.
+    let settled = wait_until_phase(&app, &session_id, PhaseView::Idle).await;
+    assert!(settled, "the cancel must settle the session to Idle");
+    recorder.drain();
+    let deadline = tokio::time::Instant::now() + WAIT;
+    let draft = loop {
+        let text = app
+            .core
+            .state
+            .read()
+            .session
+            .get(&session_id)
+            .map_or(String::new(), |s| {
+                s.with_input(|i| i.text().to_owned(), String::new)
+            });
+        if text.contains("raced into the drain") {
+            break text;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            break text;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert!(
+        draft.contains("raced into the drain"),
+        "an enqueue racing the ESC-ESC drain must be dumped into the input \
+         box, not dispatched; input is {draft:?}"
+    );
+
+    // And no provider request fired for it: the recorder must have stopped
+    // changing first, so "no request" means "no request will come".
+    jinn_testutil::wait::await_settled(
+        &recorder,
+        Duration::from_millis(300),
+        Duration::from_secs(10),
+    )
+    .await;
+    let total = recorder.drain().len();
+    assert_eq!(
+        total, 0,
+        "the raced enqueue must not dispatch; got {total} request(s)"
+    );
+}
+
+/// The unflagged shape of the same race: a message enqueued behind a
+/// **non-ESC** cancel dispatches exactly once, whatever the interleaving —
+/// the unflagged cancel keeps the queue for the idle transition, and a
+/// message landing after the settle dispatches directly. The one forbidden
+/// outcome is zero or two dispatches.
 #[rstest::rstest]
 #[tokio::test]
 #[timeout(Duration::from_secs(60))]
@@ -715,11 +922,9 @@ async fn message_enqueued_during_the_drain_dispatches_exactly_once() {
     // race against.
     let (app, session_id, recorder, _turns) =
         composed_app_with_recorders(hung_factory(), 30, TurnCompletedTap).await;
-    seed_streaming(&app, &session_id);
 
-    // When the cancel lands and the user's next message is enqueued right
-    // behind it — the publishes race, so the enqueue may land mid-drain or
-    // after the settle; the contract must not care which.
+    // When the cancel lands (unflagged — the bot/watchdog/cascade shape)
+    // and the user's next message is enqueued right behind it.
     publish_cancel(&app, &session_id).await;
     app.services
         .bus

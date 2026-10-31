@@ -41,6 +41,14 @@ pub struct SessionCoreEphemeral {
     /// tool loop. Set by judge verdict tools; self-clearing on read.
     #[serde(default)]
     pub tool_loop_disabled: bool,
+    /// When `true`, the settle's `Cancel` arm drains the steering buffer and
+    /// the turn queue into the input box before reporting `Idle`, instead of
+    /// leaving them for the queue actor to re-dispatch. Set when a
+    /// drain-flagged `CancelTurn` is handled; self-clearing on read.
+    /// Process-local: a cancel rides one settle, so the request never needs
+    /// to outlive the message that carried it.
+    #[serde(skip, default)]
+    pub pending_cancel_drain: bool,
     /// Buffered work waiting for the next safe dispatch boundary.
     pub message_queue: TurnQueue,
     /// Most recently assembled prompt size, in tokens.
@@ -106,6 +114,22 @@ impl SessionCoreEphemeral {
     /// Returns `true` if the tool loop is disabled, without clearing.
     pub fn is_tool_loop_disabled(&self) -> bool {
         self.tool_loop_disabled
+    }
+
+    /// Request a buffer drain at this turn's cancel settle.
+    ///
+    /// Set by the session actor when the handled `CancelTurn` carries the
+    /// drain request; consumed by the settle's `Cancel` arm. Survives every
+    /// phase swap between the message and the settle, because the drain
+    /// points (`StartedAndSettled` inline and the completion ack) can be a
+    /// message or two apart.
+    pub fn request_cancel_drain(&mut self) {
+        self.pending_cancel_drain = true;
+    }
+
+    /// Take the pending-cancel-drain request, clearing it.
+    pub fn take_pending_cancel_drain(&mut self) -> bool {
+        std::mem::take(&mut self.pending_cancel_drain)
     }
 
     /// Shift all streaming indices >= `inserted_at` by +1.

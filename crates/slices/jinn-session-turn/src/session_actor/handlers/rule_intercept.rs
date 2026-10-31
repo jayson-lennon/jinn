@@ -559,6 +559,8 @@ pub(super) mod tests {
         actor
             .on_cancel_turn(&CancelTurn {
                 session_id: session_id.clone(),
+                // A bare fixture cancel is not ESC-ESC: nothing drains.
+                drain_buffers_to_input: false,
             })
             .await;
         {
