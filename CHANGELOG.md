@@ -7,6 +7,8 @@
 - `y` (yank session ID) now works in the Library section
 - `i` (focus then enter Insert mode) now works in the Library section
 - It should no longer be possible to have an empty session list in the sidebar
+- Fix: `ESC ESC` behavior broke in v1.10.0 and has been restored.
+  - `ESC ESC` drains queue+steering buffer into the chat input box.
 
 ## 2026-10-29 v1.13.0
 
