@@ -26,7 +26,9 @@ environment sidequests — every library is already inside the jinn binary.
 4. **Edit freely**. Every save to the artifact (or any file in its
    directory) hot-reloads the user's browser tab within a quarter second.
    Do not call the tool again after edits — the running server picks
-   changes up by itself.
+   changes up by itself. For a nontrivial visualization, verify it
+   yourself headlessly first (see *Testing and debugging* below) — the
+   user's tab should not be your test bench.
 5. **Switch artifacts** with another `canvas` tool call naming the other
    path: the same server re-targets in place at the same URL and
    connected browsers follow.
@@ -54,6 +56,85 @@ environment sidequests — every library is already inside the jinn binary.
   read the error text and fix the diagram source. The type references list
   syntax shapes that are verified against this binary (architecture edge
   syntax and diagram-type names differ between Mermaid versions).
+
+## Testing and debugging
+
+The user's browser tab is not your test bench — for anything nontrivial
+(surface plots, simulations, multi-library pages), verify the artifact
+yourself before telling the user it works. Everything you need is already
+on the machine: a headless Chromium/Chrome binary. No Node, no npm, no
+test framework.
+
+### Verify headlessly
+
+Serve the artifact (or just open it via the served URL), then load it in
+headless Chromium and **make the page write its own verdict into the DOM**:
+
+```bash
+# <base-url> is the URL the canvas tool returned, e.g. a 127.0.0.1 loopback address
+chromium --headless=new --no-sandbox --disable-gpu-sandbox \
+  --disable-dev-shm-usage --virtual-time-budget=10000 \
+  --dump-dom "<base-url>"
+```
+
+- `--no-sandbox` is required in most agent/CI environments; keep it.
+- `--virtual-time-budget=10000` fast-forwards timers and animations so the
+  page reaches its settled state before the dump (roughly ms of wall time).
+- `--dump-dom` prints the final DOM. **It cannot see JS variables,
+  `console.log`, or the canvas bitmap** — only markup.
+
+So instrument the artifact while you're testing: have the code
+`document.body.appendChild` a `<div data-result='...'>` carrying what it
+proved — data point count, computed min/max, rendered element count,
+`renderer.getContext()` readback totals. Then assert on the dumped HTML
+with ordinary text tools. For a canvas/WebGL render, read pixels back in
+the artifact (`gl.readPixels` on the rendering context, or
+`context.getImageData` for 2D) and record e.g. the count of distinct
+colors into the verdict div: a scene that "rendered" paints many colors;
+a black scene paints one.
+
+For interactive checks beyond the settled state, drive the page from a
+tiny injected `<script>` (dispatch synthetic events, step an animation,
+set slider values) and let it stamp results into the same verdict div.
+
+### Reading failures
+
+- **Verdict div missing entirely** → the script never produced output:
+  classic-script syntax error, or a module whose import graph failed to
+  resolve. Check with `--enable-logging=stderr` to see console text.
+- **`Failed to fetch dynamically imported module: <url>`** — misleading:
+  the URL was served fine (curl it to confirm 200). The real cause is one
+  level deeper: that module's *own* imports failed, or a top-level
+  evaluation threw. Isolate by importing the suspect URL into a probe
+  page inside `try/catch` — and to see the true underlying error, fetch
+  the file as text, wrap it in a `Blob` URL, and `import()` that: the
+  blob import surfaces the real message (e.g. "does not provide an
+  export named 'X'" — a version/API drift — or "Failed to resolve module
+  specifier './three.core.min.js'" — a missing sibling file).
+- **3D scene renders black** → geometry loaded but nothing is lit, or the
+  camera is inside the object. Add an `AmbientLight` + a
+  `DirectionalLight`, pull the camera back, and re-run the pixel-count
+  check.
+- **Page looks right but numbers are wrong** → check the verdict values,
+  not the pixels: dump the computed counts/min/max/first-row into the div
+  and compare against the source data.
+
+### Mermaid is its own debugger
+
+Mermaid does not throw on bad syntax — it renders a visible error box
+into the page. The dump-dom output contains the box's text: read it, fix
+the diagram source, re-dump. The type references list syntax shapes
+verified against this exact vendored build; stay inside them.
+
+### Do not
+
+- Don't screenshot as your only check — a screenshot shows pixels but not
+  state, and you can't compare values from one.
+- Don't build a Node/npm toolchain to test HTML. Everything above runs
+  with the browser binary and standard text tools.
+- Don't leave test instrumentation (verdict divs, injected drivers) in the
+  final artifact — strip it once it passes, or gate it behind a
+  `?debug=1` check.
 
 ## Picking the library
 

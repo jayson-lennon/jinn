@@ -1,0 +1,185 @@
+aliases = []
+
+[[endpoint_defaults]]
+model = "openrouter/deepseek/deepseek-v4.1-flash"
+tag = "gmicloud/fp8"
+
+[[endpoint_defaults]]
+model = "openrouter/openai/gpt-6-luna"
+tag = "openai"
+
+[[endpoint_defaults]]
+model = "openrouter/anthropic/claude-haiku-5.5"
+tag = "amazon-bedrock"
+
+[[endpoint_defaults]]
+model = "openrouter/deepseek/deepseek-v4.1-flash-1017"
+tag = "deepseek"
+
+[[endpoint_defaults]]
+model = "openrouter/anthropic/claude-opus-5.5"
+tag = "anthropic"
+# nullslop provider configuration
+# Configure the providers you want to use.
+# The active provider can be changed at runtime via the picker UI.
+#
+# API keys are never stored here — reference env var names instead.
+# For providers that don't require a key (Ollama, LMStudio), set requires_key = false.
+# Each provider is a map-keyed table: [providers.<name>]. The table name IS the
+# provider name — nested tables (extra_body, model_info) are part of the key path,
+# so [providers.zai.extra_body] unambiguously belongs to zai.
+# Need different settings for the same backend? Add another table with a unique name.
+
+[providers.openrouter]
+backend = "openrouter"
+api_key_env = "OPENROUTER_API_KEY"
+models = ["openai/gpt-oss-120b", "anthropic/claude-sonnet-4-20250514", "google/gemini-2.5-flash"]
+model_info = []
+requires_key = true
+
+# renamed from "llama.cpp" — dotted names cannot be map keys
+[providers.llamacpp]
+backend = "openai"
+requires_key = false
+base_url = "http://127.0.0.1:8089/v1"
+models = ["/mnt/zed/repos/ai-models/Qwen3.6-35B-A3B-MTP-UD-Q4_K_XL.gguf", "/home/jayson/.lmstudio/models/lmstudio-community/Bonsai-27B-GGUF.Bonsai-27B-Q1_0.gguf", "/mnt/zed/work/youtube/videos/2026-08-14-showcase-bonsai-27b/model/Ternary-Bonsai-27B-Q2_g64.gguf"]
+
+[[providers.llamacpp.model_info]]
+id = "/home/jayson/.lmstudio/models/lmstudio-community/Bonsai-27B-GGUF.Bonsai-27B-Q1_0.gguf"
+context_length = 96000
+input_modalities = ["text", "image"]
+
+[[providers.llamacpp.model_info]]
+id = "/mnt/zed/work/youtube/videos/2026-08-14-showcase-bonsai-27b/model/Ternary-Bonsai-27B-Q2_g64.gguf"
+context_length = 96000
+input_modalities = ["text", "image"]
+
+[providers.openai]
+backend = "openai"
+api_key_env = "OPENAI_API_KEY"
+models = ["gpt-4o", "gpt-4o-mini"]
+model_info = []
+requires_key = true
+
+[providers.anthropic]
+backend = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"
+models = ["claude-sonnet-4-20250514", "claude-haiku-4-20250514"]
+model_info = []
+requires_key = true
+
+[providers.ollama]
+backend = "ollama"
+requires_key = false
+base_url = "http://localhost:11434"
+models = ["llama3", "codellama"]
+model_info = []
+
+[providers.lmstudio]
+backend = "lmstudio"
+base_url = "http://localhost:1234/v1"
+requires_key = false
+models = ["local-model"]
+model_info = []
+
+[providers.deepseek]
+backend = "deepseek"
+api_key_env = "DEEPSEEK_API_KEY"
+models = ["deepseek-chat", "deepseek-reasoner"]
+model_info = []
+requires_key = true
+
+[providers.xai]
+backend = "xai"
+api_key_env = "XAI_API_KEY"
+models = ["grok-3", "grok-3-mini"]
+model_info = []
+requires_key = true
+
+[providers.google]
+backend = "google"
+api_key_env = "GOOGLE_API_KEY"
+models = ["gemini-2.5-flash", "gemini-2.5-pro"]
+model_info = []
+requires_key = true
+
+[providers.groq]
+backend = "groq"
+api_key_env = "GROQ_API_KEY"
+models = ["llama-3.3-70b-versatile", "mixtral-8x7b-32768"]
+model_info = []
+requires_key = true
+
+[providers.cohere]
+backend = "cohere"
+api_key_env = "COHERE_API_KEY"
+models = ["command-r-plus", "command-r"]
+model_info = []
+requires_key = true
+
+[providers.mistral]
+backend = "mistral"
+api_key_env = "MISTRAL_API_KEY"
+models = ["mistral-large-latest", "mistral-small-latest"]
+model_info = []
+requires_key = true
+
+[providers.huggingface]
+backend = "huggingface"
+api_key_env = "HF_API_KEY"
+models = ["meta-llama/Llama-3.3-70B-Instruct"]
+model_info = []
+requires_key = true
+
+[providers.phind]
+backend = "phind"
+api_key_env = "PHIND_API_KEY"
+models = ["Phind-70B"]
+model_info = []
+requires_key = true
+
+[providers.elevenlabs]
+backend = "elevenlabs"
+api_key_env = "ELEVENLABS_API_KEY"
+models = ["eleven-labs-model"]
+model_info = []
+requires_key = true
+
+[providers.sample]
+backend = "sample"
+requires_key = false
+models = ["sample"]
+model_info = []
+
+[providers.zai]
+backend = "zai"
+api_key_env = "ZAI_API_KEY"
+models = ["glm-4.5-air", "glm-4.7", "glm-4.7-flash", "glm-5", "glm-5-turbo", "glm-5.1", "glm-5.2", "glm-5.3", "glm-5.3-flash"]
+requires_key = true
+
+[providers.zai.extra_body]
+enable_thinking = true
+tool_stream = true
+
+[[providers.zai.model_info]]
+id = "glm-5.3"
+context_length = 1000000
+input_modalities = ["text"]
+
+[[providers.zai.model_info]]
+id = "glm-5.3-flash"
+context_length = 1000000
+input_modalities = ["text", "image", "video"]
+
+[[providers.zai.model_info]]
+id = "glm-5.2"
+context_length = 1000000
+input_modalities = ["text"]
+
+# [[aliases]]
+# name = "fast"
+# target = "ollama/llama3"
+#
+# [[aliases]]
+# name = "smart"
+# target = "openrouter/openai/gpt-oss-120b"
