@@ -2,6 +2,9 @@
 
 ## (development)
 
+- `jinn` now ships several JavaScript packages for making interactive and visual web pages.
+  - The `canvas` tool starts a server to serve the canvas page with live reload.
+  - The `canvas` skill provides general instructions on when and how to use the `canvas`.
 - (dev): upgrade to `trouper` v0.14.0
 - Fix: Stream errors now change the session state from streaming to idle
 - `y` (yank session ID) now works in the Library section
