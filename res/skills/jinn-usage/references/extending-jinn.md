@@ -167,8 +167,11 @@ A project skill with the same name as a global shadows the global. Discovery
 walks from the session's cwd up to the project root, stopping at the VCS root
 (`.git`, `.fslckout`) or `$HOME`. Closer files win.
 
-`jinn install` writes bundled skills to `~/.agents/skills/`. The three it ships:
-`jinn-usage`, `simple-task-loop`, `micro-task-loop`.
+Bundled skills ship inside the binary and are reconciled into
+`~/.agents/skills/` on every launch. The three it ships:
+`jinn-usage`, `simple-task-loop`, `micro-task-loop`. A bundled skill you
+edit is left alone thereafter; `jinn install --builtins` restores the
+shipped copies.
 
 ### Installing one
 
@@ -234,10 +237,10 @@ description = "Review the current change."
 Review the pending diff. Focus on correctness and clarity. ...
 ```
 
-`jinn install` seeds this directory with eight: `plan`, `approve-plan`,
-`gap-analysis`, `research`, `goal`, `meta-prompt`, `generate-persona`,
-`_compaction`. Type `#` in the input to see what's available, and `#foo#` to
-expand `foo` early for editing before sending.
+jinn ships twelve prompt templates — `plan`, `approve-plan`, `_compaction`
+among them — reconciled into place on launch. Type `#` in the input to
+see what's available, and `#foo#` to expand `foo` early for editing before
+sending.
 
 ---
 
@@ -282,8 +285,9 @@ you send it.
 
 TOML color themes in `~/.config/jinn/themes/`. Picked with `<leader>sh`.
 
-`jinn install` seeds four: `catppuccin-mocha`, `nord-light`, `gruvbox-dark`,
-`sonokai`. See the default theme for the format.
+jinn ships five: `default`, `catppuccin-mocha`, `nord-light`,
+`gruvbox-dark`, `sonokai` — reconciled into place on launch. See the
+default theme for the format.
 
 ---
 

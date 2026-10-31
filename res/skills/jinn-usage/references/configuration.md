@@ -487,6 +487,11 @@ silent revert to defaults is the symptom to look for, not an error.
 Check the user's file for the umbrellas listed above before
 recommending an edit.
 
-Users should run `jinn install --force` after updating jinn — it refreshes
-bundled themes, personas, prompts, and skills (skipping files only when not
-forced). jinn never modifies an existing `jinn.toml` on install.
+jinn reconciles the bundled themes, personas, prompts, workflows, and
+skills on every launch: a file jinn wrote that a binary update made stale
+is refreshed automatically, while a file that matches no jinn record is
+treated as user-owned and never touched. `jinn install --builtins` is the
+one command that overwrites user-edited bundled files with the shipped
+copies (reclaiming them). `jinn install` without flags seeds only
+`jinn.toml`, `providers.toml`, and `stream_rules.toml`, each only when
+missing — it never modifies an existing file.

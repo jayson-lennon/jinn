@@ -304,6 +304,19 @@ impl AppPaths {
             .expect("name joins keep the base absolute")
     }
 
+    /// Bundled-files manifest (`~/.local/state/jinn/bundled-files.toml` on
+    /// Linux) — the record of what the reconciler last wrote where.
+    ///
+    /// Lives in the state dir beside `state.toml` and `jinn.log`: it is
+    /// machine-local bookkeeping the binary owns, not user data and not
+    /// configuration.
+    #[must_use]
+    pub fn bundled_files_manifest_path(&self) -> MarkedPathBuf<Absolute> {
+        self.state_dir
+            .join_all([APP_NAME, "bundled-files.toml"])
+            .expect("name joins keep the base absolute")
+    }
+
     /// Themes directory (`~/.config/jinn/themes`).
     #[must_use]
     pub fn themes_dir(&self) -> MarkedPathBuf<Absolute> {
@@ -634,6 +647,27 @@ mod tests {
                 .join_all(["state", "jinn"])
                 .expect("root joins bare names")
                 .join("state.toml")
+                .expect("typed parent joins a bare name"),
+        );
+    }
+
+    #[rstest::rstest]
+    fn bundled_files_manifest_path_sits_beside_the_state_file() {
+        // Given an AppPaths rooted in a temp dir.
+        let root = jinn_testutil::tempdir();
+        let paths = AppPaths::new_in(&root.path.as_marked_path());
+
+        // When reading the bundled-files manifest path.
+        let manifest_path = paths.bundled_files_manifest_path();
+
+        // Then it is root/state/jinn/bundled-files.toml — the state dir,
+        // the same home as state.toml and jinn.log.
+        assert_eq!(
+            manifest_path,
+            root.path
+                .join_all(["state", "jinn"])
+                .expect("root joins bare names")
+                .join("bundled-files.toml")
                 .expect("typed parent joins a bare name"),
         );
     }

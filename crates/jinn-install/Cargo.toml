@@ -9,10 +9,14 @@ jinn-canvas = { workspace = true }
 marked-path = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-preferences-config = { workspace = true }
+jinn-provider-config = { workspace = true }
 jinn-common = { workspace = true }
 error-stack = { workspace = true }
 wherror = { workspace = true }
 include_dir = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+toml = { workspace = true }
 
 [build-dependencies]
 marked-path = { workspace = true }

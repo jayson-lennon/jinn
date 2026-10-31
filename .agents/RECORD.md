@@ -209,7 +209,7 @@ Entries are added or amended **only with human approval**.
 - (session) A session optionally carries a project association (a directory path) stamped only when the user picks a project at creation (the TUI projects UI or Discord /new, both backed by the curated `[[projects]]` list); it persists in the session metadata blob, is inherited by forks and subagents, and never follows cwd changes.
 - (keybinds) `[` / `]` + `s` jumps the selection to the previous/next Sources (annotation) entry in chat history, clamping at the ends without wrapping.
 - (testing) default_providers.toml is independent of code defaults: tests guarantee it parses, documents every config key, contains no dead keys, and its marked examples uncomment into a valid config. default_jinn.toml is documentation rather than authority, checked in one direction only: every key it documents resolves to a section jinn reads.
-- (prompts) Shipped prompts live in `res/prompts`, are embedded at compile time via the `BUNDLED` install catalogue, and `jinn install` seeds them to the user prompts dir, skipping files that already exist unless `--force`.
+- (prompts) Shipped prompts live in `res/prompts` and are embedded at compile time via the `BUNDLED` install catalogue; launch-time reconciliation writes them to the user prompts dir when missing or jinn-owned and stale.
 - (ui) The quake bar's session section shows both the currently-applied auto-prune token total and the pending accumulation total; the applied total derives from entry context-history at render time, excluding compaction and user-sourced excludes.
 - (preferences) Curated projects live in `jinn.toml` under `[[project.entry]]`, keyed by `path`; the pre-umbrella `projects` and `[[project]]` spellings are not read and are not migrated.
 - (history) The anchored-assistant auto-prune worker sources its prune radius from its own `[auto_prune.anchored_assistant]` config.
@@ -247,7 +247,7 @@ Entries are added or amended **only with human approval**.
 - (todo) The todo auto-prune worker force-includes the most recent `todo_*` tool loop and excludes all older ones, so exactly one current task list stays in context; user pins and `x` toggles supersede it.
 - (pickers) The task-list picker browses phases and tasks as a tree, hides postponed tasks, and Enter is a no-op.
 - (skills) jinn ships a bundled `jinn-usage` agent skill whose body routes to per-topic reference files (keybindings, workflows, configuration) installed beside its SKILL.md.
-- (skills) Bundled skill content is compile-time embedded, so installed skill docs match the running jinn binary; refreshing them requires `jinn install --force`.
+- (skills) Bundled skill content is compile-time embedded, so reconciled skill docs match the running jinn binary; stale jinn-owned copies refresh at launch, and edited ones reclaim only via `jinn install --builtins`.
 - (slices) The sidebar's section focus is a dynamic scope per section (sidebar/<section>); FocusScope and the TUI Scope have no static sidebar variants.
 - (slices) A sidebar section is derived from the dynamic scope id's name; ScopeStack is_sidebar and sidebar_section match scope ids with the sidebar slice prefix.
 - (tools) interactive_term_send and interactive_term_kill carry the calling chat session id and act only on that session's own terminal; no model-facing terminal id argument exists.
@@ -537,7 +537,11 @@ Entries are added or amended **only with human approval**.
 - (tools) A session can message any session by stable id: an idle manual bot starts a run seeded from its template plus the message text, a busy target queues the message without cancelling its run, a plain session receives the message as a display-only intersession entry, and an unknown id fails the tool call naming the target.
 - (tools) An agent can load a bot from a workflow-local TOML through `load_attendant`, which attaches it via the saved-bot picker's build path and stamps it with its source file; a bot loaded this way refuses to save into jinn.toml with a refusal naming that file.
 - (chat-log) An intersession message renders in the transcript carrying both the source and target session identities, and is excluded from LLM context and from search indexing.
-- (workflows) The autocoder workflow ships under `res/workflows/autocoder` and installs into the config dir's workflows folder by `jinn install` and `just install-defaults`; the repo tracks no project-local `.config` tree.
+- (workflows) The autodev workflow ships under res/workflows/autodev and reaches the config dir's workflows folder through launch-time reconciliation and just install-defaults; the repo tracks no project-local .config tree.
+- (resources) jinn reconciles the bundled res/ families (themes, personas, prompts, skills, workflows) to user directories on every launch, before actor wiring; resource loaders read only the filesystem.
+- (resources) Bundled-resource reconciliation compares three hashes per file — disk, the state-dir manifest (bundled-files.toml), and the binary's embedded bytes — and writes only files that are missing or jinn-owned and stale.
+- (resources) A bundled file whose content matches no manifest entry is user-owned: the reconciler never writes or deletes it, and jinn install --builtins is the only command that reclaims it.
+- (cli) jinn install writes only jinn.toml, providers.toml, and stream_rules.toml, each only when missing; jinn install --builtins force-restores the bundled resources, and --force no longer exists.
 - (workflows) Autocoder stage-worktree deletion is protected: an agent-supplied path reaches the filesystem only through a double-gated move into `.jinn-autocoder-trash/` (open checkout of this repo, under `worktrees/`), and the sole recursive delete is the placeholder-free `autocoder-trash-purge` entry, invoked only at the start of a run.
 - (input) The terminal reports a newline byte as Ctrl+J: raw mode makes crossterm parse 0x0A as Char('j') with ctrl rather than Enter.
 - (input) The chat input's Input-scope catch-all declines every ctrl- or alt-modified character, so a pasted newline (reported as Ctrl+J) inserts nothing.

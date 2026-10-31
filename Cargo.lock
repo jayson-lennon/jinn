@@ -2640,6 +2640,7 @@ dependencies = [
  "rustls 0.23.45",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "tokio-util",
@@ -3375,11 +3376,15 @@ dependencies = [
  "jinn-canvas",
  "jinn-common",
  "jinn-preferences-config",
+ "jinn-provider-config",
  "jinn-slices",
  "jinn-testutil",
  "marked-path",
  "rstest",
+ "serde",
+ "sha2",
  "tempfile",
+ "toml",
  "wherror",
 ]
 

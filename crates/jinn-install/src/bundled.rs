@@ -100,18 +100,15 @@ pub(crate) struct Bundled {
 }
 
 impl Bundled {
-    /// Where this resource installs: its kind's destination root joined with
-    /// its path relative to that root.
-    pub(crate) fn destination(
-        &self,
-        destinations: &Destinations,
-    ) -> Result<MarkedPathBuf<Absolute>, PathError> {
-        self.kind.root(destinations).join(&self.relative)
-    }
-
     /// The embedded payload, written verbatim.
     pub(crate) fn contents(&self) -> &'static [u8] {
         self.contents
+    }
+
+    /// The path relative to the `res/` root — the manifest's key form and
+    /// the reconciler's expected-path form (e.g. `skills/canvas/SKILL.md`).
+    pub(crate) fn res_relative(&self) -> Result<MarkedPathBuf<Relative>, PathError> {
+        MarkedPathBuf::<Relative>::new(self.kind.dir_name())?.join(&self.relative)
     }
 }
 
@@ -207,6 +204,13 @@ fn split_kind(path: &Path) -> Result<(Kind, &Path), UnknownKind> {
                 .map(|rest| (*kind, rest))
         })
         .ok_or(UnknownKind)
+}
+
+/// Splits a `res/`-relative path into its kind and destination-relative
+/// remainder, for callers that hold a plain path rather than an embedded
+/// file ([`split_kind`] is the fallible form used by the catalogue walk).
+pub(crate) fn res_relative_parts(path: &Path) -> Option<(Kind, &Path)> {
+    split_kind(path).ok()
 }
 
 #[cfg(test)]

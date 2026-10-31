@@ -3,10 +3,14 @@
 //! Runs the real binary against an isolated path root (every jinn base
 //! directory — config, data, cache, state, home — rebinding under one temp
 //! directory via `JINN_PATHS_ROOT`) and asserts the on-disk result:
-//! resource files and the write-once `jinn.toml` and `stream_rules.toml`
-//! semantics (created only when absent for install; an existing file is
-//! never modified, even with `--force` — `config init --force` is the
-//! overwrite path for both).
+//!
+//! - `jinn install` seeds the three config files write-once (`jinn.toml`,
+//!   `providers.toml`, `stream_rules.toml`); an existing file is never
+//!   modified, and there is no `--force` anymore.
+//! - `jinn install --builtins` force-restores the bundled resources over
+//!   user edits and touches no config file.
+//! - `jinn config init --force` remains the overwrite path for the config
+//!   documents.
 //!
 //! The `XDG_*` variables stay set for Linux parity: there the `dirs` crate
 //! reads them directly, and `JINN_PATHS_ROOT` wins over both, so one code
@@ -14,6 +18,7 @@
 //! which is exactly why the root override exists.
 
 use marked_path::{Absolute, MarkedPathAccess, MarkedPathBuf};
+use sha2::Digest;
 use std::path::PathBuf;
 
 /// Resolves the built `jinn` binary for integration tests.
@@ -27,9 +32,10 @@ fn jinn_bin() -> PathBuf {
 ///
 /// `JINN_PATHS_ROOT` rebinds config/data/cache/state/home under `root` (the
 /// `AppPaths` override seam), so install/config-init targets, the log file,
-/// and the skills directory all land inside the temp tree. The XDG variables
-/// are set to the same root's subdirectories for platforms where `dirs`
-/// honors them; the root override takes precedence either way.
+/// the manifest, and the skills directory all land inside the temp tree.
+/// The XDG variables are set to the same root's subdirectories for
+/// platforms where `dirs` honors them; the root override takes precedence
+/// either way.
 fn run_jinn(
     bin: &std::path::Path,
     config: &std::path::Path,
@@ -50,17 +56,111 @@ fn run_jinn(
         .expect("run jinn")
 }
 
+/// A temp root whose `config/` and `data/` subdirectories carry the XDG
+/// locations; the guard keeps the temp dir alive for the duration of the
+/// test. `run_jinn` points `JINN_PATHS_ROOT` at the root itself, so every
+/// jinn path base — including home, and therefore `.agents/skills` —
+/// rebinds inside this tree and the run touches nothing real.
+fn temp_env() -> (MarkedPathBuf<Absolute>, jinn_testutil::JinnTempDir) {
+    let dir = jinn_testutil::tempdir();
+    (dir.path.clone(), dir)
+}
+
+/// The standard derived paths inside a temp root.
+struct Root {
+    config: MarkedPathBuf<Absolute>,
+    data: MarkedPathBuf<Absolute>,
+}
+
+impl Root {
+    fn of(home: &MarkedPathBuf<Absolute>) -> Root {
+        Root {
+            config: home.join("config").expect("typed home joins a bare name"),
+            data: home.join("data").expect("typed home joins a bare name"),
+        }
+    }
+}
+
+/// The `jinn.toml` path in a temp root's config dir.
+fn jinn_toml_path(root: &Root) -> MarkedPathBuf<Absolute> {
+    root.config
+        .join_all(["jinn", "jinn.toml"])
+        .expect("typed parent joins a bare name")
+}
+
+/// The `providers.toml` path in a temp root's config dir.
+fn providers_toml_path(root: &Root) -> MarkedPathBuf<Absolute> {
+    root.config
+        .join_all(["jinn", "providers.toml"])
+        .expect("typed parent joins a bare name")
+}
+
+/// The `stream_rules.toml` path in a temp root's config dir.
+fn stream_rules_path(root: &Root) -> MarkedPathBuf<Absolute> {
+    root.config
+        .join_all(["jinn", "stream_rules.toml"])
+        .expect("typed parent joins a bare name")
+}
+
+/// The bundled-files manifest path in a temp root's state dir.
+fn manifest_path(home: &MarkedPathBuf<Absolute>) -> MarkedPathBuf<Absolute> {
+    home.join_all(["state", "jinn", "bundled-files.toml"])
+        .expect("typed parent joins a bare name")
+}
+
+/// The default theme's on-disk path in a temp root.
+fn default_theme_path(root: &Root) -> MarkedPathBuf<Absolute> {
+    root.config
+        .join_all(["jinn", "themes", "default.toml"])
+        .expect("typed parent joins a bare name")
+}
+
+/// Lowercase hex sha256 of `bytes` — the manifest's hash form.
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = sha2::Sha256::digest(bytes);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// The manifest as (path → sha256) pairs, parsed from disk.
+fn manifest_entries(path: &MarkedPathBuf<Absolute>) -> std::collections::BTreeMap<String, String> {
+    let text = std::fs::read_to_string(path.as_path()).expect("read manifest");
+    let value: toml::Table = toml::from_str(&text).expect("manifest parses");
+    assert_eq!(value.get("version"), Some(&toml::Value::from(1)));
+    let files = value
+        .get("file")
+        .and_then(toml::Value::as_array)
+        .expect("manifest carries a file array");
+    files
+        .iter()
+        .map(|entry| {
+            let path = entry
+                .get("path")
+                .and_then(toml::Value::as_str)
+                .expect("entry names a path");
+            let hash = entry
+                .get("sha256")
+                .and_then(toml::Value::as_str)
+                .expect("entry names a hash");
+            (path.to_owned(), hash.to_owned())
+        })
+        .collect()
+}
+
 #[rstest::rstest]
 #[test]
-fn install_seeds_all_resource_kinds_and_creates_jinn_toml() {
+fn install_seeds_only_the_three_config_files() {
     // Given no existing jinn state in the temp environment.
     let bin = jinn_bin();
     let (home, _guard) = temp_env();
-    let config = home.join("config").expect("typed home joins a bare name");
-    let data = home.join("data").expect("typed home joins a bare name");
+    let root = Root::of(&home);
 
     // When running `jinn install`.
-    let output = run_jinn(&bin, config.as_path(), data.as_path(), &["install"]);
+    let output = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["install"],
+    );
 
     // Then it succeeds.
     assert!(
@@ -69,67 +169,87 @@ fn install_seeds_all_resource_kinds_and_creates_jinn_toml() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // And it seeds the four resource kinds (themes, personas, prompts, skills).
+    // And all three config files were created.
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("default.toml"), "theme seeded: {stdout}");
-    assert!(stdout.contains("general.md"), "persona seeded: {stdout}");
-    assert!(stdout.contains("plan.md"), "prompt seeded: {stdout}");
-    assert!(stdout.contains("SKILL.md"), "skills seeded: {stdout}");
-    // And it lists jinn.toml as Created.
+    assert!(stdout.contains("Created"), "reports creations: {stdout}");
+    assert!(jinn_toml_path(&root).exists(), "jinn.toml must be created");
     assert!(
-        stdout.contains("Created") && stdout.contains("jinn.toml"),
-        "first install must list jinn.toml as Created: {stdout}"
+        providers_toml_path(&root).exists(),
+        "providers.toml must be created"
     );
-    // And no plugin artifacts or hints remain anywhere in the install output.
-    assert!(!stdout.contains("plugin"), "no plugin output: {stdout}");
-    assert!(!stdout.contains(".wasm"), "no wasm payloads: {stdout}");
+    assert!(
+        stream_rules_path(&root).exists(),
+        "stream_rules.toml must be created"
+    );
+
+    // And no resource lands outside the config files: themes stay empty —
+    // resources are the reconciler's job, not install's.
+    let themes_dir = root.config.join_all(["jinn", "themes"]).expect("joins");
+    assert!(
+        !themes_dir.exists() || std::fs::read_dir(themes_dir.as_path()).is_err_and(|_| true),
+        "install must not seed themes"
+    );
+
+    // And no manifest was written: install seeds no bundled resources.
+    assert!(
+        !manifest_path(&home).exists(),
+        "install must not write the bundled-files manifest"
+    );
 }
 
 #[rstest::rstest]
 #[test]
-fn install_second_run_lists_jinn_toml_as_skipped() {
+fn install_second_run_skips_every_config_file() {
     // Given a completed first install.
     let bin = jinn_bin();
     let (home, _guard) = temp_env();
-    let config = home.join("config").expect("typed home joins a bare name");
-    let data = home.join("data").expect("typed home joins a bare name");
+    let root = Root::of(&home);
 
-    let first = run_jinn(&bin, config.as_path(), data.as_path(), &["install"]);
+    let first = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["install"],
+    );
     assert!(first.status.success());
 
-    // When running `jinn install` again without --force.
-    let second = run_jinn(&bin, config.as_path(), data.as_path(), &["install"]);
+    // When running `jinn install` again.
+    let second = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["install"],
+    );
 
     // Then it succeeds.
     assert!(second.status.success());
-    // And jinn.toml is listed as skipped alongside the other resources.
+    // And every config file is listed as skipped, not an error.
     let stdout = String::from_utf8_lossy(&second.stdout);
-    let toml_line = stdout
-        .lines()
-        .find(|l| l.contains("jinn.toml"))
-        .expect("output must mention jinn.toml");
-    assert!(
-        toml_line.starts_with("Already present, skipped"),
-        "second run must list jinn.toml as skipped, got: {toml_line}"
+    let skip_count = stdout.matches("Already present, skipped").count();
+    assert_eq!(
+        skip_count, 3,
+        "all three config files must be skipped, got: {stdout}"
     );
 }
 
 #[rstest::rstest]
 #[test]
-fn install_force_preserves_edited_jinn_toml() {
+fn install_never_touches_an_edited_jinn_toml() {
     // Given a completed first install whose jinn.toml the user hand-edited
-    // (a compaction knob + a comment).
+    // (a comment + a knob).
     let bin = jinn_bin();
     let (home, _guard) = temp_env();
-    let config = home.join("config").expect("typed home joins a bare name");
-    let data = home.join("data").expect("typed home joins a bare name");
+    let root = Root::of(&home);
 
-    let first = run_jinn(&bin, config.as_path(), data.as_path(), &["install"]);
+    let first = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["install"],
+    );
     assert!(first.status.success());
 
-    let toml_path = config
-        .join("jinn/jinn.toml")
-        .expect("typed parent joins a bare name");
+    let toml_path = jinn_toml_path(&root);
     let original = std::fs::read_to_string(toml_path.as_path()).expect("read jinn.toml");
     let edited = format!(
         "# user was here\n{}",
@@ -140,23 +260,48 @@ fn install_force_preserves_edited_jinn_toml() {
     );
     std::fs::write(&toml_path, &edited).expect("write edited jinn.toml");
 
-    // When running `jinn install --force`.
-    let forced = run_jinn(
+    // When running `jinn install` again.
+    let second = run_jinn(
         &bin,
-        config.as_path(),
-        data.as_path(),
-        &["install", "--force"],
+        root.config.as_path(),
+        root.data.as_path(),
+        &["install"],
     );
 
     // Then it succeeds and jinn.toml is byte-identical.
-    assert!(forced.status.success());
-    let on_disk = std::fs::read_to_string(&toml_path).expect("read jinn.toml after --force");
-    assert_eq!(on_disk, edited, "--force must never modify jinn.toml");
-    // And the user's knob survived (the edit landed in the file).
+    assert!(second.status.success());
+    let on_disk = std::fs::read_to_string(&toml_path).expect("read jinn.toml after install");
+    assert_eq!(on_disk, edited, "install must never modify jinn.toml");
+    // And the user's knob survived.
     assert!(on_disk.contains("threshold = 0.4"));
-    // And resource files still followed --force.
-    let stdout = String::from_utf8_lossy(&forced.stdout);
-    assert!(stdout.contains("Overwrote"));
+}
+
+#[rstest::rstest]
+#[test]
+fn install_rejects_force() {
+    // Given a jinn binary with the new CLI surface.
+    let bin = jinn_bin();
+    let (home, _guard) = temp_env();
+    let root = Root::of(&home);
+
+    // When running `jinn install --force`.
+    let output = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["install", "--force"],
+    );
+
+    // Then clap rejects the unknown flag.
+    assert!(
+        !output.status.success(),
+        "--force must no longer exist on install"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unexpected argument"),
+        "clap must report the unknown flag: {stderr}"
+    );
 }
 
 #[rstest::rstest]
@@ -165,22 +310,19 @@ fn install_succeeds_with_malformed_jinn_toml() {
     // Given a malformed jinn.toml from a prior broken edit.
     let bin = jinn_bin();
     let (home, _guard) = temp_env();
-    let config = home.join("config").expect("typed home joins a bare name");
-    let data = home.join("data").expect("typed home joins a bare name");
+    let root = Root::of(&home);
 
-    let toml_dir = config.join("jinn").expect("typed parent joins a bare name");
+    let toml_dir = root.config.join("jinn").expect("typed parent joins a name");
     std::fs::create_dir_all(&toml_dir).expect("create config dir");
-    std::fs::write(
-        toml_dir
-            .join("jinn.toml")
-            .expect("typed parent joins a bare name")
-            .as_path(),
-        "NOT [valid toml",
-    )
-    .expect("write jinn.toml");
+    std::fs::write(jinn_toml_path(&root), "NOT [valid toml").expect("write jinn.toml");
 
     // When running `jinn install`.
-    let output = run_jinn(&bin, config.as_path(), data.as_path(), &["install"]);
+    let output = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["install"],
+    );
 
     // Then it succeeds.
     assert!(
@@ -189,16 +331,409 @@ fn install_succeeds_with_malformed_jinn_toml() {
         String::from_utf8_lossy(&output.stderr)
     );
     // And the malformed file is left untouched.
-    let on_disk = std::fs::read_to_string(
-        toml_dir
-            .join("jinn.toml")
-            .expect("typed parent joins a bare name")
-            .as_path(),
-    )
-    .expect("read jinn.toml");
+    let on_disk = std::fs::read_to_string(jinn_toml_path(&root)).expect("read jinn.toml");
     assert_eq!(
         on_disk, "NOT [valid toml",
         "install must not touch the file"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn boot_reconcile_writes_bundled_files_and_a_complete_manifest() {
+    // Given a fresh temp environment and a launch that proceeds past the
+    // recovery subcommands (`completions` prints and exits; prepare runs).
+    let bin = jinn_bin();
+    let (home, _guard) = temp_env();
+    let root = Root::of(&home);
+
+    let output = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["completions", "bash"],
+    );
+    assert!(
+        output.status.success(),
+        "launch failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Then the bundled theme was written to the user dir.
+    let theme_path = default_theme_path(&root);
+    assert!(theme_path.exists(), "boot reconcile must seed the theme");
+
+    // And the manifest lists exactly it under the shipped hash: the entry
+    // set is the written set (here both single-file, as every other bundled
+    // file was user-absent… but this root is fresh, so the manifest carries
+    // the whole shipped catalogue).
+    let entries = manifest_entries(&manifest_path(&home));
+    assert!(
+        !entries.is_empty(),
+        "manifest must list the reconciled files"
+    );
+    let theme_bytes = std::fs::read(theme_path.as_path()).expect("read written theme");
+    assert_eq!(
+        entries.get("themes/default.toml"),
+        Some(&sha256_hex(&theme_bytes)),
+        "the manifest records the written theme under its hash"
+    );
+    // And every manifest entry names a file that now exists on disk.
+    for key in entries.keys() {
+        let disk = match key.split_once('/') {
+            Some(("themes", rest)) => root
+                .config
+                .join_all(["jinn", "themes"])
+                .and_then(|d| d.join(rest))
+                .expect("joins"),
+            Some(("personas", rest)) => root
+                .config
+                .join_all(["jinn", "personas"])
+                .and_then(|d| d.join(rest))
+                .expect("joins"),
+            Some(("prompts", rest)) => root
+                .config
+                .join_all(["jinn", "prompts"])
+                .and_then(|d| d.join(rest))
+                .expect("joins"),
+            Some(("workflows", rest)) => root
+                .config
+                .join_all(["jinn", "workflows"])
+                .and_then(|d| d.join(rest))
+                .expect("joins"),
+            Some(("skills", rest)) => home
+                .join_all([".agents", "skills"])
+                .and_then(|d| d.join(rest))
+                .expect("joins"),
+            other => panic!("unexpected manifest entry kind: {other:?}"),
+        };
+        assert!(disk.exists(), "manifest entry {key} names no written file");
+    }
+}
+
+#[rstest::rstest]
+#[test]
+fn boot_reconcile_is_idempotent_across_runs() {
+    // Given a first launch that reconciled a fresh root.
+    let bin = jinn_bin();
+    let (home, _guard) = temp_env();
+    let root = Root::of(&home);
+
+    let first = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["completions", "bash"],
+    );
+    assert!(first.status.success());
+
+    let theme_bytes = std::fs::read(default_theme_path(&root).as_path()).expect("read theme");
+    let manifest_before = std::fs::read(manifest_path(&home).as_path()).expect("read manifest");
+
+    // When launching again.
+    let second = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["completions", "bash"],
+    );
+    assert!(second.status.success());
+
+    // Then disk and manifest are byte-identical.
+    assert_eq!(
+        std::fs::read(default_theme_path(&root).as_path()).expect("read theme"),
+        theme_bytes,
+        "second run must not rewrite the theme"
+    );
+    assert_eq!(
+        std::fs::read(manifest_path(&home).as_path()).expect("read manifest"),
+        manifest_before,
+        "second run must not rewrite the manifest"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn boot_reconcile_keeps_a_user_edited_bundled_file() {
+    // Given a reconciled root whose theme the user then edited.
+    let bin = jinn_bin();
+    let (home, _guard) = temp_env();
+    let root = Root::of(&home);
+
+    let setup = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["completions", "bash"],
+    );
+    assert!(setup.status.success());
+
+    let theme_path = default_theme_path(&root);
+    std::fs::write(theme_path.as_path(), "# the user's theme\n").expect("edit theme");
+
+    // When launching again.
+    let next = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["completions", "bash"],
+    );
+    assert!(next.status.success());
+
+    // Then the user's bytes survive untouched.
+    assert_eq!(
+        std::fs::read_to_string(theme_path.as_path()).expect("read theme"),
+        "# the user's theme\n",
+        "boot reconcile must never overwrite a user edit"
+    );
+    // And the entry was dropped: the file is user-owned now.
+    let entries = manifest_entries(&manifest_path(&home));
+    assert!(
+        !entries.contains_key("themes/default.toml"),
+        "the edited file must be untracked"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn boot_reconcile_heals_a_tracked_stale_file() {
+    // Given a reconciled root, then a crafted state simulating an update:
+    // the manifest claims a stale copy that is indeed on disk.
+    let bin = jinn_bin();
+    let (home, _guard) = temp_env();
+    let root = Root::of(&home);
+
+    let setup = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["completions", "bash"],
+    );
+    assert!(setup.status.success());
+
+    let theme_path = default_theme_path(&root);
+    std::fs::write(theme_path.as_path(), "stale bytes from an older binary")
+        .expect("write stale theme");
+    let stale_hash = sha256_hex(b"stale bytes from an older binary");
+    let manifest_file = manifest_path(&home);
+    let rewritten = rewrite_manifest_entry(
+        &std::fs::read_to_string(manifest_file.as_path()).expect("read manifest"),
+        "themes/default.toml",
+        &stale_hash,
+    );
+    std::fs::write(manifest_file.as_path(), &rewritten).expect("write crafted manifest");
+
+    // When launching again.
+    let next = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["completions", "bash"],
+    );
+    assert!(next.status.success());
+
+    // Then the stale copy was healed to the shipped bytes.
+    let shipped = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("res/themes/default.toml"),
+    )
+    .expect("read shipped theme from the repo tree");
+    assert_eq!(
+        std::fs::read(theme_path.as_path()).expect("read healed theme"),
+        shipped,
+        "the tracked stale file must be overwritten with the shipped bytes"
+    );
+    // And the manifest records the shipped hash again.
+    let entries = manifest_entries(&manifest_file);
+    assert_eq!(
+        entries.get("themes/default.toml"),
+        Some(&sha256_hex(&shipped))
+    );
+}
+
+/// Rewrites the `sha256` of one manifest entry in its TOML text, matching
+/// the entry by its path line and patching the next sha256 line.
+fn rewrite_manifest_entry(raw: &str, entry_path: &str, new_hash: &str) -> String {
+    let mut out = Vec::new();
+    let mut in_target = false;
+    for line in raw.lines() {
+        if line.trim() == "[[file]]" {
+            in_target = false;
+        }
+        if line.trim_start().starts_with("path = ") {
+            in_target = line.contains(&format!("\"{entry_path}\""));
+        }
+        if in_target && line.trim_start().starts_with("sha256 = ") {
+            out.push(format!("sha256 = \"{new_hash}\""));
+        } else {
+            out.push(line.to_owned());
+        }
+    }
+    out.push(String::new());
+    out.join("\n")
+}
+
+#[rstest::rstest]
+#[test]
+fn boot_reconcile_deletes_an_owned_unshipped_file_and_keeps_an_edited_one() {
+    // Given a reconciled root, then two crafted unshipped entries: one
+    // whose file still matches what jinn wrote, one that was edited after.
+    let bin = jinn_bin();
+    let (home, _guard) = temp_env();
+    let root = Root::of(&home);
+
+    let setup = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["completions", "bash"],
+    );
+    assert!(setup.status.success());
+
+    let gone_path = root
+        .config
+        .join_all(["jinn", "themes", "gone.toml"])
+        .expect("joins");
+    std::fs::write(gone_path.as_path(), "what jinn once wrote").expect("seed gone theme");
+    let edited_path = root
+        .config
+        .join_all(["jinn", "themes", "custom-legacy.toml"])
+        .expect("joins");
+    std::fs::write(edited_path.as_path(), "# the user's legacy theme\n")
+        .expect("seed edited legacy theme");
+
+    let manifest_file = manifest_path(&home);
+    let raw = std::fs::read_to_string(manifest_file.as_path()).expect("read manifest");
+    let crafted = rewrite_manifest_entry(&raw, "themes/default.toml", "placeholder")
+        .replace(
+            "[[file]]\npath = \"themes/default.toml\"\nsha256 = \"placeholder\"",
+            &format!(
+                "[[file]]\npath = \"themes/gone.toml\"\nsha256 = \"{}\"\n[[file]]\npath = \"themes/default.toml\"\nsha256 = \"{}\"",
+                sha256_hex(b"what jinn once wrote"),
+                manifest_entries(&manifest_file).get("themes/default.toml").expect("entry exists")
+            ),
+        )
+        + &format!(
+            "[[file]]\npath = \"themes/custom-legacy.toml\"\nsha256 = \"{}\"\n",
+            sha256_hex(b"placeholder-not-what-is-on-disk")
+        );
+    std::fs::write(manifest_file.as_path(), &crafted).expect("write crafted manifest");
+
+    // When launching again.
+    let next = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["completions", "bash"],
+    );
+    assert!(next.status.success());
+
+    // Then the owned unshipped file was deleted.
+    assert!(
+        !gone_path.exists(),
+        "an owned unshipped file must be deleted"
+    );
+    // And the edited unshipped file was kept.
+    assert_eq!(
+        std::fs::read_to_string(edited_path.as_path()).expect("read kept file"),
+        "# the user's legacy theme\n",
+        "an edited unshipped file must be kept"
+    );
+    // And both entries are forgotten.
+    let entries = manifest_entries(&manifest_file);
+    assert!(!entries.contains_key("themes/gone.toml"));
+    assert!(!entries.contains_key("themes/custom-legacy.toml"));
+    // While the shipped theme is still tracked.
+    assert!(entries.contains_key("themes/default.toml"));
+}
+
+#[rstest::rstest]
+#[test]
+fn install_builtins_overwrites_user_edits_and_reclaims_them() {
+    // Given a reconciled root whose theme the user edited.
+    let bin = jinn_bin();
+    let (home, _guard) = temp_env();
+    let root = Root::of(&home);
+
+    let setup = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["completions", "bash"],
+    );
+    assert!(setup.status.success());
+    let theme_path = default_theme_path(&root);
+    std::fs::write(theme_path.as_path(), "# the user's theme\n").expect("edit theme");
+    // And a config file present with user content.
+    let toml_path = jinn_toml_path(&root);
+    let config_before = std::fs::read_to_string(toml_path.as_path()).expect("read jinn.toml");
+
+    // When running `jinn install --builtins`.
+    let output = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["install", "--builtins"],
+    );
+    assert!(
+        output.status.success(),
+        "install --builtins failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Then the theme was reclaimed with the shipped bytes.
+    let shipped = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("res/themes/default.toml"),
+    )
+    .expect("read shipped theme");
+    assert_eq!(
+        std::fs::read(theme_path.as_path()).expect("read reclaimed theme"),
+        shipped,
+        "--builtins must overwrite user edits"
+    );
+    // And the manifest tracks the file again.
+    let entries = manifest_entries(&manifest_path(&home));
+    assert_eq!(
+        entries.get("themes/default.toml"),
+        Some(&sha256_hex(&shipped))
+    );
+
+    // And the config files were not touched.
+    assert_eq!(
+        std::fs::read_to_string(toml_path.as_path()).expect("read jinn.toml"),
+        config_before,
+        "--builtins must never modify jinn.toml"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn install_command_output_carries_no_reconcile_actions() {
+    // Given a fresh root (an install here must not reconcile).
+    let bin = jinn_bin();
+    let (home, _guard) = temp_env();
+    let root = Root::of(&home);
+
+    // When running `jinn install`.
+    let output = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["install"],
+    );
+    assert!(output.status.success());
+
+    // Then no bundled resource file was written anywhere: no theme, no
+    // personas, no skills.
+    assert!(
+        !default_theme_path(&root).exists(),
+        "install must not seed resources as a side effect"
+    );
+    assert!(
+        !home
+            .join_all([".agents", "skills", "jinn-usage", "SKILL.md"])
+            .expect("joins")
+            .exists(),
+        "install must not seed skills as a side effect"
     );
 }
 
@@ -208,11 +743,15 @@ fn config_init_creates_the_stream_rules_file_beside_jinn_toml() {
     // Given a fresh temp environment with no config at all.
     let bin = jinn_bin();
     let (home, _guard) = temp_env();
-    let config = home.join("config").expect("typed home joins a bare name");
-    let data = home.join("data").expect("typed home joins a bare name");
+    let root = Root::of(&home);
 
     // When running `jinn config init`.
-    let output = run_jinn(&bin, config.as_path(), data.as_path(), &["config", "init"]);
+    let output = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["config", "init"],
+    );
 
     // Then it succeeds and reports both files created.
     assert!(
@@ -230,9 +769,7 @@ fn config_init_creates_the_stream_rules_file_beside_jinn_toml() {
         "fresh init must create the rules file, got: {rules_line}"
     );
     // And the rules file exists beside jinn.toml with the embedded template.
-    let rules_path = config
-        .join("jinn/stream_rules.toml")
-        .expect("typed parent joins a bare name");
+    let rules_path = stream_rules_path(&root);
     assert!(
         rules_path.as_path().is_file(),
         "rules file must be beside jinn.toml"
@@ -250,21 +787,23 @@ fn config_init_force_overwrites_the_stream_rules_file() {
     // Given a completed init whose rules file the user replaced with edits.
     let bin = jinn_bin();
     let (home, _guard) = temp_env();
-    let config = home.join("config").expect("typed home joins a bare name");
-    let data = home.join("data").expect("typed home joins a bare name");
+    let root = Root::of(&home);
 
-    let first = run_jinn(&bin, config.as_path(), data.as_path(), &["config", "init"]);
+    let first = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["config", "init"],
+    );
     assert!(first.status.success());
-    let rules_path = config
-        .join("jinn/stream_rules.toml")
-        .expect("typed parent joins a bare name");
+    let rules_path = stream_rules_path(&root);
     std::fs::write(rules_path.as_path(), "# only mine\n").expect("write edited rules");
 
     // When running `jinn config init --force`.
     let forced = run_jinn(
         &bin,
-        config.as_path(),
-        data.as_path(),
+        root.config.as_path(),
+        root.data.as_path(),
         &["config", "init", "--force"],
     );
 
@@ -293,21 +832,18 @@ fn config_init_without_force_skips_an_existing_stream_rules_file() {
     // jinn.toml beside it.
     let bin = jinn_bin();
     let (home, _guard) = temp_env();
-    let config = home.join("config").expect("typed home joins a bare name");
-    let data = home.join("data").expect("typed home joins a bare name");
-    let toml_dir = config.join("jinn").expect("typed parent joins a bare name");
+    let root = Root::of(&home);
+    let toml_dir = root.config.join("jinn").expect("typed parent joins a name");
     std::fs::create_dir_all(&toml_dir).expect("create config dir");
-    std::fs::write(
-        toml_dir
-            .join("stream_rules.toml")
-            .expect("typed parent joins a bare name")
-            .as_path(),
-        "# only mine\n",
-    )
-    .expect("write rules");
+    std::fs::write(stream_rules_path(&root), "# only mine\n").expect("write rules");
 
     // When running `jinn config init` without --force.
-    let output = run_jinn(&bin, config.as_path(), data.as_path(), &["config", "init"]);
+    let output = run_jinn(
+        &bin,
+        root.config.as_path(),
+        root.data.as_path(),
+        &["config", "init"],
+    );
 
     // Then it succeeds — jinn.toml is created — and the rules file is
     // listed as skipped, content intact.
@@ -326,23 +862,7 @@ fn config_init_without_force_skips_an_existing_stream_rules_file() {
         "plain init must not touch an existing rules file, got: {rules_line}"
     );
     assert_eq!(
-        std::fs::read_to_string(
-            toml_dir
-                .join("stream_rules.toml")
-                .expect("typed parent joins a bare name")
-                .as_path()
-        )
-        .expect("read rules file"),
+        std::fs::read_to_string(stream_rules_path(&root)).expect("read rules file"),
         "# only mine\n"
     );
-}
-
-// A temp root whose `config/` and `data/` subdirectories carry the XDG
-// locations; the guard keeps the temp dir alive for the duration of the
-// test. `run_jinn` points `JINN_PATHS_ROOT` at the root itself, so every
-// jinn path base — including home, and therefore `.agents/skills` —
-// rebinds inside this tree and the run touches nothing real.
-fn temp_env() -> (MarkedPathBuf<Absolute>, jinn_testutil::JinnTempDir) {
-    let dir = jinn_testutil::tempdir();
-    (dir.path.clone(), dir)
 }

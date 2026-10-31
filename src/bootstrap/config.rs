@@ -94,6 +94,8 @@ pub fn prepare(
         return Ok(handled);
     }
 
+    reconcile_bundled_resources();
+
     let (config_storage, config, app_state_storage) = read_config(cli)?;
     let shells = resolve_shells(&config);
     let (session_store, session_pool) = open_session_store(cli, runtime)?;
@@ -117,6 +119,78 @@ pub fn prepare(
         app_state_storage,
         shells,
     }))
+}
+
+/// Reconciles the bundled `res/` resources against the on-disk copies and
+/// the state-dir manifest, healing drift from a binary update.
+///
+/// Runs once per launch, after the recovery-subcommand early return — so
+/// `jinn install`, `jinn config`, and the bundled MCP server children never
+/// reconcile as a side effect — and before any resource loader reads disk.
+///
+/// Never fatal: every problem is logged at INFO/WARN to `jinn.log` and the
+/// launch proceeds. A read-only config dir must not brick the TUI. The
+/// resource loaders stay pure-disk readers; this is the only writer.
+fn reconcile_bundled_resources() {
+    let app_paths = jinn_kernel::AppPaths::default();
+    let destinations = jinn_install::destinations_from_paths(&app_paths);
+
+    // The expected set is derived from the compile-time embed; a
+    // derivation failure is a build-shape bug and skips the reconcile.
+    let expected = match jinn_install::expected_catalogue() {
+        Ok(expected) => expected,
+        Err(report) => {
+            tracing::warn!(%report, "bundled-resource catalogue derivation failed; skipping reconcile");
+            return;
+        }
+    };
+
+    let report = jinn_install::reconcile(
+        &destinations,
+        &expected,
+        &app_paths.bundled_files_manifest_path(),
+    );
+
+    let counts = report.counts();
+    for warning in &report.warnings {
+        tracing::warn!(
+            warning,
+            "bundled-resource reconcile hit a non-fatal problem"
+        );
+    }
+    for action in &report.actions {
+        let path = action.path();
+        match action {
+            jinn_install::ReconcileAction::Created(_) => {
+                tracing::info!(%path, "bundled resource created");
+            }
+            jinn_install::ReconcileAction::Overwritten(_) => {
+                tracing::info!(%path, "stale bundled resource overwritten");
+            }
+            jinn_install::ReconcileAction::Adopted(_) => {
+                tracing::info!(%path, "bundled resource adopted");
+            }
+            jinn_install::ReconcileAction::Reclaimed(_) => {
+                tracing::info!(%path, "bundled resource reclaimed");
+            }
+            jinn_install::ReconcileAction::Unchanged(_)
+            | jinn_install::ReconcileAction::KeptUserEdited(_)
+            | jinn_install::ReconcileAction::KeptOrphan(_) => {}
+            jinn_install::ReconcileAction::DeletedObsolete(_) => {
+                tracing::info!(%path, "obsolete bundled resource deleted");
+            }
+        }
+    }
+    tracing::info!(
+        created = counts.created,
+        overwritten_stale = counts.overwritten_stale,
+        adopted = counts.adopted,
+        unchanged = counts.unchanged,
+        kept_user_edited = counts.kept_user_edited,
+        deleted_obsolete = counts.deleted_obsolete,
+        kept_orphan = counts.kept_orphan,
+        "bundled-resource reconcile complete"
+    );
 }
 
 /// Resolves the shells jinn runs commands through, from the `[shell]`
@@ -247,56 +321,70 @@ fn run_recovery_subcommand(cli: &jinn_cli::cli::Cli) -> Result<Option<Prepared>,
         }
     }
 
-    // `install` seeds default resources into user dirs. Like `config`, it
-    // must run before any actor wiring — and it needs no preferences/DB,
+    // `install` seeds the three config files, write-once, and — with
+    // `--builtins` — force-restores the bundled resources. Like `config`,
+    // it must run before any actor wiring — and it needs no preferences/DB,
     // so it dispatches before the session store is opened.
-    if let Some(Commands::Install { force }) = &cli.command {
+    if let Some(Commands::Install { builtins }) = &cli.command {
         use jinn_install::{
-            Destinations, InstallOutcome, InstallReport, JinnTomlOutcome, install_defaults_to,
+            SeedOutcome, destinations_from_paths, expected_catalogue, restore_builtins,
+            seed_configs_to,
         };
         use jinn_kernel::AppPaths;
         use jinn_preferences_config::StreamRulesSeedOutcome;
 
         let app_paths = AppPaths::default();
-        let config_path = jinn_config::FilesystemConfigStorage::default_path()
-            .path()
-            .clone();
-        let destinations = Destinations::new(
-            app_paths.themes_dir().as_marked_path(),
-            app_paths.personas_dir().as_marked_path(),
-            app_paths.prompts_dir().as_marked_path(),
-            app_paths.workflows_dir().as_marked_path(),
-            app_paths.skills_dir().as_marked_path(),
-        );
-        match install_defaults_to(&destinations, *force, &config_path) {
+        let destinations = destinations_from_paths(&app_paths);
+
+        // `--builtins` is the explicit reclaim: overwrite every bundled
+        // resource from the embed (including user edits), then exit. It
+        // touches no config file.
+        if *builtins {
+            let expected = expected_catalogue().map_err(|report| {
+                eprintln!("error: failed to enumerate bundled resources:");
+                eprintln!("  {report:?}");
+                report.change_context(AppError)
+            })?;
+            match restore_builtins(
+                &destinations,
+                &expected,
+                &app_paths.bundled_files_manifest_path(),
+            ) {
+                Ok(report) => {
+                    for action in &report.actions {
+                        println!("Restored {}", action.path());
+                    }
+                    for warning in &report.warnings {
+                        eprintln!("warning: {warning}");
+                    }
+                }
+                Err(report) => {
+                    eprintln!("error: failed to restore bundled resources:");
+                    eprintln!("  {report:?}");
+                    return Err(report.change_context(AppError));
+                }
+            }
+            return Ok(Some(Prepared::Handled));
+        }
+
+        // Plain install: config files only, each created only when missing.
+        // An existing file is never read or modified — never an error.
+        let prefs_path = app_paths.preferences_path();
+        let providers_path = jinn_kernel::config_path();
+        match seed_configs_to(&prefs_path, &providers_path) {
             Ok(report) => {
-                let InstallReport {
-                    outcomes,
-                    jinn_toml,
-                    stream_rules,
-                } = report;
-                for outcome in outcomes {
-                    match &outcome {
-                        InstallOutcome::Created(path) => {
-                            println!("Installed {path}");
-                        }
-                        InstallOutcome::Skipped(path) => {
-                            println!("Already present, skipped {path}");
-                        }
-                        InstallOutcome::Overwritten(path) => {
-                            println!("Overwrote {path}");
+                for (name, outcome) in [
+                    ("jinn.toml", &report.jinn_toml),
+                    ("providers.toml", &report.providers_toml),
+                ] {
+                    match outcome {
+                        SeedOutcome::Created(path) => println!("Created {path}"),
+                        SeedOutcome::Untouched(path) => {
+                            println!("Already present, skipped {path} ({name})");
                         }
                     }
                 }
-                match &jinn_toml {
-                    JinnTomlOutcome::Created(path) => {
-                        println!("Created {path}");
-                    }
-                    JinnTomlOutcome::Untouched(path) => {
-                        println!("Already present, skipped {path}");
-                    }
-                }
-                match &stream_rules {
+                match &report.stream_rules {
                     StreamRulesSeedOutcome::Created(path) => {
                         println!("Created {path}");
                     }

@@ -12,6 +12,9 @@
 - It should no longer be possible to have an empty session list in the sidebar
 - Fix: `ESC ESC` behavior broke in v1.10.0 and has been restored.
   - `ESC ESC` drains queue+steering buffer into the chat input box.
+- Bundled resources now self-update on launch: missing and outdated files are installed automatically. Edited files are detected and left untouched.
+  - `jinn install` now only seeds missing config files. `--force` is replaced by `--builtins`, which overwrites local edits with the shipped versions.
+  - Migration: existing users should run `jinn install --builtins` once to enable automatic update of all resource files.
 
 ## 2026-10-29 v1.13.0
 
