@@ -2,7 +2,7 @@
 name = "jinn-session-history"
 version.workspace = true
 edition.workspace = true
-description = "The session-history slice: the HistoryEditor sole write path over session chat history."
+description = "The session-history library: the HistoryEditor sole write path over session chat history."
 
 [dependencies]
 jinn-core-types = { workspace = true }

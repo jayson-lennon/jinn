@@ -1,6 +1,6 @@
-//! The session-history slice — the sole write path over session chat history.
+//! The session-history library — the sole write path over session chat history.
 //!
-//! A lib-only slice: it owns [`HistoryEditor`] (every sanctioned mutation of
+//! A lib-only crate: it owns [`HistoryEditor`] (every sanctioned mutation of
 //! a session's history vector) and nothing else. There is **no actor, no
 //! cell, and no `activate()`** here — the kernel session actor's fold
 //! handlers (streaming, tool calls, stall retry) are the editor's sanctioned

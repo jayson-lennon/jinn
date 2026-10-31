@@ -1,9 +1,9 @@
 //! History editor - the sole writer of chat history.
 //!
-//! This is the session-history slice's lib-only payload: the editor owns
+//! This is the session-history crate's lib-only payload: the editor owns
 //! every sanctioned mutation of a session's history vector. There is no
 //! actor here — the kernel session actor's fold handlers (streaming,
-//! tool calls, stall retry) are this slice's sanctioned callers, writing
+//! tool calls, stall retry) are this crate's sanctioned callers, writing
 //! history alongside phase-machine, in-flight-guard, and input-drain
 //! state in one lock scope.
 //!
@@ -366,7 +366,7 @@ where
                 match tool_group_end(history, index) {
                     Some(end) => {
                         // Loop bounds come from tool_group_end over this same
-                        // history, so the slice is in-bounds by construction.
+                        // history, so the loop is in-bounds by construction.
                         if let Some(group) = history.get(index..end)
                             && !loop_is_complete(group)
                         {
