@@ -1,4 +1,12 @@
-//! User entry rendering - markdown-rendered text on a block background.
+//! User entry rendering - markdown-rendered text on a block background,
+//! with a display-formatter registry tried before the markdown path.
+//!
+//! Some user entries begin with a segment jinn itself authored (the
+//! canvas-metrics bookkeeping). A display formatter recognizes such a
+//! segment by its text and renders it verbatim in a dedicated style; any
+//! remainder, and every unclaimed message, go through the ordinary
+//! markdown pipeline. All segments then share one background/padding pass,
+//! so the block visual treatment stays in exactly one place.
 
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
@@ -11,12 +19,104 @@ use super::shared::{Pad, RenderContext, pad_entry_with, pad_line_to_width};
 /// Renders a user entry: markdown body on the user-block background, with
 /// `@path` tokens colored by resolution outcome — green when attached as an
 /// image, red when degraded (missing file or not an image).
+///
+/// Before the markdown pipeline runs, the display-formatter registry gets
+/// first claim on the text: the first formatter that recognizes a segment
+/// renders it, and the unclaimed remainder falls through to markdown.
 pub fn to_lines(
     text: &str,
     outcome: &AttachmentOutcome,
     ctx: &RenderContext,
 ) -> Vec<Line<'static>> {
-    text_block_lines(text, outcome, ctx.theme.user_block_bg, ctx)
+    let text = super::shared::strip_ansi(text);
+    match FORMATTERS.iter().find_map(|fmt| fmt(&text, ctx)) {
+        Some(split) => {
+            let mut lines = split.lines;
+            if !split.rest.trim().is_empty() {
+                lines.extend(markdown_body(&split.rest, outcome, ctx));
+            }
+            finish_block(&mut lines, ctx.theme.user_block_bg, ctx);
+            lines
+        }
+        None => {
+            let mut lines = markdown_body(&text, outcome, ctx);
+            finish_block(&mut lines, ctx.theme.user_block_bg, ctx);
+            lines
+        }
+    }
+}
+
+/// What a display formatter produces: styled lines for the segment it
+/// recognized, plus the unclaimed remainder for the markdown path.
+struct FormatterSplit {
+    lines: Vec<Line<'static>>,
+    rest: String,
+}
+
+/// A formatter tried against the user display text. Returns `None` to
+/// decline; the next formatter is tried, then the markdown path.
+type UserDisplayFormatter = fn(&str, &RenderContext) -> Option<FormatterSplit>;
+
+const CANVAS_METRICS_OPEN: &str = "<canvas-metrics";
+const CANVAS_METRICS_CLOSE: &str = "</canvas-metrics>";
+
+/// Detects the canvas-metrics block enqueued at the front of a user entry
+/// and renders it verbatim — tags, numbering, and props — in the theme's
+/// metrics foreground, so jinn-authored bookkeeping stays quiet next to the
+/// user's own words. Only a leading block claims: scanning mid-text would
+/// grey a message the user typed that merely mentions the tag.
+fn canvas_metrics_formatter(text: &str, ctx: &RenderContext) -> Option<FormatterSplit> {
+    if !text.starts_with(CANVAS_METRICS_OPEN) {
+        return None;
+    }
+    let close = text.find(CANVAS_METRICS_CLOSE)?;
+    let (block, rest) = text.split_at(close + CANVAS_METRICS_CLOSE.len());
+    let rest = rest.strip_prefix('\n').unwrap_or(rest);
+
+    let style = Style::default().fg(ctx.theme.metrics_fg);
+    let lines = block
+        .lines()
+        .map(|line| Line::from(Span::styled(line.to_owned(), style)))
+        .collect();
+
+    Some(FormatterSplit {
+        lines,
+        rest: rest.to_owned(),
+    })
+}
+
+/// Display formatters, tried in order on the user display text. The first
+/// claim wins; to support a new jinn-authored display shape, add a function
+/// here.
+const FORMATTERS: &[UserDisplayFormatter] = &[canvas_metrics_formatter];
+
+/// Renders plain display text as markdown and recolors its `@path` tokens —
+/// the content lines of a user-style block, without background or padding.
+fn markdown_body(
+    text: &str,
+    outcome: &AttachmentOutcome,
+    ctx: &RenderContext,
+) -> Vec<Line<'static>> {
+    let mut lines = render_markdown(text, ctx.content_width, &ctx.theme);
+    recolor_at_tokens(&mut lines, outcome, ctx);
+    lines
+}
+
+/// Applies the shared finish pass: block background patched over every span
+/// (preserving inline styling), each line padded to full width, and blank
+/// padding rows above and below — all carrying the block background.
+/// Formatter lines and markdown content share this pass.
+fn finish_block(
+    lines: &mut Vec<Line<'static>>,
+    block_bg: ratatui::style::Color,
+    ctx: &RenderContext,
+) {
+    apply_block_background(lines, ctx.content_width, block_bg);
+
+    // Blank padding rows above and below, carrying the block background.
+    let bg = Style::default().bg(block_bg);
+    let pad_line = Line::from(Span::styled(" ".repeat(ctx.content_width as usize), bg));
+    pad_entry_with(lines, Pad::Both, pad_line);
 }
 
 /// Renders a markdown block entry — the shared core behind the user and
@@ -33,15 +133,8 @@ pub(crate) fn text_block_lines(
     ctx: &RenderContext,
 ) -> Vec<Line<'static>> {
     let text = super::shared::strip_ansi(text);
-    let mut lines = render_markdown(&text, ctx.content_width, &ctx.theme);
-
-    recolor_at_tokens(&mut lines, outcome, ctx);
-    apply_block_background(&mut lines, ctx.content_width, block_bg);
-
-    // Blank padding rows above and below, carrying the block background.
-    let bg = Style::default().bg(block_bg);
-    let pad_line = Line::from(Span::styled(" ".repeat(ctx.content_width as usize), bg));
-    pad_entry_with(&mut lines, Pad::Both, pad_line);
+    let mut lines = markdown_body(&text, outcome, ctx);
+    finish_block(&mut lines, block_bg, ctx);
     lines
 }
 
@@ -297,5 +390,128 @@ mod tests {
         // Then the attached token is green and the degraded token is red.
         assert_eq!(token_span(&lines, "@real.png"), Some(theme.success));
         assert_eq!(token_span(&lines, "@whatever"), Some(theme.error_text));
+    }
+
+    /// The block as enqueue authors it — tags, header line, the numbered
+    /// event list, and the props JSON that markdown would mangle.
+    fn metrics_block() -> String {
+        concat!(
+            "<canvas-metrics artifact=\"sundae\" >\n",
+            "canvas_ops (7 events)\n",
+            "1. create_sundae {\"flavor\":\"vanilla\"}\n",
+            "2. add_topping {\"kind\":\"sprinkles\"}\n",
+            "</canvas-metrics>",
+        )
+        .to_owned()
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn metrics_block_renders_verbatim_in_metrics_foreground() {
+        // Given a user entry that opens with the canvas-metrics block,
+        // followed by the user's own typed words.
+        let display = format!("{}\n\nmy actual message", metrics_block());
+
+        // When rendering.
+        let theme = ctx().theme;
+        let lines = to_lines(&display, &AttachmentOutcome::default(), &ctx());
+
+        // Then every block line renders as its exact stored text — the
+        // opening tag with its attributes, the closing tag, the numbered
+        // list, and the braces props all intact, none markdown-processed.
+        let span_with = |needle: &str| {
+            lines
+                .iter()
+                .flat_map(|l| l.spans.iter())
+                .find(|s| s.content == needle)
+        };
+        let opening = span_with("<canvas-metrics artifact=\"sundae\" >")
+            .expect("opening tag renders verbatim");
+        assert_eq!(opening.style.fg, Some(theme.metrics_fg));
+        assert_eq!(
+            span_with("2. add_topping {\"kind\":\"sprinkles\"}")
+                .expect("numbered event line renders verbatim")
+                .style
+                .fg,
+            Some(theme.metrics_fg)
+        );
+        // And no block span carries any other foreground — the whole block
+        // is quiet grey, nothing but the metrics color.
+        let block_spans = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| s.content.contains("canvas"));
+        for span in block_spans {
+            assert_eq!(span.style.fg, Some(theme.metrics_fg));
+        }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn text_after_the_block_renders_through_the_markdown_path() {
+        // Given a user entry with the block followed by markdown text.
+        let display = format!("{}\n\nActual **bold** words", metrics_block());
+
+        // When rendering.
+        let theme = ctx().theme;
+        let lines = to_lines(&display, &AttachmentOutcome::default(), &ctx());
+
+        // Then the bold span is a markdown-style bold, not grey.
+        let bold = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .find(|s| s.content == "bold")
+            .expect("markdown body rendered");
+        assert!(
+            bold.style
+                .add_modifier
+                .contains(ratatui::style::Modifier::BOLD)
+        );
+        assert_ne!(bold.style.fg, Some(theme.metrics_fg));
+        // And no remainder span carries the metrics foreground.
+        let rest_spans = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| s.content.contains("Actual") || s.content == "bold");
+        for span in rest_spans {
+            assert_ne!(span.style.fg, Some(theme.metrics_fg));
+        }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn display_without_a_metrics_prefix_renders_unchanged() {
+        // Given a plain user message with a markdown emphasis and an @token.
+        let outcome = AttachmentOutcome::default();
+        let text = "plain **msg** here";
+
+        // When rendering through to_lines.
+        let lines = to_lines(text, &outcome, &ctx());
+
+        // Then the result is identical to the legacy markdown-plus-block
+        // pipeline that preceded the formatter registry.
+        let ctx = ctx();
+        let legacy = text_block_lines(text, &outcome, ctx.theme.user_block_bg, &ctx);
+        assert_eq!(lines, legacy);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn prefix_without_a_closing_tag_falls_through() {
+        // Given a display that starts with the opening prefix but is
+        // truncated before any closing tag.
+        let display = "<canvas-metrics artifact=\"sundae\" > cut off mid-block";
+
+        // When rendering.
+        let theme = ctx().theme;
+        let lines = to_lines(display, &AttachmentOutcome::default(), &ctx());
+
+        // Then no span carries the metrics foreground — the whole entry
+        // took the ordinary markdown path, without panicking.
+        let any_grey = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg == Some(theme.metrics_fg));
+        assert!(!any_grey, "a truncated block must fall through to markdown");
     }
 }

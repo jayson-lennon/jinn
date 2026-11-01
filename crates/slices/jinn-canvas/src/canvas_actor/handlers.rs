@@ -16,6 +16,7 @@
 use std::net::SocketAddr;
 
 use jinn_canvas_msg::CanvasCommand;
+use jinn_canvas_msg::CanvasMetricsDrainOutcome;
 use jinn_canvas_msg::CanvasServeOutcome;
 use marked_path::{Absolute, MarkedPathAccess, MarkedPathBuf};
 use trouper::context::MsgCtx;
@@ -97,6 +98,29 @@ pub(crate) async fn handle_serve(
             ctx.reply(CanvasServeOutcome::refused(refusal.message));
         }
     }
+}
+
+/// Handles a drain ask: every accumulated metric event, oldest first.
+///
+/// The dormant phase (nothing ever served) answers with an empty
+/// outcome — "no activity" is a normal answer, never an error, so the
+/// asking message goes out unmodified rather than being treated as a
+/// failure.
+pub(crate) fn handle_drain_metrics(actor: &mut CanvasActor, ctx: &mut MsgCtx<'_>) {
+    let events = match actor.server.as_ref() {
+        Some(state) => state
+            .shared
+            .drain_metrics()
+            .into_iter()
+            .map(|entry| jinn_canvas_msg::CanvasMetricEvent {
+                event: entry.event,
+                received_at: entry.received_at.to_string(),
+                artifact: entry.artifact,
+            })
+            .collect(),
+        None => Vec::new(),
+    };
+    ctx.reply(CanvasMetricsDrainOutcome { events });
 }
 
 /// A validated serve request.

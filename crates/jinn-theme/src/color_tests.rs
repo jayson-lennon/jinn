@@ -161,6 +161,26 @@ mod bundled_themes_load {
             "a passivated actor must not read as an error"
         );
     }
+
+    /// A theme predating `metrics_fg` (the shipped non-default themes) must
+    /// resolve the key to the default theme's grey — the fallback rule that
+    /// keeps old theme files rendering the metrics block, not Reset.
+    #[rstest::rstest]
+    #[test]
+    fn a_theme_omitting_the_metrics_key_resolves_it_to_the_default_grey() {
+        // Given a theme file that names no colours at all.
+        let file: ThemeFile = toml::from_str(SPARSE_THEME).expect("a comment-only theme parses");
+
+        // When resolving it against the default.
+        let theme = file.resolve_with_fallback(&default_theme());
+
+        // Then the metrics foreground is the default's grey, not Reset.
+        assert_eq!(theme.metrics_fg, default_theme().metrics_fg);
+        // And the default itself is a truecolor grey — ANSI "gray" is
+        // palette slot 7, which renders near-white and would read as
+        // "no color applied" next to the primary text.
+        assert_eq!(theme.metrics_fg, ratatui::style::Color::Rgb(140, 140, 140));
+    }
 }
 
 #[cfg(test)]

@@ -47,8 +47,9 @@ environment sidequests — every library is already inside the jinn binary.
 - **Never fetch data from the network inside the artifact.** Inline the
   data as a JS const, or write it to a sibling JSON file and fetch it
   relatively (`fetch('./data.json')`).
-- The server **never edits your file** — it injects a hot-reload script into
-  the HTTP response only. What you write is exactly what's on disk.
+- The server **never edits your file** — it injects the hot-reload script
+  and the interaction tracker into the HTTP response only. What you write
+  is exactly what's on disk.
 - The server binds local addresses only. Sharing the URL beyond the user's
   machine is not possible by design.
 - **After writing a Mermaid diagram, check the served page for Mermaid error
@@ -56,6 +57,71 @@ environment sidequests — every library is already inside the jinn binary.
   read the error text and fix the diagram source. The type references list
   syntax shapes that are verified against this binary (architecture edge
   syntax and diagram-type names differ between Mermaid versions).
+
+## Feedback from the page (metrics)
+
+Every served page already carries a small interaction tracker (injected
+next to the reload script — never add it by hand; a second copy would
+report every click twice). Clicks reach you with the user's **next chat
+message** inside a `<canvas-metrics>` block.
+
+### When to use
+
+Use metrics whenever you generate something that is interactive and has clickable things:
+
+- Multiple choice interactions (report what choice the user made)
+- Interactive diagrams (report the state of a slider so you have a rough idea of what the user is looking at)
+- Other interactive things like a kanban board, a map with clickable areas, etc
+
+You will be able to use the metrics to help assist the user further without the
+need to rely on the user to report exactly what they did.
+
+If you are unsure if you should add metrics, err on the side of adding metrics. The point
+of the metrics is so that you have visibility into how the user is actually interacting
+with the canvas application.
+
+### Integrating the metrics
+
+Two ways to report — `data-metric` attributes on elements, or
+`canvas.track(name, props)` from script:
+
+```html
+<button data-metric="clicked-foo">Foo</button>
+<button data-metric="flavored-click" data-metric-flavor="vanilla">
+  Vanilla
+</button>
+<div data-metric="nested-click"><span>inner</span></div>
+<button onclick="canvas.track('script-click', {no: 1})">Track</button>
+```
+
+When the user finishes with the page and comes back and sends a message,
+the clicks made will be prepended to their message. Clicks are in the same
+order that they were made, presented as a numbered list. An example:
+
+```
+<canvas-metrics artifact="quiz.html">
+1. clicked-foo
+2. flavored-click {"flavor":"vanilla"}
+3. nested-click
+4. script-click {"no":1}
+</canvas-metrics>
+```
+
+The field names are yours — events are delivered verbatim, no schema on
+either side. Name events for what the user did (`quiz-answer`,
+`section-open`, `filter-changed`); the props are the context you'd want
+if the user only said "the quiz is broken".
+
+Notes:
+
+- Clicks only — there is no dwell time, scroll depth, or visibility
+  tracking, by design.
+- Events accumulate server-side (bounded; oldest dropped) and are
+  consumed on delivery: they ride the first user message sent after the
+  activity, then the buffer is empty. A message sent with no page
+  activity carries no block.
+- The delivery is one-way, page → you. To push updates the other way,
+  keep using live reload: edit the file.
 
 ## Testing and debugging
 

@@ -30,6 +30,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use jinn_canvas_msg::CanvasCommand;
+use jinn_canvas_msg::DrainCanvasMetrics;
 use jinn_slices::bus::BusService;
 use trouper::actor::ActorPath;
 use trouper::actor::{MsgHandler, ServiceActor};
@@ -124,7 +125,9 @@ impl CanvasActor {
                 }
             })
             .handles::<CanvasCommand>()
+            .handles::<DrainCanvasMetrics>()
             .emits::<jinn_canvas_msg::CanvasServeOutcome>()
+            .emits::<jinn_canvas_msg::CanvasMetricsDrainOutcome>()
             .emits::<jinn_slices::ServiceStatusUpdate>()
             .mailbox(16, trouper::inbox::OverloadPolicy::Block)
             .start()
@@ -173,6 +176,12 @@ impl MsgHandler<CanvasCommand> for CanvasActor {
     }
 }
 
+impl MsgHandler<DrainCanvasMetrics> for CanvasActor {
+    async fn handle(&mut self, _msg: &DrainCanvasMetrics, ctx: &mut MsgCtx<'_>) {
+        handlers::handle_drain_metrics(self, ctx);
+    }
+}
+
 /// Mints the tool-facing handle from the spawned actor's path.
 ///
 /// Composition calls this after the spawn handshake and stores the
@@ -213,6 +222,35 @@ pub fn canvas_server_handle(
                         });
                     Ok(outcome)
                 }
+                Ok(Err(_report)) => Err(jinn_canvas_msg::CanvasServeTransportError::Mailbox),
+                Err(_) => Err(jinn_canvas_msg::CanvasServeTransportError::Timeout),
+            }
+        }
+
+        async fn drain_metrics(
+            &self,
+        ) -> Result<
+            jinn_canvas_msg::CanvasMetricsDrainOutcome,
+            jinn_canvas_msg::CanvasServeTransportError,
+        > {
+            // The same outer bound as `serve`: a wedged actor yields a
+            // transport error instead of hanging the enqueue path — the
+            // user's message must go out either way.
+            match tokio::time::timeout(
+                SERVE_ASK_TIMEOUT,
+                self.0.ask(
+                    self.1.clone(),
+                    jinn_canvas_msg::DrainCanvasMetrics,
+                    SERVE_ASK_TIMEOUT,
+                ),
+            )
+            .await
+            {
+                Ok(Ok(value)) => match value.decode::<jinn_canvas_msg::CanvasMetricsDrainOutcome>()
+                {
+                    Ok(outcome) => Ok(outcome),
+                    Err(_decode) => Err(jinn_canvas_msg::CanvasServeTransportError::Mailbox),
+                },
                 Ok(Err(_report)) => Err(jinn_canvas_msg::CanvasServeTransportError::Mailbox),
                 Err(_) => Err(jinn_canvas_msg::CanvasServeTransportError::Timeout),
             }

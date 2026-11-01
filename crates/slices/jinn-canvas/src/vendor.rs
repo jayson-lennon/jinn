@@ -17,6 +17,11 @@ use crate::VENDOR_ASSETS;
 /// The served path of the jinn-authored stylesheet inside `/vendor/`.
 pub const AUTHORED_CSS_PATH: &str = "canvas.css";
 
+/// The served path of the jinn-authored interaction tracker inside
+/// `/vendor/` — injected into every served artifact by
+/// [`crate::server::TRACKER_SNIPPET`].
+pub const AUTHORED_TELEMETRY_PATH: &str = "canvas-telemetry.js";
+
 /// The bytes of the jinn-authored stylesheet as embedded.
 ///
 /// # Panics
@@ -32,6 +37,25 @@ pub fn authored_css_source() -> &'static [u8] {
         .iter()
         .find(|a| a.path == AUTHORED_CSS_PATH)
         .expect("canvas.css must be embedded")
+        .bytes
+}
+
+/// The bytes of the jinn-authored telemetry script as embedded.
+///
+/// # Panics
+///
+/// Panics if `canvas-telemetry.js` is missing from the generated
+/// inventory, which means its static build.rs row was removed without
+/// restoring the file.
+#[expect(
+    clippy::expect_used,
+    reason = "build.rs fails the build when the authored telemetry row is absent"
+)]
+pub fn authored_telemetry_source() -> &'static [u8] {
+    VENDOR_ASSETS
+        .iter()
+        .find(|a| a.path == AUTHORED_TELEMETRY_PATH)
+        .expect("canvas-telemetry.js must be embedded")
         .bytes
 }
 
@@ -251,6 +275,28 @@ mod tests {
         // Then it rides the same table as the vendored set.
         assert_eq!(css.encoding, "identity");
         assert_eq!(css.content_type, "text/css; charset=utf-8");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn authored_telemetry_script_is_in_the_inventory() {
+        // Given the generated vendor inventory.
+        // When looking up the authored telemetry script.
+        let script = VENDOR_ASSETS
+            .iter()
+            .find(|a| a.path == "canvas-telemetry.js")
+            .expect("canvas-telemetry.js must be embedded");
+
+        // Then it serves identity, as a script, with content on board.
+        assert_eq!(script.encoding, "identity");
+        assert_eq!(script.content_type, "text/javascript; charset=utf-8");
+        assert!(!script.bytes.is_empty(), "the tracker must not be empty");
+        // And the window API the skill teaches is actually in the file.
+        let text = String::from_utf8_lossy(script.bytes);
+        assert!(
+            text.contains("window.canvas") && text.contains("track"),
+            "the tracker must expose window.canvas.track"
+        );
     }
 
     #[rstest::rstest]

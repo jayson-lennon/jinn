@@ -76,6 +76,10 @@ pub struct Theme {
     /// by hue (purple vs slate): they render through the same user renderer,
     /// and the tint is what keeps machine-sent traffic visually distinct.
     pub intersession_bg: Color,
+    /// Canvas-metrics block foreground — jinn-authored bookkeeping rendered
+    /// inside a user entry. Light grey by default: present but quiet, so the
+    /// user's own typed words stay the loudest thing in their message.
+    pub metrics_fg: Color,
     /// Tool entry text foreground (tool calls, tool results, skills).
     pub tool_fg: Color,
     /// Tool result success block background.
@@ -210,6 +214,7 @@ impl Theme {
             "gutter_context_included" => gutter_context_included,
             "user_block_bg" => user_block_bg,
             "intersession_bg" => intersession_bg,
+            "metrics_fg" => metrics_fg,
             "tool_fg" => tool_fg,
             "tool_success_bg" => tool_success_bg,
             "tool_failure_bg" => tool_failure_bg,
@@ -306,6 +311,9 @@ pub struct ThemeFile {
     /// `tell_session` deliveries).
     #[serde(default)]
     pub intersession_bg: Option<ThemeColor>,
+    /// Canvas-metrics block foreground inside a user entry.
+    #[serde(default)]
+    pub metrics_fg: Option<ThemeColor>,
     #[serde(default)]
     pub tool_fg: Option<ThemeColor>,
     #[serde(default)]
@@ -468,6 +476,9 @@ impl ThemeFile {
             intersession_bg: self
                 .intersession_bg
                 .map_or(fallback.intersession_bg, crate::color::ThemeColor::inner),
+            metrics_fg: self
+                .metrics_fg
+                .map_or(fallback.metrics_fg, crate::color::ThemeColor::inner),
             tool_fg: self
                 .tool_fg
                 .map_or(fallback.tool_fg, crate::color::ThemeColor::inner),
@@ -613,6 +624,7 @@ impl ThemeFile {
             gutter_context_included: Self::resolve_field(self.gutter_context_included),
             user_block_bg: Self::resolve_field(self.user_block_bg),
             intersession_bg: Self::resolve_field(self.intersession_bg),
+            metrics_fg: Self::resolve_field(self.metrics_fg),
             tool_fg: Self::resolve_field(self.tool_fg),
             tool_success_bg: Self::resolve_field(self.tool_success_bg),
             tool_failure_bg: Self::resolve_field(self.tool_failure_bg),
@@ -685,6 +697,7 @@ mod tests {
             gutter_context_included: None,
             user_block_bg: None,
             intersession_bg: None,
+            metrics_fg: None,
             tool_fg: None,
             tool_success_bg: None,
             tool_failure_bg: None,
@@ -747,6 +760,7 @@ mod tests {
             // Dark purple: near-black like the user block but purple-biased,
             // so inter-session traffic reads as machine-sent at a glance.
             intersession_bg: Some(ThemeColor(Color::Rgb(59, 42, 65))),
+            metrics_fg: Some(ThemeColor(Color::Gray)),
             tool_fg: Some(ThemeColor(Color::Rgb(88, 95, 106))),
             tool_success_bg: Some(ThemeColor(Color::Rgb(40, 50, 40))),
             tool_failure_bg: Some(ThemeColor(Color::Rgb(60, 40, 40))),

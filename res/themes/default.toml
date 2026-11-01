@@ -33,6 +33,11 @@ user_block_bg = [52, 53, 65]
 # Dark purple: near-black like the user block but purple-biased, so
 # inter-session messages read as machine-sent rather than typed.
 intersession_bg = [59, 42, 65]
+# Muted grey for jinn-authored bookkeeping (canvas-metrics) inside user
+# entries: present but quiet, so typed words stay the loudest thing.
+# Truecolor on purpose — ANSI "gray" is palette slot 7, which most
+# terminals render near-white (#e5e5e5) and indistinguishable from text.
+metrics_fg = [140, 140, 140]
 tool_fg = [97, 105, 117]
 tool_success_bg = [44, 55, 44]
 tool_failure_bg = [60, 40, 40]

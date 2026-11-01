@@ -53,6 +53,7 @@ mod tests {
             ("gutter_context_included", theme.gutter_context_included),
             ("user_block_bg", theme.user_block_bg),
             ("intersession_bg", theme.intersession_bg),
+            ("metrics_fg", theme.metrics_fg),
             ("tool_fg", theme.tool_fg),
             ("tool_success_bg", theme.tool_success_bg),
             ("tool_failure_bg", theme.tool_failure_bg),

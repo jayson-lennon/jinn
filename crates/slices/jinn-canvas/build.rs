@@ -132,28 +132,37 @@ fn main() {
 
     // Every file on disk must be vouched for by a manifest row: a stray
     // file dropped into the tree cannot ride into the binary unverified.
-    // The authored canvas.css is the one exemption (its static row is
+    // The authored files are the exemptions (their static rows are
     // emitted below, outside the manifest pin).
     let mut unvouched: Vec<String> = Vec::new();
     collect_files(&vendor_dir, &vendor_dir, &mut unvouched);
     for path in &unvouched {
         assert!(
-            path == "canvas.css" || seen.iter().any(|s| s == path),
+            path == "canvas.css" || path == "canvas-telemetry.js" || seen.iter().any(|s| s == path),
             "vendor file {} has no manifest row",
             vendor_dir.join(path).display()
         );
     }
 
-    // The authored canvas.css rides the same table; its row is static, not
-    // generated from the manifest (jinn owns it, not an upstream pin). The
-    // read is the existence check — a missing stylesheet fails the build.
+    // The authored files ride the same table; their rows are static, not
+    // generated from the manifest (jinn owns them, not an upstream pin).
+    // Each read is the existence check — a missing authored asset fails
+    // the build. The telemetry script is the interaction tracker injected
+    // into every served artifact; see `server::TRACKER_SNIPPET`.
     let css_path = vendor_dir.join("canvas.css");
     let _ = fs::read(&css_path).expect("resources/vendor/canvas.css is authored and must exist");
+    let telemetry_path = vendor_dir.join("canvas-telemetry.js");
+    let _ = fs::read(&telemetry_path)
+        .expect("resources/vendor/canvas-telemetry.js is authored and must exist");
     // Same emission rule as the manifest rows above: a `concat!` against
     // `CARGO_MANIFEST_DIR`, never a rendered local path.
     let _ = writeln!(
         table,
         "    VendorAsset {{\n        path: \"canvas.css\",\n        bytes: include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/resources/vendor/canvas.css\")),\n        encoding: \"identity\",\n        content_type: \"text/css; charset=utf-8\",\n    }},"
+    );
+    let _ = writeln!(
+        table,
+        "    VendorAsset {{\n        path: \"canvas-telemetry.js\",\n        bytes: include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/resources/vendor/canvas-telemetry.js\")),\n        encoding: \"identity\",\n        content_type: \"text/javascript; charset=utf-8\",\n    }},"
     );
     let _ = writeln!(table, "];\n");
 

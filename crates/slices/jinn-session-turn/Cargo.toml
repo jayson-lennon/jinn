@@ -9,6 +9,7 @@ marked-path.workspace = true
 jinn-slices = { workspace = true }
 jinn-preferences-config = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
+jinn-canvas-msg = { workspace = true }
 jinn-kernel = { workspace = true }
 jinn-context = { workspace = true }
 jinn-context-assembly-msg = { workspace = true }

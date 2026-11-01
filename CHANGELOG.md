@@ -1,5 +1,10 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- Add a metrics script to `canvas` injection which reports interactions back to the agent.
+  - Added primarily for `learning-tutor` and to help facilitate back-and-forth interactions so the agent has visibility into how the user interacted with the `canvas`.
+
 ## 2026-10-31 v1.14.0
 
 - `jinn` now ships several JavaScript packages for making interactive and visual web pages.

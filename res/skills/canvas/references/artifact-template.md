@@ -16,6 +16,12 @@ the canvas server itself, so the artifact works offline.
   <!-- jinn canvas stylesheet: light/dark aware, no dependencies. -->
   <link rel="stylesheet" href="/vendor/canvas.css">
 
+  <!-- The hot-reload script and the interaction tracker are injected by
+       the canvas server into the served response — never add either by
+       hand. To report clicks back to the agent, mark elements with
+       data-metric="name" (and data-metric-* props), or call
+       canvas.track(name, props) in your script. -->
+
   <!-- Uncomment ONE charting/diagram library (or two that layer well).
        Every path below is served by the canvas server — the artifact
        works offline and from any directory. -->

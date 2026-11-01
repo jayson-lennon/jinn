@@ -34,6 +34,97 @@ enum EnqueueAction {
     Queued,
 }
 
+/// Renders the drained canvas metric events as the flat numbered event
+/// list prepended to the user's message:
+///
+/// ```text
+/// <canvas-metrics artifact="quiz.html">
+/// 1. clicked-foo
+/// 2. flavored-click {"flavor":"vanilla"}
+/// </canvas-metrics>
+/// ```
+///
+/// One line per event — the page's own event name, plus its props as
+/// compact JSON when the event carries a non-empty props object; bare
+/// name otherwise. The tag carries the artifact basename once — the
+/// newest event's, since a drain spanning a canvas re-target is rare.
+/// Receive stamps stay on the wire ([`CanvasMetricEvent`]) but are not
+/// rendered; the numbered order already says which click came later.
+///
+/// The caller only drains non-empty buffers, so the tag always names a
+/// real artifact.
+///
+/// The block rides `display`, the only text `push_entry`'s
+/// re-expansion preserves (it rebuilds `expanded` from `display`), so
+/// the block is visible in the transcript as part of the user's own
+/// message — the approved shape. On push the block text passes back
+/// through template/`@path` scanning: only path-shaped or template-name
+/// collisions inside a metric value could be rewritten, and template
+/// names and absolute paths in click props are corner cases.
+///
+/// The lines are plain text (the block's XML delimiters carry the
+/// structure; the lines carry the data), so an agent reads the whole
+/// sequence at a glance without escaping concerns.
+fn render_canvas_metrics_block(events: &[jinn_canvas_msg::CanvasMetricEvent]) -> String {
+    let artifact = render_artifact_tag(events);
+    let lines: Vec<String> = events
+        .iter()
+        .enumerate()
+        .map(|(index, event)| render_metric_line(index + 1, event))
+        .collect();
+    format!(
+        "<canvas-metrics artifact=\"{artifact}\">\n{}\n</canvas-metrics>",
+        lines.join("\n")
+    )
+}
+
+/// The artifact basename the block tag names: the newest event's
+/// artifact. Falls back to the full string when the path carries no
+/// file name (`file_name()` is `None` on empty and odd strings).
+fn render_artifact_tag(events: &[jinn_canvas_msg::CanvasMetricEvent]) -> String {
+    events
+        .last()
+        .map(|event| {
+            std::path::Path::new(&event.artifact)
+                .file_name()
+                .map_or(event.artifact.clone(), |name| {
+                    name.to_string_lossy().into_owned()
+                })
+        })
+        .unwrap_or_default()
+}
+
+/// One numbered line, oldest first: `N. name`, plus the event's props
+/// as compact JSON when it carries a non-empty props object. A missing,
+/// `null`, non-object, or empty props renders as a bare name — the
+/// `/metrics` endpoint is permissive, so the renderer tolerates any
+/// payload shape (an unnamed event renders as `unnamed`).
+fn render_metric_line(number: usize, event: &jinn_canvas_msg::CanvasMetricEvent) -> String {
+    let name = event
+        .event
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unnamed");
+    match event.event.get("props") {
+        Some(props) if props.as_object().is_some_and(|props| !props.is_empty()) => {
+            let props_json = serde_json::to_string(props).unwrap_or_default();
+            format!("{number}. {name} {props_json}")
+        }
+        _ => format!("{number}. {name}"),
+    }
+}
+
+/// The first line of `display` with a leading canvas-metrics block
+/// skipped — the line the session title mints from. Without the skip, a
+/// first-ever message carrying metrics would title the session after
+/// the XML tag instead of the user's words.
+fn title_source_line(display: &str) -> &str {
+    let rest = display
+        .split_once("\n</canvas-metrics>\n")
+        .map_or(display, |(_, after_block)| after_block);
+    rest.lines().next().unwrap_or("")
+}
+
 impl SessionPersistenceActor {
     /// EnqueueUserMessage: if idle → assemble prompt; if busy → queue.
     pub(in crate::session_actor) async fn handle_enqueue_user_message(
@@ -69,6 +160,17 @@ impl SessionPersistenceActor {
             .await
         {
             return;
+        }
+
+        // Canvas metrics ride the user's message: whatever the served
+        // page reported since the last send is drained and prepended as
+        // an XML block, after the gates (a gate-aborted message must not
+        // consume the buffer) and before the queue/dispatch decision, so
+        // both branches carry the block. Template expansion has already
+        // run, so a metric value like `#foo` can never be read as a
+        // template token.
+        if matches!(entry.kind, ChatEntryKind::User { .. }) {
+            self.prepend_canvas_metrics(&mut entry).await;
         }
 
         let action = {
@@ -117,10 +219,13 @@ impl SessionPersistenceActor {
                         // can still mint the title later. Stamping `""` here
                         // would flip the guard to `Some("")` and block every
                         // future mint — the sidebar would read an empty title.
+                        // The minted line skips a leading canvas-metrics
+                        // block, so a metrics-carrying first message titles
+                        // from the user's words, not the XML tag.
                         if session.title().is_none()
                             && let ChatEntryKind::User { display, .. } = &entry.kind
                         {
-                            let title = display.lines().next().unwrap_or("").to_owned();
+                            let title = title_source_line(display).to_owned();
                             session.set_title(title);
                         }
                         session.push_entry(entry.clone());
@@ -148,6 +253,47 @@ impl SessionPersistenceActor {
                 .await;
             }
             EnqueueAction::Queued => {}
+        }
+    }
+
+    /// Drains the canvas actor's accumulated metric events and prepends
+    /// them to `entry`'s display text as a `<canvas-metrics>` block —
+    /// the shape the `<system-interrupt>` precedent uses.
+    ///
+    /// `display` because it is the only text `push_entry`'s
+    /// re-expansion preserves (it rebuilds `expanded` from `display`);
+    /// the block therefore shows in the transcript as part of the
+    /// user's own message — the approved shape, and the title mint
+    /// skips it (see [`title_source_line`]). A message with no pending
+    /// activity — no handle, a transport error, or an empty drain — is
+    /// left byte-for-byte unchanged; the user's words go out either way.
+    async fn prepend_canvas_metrics(&self, entry: &mut ChatEntry) {
+        let Some(handle) = self.services.canvas_server.get().cloned() else {
+            return;
+        };
+        let outcome = match handle.drain_metrics().await {
+            Ok(outcome) if !outcome.events.is_empty() => outcome,
+            Ok(_) => return,
+            Err(error) => {
+                tracing::debug!(
+                    ?error,
+                    "canvas metrics drain failed; message goes out without a block"
+                );
+                return;
+            }
+        };
+        let block = render_canvas_metrics_block(&outcome.events);
+        if let ChatEntryKind::User {
+            display, expanded, ..
+        } = &mut entry.kind
+        {
+            // Both texts: `display` is what the push's re-expansion
+            // preserves (it rebuilds `expanded` from `display`), and
+            // syncing `expanded` keeps an already-expanded entry — the
+            // queued branch stores it verbatim — coherent in the same
+            // instant rather than only after the queue's re-expansion.
+            *display = format!("{block}\n{display}");
+            *expanded = format!("{block}\n{expanded}");
         }
     }
 
@@ -457,6 +603,284 @@ mod tests {
         clippy::uninlined_format_args,
         reason = "test code"
     )]
+
+    use jinn_canvas_msg::{CanvasMetricEvent, CanvasMetricsDrainOutcome};
+
+    use super::render_canvas_metrics_block;
+    use std::sync::Arc;
+
+    /// A `CanvasServerHandle` whose drain always returns the events it
+    /// was seeded with — the stub the enqueue tests install into
+    /// `Services.canvas_server`.
+    struct SeededCanvasServer {
+        events: Vec<CanvasMetricEvent>,
+    }
+
+    #[async_trait::async_trait]
+    impl jinn_canvas_msg::CanvasServerHandle for SeededCanvasServer {
+        async fn serve(
+            &self,
+            _path: String,
+        ) -> Result<jinn_canvas_msg::CanvasServeOutcome, jinn_canvas_msg::CanvasServeTransportError>
+        {
+            Err(jinn_canvas_msg::CanvasServeTransportError::Mailbox)
+        }
+
+        async fn drain_metrics(
+            &self,
+        ) -> Result<CanvasMetricsDrainOutcome, jinn_canvas_msg::CanvasServeTransportError> {
+            Ok(CanvasMetricsDrainOutcome {
+                events: self.events.clone(),
+            })
+        }
+    }
+
+    /// Installs `handle` into the actor's `Services.canvas_server` slot.
+    fn install_canvas_server(
+        actor: &super::super::super::SessionPersistenceActor,
+        events: Vec<CanvasMetricEvent>,
+    ) {
+        let _ = actor
+            .services
+            .canvas_server
+            .set(Arc::new(SeededCanvasServer { events }));
+    }
+
+    /// One canonical drained event.
+    fn metric_event(name: &str, choice: &str) -> CanvasMetricEvent {
+        metric_event_with_artifact("/tmp/quiz.html", name, choice)
+    }
+
+    /// The same canonical event on a different artifact, for drains
+    /// spanning a canvas re-target.
+    fn metric_event_with_artifact(artifact: &str, name: &str, choice: &str) -> CanvasMetricEvent {
+        CanvasMetricEvent {
+            event: serde_json::json!({
+                "name": name,
+                "at": 1_730_000_000_000_i64,
+                "props": { "choice": choice }
+            }),
+            received_at: "2026-11-01T12:00:00Z".to_owned(),
+            artifact: artifact.to_owned(),
+        }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn metrics_block_is_a_numbered_flat_event_list() {
+        // Given two drained events — one carrying props, one bare.
+        let events = vec![
+            metric_event("quiz.start", "a"),
+            CanvasMetricEvent {
+                event: serde_json::json!({ "name": "quiz.answer" }),
+                received_at: "2026-11-01T12:00:00Z".to_owned(),
+                artifact: "/tmp/quiz.html".to_owned(),
+            },
+        ];
+
+        // When rendering the block.
+        let block = render_canvas_metrics_block(&events);
+
+        // Then the block is the approved flat list: the artifact
+        // basename once on the tag, one numbered `N. name {props}` line
+        // per event with a bare name when props are absent, and no
+        // count, receive stamps, or JSON wrapper objects.
+        assert_eq!(
+            block,
+            concat!(
+                "<canvas-metrics artifact=\"quiz.html\">\n",
+                "1. quiz.start {\"choice\":\"a\"}\n",
+                "2. quiz.answer\n",
+                "</canvas-metrics>"
+            )
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn mixed_artifact_drain_tags_the_newest_artifact() {
+        // Given a drain spanning two artifacts — the canvas was
+        // re-targeted between the two clicks.
+        let events = vec![
+            metric_event("quiz.start", "a"),
+            metric_event_with_artifact("/tmp/other.html", "banner.click", "a"),
+        ];
+
+        // When rendering the block.
+        let block = render_canvas_metrics_block(&events);
+
+        // Then the tag names the newest event's artifact, basenamed.
+        assert!(
+            block.starts_with("<canvas-metrics artifact=\"other.html\">"),
+            "{block}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn enqueue_prepends_metrics_block_to_the_user_message() {
+        // Given an idle session whose canvas server holds two events.
+        let (actor, state, _audit) = create_actor().await;
+        let session_id = {
+            let mut guard = state.write();
+            let _session = guard.active_session_mut();
+            guard.session.active_session_id().clone()
+        };
+        install_canvas_server(
+            &actor,
+            vec![
+                metric_event("quiz.start", "a"),
+                metric_event("quiz.answer", "b"),
+            ],
+        );
+
+        // When enqueuing a user message.
+        actor
+            .handle_enqueue_user_message(&EnqueueUserMessage {
+                session_id: session_id.clone(),
+                entry: ChatEntry::user("how did I do on the quiz"),
+            })
+            .await;
+
+        // Then the history entry leads with the metrics block and the
+        // user's own words follow intact — display is the only text the
+        // push's re-expansion preserves, and it feeds the expanded text
+        // the model reads.
+        let guard = state.read();
+        let session = guard.session.get(&session_id).expect("session");
+        let expanded = last_user_expanded(session).expect("user entry");
+        assert!(
+            expanded.starts_with("<canvas-metrics artifact=\"quiz.html\">"),
+            "{expanded}"
+        );
+        assert!(expanded.contains("quiz.answer"), "{expanded}");
+        assert!(expanded.ends_with("how did I do on the quiz"), "{expanded}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_metrics_carrying_first_message_titles_from_the_users_words() {
+        // Given a fresh untitled session whose canvas server holds an event.
+        let (actor, state, _audit) = create_actor().await;
+        let session_id = {
+            let mut guard = state.write();
+            let _ = guard.active_session_mut();
+            guard.session.active_session_id().clone()
+        };
+        install_canvas_server(&actor, vec![metric_event("quiz.answer", "b")]);
+
+        // When the session's first-ever message carries the block.
+        actor
+            .handle_enqueue_user_message(&EnqueueUserMessage {
+                session_id: session_id.clone(),
+                entry: ChatEntry::user("what did I click"),
+            })
+            .await;
+
+        // Then the title mints from the user's words, not the XML tag.
+        let guard = state.read();
+        let session = guard.session.get(&session_id).expect("session");
+        assert_eq!(session.title(), Some("what did I click"));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn enqueue_with_no_canvas_handle_leaves_the_message_untouched() {
+        // Given an idle session with no canvas handle installed (the
+        // dormant composition, or a jinn without the canvas slice).
+        let (actor, state, _audit) = create_actor().await;
+        let session_id = {
+            let mut guard = state.write();
+            let _session = guard.active_session_mut();
+            guard.session.active_session_id().clone()
+        };
+
+        // When enqueuing a user message.
+        actor
+            .handle_enqueue_user_message(&EnqueueUserMessage {
+                session_id: session_id.clone(),
+                entry: ChatEntry::user("plain words"),
+            })
+            .await;
+
+        // Then the expanded text is the message alone — no empty block
+        // ever appears.
+        let guard = state.read();
+        let session = guard.session.get(&session_id).expect("session");
+        assert_eq!(last_user_expanded(session).as_deref(), Some("plain words"));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn enqueue_with_a_quiet_canvas_leaves_the_message_untouched() {
+        // Given an idle session whose canvas server has drained nothing.
+        let (actor, state, _audit) = create_actor().await;
+        let session_id = {
+            let mut guard = state.write();
+            let _session = guard.active_session_mut();
+            guard.session.active_session_id().clone()
+        };
+        install_canvas_server(&actor, Vec::new());
+
+        // When enqueuing a user message.
+        actor
+            .handle_enqueue_user_message(&EnqueueUserMessage {
+                session_id: session_id.clone(),
+                entry: ChatEntry::user("no canvas activity"),
+            })
+            .await;
+
+        // Then the expanded text is the message alone.
+        let guard = state.read();
+        let session = guard.session.get(&session_id).expect("session");
+        assert_eq!(
+            last_user_expanded(session).as_deref(),
+            Some("no canvas activity")
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn enqueue_prepends_metrics_block_to_a_queued_message_too() {
+        // Given a busy session (Streaming) whose canvas server holds an event.
+        let (actor, state, _audit) = create_actor().await;
+        let session_id = {
+            let mut guard = state.write();
+            let session = guard.active_session_mut();
+            session.begin_streaming();
+            guard.session.active_session_id().clone()
+        };
+        install_canvas_server(&actor, vec![metric_event("canvas.scroll", "down")]);
+
+        // When enqueuing a user message.
+        actor
+            .handle_enqueue_user_message(&EnqueueUserMessage {
+                session_id: session_id.clone(),
+                entry: ChatEntry::user("while you were streaming"),
+            })
+            .await;
+
+        // Then the message queued carrying the block: the drain happened
+        // before the queue/dispatch decision, so the queued branch gets
+        // the metrics the same way the dispatch branch does.
+        let guard = state.read();
+        let session = guard.session.get(&session_id).expect("session");
+        assert_eq!(session.phase(), PhaseView::Streaming);
+        assert_eq!(session.message_queue().len(), 1);
+        let Some(jinn_turn_dispatch_msg::QueueItem::UserMessage(entry)) =
+            session.message_queue().items().front()
+        else {
+            panic!("expected a queued user message");
+        };
+        let jinn_kernel::protocol::ChatEntryKind::User { expanded, .. } = &entry.kind else {
+            panic!("expected a user entry, got {:?}", entry.kind);
+        };
+        assert!(
+            expanded.starts_with("<canvas-metrics artifact=\"quiz.html\">"),
+            "{expanded}"
+        );
+        assert!(expanded.ends_with("while you were streaming"), "{expanded}");
+    }
 
     use jinn_chat_input_msg::{EnqueueResumeTurn, EnqueueUserMessage};
     use jinn_core_types::SessionId;

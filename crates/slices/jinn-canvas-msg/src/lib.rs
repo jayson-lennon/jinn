@@ -98,11 +98,68 @@ pub enum CanvasServeTransportError {
     Mailbox,
 }
 
-/// The canvas actor's handle — the tool-facing seam for serving.
+/// Drain every accumulated canvas metric event.
 ///
-/// The actor-side implementation bounds the ask inside `serve` (the
-/// `restart_mcp` seam precedent), so a hung actor yields
-/// [`CanvasServeTransportError`] rather than hanging the tool caller.
+/// The session-turn enqueue path asks this before dispatching a user
+/// message; the reply carries whatever interaction events the served
+/// page posted since the last drain. Draining consumes the buffer —
+/// each event reaches the agent exactly once, riding the next user
+/// message as a `<canvas-metrics>` block.
+///
+/// Dormant server (nothing ever served): the actor replies with an
+/// empty outcome rather than an error — "no activity" is a normal
+/// answer, and the message then carries no block.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, trouper::schema::Command)]
+#[schema(description = "Drain the accumulated canvas metric events.")]
+pub struct DrainCanvasMetrics;
+
+impl BusMessage for DrainCanvasMetrics {}
+
+/// One drained metric event, render-ready for the XML block.
+///
+/// `event` is the page's own JSON body, verbatim — the server imposed
+/// no schema, so the agent's frontend owns the field names. The stamps
+/// (`received_at`, `artifact`) are jinn's, for ordering and context.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, trouper::schema::Event)]
+#[schema(description = "Reply payload for a canvas metrics drain ask.")]
+pub struct CanvasMetricEvent {
+    /// The event as the page posted it: at minimum `name`, `at`, `props`.
+    pub event: serde_json::Value,
+    /// When jinn received the post (RFC 3339) — the ordering the block
+    /// renders in, since page clocks can drift.
+    pub received_at: String,
+    /// The artifact path being served when the event landed.
+    pub artifact: String,
+}
+
+impl BusMessage for CanvasMetricEvent {}
+
+/// The drain ask's reply: the accumulated events, oldest first. An
+/// empty vector is the dormant-server and quiet-page answer.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, trouper::schema::Event)]
+#[schema(description = "The drained canvas metric events, oldest first.")]
+pub struct CanvasMetricsDrainOutcome {
+    /// The drained events, oldest first. Empty on a dormant server or
+    /// after quiet pages.
+    pub events: Vec<CanvasMetricEvent>,
+}
+
+impl CanvasMetricsDrainOutcome {
+    /// The empty outcome — the dormant-server and quiet-page answer.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self { events: Vec::new() }
+    }
+}
+
+impl BusMessage for CanvasMetricsDrainOutcome {}
+
+/// The canvas actor's handle — the tool-facing seam for serving, and
+/// the session-turn seam for draining metrics.
+///
+/// The actor-side implementation bounds each ask inside its methods
+/// (the `restart_mcp` seam precedent), so a hung actor yields
+/// [`CanvasServeTransportError`] rather than hanging the caller.
 #[async_trait::async_trait]
 pub trait CanvasServerHandle: Send + Sync {
     /// Serves (or re-targets) the artifact at `path`.
@@ -112,6 +169,14 @@ pub trait CanvasServerHandle: Send + Sync {
     /// Returns the transport error when the round trip never completed;
     /// domain refusals come back as a failed [`CanvasServeOutcome`].
     async fn serve(&self, path: String) -> Result<CanvasServeOutcome, CanvasServeTransportError>;
+
+    /// Drains the accumulated metric events, consuming the buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns the transport error when the round trip never completed;
+    /// a live-but-quiet server is an empty outcome, not an error.
+    async fn drain_metrics(&self) -> Result<CanvasMetricsDrainOutcome, CanvasServeTransportError>;
 
     /// Debug name (service-trait convention).
     fn name(&self) -> &'static str {
