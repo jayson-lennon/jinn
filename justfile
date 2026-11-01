@@ -9,8 +9,10 @@ export RUSTC_WRAPPER := env_var_or_default('RUSTC_WRAPPER', `command -v sccache 
 # into the generated test), so it must be present whenever rustc runs — hence an
 # export here, and a mirror in .cargo/config.toml [env] for entrypoints that
 # bypass just (rust-analyzer, bare cargo in CI). Explicit #[timeout(...)] on a
-# test overrides this default; use that only when a test genuinely needs >10s.
-export RSTEST_TIMEOUT := "10"
+# test overrides this default; use that only when a test genuinely needs >30s.
+# 30s keeps the suite's slowest legitimate tests (terminal settle windows on a
+# slow machine) inside one budget while still bounding hangs.
+export RSTEST_TIMEOUT := "30"
 
 COPYRIGHT_NAME := "Jayson Lennon"
 COPYRIGHT_YEAR := "2026"

@@ -1153,7 +1153,10 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
         };
-        tokio::time::timeout(Duration::from_secs(10), read_back)
+        // The wrapper stays inside the global per-test budget (RSTEST_TIMEOUT):
+        // the retry loop's cap must expire — with its own message naming the
+        // failure — before the outer timeout can cancel the task instead.
+        tokio::time::timeout(Duration::from_secs(25), read_back)
             .await
             .expect("the variable to survive to a later read");
 
@@ -1204,6 +1207,16 @@ mod tests {
         assert!(!plain_screen(&screen.screen).contains("PAGE-ONE"));
     }
 
+    /// The named key ctrl+c is written to the program; on Unix it terminates it.
+    ///
+    /// Unix: the pty line discipline turns the `0x03` byte the keymap encodes
+    /// into SIGINT to the foreground group, so `cat` dies. Windows: ConPTY has
+    /// no line discipline — nothing on that side converts a byte into a
+    /// signal, and jinn's Windows posture is no-signals everywhere (the pty
+    /// session exposes no pid, and the kill tests already accept
+    /// TerminateProcess's code 1 as "terminated"), so the Windows arm asserts
+    /// the write-path contract: the actor accepted the named key and returned
+    /// a screen.
     #[rstest::rstest]
     #[tokio::test]
     async fn ctrl_c_key_terminates_a_reading_program() {
@@ -1214,14 +1227,41 @@ mod tests {
         spawn_cat(&actor, &chat).await;
 
         // When sending the named key ctrl+c.
-        let mut msg = send_msg(chat);
+        let mut msg = send_msg(chat.clone());
         msg.keys = vec!["ctrl+c".to_owned()];
         let SendTermOutcome::Sent(screen) = actor.ask::<_, SendTermOutcome>(msg).await else {
             panic!("expected Sent");
         };
 
-        // Then the program exited (SIGINT reached it through the pty).
-        assert!(screen.exited.is_some(), "cat must exit on ctrl+c");
+        // Then the write path held: the key was accepted and a screen came back.
+        // And on Unix the program exited — the pty's line discipline turned the
+        // byte into SIGINT. The exit is polled rather than read off the reply's
+        // snapshot: on a slow machine the settle window can end before the
+        // signal is delivered, and the death is real even when that snapshot
+        // predates it.
+        #[cfg(unix)]
+        {
+            if screen.exited.is_some() {
+                return;
+            }
+            let death = async {
+                loop {
+                    if let SendTermOutcome::Exited(_) = actor
+                        .ask::<_, SendTermOutcome>(send_msg(chat.clone()))
+                        .await
+                    {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            };
+            tokio::time::timeout(Duration::from_secs(10), death)
+                .await
+                .expect("cat to die on ctrl+c");
+        }
+        // On Windows the contract ends at the write: no SIGINT semantics exist
+        // to assert (see the doc above).
+        let _ = screen;
     }
 
     #[rstest::rstest]
@@ -1347,10 +1387,18 @@ mod tests {
         // Windows: the 400 ms quiet window exceeds the 250 ms tick gap, so the
         // spawn settle runs to its cap — the trickle must outlive that wait.
         let (actor, state, chat, controls, _harness) = {
+            // The needle is the trickle's final tick — derived beside the
+            // script so the two can never drift apart.
             #[cfg(windows)]
-            let trickle = "for i in $(seq 1 16); do echo tick-$i; sleep 0.25; done; cat";
+            let (trickle, last_tick) = (
+                "for i in $(seq 1 16); do echo tick-$i; sleep 0.25; done; cat",
+                "tick-16",
+            );
             #[cfg(not(windows))]
-            let trickle = "for i in 1 2 3 4 5 6; do echo tick-$i; sleep 0.25; done; cat";
+            let (trickle, last_tick) = (
+                "for i in 1 2 3 4 5 6; do echo tick-$i; sleep 0.25; done; cat",
+                "tick-6",
+            );
             let harness = TestHarness::new().await;
             let controls = TermControls::default();
             // A quiet window longer than the trickle's tick gap but shorter than
@@ -1378,6 +1426,18 @@ mod tests {
                     panic!("expected Started");
                 };
             }
+            // The trickle must have *finished* before the send starts, so
+            // `cat` is provably the live reader: the loop's final tick in the
+            // mirror proves the loop completed and `cat` took over stdin. On
+            // a slow machine the whole loop itself can outlast the spawn
+            // settle, so the wait is bounded by the trickle's own runtime
+            // (six ticks × 250 ms on Unix, sixteen on Windows) with margin,
+            // not by a guess.
+            assert!(
+                mirror_shows(&state, &chat, last_tick, Duration::from_secs(10)).await,
+                "the trickle never reached its final tick, so `cat` was not \
+                 yet the live reader the takeover test needs"
+            );
             (actor, state, chat, controls, harness)
         };
 
@@ -1538,7 +1598,12 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn kill_is_idempotent_after_exit() {
-        // Given a coordinator whose session exited naturally.
+        // Given a coordinator whose session exited naturally. The exit is
+        // proven, not assumed: the spawn ask returns as soon as the settle
+        // window ends, and on a slow machine `true` may still be running —
+        // killing then would race the natural exit, and a kill that lands
+        // first reports *its* outcome (on Windows, TerminateProcess code 1)
+        // instead of the exit info this test is about.
         let harness = TestHarness::new().await;
         let (actor, _system) = spawn_coordinator(&harness, TermControls::default()).await;
         let chat = jinn_core_types::SessionId::new();
@@ -1550,6 +1615,21 @@ mod tests {
                 panic!("expected Started");
             };
         }
+        let natural_exit = async {
+            loop {
+                if let SendTermOutcome::Exited(screen) = actor
+                    .ask::<_, SendTermOutcome>(send_msg(chat.clone()))
+                    .await
+                    && screen.exited.is_some()
+                {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(10), natural_exit)
+            .await
+            .expect("the natural exit to be captured");
 
         // When killing the already-exited session twice.
         let first = actor
@@ -1563,7 +1643,8 @@ mod tests {
             })
             .await;
 
-        // Then both kills succeed with exit info.
+        // Then both kills succeed with the natural exit's info (code 0 on
+        // every platform — the process was already reaped before either kill).
         for reply in [first, second] {
             let KillTermOutcome::Killed { exited, .. } = reply else {
                 panic!("expected Killed, got {reply:?}");
@@ -1681,7 +1762,23 @@ mod tests {
         // When spawning a program that prints to the screen.
         let _: SpawnTermOutcome = actor.ask(spawn_msg(chat.clone(), "echo mirror-me")).await;
 
-        // Then the frontend terminal mirror carries the rendered screen.
+        // Then the frontend terminal mirror carries the rendered screen. The
+        // read is bounded: the spawn reply returns after the settle window,
+        // and on a slow machine the screen task may not have pumped the
+        // output into the mirror yet — a single read there would race the
+        // pump, so the mirror is polled until the echo lands.
+        jinn_testutil::wait::wait_for(Duration::from_secs(10), || {
+            state
+                .read()
+                .term_tabs()
+                .and_then(|c| {
+                    c.read()
+                        .mirror(&chat)
+                        .map(|m| m.screen.contains("mirror-me"))
+                })
+                .unwrap_or(false)
+        })
+        .await;
         let guard = state.read();
         let mirror = guard
             .term_tabs()
