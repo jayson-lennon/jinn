@@ -1,6 +1,6 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
-## (development)
+## 2026-10-31 v1.14.0
 
 - `jinn` now ships several JavaScript packages for making interactive and visual web pages.
   - The `canvas` tool starts a server to serve the canvas page with live reload.
