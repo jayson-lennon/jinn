@@ -368,6 +368,7 @@ mod tests {
         // When it is spawned.
         let status = std::process::Command::new(program)
             .args(&args)
+            .current_dir(super::local_cwd())
             .status()
             .expect("success command runs");
 
@@ -385,6 +386,7 @@ mod tests {
         // When it is spawned.
         let status = std::process::Command::new(program)
             .args(&args)
+            .current_dir(super::local_cwd())
             .status()
             .expect("exit command runs");
 
@@ -401,6 +403,7 @@ mod tests {
         // When it is spawned.
         let mut child = std::process::Command::new(program)
             .args(&args)
+            .current_dir(super::local_cwd())
             .spawn()
             .expect("idle command runs");
 
