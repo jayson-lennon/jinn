@@ -20,12 +20,17 @@
 use std::env;
 use std::fmt::Write as _;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use sha2::Digest as _;
 
 fn main() {
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    #[expect(
+        clippy::disallowed_types,
+        reason = "build-script env plumbing (CARGO_MANIFEST_DIR) predates typed-path flow; consumed only to derive rerun-if-changed and include_bytes emit paths"
+    )]
+    let manifest_dir =
+        std::path::PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let vendor_dir = manifest_dir.join("resources/vendor");
     let manifest_path = vendor_dir.join("vendor-manifest.toml");
 
@@ -152,7 +157,11 @@ fn main() {
     );
     let _ = writeln!(table, "];\n");
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
+    #[expect(
+        clippy::disallowed_types,
+        reason = "OUT_DIR is cargo's own env plumbing, consumed only to write the generated vendor_assets.rs"
+    )]
+    let out_dir = std::path::PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     fs::write(out_dir.join("vendor_assets.rs"), table)
         .expect("writing vendor_assets.rs into OUT_DIR cannot fail");
 }

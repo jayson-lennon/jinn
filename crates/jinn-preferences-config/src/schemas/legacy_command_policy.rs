@@ -10,6 +10,10 @@
 //! Nothing writes this key, nothing enforces it directly, and nothing else
 //! should depend on it — it exists at the boundary with an older file, and
 //! goes away when that boundary does.
+#![expect(
+    clippy::disallowed_types,
+    reason = "schema-compat: these structs mirror legacy [[project.entry]] shapes still found in user files; raw path values deserialize byte-for-byte"
+)]
 
 use serde::{Deserialize, Serialize};
 

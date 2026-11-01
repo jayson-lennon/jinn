@@ -76,12 +76,14 @@ impl Wired {
 
 /// `ProjectConfig` rows for the named paths.
 fn projects_for(paths: &[&str]) -> Vec<jinn_preferences_config::schemas::ProjectConfig> {
-    paths
-        .iter()
-        .map(|path| jinn_preferences_config::schemas::ProjectConfig {
-            path: std::path::PathBuf::from(path),
-        })
-        .collect()
+    #[expect(
+        clippy::disallowed_types,
+        reason = "fills the schema-compat [[project.entry]] field, which is the raw TOML value by design"
+    )]
+    let to_row = |path: &str| jinn_preferences_config::schemas::ProjectConfig {
+        path: std::path::PathBuf::from(path),
+    };
+    paths.iter().map(|path| to_row(path)).collect()
 }
 
 /// Draws one frame through the picker's real render pass, then re-draws the

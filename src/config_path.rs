@@ -17,6 +17,14 @@
 //! [`resolve_config_path`] only *decides*; it never writes. Seeding is a
 //! separate step, which keeps this function pure and its tests free of
 //! filesystem mutation beyond setup.
+//!
+//! Like the other CLI resolvers, this module is the seam where the raw
+//! `--config` value is re-typed; the error carries the user's own text so
+//! the usage message can name it.
+#![expect(
+    clippy::disallowed_types,
+    reason = "argv boundary: the raw --config flag value is re-typed here; the error carries the user's raw text for the usage message"
+)]
 
 use std::path::{Path, PathBuf};
 

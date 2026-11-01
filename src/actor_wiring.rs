@@ -129,6 +129,10 @@ impl ActorSystemBuilder {
         // Default CWD for sessions (inherited from the shell).
         let (initial_session_id, initial_cwd) = {
             let cwd = {
+                #[expect(
+                    clippy::disallowed_types,
+                    reason = "env seam: std::env::current_dir yields a raw PathBuf; the value is typed (and its absoluteness asserted) on the next line"
+                )]
                 let raw = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
                 marked_path::MarkedPathBuf::<marked_path::Absolute>::new(raw)
                     .expect("cwd and / are absolute")

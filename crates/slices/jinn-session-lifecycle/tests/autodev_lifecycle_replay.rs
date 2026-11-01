@@ -14,16 +14,17 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
 
 use jinn_session_lifecycle_msg::command_template::CommandTemplate;
+use marked_path::{Absolute, MarkedPathBuf};
 
 /// The path of the autodev lifecycle file, resolved from this crate's
 /// manifest against the workspace root.
-fn autodev_lifecycle_path() -> PathBuf {
-    PathBuf::new()
-        .join(env!("CARGO_MANIFEST_DIR"))
+fn autodev_lifecycle_path() -> MarkedPathBuf<Absolute> {
+    MarkedPathBuf::<Absolute>::new(env!("CARGO_MANIFEST_DIR"))
+        .expect("CARGO_MANIFEST_DIR is absolute")
         .join("../../../res/workflows/autodev/lifecycle.toml")
+        .expect("repo-relative constant joins keep the manifest dir absolute")
 }
 
 /// Reads the autodev lifecycle file with line endings normalized to `\n`.

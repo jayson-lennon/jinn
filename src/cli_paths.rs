@@ -12,6 +12,14 @@
 //! (`AppPaths::home_dir()`); the cwd is read once, only when a relative value
 //! actually needs it, and can be replaced through [`resolve_cli_path_in`] so
 //! tests never touch the process cwd.
+//!
+//! This module is the seam where raw CLI values are re-typed: the `raw`
+//! parameters are the user's own text, read as borrowed `&Path`, and the
+//! return values are `MarkedPathBuf<Absolute>` by construction.
+#![expect(
+    clippy::disallowed_types,
+    reason = "argv boundary: this module consumes raw user-typed flag values (and the raw process-cwd read) and is where they are re-typed into MarkedPathBuf<Absolute>"
+)]
 
 use std::path::Path;
 use std::path::PathBuf;

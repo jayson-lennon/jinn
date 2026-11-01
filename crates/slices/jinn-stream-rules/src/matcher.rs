@@ -904,7 +904,6 @@ mod tests {
     use jinn_preferences_config::schemas::StreamRuleConfig;
     use jinn_slices::{StreamContext, StreamRuleSet};
     use marked_path::{Absolute, MarkedPathBuf};
-    use std::path::PathBuf;
 
     /// A rule with the given name, one condition, and no scopes — so it
     /// admits every stream.
@@ -1782,13 +1781,12 @@ mod tests {
         let windows_cwd = {
             #[cfg(windows)]
             {
-                MarkedPathBuf::<Absolute>::new(PathBuf::from("C:\\dev\\code\\myapp"))
+                MarkedPathBuf::<Absolute>::new("C:\\dev\\code\\myapp")
                     .expect("drive-letter path is absolute on Windows")
             }
             #[cfg(not(windows))]
             {
-                MarkedPathBuf::<Absolute>::new(PathBuf::from("/dev/code/myapp"))
-                    .expect("absolute path")
+                MarkedPathBuf::<Absolute>::new("/dev/code/myapp").expect("absolute path")
             }
         };
         let set = compiled(&configs).for_cwd(Some(&windows_cwd));

@@ -5,6 +5,12 @@
     clippy::indexing_slicing,
     reason = "test code"
 )]
+// The fakes mirror the locator trait, whose resolved values ride PATH
+// entries that may be relative.
+#![expect(
+    clippy::disallowed_types,
+    reason = "test fakes mirror the PATH-scanner locator trait; the trait's resolved values may be relative"
+)]
 
 use std::path::PathBuf;
 use std::sync::Arc;

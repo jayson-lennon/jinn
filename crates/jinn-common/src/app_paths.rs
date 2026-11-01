@@ -10,7 +10,6 @@
 
 use crate::app_info::APP_NAME;
 use marked_path::{Absolute, MarkedPath, MarkedPathBuf};
-use std::path::PathBuf;
 
 /// Browser profile mode: one persistent profile per mode.
 ///
@@ -137,21 +136,33 @@ impl AppPaths {
     /// Panics if a platform directory is not absolute, which cannot happen
     /// on supported platforms.
     fn from_platform_dirs() -> Self {
-        let fallback = cwd_absolute();
-        let typed = |raw: Option<PathBuf>| {
-            raw.map_or_else(
-                || fallback.clone(),
-                |raw| {
+        /// Types one platform directory, falling back to the cwd.
+        ///
+        /// `dirs` hands its values over as raw owning paths; they are typed
+        /// immediately and never escape raw.
+        #[expect(
+            clippy::disallowed_types,
+            reason = "dirs-crate seam: platform directory values arrive as raw PathBuf and are typed on arrival"
+        )]
+        fn typed(
+            raw: Option<std::path::PathBuf>,
+            fallback: &MarkedPathBuf<Absolute>,
+        ) -> MarkedPathBuf<Absolute> {
+            match raw {
+                Some(raw) => {
                     MarkedPathBuf::<Absolute>::new(raw).expect("platform dirs and cwd are absolute")
-                },
-            )
-        };
+                }
+                None => fallback.clone(),
+            }
+        }
+
+        let fallback = cwd_absolute();
         Self {
-            config_dir: typed(dirs::config_dir()),
-            data_dir: typed(dirs::data_dir()),
-            cache_dir: typed(dirs::cache_dir()),
-            state_dir: typed(dirs::state_dir().or_else(dirs::data_dir)),
-            home_dir: typed(dirs::home_dir()),
+            config_dir: typed(dirs::config_dir(), &fallback),
+            data_dir: typed(dirs::data_dir(), &fallback),
+            cache_dir: typed(dirs::cache_dir(), &fallback),
+            state_dir: typed(dirs::state_dir().or_else(dirs::data_dir), &fallback),
+            home_dir: typed(dirs::home_dir(), &fallback),
         }
     }
 

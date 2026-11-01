@@ -16,14 +16,13 @@
 
 use std::io::Read as _;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use jinn_canvas::canvas_actor::{CanvasActor, CanvasActorDeps, canvas_server_handle};
 use jinn_canvas_msg::CanvasServerHandle;
 use jinn_testutil::bus_harness::{TestHarness, await_recorded};
-use marked_path::MarkedPathAccess as _;
+use marked_path::{Absolute, MarkedPathAccess as _, MarkedPathBuf};
 
 /// A spawned canvas actor wired to the harness fabric, with its
 /// tool-facing handle and the artifact directory it serves from.
@@ -60,10 +59,10 @@ async fn spawn_actor() -> ActorFixture {
 
 impl ActorFixture {
     /// Writes an artifact into the fixture's directory.
-    fn seed(&self, name: &str, contents: &str) -> PathBuf {
+    fn seed(&self, name: &str, contents: &str) -> MarkedPathBuf<Absolute> {
         let path = self.dir.path.join(name).expect("name join keeps root");
         std::fs::write(path.as_path(), contents).expect("seed artifact");
-        path.as_path().to_path_buf()
+        path
     }
 
     /// Waits for a status publication naming the canvas row that is not
@@ -191,7 +190,7 @@ async fn first_serve_answers_the_url_with_the_artifact_injected() {
     assert!(body.contains("<title>v1</title>"));
     assert!(body.contains("new WebSocket"));
     // And the file on disk is untouched — injection is response-only.
-    let on_disk = std::fs::read(&artifact).expect("artifact readable");
+    let on_disk = std::fs::read(artifact.as_path()).expect("artifact readable");
     assert_eq!(
         String::from_utf8_lossy(&on_disk),
         "<html><head><title>v1</title></head><body>v1</body></html>"
@@ -244,7 +243,7 @@ async fn atomic_save_edit_pushes_a_reload_to_a_connected_ws_client() {
 
     // When editing the artifact atomically.
     atomic_write(
-        &artifact,
+        artifact.as_path(),
         "<html><head><title>v2</title></head><body>v2</body></html>",
     );
 
@@ -340,7 +339,7 @@ async fn sibling_file_write_pushes_a_reload_too() {
 
     // When a sibling file in the same directory is written.
     let sibling = fixture.seed("data.json", "{}");
-    atomic_write(&sibling, "{\"v\":2}");
+    atomic_write(sibling.as_path(), "{\"v\":2}");
 
     // Then the client still receives the reload — the watch is
     // directory-scoped.

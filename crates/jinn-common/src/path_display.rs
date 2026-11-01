@@ -50,6 +50,12 @@ mod tests {
         clippy::panic,
         reason = "test code asserts with expect for clear failures"
     )]
+    // Expected-display builders assemble the native-separator spelling via
+    // std join semantics; the raw builder is the test oracle.
+    #![expect(
+        clippy::disallowed_types,
+        reason = "test fixtures build expected native-separator display strings via std PathBuf joins; the raw builder is the oracle"
+    )]
 
     use super::shorten_path;
     use jinn_testutil::volume_root;

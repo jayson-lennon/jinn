@@ -7,6 +7,13 @@
 //! An entry used to carry a `command_policy` of its own. Those rules are
 //! stream rules now, scoped by their `project` field, so the field is gone
 //! and a project's rules live with every other rule in one list.
+//
+// `path` is the user-authored `[[project.entry]]` field round-tripped by the
+// DocumentPatcher; it is the schema, not an in-memory path value.
+#![expect(
+    clippy::disallowed_types,
+    reason = "schema-compat: this struct is the user-authored [[project.entry]] TOML schema; the raw path value round-trips byte-for-byte through the DocumentPatcher"
+)]
 
 use std::path::PathBuf;
 

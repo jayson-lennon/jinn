@@ -49,8 +49,7 @@ pub(crate) async fn handle_serve(
     msg: &CanvasCommand,
     ctx: &mut MsgCtx<'_>,
 ) {
-    let path = std::path::PathBuf::from(&msg.path);
-    let request = match validate(actor.bind, &path) {
+    let request = match validate(actor.bind, std::path::Path::new(msg.path.as_str())) {
         Ok(request) => request,
         Err(refusal) => {
             actor.publish_serve_failed(&refusal.message).await;

@@ -37,6 +37,14 @@
 //! Most of these serialize transparently as primitives/JSON. `profile` is
 //! carried as a raw `serde_json::Value` because a prior migration (v17/v19)
 //! already normalized its `model` field — we pass it through untouched.
+//
+// The legacy column and metadata shapes are the historical on-disk contract:
+// this module reproduces them byte-for-byte, so raw owning paths are the
+// schema being preserved, not a hazard to re-type.
+#![allow(
+    clippy::disallowed_types,
+    reason = "schema-compat: legacy column and v20 metadata shapes are reproduced byte-for-byte; re-typing user-authored values could change persisted bytes"
+)]
 
 use std::collections::HashMap;
 use std::path::PathBuf;

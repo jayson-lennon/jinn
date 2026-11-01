@@ -1,4 +1,12 @@
 //! Command-line interface argument definitions.
+//
+// Every path flag in this module is the argv boundary: clap hands over raw,
+// unvalidated values that `resolve_cli_path`/`ConfigPath` re-type into
+// `MarkedPathBuf<Absolute>` during startup. No jinn logic consumes them raw.
+#![allow(
+    clippy::disallowed_types,
+    reason = "this module is the argv/OsString boundary; every path flag is re-typed by resolve_cli_path at startup"
+)]
 
 use std::path::PathBuf;
 

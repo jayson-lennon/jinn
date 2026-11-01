@@ -14,12 +14,12 @@
 //! ```
 #![cfg(feature = "embed-parity")]
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use jinn_common::app_paths::AppPaths;
 use jinn_mcp_overgraph::embedder::{CandleEmbedder, Embedder, EmbedderModel};
+use marked_path::{Absolute, MarkedPathBuf};
 
 /// The fixture sentences, in fixture order. The fixture's row `i` is the
 /// reference vector for `SENTENCES[i]`.
@@ -37,11 +37,10 @@ const PARITY_COSINE: f32 = 0.99;
 
 /// Loads the reference vectors captured from the replaced backend.
 fn fixture_vectors() -> Vec<Vec<f32>> {
-    let path = {
-        let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        dir.push("tests/fixtures/embedding-parity.json");
-        dir
-    };
+    let path = MarkedPathBuf::<Absolute>::new(env!("CARGO_MANIFEST_DIR"))
+        .expect("CARGO_MANIFEST_DIR is absolute")
+        .join("tests/fixtures/embedding-parity.json")
+        .expect("repo-relative join keeps the manifest dir absolute");
     let raw = std::fs::read_to_string(&path).expect("parity fixture is committed");
     serde_json::from_str(&raw).expect("parity fixture parses as [5][384] f32")
 }

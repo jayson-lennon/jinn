@@ -9,6 +9,13 @@
 //! `magick` (current) and falls back to `convert` (legacy). Both accept the
 //! identical `magick <input> png:-` / `convert <input> png:-` CLI shape used
 //! by the converter to write a PNG to stdout.
+//
+// The resolved binary rides whatever PATH entry produced it, so it may be
+// relative; the locator interface is the PATH-scanning seam.
+#![expect(
+    clippy::disallowed_types,
+    reason = "PATH-scanner seam: which::which resolves against PATH entries that may be relative; the value is consumed only as a Command program argument"
+)]
 
 /// Filesystem seam for locating the ImageMagick binary.
 ///

@@ -28,10 +28,10 @@ fn offline_message_reads_server_offline() {
 #[test]
 fn serving_message_is_scheme_url_space_path_in_parens() {
     // Given a resolved bind URL and the served artifact.
-    let artifact = std::path::PathBuf::from("/tmp/proj/chart.html");
+    let artifact = std::path::Path::new("/tmp/proj/chart.html");
 
     // When rendering the serving status.
-    let message = serving_message("http://127.0.0.1:43121", artifact.as_path());
+    let message = serving_message("http://127.0.0.1:43121", artifact);
 
     // Then the status is the link-shaped URL, a space, and the path in
     // parentheses.
@@ -80,7 +80,7 @@ fn temp_dir_rendering_is_absolute_for_the_status_path() {
     std::fs::write(artifact.as_path(), "<html></html>").expect("seed artifact");
 
     // When rendering the serving status against its canonical path.
-    let canonical = artifact.as_path().canonicalize().expect("canonical");
+    let canonical = marked_path::CanonicalPath::from_path(artifact.as_path()).expect("canonical");
     let message = serving_message("http://127.0.0.1:40000", canonical.as_path());
 
     // Then the absolute path rides in the message — the row shows where

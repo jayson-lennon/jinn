@@ -26,6 +26,14 @@
 //! diagnostics go through `tracing` (captured to jinn's headless log when run
 //! as a child) or stderr for fatal startup errors and embedding-model
 //! announcements.
+//!
+//! The `--db` flag value is the argv boundary: it arrives raw (relative values
+//! rejected loudly in `resolve_db_dir`) and is typed into
+//! `MarkedPathBuf<Absolute>` before anything consumes it.
+#![expect(
+    clippy::disallowed_types,
+    reason = "argv boundary: the raw --db flag value is typed in resolve_db_dir before any jinn logic consumes it"
+)]
 #![warn(missing_docs)]
 
 pub mod convert;

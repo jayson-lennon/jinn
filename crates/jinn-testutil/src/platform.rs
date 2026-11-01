@@ -312,6 +312,10 @@ pub fn idle_command(seconds: u64) -> (&'static str, Vec<String>) {
 ///     .status()
 ///     .expect("probe command runs");
 /// ```
+#[expect(
+    clippy::disallowed_types,
+    reason = "Command-wiring seam: feeds std::process::Command::current_dir, which takes a plain path"
+)]
 #[must_use]
 pub fn local_cwd() -> std::path::PathBuf {
     std::env::temp_dir()

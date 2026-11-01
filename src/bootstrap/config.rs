@@ -68,6 +68,10 @@ pub enum Prepared {
     /// so `dispatch` never re-reads the CLI.
     ServeBundled {
         /// Database directory override; `None` uses the jinn-managed default.
+        #[expect(
+            clippy::disallowed_types,
+            reason = "argv transit: carries the raw --db flag from the parse to dispatch, where resolve_db_dir types it"
+        )]
         db: Option<std::path::PathBuf>,
         /// Embedding-model override; `None` uses the catalog default.
         embed_model: Option<jinn_mcp_overgraph::embedder::EmbedderModel>,

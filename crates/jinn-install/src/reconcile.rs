@@ -756,12 +756,10 @@ mod tests {
 
         /// The full destination path of a `res/`-relative fixture path,
         /// resolved the way the reconciler resolves destinations.
-        fn disk_path(&self, res_relative: &str) -> std::path::PathBuf {
+        fn disk_path(&self, res_relative: &str) -> MarkedPathBuf<Absolute> {
             let typed = MarkedPathBuf::<Relative>::new(res_relative).expect("relative path");
             resolve_destination(&self.destinations, &typed.as_marked_path())
                 .expect("fixture path names a shipped kind")
-                .as_path()
-                .to_path_buf()
         }
 
         /// Writes bytes to a fixture path on disk, creating parents.
@@ -1219,9 +1217,10 @@ mod tests {
         let temp_squat = {
             let mut name = fixture.manifest_path.as_path().as_os_str().to_os_string();
             name.push(".tmp");
-            std::path::PathBuf::from(name)
+            name
         };
-        std::fs::create_dir_all(&temp_squat).unwrap();
+        let temp_squat = std::path::Path::new(&temp_squat);
+        std::fs::create_dir_all(temp_squat).unwrap();
         let expected = Fixture::expected_with(ALPHA_V2);
 
         // When reconciling.

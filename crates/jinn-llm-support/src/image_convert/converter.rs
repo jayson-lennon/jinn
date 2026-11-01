@@ -64,6 +64,10 @@ pub trait ImageConverter: Send + Sync {
 /// Holds the resolved binary path (probed once at construction via the
 /// locator). When `None`, `is_available()` is false and `convert_to_png`
 /// returns an error immediately without spawning a process.
+#[expect(
+    clippy::disallowed_types,
+    reason = "PATH-scanner seam: holds the locator's PATH-resolved binary, consumed only as a Command program argument"
+)]
 pub struct ImageMagickConverter {
     binary: Option<std::path::PathBuf>,
 }

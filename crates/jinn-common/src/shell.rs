@@ -479,6 +479,12 @@ mod tests {
         clippy::panic,
         reason = "test code asserts with expect/panic for clear failure messages"
     )]
+    // Probe-file fixtures write through raw std paths: the raw candidate
+    // check is the behavior under test.
+    #![expect(
+        clippy::disallowed_types,
+        reason = "test fixtures probe candidate existence through raw std paths; the raw probe is the behavior under test"
+    )]
     use super::{
         Platform, ShellCandidate, Shells, bash_candidates, candidate_paths, first_existing,
         powershell_candidates, resolve_candidates, resolve_powershell, resolve_shell,

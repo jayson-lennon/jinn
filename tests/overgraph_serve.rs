@@ -7,16 +7,19 @@
 //! across child processes on the same database directory.
 
 use marked_path::{Absolute, MarkedPathAccess, MarkedPathBuf};
-use std::path::PathBuf;
 
 use jinn_mcp::client::{McpClient, ServerCommand};
 use rmcp::model::ContentBlock;
 use serde_json::json;
 
 /// Resolves the built `jinn` binary for integration tests.
-fn jinn_bin() -> PathBuf {
+#[expect(
+    clippy::disallowed_types,
+    reason = "cargo's CARGO_BIN_EXE plumbing, consumed only as a std::process::Command program"
+)]
+fn jinn_bin() -> std::path::PathBuf {
     std::env::var_os("CARGO_BIN_EXE_jinn")
-        .map(PathBuf::from)
+        .map(std::path::PathBuf::from)
         .expect("CARGO_BIN_EXE_jinn not set — integration test must run via cargo test")
 }
 

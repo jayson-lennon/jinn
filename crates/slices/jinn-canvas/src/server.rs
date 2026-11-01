@@ -264,23 +264,22 @@ async fn reload_handler(
     State(shared): State<Arc<ServerShared>>,
 ) -> Response {
     if let Some(artifact) = query.artifact {
-        let path = std::path::PathBuf::from(artifact);
-        if !path.is_file() {
+        if !std::path::Path::new(&artifact).is_file() {
             return (
                 StatusCode::NOT_FOUND,
-                format!("re-target artifact missing: {}\n", path.display()),
+                format!("re-target artifact missing: {artifact}\n"),
             )
                 .into_response();
         }
         // The swap stores the canonical, classic-spelled path — the same
         // form the serve path stores — so every reader (file read, watcher
         // parent, status line) sees one spelling.
-        let canonical = match canonical_artifact(&path) {
+        let canonical = match canonical_artifact(std::path::Path::new(&artifact)) {
             Ok(canonical) => canonical,
             Err(e) => {
                 return (
                     StatusCode::NOT_FOUND,
-                    format!("re-target artifact unreadable: {} ({e})\n", path.display()),
+                    format!("re-target artifact unreadable: {artifact} ({e})\n"),
                 )
                     .into_response();
             }

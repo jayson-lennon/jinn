@@ -8,6 +8,10 @@
 use marked_path::MarkedPathAccess;
 
 /// Resolves the built `jinn` binary for integration tests.
+#[expect(
+    clippy::disallowed_types,
+    reason = "cargo's CARGO_BIN_EXE plumbing, consumed only as a std::process::Command program"
+)]
 fn jinn_bin() -> std::path::PathBuf {
     std::env::var_os("CARGO_BIN_EXE_jinn")
         .map(std::path::PathBuf::from)

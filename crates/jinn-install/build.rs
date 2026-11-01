@@ -20,8 +20,6 @@
 
 #![allow(warnings, reason = "want to fail fast")]
 
-use std::path::PathBuf;
-
 use marked_path::{Absolute, MarkedPath, MarkedPathAccess, MarkedPathBuf};
 
 /// The resource tree embedded by `jinn-install`.

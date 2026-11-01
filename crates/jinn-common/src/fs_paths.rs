@@ -35,6 +35,10 @@ use marked_path::{Absolute, MarkedPathAccess, MarkedPathBuf};
 /// Windows prefix stripping never fails; when it cannot produce a usable
 /// plain form the verbatim form is returned instead.
 pub fn canonicalize_display(path: &MarkedPathBuf<Absolute>) -> io::Result<MarkedPathBuf<Absolute>> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "this is the sanctioned wrapper: canonicalizes once and strips the verbatim prefix before the value escapes"
+    )]
     let canonical = std::fs::canonicalize(path.as_path())?;
     MarkedPathBuf::<Absolute>::new(strip_verbatim_prefix(canonical))
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
@@ -45,6 +49,13 @@ pub use marked_path::strip_verbatim_prefix;
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
+    // The raw std-fs round trip is the subject under test: these fixtures
+    // compare the helper's output against untyped `std::fs::canonicalize`
+    // word-for-word, so the raw calls stay.
+    #![expect(
+        clippy::disallowed_methods,
+        reason = "test fixtures assert the helper against raw std::fs::canonicalize; the raw calls are the test oracle"
+    )]
     use super::canonicalize_display;
 
     #[rstest::rstest]
@@ -89,6 +100,12 @@ mod tests {
 
     #[cfg(windows)]
     mod windows {
+        // The verbatim-prefix fixtures construct `\\?\` paths on purpose:
+        // the raw std forms are the subject under test.
+        #![expect(
+            clippy::disallowed_types,
+            reason = "windows fixtures construct raw verbatim-prefix paths on purpose; the raw std form is the subject under test"
+        )]
 
         use std::path::PathBuf;
 

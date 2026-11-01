@@ -127,6 +127,10 @@ fn normalize_lexically(path: &MarkedPathBuf<Absolute>) -> MarkedPathBuf<Absolute
             _ => components.push(component),
         }
     }
+    #[expect(
+        clippy::disallowed_types,
+        reason = "reassembly seam: collects the components of an already-typed absolute path; the reassembled value is re-typed immediately and can introduce no new prefix"
+    )]
     let normalized: std::path::PathBuf = components.into_iter().map(Component::as_os_str).collect();
     MarkedPathBuf::<Absolute>::new(normalized).expect("normalizing an absolute path stays absolute")
 }

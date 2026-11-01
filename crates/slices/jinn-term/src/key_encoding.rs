@@ -443,6 +443,12 @@ mod key_event_tests {
     // The terminfo parity test reports its own skip to the captured test
     // output; printing is the only way to surface it there.
     #![allow(clippy::print_stderr, reason = "skip notes go to captured test output")]
+    // TERMINFO/TERMINFO_DIRS roots come from the environment and may be
+    // relative; the probe reads through raw std paths only.
+    #![expect(
+        clippy::disallowed_types,
+        reason = "env-supplied TERMINFO/TERMINFO_DIRS roots may be relative; test-only probe reads through raw std paths"
+    )]
     use super::{advertised_term, encode_key, encode_key_event};
     use jinn_slices::{Key, KeyEvent, Modifiers};
     use std::path::PathBuf;

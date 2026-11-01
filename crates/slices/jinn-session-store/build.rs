@@ -10,10 +10,14 @@
 #![allow(warnings, reason = "want to fail fast")]
 
 use std::path::Path;
-use std::path::PathBuf;
 
 fn main() {
-    let dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join("dao_validation");
+    #[expect(
+        clippy::disallowed_types,
+        reason = "OUT_DIR is cargo's own env plumbing, consumed only to place the dao validation database"
+    )]
+    let dir =
+        std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join("dao_validation");
     std::fs::create_dir_all(&dir).expect("create dao_validation dir");
 
     let db_path = dir.join("validation.db");

@@ -120,12 +120,83 @@ fmt:
 fmt-fix:
     cargo fmt
 
-# Run all linters (check + clippy + fmt check + test-attr guard)
+# Run all linters (check + clippy + fmt check + test-attr guard + path-literal guard)
 lint:
     just check
     just clippy
     cargo fmt -- --check
     just lint-testattr
+    just lint-path-guard
+
+[doc("Fail on resource-kind path literals in lookup/comparison positions, and on backslash-spelled kind paths outright.\n\nThe marked-path idiom feeds literals to the typed constructor (`MarkedPathBuf::<Relative>::new(\"themes/x.toml\")`), which normalizes separators — those stay legal. What fails is a kind-slash literal used directly as a string key or comparison operand (separator-sensitive on Windows) and any kind path spelled with a backslash.")]
+lint-path-guard:
+   #!/usr/bin/env python3
+   import os
+   import re
+   import sys
+
+   ALLOWLIST = set()
+   SKIP_DIRS = {"target", "vendor"}
+
+   # The five shipped res/ kind directories.
+   KIND = r"(themes|personas|prompts|workflows|skills)"
+
+   # 1. Lookup/comparison positions: the kind-slash literal sits directly
+   #    inside a string-keyed lookup or comparison call. The `(`-adjacent
+   #    quote requirement naturally exempts `.get_file(...)` / `.get_entry(...)`
+   #    (include_dir's macro normalizes stored paths to `/`) and the
+   #    constructor-fed idiom `manifest.get(&key("themes/..."))` (the literal
+   #    is not adjacent to the call paren).
+   LOOKUP = re.compile(r"""\.(?:get|starts_with|ends_with|contains|strip_prefix|strip_suffix)\(\s*["']""" + KIND + r"""/""")
+
+   # 2. Equality positions: the kind-slash literal compared directly.
+   EQUALITY = re.compile(r"""(?:==|!=)\s*["']""" + KIND + r"""/""")
+
+   # 3. Backslash spellings: a kind name followed by a backslash and a path
+   #    character, in plain or raw string source. `{1,2}` covers both the raw
+   #    form (r"themes\x.toml") and the plain-string escaped form
+   #    ("themes\\x.toml"). The path-character class keeps non-path text
+   #    clean (e.g. a JSON snippet's `\"skills\": \` — the character after
+   #    the backslash is a quote, not a path character).
+   BACKSLASH = re.compile(r"""r?["']""" + KIND + r"""\\{1,2}[A-Za-z0-9_.\-]""")
+
+   offenders = []
+   for dirpath, dirnames, filenames in os.walk(os.getcwd()):
+       dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+       for fn in filenames:
+           if not fn.endswith(".rs"):
+               continue
+           fpath = os.path.join(dirpath, fn)
+           rel = os.path.normpath(os.path.relpath(fpath, os.getcwd()))
+           if rel in ALLOWLIST:
+               continue
+           with open(fpath, encoding="utf-8") as f:
+               for i, line in enumerate(f, start=1):
+                   stripped = line.strip()
+                   if stripped.startswith("//"):
+                       continue
+                   for name, pattern in (
+                       ("kind-literal in lookup/comparison position", LOOKUP),
+                       ("kind-literal in equality position", EQUALITY),
+                       ("backslash-spelled kind path", BACKSLASH),
+                   ):
+                       m = pattern.search(line)
+                       if m:
+                           offenders.append((rel, i, name, stripped))
+                           break
+
+   for rel, ln, name, text in offenders:
+       print(f"ERROR: {rel}:{ln}: {name}\n    {text}", file=sys.stderr)
+   if offenders:
+       print(
+           f"\n{len(offenders)} path literal(s) bypass the marked-path separator contract.\n"
+           "Feed the literal to MarkedPathBuf::<Relative>::new() (or a sibling\n"
+           "constructor) and compare/look up through the typed value, or extend\n"
+           "the allowlist in the lint-path-guard recipe with a stated reason.",
+           file=sys.stderr,
+       )
+       sys.exit(1)
+
 
 [doc("Fail on bare test attributes missing their rstest companion.")]
 lint-testattr:

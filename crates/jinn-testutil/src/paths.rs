@@ -22,6 +22,13 @@
 //! // Query methods come from the `MarkedPathAccess` trait.
 //! assert!(path.as_path().is_absolute());
 //! ```
+//
+// Interop seam: these helpers exist to hand typed roots to plain APIs
+// (tempfile, std::process, third-party crates) that do not know marked-path.
+#![expect(
+    clippy::disallowed_types,
+    reason = "test-utility interop seam: converts typed roots to plain PathBuf for APIs that take one"
+)]
 
 use std::path::PathBuf;
 

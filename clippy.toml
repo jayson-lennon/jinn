@@ -1,0 +1,25 @@
+# Clippy configuration for the workspace.
+#
+# `disallowed-types` and `disallowed-methods` are configured here because
+# they take their ban lists from this file (the Cargo.toml `[workspace.lints]`
+# entries only set their severity to deny).
+#
+# The workspace's owning-path convention: paths that jinn produces or
+# consumes are typed (`marked_path::MarkedPathBuf<Absolute/Relative>` /
+# `CanonicalPath`), and borrowed `&Path` views flow into `std::fs`. Raw
+# owning paths and direct canonicalization are the two shapes that hid the
+# Windows `\\?\` verbatim-prefix and separator hazards fixed across the
+# marked-path migration, so they are banned here with narrow, reasoned
+# `#[allow(..., reason = "...")]` carve-outs at the infra seams that feed
+# them (argv/OsString boundaries, env-var and PATH scanning, std-fs
+# round-trip fixtures).
+
+disallowed-types = [
+    { path = "std::path::PathBuf", reason = "owning raw paths hide Windows verbatim-prefix and separator hazards; use marked_path::MarkedPathBuf<Absolute/Relative> as the owning type or &Path when only viewing" },
+]
+
+disallowed-methods = [
+    { path = "std::path::Path::canonicalize", reason = "returns \\\\?\\ verbatim paths on Windows; use marked_path::CanonicalPath::from_path or jinn_common::fs_paths::canonicalize_display" },
+    { path = "std::fs::canonicalize", reason = "returns \\\\?\\ verbatim paths on Windows; use marked_path::CanonicalPath::from_path or jinn_common::fs_paths::canonicalize_display" },
+    { path = "tokio::fs::canonicalize", reason = "async form of the same verbatim hazard; use marked_path::CanonicalPath::from_path (sync) for the small config/resource files jinn canonicalizes" },
+]

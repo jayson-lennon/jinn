@@ -4,18 +4,9 @@
 //! - [`run_setup_command`] - expects stdout output (last line becomes the session CWD)
 //! - [`run_teardown_command`] - only checks exit code, output is irrelevant
 
-use std::path::PathBuf;
-
 use error_stack::Report;
-use marked_path::{Absolute, MarkedPathAccess, MarkedPathBuf};
+use marked_path::{Absolute, CanonicalPath, MarkedPathAccess, MarkedPathBuf};
 use wherror::Error;
-
-/// Canonicalizes through the shared verbatim-prefix-stripping helper, so the
-/// session CWD is a plain path (`C:\…` on Windows) comparable to every other
-/// path jinn builds. Identity on Unix.
-fn strip_verbatim(result: std::io::Result<PathBuf>) -> std::io::Result<PathBuf> {
-    result.map(jinn_common::strip_verbatim_prefix)
-}
 
 // Note: kill_process_tree(&mut Child) is NOT imported here — the cancel path
 // uses the PID-based kill_process_group_by_pid (called from the actor's cancel
@@ -101,8 +92,6 @@ pub async fn run_setup_command(
     command: &str,
     shell: &str,
 ) -> Result<Option<MarkedPathBuf<Absolute>>, Report<LifecycleCommandError>> {
-    use error_stack::ResultExt as _;
-
     let (_output, stdout, _stderr) = run_command(command, shell).await?;
 
     let last_line = stdout.lines().map(str::trim).rfind(|line| !line.is_empty());
@@ -112,15 +101,16 @@ pub async fn run_setup_command(
     };
     let raw = last_line.to_owned();
 
-    let canonical = strip_verbatim(tokio::fs::canonicalize(&raw).await).map_err(|e| {
-        Report::new(e)
-            .change_context(LifecycleCommandError::InvalidPath { raw: raw.clone() })
-            .attach("setup command output is not a valid path")
-    })?;
-
-    let typed = MarkedPathBuf::<Absolute>::new(canonical)
-        .change_context(LifecycleCommandError::InvalidPath { raw: raw.clone() })
-        .attach("canonicalized setup path is not absolute")?;
+    // CanonicalPath canonicalizes and strips the Windows verbatim prefix, so
+    // the session CWD is a plain path (`C:\…` on Windows) comparable to every
+    // other path jinn builds. Identity on Unix.
+    let typed = CanonicalPath::from_path(&raw)
+        .map(CanonicalPath::into_marked)
+        .map_err(|e| {
+            Report::new(e)
+                .change_context(LifecycleCommandError::InvalidPath { raw: raw.clone() })
+                .attach("setup command output is not a valid path")
+        })?;
 
     if !typed.is_dir() {
         return Err(Report::new(LifecycleCommandError::NotADirectory { raw }));
@@ -336,19 +326,16 @@ pub fn spawn_setup_command(
                         .change_context(LifecycleCommandError::InvalidPath { raw: raw.clone() })?
                 };
 
-                let canonical =
-                    strip_verbatim(tokio::fs::canonicalize(resolved_path.as_path()).await)
-                        .map_err(|e| {
-                            Report::new(e)
-                                .change_context(LifecycleCommandError::InvalidPath {
-                                    raw: raw.clone(),
-                                })
-                                .attach("setup command output is not a valid path")
-                        })?;
-
-                let typed = MarkedPathBuf::<Absolute>::new(canonical)
-                    .change_context(LifecycleCommandError::InvalidPath { raw: raw.clone() })
-                    .attach("canonicalized setup path is not absolute")?;
+                // CanonicalPath canonicalizes and strips the Windows verbatim
+                // prefix, so the CWD is a plain path (`C:\…` on Windows)
+                // comparable to every other path jinn builds. Identity on Unix.
+                let typed = CanonicalPath::from_path(resolved_path.as_path())
+                    .map(CanonicalPath::into_marked)
+                    .map_err(|e| {
+                        Report::new(e)
+                            .change_context(LifecycleCommandError::InvalidPath { raw: raw.clone() })
+                            .attach("setup command output is not a valid path")
+                    })?;
 
                 if !typed.is_dir() {
                     return Err(Report::new(LifecycleCommandError::NotADirectory { raw }));
