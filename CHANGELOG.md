@@ -1,6 +1,6 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
-## (development)
+## 2026-11-01 v1.15.0
 
 - Add a metrics script to `canvas` injection which reports interactions back to the agent.
   - Added primarily for `learning-tutor` and to help facilitate back-and-forth interactions so the agent has visibility into how the user interacted with the `canvas`.
