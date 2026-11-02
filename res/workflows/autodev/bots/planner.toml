@@ -1,6 +1,6 @@
 # Bot: planner. One per run; the execution plan writer.
 #
-# Loaded ONCE via `load_attendant` at run start, BEFORE any implementor
+# Loaded ONCE via `load_bot` at run start, BEFORE any implementor
 # exists. Dispatched once per issue (including the root) BEFORE that
 # issue reaches an implementor. behavior = preserve: explores the repo
 # once per run; every later plan reuses the map. Never writes code,

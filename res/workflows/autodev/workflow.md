@@ -44,7 +44,7 @@ You are the orchestrator. Read top to bottom, then loop.
 2. Ignore the run state: append `.issues/`, `.plans/`, and `.autodev.ledger.md` to the repo's ignore mechanism if absent — fossil: `.fossil-settings/ignore-glob` (one glob per line, file may not exist yet); git: `.git/info/exclude` (per-clone, untracked). These paths must never be committable: teardown requires a clean status, and run state is never work. Skip lines already present.
 3. Goal known? If the human's message was only "start autodev workflow", ask for the goal in one message and end your turn — the only time you wait besides the QA brief.
 4. File the goal as issue 001 (Appendix A), status `triage`. Issues left in the tracker by an earlier cycle are first-class work: triage them too.
-5. Load the standing bots: `load_attendant` on `bots/planner.toml`, then `bots/reviewer.toml` — absolute paths from this workflow's directory. Record their session ids in the ledger. Neither gets a checkout (Appendix D).
+5. Load the standing bots: `load_bot` on `bots/planner.toml`, then `bots/reviewer.toml` — absolute paths from this workflow's directory. Record their session ids in the ledger. Neither gets a checkout (Appendix D).
 6. Stamp the task list: one task per flow stage below, one per issue as it is admitted (`003-fix-picker-focus`, never a bare number), updated the moment anything happens — never batched.
 
 ### 1. The loop
@@ -53,7 +53,7 @@ Repeat until the tracker holds nothing claimable, dispatched,
 planning, or triaged. Then do the QA brief (step 5).
 
 1. **Triage** — read `steps/01-triage.md`. For each `triage` issue: one planner dispatch (it decides PLAN or DECOMPOSE — never split an issue yourself). PLAN → mark `open`. DECOMPOSE → transcribe the children, mark this issue `parent`, and route each child the same way. Update the task list.
-2. **Attach** — read `steps/02-dispatch.md`. For each execution-plan-ready, claimable issue: `load_attendant` the implementor seed (never `spawn_subagent` — Appendix C) with `set_name` = `implementor-<issue-number>` (e.g. `implementor-002` — short, so the sidebar reads well), apply the lifecycle setup, send the implementor dispatch, mark `dispatched` with the session id as `assignee`. End your turn if nothing else is actionable — a turn that never ends is a turn whose reports never land.
+2. **Attach** — read `steps/02-dispatch.md`. For each execution-plan-ready, claimable issue: `load_bot` the implementor seed (never `spawn_subagent` — Appendix C) with `set_name` = `implementor-<issue-number>` (e.g. `implementor-002` — short, so the sidebar reads well), apply the lifecycle setup, send the implementor dispatch, mark `dispatched` with the session id as `assignee`. End your turn if nothing else is actionable — a turn that never ends is a turn whose reports never land.
 3. **Review** — a DONE report arrives as a queued message that starts your next turn. Read `steps/03-integrate.md`, dispatch the reviewer (Appendix D), end your turn. APPROVE → teardown. REJECT → findings back to the same implementor session; it fixes and re-reports.
 4. **Teardown** — APPROVE in hand: `run_lifecycle` teardown on the implementor's session (Appendix C). Success → issue `done`, session gone, work on your branch — then refresh your checkout: `fossil update` (the fossil merge landed in the repository file, not your tree; git's merge-back already updated your working tree). `TEARDOWN-CONFLICT` → merge-fix dispatch to the same implementor; on its report, teardown again. Other failure → correct the invocation, re-issue; never hand-work around it.
 5. **QA brief** — nothing claimable, nothing in flight: read `steps/04-qa.md`, write the brief, end your turn. The human's reply resumes the loop (defects → issues).
@@ -132,7 +132,7 @@ the merge is the landing; there is no integration branch.
 Spawn procedure, per issue (steps/02-dispatch.md carries the full
 payload lists):
 
-1. `load_attendant` on `bots/implementor.toml` (absolute path), with `set_name` = `implementor-<issue-number>` — the seed file's own name stays generic; the label distinguishes instances in the sidebar. Keep it short: `implementor-002`, never the issue slug. Never `spawn_subagent`.
+1. `load_bot` on `bots/implementor.toml` (absolute path), with `set_name` = `implementor-<issue-number>` — the seed file's own name stays generic; the label distinguishes instances in the sidebar. Keep it short: `implementor-002`, never the issue slug. Never `spawn_subagent`.
 2. `run_lifecycle` setup: `path` = this workflow's `lifecycle.toml` (absolute), `session_id` = the new session's id, `branch` = `<your-branch>-issue-<id>`, `parent` = your branch. Fossil also takes `repo` (the repository file's base name) and `dir` (the checkout directory); git takes neither — it branches from your own checkout and names the worktree itself.
 3. `tell_session` the dispatch (issue path, execution plan path, ids, checkout dir, parent branch, scm.md path, report format).
 

@@ -19,10 +19,10 @@ pub(crate) const NEVER_REPORTED_MARKER: &str = jinn_bot_msg::BotReport::EMPTY_MA
 
 /// Marks a bot still being composed, matching the sessions
 /// section's glyph.
-const ATTENDANT_PREPPING_SYMBOL: &str = "⏸ ";
+const BOT_PREPPING_SYMBOL: &str = "⏸ ";
 /// Marks a bot that runs on its parent's completion, matching the
 /// sessions section's glyph.
-const ATTENDANT_PARENT_TRIGGER_SYMBOL: &str = "⇉ ";
+const BOT_PARENT_TRIGGER_SYMBOL: &str = "⇉ ";
 
 /// Whether the section has any rows — an empty section collapses.
 pub(crate) fn has_content(state: &AppState) -> bool {
@@ -236,13 +236,13 @@ impl crate::sections::section_trait::SidebarSection for BotsSection {
             // state color they yield to the selection band when selected.
             let prepping = marker_span(
                 row.is_prepping,
-                ATTENDANT_PREPPING_SYMBOL,
+                BOT_PREPPING_SYMBOL,
                 theme.bot_paused,
                 is_selected,
             );
             let parent_trigger = marker_span(
                 row.fires_on_parent_completion,
-                ATTENDANT_PARENT_TRIGGER_SYMBOL,
+                BOT_PARENT_TRIGGER_SYMBOL,
                 theme.bot_parent_trigger,
                 is_selected,
             );

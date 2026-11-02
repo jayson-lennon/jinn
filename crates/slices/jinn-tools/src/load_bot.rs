@@ -1,20 +1,23 @@
-//! The `load_attendant` tool — attach a bot from a workflow-local
-//! TOML file as a child of the calling session.
+//! The `load_bot` tool — attach a bot as a child of the calling session,
+//! loading it from a workflow-local TOML file or from the call itself.
 //!
-//! A workflow needs bots that belong to the *workflow*, not to the
-//! user's jinn.toml: a run's bots ship as TOML files beside the
-//! workflow's prompt files, and starting the workflow is what brings them
-//! alive. This tool loads one such file, builds the bot through the
-//! same path the saved-bot picker uses, attaches it as a child of
-//! the loading session, and stamps it with its source file.
+//! Two load methods feed one path. A workflow loads bots that belong to
+//! the *workflow*, not to the user's jinn.toml: a run's bots ship as TOML
+//! files beside the workflow's prompt files, and starting the workflow is
+//! what brings them alive — `path` loads one such file. An agent with no
+//! file hands the entry's TOML text to the call directly — `toml` — and
+//! the bot is stamped `inline`.
 //!
-//! The stamp is the whole save story: a workflow-loaded bot refuses
-//! to be written into jinn.toml (see the properties save path in
-//! jinn-bot), so a workflow's tuning can never leak into the user's
-//! personal configuration, and its source file stays the only writer of
-//! its configuration. The stamp is per-bot, not inherited: an
-//! bot a workflow bot later creates is an ordinary personal
-//! one.
+//! Either way the bot is built through the same path the saved-bot picker
+//! uses, attached as a child of the loading session, and stamped with its
+//! source (its file path, or `inline`).
+//!
+//! The stamp is the whole save story: a loaded bot refuses to be written
+//! into jinn.toml (see the properties save path in jinn-bot), so a
+//! workflow's tuning — and an ad-hoc bot — can never leak into the user's
+//! personal configuration, and its source stays the only writer of its
+//! configuration. The stamp is per-bot, not inherited: a bot a loaded bot
+//! later creates is an ordinary personal one.
 
 use crate::tool_types::{ToolContext, tool_error};
 
@@ -25,22 +28,27 @@ use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
 use jinn_preferences_config::schemas::BotEntryConfig;
 use marked_path::{Absolute, MarkedPathBuf};
 
-/// The `load_attendant` tool definition.
+/// The `load_bot` tool definition.
 pub fn definition() -> ToolDefinition {
     ToolDefinition {
-        name: "load_attendant".to_owned(),
-        description: "Attach a bot from a workflow-local TOML file as a child of \
-             this session. The file uses the same shape as an [[bot.entry]] block \
-             in jinn.toml. The loaded bot belongs to that workflow: it cannot be \
-             saved to jinn.toml, and its configuration lives in that file."
+        name: "load_bot".to_owned(),
+        description: "Attach a bot as a child of this session. The bot comes from a \
+             workflow-local TOML file (path) or from the call's toml argument — \
+             give exactly one of the two. Either form uses the same shape as an \
+             [[bot.entry]] block in jinn.toml. The loaded bot belongs to its \
+             source (that file, or this call): it cannot be saved to jinn.toml."
             .to_owned(),
         prompt_snippet: Some(
-            "Attach a workflow bot: `load_attendant` with the bot file's path.".to_owned(),
+            "Attach a bot: `load_bot` with the bot file's path, or with the bot \
+             entry's toml text itself."
+                .to_owned(),
         ),
         prompt_guidelines: vec![
-            "Use `load_attendant` to bring up the bots a workflow needs, from \
-             the TOML files that ship beside the workflow. The result names the created \
-             bot's session id — that is the id its messages are addressed to."
+            "Use `load_bot` to bring up the bots a workflow needs, from the TOML \
+             files that ship beside the workflow, or to attach an ad-hoc bot by \
+             handing the entry's toml text to the call directly. Give exactly one \
+             of `path` or `toml`. The result names the created bot's session id — \
+             that is the id its messages are addressed to."
                 .to_owned(),
         ],
         parameters: serde_json::json!({
@@ -51,6 +59,13 @@ pub fn definition() -> ToolDefinition {
                     "description": "Path to the bot TOML file. Relative paths resolve \
                          against this session's working directory."
                 },
+                "toml": {
+                    "type": "string",
+                    "description": "The bot entry's TOML text itself, instead of a file. \
+                         Same shape as an [[bot.entry]] block in jinn.toml — a bare \
+                         entry's keys, an `entry = [...]` array with one entry, or the \
+                         full `[[bot.entry]]` document shape."
+                },
                 "set_name": {
                     "type": "string",
                     "description": "Optional replacement for the bot's name from the \
@@ -58,72 +73,66 @@ pub fn definition() -> ToolDefinition {
                          \"implementor-002\"). Behavior and configuration are unaffected."
                 }
             },
-            "required": ["path"]
+            "required": []
         }),
         server_tool_type: None,
     }
 }
 
-/// Executes `load_attendant`.
+/// Executes `load_bot`.
 ///
-/// Parses the file as a single `[[bot.entry]]`-shaped document —
-/// either a bare entry's keys or a document wrapping one `entry` array —
-/// then builds the bot under the state read lock (the build needs the
-/// parent's *state*, not just its id), stamps the source-file marker,
+/// Takes exactly one of `path` or `toml`; parses the text as a single
+/// `[[bot.entry]]`-shaped document — either a bare entry's keys or a
+/// document wrapping one `entry` array — then builds the bot under the
+/// state read lock (the build needs the parent's *state*, not just its
+/// id), stamps the source marker (the resolved file path, or `inline`),
 /// inserts, and publishes the creation's messages through the bus in the
 /// order the picker path uses.
 pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
     Box::pin(async move {
-        let Some(raw_path) = string_argument(&call, "path") else {
-            return tool_error(&call, "missing required argument: path");
+        let raw_path = string_argument(&call, "path");
+        let raw_toml = string_argument(&call, "toml");
+        let (source, entry) = match (raw_path, raw_toml) {
+            (Some(_), Some(_)) => {
+                return tool_error(&call, "give exactly one of `path` or `toml`, not both");
+            }
+            (None, None) => {
+                return tool_error(
+                    &call,
+                    "missing required argument: give exactly one of `path` or `toml`",
+                );
+            }
+            (Some(path), None) => match load_from_file(&path, &ctx) {
+                Ok(ok) => ok,
+                Err(message) => return tool_error(&call, &message),
+            },
+            (None, Some(text)) => match parse_bot_entry(&text) {
+                Ok(entry) => ("inline".to_owned(), entry),
+                Err(reason) => return tool_error(&call, &reason.to_string()),
+            },
         };
         let set_name = string_argument(&call, "set_name");
         let Some(state) = ctx.state.clone() else {
-            return tool_error(&call, "load_attendant is unavailable without shared state");
+            return tool_error(&call, "load_bot is unavailable without shared state");
         };
         let Some(bus) = ctx.bus.clone() else {
-            return tool_error(&call, "load_attendant is unavailable without a bus");
+            return tool_error(&call, "load_bot is unavailable without a bus");
         };
         let Some(parent_id) = ctx.session_id.clone() else {
-            return tool_error(
-                &call,
-                "load_attendant is unavailable without a session context",
-            );
+            return tool_error(&call, "load_bot is unavailable without a session context");
         };
 
-        // Resolve the path against the session's cwd, the same relative-base
-        // every file-facing tool honors.
-        let cwd = {
+        // A caller that is itself a bot cannot host one: the
+        // creation path requires a non-bot parent.
+        {
             let guard = state.read();
             let Some(caller) = guard.session.get(&parent_id) else {
                 return tool_error(&call, "calling session is not live");
             };
-            // A caller that is itself a bot cannot host one: the
-            // creation path requires a non-bot parent.
             if caller.is_bot() {
                 return tool_error(&call, "only a non-bot session can load a bot");
             }
-            caller.cwd().clone()
-        };
-        let path = {
-            let candidate = std::path::Path::new(&raw_path);
-            if candidate.is_absolute() {
-                MarkedPathBuf::<Absolute>::new(candidate).expect("checked absolute above")
-            } else {
-                cwd.join(candidate)
-                    .expect("absolute parent joins a bare candidate")
-            }
-        };
-        let source = path.to_string();
-        let entry = match std::fs::read_to_string(&path) {
-            Ok(text) => match parse_bot_entry(&text) {
-                Ok(entry) => entry,
-                Err(reason) => return tool_error(&call, &format!("{source}: {reason}")),
-            },
-            Err(error) => {
-                return tool_error(&call, &format!("cannot read {source}: {error}"));
-            }
-        };
+        }
 
         // Build under the read lock — `build` snapshots the parent's state —
         // then stamp, insert, and hand the caller the child's id. An
@@ -162,6 +171,45 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             ),
         )
     })
+}
+
+/// Loads a bot entry from a file path.
+///
+/// Resolves a relative path against the calling session's cwd (the same
+/// relative-base every file-facing tool honors), reads the file, and
+/// parses exactly one entry from it. `Ok` carries the resolved path
+/// string (the stamp's source) and the entry; `Err` carries the finished
+/// error message, ready for [`tool_error`].
+fn load_from_file(raw_path: &str, ctx: &ToolContext) -> Result<(String, BotEntryConfig), String> {
+    let Some(parent_id) = ctx.session_id.as_ref() else {
+        return Err("load_bot is unavailable without a session context".to_owned());
+    };
+    let Some(state) = ctx.state.as_ref() else {
+        return Err("load_bot is unavailable without shared state".to_owned());
+    };
+    // Resolve the path against the session's cwd, the same relative-base
+    // every file-facing tool honors.
+    let cwd = {
+        let guard = state.read();
+        let Some(caller) = guard.session.get(parent_id) else {
+            return Err("calling session is not live".to_owned());
+        };
+        caller.cwd().clone()
+    };
+    let path = {
+        let candidate = std::path::Path::new(raw_path);
+        if candidate.is_absolute() {
+            MarkedPathBuf::<Absolute>::new(candidate).expect("checked absolute above")
+        } else {
+            cwd.join(candidate)
+                .expect("absolute parent joins a bare candidate")
+        }
+    };
+    let source = path.to_string();
+    let entry =
+        std::fs::read_to_string(&path).map_err(|error| format!("cannot read {source}: {error}"))?;
+    let entry = parse_bot_entry(&entry).map_err(|reason| format!("{source}: {reason}"))?;
+    Ok((source, entry))
 }
 
 /// Why a bot file could not be loaded as exactly one named entry.

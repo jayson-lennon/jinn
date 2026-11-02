@@ -194,7 +194,7 @@ impl jinn_config::ConfigList for SessionLifecycle {
 /// resolvers re-reading the file a session recorded as its source. The
 /// document shape is the bare `[[session_lifecycle.script]]` section a
 /// workflow file ships; the wrapped `[[script]]` form is accepted too, the
-/// same dual shape `load_attendant`'s parser honors.
+/// same dual shape `load_bot`'s parser honors.
 ///
 /// # Errors
 ///

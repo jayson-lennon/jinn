@@ -34,7 +34,7 @@ decides everything: **what the orchestrator does while the worker
 works.**
 
 - **`spawn_subagent` — blocking.** Spawns a one-shot subagent; the call does not return until the child finishes, and the child's final message comes back as the tool result. The orchestrator is **frozen** for the whole child run: no other work, no mid-flight steering, and anything the child queues is lost. Subagents are isolation, not compression — they start from an empty context and see nothing but the prompt. Use when the next orchestrator action depends on the result (sequential steps).
-- **Bots — concurrent.** Standing child sessions created by `load_attendant` from a TOML seed. The call returns immediately; the orchestrator goes on with its turn (usually by ending it) and the bot's report arrives **later**, as a queued message that starts the orchestrator's next turn. Several bots run at once; each survives across dispatches (see seed fields below). Use when work can proceed while the orchestrator does other things, or when the same session must handle multiple dispatches over time (event-driven workers and specialists).
+- **Bots — concurrent.** Standing child sessions created by `load_bot` from a TOML seed. The call returns immediately; the orchestrator goes on with its turn (usually by ending it) and the bot's report arrives **later**, as a queued message that starts the orchestrator's next turn. Several bots run at once; each survives across dispatches (see seed fields below). Use when work can proceed while the orchestrator does other things, or when the same session must handle multiple dispatches over time (event-driven workers and specialists).
 
 Never substitute one for the other: a `spawn_subagent` call where a bot
 belongs freezes the orchestrator and silently discards the bot's
@@ -73,7 +73,7 @@ is the first authoring decision — it changes the directory layout, the
 execution model, and what the session must supervise.
 
 - **Sequential** — steps run one after another; each step is one unit of work; when it's done, the next starts. Use when the flow is a pipeline: research → draft → review → fix → deliver. Execution: the orchestrator dispatches each step to a fresh subagent with the `spawn_subagent` tool.
-- **Event-driven** — named worker sessions run concurrently and react to events: messages between sessions, turn completions, task completion. Use when the flow has concurrency, recursion, or long-lived workers: fanout, an issue queue that spawns more issues, workers that report back asynchronously. Execution: the orchestrator attaches **bots** with `load_attendant` (workflow-local session seeds), dispatches them with `tell_session`, and receives their reports via `notify_parent`.
+- **Event-driven** — named worker sessions run concurrently and react to events: messages between sessions, turn completions, task completion. Use when the flow has concurrency, recursion, or long-lived workers: fanout, an issue queue that spawns more issues, workers that report back asynchronously. Execution: the orchestrator attaches **bots** with `load_bot` (workflow-local session seeds), dispatches them with `tell_session`, and receives their reports via `notify_parent`.
 
 When both fit, prefer sequential — it is simpler to author and to debug.
 Event-driven earns its cost only when the flow genuinely needs

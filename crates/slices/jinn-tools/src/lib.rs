@@ -25,8 +25,8 @@ pub mod tell_session;
 mod bot_tools_tests;
 
 #[cfg(test)]
-#[path = "load_attendant_tests.rs"]
-mod load_attendant_tests;
+#[path = "load_bot_tests.rs"]
+mod load_bot_tests;
 
 #[cfg(test)]
 #[path = "run_lifecycle_tests.rs"]
@@ -45,7 +45,7 @@ pub mod interactive_term;
 pub mod interactive_term_kill;
 pub mod interactive_term_send;
 pub mod lifecycle_completion_listener_actor;
-pub mod load_attendant;
+pub mod load_bot;
 /// The Windows-native PowerShell tool.
 ///
 /// The schema is compiled on every platform so it can be tested

@@ -378,6 +378,7 @@ Entries are added or amended **only with human approval**.
 - (bot) A parentless bot is standalone: its trigger is fixed to manual and the notify_parent tool is withheld while conclude is kept.
 - (bot) Bots spawn from the Sessions section (`b` attaches to the highlighted session, `B` spawns standalone) and from the saved-bots picker (`<enter>` attaches to the active session, `<c-enter>` spawns standalone); `N` is unbound.
 - (config) Bots persist as `[[bot.entry]]` in jinn.toml, and `[[attendant.entry]]` entries still load, read as bots.
+- (bot) The word attendant survives in the codebase only as the pre-rename jinn.toml key spelling (bot.entry's legacy key, the SessionOrigin serde alias, and the bot seed parser's legacy document shape), which still loads.
 - (bot) A bot's run parameters and its append-only report log persist in the session metadata blob, so adding them required no schema migration.
 - (bot) A bot in prep mode has user submissions pinned into its context without dispatching them, and its trigger is inert.
 - (bot) Bot run configuration is a trigger, a behavior, and a prep mode: prep mode composes without firing, reset rebuilds context from pins alone, preserve appends.
@@ -535,7 +536,7 @@ Entries are added or amended **only with human approval**.
 - (workflows) A session's workflow list is discovered by the session-init discovery run alongside skills, prompt templates, and context files.
 - (sessions) No session opens with a session-ID entry; models obtain session ids through tools and users yank one via `y` on the sidebar.
 - (tools) A session can message any session by stable id: an idle manual bot starts a run seeded from its template plus the message text, a busy target queues the message without cancelling its run, a plain session receives the message as a display-only intersession entry, and an unknown id fails the tool call naming the target.
-- (tools) An agent can load a bot from a workflow-local TOML through `load_attendant`, which attaches it via the saved-bot picker's build path and stamps it with its source file; a bot loaded this way refuses to save into jinn.toml with a refusal naming that file.
+- (tools) An agent can load a bot through `load_bot` from a workflow-local TOML file (`path`) or from the call's `toml` argument; the tool takes exactly one of the two. The loaded bot is stamped with its source (its file path, or `inline` for the toml form) and refuses to save into jinn.toml with a refusal naming that source.
 - (chat-log) An intersession message renders in the transcript carrying both the source and target session identities, and is excluded from LLM context and from search indexing.
 - (workflows) The autodev workflow ships under res/workflows/autodev and reaches the config dir's workflows folder through launch-time reconciliation and just install-defaults; the repo tracks no project-local .config tree.
 - (resources) jinn reconciles the bundled res/ families (themes, personas, prompts, skills, workflows) to user directories on every launch, before actor wiring; resource loaders read only the filesystem.

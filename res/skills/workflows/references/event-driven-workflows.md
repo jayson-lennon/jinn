@@ -64,7 +64,7 @@ stall detector it is. Events do the actual waking.
 ## Bot seed files
 
 One file per role, TOML, living beside the workflow (loaded by absolute
-path via `load_attendant`; the same shape as an `[[bot.entry]]`
+path via `load_bot`; the same shape as an `[[bot.entry]]`
 block in `jinn.toml`, but workflow-scoped — it cannot be saved to user
 config). Load one file **K times to get K workers of that role**; a
 pool is one seed loaded repeatedly, not K files.
@@ -99,7 +99,7 @@ lets information travel any other way.
 playback of what setup recorded. Together they are the workflow's
 checkout machine — use them fully or not at all:
 
-- **Spawning a worker = `load_attendant` the seed → lifecycle setup → dispatch.** The bot call creates the session and stamps it; the setup is issued **by the orchestrator, targeting the new session's id**, immediately after — the worker wakes up already sitting in its own checkout or worktree. There is no standing pool to pre-open seats for: on-demand spawn per unit of work keeps every seat owned by a live session, and teardown retires it.
+- **Spawning a worker = `load_bot` the seed → lifecycle setup → dispatch.** The bot call creates the session and stamps it; the setup is issued **by the orchestrator, targeting the new session's id**, immediately after — the worker wakes up already sitting in its own checkout or worktree. There is no standing pool to pre-open seats for: on-demand spawn per unit of work keeps every seat owned by a live session, and teardown retires it.
 - **Landing = lifecycle teardown.** The script's teardown command does the merge-back, the commit, the checkout removal, and the branch retirement, replaying setup's recorded coordinates (session id only — the args are remembered). Because teardown is the cleanup, cleanup cannot be skipped, forgotten, or aimed at the wrong run's seat: a session that never existed holds no coordinates, so there is nothing to mis-teardown.
 - **Order teardown's steps so conflicts fail before anything irreversible.** Both `fossil merge` and `git merge` exit 0 on conflict — gate on markers/unmerged paths and exit nonzero _before_ the branch close/delete. Everything before that point is retryable (a re-run's merges are no-ops); a closed branch cannot accept the retry. A conflicted teardown should leave the worker session alive: it knows the code, so the fix dispatch goes to it, and teardown is re-issued after its report.
 - **Never nest `bash -c` in a lifecycle command.** The runner already executes every command through `bash -c`; a wrapper spawns a second shell for nothing, and its single quotes clash with the shell-quoted values the runner substitutes for placeholders.

@@ -8,7 +8,7 @@ use jinn_core_types::tool_types::{ToolCall, ToolDefinition};
 
 use super::{
     BoxedToolFuture, bash, bot_tools, canvas, capabilities, edit, get_time, grep, interactive_term,
-    interactive_term_kill, interactive_term_send, load_attendant, read, read_image, restart_mcp,
+    interactive_term_kill, interactive_term_send, load_bot, read, read_image, restart_mcp,
     run_lifecycle, save_plan, session_fetch, session_search, skill, spawn_subagent, tell_session,
     write,
 };
@@ -130,8 +130,8 @@ pub fn builtin_tools(default_timeout_secs: u64) -> Vec<BuiltinToolEntry> {
             false,
         ),
         (
-            load_attendant::definition(),
-            load_attendant::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
+            load_bot::definition(),
+            load_bot::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
             false,
         ),
         (
@@ -267,7 +267,7 @@ mod tests {
             "capabilities_query",
             "capabilities_apply",
             "tell_session",
-            "load_attendant",
+            "load_bot",
             "run_lifecycle",
             "grep",
             "spawn_subagent",

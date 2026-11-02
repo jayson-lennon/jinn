@@ -2,12 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The workflow-local TOML file a bot was loaded from.
+/// The workflow-local TOML file a bot was loaded from — or the inline
+/// text the `load_bot` call itself carried.
 ///
 /// A path, not a name — the bot's name is its title. This is the
-/// provenance stamp `load_attendant` writes: the save path refuses to
-/// write a bot that carries one, naming this file, and the tool
+/// provenance stamp `load_bot` writes: the save path refuses to
+/// write a bot that carries one, naming this source, and the tool
 /// result names it so the caller knows where the configuration came from.
+/// A file load carries the file's path; an inline load carries `inline`.
 ///
 /// Held as a `String` rather than a `PathBuf` because it is display text
 /// first (it appears in refusals and tool results) and a filesystem path

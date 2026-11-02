@@ -195,9 +195,9 @@ const SUBAGENT_SYMBOL: &str = "⋄ ";
 /// Marks a session with a live `interactive_term` terminal.
 pub(crate) const LIVE_TERM_SYMBOL: &str = "◼ ";
 /// Marks a bot still being composed, which will not dispatch a turn.
-const ATTENDANT_PREPPING_SYMBOL: &str = "⏸ ";
+const BOT_PREPPING_SYMBOL: &str = "⏸ ";
 /// Marks a bot that runs when its parent's turn completes.
-const ATTENDANT_PARENT_TRIGGER_SYMBOL: &str = "⇉ ";
+const BOT_PARENT_TRIGGER_SYMBOL: &str = "⇉ ";
 
 /// Renders a session entry line (indicator + arrow + tree + styled title).
 fn assemble_session_line(
@@ -228,7 +228,7 @@ fn assemble_session_line(
     // inside it: the title is what a rename replaces, and a mode marker
     // must not be reachable by the rename key.
     let prepping_symbol = if entry.is_bot_prepping {
-        ATTENDANT_PREPPING_SYMBOL
+        BOT_PREPPING_SYMBOL
     } else {
         ""
     };
@@ -236,7 +236,7 @@ fn assemble_session_line(
     // "runs on its own" are independent facts, and a bot can be in
     // either state without the other being false.
     let parent_trigger_symbol = if entry.bot_fires_on_parent_completion {
-        ATTENDANT_PARENT_TRIGGER_SYMBOL
+        BOT_PARENT_TRIGGER_SYMBOL
     } else {
         ""
     };

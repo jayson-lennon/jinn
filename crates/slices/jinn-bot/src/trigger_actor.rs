@@ -14,7 +14,7 @@ use trouper::system::ActorSystem;
 use crate::activation;
 
 /// Where the trigger actor lives on the trouper system.
-const ATTENDANT_TRIGGER_PATH: &str = "jinn.domain/bot-trigger";
+const BOT_TRIGGER_PATH: &str = "jinn.domain/bot-trigger";
 
 /// Dependencies for [`BotTriggerActor`].
 #[derive(Clone)]
@@ -65,7 +65,7 @@ impl BotTriggerActor {
         reason = "port convention: spawn takes owned deps and clones into init_with"
     )]
     pub fn spawn(system: &ActorSystem, deps: BotTriggerActorDeps) -> ActorPath {
-        let path = ActorPath::new(ATTENDANT_TRIGGER_PATH);
+        let path = ActorPath::new(BOT_TRIGGER_PATH);
         trouper::builder::spawn_service_builder::<Self>(system)
             .at(path.clone())
             .init_with({

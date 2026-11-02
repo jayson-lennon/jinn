@@ -1,4 +1,4 @@
-//! Tests for the `load_attendant` tool and the workflow-source save-block.
+//! Tests for the `load_bot` tool and the workflow-source save-block.
 
 #![allow(clippy::expect_used, reason = "test code")]
 
@@ -15,14 +15,14 @@ use jinn_session_store_msg::PersistSession;
 use jinn_testutil::bus_harness::{TestHarness, await_recorded};
 use marked_path::{Absolute, MarkedPathBuf};
 
-use crate::load_attendant::{definition, execute, parse_bot_entry};
+use crate::load_bot::{definition, execute, parse_bot_entry};
 use crate::tool_types::ToolContext;
 
 /// Builds a tool call with the given JSON arguments.
 fn call(arguments: &str) -> ToolCall {
     ToolCall {
         id: "tc_load_1".into(),
-        name: "load_attendant".to_owned(),
+        name: "load_bot".to_owned(),
         arguments: arguments.to_owned(),
     }
 }
@@ -80,7 +80,7 @@ fn bot_file(name: &str, body: &str) -> (jinn_testutil::JinnTempDir, String) {
     (dir, path)
 }
 
-const ATTENDANT_BODY: &str = r#"
+const BOT_BODY: &str = r#"
 name = "implementer"
 behavior = "preserve"
 trigger = "manual"
@@ -90,13 +90,13 @@ seed_template = "You implement one stage of an autocoder run."
 
 #[rstest::rstest]
 #[tokio::test]
-async fn load_attaches_a_workflow_bot_and_stamps_the_marker() {
+async fn load_attaches_a_bot_and_stamps_the_marker_with_the_file_path() {
     // Given a user session and a workflow-local bot file on disk.
     let harness = TestHarness::new().await;
     let persists = harness.spawn_recorder::<PersistSession>().await;
     let (state, user_id) = fixture();
     let dir = jinn_testutil::tempdir();
-    let (_file_dir, path) = bot_file("stamp", ATTENDANT_BODY);
+    let (_file_dir, path) = bot_file("stamp", BOT_BODY);
     let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
 
     // When the tool loads the file.
@@ -114,10 +114,10 @@ async fn load_attaches_a_workflow_bot_and_stamps_the_marker() {
         .iter()
         .map(|(_, s)| s)
         .find(|s| s.is_bot())
-        .expect("a workflow bot must exist");
+        .expect("a loaded bot must exist");
     assert_eq!(bot.parent_session().as_ref(), Some(&user_id));
     assert_eq!(bot.title(), Some("implementer"));
-    // And it carries the workflow-source marker naming its source file.
+    // And it carries the source marker naming its source file.
     assert_eq!(
         bot.workflow_source(),
         Some(&BotSourcePath::new(path.clone()))
@@ -131,12 +131,53 @@ async fn load_attaches_a_workflow_bot_and_stamps_the_marker() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn children_of_a_workflow_bot_do_not_inherit_the_marker() {
+async fn inline_toml_load_attaches_a_bot_stamped_inline() {
+    // Given a user session and a bot entry handed to the call as TOML text.
+    let harness = TestHarness::new().await;
+    let (state, user_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+
+    // When the tool loads the entry inline.
+    let result = execute(
+        call(&serde_json::json!({ "toml": BOT_BODY }).to_string()),
+        tool_ctx,
+    )
+    .await;
+
+    // Then the tool succeeds and the bot exists as a child, stamped
+    // with the inline marker.
+    assert!(result.success, "load must succeed: {}", result.content);
+    assert!(
+        result.content.contains("inline"),
+        "the result names the source: {}",
+        result.content
+    );
+    let guard = state.read();
+    let bot = guard
+        .session
+        .iter()
+        .map(|(_, s)| s)
+        .find(|s| s.is_bot())
+        .expect("a loaded bot must exist");
+    assert_eq!(bot.parent_session().as_ref(), Some(&user_id));
+    assert_eq!(bot.title(), Some("implementer"));
+    assert_eq!(
+        bot.workflow_source(),
+        Some(&BotSourcePath::new("inline".to_owned())),
+        "the inline load stamps `inline`"
+    );
+    assert!(!bot.bot_is_prepping(), "inline config applied");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn children_of_a_loaded_bot_do_not_inherit_the_marker() {
     // Given a bot loaded from a workflow-local file.
     let harness = TestHarness::new().await;
     let (state, user_id) = fixture();
     let dir = jinn_testutil::tempdir();
-    let (_file_dir, path) = bot_file("inherit", ATTENDANT_BODY);
+    let (_file_dir, path) = bot_file("inherit", BOT_BODY);
     let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
     let result = execute(
         call(&serde_json::json!({ "path": path }).to_string()),
@@ -153,7 +194,45 @@ async fn children_of_a_workflow_bot_do_not_inherit_the_marker() {
         .iter()
         .map(|(_, s)| s)
         .find(|s| s.is_bot())
-        .expect("workflow bot");
+        .expect("loaded bot");
+    let child = ChatSessionState::new_bot(loaded, true);
+    let child_id = child.session_id().clone();
+    drop(guard);
+    state.write().session.insert(child);
+
+    // Then the child is an ordinary personal bot: no marker.
+    let guard = state.read();
+    let child = guard.session.get(&child_id).expect("child");
+    assert_eq!(
+        child.workflow_source(),
+        None,
+        "the marker is never inherited"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn children_of_an_inline_bot_do_not_inherit_the_marker() {
+    // Given a bot loaded inline from the call's toml argument.
+    let harness = TestHarness::new().await;
+    let (state, user_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+    let result = execute(
+        call(&serde_json::json!({ "toml": BOT_BODY }).to_string()),
+        tool_ctx,
+    )
+    .await;
+    assert!(result.success);
+
+    // When a child is created the ordinary way from that bot.
+    let guard = state.read();
+    let loaded = guard
+        .session
+        .iter()
+        .map(|(_, s)| s)
+        .find(|s| s.is_bot())
+        .expect("inline bot");
     let child = ChatSessionState::new_bot(loaded, true);
     let child_id = child.session_id().clone();
     drop(guard);
@@ -222,7 +301,103 @@ async fn malformed_bot_file_fails_with_the_reason() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn bot_caller_cannot_load_an_bot() {
+async fn malformed_inline_toml_fails_with_the_parse_reason() {
+    // Given inline text that is not a valid bot entry.
+    let harness = TestHarness::new().await;
+    let (state, user_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+
+    // When the tool loads it inline.
+    let result = execute(
+        call(&serde_json::json!({ "toml": "this is not = toml = =" }).to_string()),
+        tool_ctx,
+    )
+    .await;
+
+    // Then the tool fails with the parse reason and no fabricated path.
+    assert!(!result.success);
+    assert!(
+        result.content.contains("not a valid bot entry"),
+        "the reason is surfaced: {}",
+        result.content
+    );
+    assert!(
+        !result.content.contains(".toml"),
+        "no path is fabricated for inline text: {}",
+        result.content
+    );
+    let guard = state.read();
+    assert!(
+        !guard.session.iter().any(|(_, s)| s.is_bot()),
+        "a failed load must not create anything"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn load_bot_with_both_path_and_toml_fails_naming_both_keys() {
+    // Given a session, a bot file on disk, and inline text.
+    let harness = TestHarness::new().await;
+    let (state, user_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    let (_file_dir, path) = bot_file("both", BOT_BODY);
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+
+    // When the tool is called with both arguments.
+    let result = execute(
+        call(&serde_json::json!({ "path": path, "toml": BOT_BODY }).to_string()),
+        tool_ctx,
+    )
+    .await;
+
+    // Then the tool fails naming both keys and nothing is created.
+    assert!(!result.success);
+    assert!(
+        result.content.contains("`path`") && result.content.contains("`toml`"),
+        "the refusal names both keys: {}",
+        result.content
+    );
+    let guard = state.read();
+    assert!(
+        !guard.session.iter().any(|(_, s)| s.is_bot()),
+        "a refused call must not create anything"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn load_bot_with_neither_path_nor_toml_fails_naming_both_keys() {
+    // Given a session and a call with no load-source argument.
+    let harness = TestHarness::new().await;
+    let (state, user_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+
+    // When the tool is called with neither argument.
+    let result = execute(
+        call(&serde_json::json!({ "set_name": "x" }).to_string()),
+        tool_ctx,
+    )
+    .await;
+
+    // Then the tool fails naming both keys and nothing is created.
+    assert!(!result.success);
+    assert!(
+        result.content.contains("`path`") && result.content.contains("`toml`"),
+        "the refusal names both keys: {}",
+        result.content
+    );
+    let guard = state.read();
+    assert!(
+        !guard.session.iter().any(|(_, s)| s.is_bot()),
+        "a refused call must not create anything"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn bot_caller_cannot_load_a_bot_from_a_file() {
     // Given a user session with a bot, calling from the bot.
     let harness = TestHarness::new().await;
     let (state, user_id) = fixture();
@@ -233,7 +408,7 @@ async fn bot_caller_cannot_load_an_bot() {
     let bot_id = bot.session_id().clone();
     state.write().session.insert(bot);
     let dir = jinn_testutil::tempdir();
-    let (_file_dir, path) = bot_file("nested", ATTENDANT_BODY);
+    let (_file_dir, path) = bot_file("nested", BOT_BODY);
     let tool_ctx = ctx(&harness, &state, bot_id, &dir.path).await;
 
     // When the bot tries to load another bot.
@@ -243,8 +418,34 @@ async fn bot_caller_cannot_load_an_bot() {
     )
     .await;
 
-    // Then the load is refused: loaded bots hang off non-bot
-    // parents.
+    // Then the load is refused: loaded bots hang off non-bot parents.
+    assert!(!result.success);
+    assert!(result.content.contains("non-bot"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn bot_caller_cannot_load_a_bot_inline() {
+    // Given a user session with a bot, calling from the bot.
+    let harness = TestHarness::new().await;
+    let (state, user_id) = fixture();
+    let bot = {
+        let guard = state.read();
+        ChatSessionState::new_bot(guard.session.get(&user_id).expect("user"), true)
+    };
+    let bot_id = bot.session_id().clone();
+    state.write().session.insert(bot);
+    let dir = jinn_testutil::tempdir();
+    let tool_ctx = ctx(&harness, &state, bot_id, &dir.path).await;
+
+    // When the bot tries to load another bot inline.
+    let result = execute(
+        call(&serde_json::json!({ "toml": BOT_BODY }).to_string()),
+        tool_ctx,
+    )
+    .await;
+
+    // Then the load is refused: loaded bots hang off non-bot parents.
     assert!(!result.success);
     assert!(result.content.contains("non-bot"));
 }
@@ -254,7 +455,7 @@ async fn bot_caller_cannot_load_an_bot() {
 fn parse_accepts_the_bare_entry_shape() {
     // Given a bare bot entry body.
     // When parsing.
-    let entry = parse_bot_entry(ATTENDANT_BODY).expect("parses");
+    let entry = parse_bot_entry(BOT_BODY).expect("parses");
 
     // Then the fields came across.
     assert_eq!(entry.name, "implementer");
@@ -265,7 +466,7 @@ fn parse_accepts_the_bare_entry_shape() {
 #[test]
 fn parse_accepts_a_single_entry_wrapped_in_an_entry_array() {
     // Given a wrapped body with one entry.
-    let body = format!("[[entry]]\n{}", ATTENDANT_BODY.trim_start_matches('\n'));
+    let body = format!("[[entry]]\n{}", BOT_BODY.trim_start_matches('\n'));
 
     // When parsing.
     let entry = parse_bot_entry(&body).expect("parses");
@@ -278,25 +479,28 @@ fn parse_accepts_a_single_entry_wrapped_in_an_entry_array() {
 #[test]
 fn parse_refuses_a_wrapped_file_carrying_several_entries() {
     // Given a wrapped body with two entries.
-    let one = ATTENDANT_BODY.trim_start_matches('\n');
+    let one = BOT_BODY.trim_start_matches('\n');
     let body = format!("[[entry]]\n{one}\n[[entry]]\nname = \"second\"\n");
 
     // When parsing.
     let result = parse_bot_entry(&body);
 
     // Then it refuses with a reason naming the count.
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("2 entries"));
+    let error = result.expect_err("two entries must be refused");
+    assert!(
+        error.to_string().contains("2 entries"),
+        "the reason names the count: {error}"
+    );
 }
 
 #[rstest::rstest]
 #[test]
 fn parse_accepts_the_full_document_shape_jinn_toml_uses() {
-    // Given a file in the shape jinn.toml itself uses — the array
-    // nested under an `bot` table (`[[bot.entry]]`) — which
-    // is the shape the tool's description and the shipped autocoder
-    // bot files both promise.
-    let one = ATTENDANT_BODY.trim_start_matches('\n');
+    // Given a body in the shape jinn.toml itself uses — the array
+    // nested under an `bot` table (`[[bot.entry]]`) — which is the
+    // shape the tool's description and the shipped autocoder bot
+    // files both promise.
+    let one = BOT_BODY.trim_start_matches('\n');
     let body = format!("[[bot.entry]]\n{one}\n");
 
     // When parsing.
@@ -307,10 +511,24 @@ fn parse_accepts_the_full_document_shape_jinn_toml_uses() {
 }
 
 #[rstest::rstest]
+#[test]
+fn parse_still_accepts_the_legacy_attendant_document_shape() {
+    // Given a body carrying the pre-rename section key — the shape
+    // older saved files and stale workflow copies may still use.
+    let one = BOT_BODY.trim_start_matches('\n');
+    let body = format!("[[attendant.entry]]\n{one}\n");
+
+    // When parsing.
+    let entry = parse_bot_entry(&body).expect("the legacy shape parses");
+
+    // Then the single entry comes across.
+    assert_eq!(entry.name, "implementer");
+}
+
+#[rstest::rstest]
 #[tokio::test]
-async fn personal_bots_still_save_and_workflow_bots_refuse() {
-    // Given a personal bot (no marker) and a workflow-loaded
-    // bot, both live.
+async fn personal_bots_still_save_and_loaded_bots_refuse() {
+    // Given a personal bot (no marker) and a loaded bot, both live.
     let harness = TestHarness::new().await;
     let (state, user_id) = fixture();
     let personal = {
@@ -320,7 +538,7 @@ async fn personal_bots_still_save_and_workflow_bots_refuse() {
     let personal_id = personal.session_id().clone();
     state.write().session.insert(personal);
     let dir = jinn_testutil::tempdir();
-    let (_file_dir, path) = bot_file("savepath", ATTENDANT_BODY);
+    let (_file_dir, path) = bot_file("savepath", BOT_BODY);
     let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
 
     // When the tool loads the bot.
@@ -331,7 +549,7 @@ async fn personal_bots_still_save_and_workflow_bots_refuse() {
     .await;
     assert!(result.success);
 
-    // Then the personal one has no marker and the workflow one does.
+    // Then the personal one has no marker and the loaded one does.
     let guard = state.read();
     let personal = guard.session.get(&personal_id).expect("personal");
     assert_eq!(personal.workflow_source(), None);
@@ -340,30 +558,27 @@ async fn personal_bots_still_save_and_workflow_bots_refuse() {
         .iter()
         .map(|(_, s)| s)
         .find(|s| s.is_bot() && s.session_id() != &personal_id)
-        .expect("workflow bot");
+        .expect("loaded bot");
     assert!(loaded.workflow_source().is_some());
 }
 
 #[rstest::rstest]
 #[test]
-fn definition_names_the_path_argument() {
+fn definition_names_the_load_source_arguments() {
     // Given the tool definition.
     let def = definition();
 
     // When its parameters are read.
-    // Then it is named load_attendant with path required.
-    assert_eq!(def.name, "load_attendant");
+    // Then it is named load_bot with neither load source required —
+    // exactly-one-of is enforced at run time, not in the schema.
+    assert_eq!(def.name, "load_bot");
     let required = def.parameters["required"].as_array().expect("required");
-    assert_eq!(required.len(), 1);
-    assert_eq!(required[0].as_str(), Some("path"));
-    // And set_name is declared optional.
-    let props = def.parameters["properties"]
-        .as_object()
-        .expect("properties");
-    assert!(
-        props.contains_key("set_name"),
-        "set_name is a declared argument"
-    );
+    assert!(required.is_empty(), "required must be empty: {required:?}");
+    // And both load-source arguments are declared, along with set_name.
+    let props = def.parameters["properties"].as_object().expect("props");
+    for key in ["path", "toml", "set_name"] {
+        assert!(props.contains_key(key), "{key} is a declared argument");
+    }
 }
 
 #[rstest::rstest]
@@ -373,7 +588,7 @@ async fn set_name_relabels_the_instance_and_leaves_the_seed_name_alone() {
     let harness = TestHarness::new().await;
     let (state, user_id) = fixture();
     let dir = jinn_testutil::tempdir();
-    let (_file_dir, path) = bot_file("setname", ATTENDANT_BODY);
+    let (_file_dir, path) = bot_file("setname", BOT_BODY);
 
     // When the tool loads it with set_name = "implementor-002".
     let result = execute(
@@ -395,14 +610,12 @@ async fn set_name_relabels_the_instance_and_leaves_the_seed_name_alone() {
         .iter()
         .map(|(_, s)| s)
         .find(|s| s.is_bot())
-        .expect("workflow bot");
+        .expect("loaded bot");
     assert_eq!(
         bot.title(),
         Some("implementor-002"),
         "the instance carries the caller's label"
     );
-    // And its behavior still comes from the seed file.
-    assert_eq!(bot.title(), Some("implementor-002"));
 }
 
 #[rstest::rstest]
@@ -412,7 +625,7 @@ async fn loading_the_same_seed_twice_with_different_set_names_yields_two_named_b
     let harness = TestHarness::new().await;
     let (state, user_id) = fixture();
     let dir = jinn_testutil::tempdir();
-    let (_file_dir, path) = bot_file("twice", ATTENDANT_BODY);
+    let (_file_dir, path) = bot_file("twice", BOT_BODY);
 
     // When it is loaded twice under two different labels.
     for label in ["implementor-001", "implementor-002"] {
@@ -444,7 +657,7 @@ async fn without_set_name_the_seed_files_name_is_used() {
     let harness = TestHarness::new().await;
     let (state, user_id) = fixture();
     let dir = jinn_testutil::tempdir();
-    let (_file_dir, path) = bot_file("noname", ATTENDANT_BODY);
+    let (_file_dir, path) = bot_file("noname", BOT_BODY);
     let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
 
     // When the tool loads it with no set_name argument.
@@ -462,6 +675,24 @@ async fn without_set_name_the_seed_files_name_is_used() {
         .iter()
         .map(|(_, s)| s)
         .find(|s| s.is_bot())
-        .expect("workflow bot");
+        .expect("loaded bot");
     assert_eq!(bot.title(), Some("implementer"));
+}
+
+#[rstest::rstest]
+#[test]
+fn load_attendant_is_no_longer_a_registered_tool() {
+    // Given the built-in tool registry.
+    let tools = crate::registry::builtin_tools(30);
+    let names: Vec<_> = tools.iter().map(|(def, _, _)| def.name.as_str()).collect();
+
+    // When looking for the old tool name.
+    // Then it is gone — the rename is a hard cutover, so stale
+    // workflow files fail visibly instead of silently working.
+    assert!(
+        !names.contains(&"load_attendant"),
+        "the pre-rename name must not resolve: {names:?}"
+    );
+    // And the new name is registered.
+    assert!(names.contains(&"load_bot"), "load_bot must be present");
 }

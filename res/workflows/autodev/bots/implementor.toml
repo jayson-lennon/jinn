@@ -1,6 +1,6 @@
 # Bot: implementor. Attached on demand, one session per issue.
 #
-# `load_attendant` + `set_name` = implementor-<issue>, then lifecycle
+# `load_bot` + `set_name` = implementor-<issue>, then lifecycle
 # setup (own branch off the orchestrator's branch, own checkout).
 # behavior = preserve: survives review rounds and teardown-conflict
 # loops so it keeps knowing its own code. Dispatches are still written

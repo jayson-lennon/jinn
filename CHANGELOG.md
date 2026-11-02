@@ -1,5 +1,10 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- Renamed `load_attendant` to `load_bot`
+- `load_bot` now accepts a bot config inline w/o require a file write
+
 ## 2026-11-01 v1.15.0
 
 - Add a metrics script to `canvas` injection which reports interactions back to the agent.

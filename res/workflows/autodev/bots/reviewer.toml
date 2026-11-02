@@ -1,6 +1,6 @@
 # Bot: reviewer. One per run; the second pair of eyes.
 #
-# Loaded ONCE via `load_attendant` at run start. Dispatched after every
+# Loaded ONCE via `load_bot` at run start. Dispatched after every
 # implementor DONE report, BEFORE any teardown. NO checkout — reads the
 # execution plan and the branch diff through the repository file
 # (steps/scm.md). behavior = preserve: the repo map persists; verdicts
