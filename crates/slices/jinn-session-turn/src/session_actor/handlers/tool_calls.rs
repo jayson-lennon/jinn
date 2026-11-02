@@ -301,13 +301,22 @@ impl SessionPersistenceActor {
     }
 
     /// Every open call in the turn has closed — the turn's work set is
-    /// empty. What happens next is the completion's recorded intent: a
+    /// empty. What happens next is the settlement's recorded intent: a
     /// tool-use stream retirement recorded `Continue` (dispatch the
-    /// continuation), a turn with no more streams coming recorded `End`.
+    /// continuation), a turn with no more streams coming recorded `End`,
+    /// a cancelled turn recorded `Cancel`.
     ///
     /// There is no batch message and no buffering: order independence is
     /// the work set's, not the bus's. Called by the stream-completion fold
     /// and the tool-completion path when `close_call` reports a settlement.
+    ///
+    /// `End` and `Cancel` settle here, not downstream: the stream-completion
+    /// path cannot own their settle on this route — a cancel during the tool
+    /// loop finds a turn whose stream has already retired, so its stamped
+    /// completion is refused by the ledger (`Refused::StaleStream`) and the
+    /// close this settlement rode in on is the turn's last fact. The ledger
+    /// emits exactly one settlement per round, so whichever site observes
+    /// it — this close path or the completion's ack — settles exactly once.
     pub(in crate::session_actor) async fn on_turn_work_settled(
         &self,
         session_id: &jinn_core_types::SessionId,
@@ -322,11 +331,10 @@ impl SessionPersistenceActor {
             jinn_kernel::common::turn_ledger::Next::Continue => {
                 self.continue_tool_loop(session_id).await;
             }
-            // End and Cancel settle through the stream-completion path,
-            // which owns the turn outcome and the cancel sweep. Nothing to
-            // dispatch here.
             jinn_kernel::common::turn_ledger::Next::End
-            | jinn_kernel::common::turn_ledger::Next::Cancel => {}
+            | jinn_kernel::common::turn_ledger::Next::Cancel => {
+                self.settle_turn(session_id, next).await;
+            }
         }
     }
 
@@ -386,7 +394,7 @@ mod tests {
     use super::super::super::helpers::{ensure_context_assembly, test_actor, test_actor_recording};
     use jinn_core_types::ToolResultStatus;
     use jinn_core_types::tool_types::{ToolCall, ToolResult};
-    use jinn_inference_msg::{StreamCompleted, StreamCompletedReason};
+    use jinn_inference_msg::{CancelTurn, StreamCompleted, StreamCompletedReason};
     use jinn_kernel::protocol::{ChangeSource, ChatEntry, ChatEntryKind};
     use jinn_slices::PhaseView;
     use jinn_token_count_msg::TokenRecord;
@@ -1070,6 +1078,306 @@ mod tests {
         assert!(
             sent.iter().any(|m| m.session_id == session_id),
             "StreamCompleted(ToolUse) must survive a >64 token burst on the deep mailbox"
+        );
+    }
+
+    /// The mid-tool-loop shape ESC-ESC actually meets: the tool-use stream
+    /// retired toward a continuation (`Continue`), and one long-running call
+    /// is registered as open work — the exact state of a bash command still
+    /// executing between stream turns. The fixture mirrors production's
+    /// edge: the ledger ack retires the stream, and the projection writes
+    /// the `Working` phase.
+    fn mid_tool_loop_session_with_open_call(
+        actor: &SessionPersistenceActor,
+    ) -> jinn_core_types::SessionId {
+        let session_id = begin_sending_session(actor);
+        actor
+            .services
+            .turn_ledger
+            .register_and_dispatch(
+                &session_id,
+                &actor
+                    .services
+                    .turn_ledger
+                    .live(&session_id)
+                    .expect("live turn")
+                    .turn,
+                vec![jinn_core_types::ToolCallId::from("tc-1")],
+                || (),
+            )
+            .expect("registration on a live turn");
+        session_id
+    }
+
+    /// Reads the status off the tool-result entry for `call_id`, if one is
+    /// in history.
+    fn tool_result_status(
+        actor: &SessionPersistenceActor,
+        session_id: &jinn_core_types::SessionId,
+        call_id: &str,
+    ) -> Option<jinn_core_types::ToolResultStatus> {
+        let state = actor.state.read();
+        let session = state.session.get(session_id)?;
+        session.history().iter().find_map(|e| match &e.kind {
+            ChatEntryKind::ToolResult { id, status, .. } if id.as_str() == call_id => Some(*status),
+            _ => None,
+        })
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn close_driven_cancel_settles_to_idle() {
+        // Given a mid-tool-loop session with one open bash call — the shape
+        // ESC-ESC meets when the user cancels a long-running command.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = mid_tool_loop_session_with_open_call(&actor);
+        actor
+            .on_cancel_turn(&CancelTurn {
+                session_id: session_id.clone(),
+                drain_buffers_to_input: false,
+            })
+            .await;
+
+        // When the synthesized completion closes the last open call — the
+        // cancel drain's own bookkeeping, delivered through the ordinary
+        // completion path exactly as the orchestrator publishes it.
+        let turn = actor
+            .services
+            .turn_ledger
+            .live(&session_id)
+            .expect("the drain leaves the turn live until the settle")
+            .turn;
+        let settlement = {
+            actor
+                .on_tool_execution_completed(&ToolExecutionCompleted {
+                    session_id: session_id.clone(),
+                    result: tool_result("tc-1", "bash", "canceled", false),
+                    turn,
+                    synthesized: true,
+                })
+                .await;
+            actor
+                .services
+                .turn_ledger
+                .close_call(&session_id, &jinn_core_types::ToolCallId::from("tc-1"))
+        };
+
+        // Then the settlement carried the cancel, and the close-driven settle
+        // ended the turn: phase Idle, in-flight guard cleared.
+        assert_eq!(
+            settlement.map(|s| s.next),
+            Some(jinn_kernel::common::turn_ledger::Next::Cancel),
+            "the last close must report the cancel settlement"
+        );
+        if let Some(settlement) = settlement {
+            actor
+                .on_turn_work_settled(&session_id, settlement.next)
+                .await;
+        }
+        {
+            let state = actor.state.read();
+            let session = state.session.get(&session_id).expect("session exists");
+            assert_eq!(session.phase(), PhaseView::Idle);
+            assert!(!session.has_in_flight_stream());
+        }
+
+        // And the cancellation was reported exactly once.
+        let reports = audit.of_type::<jinn_session_msg::TurnCompleted>();
+        assert_eq!(
+            reports.len(),
+            1,
+            "the close-driven settle reports the cancellation once"
+        );
+        assert_eq!(reports[0].outcome, jinn_session_msg::TurnOutcome::Canceled);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn close_driven_cancel_sweeps_pending_results_to_failure() {
+        // Given a mid-tool-loop session whose bash call pushed a pending
+        // result entry — output streamed, result never finalized.
+        let (actor, _audit) = test_actor_recording().await;
+        let session_id = mid_tool_loop_session_with_open_call(&actor);
+        actor
+            .on_cancel_turn(&CancelTurn {
+                session_id: session_id.clone(),
+                drain_buffers_to_input: false,
+            })
+            .await;
+        actor.on_tool_execution_started(&ToolExecutionStarted {
+            turn: actor
+                .services
+                .turn_ledger
+                .live(&session_id)
+                .expect("live turn")
+                .turn,
+            session_id: session_id.clone(),
+            tool_call_id: "tc-1".into(),
+            name: "bash".to_owned(),
+            dispatched_at: jiff::Timestamp::now(),
+        });
+
+        // When the synthesized completion closes the last open call and the
+        // settle runs.
+        let turn = actor
+            .services
+            .turn_ledger
+            .live(&session_id)
+            .expect("the drain leaves the turn live until the settle")
+            .turn;
+        actor
+            .on_tool_execution_completed(&ToolExecutionCompleted {
+                session_id: session_id.clone(),
+                result: tool_result("tc-1", "bash", "canceled", false),
+                turn,
+                synthesized: true,
+            })
+            .await;
+        if let Some(settlement) = actor
+            .services
+            .turn_ledger
+            .close_call(&session_id, &jinn_core_types::ToolCallId::from("tc-1"))
+        {
+            actor
+                .on_turn_work_settled(&session_id, settlement.next)
+                .await;
+        }
+
+        // Then the pending result was swept to Failure — an unresolved batch
+        // would make the context converter strip the whole tool-call block.
+        assert_eq!(
+            tool_result_status(&actor, &session_id, "tc-1"),
+            Some(jinn_core_types::ToolResultStatus::Failure),
+            "the cancel settle sweeps the still-pending result to Failure"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn close_driven_esc_esc_drain_applies_at_settle() {
+        // Given a mid-tool-loop session holding a steering fragment and a
+        // queued message, cancelled with the ESC-ESC drain flag.
+        let (actor, _audit) = test_actor_recording().await;
+        let session_id = mid_tool_loop_session_with_open_call(&actor);
+        actor
+            .on_cancel_turn(&CancelTurn {
+                session_id: session_id.clone(),
+                drain_buffers_to_input: true,
+            })
+            .await;
+        {
+            let mut state = actor.state.write();
+            let session = state.session.get_mut(&session_id).expect("session exists");
+            session.steering_buffer_mut().push_fragment("steer this");
+            session.enqueue(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+                ChatEntry::user("queued work"),
+            )));
+        }
+
+        // When the synthesized completion closes the last open call and the
+        // close-driven settle runs.
+        let turn = actor
+            .services
+            .turn_ledger
+            .live(&session_id)
+            .expect("the drain leaves the turn live until the settle")
+            .turn;
+        actor
+            .on_tool_execution_completed(&ToolExecutionCompleted {
+                session_id: session_id.clone(),
+                result: tool_result("tc-1", "bash", "canceled", false),
+                turn,
+                synthesized: true,
+            })
+            .await;
+        if let Some(settlement) = actor
+            .services
+            .turn_ledger
+            .close_call(&session_id, &jinn_core_types::ToolCallId::from("tc-1"))
+        {
+            actor
+                .on_turn_work_settled(&session_id, settlement.next)
+                .await;
+        }
+
+        // Then the buffered work landed in the input box at the settle —
+        // the dump the flagged cancel asked for — and the buffers are empty.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(
+            session.with_input(|i| i.text().to_owned(), String::new),
+            "steer this\n\n---\n\nqueued work"
+        );
+        assert_eq!(session.queue_len(), 0);
+        assert!(session.steering_buffer().is_empty());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn late_cancel_completion_after_close_settle_settles_nothing() {
+        // Given a mid-tool-loop session whose cancel settle already ran —
+        // the close was the last fact, exactly once.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = mid_tool_loop_session_with_open_call(&actor);
+        actor
+            .on_cancel_turn(&CancelTurn {
+                session_id: session_id.clone(),
+                drain_buffers_to_input: false,
+            })
+            .await;
+        let turn = actor
+            .services
+            .turn_ledger
+            .live(&session_id)
+            .expect("the drain leaves the turn live until the settle")
+            .turn;
+        actor
+            .on_tool_execution_completed(&ToolExecutionCompleted {
+                session_id: session_id.clone(),
+                result: tool_result("tc-1", "bash", "canceled", false),
+                turn,
+                synthesized: true,
+            })
+            .await;
+        if let Some(settlement) = actor
+            .services
+            .turn_ledger
+            .close_call(&session_id, &jinn_core_types::ToolCallId::from("tc-1"))
+        {
+            actor
+                .on_turn_work_settled(&session_id, settlement.next)
+                .await;
+        }
+        audit.clear();
+
+        // When the cancel's own completion arrives after the settle — the
+        // stamp production's terminate_turn publishes: the turn captured
+        // while live, over the turn's unset stream, which the ledger
+        // refuses (`StaleStream`).
+        actor
+            .on_stream_completed(&StreamCompleted {
+                model_used: None,
+                session_id: session_id.clone(),
+                reason: StreamCompletedReason::Canceled,
+                assistant_content: None,
+                tool_calls: None,
+                cost: None,
+                provider_completion_tokens: None,
+                provider_prompt_tokens: None,
+                cached_tokens: None,
+                thinking_content: None,
+                dispatched_at: jiff::Timestamp::now(),
+                turn,
+                stream: jinn_core_types::turn_identity::StreamId::default(),
+            })
+            .await;
+
+        // Then it settles nothing: the turn was reported exactly once, by
+        // the close, and nothing re-reports it.
+        let reports = audit.of_type::<jinn_session_msg::TurnCompleted>();
+        assert!(
+            reports.is_empty(),
+            "a post-settle completion must not re-report the turn"
         );
     }
 

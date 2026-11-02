@@ -351,7 +351,13 @@ impl SessionPersistenceActor {
     /// the `Idle` edge, publishes `TurnCompleted`, and drains the queue
     /// when the fold recorded a failure-shaped end. `Cancel` sweeps
     /// still-pending results to `Failure` and reports the cancellation once.
-    async fn settle_turn(
+    ///
+    /// Callable from both settlement sites: the stream-completion fold, and
+    /// the tool-completion path when a close emptied the work set. The
+    /// ledger emits exactly one settlement per round — a settled entry is
+    /// swept, so later acks refuse and later closes return `None` — so
+    /// whichever site observes the settlement runs this exactly once.
+    pub(in crate::session_actor) async fn settle_turn(
         &self,
         session_id: &jinn_core_types::SessionId,
         next: jinn_kernel::common::turn_ledger::Next,
