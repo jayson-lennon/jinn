@@ -61,7 +61,7 @@ A job is about the material, not the learner's last reply. Don't send one per an
 
 You can teach while a job runs. Pose questions as normal; the researcher works in the background. Never wait on it and never make up the answer.
 
-Write the seed below to disk _verbatim_ and load it with `load_attendant`. Once per session; reuse it. Each job is one small question: the question, the lesson context it needs, and the output path under the topic's `research/`. Say you're checking it in one clause, then keep going.
+Use the seed below _verbatim_ and load it with `load_bot`. Once per session; reuse it. Each job is one small question: the question, the lesson context it needs, and the output path under the topic's `research/`. Say you're checking it in one clause, then keep going.
 
 The bot writes findings to the file; the file is the deliverable. When you load the bot, its result names the session id — write it in the log. When a turn needs findings, check the bot before you teach: `session_fetch` its session id (tail). DONE → read the file, use it, cite it; if it contradicts what you taught, say so and correct it. FAILED → one clause to the learner and teach on. Still running → teach from what you can vouch for and fold the file in when it lands. Check once per turn; never watch the bot.
 
