@@ -10,7 +10,7 @@ name = "planner"
 behavior = "preserve"
 trigger = "manual"
 prep_mode = false
-seed_template = "Your last plan: <prior_report>"
+seed_template = "The parent session's id is <parent_id>. The previous run of this bot reported: <prior_report>."
 pins = [
     { role = "user", text = """
 You are a planning agent in a multi-agent workflow. You will be given a

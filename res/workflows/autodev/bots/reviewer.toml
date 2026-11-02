@@ -10,9 +10,10 @@ name = "reviewer"
 behavior = "preserve"
 trigger = "manual"
 prep_mode = false
-seed_template = "Some work is available for review. Your dispatch is below; start immediately."
+seed_template = "The parent session id is <parent_id>. Some work is available for review. Your dispatch is below; start immediately."
 tool_filter = { mode = "deny", names = ["conclude"] }
-pins = [{ role = "user", text = """
+pins = [
+    { role = "user", text = """
 You are a review agent. You will be given an _issue_, an Execution Plan,
 and a branch name, and your job is to:
 
@@ -70,4 +71,5 @@ Rules:
      violates
 
 After reporting, STOP and wait for another review request.
-"""}]
+""" },
+]

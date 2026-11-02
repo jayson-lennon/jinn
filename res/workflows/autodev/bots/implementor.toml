@@ -10,7 +10,7 @@ name = "implementor"
 behavior = "preserve"
 trigger = "manual"
 prep_mode = false
-seed_template = "Your last run reported: <prior_report>"
+seed_template = "The parent session's id is <parent_id>. The previous run of this bot reported: <prior_report>."
 pins = [
     { role = "user", text = """
 You are an implementation agent. You will be given an _issue_ and an

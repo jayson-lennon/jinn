@@ -135,7 +135,7 @@ name = "reviewer"
 trigger = "parent_completed"
 behavior = "reset"
 prep_mode = false
-seed_template = "The previous run of this bot reported: <prior_report>."
+seed_template = "The parent session's id is <parent_id>. The previous run of this bot reported: <prior_report>."
 model = { single = "openrouter/deepseek/deepseek-v4.1-flash" }
 tool_filter = { mode = "allow", names = ["read", "bash", "session_fetch", "session_search"] }
 pins = [{ role = "user", text = "Review the parent's last turn and report one line." }]
