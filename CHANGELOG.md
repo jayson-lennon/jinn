@@ -1,6 +1,6 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
-## (development)
+## 2026-11-01 v1.16.0
 
 - Renamed `load_attendant` to `load_bot`
 - `load_bot` now accepts a bot config inline w/o require a file write
