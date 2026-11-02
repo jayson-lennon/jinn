@@ -3,7 +3,8 @@
 ## 2026-11-01 v1.15.0
 
 - Add a metrics script to `canvas` injection which reports interactions back to the agent.
-  - Added primarily for `learning-tutor` and to help facilitate back-and-forth interactions so the agent has visibility into how the user interacted with the `canvas`.
+  - Metrics are created specifically for the created `canvas` so the agent understands how the user is interacting with the page. For example, the agent may generate a multiple choice quiz and the choices made by the user can be reported back.
+  - No metrics are sent to any third parties. Everything captured is reported back to the agent is visible and only shown when you send a message to the agent after interacting with the `canvas`.
 
 ## 2026-10-31 v1.14.0
 
