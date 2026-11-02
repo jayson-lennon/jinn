@@ -23,6 +23,7 @@ pkg
 bench-results.csv
 mutants.out
 *.txt
+!crates/slices/jinn-canvas/resources/vendor/p5/license.txt
 *.db
 *.db-shm
 *.db-wal
