@@ -4,6 +4,11 @@
 
 - Renamed `load_attendant` to `load_bot`
 - `load_bot` now accepts a bot config inline w/o require a file write
+- Changes to `learning-tutor`
+  - It now spawns a research bot in the background to help gather data for teaching
+  - It might ask 1-2 intake/grounding questions before starting
+  - It now generates and dynamically updates a curriculum file
+  - All responses get logged to build a learner profile which should (hopefully) keep the model aware of the learner's strengths/weaknesses.
 
 ## 2026-11-01 v1.15.0
 
