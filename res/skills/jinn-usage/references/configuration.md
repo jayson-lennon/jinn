@@ -7,15 +7,15 @@ the offer.
 
 ## File map
 
-| File             | Location                          | Contents                                                                                                                                                             |
-| ---------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| File             | Location                          | Contents                                                                                                                                                                           |
+| ---------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `jinn.toml`      | `~/.config/jinn/jinn.toml`        | User preferences: tools/skills defaults, session lifecycles, projects, MCP servers, compaction, auto-prune, stream rules, web fetch/search, browser, Discord, interactive terminal |
-| `providers.toml` | `~/.config/jinn/providers.toml`   | Providers, API keys, base URLs, per-model metadata                                                                                                                   |
-| themes           | `~/.config/jinn/themes/*.toml`    | Color themes (picked with `<leader>sh`)                                                                                                                              |
-| personas         | `~/.config/jinn/personas/*.md`    | Persona templates (markdown + TOML frontmatter)                                                                                                                      |
-| prompts          | `~/.config/jinn/prompts/*.md`     | Prompt templates (`#name` tokens in input)                                                                                                                           |
-| skills           | `~/.agents/skills/*/SKILL.md`     | Agent skills (project `.agents/skills/` override same-named globals)                                                                                                 |
-| sessions         | `~/.local/share/jinn/sessions.db` | SQLite — sessions, history, search index (do not hand-edit)                                                                                                          |
+| `providers.toml` | `~/.config/jinn/providers.toml`   | Providers, API keys, base URLs, per-model metadata                                                                                                                                 |
+| themes           | `~/.config/jinn/themes/*.toml`    | Color themes (picked with `<leader>sh`)                                                                                                                                            |
+| personas         | `~/.config/jinn/personas/*.md`    | Persona templates (markdown + TOML frontmatter)                                                                                                                                    |
+| prompts          | `~/.config/jinn/prompts/*.md`     | Prompt templates (`#name` tokens in input)                                                                                                                                         |
+| skills           | `~/.agents/skills/*/SKILL.md`     | Agent skills (project `.agents/skills/` override same-named globals)                                                                                                               |
+| sessions         | `~/.local/share/jinn/sessions.db` | SQLite — sessions, history, search index (do not hand-edit)                                                                                                                        |
 
 `jinn.toml` is auto-created with a fully commented default on first run; your
 comments are preserved across saves (jinn patches documents instead of
@@ -135,7 +135,7 @@ name = "reviewer"
 trigger = "parent_completed"
 behavior = "reset"
 prep_mode = false
-seed_template = "The previous run of this bot reported: <prior report>."
+seed_template = "The previous run of this bot reported: <prior_report>."
 model = { single = "openrouter/deepseek/deepseek-v4.1-flash" }
 tool_filter = { mode = "allow", names = ["read", "bash", "session_fetch", "session_search"] }
 pins = [{ role = "user", text = "Review the parent's last turn and report one line." }]
@@ -391,19 +391,19 @@ Never widen a type to `any` to silence an error.
 ```
 
 When a `conditions` regex matches the output so far, jinn stops the turn
-*before* that text reaches the chat log and resumes it with `body` injected
+_before_ that text reaches the chat log and resumes it with `body` injected
 as guidance, so the model corrects itself instead of the user typing at
 it. The interrupted text stays visible in the log but is excluded from the
 resumed request, so the model does not see its own violation as context.
 
 `scopes` decides which streams the rule is tested against:
 
-| Scope token         | Matches                                       |
-| ------------------- | --------------------------------------------- |
-| `text`              | assistant prose                               |
-| `thinking`          | reasoning output                              |
-| `tool`              | any tool's serialized arguments               |
-| `tool:edit(*.ts)`   | `edit` calls touching a `.ts` file            |
+| Scope token       | Matches                            |
+| ----------------- | ---------------------------------- |
+| `text`            | assistant prose                    |
+| `thinking`        | reasoning output                   |
+| `tool`            | any tool's serialized arguments    |
+| `tool:edit(*.ts)` | `edit` calls touching a `.ts` file |
 
 Omit `scopes` (or leave it empty) to test prose, reasoning, and tool
 arguments alike. Prefer a narrow scope when the rule is about one medium — a

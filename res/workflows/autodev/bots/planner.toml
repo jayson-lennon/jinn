@@ -10,8 +10,9 @@ name = "planner"
 behavior = "preserve"
 trigger = "manual"
 prep_mode = false
-seed_template = "Your last plan: <prior report>"
-pins = [{ role = "user", text = """
+seed_template = "Your last plan: <prior_report>"
+pins = [
+    { role = "user", text = """
 You are a planning agent in a multi-agent workflow. You will be given a
 goal or issue or bug report etc, and you answer one question first: is
 this one implementor's work, or several?
@@ -157,4 +158,5 @@ Do not send record lines separately; the orchestrator collects them
 for the QA brief.
 
 After reporting, STOP and wait for another plan request.
-"""}]
+""" },
+]

@@ -38,7 +38,7 @@ works.**
 
 Never substitute one for the other: a `spawn_subagent` call where a bot
 belongs freezes the orchestrator and silently discards the bot's
-seed; a bot where the result is needed *now* leaves the
+seed; a bot where the result is needed _now_ leaves the
 orchestrator ending its turn with nothing in hand.
 
 The channels both ride:
@@ -53,7 +53,7 @@ sleeps is a turn whose queued reports never arrive.
 
 Supporting tools:
 
-- **`conclude`** — a bot records one summary per run into a history log. Its text re-enters context **only** through the `<prior report>` token in the seed template; a template without the token never sees reports (right for roles whose conclusions arrive out of order, like a reviewer).
+- **`conclude`** — a bot records one summary per run into a history log. Its text re-enters context **only** through the `<prior_report>` token in the seed template; a template without the token never sees reports (right for roles whose conclusions arrive out of order, like a reviewer).
 - **Session lifecycle scripts** — a TOML of setup/teardown commands run via `run_lifecycle`. Setup is one-shot per session and adopts the last path the script prints as the session's working directory; teardown replays the recorded coordinates (session id only) — which is what makes it the cleanup mechanism. Placeholders are filled from named args, shell-quoted. Use the pair fully or not at all.
 - **`save_plan`** — persists a file that survives context compaction. The right vehicle for any artifact a later dispatch must read.
 
@@ -163,8 +163,8 @@ the loop count if the flow iterated.
 
 ## Where to look next
 
-| File                                       | Covers                                                                                                                                                                              |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `references/workflow-format.md`            | Sequential architecture, full spec: `workflow.md` fields, step-file anatomy, loop/conditional notation, naming rules, the authoring dialogue expanded, dispatch-prompt assembly, anti-patterns |
-| `references/event-driven-workflows.md`     | Event-driven architecture: session topology, bot seed files (behavior, trigger, pins, templates), the turn-boundary wake model, lifecycle scripts (setup/teardown as the whole checkout contract), state files, the orchestrator instructions pattern, failure and stall handling, anti-patterns |
-| `res/workflows/autodev/`                   | The shipped worked example — event-driven: orchestrator instructions, five stage procedures, three bot seeds (planner/implementor/reviewer), an SCM crib sheet, lifecycle scripts (on-demand implementors; setup branches the feature branch, teardown merges back; contracts record a pre-existing-failure baseline that gates measure against; work-item ids carry title slugs everywhere). Read it before authoring anything with concurrency or recursion |
+| File                                   | Covers                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `references/workflow-format.md`        | Sequential architecture, full spec: `workflow.md` fields, step-file anatomy, loop/conditional notation, naming rules, the authoring dialogue expanded, dispatch-prompt assembly, anti-patterns                                                                                                                                                                                                                                                                |
+| `references/event-driven-workflows.md` | Event-driven architecture: session topology, bot seed files (behavior, trigger, pins, templates), the turn-boundary wake model, lifecycle scripts (setup/teardown as the whole checkout contract), state files, the orchestrator instructions pattern, failure and stall handling, anti-patterns                                                                                                                                                              |
+| `res/workflows/autodev/`               | The shipped worked example — event-driven: orchestrator instructions, five stage procedures, three bot seeds (planner/implementor/reviewer), an SCM crib sheet, lifecycle scripts (on-demand implementors; setup branches the feature branch, teardown merges back; contracts record a pre-existing-failure baseline that gates measure against; work-item ids carry title slugs everywhere). Read it before authoring anything with concurrency or recursion |

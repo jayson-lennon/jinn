@@ -75,7 +75,7 @@ name = "implementor"
 behavior = "reset"          # reset | preserve — context across dispatches
 trigger = "manual"          # ALWAYS manual for dispatch-driven roles
 prep_mode = false
-seed_template = "Your last run reported: <prior report>"
+seed_template = "Your last run reported: <prior_report>"
 pins = [{ role = "user", text = """ ...standing instructions... """ }]
 ```
 
@@ -83,7 +83,7 @@ Fields that matter:
 
 - **`trigger`** — `"manual"` for anything the orchestrator dispatches. A completion trigger fires on every parent turn end, which is the opposite of dispatch-driven work: a manual-trigger bot runs only when messaged, so idle workers cost nothing.
 - **`behavior`** — `"reset"` wipes context at each dispatch: the run sees its pins plus the one dispatch, so dispatches must be self-contained. Right for fungible workers. `"preserve"` keeps the conversation, so the session's exploration (a repo map, a codebase orientation) survives across dispatches. Right for specialists whose value compounds — and it comes with a hygiene rule: state in the pin what persists (geography, maps) and what must not (verdicts, judgments about past work), or the session starts assuming from its own history.
-- **`seed_template`** — the standing text prepended to every dispatch. The `<prior report>` token is the **only** way a `conclude` report re-enters context. Put the token in a template only when the bot's conclusions arrive in an order that makes the previous one relevant (one work unit per run: a worker). Leave it out otherwise (a reviewer judging many issues in arbitrary order) — a template without the token never receives reports. A template with no token still needs its own text: it is what the bot reads first on every dispatch.
+- **`seed_template`** — the standing text prepended to every dispatch. The `<prior_report>` token is the **only** way a `conclude` report re-enters context. Put the token in a template only when the bot's conclusions arrive in an order that makes the previous one relevant (one work unit per run: a worker). Leave it out otherwise (a reviewer judging many issues in arbitrary order) — a template without the token never receives reports. A template with no token still needs its own text: it is what the bot reads first on every dispatch.
 - **`pins`** — the bot's standing instructions: role, what it must never do, how it reports. Written for a stranger; every dispatch assumes the pins are all the context there is (reset) or the durable part of it (preserve).
 
 A seed's pins should always carry: the role in one sentence, the hard
