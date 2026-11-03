@@ -9,7 +9,7 @@ the offer.
 
 | File             | Location                          | Contents                                                                                                                                                                           |
 | ---------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jinn.toml`      | `~/.config/jinn/jinn.toml`        | User preferences: tools/skills defaults, session lifecycles, projects, MCP servers, compaction, auto-prune, stream rules, web fetch/search, browser, Discord, interactive terminal |
+| `jinn.toml`      | `~/.config/jinn/jinn.toml`        | User preferences: tools/skills defaults, session lifecycles, projects, MCP servers, compaction, auto-prune, stream rules, web fetch/search, browser, Discord, interactive terminal, remote surface |
 | `providers.toml` | `~/.config/jinn/providers.toml`   | Providers, API keys, base URLs, per-model metadata                                                                                                                                 |
 | themes           | `~/.config/jinn/themes/*.toml`    | Color themes (picked with `<leader>sh`)                                                                                                                                            |
 | personas         | `~/.config/jinn/personas/*.md`    | Persona templates (markdown + TOML frontmatter)                                                                                                                                    |
@@ -361,6 +361,18 @@ base_delay_secs = 2
 max_delay_secs = 60
 ```
 
+**Remote control surface** (see `remote.md` for the CLI, the HTTP routes,
+and curl examples — `jinn remote send|instances`):
+
+```toml
+[remote]
+# bind = "127.0.0.1:0"   # default: loopback, OS-assigned ephemeral port
+```
+
+A non-loopback bind refuses the launch — the surface has no
+authentication. The resolved port is what `jinn remote instances`
+reports.
+
 **Watchdogs** (turn health — these cancel a turn that has gone bad):
 
 ```toml
@@ -467,7 +479,8 @@ rule but never remove one.
 
 Every section in the shipped default `jinn.toml` is represented above or in a
 linked reference (`mcp-servers.md`, `terminal-overlay.md`,
-`context-management.md`, `sessions-and-subagents.md`, `bots.md`).
+`context-management.md`, `sessions-and-subagents.md`, `bots.md`,
+`remote.md`).
 Section names are exact — `[term]`, not `[interactive_term]`; `[mcp.<name>]`,
 not `[[mcp_server]]`; `[context_curation.compaction]`, not `[compaction]`.
 A misspelled section is **silently ignored** (it reads as absent, not as an

@@ -68,6 +68,7 @@ the current truth — and echo that.
 | `references/chat-input-tokens.md`      | `#prompt`, `@attachment`, `//` autocomplete tokens                                         |
 | `references/builtin-prompts.md`        | The builtin `#prompts`: what each is for, how they work, choosing between them             |
 | `references/models-and-providers.md`   | Model/provider pickers, alloys, endpoint pinning, reasoning effort                         |
+| `references/remote.md`                  | `jinn remote`: messaging a running instance from outside (CLI + curl HTTP surface)         |
 | `references/configuration.md`          | Config file map, snippets, apply-to-user-config protocol                                   |
 | `references/extending-jinn.md`         | Adding capabilities or extending jinn: MCP servers, skills, prompts, personas, themes, etc |
 | `references/graph-database.md`         | The bundled overgraph graph+vector DB: usage patterns, batch ingestion, gotchas             |
