@@ -377,3 +377,31 @@ fn press_hint_reads_per_phase_exactly_as_the_row_expects() {
         Some("downloading stub-model")
     );
 }
+
+#[rstest::rstest]
+#[test]
+fn stub_backend_serves_the_full_trait_surface() {
+    // Given a stub backend with a warm cache and a scripted flush.
+    let mut backend = StubBackend {
+        cached: true,
+        flushed: Some(Utterance::new("trailing")),
+        ..StubBackend::default()
+    };
+
+    // When every trait method runs.
+    // Then the scripted answers come back: cached, uncached fetch
+    // progress, no feed output, and the flush hands over its utterance
+    // exactly once.
+    assert!(backend.is_cached());
+    assert!(!backend.is_loaded());
+    let mut last_percent = None;
+    backend
+        .fetch(&mut |progress| last_percent = progress.percent())
+        .expect("stub fetch succeeds");
+    assert_eq!(last_percent, Some(50));
+    assert!(backend.feed(&[0.0; 512]).expect("stub feed succeeds").is_empty());
+    let flushed = backend.flush().expect("stub flush succeeds");
+    assert_eq!(flushed.map(|utterance| utterance.text), Some("trailing".to_owned()));
+    // And a second flush finds nothing: the utterance was taken.
+    assert!(backend.flush().expect("stub flush succeeds").is_none());
+}

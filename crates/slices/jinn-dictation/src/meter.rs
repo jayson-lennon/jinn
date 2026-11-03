@@ -188,3 +188,165 @@ pub fn paint_recording(frame: &mut ratatui::Frame<'_>, rect: Rect, level: f32, s
         cell.set_fg(hint_fg);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic,
+        reason = "test code, panics are acceptable"
+    )]
+    use super::meter_rect;
+    use super::paint_recording;
+    use jinn_app_state::AppState;
+    use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
+    use ratatui::Terminal;
+
+    const FRAME: Rect = Rect::new(0, 0, 80, 24);
+
+    /// A state wired like production: catalog cells attached.
+    fn wired_state() -> AppState {
+        AppState::default_with_scope_focus()
+    }
+
+    /// The layout composition derives for the same inputs.
+    fn layout_for(state: &AppState) -> jinn_tui::render::AppLayout {
+        let input_lines = state.active_session().with_input(
+            jinn_chat_input_msg::ChatInputBoxState::visual_line_count,
+            || 0,
+        ) as u16;
+        jinn_tui::render::AppLayout::new(FRAME, input_lines, FRAME.height / 2, state.frontend.sidebar_width)
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn meter_rect_matches_the_layout_seam() {
+        // Given a production-wired state with a multi-line input.
+        let mut state = wired_state();
+        state.active_session_mut().update_input(|buffer| {
+            jinn_chat_input_msg::append_paste_to_buffer(buffer, "one\ntwo\nthree")
+        });
+
+        // When the meter rect is derived for the frame.
+        let rect = meter_rect(&state, FRAME, false).expect("chat layout has a seam");
+
+        // Then it rides the border column exactly where the layout put
+        // it: the border column, spanning the chat-log stretch.
+        let layout = layout_for(&state);
+        assert_eq!(rect.x, layout.border.x);
+        assert_eq!(rect.width, 1);
+        assert_eq!(rect.y, layout.content.y);
+        assert_eq!(
+            rect.height,
+            layout.content.height.saturating_sub(super::BOTTOM_LINES)
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn meter_rect_is_none_on_a_full_width_tab() {
+        // Given any state.
+        let state = wired_state();
+
+        // When deriving the rect with the full-width flag set.
+        // Then there is no rect: full-width tabs have no seam.
+        assert!(meter_rect(&state, FRAME, true).is_none());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn meter_rect_tracks_a_narrow_sidebar() {
+        // Given a state with the minimum sidebar width.
+        let mut state = wired_state();
+        state.frontend.sidebar_width = 15;
+
+        // When deriving the rect.
+        let rect = meter_rect(&state, FRAME, false).expect("chat layout has a seam");
+
+        // Then the rect sits at the seam for that width — one column
+        // left of the sidebar.
+        let layout = layout_for(&state);
+        assert_eq!(layout.sidebar.width, 15);
+        assert_eq!(rect.x, layout.border.x);
+        assert_eq!(rect.x, layout.sidebar.x - 1);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn recording_paints_a_success_strip_with_bars_and_the_hint_glyph() {
+        // Given a wired state and a recording strip rect.
+        let state = wired_state();
+        let rect = Rect::new(20, 2, 1, 10);
+        let backend = TestBackend::new(FRAME.width, FRAME.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        let theme = state.frontend.theme.clone();
+
+        // When painting a half-level recording strip.
+        terminal
+            .draw(|frame| paint_recording(frame, rect, 0.5, &state))
+            .expect("draw into the test backend");
+
+        // Then the strip is theme-success with a level-proportional bar
+        // and an orange `i` hint at the bottom.
+        let buffer = terminal.backend().buffer();
+        // Bottom hint row: orange `i` on green.
+        let hint = buffer[(rect.x, rect.y + rect.height - 1)].clone();
+        assert_eq!(hint.symbol(), "i");
+        assert_eq!(hint.fg, theme.warning);
+        assert_eq!(hint.bg, theme.success);
+        // Below the bar's midpoint: filled glyph on green.
+        let filled_row = buffer[(rect.x, rect.y + rect.height - 4)].clone();
+        assert_eq!(filled_row.symbol(), "█");
+        assert_eq!(filled_row.bg, theme.success);
+        // Near the top: empty strip cell, still green.
+        let empty_row = buffer[(rect.x, rect.y)].clone();
+        assert_eq!(empty_row.symbol(), " ");
+        assert_eq!(empty_row.bg, theme.success);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn idle_level_paints_no_bars() {
+        // Given a wired state.
+        let state = wired_state();
+        let rect = Rect::new(20, 2, 1, 8);
+        let backend = TestBackend::new(FRAME.width, FRAME.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        // When painting with a zero level.
+        terminal
+            .draw(|frame| paint_recording(frame, rect, 0.0, &state))
+            .expect("draw into the test backend");
+
+        // Then the strip is green with no filled glyph above the hint.
+        let buffer = terminal.backend().buffer();
+        let mid = buffer[(rect.x, rect.y + 1)].clone();
+        assert_eq!(mid.symbol(), " ");
+        assert_eq!(mid.bg, state.frontend.theme.success);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn full_scale_level_clamps_above_the_hint_row() {
+        // Given a wired state.
+        let state = wired_state();
+        let rect = Rect::new(20, 2, 1, 6);
+        let backend = TestBackend::new(FRAME.width, FRAME.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        // When painting at full scale.
+        terminal
+            .draw(|frame| paint_recording(frame, rect, 1.0, &state))
+            .expect("draw into the test backend");
+
+        // Then every row above the hint glyph is a filled glyph — the
+        // bar never covers the hint.
+        let buffer = terminal.backend().buffer();
+        for y in rect.y..(rect.y + rect.height - 1) {
+            assert_eq!(buffer[(rect.x, y)].symbol(), "█");
+        }
+        assert_eq!(buffer[(rect.x, rect.y + rect.height - 1)].symbol(), "i");
+    }
+}

@@ -33,6 +33,9 @@ jinn-dictation-backend-parakeet = { path = "../../backends/jinn-dictation-backen
 rstest = { workspace = true }
 jinn-testutil = { workspace = true }
 jinn-app-state = { workspace = true }
+# The meter geometry test pins the derived rect to composition's
+# `AppLayout` — the only jinn-tui edge, test-only.
+jinn-tui = { workspace = true }
 
 [lints]
 workspace = true

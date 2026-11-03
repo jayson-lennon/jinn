@@ -134,7 +134,6 @@ mod tests {
     use jinn_dictation_msg::dictation_scope;
     use jinn_dictation_msg::dictation_state_slot;
     use jinn_slices::DynamicIntent;
-    use jinn_slices::FocusScope;
     use jinn_slices::Slices;
     use jinn_status_bar_msg::StatusBarState;
     use jinn_status_bar_msg::status_bar_slot;
