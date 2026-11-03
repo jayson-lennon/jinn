@@ -23,7 +23,6 @@
 pub mod capture;
 pub mod config;
 pub mod dictation_actor;
-pub mod handlers;
 pub mod machine;
 #[cfg(test)]
 mod machine_tests;
@@ -55,6 +54,15 @@ use jinn_slices::SliceHost;
 /// same `jinn.toml` layer every slice receives, read here at
 /// activation — a changed `[dictation]` section takes effect on the
 /// next jinn start.
+/// # Panics
+///
+/// Panics if the catalog has not run — the actor would hold no cells and
+/// the meter would read nothing, and the alt-i row would dispatch into
+/// nothing.
+#[expect(
+    clippy::expect_used,
+    reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
+)]
 pub fn activate(
     host: &mut SliceHost<'_, jinn_slices::RenderFacts>,
     state: &jinn_kernel::common::state::State,
@@ -68,7 +76,10 @@ pub fn activate(
             // wiring failure, the same severity a malformed `[canvas]`
             // bind carries. The launch-validate pass should have caught
             // it earlier; treat reaching here as a bug and log loudly.
-            tracing::error!(?report, "failed to read the [dictation] section; dictation disabled for this run");
+            tracing::error!(
+                ?report,
+                "failed to read the [dictation] section; dictation disabled for this run"
+            );
             config::DictationSettings {
                 enabled: false,
                 device: None,

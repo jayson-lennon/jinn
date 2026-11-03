@@ -16,8 +16,8 @@ pub struct Utterance {
 impl Utterance {
     /// One utterance carrying `text`.
     #[must_use]
-    pub fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into() }
+    pub fn new(text: String) -> Self {
+        Self { text }
     }
 }
 
@@ -53,9 +53,11 @@ impl FetchProgress {
         if total == 0 {
             return None;
         }
-        Some(u8::try_from((self.bytes_done * 100) / total)
-            .unwrap_or(u8::MAX)
-            .min(100))
+        Some(
+            u8::try_from((self.bytes_done * 100) / total)
+                .unwrap_or(u8::MAX)
+                .min(100),
+        )
     }
 }
 
@@ -71,7 +73,11 @@ mod tests {
     #[case(999, Some(1000), Some(99))]
     #[case(1000, Some(1000), Some(100))]
     #[case(1200, Some(1000), Some(100))]
-    fn percent_rounds_the_ratio(#[case] done: u64, #[case] total: Option<u64>, #[case] expected: Option<u8>) {
+    fn percent_rounds_the_ratio(
+        #[case] done: u64,
+        #[case] total: Option<u64>,
+        #[case] expected: Option<u8>,
+    ) {
         // Given progress at `done` of `total` bytes.
         let progress = FetchProgress::new(done, total);
 
@@ -109,7 +115,7 @@ mod tests {
     #[test]
     fn utterance_carries_its_text() {
         // Given an utterance built from engine text.
-        let utterance = Utterance::new("Hello, world.");
+        let utterance = Utterance::new("Hello, world.".to_owned());
 
         // When reading it back.
         // Then the text is preserved verbatim.

@@ -5,9 +5,9 @@
 //! actor and capture arm carry, naming the model the platform factory
 //! will build.
 
+use error_stack::Report;
 use jinn_config::ConfigLayer;
 use jinn_preferences_config::schemas::DictationConfig;
-use error_stack::Report;
 use wherror::Error;
 
 /// The resolved `[dictation]` settings the actor carries.
@@ -40,13 +40,14 @@ impl DictationSettings {
     /// Returns [`DictationConfigError`] when the section cannot be read
     /// from the layer — treated by the activation path as a launch-
     /// blocking wiring failure, the same as a malformed `[canvas]` bind.
-    pub fn from_layer(config: &ConfigLayer) -> Result<Self, error_stack::Report<DictationConfigError>> {
-        let section = config
-            .get::<DictationConfig>()
-            .map_err(|error| {
-                Report::new(DictationConfigError)
-                    .attach(format!("failed to read the [dictation] config section: {error:?}"))
-            })?;
+    pub fn from_layer(
+        config: &ConfigLayer,
+    ) -> Result<Self, error_stack::Report<DictationConfigError>> {
+        let section = config.get::<DictationConfig>().map_err(|error| {
+            Report::new(DictationConfigError).attach(format!(
+                "failed to read the [dictation] config section: {error:?}"
+            ))
+        })?;
         Ok(Self {
             enabled: section.enabled,
             device: section.device.clone(),
@@ -58,6 +59,7 @@ impl DictationSettings {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, reason = "test code, panics are acceptable")]
     use super::DictationSettings;
 
     #[rstest::rstest]
@@ -67,7 +69,7 @@ mod tests {
         let layer = jinn_slices::empty_config_layer();
 
         // When resolving the dictation settings.
-        let settings = DictationSettings::from_layer(&layer).expect("empty layer reads defaults");
+        let settings = DictationSettings::from_layer(layer).expect("empty layer reads defaults");
 
         // Then the section's defaults apply: off, default model, denoise
         // on, no device.

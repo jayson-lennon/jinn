@@ -96,7 +96,7 @@ impl DictationMachine {
         }
 
         let name = self.state.model_name.clone();
-        if !supported.iter().any(|supported| *supported == name) {
+        if !supported.contains(&name) {
             let known = supported.join(", ");
             return self.fail(
                 "unknown dictation model",
@@ -144,7 +144,11 @@ impl DictationMachine {
     /// can still refuse — [`DictationMachine::arm_failed`] pulls the
     /// state back to Ready with the refusal as the dashboard note.
     pub fn arm(&mut self) -> Step {
-        debug_assert_eq!(self.state.phase, DictationPhase::Ready);
+        debug_assert_eq!(
+            self.state.phase,
+            DictationPhase::Ready,
+            "arm only applies from Ready"
+        );
         self.state.phase = DictationPhase::Recording;
         self.state.error = None;
         self.capture_open = true;
@@ -173,7 +177,11 @@ impl DictationMachine {
     /// backend's transcript state is unknown, and guessing would insert
     /// wrong text.
     pub fn disarm(&mut self, flushed: Option<Utterance>, fault: Option<String>) -> Step {
-        debug_assert_eq!(self.state.phase, DictationPhase::Recording);
+        debug_assert_eq!(
+            self.state.phase,
+            DictationPhase::Recording,
+            "disarm only applies while Recording"
+        );
         if let Some(detail) = fault {
             return self.fail("disarm", &detail);
         }

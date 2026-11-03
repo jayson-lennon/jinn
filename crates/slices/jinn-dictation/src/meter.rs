@@ -134,16 +134,14 @@ pub fn paint(
     let phase = ctx
         .slices()
         .reader::<DictationState>(&dictation_state_slot())
-        .map(|cell| cell.read().phase)
-        .unwrap_or(DictationPhase::Offline);
+        .map_or(DictationPhase::Offline, |cell| cell.read().phase);
     if phase != DictationPhase::Recording {
         return;
     }
     let level = ctx
         .slices()
         .reader::<DictationLevel>(&dictation_level_slot())
-        .map(|cell| cell.read().level)
-        .unwrap_or(0.0);
+        .map_or(0.0, |cell| cell.read().level);
     paint_recording(frame, rect, level, ctx.state());
 }
 
@@ -172,7 +170,8 @@ pub fn paint_recording(frame: &mut ratatui::Frame<'_>, rect: Rect, level: f32, s
     // bottom, so a full-scale level clamps above it.
     let bar_space = rect.height.saturating_sub(1);
     let filled = ((level * f32::from(bar_space)).round() as u16).min(bar_space);
-    for y in (rect.y + rect.height - filled)..(rect.y + rect.height) {
+    let hint_row = rect.y + rect.height.saturating_sub(1);
+    for y in (hint_row - filled)..hint_row {
         let Some(cell) = frame.buffer_mut().cell_mut((rect.x, y)) else {
             continue;
         };
@@ -195,14 +194,15 @@ mod tests {
         clippy::expect_used,
         clippy::indexing_slicing,
         clippy::panic,
+        clippy::semicolon_if_nothing_returned,
         reason = "test code, panics are acceptable"
     )]
     use super::meter_rect;
     use super::paint_recording;
     use jinn_app_state::AppState;
+    use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::layout::Rect;
-    use ratatui::Terminal;
 
     const FRAME: Rect = Rect::new(0, 0, 80, 24);
 
@@ -217,7 +217,12 @@ mod tests {
             jinn_chat_input_msg::ChatInputBoxState::visual_line_count,
             || 0,
         ) as u16;
-        jinn_tui::render::AppLayout::new(FRAME, input_lines, FRAME.height / 2, state.frontend.sidebar_width)
+        jinn_tui::render::AppLayout::new(
+            FRAME,
+            input_lines,
+            FRAME.height / 2,
+            state.frontend.sidebar_width,
+        )
     }
 
     #[rstest::rstest]
@@ -226,7 +231,7 @@ mod tests {
         // Given a production-wired state with a multi-line input.
         let mut state = wired_state();
         state.active_session_mut().update_input(|buffer| {
-            jinn_chat_input_msg::append_paste_to_buffer(buffer, "one\ntwo\nthree")
+            jinn_chat_input_msg::append_paste_to_buffer(buffer, "one\ntwo\nthree");
         });
 
         // When the meter rect is derived for the frame.

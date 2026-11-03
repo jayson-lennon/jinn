@@ -73,6 +73,8 @@ impl jinn_config::Configurable for DictationConfig {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, reason = "test code, panics are acceptable")]
+
     use super::DictationConfig;
     use serde::Deserialize;
 

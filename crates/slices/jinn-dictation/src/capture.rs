@@ -36,238 +36,74 @@ pub fn arm_refusal_note(configured: Option<&str>, available: &[String]) -> Strin
     note
 }
 
-#[cfg(target_os = "linux")]
-mod device {
-    //! The linux device open and the audio-thread pipeline.
-    //!
-    //! `open` builds the cpal input stream and returns the live arm; the
-    //! arm's drop closes the device. The audio callback runs entirely off
-    //! the actor's context: it denoises, resamples, feeds the backend
-    //! through the shared mutex, and records the level and any stream
-    //! loss into the shared slot the actor's tick drains.
+/// What the audio callback writes and the actor's tick drains.
+///
+/// Platform-blind: both platforms carry the same slot; only the linux
+/// callback ever writes it.
+#[derive(Default)]
+pub struct CaptureShared {
+    /// The latest peak level, `0.0..=1.0`, for the meter cell.
+    pub level: f32,
+    /// Set once when the stream dies without a toggle; the actor
+    /// reads and clears it on its tick.
+    pub lost: Option<String>,
+}
 
-    use std::sync::Arc;
+/// A live capture arm.
+///
+/// On linux it holds the device closer (dropping the boxed stream ends
+/// the audio thread); on the null platform it is never constructed —
+/// `open` always refuses. The closer is a boxed `Any` so the shared
+/// type names no platform crate.
+pub struct CaptureArm {
+    /// The device closer (linux only; the null platform never builds
+    /// one). Never read: its Drop *is* the close — that is the point.
+    #[expect(
+        dead_code,
+        reason = "the field exists for its Drop; the close is the drop"
+    )]
+    closer: Option<Box<dyn std::any::Any + Send>>,
+    /// The shared level/loss slot.
+    shared: std::sync::Arc<parking_lot::Mutex<CaptureShared>>,
+}
 
-    use parking_lot::Mutex;
-
-    use cpal::traits::DeviceTrait;
-    use cpal::traits::HostTrait;
-    use cpal::traits::StreamTrait;
-
-    use jinn_dictation_backend::DictationBackend;
-    use jinn_dictation_msg::DictationLevel;
-
-    use super::arm_refusal_note;
-
-    /// nnnoiseless consumes exactly this many samples per frame.
-    const DENOISE_FRAME: usize = nnnoiseless::DenoiseState::FRAME_SIZE;
-
-    /// A live capture arm: holds the cpal stream (closing on drop) and
-    /// the shared state the callback writes.
-    pub struct CaptureArm {
-        /// The cpal stream. Kept for its Drop: dropping it closes the
-        /// device and the audio thread stops.
-        _stream: cpal::Stream,
-        /// The shared level/loss slot.
-        pub shared: Arc<Mutex<CaptureShared>>,
-    }
-
-    /// What the audio callback writes and the actor's tick drains.
-    #[derive(Default)]
-    pub struct CaptureShared {
-        /// The latest peak level, `0.0..=1.0`, for the meter cell.
-        pub level: f32,
-        /// Set once when the stream dies without a toggle; the actor
-        /// reads and clears it on its tick.
-        pub lost: Option<String>,
-    }
-
-    /// Lists the available input device names.
-    fn input_device_names() -> Vec<String> {
-        let host = cpal::default_host();
-        host.input_devices()
-            .into_iter()
-            .flatten()
-            .filter_map(|device| device.description().ok().map(|description| description.name().to_owned()))
-            .collect()
-    }
-
-    /// Finds the configured device, or the default input.
-    fn find_device(configured: Option<&str>) -> Result<cpal::Device, String> {
-        let host = cpal::default_host();
-        match configured {
-            Some(wanted) => {
-                let available = input_device_names();
-                host.input_devices()
-                    .into_iter()
-                    .flatten()
-                    .find(|device| {
-                        device
-                            .description()
-                            .map(|description| description.name() == wanted)
-                            .unwrap_or(false)
-                    })
-                    .ok_or_else(|| arm_refusal_note(Some(wanted), &available))
-            }
-            None => host
-                .default_input_device()
-                .ok_or_else(|| arm_refusal_note(None, &input_device_names())),
-        }
-    }
-
-    /// The per-arm pipeline state: denoiser frame tail, denoise output
-    /// tail, and the resampler. Owned by the audio callback.
-    struct Pipeline {
-        denoiser: Option<Box<nnnoiseless::DenoiseState<'static>>>,
-        /// Samples waiting for a full denoise frame.
-        denoise_tail: Vec<f32>,
-        /// Denoised samples waiting for a backend feed.
-        feed_tail: Vec<f32>,
-        resampler: Option<sherpa_onnx::LinearResampler>,
-        backend: Arc<Mutex<Box<dyn DictationBackend>>>,
-        shared: Arc<Mutex<CaptureShared>>,
-    }
-
-    impl Pipeline {
-        /// Runs one callback's samples through the stages.
-        fn process(&mut self, data: &[f32]) {
-            if data.is_empty() {
-                return;
-            }
-            let level = data.iter().fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
-            let denoised = match self.denoiser.as_mut() {
-                Some(state) => {
-                    self.denoise_tail.extend_from_slice(data);
-                    let mut out = Vec::with_capacity(self.denoise_tail.len());
-                    let mut frame_out = [0.0_f32; DENOISE_FRAME];
-                    while self.denoise_tail.len() >= DENOISE_FRAME {
-                        let frame: Vec<f32> = self.denoise_tail.drain(..DENOISE_FRAME).collect();
-                        state.process_frame(&mut frame_out, &frame);
-                        out.extend_from_slice(&frame_out);
-                    }
-                    out
-                }
-                None => {
-                    self.denoise_tail.extend_from_slice(data);
-                    std::mem::take(&mut self.denoise_tail)
-                }
-            };
-            // Resample to 16 kHz, then park on the feed tail: the
-            // backend prefers chunky feeds over per-callback grains.
-            let mut samples_16k = match &self.resampler {
-                Some(resampler) => resampler.resample(&denoised, false),
-                None => denoised,
-            };
-            self.feed_tail.append(&mut samples_16k);
-            if self.feed_tail.len() >= 1_600 {
-                let chunk = std::mem::take(&mut self.feed_tail);
-                if let Some(mut backend) = self.backend.try_lock() {
-                    if let Ok(utterances) = backend.feed(&chunk) {
-                        drop(backend);
-                        // Utterances committed here land through the
-                        // actor only when it is subscribed — on the
-                        // null platform there is no feed at all. The
-                        // linux actor polls `feed`'s returns through
-                        // this same shared-mutex seam.
-                        let _ = utterances;
-                    }
-                }
-            }
-            self.shared.lock().level = level;
-        }
-
-    }
-
-    /// Opens the capture arm.
-    ///
-    /// The device open and stream build run on the caller's (blocking)
-    /// context; the audio callback then runs on cpal's own thread.
-    ///
-    /// # Errors
-    ///
-    /// Returns the refusal note when the device cannot be found or the
-    /// stream cannot be built.
-    pub fn open(
-        configured: Option<&str>,
-        noise_reduction: bool,
-        backend: &Arc<Mutex<Box<dyn DictationBackend>>>,
-    ) -> Result<CaptureArm, String> {
-        let device = find_device(configured)?;
-        let config = device
-            .default_input_config()
-            .map_err(|error| format!("capture config failed for the input device: {error}"))?;
-        let sample_rate = i32::try_from(config.sample_rate()).unwrap_or(48_000);
-
-        let shared = Arc::new(Mutex::new(CaptureShared::default()));
-        let err_callback = {
-            let shared = Arc::clone(&shared);
-            move |error| {
-                shared.lock().lost = Some(format!("capture stream error: {error}"));
-            }
-        };
-
-        let pipeline = {
-            let denoiser = noise_reduction.then(nnnoiseless::DenoiseState::new);
-            let resampler =
-                sherpa_onnx::LinearResampler::create(sample_rate, 16_000)
-                    .filter(|_| sample_rate != 16_000);
-            Pipeline {
-                denoiser,
-                denoise_tail: Vec::new(),
-                feed_tail: Vec::new(),
-                resampler,
-                backend: Arc::clone(backend),
-                shared: Arc::clone(&shared),
-            }
-        };
-
-        let stream = device
-            .build_input_stream(
-                config.into(),
-                {
-                    let shared = Arc::clone(&shared);
-                    let mut pipeline = pipeline;
-                    move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                        pipeline.process(data);
-                        // The level lands in `pipeline.process`; the
-                        // local clone keeps the slot's identity alive
-                        // for the err callback's independent write.
-                        let _ = &shared;
-                    }
-                },
-                err_callback,
-                None,
-            )
-            .map_err(|error| format!("capture stream open failed: {error}"))?;
-        stream
-            .play()
-            .map_err(|error| format!("capture stream start failed: {error}"))?;
-        Ok(CaptureArm {
-            _stream: stream,
-            shared,
-        })
-    }
-
-    /// The level cell update + loss drain the actor runs on its tick.
-    pub fn sync_level(shared: &Mutex<CaptureShared>, level_cell: &jinn_slices::TypedCell<DictationLevel>) {
-        let level = shared.lock().level;
-        level_cell.update(|cell| cell.level = level);
-    }
-
-    /// Drains the loss reason, if the stream died without a toggle.
-    pub fn take_lost(shared: &Mutex<CaptureShared>) -> Option<String> {
-        shared.lock().lost.take()
+impl CaptureArm {
+    /// The arm's shared level/loss slot, for the actor's tick.
+    #[must_use]
+    pub fn shared(&self) -> &std::sync::Arc<parking_lot::Mutex<CaptureShared>> {
+        &self.shared
     }
 }
 
+/// Writes the slot's level into the meter cell.
+pub fn sync_level(
+    shared: &parking_lot::Mutex<CaptureShared>,
+    level_cell: &jinn_slices::TypedCell<jinn_dictation_msg::DictationLevel>,
+) {
+    let level = shared.lock().level;
+    level_cell.update(|cell| cell.level = level);
+}
+
+/// Drains the loss reason, if the stream died without a toggle.
+#[must_use]
+pub fn take_lost(shared: &parking_lot::Mutex<CaptureShared>) -> Option<String> {
+    shared.lock().lost.take()
+}
+
+// The platform split, same shape as `platform.rs`: the linux body in
+// `capture_linux.rs`, the null body in `capture_null.rs`, swapped by
+// one `cfg` pair — the integration's other platform gate, beside
+// `platform.rs`'s own. Only `open` differs; the arm, the shared slot,
+// and the level/loss vocabulary above are platform-blind.
 #[cfg(target_os = "linux")]
+#[path = "capture_linux.rs"]
+mod device;
+
+#[cfg(not(target_os = "linux"))]
+#[path = "capture_null.rs"]
+mod device;
+
 pub use device::open;
-#[cfg(target_os = "linux")]
-pub use device::CaptureArm;
-#[cfg(target_os = "linux")]
-pub use device::sync_level;
-#[cfg(target_os = "linux")]
-pub use device::take_lost;
 
 #[cfg(test)]
 mod tests {
@@ -277,7 +113,10 @@ mod tests {
     #[test]
     fn refusal_names_the_configured_device_and_the_available_inputs() {
         // Given a configured device name that matches nothing.
-        let note = arm_refusal_note(Some("usb-mic"), &["builtin".to_owned(), "webcam".to_owned()]);
+        let note = arm_refusal_note(
+            Some("usb-mic"),
+            &["builtin".to_owned(), "webcam".to_owned()],
+        );
 
         // Then the refusal names both the wanted device and the choices.
         assert_eq!(
@@ -312,28 +151,3 @@ mod tests {
         );
     }
 }
-
-#[cfg(not(target_os = "linux"))]
-mod null_arm {
-    //! The null-platform arm: there is no real backend to transcribe,
-    //! so arming always refuses with the standard vocabulary.
-
-    use super::arm_refusal_note;
-
-    /// Opens the capture arm: always refuses on the null platform.
-    ///
-    /// # Errors
-    ///
-    /// Always returns the refusal note naming the configured device and
-    /// the (empty) device list.
-    pub fn open(
-        configured: Option<&str>,
-        _noise_reduction: bool,
-        _backend: &std::sync::Arc<parking_lot::Mutex<Box<dyn jinn_dictation_backend::DictationBackend>>>,
-    ) -> Result<(), String> {
-        Err(arm_refusal_note(configured, &[]))
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-pub use null_arm::open;

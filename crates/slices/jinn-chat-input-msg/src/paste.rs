@@ -66,7 +66,11 @@ mod tests {
     fn append_deactivates_an_active_autocomplete() {
         // Given a buffer with the `@` file popup active.
         let mut buffer = ChatInputBoxState::default();
-        buffer.activate_autocomplete(0, crate::chat_input_state::AutocompleteTrigger::At, Vec::new());
+        buffer.activate_autocomplete(
+            0,
+            crate::chat_input_state::AutocompleteTrigger::At,
+            Vec::new(),
+        );
         assert!(buffer.autocomplete().is_some());
 
         // When appending pasted text.

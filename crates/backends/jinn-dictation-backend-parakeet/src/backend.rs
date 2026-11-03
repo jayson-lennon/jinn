@@ -2,8 +2,6 @@
 //! (sherpa-onnx offline transducer, int8), and utterance endpointing
 //! (Silero VAD at 16 kHz).
 
-use std::path::PathBuf;
-
 use error_stack::Report;
 use error_stack::ResultExt as _;
 use marked_path::MarkedPathAccess as _;
@@ -63,8 +61,9 @@ impl DecodeSession<'_> {
             if take == 0 {
                 break;
             }
-            self.window_tail.extend_from_slice(&available[..take]);
-            available = &available[take..];
+            let (chunk, rest) = available.split_at(take);
+            self.window_tail.extend_from_slice(chunk);
+            available = rest;
             if self.window_tail.len() < VAD_WINDOW_SAMPLES {
                 break;
             }
@@ -112,13 +111,28 @@ impl DecodeSession<'_> {
     }
 }
 
+/// The absolute path of one model file under `model_dir`.
+///
+/// The join is a name join on an absolute base, so it cannot fail; the
+/// Result shape satisfies the no-expect lint in fallible callers.
+fn model_file(
+    model_dir: &marked_path::MarkedPathBuf<marked_path::Absolute>,
+    name: &str,
+) -> Result<String, Report<BackendError>> {
+    let path = model_dir
+        .join_all([name])
+        .change_context(BackendError)
+        .attach("failed to join a model file name onto the cache dir")?;
+    Ok(path.as_path().to_string_lossy().into_owned())
+}
+
 /// The Parakeet backend: sherpa-onnx offline transducer + Silero VAD.
 pub struct ParakeetBackend {
     /// The configured model name (the display name the state machine
     /// and hints use).
     model_name: String,
     /// The jinn-managed cache directory the fetch writes into.
-    cache_dir: PathBuf,
+    cache_dir: marked_path::MarkedPathBuf<marked_path::Absolute>,
     /// The decode graph, resident after a successful load.
     graph: Option<DecodeGraph>,
 }
@@ -129,22 +143,27 @@ impl ParakeetBackend {
     pub fn new(model_name: &str) -> Self {
         Self {
             model_name: model_name.to_owned(),
-            cache_dir: jinn_common::app_paths::AppPaths::default()
-                .dictation_models_dir()
-                .as_path()
-                .to_path_buf(),
+            cache_dir: jinn_common::app_paths::AppPaths::default().dictation_models_dir(),
             graph: None,
         }
     }
 
     /// The absolute path of one fetched model file.
-    fn file_path(&self, file: &str) -> PathBuf {
-        self.cache_dir.join(MODEL_REPO).join(file)
+    fn file_path(&self, file: &str) -> marked_path::MarkedPathBuf<marked_path::Absolute> {
+        self.cache_dir
+            .join_all([MODEL_REPO, file])
+            .unwrap_or_else(|_| {
+                // Unreachable for name joins on an absolute base; the
+                // marked-path invariant holds by construction.
+                self.cache_dir.clone()
+            })
     }
 
     /// Whether every model file is present.
     fn all_files_present(&self) -> bool {
-        ALL_FILES.iter().all(|file| self.file_path(file).is_file())
+        ALL_FILES
+            .iter()
+            .all(|file| self.file_path(file).as_path().is_file())
     }
 
     /// Fetches every model file into the cache, reporting progress.
@@ -156,7 +175,7 @@ impl ParakeetBackend {
         on_progress: &mut dyn FnMut(FetchProgress),
     ) -> Result<(), Report<BackendError>> {
         let api = hf_hub::api::sync::ApiBuilder::new()
-            .with_cache_dir(self.cache_dir.clone())
+            .with_cache_dir(self.cache_dir.as_path().to_path_buf())
             .build()
             .change_context(BackendError)
             .attach("failed to build the HuggingFace client")?;
@@ -167,14 +186,8 @@ impl ParakeetBackend {
                 .get(file)
                 .change_context(BackendError)
                 .attach(format!("failed to fetch {file}"))?;
-            let bytes = std::fs::metadata(&path)
-                .ok()
-                .and_then(|meta| u64::try_from(meta.len()).ok())
-                .unwrap_or(0);
-            on_progress(FetchProgress::new(
-                bytes,
-                Some(bytes),
-            ));
+            let bytes = std::fs::metadata(&path).map_or(0, |meta| meta.len());
+            on_progress(FetchProgress::new(bytes, Some(bytes)));
             let _ = index;
             let _ = total;
         }
@@ -183,30 +196,19 @@ impl ParakeetBackend {
 
     /// Builds the decode graph from the fetched files.
     fn build_graph(&self) -> Result<DecodeGraph, Report<BackendError>> {
-        let model_dir = self.cache_dir.join(MODEL_REPO);
+        let model_dir = self
+            .cache_dir
+            .join_all([MODEL_REPO])
+            .change_context(BackendError)
+            .attach("failed to join the model repo name onto the cache dir")?;
         let transducer = sherpa_onnx::OfflineTransducerModelConfig {
-            encoder: Some(
-                model_dir
-                    .join("encoder.int8.onnx")
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            decoder: Some(
-                model_dir
-                    .join("decoder.int8.onnx")
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            joiner: Some(
-                model_dir
-                    .join("joiner.int8.onnx")
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
+            encoder: Some(model_file(&model_dir, "encoder.int8.onnx")?),
+            decoder: Some(model_file(&model_dir, "decoder.int8.onnx")?),
+            joiner: Some(model_file(&model_dir, "joiner.int8.onnx")?),
         };
         let model_config = sherpa_onnx::OfflineModelConfig {
             transducer,
-            tokens: Some(model_dir.join("tokens.txt").to_string_lossy().into_owned()),
+            tokens: Some(model_file(&model_dir, "tokens.txt")?),
             num_threads: 2,
             debug: false,
             provider: Some("cpu".to_owned()),
@@ -225,7 +227,7 @@ impl ParakeetBackend {
 
         let vad_config = sherpa_onnx::VadModelConfig {
             silero_vad: sherpa_onnx::SileroVadModelConfig {
-                model: Some(model_dir.join(VAD_FILE).to_string_lossy().into_owned()),
+                model: Some(model_file(&model_dir, VAD_FILE)?),
                 threshold: 0.5,
                 min_silence_duration: 0.5,
                 min_speech_duration: 0.25,
@@ -238,8 +240,9 @@ impl ParakeetBackend {
             debug: false,
             provider: Some("cpu".to_owned()),
         };
-        let vad = sherpa_onnx::VoiceActivityDetector::create(&vad_config, 30.0)
-            .ok_or(Report::new(BackendError).attach("failed to build the voice activity detector"))?;
+        let vad = sherpa_onnx::VoiceActivityDetector::create(&vad_config, 30.0).ok_or(
+            Report::new(BackendError).attach("failed to build the voice activity detector"),
+        )?;
 
         Ok(DecodeGraph {
             recognizer,
@@ -267,7 +270,7 @@ impl DictationBackend for ParakeetBackend {
         &mut self,
         on_progress: &mut dyn FnMut(FetchProgress),
     ) -> Result<(), Report<BackendError>> {
-        tracing::info!(model = %self.model_name, cache = %self.cache_dir.display(), "fetching dictation model");
+        tracing::info!(model = %self.model_name, cache = %self.cache_dir.as_path().display(), "fetching dictation model");
         self.fetch_files(on_progress)
     }
 
@@ -320,6 +323,11 @@ impl DictationBackend for ParakeetBackend {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::assertions_on_constants,
+        reason = "test code, panics are acceptable"
+    )]
     use super::ParakeetBackend;
     use jinn_dictation_backend::DictationBackend;
 
@@ -344,11 +352,9 @@ mod tests {
         // When feeding audio and flushing.
         // Then neither produces utterances and nothing reports loaded.
         assert!(!backend.is_loaded());
-        assert!(
-            backend
-                .feed(&[0.0_f32; 512])
-                .expect("feed succeeds")
-                .is_empty()
+        assert_eq!(
+            backend.feed(&[0.0_f32; 512]).expect("feed succeeds").len(),
+            0
         );
         assert!(backend.flush().expect("flush succeeds").is_none());
     }
@@ -369,7 +375,7 @@ mod tests {
         let flushed = backend.flush().expect("flush succeeds");
 
         // Then silence closes no utterance, and the flush finds none.
-        assert!(utterances.is_empty());
+        assert_eq!(utterances.len(), 0);
         assert!(flushed.is_none());
     }
 }

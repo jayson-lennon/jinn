@@ -158,6 +158,7 @@ const OWNED_KEYS: &[&str] = &[
     "discord",
     "canvas",
     "remote",
+    "dictation",
     // Read on demand (`ConfigList`).
     "session_lifecycle",
     "project",

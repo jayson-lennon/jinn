@@ -32,7 +32,7 @@ pub struct NullBackend {
 impl NullBackend {
     /// Builds the null backend reporting `model_name`.
     #[must_use]
-    pub fn new(model_name: impl Into<String>) -> Self {
+    pub fn new(model_name: &str) -> Self {
         Self {
             model_name: model_name.into(),
         }
@@ -136,7 +136,7 @@ mod tests {
         let utterances = backend.feed(&[0.0_f32; 1024]).expect("null feed succeeds");
 
         // Then nothing was transcribed.
-        assert!(utterances.is_empty());
+        assert_eq!(utterances.len(), 0);
     }
 
     #[rstest::rstest]

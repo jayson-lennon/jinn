@@ -17,4 +17,7 @@ pub mod state;
 
 pub use message::DictationLifecycleTick;
 pub use message::DictationToggle;
-pub use state::{DictationLevel, DictationPhase, DictationState, dictation_level_slot, dictation_state_slot, dictation_scope};
+pub use state::{
+    DictationLevel, DictationPhase, DictationState, dictation_level_slot, dictation_scope,
+    dictation_state_slot,
+};

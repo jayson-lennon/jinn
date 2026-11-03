@@ -1,5 +1,7 @@
 //! The state-machine suite — platform-blind, stub-driven.
 //!
+#![allow(clippy::expect_used, clippy::assert_is_empty, reason = "test code")]
+
 //! Every matrix transition runs against [`StubBackend`], which
 //! simulates the lifecycle without any native dependency: fetchable or
 //! pre-cached, loading or failing, and one utterance per feed. No test
@@ -29,7 +31,7 @@ struct StubBackend {
 }
 
 impl DictationBackend for StubBackend {
-    fn model_name(&self) -> &str {
+    fn model_name(&self) -> &'static str {
         "stub-model"
     }
 
@@ -190,10 +192,7 @@ fn a_failed_fetch_is_terminal_error() {
     // Then the machine is in Error naming the stage, and there is no
     // next action: Error is terminal for the process run.
     assert_eq!(step.state.phase, DictationPhase::Error);
-    assert_eq!(
-        step.state.error.as_deref(),
-        Some("fetching: disk full")
-    );
+    assert_eq!(step.state.error.as_deref(), Some("fetching: disk full"));
     assert_eq!(step.action, StepAction::Idle);
 }
 
@@ -225,7 +224,10 @@ fn a_failed_load_is_terminal_error() {
 
     // Then the machine is in Error naming the stage.
     assert_eq!(step.state.phase, DictationPhase::Error);
-    assert_eq!(step.state.error.as_deref(), Some("loading: corrupt model file"));
+    assert_eq!(
+        step.state.error.as_deref(),
+        Some("loading: corrupt model file")
+    );
 }
 
 #[rstest::rstest]
@@ -276,13 +278,16 @@ fn disarming_returns_to_ready_and_carries_the_flushed_utterance() {
     let _ = machine.arm();
 
     // When the disarm lands with a flushed trailing utterance.
-    let step = machine.disarm(Some(Utterance::new("trailing words")), None);
+    let step = machine.disarm(Some(Utterance::new("trailing words".to_owned())), None);
 
     // Then the machine is back in Ready and the utterance travels with
     // the step for the commit path.
     assert_eq!(step.state.phase, DictationPhase::Ready);
     assert_eq!(step.action, StepAction::Disarm);
-    assert_eq!(step.last_flushed.as_ref().map(|u| u.text.as_str()), Some("trailing words"));
+    assert_eq!(
+        step.last_flushed.as_ref().map(|u| u.text.as_str()),
+        Some("trailing words")
+    );
 }
 
 #[rstest::rstest]
@@ -384,7 +389,7 @@ fn stub_backend_serves_the_full_trait_surface() {
     // Given a stub backend with a warm cache and a scripted flush.
     let mut backend = StubBackend {
         cached: true,
-        flushed: Some(Utterance::new("trailing")),
+        flushed: Some(Utterance::new("trailing".to_owned())),
         ..StubBackend::default()
     };
 
@@ -399,9 +404,17 @@ fn stub_backend_serves_the_full_trait_surface() {
         .fetch(&mut |progress| last_percent = progress.percent())
         .expect("stub fetch succeeds");
     assert_eq!(last_percent, Some(50));
-    assert!(backend.feed(&[0.0; 512]).expect("stub feed succeeds").is_empty());
+    assert!(
+        backend
+            .feed(&[0.0; 512])
+            .expect("stub feed succeeds")
+            .is_empty()
+    );
     let flushed = backend.flush().expect("stub flush succeeds");
-    assert_eq!(flushed.map(|utterance| utterance.text), Some("trailing".to_owned()));
+    assert_eq!(
+        flushed.map(|utterance| utterance.text),
+        Some("trailing".to_owned())
+    );
     // And a second flush finds nothing: the utterance was taken.
     assert!(backend.flush().expect("stub flush succeeds").is_none());
 }

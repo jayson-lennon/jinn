@@ -31,7 +31,9 @@ impl BusMessage for DictationToggle {}
 ///
 /// One declarant: the dictation actor.
 #[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Command)]
-#[schema(description = "A dictation backend completion or capture report, folded by the dictation actor.")]
+#[schema(
+    description = "A dictation backend completion or capture report, folded by the dictation actor."
+)]
 pub struct DictationLifecycleTick {
     /// Which completion landed: `fetched`, `loaded`, or `capture-lost`.
     pub kind: String,

@@ -29,8 +29,8 @@ use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
 use jinn_dictation_backend::DictationBackend;
-use jinn_dictation_msg::DictationLifecycleTick;
 use jinn_dictation_msg::DictationLevel;
+use jinn_dictation_msg::DictationLifecycleTick;
 use jinn_dictation_msg::DictationState;
 use jinn_dictation_msg::DictationToggle;
 use jinn_slices::ServiceStatusUpdate;
@@ -45,8 +45,6 @@ pub const DICTATION_PATH: &str = "dictation";
 /// the backend through this mutex, because `DictationBackend` methods
 /// take `&mut self` and the calls run off the actor's context.
 pub type SharedBackend = std::sync::Arc<parking_lot::Mutex<Box<dyn DictationBackend>>>;
-
-
 
 /// Dependencies for [`DictationActor`].
 pub struct DictationActorDeps {
@@ -73,31 +71,31 @@ pub struct DictationActorDeps {
 /// The dictation actor: lifecycle owner and cell writer.
 pub struct DictationActor {
     /// The lifecycle state machine — the phase truth the cells mirror.
-    pub(crate) machine: DictationMachine,
+    machine: DictationMachine,
     /// The platform backend, shared with the blocking closures.
-    pub(crate) backend: SharedBackend,
+    backend: SharedBackend,
     /// The dictation state cell — the one write handle.
-    pub(crate) state_cell: TypedCell<DictationState>,
+    state_cell: TypedCell<DictationState>,
     /// The meter-level cell — the one write handle. The capture arm's
     /// audio callback writes the level through the shared slot; the
     /// actor's tick drains it here, and disarm zeroes it.
-    pub(crate) level_cell: TypedCell<DictationLevel>,
+    level_cell: TypedCell<DictationLevel>,
     /// The message fabric, for the row publications.
-    pub(crate) bus: jinn_slices::bus::BusService,
+    bus: jinn_slices::bus::BusService,
     /// The blocking runtime handle.
-    pub(crate) runtime: tokio::runtime::Handle,
+    runtime: tokio::runtime::Handle,
     /// The shared application state, for utterance commits.
-    pub(crate) state: jinn_kernel::common::state::State,
+    state: jinn_kernel::common::state::State,
     /// The resolved `[dictation]` settings.
-    pub(crate) config: crate::config::DictationSettings,
+    config: crate::config::DictationSettings,
     /// The lifecycle move currently running, if any. The actor never
     /// queues a second while one is in flight: a toggle mid-fetch is an
     /// idempotent acknowledgement (the hint re-pushed synchronously by
     /// the route action; this fold a no-op).
-    pub(crate) in_flight: InFlight,
+    in_flight: InFlight,
     /// The live capture arm while Recording, dropped on disarm. Its
     /// drop closes the device.
-    pub(crate) capture: Option<crate::capture::CaptureArm>,
+    capture: Option<crate::capture::CaptureArm>,
 }
 
 /// Which blocking operation, if any, the actor is waiting on.
@@ -108,6 +106,8 @@ pub(crate) enum InFlight {
     Fetch,
     Load,
 }
+
+pub(crate) mod handlers;
 
 impl ServiceActor for DictationActor {
     #[expect(
@@ -139,10 +139,6 @@ impl DictationActor {
     /// Subscriptions: [`DictationToggle`],
     /// [`DictationLifecycleTick`]. Emissions:
     /// [`ServiceStatusUpdate`].
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "spawn convention: owned deps move into init_with"
-    )]
     pub fn spawn(system: &ActorSystem, deps: DictationActorDeps) -> ActorPath {
         let path = ActorPath::new(DICTATION_PATH);
         let supported: Vec<String> = crate::platform::SUPPORTED_MODELS
@@ -169,7 +165,7 @@ impl DictationActor {
             runtime: deps.runtime,
             state: deps.state,
             config: deps.config,
-            in_flight: crate::dictation_actor::InFlight::None,
+            in_flight: InFlight::None,
             capture: None,
         };
         trouper::builder::spawn_service_builder::<Self>(system)
@@ -207,20 +203,19 @@ impl DictationActor {
         let mut state = self.state.write();
         state.update_active_input(|input| {
             let separator = if input.is_empty() { "" } else { " " };
-            let joined = format!("{separator}{}", text);
-            jinn_chat_input_msg::append_paste_to_buffer(input, &joined);
+            jinn_chat_input_msg::append_paste_to_buffer(input, &format!("{separator}{text}"));
         });
     }
 }
 
 impl MsgHandler<DictationToggle> for DictationActor {
     async fn handle(&mut self, _msg: &DictationToggle, ctx: &mut MsgCtx<'_>) {
-        crate::handlers::handle_toggle(self, ctx).await;
+        self::handlers::handle_toggle(self, ctx).await;
     }
 }
 
 impl MsgHandler<DictationLifecycleTick> for DictationActor {
     async fn handle(&mut self, msg: &DictationLifecycleTick, ctx: &mut MsgCtx<'_>) {
-        crate::handlers::handle_tick(self, msg, ctx).await;
+        self::handlers::handle_tick(self, msg, ctx).await;
     }
 }

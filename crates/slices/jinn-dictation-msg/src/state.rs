@@ -5,8 +5,8 @@
 //! [`DictationPhase::Error`] — the fault description. [`DictationLevel`]
 //! is the recording meter's live input level.
 
-use jinn_slices::SlotKey;
 use jinn_slices::SliceScopeId;
+use jinn_slices::SlotKey;
 
 /// The dictation slice's dynamic focus scope.
 ///
@@ -79,7 +79,9 @@ impl DictationState {
     #[must_use]
     pub fn press_hint(&self) -> Option<String> {
         match self.phase {
-            DictationPhase::Offline => Some("dictation disabled — set [dictation] enabled = true and restart".to_owned()),
+            DictationPhase::Offline => {
+                Some("dictation disabled — set [dictation] enabled = true and restart".to_owned())
+            }
             DictationPhase::Fetching => {
                 let model = display_name(&self.model_name);
                 Some(format!("downloading {model}"))
@@ -90,7 +92,9 @@ impl DictationState {
             }
             DictationPhase::Error => Some(format!(
                 "dictation failed: {}",
-                self.error.clone().unwrap_or_else(|| "unknown error".to_owned())
+                self.error
+                    .clone()
+                    .unwrap_or_else(|| "unknown error".to_owned())
             )),
             DictationPhase::Ready | DictationPhase::Recording => None,
         }

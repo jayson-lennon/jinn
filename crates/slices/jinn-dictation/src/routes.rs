@@ -62,7 +62,7 @@ pub fn toggle_row() -> RouteRow {
         outcome: RouteOutcome::Action {
             action: TOGGLE_ACTION,
             display: "dictate",
-            run: ActionFn::new(|ctx| toggle_action(ctx)),
+            run: ActionFn::new(toggle_action),
         },
     }
 }
@@ -81,8 +81,7 @@ fn toggle_action(mut ctx: ActionCtx<'_>) -> RouteResult {
     let phase = ctx
         .slices
         .reader::<DictationState>(&dictation_state_slot())
-        .map(|cell| cell.read().phase)
-        .unwrap_or(DictationPhase::Offline);
+        .map_or(DictationPhase::Offline, |cell| cell.read().phase);
 
     match phase {
         // Armed cycle: publish; no hint (the meter is the signal).
@@ -99,9 +98,14 @@ fn toggle_action(mut ctx: ActionCtx<'_>) -> RouteResult {
             let hint = ctx
                 .slices
                 .reader::<DictationState>(&dictation_state_slot())
-                .map(|cell| cell.read().press_hint())
-                .unwrap_or_else(|| Some("dictation unavailable".to_owned()))
-                .unwrap_or_else(|| "dictation unavailable".to_owned());
+                .map_or_else(
+                    || "dictation unavailable".to_owned(),
+                    |cell| {
+                        cell.read()
+                            .press_hint()
+                            .unwrap_or_else(|| "dictation unavailable".to_owned())
+                    },
+                );
             push_hint(&mut ctx, hint);
             RouteResult::new_message(DictationToggle)
         }
@@ -123,6 +127,12 @@ fn push_hint(ctx: &mut ActionCtx<'_>, hint: String) {
 #[cfg(test)]
 mod tests {
     #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic,
+        reason = "test code, panics are acceptable"
+    )]
+    #![allow(
         clippy::unwrap_used,
         reason = "test assertions on infallible registration"
     )]
@@ -142,10 +152,7 @@ mod tests {
     fn seeded() -> (Slices, jinn_slices::route::KeyRoutes) {
         let slices = Slices::new();
         slices
-            .register(
-                dictation_state_slot(),
-                DictationState::default(),
-            )
+            .register(dictation_state_slot(), DictationState::default())
             .unwrap();
         slices
             .register(status_bar_slot(), StatusBarState::default())
@@ -168,7 +175,7 @@ mod tests {
                 jinn_slices::route::ActionCtx {
                     state: &mut state,
                     slices,
-                    config: &jinn_slices::empty_config_layer(),
+                    config: jinn_slices::empty_config_layer(),
                     key_bytes: Vec::new(),
                 },
             )
@@ -230,7 +237,9 @@ mod tests {
     fn fetching_press_repushes_the_download_hint_idempotently() {
         // Given a registry mid-fetch.
         let (slices, routes) = seeded();
-        let cell = slices.reader::<DictationState>(&dictation_state_slot()).unwrap();
+        let cell = slices
+            .reader::<DictationState>(&dictation_state_slot())
+            .unwrap();
         cell.update(|state| {
             state.phase = DictationPhase::Fetching;
             state.model_name = "parakeet-tdt-0.6b-v2".to_owned();

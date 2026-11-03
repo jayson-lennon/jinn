@@ -27,16 +27,16 @@
 //! slot and schedules the tick, and the actor folds the outcome on the
 //! tick's delivery.
 
-use trouper::context::MsgCtx;
 use tokio::runtime::Handle;
+use trouper::context::MsgCtx;
 
-use crate::dictation_actor::DictationActor;
-use jinn_dictation_msg::DictationLifecycleTick;
-use crate::dictation_actor::InFlight;
+use super::DictationActor;
+use super::InFlight;
 use crate::machine::StepAction;
+use jinn_dictation_msg::DictationLifecycleTick;
 
 /// One backend completion or capture report, published as a tick.
-pub(crate) enum Completion {
+enum Completion {
     /// The fetch finished; `Some` carries the rendered fault.
     Fetched(Option<String>),
     /// The load finished; `Some` carries the rendered fault.
@@ -48,16 +48,16 @@ pub(crate) enum Completion {
 /// The completion is an Event schema on the fabric, declared only by
 /// this actor — the self-addressed tick pattern the watchdog uses, with
 /// the outcome riding in the message instead of a parked slot.
-async fn publish_tick(
-    bus: &jinn_slices::bus::BusService,
-    completion: Completion,
-) {
+async fn publish_tick(bus: &jinn_slices::bus::BusService, completion: Completion) {
     let (kind, detail) = match completion {
         Completion::Fetched(fault) => ("fetched", fault),
         Completion::Loaded(fault) => ("loaded", fault),
     };
-    bus.publish(DictationLifecycleTick { kind: kind.to_owned(), detail })
-        .await;
+    bus.publish(DictationLifecycleTick {
+        kind: kind.to_owned(),
+        detail,
+    })
+    .await;
 }
 
 /// Folds one toggle press onto the machine and runs the step.
@@ -69,7 +69,7 @@ async fn publish_tick(
 /// second press a no-op, so a user pressing alt-i mid-download only
 /// re-pushes the hint (the route action's synchronous half) and folds
 /// nothing here.
-pub(crate) async fn handle_toggle(actor: &mut DictationActor, ctx: &mut MsgCtx<'_>) {
+pub(super) async fn handle_toggle(actor: &mut DictationActor, ctx: &mut MsgCtx<'_>) {
     match actor.machine.state().phase {
         jinn_dictation_msg::DictationPhase::Ready => {
             if actor.in_flight != InFlight::None {
@@ -105,12 +105,13 @@ pub(crate) async fn handle_toggle(actor: &mut DictationActor, ctx: &mut MsgCtx<'
                 run_load(actor);
             }
         }
-        jinn_dictation_msg::DictationPhase::Offline | jinn_dictation_msg::DictationPhase::Error => {}
+        jinn_dictation_msg::DictationPhase::Offline | jinn_dictation_msg::DictationPhase::Error => {
+        }
     }
 }
 
 /// Folds one lifecycle tick: the completion a blocking task published.
-pub(crate) async fn handle_tick(
+pub(super) async fn handle_tick(
     actor: &mut DictationActor,
     msg: &DictationLifecycleTick,
     ctx: &mut MsgCtx<'_>,
@@ -143,8 +144,8 @@ pub(crate) async fn handle_tick(
             // The meter's live level, and the arm's loss report: a
             // vanished device lands here as a capture-lost fold.
             if let Some(arm) = actor.capture.as_ref() {
-                crate::capture::sync_level(&arm.shared, &actor.level_cell);
-                if let Some(reason) = crate::capture::take_lost(&arm.shared) {
+                crate::capture::sync_level(arm.shared(), &actor.level_cell);
+                if let Some(reason) = crate::capture::take_lost(arm.shared()) {
                     let step = actor.machine.capture_lost(&reason);
                     close_capture(actor);
                     apply(actor, &step).await;
@@ -174,15 +175,14 @@ async fn disarm_with_flush(actor: &mut DictationActor, _ctx: &mut MsgCtx<'_>) {
     let outcome = runtime
         .spawn_blocking(move || {
             let mut backend = backend.lock();
-            backend
-                .flush()
-                .map(|utterance| (utterance, None))
-                .unwrap_or_else(|report| (None, Some(format!("{report:?}"))))
+            backend.flush().map_or_else(
+                |report| (None, Some(format!("{report:?}"))),
+                |utterance| (utterance, None),
+            )
         })
         .await;
-    let (flushed, fault) = outcome.unwrap_or_else(|join_error| {
-        (None, Some(format!("capture thread failed: {join_error}")))
-    });
+    let (flushed, fault) = outcome
+        .unwrap_or_else(|join_error| (None, Some(format!("capture thread failed: {join_error}"))));
     let step = actor.machine.disarm(flushed.clone(), fault);
     if let Some(utterance) = flushed {
         actor.commit_utterance(&utterance);
@@ -197,7 +197,6 @@ async fn apply(actor: &mut DictationActor, step: &crate::machine::Step) {
     actor.state_cell.update(|state| *state = step.state.clone());
     crate::row::publish_row(&actor.bus, &actor.state_cell).await;
     match step.action {
-        StepAction::Idle => {}
         StepAction::Fetch => {
             actor.in_flight = InFlight::Fetch;
             run_fetch(actor);
@@ -205,8 +204,10 @@ async fn apply(actor: &mut DictationActor, step: &crate::machine::Step) {
         StepAction::Load => {
             actor.in_flight = InFlight::Load;
         }
-        StepAction::Arm => {} // capture opened by the toggle arm
-        StepAction::Disarm => {}
+        StepAction::Idle | StepAction::Arm | StepAction::Disarm => {
+            // Idle: nothing further. Arm: the capture open runs in the
+            // toggle arm. Disarm: the close ran before this fold.
+        }
     }
 }
 
@@ -216,7 +217,7 @@ async fn apply(actor: &mut DictationActor, step: &crate::machine::Step) {
 /// The task owns the backend through the shared mutex for the fetch's
 /// duration; the in-flight guard keeps every other lifecycle move off
 /// it until the tick folds the completion.
-pub(crate) fn run_fetch(actor: &mut DictationActor) {
+pub(super) fn run_fetch(actor: &mut DictationActor) {
     let backend = std::sync::Arc::clone(&actor.backend);
     let runtime = actor.runtime.clone();
     let state_cell = actor.state_cell.clone();
@@ -232,8 +233,7 @@ pub(crate) fn run_fetch(actor: &mut DictationActor) {
                             cell.fetch_progress_percent = percent;
                         });
                     })
-                    .map(|()| None)
-                    .unwrap_or_else(|report| Some(format!("{report:?}")))
+                    .map_or_else(|report| Some(format!("{report:?}")), |()| None)
             })
             .await;
         let fault =
@@ -244,7 +244,7 @@ pub(crate) fn run_fetch(actor: &mut DictationActor) {
 
 /// Runs the backend load on the blocking context, parking the
 /// completion.
-pub(crate) fn run_load(actor: &mut DictationActor) {
+pub(super) fn run_load(actor: &mut DictationActor) {
     let backend = std::sync::Arc::clone(&actor.backend);
     let runtime = actor.runtime.clone();
     let bus = actor.bus.clone();
@@ -254,8 +254,7 @@ pub(crate) fn run_load(actor: &mut DictationActor) {
                 let mut backend = backend.lock();
                 backend
                     .load()
-                    .map(|()| None)
-                    .unwrap_or_else(|report| Some(format!("{report:?}")))
+                    .map_or_else(|report| Some(format!("{report:?}")), |()| None)
             })
             .await;
         let fault =
@@ -271,7 +270,7 @@ pub(crate) fn run_load(actor: &mut DictationActor) {
 /// naming the configured device and the available inputs. On success
 /// the arm handle parks on the actor; its drop (on disarm or capture
 /// loss) closes the device.
-pub(crate) async fn open_capture(actor: &mut DictationActor) {
+pub(super) async fn open_capture(actor: &mut DictationActor) {
     let backend = std::sync::Arc::clone(&actor.backend);
     let configured = actor.config.device.clone();
     let noise_reduction = actor.config.noise_reduction;
@@ -300,7 +299,7 @@ pub(crate) async fn open_capture(actor: &mut DictationActor) {
 }
 
 /// Drops the live capture arm and reports the meter's idle level.
-pub(crate) fn close_capture(actor: &mut DictationActor) {
+pub(super) fn close_capture(actor: &mut DictationActor) {
     if actor.capture.take().is_some() {
         actor.level_cell.update(|cell| cell.level = 0.0);
     }
