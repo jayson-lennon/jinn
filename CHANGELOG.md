@@ -3,6 +3,7 @@
 ## (development)
 
 - Canceling a long-running tool call now properly terminates the call + changes the session state
+  .
 
 ## 2026-11-01 v1.16.0
 
