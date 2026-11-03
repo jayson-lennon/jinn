@@ -28,7 +28,6 @@ sherpa-onnx = { version = "2.0", default-features = false, features = ["static"]
 # The feature-config type lives in the sys crate; pinned to the same
 # version sherpa-onnx pulls so the two cannot disagree.
 sherpa-onnx-sys = { version = "=2.0.1", default-features = false, features = ["static"] }
-cpal = { version = "0.18", features = ["pipewire"] }
 
 [dev-dependencies]
 rstest = { workspace = true }

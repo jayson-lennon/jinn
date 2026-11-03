@@ -126,6 +126,38 @@ skill_filter = { mode = "deny", names = ["phased-task-loop"] }
 bind = "127.0.0.1:0"
 
 # ###########################################################################
+# Dictation (local voice input)
+# ###########################################################################
+[dictation]
+# > Local speech-to-text for the chat input. alt-i toggles recording;
+# > committed utterances append to the input of whichever session holds
+# > focus. The model runs entirely on this machine — no cloud path.
+#
+# > Whether dictation is active. Disabled (the default) keeps the actor
+# > offline: alt-i reports "disabled", nothing downloads, the meter
+# > never shows. Config changes take effect on the next jinn start.
+enabled = false
+#
+# > The capture device to open, matched exactly against the input
+# > device names. Omit it to use the system default input. A name that
+# > matches nothing refuses to arm and lists the available inputs.
+# device = "USB Microphone"
+#
+# > Which model to run. Currently supported:
+# >
+# >   parakeet-tdt-0.6b-v2   NVIDIA Parakeet TDT 0.6B v2, English,
+# >                          int8 ONNX (the shipped default)
+#
+# > An unknown value fails the actor into an error state naming the
+# > valid set.
+model = "parakeet-tdt-0.6b-v2"
+#
+# > Denoise the capture before transcription (recommended; the filter
+# > runs at the device's native rate before the model's 16 kHz
+# > resample).
+noise_reduction = true
+
+# ###########################################################################
 # Remote control surface
 # ###########################################################################
 [remote]

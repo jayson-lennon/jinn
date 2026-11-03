@@ -35,6 +35,9 @@ pub mod row;
 pub use dictation_actor::DictationActor;
 pub use dictation_actor::DictationActorDeps;
 pub use machine::DictationMachine;
+pub use platform::fetch_model;
+pub use platform::platform_default_model;
+pub use platform::platform_supports_real_backend;
 pub use row::row_note;
 
 use jinn_slices::SliceHost;

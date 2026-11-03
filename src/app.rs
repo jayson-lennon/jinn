@@ -324,6 +324,12 @@ impl App {
                                     .block_on(async { fetch_models().await })
                                     .change_context(AppError)?;
                             }
+                            FetchCommands::DictationModel => {
+                                // A dedicated exit path: a platform
+                                // without a real backend prints and
+                                // exits non-zero here.
+                                fetch_dictation_model(&self.runtime);
+                            }
                         }
                     }
                     // Config subcommands are dispatched above, before the early
@@ -360,6 +366,38 @@ pub(crate) fn seed_config_template(path: &MarkedPathBuf<Absolute>) {
         eprintln!("  {report:?}");
         std::process::exit(1);
     }
+}
+
+/// Fetches the dictation model into jinn's cache, then exits.
+///
+/// Runs on the real platform backend regardless of `[dictation]
+/// enabled` — fetching is a network operation, enabling is a config
+/// decision. On a platform without a real backend it prints the
+/// unavailability sentence and exits non-zero: the null backend has
+/// nothing to fetch, and a silent zero exit would look like success.
+fn fetch_dictation_model(runtime: &tokio::runtime::Runtime) -> ! {
+    if !jinn_dictation::platform_supports_real_backend() {
+        eprintln!("dictation backend unavailable on this platform");
+        std::process::exit(1);
+    }
+    let model = jinn_dictation::platform_default_model();
+    let result = runtime.block_on(async {
+        tokio::task::spawn_blocking(move || jinn_dictation::fetch_model(&model)).await
+    });
+    match result {
+        Ok(Ok(())) => {
+            println!("dictation model fetched into the jinn cache");
+        }
+        Ok(Err(report)) => {
+            eprintln!("dictation model fetch failed: {report:?}");
+            std::process::exit(1);
+        }
+        Err(join_error) => {
+            eprintln!("dictation model fetch task failed: {join_error}");
+            std::process::exit(1);
+        }
+    }
+    std::process::exit(0);
 }
 
 /// Fetches model metadata from models.dev and saves it to the user's cache directory.

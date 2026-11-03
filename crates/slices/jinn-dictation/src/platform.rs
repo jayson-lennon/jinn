@@ -51,3 +51,32 @@ mod imp {
 mod imp;
 
 pub use imp::{DEFAULT_MODEL, SUPPORTED_MODELS, build_backend, real_backend_available};
+
+/// Whether this platform runs a real transcription backend.
+///
+/// `jinn fetch dictation-model` reads this for its non-zero exit on
+/// platforms without one.
+#[must_use]
+pub fn platform_supports_real_backend() -> bool {
+    real_backend_available()
+}
+
+/// The default model name this platform's backend understands.
+#[must_use]
+pub fn platform_default_model() -> String {
+    DEFAULT_MODEL.to_owned()
+}
+
+/// Fetches the named model into jinn's cache through the platform
+/// backend: the same `fetch` the actor runs, driven from the CLI.
+///
+/// # Errors
+///
+/// Returns the backend's fetch report on network or disk failure.
+pub fn fetch_model(
+    model: &str,
+) -> Result<(), error_stack::Report<jinn_dictation_backend::BackendError>> {
+    let mut backend = build_backend(model);
+    let mut no_progress = |_: jinn_dictation_backend::FetchProgress| {};
+    backend.fetch(&mut no_progress)
+}

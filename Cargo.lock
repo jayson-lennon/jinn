@@ -3744,6 +3744,7 @@ dependencies = [
 name = "jinn-dictation"
 version = "1.16.0"
 dependencies = [
+ "cpal",
  "error-stack",
  "jinn-app-state",
  "jinn-chat-input-msg",
@@ -3757,10 +3758,12 @@ dependencies = [
  "jinn-status-bar-msg",
  "jinn-testutil",
  "jinn-tui",
+ "nnnoiseless",
  "parking_lot",
  "ratatui",
  "rstest",
  "serde",
+ "sherpa-onnx",
  "tokio",
  "tracing",
  "trouper",
@@ -3780,7 +3783,6 @@ dependencies = [
 name = "jinn-dictation-backend-parakeet"
 version = "1.16.0"
 dependencies = [
- "cpal",
  "error-stack",
  "hf-hub",
  "jinn-common",

@@ -28,6 +28,15 @@ ratatui = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 jinn-dictation-backend-parakeet = { path = "../../backends/jinn-dictation-backend-parakeet" }
+# The capture arm: device enumeration and stream open. Linux's PipeWire
+# backend; the null-platform path never touches cpal (the arm compiles
+# out with the gated module).
+cpal = { version = "0.18", features = ["pipewire"] }
+# The denoise stage (48 kHz frames, before the resample): pure Rust.
+nnnoiseless = "0.5"
+# The resample stage (device rate -> 16 kHz): sherpa-onnx's linear
+# resampler, the same native dependency the backend already carries.
+sherpa-onnx = { version = "2.0", default-features = false, features = ["static"] }
 
 [dev-dependencies]
 rstest = { workspace = true }

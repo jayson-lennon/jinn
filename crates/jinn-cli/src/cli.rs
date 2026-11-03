@@ -265,6 +265,13 @@ pub enum HeadlessCommands {
 pub enum FetchCommands {
     /// Fetch model metadata from models.dev and save locally.
     Models,
+
+    /// Download the dictation model into jinn's own cache directory.
+    ///
+    /// Fetches regardless of `[dictation] enabled` — fetching is a
+    /// network operation, enabling is a config decision. Exits
+    /// non-zero on platforms without a real backend.
+    DictationModel,
 }
 
 /// Config subcommands.

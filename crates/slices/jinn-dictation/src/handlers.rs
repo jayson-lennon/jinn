@@ -78,6 +78,17 @@ pub(crate) async fn handle_toggle(actor: &mut DictationActor, ctx: &mut MsgCtx<'
             let step = actor.machine.arm();
             apply(actor, &step).await;
             open_capture(actor).await;
+            // While the arm lives, the tick rides every 100 ms: level
+            // into the meter cell, loss drained into the machine.
+            if actor.capture.is_some() {
+                ctx.schedule_self(
+                    DictationLifecycleTick {
+                        kind: "level-sync".to_owned(),
+                        detail: None,
+                    },
+                    std::time::Duration::from_millis(100),
+                );
+            }
         }
         jinn_dictation_msg::DictationPhase::Recording => {
             disarm_with_flush(actor, ctx).await;
@@ -102,7 +113,7 @@ pub(crate) async fn handle_toggle(actor: &mut DictationActor, ctx: &mut MsgCtx<'
 pub(crate) async fn handle_tick(
     actor: &mut DictationActor,
     msg: &DictationLifecycleTick,
-    _ctx: &mut MsgCtx<'_>,
+    ctx: &mut MsgCtx<'_>,
 ) {
     let fault = msg.detail.clone();
     match msg.kind.as_str() {
@@ -125,7 +136,29 @@ pub(crate) async fn handle_tick(
         "capture-lost" => {
             let reason = fault.unwrap_or_else(|| "capture device closed".to_owned());
             let step = actor.machine.capture_lost(&reason);
+            close_capture(actor);
             apply(actor, &step).await;
+        }
+        "level-sync" => {
+            // The meter's live level, and the arm's loss report: a
+            // vanished device lands here as a capture-lost fold.
+            if let Some(arm) = actor.capture.as_ref() {
+                crate::capture::sync_level(&arm.shared, &actor.level_cell);
+                if let Some(reason) = crate::capture::take_lost(&arm.shared) {
+                    let step = actor.machine.capture_lost(&reason);
+                    close_capture(actor);
+                    apply(actor, &step).await;
+                } else {
+                    // Still recording: keep the tick alive.
+                    ctx.schedule_self(
+                        DictationLifecycleTick {
+                            kind: "level-sync".to_owned(),
+                            detail: None,
+                        },
+                        std::time::Duration::from_millis(100),
+                    );
+                }
+            }
         }
         other => {
             tracing::warn!(kind = other, "unknown dictation lifecycle tick; ignored");
@@ -154,6 +187,7 @@ async fn disarm_with_flush(actor: &mut DictationActor, _ctx: &mut MsgCtx<'_>) {
     if let Some(utterance) = flushed {
         actor.commit_utterance(&utterance);
     }
+    close_capture(actor);
     apply(actor, &step).await;
 }
 
@@ -234,14 +268,40 @@ pub(crate) fn run_load(actor: &mut DictationActor) {
 /// a hung driver cannot stall the actor.
 ///
 /// A refusal pulls the machine back to Ready with the refusal note
-/// naming the configured device and the available inputs.
+/// naming the configured device and the available inputs. On success
+/// the arm handle parks on the actor; its drop (on disarm or capture
+/// loss) closes the device.
 pub(crate) async fn open_capture(actor: &mut DictationActor) {
-    let outcome = crate::capture::open(actor.config.device.as_deref(), actor.config.noise_reduction);
+    let backend = std::sync::Arc::clone(&actor.backend);
+    let configured = actor.config.device.clone();
+    let noise_reduction = actor.config.noise_reduction;
+    let outcome = {
+        let runtime = actor.runtime.clone();
+        runtime
+            .spawn_blocking(move || {
+                crate::capture::open(configured.as_deref(), noise_reduction, &backend)
+            })
+            .await
+    };
     match outcome {
-        Ok(()) => {}
-        Err(reason) => {
+        Ok(Ok(arm)) => {
+            actor.capture = Some(arm);
+        }
+        Ok(Err(reason)) => {
             let step = actor.machine.arm_failed(&reason);
             apply(actor, &step).await;
         }
+        Err(join_error) => {
+            let reason = format!("capture open task failed: {join_error}");
+            let step = actor.machine.arm_failed(&reason);
+            apply(actor, &step).await;
+        }
+    }
+}
+
+/// Drops the live capture arm and reports the meter's idle level.
+pub(crate) fn close_capture(actor: &mut DictationActor) {
+    if actor.capture.take().is_some() {
+        actor.level_cell.update(|cell| cell.level = 0.0);
     }
 }

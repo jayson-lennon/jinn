@@ -78,9 +78,9 @@ pub struct DictationActor {
     pub(crate) backend: SharedBackend,
     /// The dictation state cell — the one write handle.
     pub(crate) state_cell: TypedCell<DictationState>,
-    /// The meter-level cell — the one write handle. Written by the
-    /// capture arm's level reports (the meter unit wires the write).
-    #[expect(dead_code, reason = "the meter unit wires the level write; the actor carries the handle from spawn")]
+    /// The meter-level cell — the one write handle. The capture arm's
+    /// audio callback writes the level through the shared slot; the
+    /// actor's tick drains it here, and disarm zeroes it.
     pub(crate) level_cell: TypedCell<DictationLevel>,
     /// The message fabric, for the row publications.
     pub(crate) bus: jinn_slices::bus::BusService,
@@ -95,6 +95,9 @@ pub struct DictationActor {
     /// idempotent acknowledgement (the hint re-pushed synchronously by
     /// the route action; this fold a no-op).
     pub(crate) in_flight: InFlight,
+    /// The live capture arm while Recording, dropped on disarm. Its
+    /// drop closes the device.
+    pub(crate) capture: Option<crate::capture::CaptureArm>,
 }
 
 /// Which blocking operation, if any, the actor is waiting on.
@@ -167,6 +170,7 @@ impl DictationActor {
             state: deps.state,
             config: deps.config,
             in_flight: crate::dictation_actor::InFlight::None,
+            capture: None,
         };
         trouper::builder::spawn_service_builder::<Self>(system)
             .at(path.clone())
