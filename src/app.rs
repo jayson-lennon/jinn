@@ -96,17 +96,6 @@ impl App {
         // so the graceful shutdown sweep can run after the event loop exits.
         let trouper_system = runner.trouper_system();
 
-        // Best-effort registry removal: a graceful exit stops advertising
-        // this instance immediately rather than waiting for the next
-        // reader's port probe. Correctness never depends on it — a dead
-        // entry is invisible to every `jinn remote` client either way.
-        jinn_remote::remote_actor::deregister(
-            jinn_kernel::AppPaths::default()
-                .remote_instances_path()
-                .as_path(),
-            std::process::id(),
-        );
-
         // Run the runner, but don't short-circuit shutdown on its error.
         // The WAL checkpoint is non-destructive and must run whenever the actor
         // system started, so that a clean quit leaves sessions.db self-contained
@@ -114,6 +103,20 @@ impl App {
         // final result; a shutdown error takes precedence (it indicates storage
         // trouble the caller should see).
         let run_result = runner.run().change_context(AppError);
+
+        // Best-effort registry removal: a graceful exit stops advertising
+        // this instance immediately rather than waiting for the next
+        // reader's port probe. It runs AFTER `runner.run()` — deregistering
+        // first would erase the entry the listener just registered and
+        // leave the instance undiscoverable for its whole life.
+        // Correctness never depends on it — a dead entry is invisible to
+        // every `jinn remote` client either way.
+        jinn_remote::remote_actor::deregister(
+            jinn_kernel::AppPaths::default()
+                .remote_instances_path()
+                .as_path(),
+            std::process::id(),
+        );
 
         // Graceful shutdown: the trouper sweep fires every supervised
         // child's shutdown watcher (each loop drains, runs its `on_stop`
