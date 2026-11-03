@@ -1,7 +1,11 @@
 //! The `tell_session` tool — send a text message to another session.
 //!
-//! One tool, four deliveries, none of them silent:
+//! One tool, five deliveries, none of them silent:
 //!
+//! - **Interrupt to a busy session** (`mode: "interrupt"`) — the message
+//!   rides the target's steering buffer, landing as a `User` entry at its
+//!   next prompt-assembly boundary, ahead of anything queued. The
+//!   in-flight turn is never cancelled.
 //! - **Idle manual-trigger bot** — starts a run now, seeded through
 //!   its template with the message folded in (see `jinn_bot::
 //!   run_runtime`; the composition, not the cancel-happy manual path).
@@ -15,12 +19,18 @@
 //! - **Unknown id** — a failed result naming the target. No send is ever
 //!   silently dropped.
 //!
+//! `queue` is the default mode: an absent mode delivers exactly as
+//! `queue` does. An interrupt aimed at an idle target falls back to the
+//! ordinary delivery — there is nothing to interrupt. The interrupt
+//! fragment carries the same attribution prefix as any other delivery,
+//! so a steered message still names where it came from.
+//!
 //! Bot-only gates still apply: a bot in prep mode is still
 //! being composed, so a message to it fails rather than dispatching a
 //! half-written prompt.
 
 use jinn_bot::run_runtime;
-use jinn_chat_input_msg::EnqueueUserMessage;
+use jinn_chat_input_msg::{EnqueueUserMessage, SubmitSteeringMessage};
 use jinn_core_types::chat_entry::ChatEntry;
 use jinn_core_types::session_id::SessionId;
 use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
@@ -67,10 +77,10 @@ pub(crate) fn processed_title(title: Option<&str>) -> Option<String> {
 pub fn definition() -> ToolDefinition {
     ToolDefinition {
         name: "tell_session".to_owned(),
-        description: "Send a message to another session by its session id. An idle bot starts a run seeded from its template plus your message; a busy bot receives it when its current turn finishes; any other session receives it as a new user turn."
+        description: "Send a message to another session by its session id. An idle bot starts a run seeded from its template plus your message; a busy bot receives it when its current turn finishes; any other session receives it as a new user turn. With mode \"interrupt\" on a busy target, the message lands as a steering fragment at its next prompt-assembly boundary instead of queueing."
             .to_owned(),
         prompt_snippet: Some(
-            "Deliver a message to a named session: `tell_session` with the target session id and the text."
+            "Deliver a message to a named session: `tell_session` with the target session id and the text. Pass mode \"interrupt\" to steer a busy session's current turn; the default mode queues."
                 .to_owned(),
         ),
         prompt_guidelines: vec![
@@ -87,6 +97,11 @@ pub fn definition() -> ToolDefinition {
                 "message": {
                     "type": "string",
                     "description": "The message text the target session receives. Markdown format is supported."
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["queue", "interrupt"],
+                    "description": "How the message is delivered to a busy target: \"queue\" (the default) waits for its current turn to finish; \"interrupt\" lands it as a steering fragment at the target's next prompt-assembly boundary, without cancelling in-flight work. An interrupt to an idle target delivers ordinarily."
                 }
             },
             "required": ["session_id", "message"]
@@ -103,6 +118,18 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
         };
         let Some(raw_id) = string_argument(&call, "session_id") else {
             return tool_error(&call, "missing required argument: session_id");
+        };
+        let mode = match string_argument(&call, "mode") {
+            None => Mode::Queue,
+            Some(raw) => match Mode::parse(&raw) {
+                Some(mode) => mode,
+                None => {
+                    return tool_error(
+                        &call,
+                        &format!("unknown mode: {raw:?} (valid values: \"queue\", \"interrupt\")"),
+                    );
+                }
+            },
         };
         let Some(target_id) = SessionId::try_from_string(&raw_id) else {
             return tool_error(&call, &format!("unknown session: {raw_id}"));
@@ -130,7 +157,8 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             let Some(target) = guard.session.get_mut(&target_id) else {
                 return tool_error(&call, &format!("unknown session: {target_id}"));
             };
-            let delivery = delivery_for(&caller_id, caller_title.as_deref(), target, &message);
+            let delivery =
+                delivery_for(&caller_id, caller_title.as_deref(), target, &message, mode);
             // A delivered message marks the target interacted: a programmatic
             // enqueue does not, and without the mark `is_persistable()` gates
             // every save — the run would turn and silently never reach disk.
@@ -186,6 +214,20 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
                     &format!("Message delivered to session {target_id} as a user turn."),
                 )
             }
+            Delivery::Interrupt(text) => {
+                bus.publish(SubmitSteeringMessage {
+                    session_id: target_id.clone(),
+                    text,
+                })
+                .await;
+                succeeded(
+                    call,
+                    &format!(
+                        "Message steered into session {target_id}'s current turn; \
+                         it lands at the next prompt-assembly boundary."
+                    ),
+                )
+            }
             Delivery::Refused(reason) => tool_error(&call, &format!("{target_id}: {reason}")),
         }
     })
@@ -202,8 +244,33 @@ enum Delivery {
     QueuedRun { entry: ChatEntry },
     /// Any other session: an ordinary user turn.
     Turn(ChatEntry),
+    /// A busy session under `mode: "interrupt"`: the message rides the
+    /// target's steering buffer, landing at its next prompt-assembly
+    /// boundary. The in-flight turn is never cancelled.
+    Interrupt(String),
     /// Delivery refused; the reason names why.
     Refused(&'static str),
+}
+
+/// The requested delivery mode: the default `queue` waits for a busy
+/// target's current turn to finish; `interrupt` lands the message in the
+/// target's steering buffer at its next prompt-assembly boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Queue,
+    Interrupt,
+}
+
+impl Mode {
+    /// Parses a `mode` argument: `None` marks an unrecognized value (the
+    /// caller reports it; a typo must fail visibly, not silently queue).
+    fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "queue" => Some(Self::Queue),
+            "interrupt" => Some(Self::Interrupt),
+            _ => None,
+        }
+    }
 }
 
 /// Decides the delivery path for `message` against the target's live state.
@@ -212,10 +279,18 @@ fn delivery_for(
     source_title: Option<&str>,
     target: &mut ChatSessionState,
     message: &str,
+    mode: Mode,
 ) -> Delivery {
     if target.is_bot() {
         if target.bot_is_prepping() {
             return Delivery::Refused("bot is in prep mode; nothing runs for it yet");
+        }
+        if target.phase() != PhaseView::Idle && mode == Mode::Interrupt {
+            // A busy bot is steering like any other busy target: the
+            // message lands at its next prompt-assembly boundary. No run
+            // is prepared — the seeded dispatch, including its history
+            // reset, belongs to the queue path the caller declined.
+            return Delivery::Interrupt(interrupt_text(source_id, source_title, message));
         }
         let (entry, reset) = run_runtime::prepare_message_run(target, message);
         let Some(entry) = entry else {
@@ -228,6 +303,9 @@ fn delivery_for(
         } else {
             Delivery::QueuedRun { entry }
         };
+    }
+    if mode == Mode::Interrupt && target.phase() != PhaseView::Idle {
+        return Delivery::Interrupt(interrupt_text(source_id, source_title, message));
     }
     // Non-bot: the message rides as an inter-session entry whose text
     // names its origin. The prefix is baked in here — the one composition
@@ -245,6 +323,17 @@ fn delivery_for(
         target.session_id().clone(),
         text,
     ))
+}
+
+/// Composes the steered text: the attribution prefix baked into the
+/// message, through the one prefix-composition site. The steered text is
+/// a plain `User` entry once drained, so the prefix is the fragment's
+/// only origin marker.
+fn interrupt_text(source_id: &SessionId, source_title: Option<&str>, message: &str) -> String {
+    format!(
+        "{}{message}",
+        attribution_prefix(source_id, processed_title(source_title).as_deref())
+    )
 }
 
 /// Reads one string argument from the call's JSON arguments.

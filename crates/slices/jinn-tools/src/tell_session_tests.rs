@@ -660,6 +660,363 @@ async fn reset_behavior_bot_persists_the_exclusions() {
 }
 
 #[rstest::rstest]
+#[tokio::test]
+async fn interrupt_to_busy_plain_session_steers_without_enqueueing() {
+    // Given a busy non-bot target and recorders for both transports.
+    let harness = TestHarness::new().await;
+    let enqueues = harness.spawn_recorder::<EnqueueUserMessage>().await;
+    let steers = harness
+        .spawn_recorder::<jinn_chat_input_msg::SubmitSteeringMessage>()
+        .await;
+    let (state, user_id, _bot_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    make_busy(&state, &user_id);
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+
+    // When an interrupt is sent to the busy target.
+    let result = execute(
+        call(&format!(
+            r#"{{"session_id":"{user_id}","message":"stop and read the error","mode":"interrupt"}}"#
+        )),
+        tool_ctx,
+    )
+    .await;
+
+    // Then one steering fragment is published carrying the attribution
+    // prefix, and no enqueue is.
+    assert!(result.success, "{}", result.content);
+    let steered = await_recorded::<jinn_chat_input_msg::SubmitSteeringMessage>(
+        &steers,
+        1,
+        Duration::from_secs(2),
+    )
+    .await;
+    assert_eq!(steered.len(), 1);
+    assert_eq!(steered[0].session_id, user_id);
+    assert_eq!(
+        steered[0].text,
+        format!("[Message from session {user_id}]: stop and read the error")
+    );
+    let published = jinn_testutil::wait::await_settled_messages(
+        &enqueues,
+        Duration::from_millis(100),
+        Duration::from_secs(5),
+    )
+    .await;
+    assert!(
+        published.is_empty(),
+        "an interrupt must not enqueue, got: {published:?}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn interrupt_to_busy_bot_steers_without_seeding_a_run() {
+    // Given a busy bot with recorders for both transports.
+    let harness = TestHarness::new().await;
+    let enqueues = harness.spawn_recorder::<EnqueueUserMessage>().await;
+    let steers = harness
+        .spawn_recorder::<jinn_chat_input_msg::SubmitSteeringMessage>()
+        .await;
+    let (state, user_id, bot_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    take_out_of_prep(&state, &bot_id);
+    make_busy(&state, &bot_id);
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+
+    // When an interrupt is sent to the busy bot.
+    let result = execute(
+        call(&format!(
+            r#"{{"session_id":"{bot_id}","message":"reversed the sign","mode":"interrupt"}}"#
+        )),
+        tool_ctx,
+    )
+    .await;
+
+    // Then the steering fragment is published and no seeded enqueue is.
+    assert!(result.success, "{}", result.content);
+    let steered = await_recorded::<jinn_chat_input_msg::SubmitSteeringMessage>(
+        &steers,
+        1,
+        Duration::from_secs(2),
+    )
+    .await;
+    assert_eq!(steered[0].session_id, bot_id);
+    assert!(steered[0].text.contains("reversed the sign"));
+    let published = jinn_testutil::wait::await_settled_messages(
+        &enqueues,
+        Duration::from_millis(100),
+        Duration::from_secs(5),
+    )
+    .await;
+    assert!(
+        published.is_empty(),
+        "an interrupt must not seed a run, got: {published:?}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn interrupt_to_idle_bot_falls_back_to_a_seeded_run() {
+    // Given an idle bot with a seed template.
+    let harness = TestHarness::new().await;
+    let enqueues = harness.spawn_recorder::<EnqueueUserMessage>().await;
+    let steers = harness
+        .spawn_recorder::<jinn_chat_input_msg::SubmitSteeringMessage>()
+        .await;
+    let (state, user_id, bot_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    take_out_of_prep(&state, &bot_id);
+    set_template(&state, &bot_id, "Review the diff.");
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+
+    // When an interrupt is sent to the idle bot.
+    let result = execute(
+        call(&format!(
+            r#"{{"session_id":"{bot_id}","message":"look at tests","mode":"interrupt"}}"#
+        )),
+        tool_ctx,
+    )
+    .await;
+
+    // Then the ordinary seeded-run delivery happens, not a steering
+    // fragment.
+    assert!(result.success, "{}", result.content);
+    let recorded = await_recorded::<EnqueueUserMessage>(&enqueues, 1, Duration::from_secs(2)).await;
+    assert_eq!(recorded[0].session_id, bot_id);
+    let jinn_core_types::chat_entry::ChatEntryKind::Intersession { text, .. } =
+        &recorded[0].entry.kind
+    else {
+        panic!("fallback delivery must be the ordinary seeded run");
+    };
+    assert!(text.contains("Review the diff."), "seed present");
+    let steered = jinn_testutil::wait::await_settled_messages(
+        &steers,
+        Duration::from_millis(100),
+        Duration::from_secs(5),
+    )
+    .await;
+    assert!(
+        steered.is_empty(),
+        "an interrupt to an idle bot must not steer, got: {steered:?}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn interrupt_to_idle_plain_session_falls_back_to_a_user_turn() {
+    // Given an idle non-bot target.
+    let harness = TestHarness::new().await;
+    let enqueues = harness.spawn_recorder::<EnqueueUserMessage>().await;
+    let steers = harness
+        .spawn_recorder::<jinn_chat_input_msg::SubmitSteeringMessage>()
+        .await;
+    let (state, user_id, _bot_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+
+    // When an interrupt is sent to the idle target.
+    let result = execute(
+        call(&format!(
+            r#"{{"session_id":"{user_id}","message":"when free","mode":"interrupt"}}"#
+        )),
+        tool_ctx,
+    )
+    .await;
+
+    // Then the ordinary inter-session user turn is delivered, not a
+    // steering fragment.
+    assert!(result.success, "{}", result.content);
+    let recorded = await_recorded::<EnqueueUserMessage>(&enqueues, 1, Duration::from_secs(2)).await;
+    assert_eq!(recorded[0].session_id, user_id);
+    let jinn_core_types::chat_entry::ChatEntryKind::Intersession { text, .. } =
+        &recorded[0].entry.kind
+    else {
+        panic!("fallback delivery must be the ordinary user turn");
+    };
+    assert_eq!(
+        text.as_str(),
+        format!("[Message from session {user_id}]: when free")
+    );
+    let steered = jinn_testutil::wait::await_settled_messages(
+        &steers,
+        Duration::from_millis(100),
+        Duration::from_secs(5),
+    )
+    .await;
+    assert!(
+        steered.is_empty(),
+        "an interrupt to an idle session must not steer, got: {steered:?}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn interrupt_to_prep_mode_bot_is_refused() {
+    // Given a bot still in prep mode.
+    let harness = TestHarness::new().await;
+    let steers = harness
+        .spawn_recorder::<jinn_chat_input_msg::SubmitSteeringMessage>()
+        .await;
+    let (state, user_id, bot_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+
+    // When an interrupt is sent to the prepping bot.
+    let result = execute(
+        call(&format!(
+            r#"{{"session_id":"{bot_id}","message":"wake up","mode":"interrupt"}}"#
+        )),
+        tool_ctx,
+    )
+    .await;
+
+    // Then the refusal carries the usual reason and nothing is published.
+    assert!(!result.success);
+    assert!(result.content.contains("prep mode"));
+    let steered = jinn_testutil::wait::await_settled_messages(
+        &steers,
+        Duration::from_millis(100),
+        Duration::from_secs(5),
+    )
+    .await;
+    assert!(steered.is_empty(), "a refused send must publish nothing");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn unknown_mode_fails_naming_the_valid_values() {
+    // Given a live target and a call whose mode is a typo.
+    let harness = TestHarness::new().await;
+    let enqueues = harness.spawn_recorder::<EnqueueUserMessage>().await;
+    let steers = harness
+        .spawn_recorder::<jinn_chat_input_msg::SubmitSteeringMessage>()
+        .await;
+    let (state, user_id, _bot_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+
+    // When the call runs with the unrecognized mode.
+    let result = execute(
+        call(&format!(
+            r#"{{"session_id":"{user_id}","message":"go","mode":"interupt"}}"#
+        )),
+        tool_ctx,
+    )
+    .await;
+
+    // Then the tool fails naming both valid values and publishes nothing.
+    assert!(!result.success, "a typo'd mode must fail, not default");
+    assert!(result.content.contains("\"queue\""), "{}", result.content);
+    assert!(
+        result.content.contains("\"interrupt\""),
+        "{}",
+        result.content
+    );
+    let published = jinn_testutil::wait::await_settled_messages(
+        &enqueues,
+        Duration::from_millis(100),
+        Duration::from_secs(5),
+    )
+    .await;
+    assert!(published.is_empty(), "a failed mode must publish nothing");
+    let steered = jinn_testutil::wait::await_settled_messages(
+        &steers,
+        Duration::from_millis(100),
+        Duration::from_secs(5),
+    )
+    .await;
+    assert!(steered.is_empty(), "a failed mode must publish nothing");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn interrupt_delivery_never_cancels_the_in_flight_turn() {
+    // Given a busy bot with a recorder for cancel commands.
+    let harness = TestHarness::new().await;
+    let cancels = harness
+        .spawn_recorder::<jinn_inference_msg::CancelTurn>()
+        .await;
+    let (state, user_id, bot_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    take_out_of_prep(&state, &bot_id);
+    make_busy(&state, &bot_id);
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+
+    // When an interrupt is delivered to the busy bot.
+    let result = execute(
+        call(&format!(
+            r#"{{"session_id":"{bot_id}","message":"course correct","mode":"interrupt"}}"#
+        )),
+        tool_ctx,
+    )
+    .await;
+
+    // Then the delivery succeeds and no cancel command is published.
+    assert!(result.success, "{}", result.content);
+    let cancelled = jinn_testutil::wait::await_settled_messages(
+        &cancels,
+        Duration::from_millis(100),
+        Duration::from_secs(5),
+    )
+    .await;
+    assert!(
+        cancelled.is_empty(),
+        "an interrupt must never cancel in-flight work, got: {cancelled:?}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn interrupt_delivery_marks_the_target_interacted() {
+    // Given a busy plain-session target that has not been interacted with.
+    let harness = TestHarness::new().await;
+    let steers = harness
+        .spawn_recorder::<jinn_chat_input_msg::SubmitSteeringMessage>()
+        .await;
+    let (state, user_id, _bot_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    make_busy(&state, &user_id);
+    assert!(
+        !state
+            .read()
+            .session
+            .get(&user_id)
+            .expect("target")
+            .has_interacted(),
+        "fixture must start un-interacted"
+    );
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+
+    // When an interrupt is delivered to it.
+    let result = execute(
+        call(&format!(
+            r#"{{"session_id":"{user_id}","message":"see this","mode":"interrupt"}}"#
+        )),
+        tool_ctx,
+    )
+    .await;
+
+    // Then the target is marked interacted so its turn can persist.
+    assert!(result.success, "{}", result.content);
+    let _ = await_recorded::<jinn_chat_input_msg::SubmitSteeringMessage>(
+        &steers,
+        1,
+        Duration::from_secs(2),
+    )
+    .await;
+    let guard = state.read();
+    assert!(
+        guard
+            .session
+            .get(&user_id)
+            .expect("target")
+            .has_interacted(),
+        "an interrupt must mark the target interacted"
+    );
+}
+
+#[rstest::rstest]
 #[test]
 fn definition_requires_both_arguments_and_names_the_tool() {
     // Given the tool definition.
@@ -670,4 +1027,40 @@ fn definition_requires_both_arguments_and_names_the_tool() {
     assert_eq!(def.name, "tell_session");
     let required = def.parameters["required"].as_array().expect("required");
     assert_eq!(required.len(), 2);
+}
+
+#[rstest::rstest]
+#[test]
+fn definition_advertises_an_optional_mode_with_both_values() {
+    // Given the tool definition.
+    let def = definition();
+
+    // When its mode property is read.
+    let mode = &def.parameters["properties"]["mode"];
+    let enum_values: Vec<&str> = mode["enum"]
+        .as_array()
+        .expect("mode enum")
+        .iter()
+        .map(|v| v.as_str().expect("enum entries are strings"))
+        .collect();
+
+    // Then it is an optional string enum of exactly queue and interrupt,
+    // described as defaulting to queue.
+    assert_eq!(mode["type"], "string");
+    assert_eq!(enum_values, ["queue", "interrupt"]);
+    assert!(
+        !def.parameters["required"]
+            .as_array()
+            .expect("required")
+            .iter()
+            .any(|v| v == "mode"),
+        "mode must not be required"
+    );
+    assert!(
+        mode["description"]
+            .as_str()
+            .expect("mode description")
+            .contains("(the default)"),
+        "the description must say queue is the default"
+    );
 }

@@ -653,3 +653,6 @@ Entries are added or amended **only with human approval**.
 - (chat) The first user message after canvas activity carries the accumulated canvas metrics as a canvas-metrics XML block prepended by the session-turn enqueue path, which drains and clears the buffer.
 - (chat) User entries in the chat-log view render through an ordered display-formatter registry tried before the markdown path, matching on the display text itself.
 - (chat) The canvas-metrics block inside a user entry renders verbatim — tags, numbering, and props — in the theme's metrics foreground, with any text after the block rendered as markdown.
+- (tools) The tell_session tool takes an optional mode parameter of queue or interrupt and resolves an absent mode to queue.
+- (tools) A tell_session interrupt to a busy target lands as an attribution-prefixed steering fragment at the target's next prompt-assembly boundary and never cancels in-flight work.
+- (tools) A tell_session interrupt to an idle target falls back to the ordinary delivery — a seeded bot run or an intersession user turn.
