@@ -7,12 +7,12 @@
 //! The action is the press matrix's synchronous half. It reads the state
 //! cell (the actor's machine truth), acts on the current phase:
 //!
-//! - **Offline / Fetching / Loading / Error** — push the state-name hint
-//!   (idempotent on repeat presses: the hint write is unconditional, and
-//!   the every-intent clear prologue has already run, so the hint
-//!   survives its own dispatch), and publish [`DictationToggle`] for the
-//!   actor to fold (a no-op for every busy phase, the actor's
-//!   idempotence seam).
+//! - **Offline / Fetching / Loading / Arming / Error** — push the
+//!   state-name hint (idempotent on repeat presses: the hint write is
+//!   unconditional, and the every-intent clear prologue has already
+//!   run, so the hint survives its own dispatch), and publish
+//!   [`DictationToggle`] for the actor to fold (a no-op for every busy
+//!   phase, the actor's idempotence seam).
 //! - **Ready** — publish [`DictationToggle`]: the actor arms the mic and
 //!   moves to Recording. No hint — the meter is the signal.
 //! - **Recording** — publish [`DictationToggle`]: the actor disarms,
@@ -88,10 +88,11 @@ fn toggle_action(mut ctx: ActionCtx<'_>) -> RouteResult {
         DictationPhase::Ready | DictationPhase::Recording => {
             RouteResult::new_message(DictationToggle)
         }
-        // Busy, disabled, or failed: the state-name hint, idempotent on
-        // repeat presses, plus the toggle command for the actor's
-        // idempotent fold.
-        DictationPhase::Offline
+        // Busy (mid-arm, mid-download, mid-load), disabled, or failed:
+        // the state-name hint, idempotent on repeat presses, plus the
+        // toggle command for the actor's idempotent fold.
+        DictationPhase::Arming
+        | DictationPhase::Offline
         | DictationPhase::Fetching
         | DictationPhase::Loading
         | DictationPhase::Error => {
@@ -286,6 +287,40 @@ mod tests {
                 .hint
                 .as_deref(),
             Some("dictation failed: fetching: disk full")
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn arming_press_pushes_the_arming_hint_and_publishes() {
+        // Given a registry whose state cell reads Arming — a press is
+        // already running the device open.
+        let (slices, routes) = seeded();
+        let cell = slices
+            .reader::<DictationState>(&dictation_state_slot())
+            .unwrap();
+        cell.update(|state| {
+            state.phase = DictationPhase::Arming;
+            state.model_name = "parakeet-tdt-0.6b-v2".to_owned();
+        });
+
+        // When the toggle intent dispatches twice.
+        let first = dispatch(&slices, &routes);
+        let second = dispatch(&slices, &routes);
+
+        // Then both presses publish the toggle for the actor's
+        // idempotent fold, and the hint names the model both times —
+        // a mid-arm press is an acknowledgement, not a state change.
+        assert_eq!(first.message_names, ["DictationToggle"]);
+        assert_eq!(second.message_names, ["DictationToggle"]);
+        assert_eq!(
+            slices
+                .reader::<StatusBarState>(&status_bar_slot())
+                .unwrap()
+                .read()
+                .hint
+                .as_deref(),
+            Some("arming parakeet-tdt-0.6b-v2")
         );
     }
 }

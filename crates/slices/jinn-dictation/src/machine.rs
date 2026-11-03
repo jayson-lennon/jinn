@@ -8,10 +8,12 @@
 //! what keeps every transition testable without an audio device or a
 //! network, on every platform.
 //!
-//! Phase graph: Offline → Fetching → Loading → Ready ⇄ Recording, plus
-//! Error — terminal for the process run (no retry, no auto-recovery),
-//! reachable from init (unknown model, backend fault) and from the
-//! fetch/load completions.
+//! Phase graph: Offline → Fetching → Loading → Ready → Arming →
+//! Recording ⇄ Ready, plus Error — terminal for the process run (no
+//! retry, no auto-recovery), reachable from init (unknown model,
+//! backend fault) and from the fetch/load completions. Arming is the
+//! press-asked-but-no-mic-yet phase: Recording is written only once
+//! the capture stream actually plays.
 
 use jinn_dictation_backend::FetchProgress;
 use jinn_dictation_backend::Utterance;
@@ -140,22 +142,42 @@ impl DictationMachine {
 
     /// A toggle press while Ready: arm the microphone.
     ///
-    /// The machine records the intent; the owner's actual device open
-    /// can still refuse — [`DictationMachine::arm_failed`] pulls the
-    /// state back to Ready with the refusal as the dashboard note.
+    /// The machine moves to Arming — the honest in-between: the press
+    /// asked for the microphone, but nothing is open yet. The owner's
+    /// device open decides the outcome: a playing stream reports
+    /// [`DictationMachine::arm_opened`] (Recording), a refusal reports
+    /// [`DictationMachine::arm_failed`] (back to Ready with the
+    /// refusal as the dashboard note). Recording is never written
+    /// before the device exists.
     pub fn arm(&mut self) -> Step {
         debug_assert_eq!(
             self.state.phase,
             DictationPhase::Ready,
             "arm only applies from Ready"
         );
-        self.state.phase = DictationPhase::Recording;
+        self.state.phase = DictationPhase::Arming;
         self.state.error = None;
-        self.capture_open = true;
         self.step(StepAction::Arm)
     }
 
-    /// The owner's device open refused: back to Ready, refusal noted.
+    /// The capture stream plays: Recording, for real.
+    ///
+    /// The owner calls this only after the device open succeeded and
+    /// the stream started — the phase now names a live microphone.
+    pub fn arm_opened(&mut self) -> Step {
+        debug_assert_eq!(
+            self.state.phase,
+            DictationPhase::Arming,
+            "arm_opened only applies from Arming"
+        );
+        self.state.phase = DictationPhase::Recording;
+        self.state.error = None;
+        self.capture_open = true;
+        self.step(StepAction::Idle)
+    }
+
+    /// The device open refused (from Arming), or the capture closed
+    /// without a toggle (from Recording): back to Ready, refusal noted.
     ///
     /// Arming never half-happens: the state returns to Ready so the next
     /// press tries again, and the refusal lands on the dashboard row.

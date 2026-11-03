@@ -23,6 +23,8 @@
 pub mod capture;
 pub mod config;
 pub mod dictation_actor;
+#[cfg(test)]
+mod dictation_actor_tests;
 pub mod machine;
 #[cfg(test)]
 mod machine_tests;

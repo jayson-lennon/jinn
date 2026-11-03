@@ -3,23 +3,27 @@
 //!
 //! The toggle matrix per current machine phase:
 //!
-//! - **Ready** — arm: the machine moves to Recording and the capture
-//!   opens. A refused device open pulls the state back to Ready with
-//!   the refusal note ([`DictationMachine::arm_failed`]) — never the
-//!   terminal Error phase, because a missing or misnamed device is
-//!   fixable without a restart.
+//! - **Ready** — arm: the machine moves to Arming and the device open
+//!   runs. A playing stream folds [`DictationMachine::arm_opened`]
+//!   (Recording); a refusal folds [`DictationMachine::arm_failed`] —
+//!   back to Ready with the refusal note, never the terminal Error
+//!   phase, because a missing or misnamed device is fixable without a
+//!   restart.
 //! - **Recording** — disarm: the backend flush runs on the blocking
 //!   context (the actor awaits the join handle — no blocking call on
 //!   its async context), the flushed utterance appends to the focused
 //!   input through the shared paste-append helper, and the machine
 //!   returns to Ready.
-//! - **Offline** — disabled: nothing. The route action already pushed
-//!   the disabled hint; this fold is the idempotence seam (init's
+//! - **Arming / Offline / Fetching / Loading / Error** — busy or
+//!   unavailable: nothing. The route action already pushed the
+//!   state-name hint; this fold is the idempotence seam (init's
 //!   kickoff arrives through the same schema).
-//! - **Fetching / Loading** — busy: nothing. A press mid-flight is an
-//!   acknowledgement; the hint re-pushed synchronously by the route
-//!   action.
-//! - **Error** — terminal: nothing, ever.
+//!
+//! Every toggle fold publishes the dashboard row first, before the
+//! phase match — the init kickoff rides this: the machine entered its
+//! spawn-time phase (Offline, Fetching, Loading, or init-Error)
+//! before the mailbox opened, and no fold ran on that entry, so the
+//! kickoff's publish-first is what carries the state to the dashboard.
 //!
 //! Backend completions arrive as [`DictationLifecycleTick`] — the
 //! self-addressed tick pattern the watchdog and search-index actors
@@ -62,6 +66,12 @@ async fn publish_tick(bus: &jinn_slices::bus::BusService, completion: Completion
 
 /// Folds one toggle press onto the machine and runs the step.
 ///
+/// The publish runs first, on the state as the machine already holds
+/// it: the spawn-time init phase (Offline, Fetching, Loading, or
+/// init-Error) reached the cell without any fold, so the kickoff
+/// toggle is what carries it to the dashboard. After that, the phase
+/// match:
+///
 /// The `Fetching` and `Loading` arms are also how init's work starts:
 /// the machine entered those phases at spawn (the init step ran before
 /// the mailbox opened), and the kickoff toggle — the same schema a user
@@ -70,6 +80,11 @@ async fn publish_tick(bus: &jinn_slices::bus::BusService, completion: Completion
 /// re-pushes the hint (the route action's synchronous half) and folds
 /// nothing here.
 pub(super) async fn handle_toggle(actor: &mut DictationActor, ctx: &mut MsgCtx<'_>) {
+    // The dashboard row reads the machine's current truth — on the
+    // kickoff this is the init state, on a user press the pre-toggle
+    // state (harmless: every phase match below that changes state
+    // publishes again through `apply`).
+    crate::row::publish_row(&actor.bus, &actor.state_cell).await;
     match actor.machine.state().phase {
         jinn_dictation_msg::DictationPhase::Ready => {
             if actor.in_flight != InFlight::None {
@@ -79,7 +94,8 @@ pub(super) async fn handle_toggle(actor: &mut DictationActor, ctx: &mut MsgCtx<'
             apply(actor, &step).await;
             open_capture(actor).await;
             // While the arm lives, the tick rides every 100 ms: level
-            // into the meter cell, loss drained into the machine.
+            // into the meter cell, loss drained into the machine. Only
+            // a live capture schedules it — Arming never ticks.
             if actor.capture.is_some() {
                 ctx.schedule_self(
                     DictationLifecycleTick {
@@ -93,6 +109,13 @@ pub(super) async fn handle_toggle(actor: &mut DictationActor, ctx: &mut MsgCtx<'
         jinn_dictation_msg::DictationPhase::Recording => {
             disarm_with_flush(actor, ctx).await;
         }
+        // Arming: a press mid-arm is an acknowledgement — the route
+        // action pushed the "arming {model}" hint and the device open
+        // is already running, so nothing folds. Offline/Error: the
+        // same idempotence seam, a no-op fold.
+        jinn_dictation_msg::DictationPhase::Arming
+        | jinn_dictation_msg::DictationPhase::Offline
+        | jinn_dictation_msg::DictationPhase::Error => {}
         jinn_dictation_msg::DictationPhase::Fetching => {
             if actor.in_flight == InFlight::None {
                 actor.in_flight = InFlight::Fetch;
@@ -104,8 +127,6 @@ pub(super) async fn handle_toggle(actor: &mut DictationActor, ctx: &mut MsgCtx<'
                 actor.in_flight = InFlight::Load;
                 run_load(actor);
             }
-        }
-        jinn_dictation_msg::DictationPhase::Offline | jinn_dictation_msg::DictationPhase::Error => {
         }
     }
 }
@@ -268,8 +289,10 @@ pub(super) fn run_load(actor: &mut DictationActor) {
 ///
 /// A refusal pulls the machine back to Ready with the refusal note
 /// naming the configured device and the available inputs. On success
-/// the arm handle parks on the actor; its drop (on disarm or capture
-/// loss) closes the device.
+/// the arm handle parks on the actor and the machine folds
+/// [`DictationMachine::arm_opened`] — Recording only once the stream
+/// plays. The arm's drop (on disarm or capture loss) closes the
+/// device.
 pub(super) async fn open_capture(actor: &mut DictationActor) {
     let backend = std::sync::Arc::clone(&actor.backend);
     let configured = actor.config.device.clone();
@@ -285,6 +308,10 @@ pub(super) async fn open_capture(actor: &mut DictationActor) {
     match outcome {
         Ok(Ok(arm)) => {
             actor.capture = Some(arm);
+            // The stream plays: Recording, for real. The cell said
+            // Arming since the press; only now does it say Recording.
+            let step = actor.machine.arm_opened();
+            apply(actor, &step).await;
         }
         Ok(Err(reason)) => {
             let step = actor.machine.arm_failed(&reason);

@@ -665,13 +665,15 @@ Entries are added or amended **only with human approval**.
 - (remote) An external send delivers to an existing live session only; no external path creates a session.
 - (remote) A steer aimed at an idle session falls back to ordinary queue delivery, the same rule the tell_session tool applies.
 
-- (dictation) Voice input is delivered by the jinn-dictation slice: one actor owns the backend lifecycle (Offline, Fetching, Loading, Ready, Recording, Error), self-inits at startup, and reports state through the dictation cell.
+- (dictation) Voice input is delivered by the jinn-dictation slice: one actor owns the backend lifecycle (Offline, Fetching, Loading, Ready, Arming, Recording, Error), self-inits at startup, and reports state through the dictation cell.
 - (dictation) The DictationBackend trait in jinn-dictation-backend defines model_name, is_cached, is_loaded, fetch, load, feed, and flush; every backend owns its own utterance endpointing and returns closed utterances from feed.
 - (dictation) The real Parakeet backend is a linux-only target-scoped dependency outside the workspace member globs; every other platform runs NullBackend with the full lifecycle intact.
-- (dictation) alt-i toggles dictation from any scope: state-reporting hints while fetching or loading, arm on Ready, disarm with a force-finalized trailing utterance on Recording.
+- (dictation) alt-i toggles dictation from any scope: state-reporting hints while fetching, loading, or arming, arm on Ready, disarm with a force-finalized trailing utterance on Recording.
 - (dictation) Committed utterances append to the focused chat input through a shared paste-append helper in jinn-chat-input-msg, one implementation also serving the bracketed-paste intent path.
-- (dictation) The volume meter owns the minimap column from the streaming-indicator row to the terminal bottom: idle it paints dotted cells in the inactive border color with a constant orange i at the bottom cell; recording it paints a green-background bar capped by a partial block at the live level (a zero level shows nothing but the background).
+- (dictation) The volume meter owns the minimap column from the streaming-indicator row to the terminal bottom: idle it paints dotted cells in the inactive border color with a constant hotkey-accent i at the bottom cell; while arming it paints the dotted strip in the warning color, and recording it paints a green-background bar capped by a partial block at the live level (a zero level shows nothing but the background) — the green appears only once the capture stream actually plays.
 - (dictation) The meter's geometry is composition-owned: AppLayout carries a meter_strip rect, the dispatch hands it to the painter, and full-width tabs never dispatch the region at all.
+- (dictation) alt-i arming passes through Arming: the device open runs while the meter shows yellow dots, a refusal reverts to Ready with the reason on the dashboard row ("ready (model) — refusal"), and Recording is written only after the stream starts.
+- (dashboard) The dictation row's note republishes on every lifecycle phase transition, so offline, downloading, loading, arming, ready, and failed all appear without a fold-shaped gap.
 - (config) The [dictation] section carries enabled (default false), device, model, and noise_reduction (default true); disabled keeps the actor Offline and the meter hidden.
 - (app) Quit runs a bounded runtime shutdown: in-flight blocking tasks such as a model download are abandoned after ~2s and die with the process, and the fetch backend resumes on the next launch.
 - (dictation) The dictation model cache lives in a jinn-managed AppPaths directory; hf-hub's default cache location is overridden.

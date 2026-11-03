@@ -130,7 +130,9 @@ impl Pipeline {
 /// Opens the capture arm.
 ///
 /// The device open and stream build run on the caller's (blocking)
-/// context; the audio callback then runs on cpal's own thread.
+/// context; the audio callback then runs on cpal's own thread. Every
+/// step logs: a refused arm otherwise surfaces only as a green flash,
+/// with the reason unread anywhere.
 ///
 /// # Errors
 ///
@@ -141,10 +143,27 @@ pub fn open(
     noise_reduction: bool,
     backend: &Arc<Mutex<Box<dyn DictationBackend>>>,
 ) -> Result<CaptureArm, String> {
-    let device = find_device(configured)?;
-    let config = device
-        .default_input_config()
-        .map_err(|error| format!("capture config failed for the input device: {error}"))?;
+    tracing::debug!(device = ?configured, "opening the dictation capture device");
+    let device = match find_device(configured) {
+        Ok(device) => device,
+        Err(note) => {
+            tracing::warn!(reason = %note, "dictation arm refused: no capture device");
+            return Err(note);
+        }
+    };
+    let config = match device.default_input_config() {
+        Ok(config) => config,
+        Err(error) => {
+            let note = format!("capture config failed for the input device: {error}");
+            tracing::warn!(reason = %note, "dictation arm refused: config failed");
+            return Err(note);
+        }
+    };
+    tracing::debug!(
+        sample_rate = config.sample_rate(),
+        channels = config.channels(),
+        "capture config resolved"
+    );
     let sample_rate = i32::try_from(config.sample_rate()).unwrap_or(48_000);
 
     let shared = Arc::new(Mutex::new(CaptureShared::default()));
@@ -169,27 +188,36 @@ pub fn open(
         }
     };
 
-    let stream = device
-        .build_input_stream(
-            config.into(),
-            {
-                let shared = Arc::clone(&shared);
-                let mut pipeline = pipeline;
-                move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    pipeline.process(data);
-                    // The level lands in `pipeline.process`; the
-                    // local clone keeps the slot's identity alive
-                    // for the err callback's independent write.
-                    let _ = &shared;
-                }
-            },
-            err_callback,
-            None,
-        )
-        .map_err(|error| format!("capture stream open failed: {error}"))?;
-    stream
-        .play()
-        .map_err(|error| format!("capture stream start failed: {error}"))?;
+    let stream = match device.build_input_stream(
+        config.into(),
+        {
+            let shared = Arc::clone(&shared);
+            let mut pipeline = pipeline;
+            move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                pipeline.process(data);
+                // The level lands in `pipeline.process`; the
+                // local clone keeps the slot's identity alive
+                // for the err callback's independent write.
+                let _ = &shared;
+            }
+        },
+        err_callback,
+        None,
+    ) {
+        Ok(stream) => stream,
+        Err(error) => {
+            let note = format!("capture stream open failed: {error}");
+            tracing::warn!(reason = %note, "dictation arm refused: stream build failed");
+            return Err(note);
+        }
+    };
+    tracing::debug!("capture stream built; starting playback");
+    if let Err(error) = stream.play() {
+        let note = format!("capture stream start failed: {error}");
+        tracing::warn!(reason = %note, "dictation arm refused: stream start failed");
+        return Err(note);
+    }
+    tracing::info!("dictation capture is live");
     Ok(CaptureArm {
         closer: Some(Box::new(stream)),
         shared,

@@ -152,8 +152,10 @@ impl DictationActor {
             let step = machine.init(&supported, cached);
             deps.state_cell.update(|state| *state = step.state.clone());
             // The row publish for the init state rides the kickoff fold
-            // below: every toggle fold publishes the row through
-            // `apply`, including the kickoff's own fold.
+            // below: every toggle fold publishes the row first, on the
+            // state as the machine already holds it — and the init
+            // phase reached the cell with no fold at all, so the
+            // kickoff's publish-first is what the dashboard sees.
             (machine, step.action)
         };
         let actor = Self {

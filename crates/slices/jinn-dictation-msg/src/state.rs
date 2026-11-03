@@ -32,9 +32,12 @@ pub fn dictation_level_slot() -> SlotKey {
 
 /// The dictation lifecycle's phases.
 ///
-/// The actor is the sole writer; the phase graph is linear except for the
-/// two entry points into [`DictationPhase::Error`], which is terminal for
-/// the process run (no retry, no auto-recovery).
+/// The actor is the sole writer; the phase graph is linear except for
+/// the two entry points into [`DictationPhase::Error`], which is
+/// terminal for the process run (no retry, no auto-recovery). Arming
+/// is the honest gap between the toggle press and a live microphone:
+/// [`DictationPhase::Recording`] means the capture stream actually
+/// plays, not merely that a press asked for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DictationPhase {
     /// Not started: `enabled = false`, or init has not run yet.
@@ -46,6 +49,10 @@ pub enum DictationPhase {
     Loading,
     /// Resident and idle; arming is possible.
     Ready,
+    /// A toggle press asked for the microphone; the device open is
+    /// running. A refusal returns to Ready with the reason; the stream
+    /// playing moves on to Recording.
+    Arming,
     /// The microphone is open and audio is feeding the backend.
     Recording,
     /// Terminal for the process run; `error` carries the fault text.
@@ -74,8 +81,8 @@ impl DictationState {
     /// busy or unavailable.
     ///
     /// `None` for [`DictationPhase::Ready`] and
-    /// [`DictationPhase::Recording`]: arming and disarming push no hint —
-    /// the meter is the signal.
+    /// [`DictationPhase::Recording`]: arming and disarming push no
+    /// hint — the meter is the signal.
     #[must_use]
     pub fn press_hint(&self) -> Option<String> {
         match self.phase {
@@ -89,6 +96,10 @@ impl DictationState {
             DictationPhase::Loading => {
                 let model = display_name(&self.model_name);
                 Some(format!("loading {model}"))
+            }
+            DictationPhase::Arming => {
+                let model = display_name(&self.model_name);
+                Some(format!("arming {model}"))
             }
             DictationPhase::Error => Some(format!(
                 "dictation failed: {}",

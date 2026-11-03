@@ -21,13 +21,14 @@ use crate::machine::StepAction;
 use error_stack::Report;
 
 /// A backend the tests script: cached or not, loadable or not, and one
-/// scripted utterance out of `flush`.
+/// scripted utterance out of `flush`. Crate-visible so the actor
+/// suite can script the same lifecycle.
 #[derive(Default)]
-struct StubBackend {
-    cached: bool,
-    load_fails: bool,
-    fetch_fails: bool,
-    flushed: Option<Utterance>,
+pub(crate) struct StubBackend {
+    pub cached: bool,
+    pub load_fails: bool,
+    pub fetch_fails: bool,
+    pub flushed: Option<Utterance>,
 }
 
 impl DictationBackend for StubBackend {
@@ -232,7 +233,7 @@ fn a_failed_load_is_terminal_error() {
 
 #[rstest::rstest]
 #[test]
-fn arming_from_ready_enters_recording() {
+fn arm_moves_ready_to_arming() {
     // Given a Ready machine.
     let mut machine = DictationMachine::new("stub-model", true);
     let _ = machine.init(&supported_list(), true);
@@ -241,9 +242,27 @@ fn arming_from_ready_enters_recording() {
     // When the toggle arm lands.
     let step = machine.arm();
 
-    // Then the machine is Recording and asks for the capture.
-    assert_eq!(step.state.phase, DictationPhase::Recording);
+    // Then the machine is Arming — the device is not open yet, and the
+    // machine asks for the capture.
+    assert_eq!(step.state.phase, DictationPhase::Arming);
     assert_eq!(step.action, StepAction::Arm);
+}
+
+#[rstest::rstest]
+#[test]
+fn arm_opened_moves_arming_to_recording() {
+    // Given an Arming machine (a press asked for the microphone).
+    let mut machine = DictationMachine::new("stub-model", true);
+    let _ = machine.init(&supported_list(), true);
+    let _ = machine.load_finished(None);
+    let _ = machine.arm();
+
+    // When the capture stream plays.
+    let step = machine.arm_opened();
+
+    // Then the machine is Recording — for real, the stream is live.
+    assert_eq!(step.state.phase, DictationPhase::Recording);
+    assert_eq!(step.action, StepAction::Idle);
 }
 
 #[rstest::rstest]
@@ -276,6 +295,7 @@ fn disarming_returns_to_ready_and_carries_the_flushed_utterance() {
     let _ = machine.init(&supported_list(), true);
     let _ = machine.load_finished(None);
     let _ = machine.arm();
+    let _ = machine.arm_opened();
 
     // When the disarm lands with a flushed trailing utterance.
     let step = machine.disarm(Some(Utterance::new("trailing words".to_owned())), None);
@@ -298,6 +318,7 @@ fn disarming_without_an_open_utterance_commits_nothing() {
     let _ = machine.init(&supported_list(), true);
     let _ = machine.load_finished(None);
     let _ = machine.arm();
+    let _ = machine.arm_opened();
 
     // When the disarm lands with nothing flushed (no open utterance).
     let step = machine.disarm(None, None);
@@ -315,6 +336,7 @@ fn a_failed_flush_on_disarm_is_terminal() {
     let _ = machine.init(&supported_list(), true);
     let _ = machine.load_finished(None);
     let _ = machine.arm();
+    let _ = machine.arm_opened();
 
     // When the disarm's flush faults.
     let step = machine.disarm(None, Some("backend wedged".to_owned()));
@@ -334,6 +356,7 @@ fn a_lost_capture_while_recording_returns_to_ready_with_the_note() {
     let _ = machine.init(&supported_list(), true);
     let _ = machine.load_finished(None);
     let _ = machine.arm();
+    let _ = machine.arm_opened();
 
     // When the capture reports it vanished without a toggle.
     let step = machine.capture_lost("device unplugged");
@@ -346,16 +369,18 @@ fn a_lost_capture_while_recording_returns_to_ready_with_the_note() {
 #[rstest::rstest]
 #[test]
 fn a_lost_capture_report_outside_recording_changes_nothing() {
-    // Given a Ready machine.
+    // Given a machine mid-arming — the device open is running, the
+    // stream never played, so there is no session to lose.
     let mut machine = DictationMachine::new("stub-model", true);
     let _ = machine.init(&supported_list(), true);
     let _ = machine.load_finished(None);
+    let _ = machine.arm();
 
     // When a stray capture-lost report arrives.
     let step = machine.capture_lost("device unplugged");
 
     // Then the state is untouched: the report belonged to no session.
-    assert_eq!(step.state.phase, DictationPhase::Ready);
+    assert_eq!(step.state.phase, DictationPhase::Arming);
     assert_eq!(step.state.error, None);
 }
 

@@ -3,10 +3,13 @@
 //!
 //! Idle it paints a dotted placeholder in the inactive border color
 //! with an orange `i` glyph at the bottom cell (the alt-shortcut
-//! hint); recording it paints the theme's success green with a
-//! level-proportional fill growing from the bottom, capped by a
-//! partial block at the level boundary. All colors come from existing
-//! theme keys.
+//! hint). While arming — the press asked for the microphone but the
+//! device open has not decided yet — the dots turn the theme's
+//! warning yellow, the honest "working on it" signal. Recording it
+//! paints the theme's success green with a level-proportional fill
+//! growing from the bottom, capped by a partial block at the level
+//! boundary; the green appears only once the capture stream actually
+//! plays. All colors come from existing theme keys.
 //!
 //! Geometry is composition's, not ours: the dispatch hands the paint
 //! the strip rect ([`jinn_slices::DrawTarget::area`]), computed by
@@ -54,35 +57,48 @@ pub fn paint(
         .slices()
         .reader::<DictationState>(&dictation_state_slot())
         .map_or(DictationPhase::Offline, |cell| cell.read().phase);
-    if phase != DictationPhase::Recording {
-        paint_idle(frame, rect, state);
-        return;
+    let theme = &state.frontend.theme;
+    match phase {
+        DictationPhase::Recording => {
+            let level = ctx
+                .slices()
+                .reader::<DictationLevel>(&dictation_level_slot())
+                .map_or(0.0, |cell| cell.read().level);
+            paint_recording(frame, rect, level, state);
+        }
+        // Arming: the press asked, the device open is running. The
+        // dotted strip stays (nothing is recording yet) but the dots
+        // say "working on it" in the warning yellow.
+        DictationPhase::Arming => paint_idle(frame, rect, theme.warning, state),
+        _ => paint_idle(frame, rect, theme.border_unfocused, state),
     }
-    let level = ctx
-        .slices()
-        .reader::<DictationLevel>(&dictation_level_slot())
-        .map_or(0.0, |cell| cell.read().level);
-    paint_recording(frame, rect, level, state);
 }
 
-/// Paints the idle strip into `rect`: one dotted cell per row in the
-/// inactive border color, with the hint glyph at the bottom. The
-/// background resets with the dots — the strip covers cells nothing
-/// else repaints, so a stale recording green would otherwise linger.
+/// Paints the idle strip into `rect`: one dotted cell per row in
+/// `dot_color`, with the hint glyph at the bottom. The background
+/// resets with the dots — the strip covers cells nothing else
+/// repaints, so a stale recording green would otherwise linger. The
+/// dot color is the phase's: inactive-border idle, warning yellow
+/// while arming.
 ///
 /// Split from [`paint`] so the rendering is testable without cells:
-/// the test hands a rect and a state, and asserts the buffer.
-pub fn paint_idle(frame: &mut ratatui::Frame<'_>, rect: Rect, state: &AppState) {
+/// the test hands a rect, a dot color, and a state, and asserts the
+/// buffer.
+pub fn paint_idle(
+    frame: &mut ratatui::Frame<'_>,
+    rect: Rect,
+    dot_color: ratatui::style::Color,
+    state: &AppState,
+) {
     if rect.height == 0 || rect.width == 0 {
         return;
     }
-    let theme = &state.frontend.theme;
     for y in rect.y..(rect.y + rect.height) {
         let Some(cell) = frame.buffer_mut().cell_mut((rect.x, y)) else {
             continue;
         };
         cell.set_symbol("┇");
-        cell.set_fg(theme.border_unfocused);
+        cell.set_fg(dot_color);
         cell.set_bg(ratatui::style::Color::Reset);
     }
     paint_hint_glyph(frame, rect, state);
@@ -151,13 +167,14 @@ fn paint_level_fill(frame: &mut ratatui::Frame<'_>, rect: Rect, level: f32) {
     }
 }
 
-/// Paints the alt-hint glyph: the orange `i` at the strip's bottom
-/// cell, identical in both phases so the shortcut never moves.
+/// Paints the alt-hint glyph: the `i` at the strip's bottom cell in
+/// the theme's hotkey accent, identical in every phase so the
+/// shortcut never moves.
 fn paint_hint_glyph(frame: &mut ratatui::Frame<'_>, rect: Rect, state: &AppState) {
     if rect.height == 0 || rect.width == 0 {
         return;
     }
-    let hint_fg = state.frontend.theme.warning;
+    let hint_fg = state.frontend.theme.accent_action;
     let Some(cell) = frame
         .buffer_mut()
         .cell_mut((rect.x, rect.y + rect.height - 1))
@@ -203,7 +220,7 @@ mod tests {
 
         // When painting the idle strip.
         terminal
-            .draw(|frame| paint_idle(frame, rect, &state))
+            .draw(|frame| paint_idle(frame, rect, theme.border_unfocused, &state))
             .expect("draw into the test backend");
 
         // Then every cell above the bottom is a dotted glyph in the
@@ -215,11 +232,43 @@ mod tests {
             assert_eq!(cell.fg, theme.border_unfocused);
             assert_eq!(cell.bg, ratatui::style::Color::Reset);
         }
-        // And the bottom cell is the orange `i`, in idle just as in
-        // recording.
+        // And the bottom cell is the hotkey-orange `i`, in idle just
+        // as in recording.
         let hint = buffer[(rect.x, rect.y + rect.height - 1)].clone();
         assert_eq!(hint.symbol(), "i");
-        assert_eq!(hint.fg, theme.warning);
+        assert_eq!(hint.fg, theme.accent_action);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn arming_paints_yellow_dots_with_the_accent_hint() {
+        // Given a wired state and a strip rect, mid-arming.
+        let state = wired_state();
+        let rect = Rect::new(20, 2, 1, 8);
+        let backend = TestBackend::new(FRAME.width, FRAME.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        let theme = state.frontend.theme.clone();
+
+        // When painting the arming strip: the dotted idle shape in the
+        // warning yellow.
+        terminal
+            .draw(|frame| paint_idle(frame, rect, theme.warning, &state))
+            .expect("draw into the test backend");
+
+        // Then every cell above the bottom is a dotted glyph in the
+        // warning yellow on a reset background — the "working on it"
+        // signal, still not a recording bar.
+        let buffer = terminal.backend().buffer();
+        for y in rect.y..(rect.y + rect.height - 1) {
+            let cell = buffer[(rect.x, y)].clone();
+            assert_eq!(cell.symbol(), "┇");
+            assert_eq!(cell.fg, theme.warning);
+            assert_eq!(cell.bg, ratatui::style::Color::Reset);
+        }
+        // And the bottom cell is the hotkey-orange `i`.
+        let hint = buffer[(rect.x, rect.y + rect.height - 1)].clone();
+        assert_eq!(hint.symbol(), "i");
+        assert_eq!(hint.fg, theme.accent_action);
     }
 
     #[rstest::rstest]
@@ -251,10 +300,10 @@ mod tests {
         let top = buffer[(rect.x, rect.y)].clone();
         assert_eq!(top.symbol(), " ");
         assert_eq!(top.bg, theme.success);
-        // And the hint glyph is untouched orange `i`.
+        // And the hint glyph is untouched hotkey-orange `i`.
         let hint = buffer[(rect.x, rect.y + rect.height - 1)].clone();
         assert_eq!(hint.symbol(), "i");
-        assert_eq!(hint.fg, theme.warning);
+        assert_eq!(hint.fg, theme.accent_action);
     }
 
     #[rstest::rstest]
@@ -307,6 +356,6 @@ mod tests {
         // And the hint glyph is the only glyph on the strip.
         let hint = buffer[(rect.x, rect.y + rect.height - 1)].clone();
         assert_eq!(hint.symbol(), "i");
-        assert_eq!(hint.fg, theme.warning);
+        assert_eq!(hint.fg, theme.accent_action);
     }
 }
