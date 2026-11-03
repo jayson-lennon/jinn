@@ -12,18 +12,24 @@ use jinn_dictation_backend::FetchProgress;
 use jinn_dictation_backend::Utterance;
 
 /// The HuggingFace repo the int8 Parakeet TDT 0.6B v2 package lives in.
-const MODEL_REPO: &str = "akashmjn/sherpa-onnx-parakeet-tdt-0.6b-v2-int8";
+/// The sherpa-onnx maintainer's mirror of the released int8 package.
+const MODEL_REPO: &str = "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8";
 
-/// The Silero VAD model file, fetched from the same repo.
-const VAD_FILE: &str = "silero_vad.onnx";
+/// The Silero VAD model file, fetched from the sherpa-onnx release
+/// assets (the model repo does not carry it).
+const VAD_FILE: &str = "silero_vad_v4.onnx";
 
-/// Every file the backend needs, model and VAD together.
+/// The release asset URL the VAD file downloads from.
+const VAD_URL: &str =
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad_v4.onnx";
+
+/// Every HuggingFace file the backend needs (the VAD is fetched
+/// separately from the release asset above).
 const ALL_FILES: &[&str] = &[
     "encoder.int8.onnx",
     "decoder.int8.onnx",
     "joiner.int8.onnx",
     "tokens.txt",
-    VAD_FILE,
 ];
 
 /// Silero VAD consumes exactly this many samples per frame at 16 kHz.
@@ -148,22 +154,52 @@ impl ParakeetBackend {
         }
     }
 
-    /// The absolute path of one fetched model file.
-    fn file_path(&self, file: &str) -> marked_path::MarkedPathBuf<marked_path::Absolute> {
-        self.cache_dir
-            .join_all([MODEL_REPO, file])
-            .unwrap_or_else(|_| {
-                // Unreachable for name joins on an absolute base; the
-                // marked-path invariant holds by construction.
-                self.cache_dir.clone()
-            })
+    /// The absolute path of one fetched model file, under the
+    /// HuggingFace snapshot layout the fetch writes.
+    fn file_path(
+        &self,
+        file: &str,
+    ) -> Result<marked_path::MarkedPathBuf<marked_path::Absolute>, Report<BackendError>> {
+        let snapshot = self.hf_snapshot_dir()?;
+        snapshot
+            .join_all([file])
+            .change_context(BackendError)
+            .attach("failed to join a model file name onto the snapshot dir")
+    }
+
+    /// Whether one model file is on disk under the model directory.
+    fn file_present(&self, file: &str) -> bool {
+        self.file_path(file)
+            .is_ok_and(|path| path.as_path().is_file())
+    }
+
+    /// The HuggingFace snapshot directory the fetch wrote the model
+    /// files into, discovered from the cache's `refs/main` commit.
+    fn hf_snapshot_dir(
+        &self,
+    ) -> Result<marked_path::MarkedPathBuf<marked_path::Absolute>, Report<BackendError>> {
+        let repo_component = format!("models--{}", MODEL_REPO.replace('/', "--"));
+        let repo_dir = self
+            .cache_dir
+            .join_all([repo_component.as_str()])
+            .change_context(BackendError)
+            .attach("failed to join the model repo name onto the cache dir")?;
+        let refs_main = repo_dir
+            .join_all(["refs", "main"])
+            .change_context(BackendError)
+            .attach("failed to join the refs path onto the repo dir")?;
+        let commit = std::fs::read_to_string(refs_main.as_path())
+            .change_context(BackendError)
+            .attach("the model is not fetched yet (no refs/main)")?;
+        repo_dir
+            .join_all(["snapshots", commit.trim()])
+            .change_context(BackendError)
+            .attach("failed to join the snapshot commit onto the repo dir")
     }
 
     /// Whether every model file is present.
     fn all_files_present(&self) -> bool {
-        ALL_FILES
-            .iter()
-            .all(|file| self.file_path(file).as_path().is_file())
+        ALL_FILES.iter().all(|file| self.file_present(file)) && self.file_present(VAD_FILE)
     }
 
     /// Fetches every model file into the cache, reporting progress.
@@ -180,27 +216,66 @@ impl ParakeetBackend {
             .change_context(BackendError)
             .attach("failed to build the HuggingFace client")?;
         let repo = api.model(MODEL_REPO.to_owned());
-        let total: usize = ALL_FILES.len();
-        for (index, file) in ALL_FILES.iter().enumerate() {
+        for file in ALL_FILES {
             let path = repo
                 .get(file)
                 .change_context(BackendError)
                 .attach(format!("failed to fetch {file}"))?;
             let bytes = std::fs::metadata(&path).map_or(0, |meta| meta.len());
             on_progress(FetchProgress::new(bytes, Some(bytes)));
-            let _ = index;
-            let _ = total;
+        }
+        self.fetch_vad(on_progress)
+    }
+
+    /// Fetches the Silero VAD file from the sherpa-onnx release
+    /// assets, into the model directory beside the transducer files.
+    fn fetch_vad(
+        &self,
+        on_progress: &mut dyn FnMut(FetchProgress),
+    ) -> Result<(), Report<BackendError>> {
+        let destination = self.file_path(VAD_FILE)?;
+        if destination.as_path().is_file() {
+            return Ok(());
+        }
+        // The model directory may not exist yet on a first fetch; the
+        // HF cache layout creates its own tree, this one must too.
+        if let Some(parent) = destination.as_path().parent() {
+            std::fs::create_dir_all(parent)
+                .change_context(BackendError)
+                .attach("failed to create the model directory")?;
+        }
+        let response = ureq::get(VAD_URL)
+            .call()
+            .change_context(BackendError)
+            .attach(format!("failed to fetch {VAD_FILE}"))?;
+        let mut body = response.into_body().into_reader();
+        let mut buffer = vec![0_u8; 64 * 1024];
+        let mut file = std::fs::File::create(destination.as_path())
+            .change_context(BackendError)
+            .attach("failed to create the VAD model file")?;
+        let mut written: u64 = 0;
+        loop {
+            let read = std::io::Read::read(&mut body, &mut buffer)
+                .change_context(BackendError)
+                .attach(format!("failed to read {VAD_FILE}"))?;
+            if read == 0 {
+                break;
+            }
+            std::io::Write::write_all(&mut file, buffer.get(..read).unwrap_or(&buffer))
+                .change_context(BackendError)
+                .attach("failed to write the VAD model file")?;
+            written += u64::try_from(read).unwrap_or(0);
+            on_progress(FetchProgress::new(written, None));
         }
         Ok(())
     }
 
     /// Builds the decode graph from the fetched files.
     fn build_graph(&self) -> Result<DecodeGraph, Report<BackendError>> {
-        let model_dir = self
-            .cache_dir
-            .join_all([MODEL_REPO])
-            .change_context(BackendError)
-            .attach("failed to join the model repo name onto the cache dir")?;
+        // HF stores the blobs under its own `models--<org>--<repo>`
+        // layout; `repo.get` returns the snapshot path the fetch
+        // resolved to, so the graph reads the files from there.
+        let model_dir = self.hf_snapshot_dir()?;
         let transducer = sherpa_onnx::OfflineTransducerModelConfig {
             encoder: Some(model_file(&model_dir, "encoder.int8.onnx")?),
             decoder: Some(model_file(&model_dir, "decoder.int8.onnx")?),

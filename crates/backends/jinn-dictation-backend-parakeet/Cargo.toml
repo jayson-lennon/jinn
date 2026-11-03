@@ -22,6 +22,9 @@ tracing = { workspace = true }
 parking_lot = { workspace = true }
 hf-hub = { workspace = true }
 nnnoiseless = "0.5"
+# The VAD file downloads from the sherpa-onnx GitHub release assets;
+# the model repo on HuggingFace does not carry it.
+ureq = { version = "3", features = ["rustls"] }
 # Static linking by default: the binary stays self-contained (the
 # same distribution shape the release tgz ships).
 sherpa-onnx = { version = "2.0", default-features = false, features = ["static"] }
