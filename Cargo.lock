@@ -3230,6 +3230,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "jinn-dictation-backend"
+version = "1.16.0"
+dependencies = [
+ "error-stack",
+ "rstest",
+ "wherror",
+]
+
+[[package]]
 name = "jinn-discord"
 version = "1.16.0"
 dependencies = [

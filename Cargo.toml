@@ -281,6 +281,7 @@ jinn-cli = { path = "crates/jinn-cli" }
 jinn-selection-widget = { path = "crates/jinn-selection-widget" }
 jinn-picker = { path = "crates/jinn-picker" }
 jinn-testutil = { path = "crates/jinn-testutil" }
+jinn-dictation-backend = { path = "crates/jinn-dictation-backend" }
 
 jinn-theme = { path = "crates/jinn-theme" }
 jinn-mcp = { path = "crates/jinn-mcp" }
