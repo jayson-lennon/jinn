@@ -1,36 +1,28 @@
-//! The recording meter — the seam between the main column and the
-//! sidebar.
+//! The dictation meter strip — the minimap column from the streaming
+//! indicator row to the terminal bottom edge.
 //!
-//! A vertical strip riding the border column's chat-log stretch: idle it
-//! paints nothing (the region dispatches, the paint no-ops), recording
-//! it paints the theme's success green with level-proportional bars in
-//! the regular text foreground and an orange `i` glyph at the bottom —
-//! the alt-shortcut hint. All colors come from existing theme keys.
+//! Idle it paints a dotted placeholder in the inactive border color
+//! with an orange `i` glyph at the bottom cell (the alt-shortcut
+//! hint); recording it paints the theme's success green with a
+//! level-proportional fill growing from the bottom, capped by a
+//! partial block at the level boundary. All colors come from existing
+//! theme keys.
+//!
+//! Geometry is composition's, not ours: the dispatch hands the paint
+//! the strip rect ([`jinn_slices::DrawTarget::area`]), computed by
+//! `AppLayout::new` as the minimap column below the indicator row, and
+//! that row's anchor rides the input box, so the strip resizes as the
+//! input grows. The painter carries no layout arithmetic of its own —
+//! a layout change that moves the strip moves it here too,
+//! automatically. The region dispatches on chat layouts only; the
+//! full-width tab path never reaches it, and that rule is structural:
+//! `TabLayout` has no `meter_strip` field, so the tab arm physically
+//! cannot hand the dispatcher a strip.
 //!
 //! Registration follows the status-bar precedent: an always-painted
 //! draw function on a region, not a scope-gated overlay (an overlay
 //! would vanish the instant focus left any dictation scope, and
-//! recording outlives scope changes by design). Composition hands the
-//! draw function the full frame area; the geometry is *derived* here
-//! from the same state inputs the layout computed
-//! (`frontend.sidebar_width`, the active input's visual line count) —
-//! the render test pins the derived rect to the layout's border column
-//! so the two derivations cannot drift silently.
-//!
-//! The region dispatches on chat layouts only; the full-width tab path
-//! never dispatches it, which is the whole hidden-on-tabs rule.
-//!
-//! # The derivation, spelled out
-//!
-//! `AppLayout::new` (composition) computes, in order: the sidebar width
-//! clamped to `[MIN_SIDEBAR_WIDTH, area.width - MIN_WIDTH]`; the main
-//! column as the remainder minus the 1-column minimap and 1-column
-//! border; the border at `main.x + main.width + 1`; the vertical split
-//! `tab(1) / content(min 1) / input(1 + lines) / status(2)`. The meter
-//! repeats exactly that arithmetic and takes the border column's
-//! chat-log stretch (content minus the bottom 2 rows). A layout change
-//! that breaks the meter shows up as the geometry test failing — never
-//! as a silently misplaced strip.
+//! recording outlives scope changes by design).
 
 use jinn_dictation_msg::DictationLevel;
 use jinn_dictation_msg::DictationPhase;
@@ -41,108 +33,59 @@ use jinn_kernel::common::app_state::AppState;
 use jinn_slices::DrawContext;
 use ratatui::layout::Rect;
 
-/// The meter's width: one column, riding the border column.
-pub const METER_WIDTH: u16 = 1;
-
-/// The chat-content bottom rows the meter does not span (the streaming
-/// indicator row and the chat bottom line), the same split
-/// `chat_tab` renders with.
-const BOTTOM_LINES: u16 = 2;
-
-/// Minimum sidebar width, mirrored from composition's `AppLayout`
-/// (`MIN_SIDEBAR_WIDTH`). The layout clamps the configured width up to
-/// this; the derivation must match or the strip drifts off the seam.
-pub const MIN_SIDEBAR_WIDTH: u16 = 15;
-
-/// Minimum terminal width, mirrored from composition's `AppLayout`
-/// (`MIN_WIDTH`).
-pub const MIN_WIDTH: u16 = 40;
-
-/// The derived meter rect for one frame.
-///
-/// `full_width_tab` is the base-scope test the render pass runs
-/// (`true` when the base scope is a registered tab scope) — `None`
-/// there, because full-width tabs have no seam to ride. The arithmetic
-/// repeats composition's `AppLayout::new` from the same inputs;
-/// `meter_rect_matches_the_layout_seam` pins the two together.
-#[must_use]
-pub fn meter_rect(state: &AppState, frame: Rect, full_width_tab: bool) -> Option<Rect> {
-    if full_width_tab {
-        return None;
-    }
-    // Horizontal split (composition's AppLayout::new, lines copied in
-    // the same order): sidebar clamp, main width, border column.
-    let sidebar_width = state
-        .frontend
-        .sidebar_width
-        .min(frame.width.saturating_sub(MIN_WIDTH))
-        .max(MIN_SIDEBAR_WIDTH);
-    let border_width = 1_u16;
-    let minimap_width = 1_u16;
-    let main_width = frame
-        .width
-        .saturating_sub(sidebar_width)
-        .saturating_sub(border_width)
-        .saturating_sub(minimap_width);
-    let border_x = frame.x + main_width + minimap_width;
-
-    // Vertical split (same function): 1 tab bar, min-1 content,
-    // 1 + visual-lines input, 2-row status bar.
-    let input_lines = state.active_session().with_input(
-        jinn_chat_input_msg::ChatInputBoxState::visual_line_count,
-        || 0,
-    ) as u16;
-    let input_height = (1 + input_lines.max(1)).min(frame.height / 2);
-    let [_, content, _, _] = ratatui::layout::Layout::vertical([
-        ratatui::layout::Constraint::Length(1),
-        ratatui::layout::Constraint::Min(1),
-        ratatui::layout::Constraint::Length(input_height),
-        ratatui::layout::Constraint::Length(2),
-    ])
-    .areas(frame);
-
-    Some(Rect {
-        x: border_x,
-        y: content.y,
-        width: METER_WIDTH,
-        height: content.height.saturating_sub(BOTTOM_LINES),
-    })
-}
+/// The partial-fill cap glyphs, shortest block first. `█` completes the
+/// scale and is reached as the full-fill case, not as a cap.
+const CAP_GLYPHS: [&str; 7] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇"];
 
 /// Paints the meter: the region draw function the slice registers.
 ///
-/// Reads the state cell (the dictation actor is the sole writer) and the
-/// level cell; `Recording` paints the strip, every other phase paints
-/// nothing — idle invisibility against the border is a no-op, not a
-/// background wash.
+/// Reads the state cell (the dictation actor is the sole writer) and
+/// the level cell, then paints the strip for the phase: dotted idle
+/// cells, or the recording bar. `target.area` is the strip rect,
+/// composition-owned — this function derives no geometry.
 pub fn paint(
     frame: &mut ratatui::Frame<'_>,
     target: jinn_slices::DrawTarget,
     ctx: &dyn DrawContext<AppState>,
 ) {
+    let rect = target.area;
     let state = ctx.state();
-    // The same base-scope test the render pass runs to pick the tab
-    // layout: a base scope in the registered tab set renders full width,
-    // and full width has no seam to ride.
-    let full_width_tab = match state.frontend.scope_base() {
-        jinn_slices::FocusScope::Dynamic(id) => ctx.slices().tab_scopes().contains(&id),
-        _ => false,
-    };
-    let Some(rect) = meter_rect(state, target.area, full_width_tab) else {
-        return;
-    };
     let phase = ctx
         .slices()
         .reader::<DictationState>(&dictation_state_slot())
         .map_or(DictationPhase::Offline, |cell| cell.read().phase);
     if phase != DictationPhase::Recording {
+        paint_idle(frame, rect, state);
         return;
     }
     let level = ctx
         .slices()
         .reader::<DictationLevel>(&dictation_level_slot())
         .map_or(0.0, |cell| cell.read().level);
-    paint_recording(frame, rect, level, ctx.state());
+    paint_recording(frame, rect, level, state);
+}
+
+/// Paints the idle strip into `rect`: one dotted cell per row in the
+/// inactive border color, with the hint glyph at the bottom. The
+/// background resets with the dots — the strip covers cells nothing
+/// else repaints, so a stale recording green would otherwise linger.
+///
+/// Split from [`paint`] so the rendering is testable without cells:
+/// the test hands a rect and a state, and asserts the buffer.
+pub fn paint_idle(frame: &mut ratatui::Frame<'_>, rect: Rect, state: &AppState) {
+    if rect.height == 0 || rect.width == 0 {
+        return;
+    }
+    let theme = &state.frontend.theme;
+    for y in rect.y..(rect.y + rect.height) {
+        let Some(cell) = frame.buffer_mut().cell_mut((rect.x, y)) else {
+            continue;
+        };
+        cell.set_symbol("┇");
+        cell.set_fg(theme.border_unfocused);
+        cell.set_bg(ratatui::style::Color::Reset);
+    }
+    paint_hint_glyph(frame, rect, state);
 }
 
 /// Paints the recording strip into `rect`.
@@ -151,41 +94,78 @@ pub fn paint(
 /// without cells: the test hands a rect, a level, and a state, and
 /// asserts the buffer.
 pub fn paint_recording(frame: &mut ratatui::Frame<'_>, rect: Rect, level: f32, state: &AppState) {
-    let theme = &state.frontend.theme;
-    let background = theme.success;
-    let bars_fg = theme.primary_text;
-    let hint_fg = theme.warning;
+    paint_recording_background(frame, rect, state);
+    paint_level_fill(frame, rect, level);
+    paint_hint_glyph(frame, rect, state);
+}
 
-    // The strip: solid theme-success background, blank cells.
+/// Paints the recording background: the full strip in the theme's
+/// success green.
+fn paint_recording_background(frame: &mut ratatui::Frame<'_>, rect: Rect, state: &AppState) {
+    let background = state.frontend.theme.success;
+    let text_fg = state.frontend.theme.primary_text;
     for y in rect.y..(rect.y + rect.height) {
         let Some(cell) = frame.buffer_mut().cell_mut((rect.x, y)) else {
             continue;
         };
         cell.set_symbol(" ");
         cell.set_bg(background);
-        cell.set_fg(bars_fg);
+        cell.set_fg(text_fg);
     }
-    // The bar: level-proportional, growing from the bottom, block glyphs
-    // over the strip. The glyph rows never cover the hint row at the
-    // bottom, so a full-scale level clamps above it.
-    let bar_space = rect.height.saturating_sub(1);
-    let filled = ((level * f32::from(bar_space)).round() as u16).min(bar_space);
+}
+
+/// Paints the level fill above the hint glyph: full blocks growing
+/// from the bottom meter cell, capped by one partial block at the
+/// level boundary. A zero level paints nothing — the bare green strip
+/// is the zero reading.
+fn paint_level_fill(frame: &mut ratatui::Frame<'_>, rect: Rect, level: f32) {
+    if level <= 0.0 {
+        return;
+    }
+    let meter_cells = rect.height.saturating_sub(1);
+    if meter_cells == 0 {
+        return;
+    }
     let hint_row = rect.y + rect.height.saturating_sub(1);
+    // `filled` never exceeds `meter_cells`, and the hint row is at least
+    // `meter_cells` above the strip top, so every offset below stays in
+    // the rect.
+    let scaled = level.clamp(0.0, 1.0) * f32::from(meter_cells);
+    let filled = (scaled.floor() as u16).min(meter_cells);
     for y in (hint_row - filled)..hint_row {
         let Some(cell) = frame.buffer_mut().cell_mut((rect.x, y)) else {
             continue;
         };
         cell.set_symbol("█");
     }
-    // The alt-hint glyph at the strip's bottom: orange `i`.
-    if rect.height > 0
-        && let Some(cell) = frame
-            .buffer_mut()
-            .cell_mut((rect.x, rect.y + rect.height - 1))
-    {
-        cell.set_symbol("i");
-        cell.set_fg(hint_fg);
+    if filled < meter_cells {
+        let remainder = scaled - f32::from(filled);
+        let cap_index = ((remainder * 8.0).floor() as usize).min(CAP_GLYPHS.len() - 1);
+        let cap_y = hint_row - (filled + 1);
+        if let (Some(cell), Some(cap)) = (
+            frame.buffer_mut().cell_mut((rect.x, cap_y)),
+            CAP_GLYPHS.get(cap_index),
+        ) {
+            cell.set_symbol(cap);
+        }
     }
+}
+
+/// Paints the alt-hint glyph: the orange `i` at the strip's bottom
+/// cell, identical in both phases so the shortcut never moves.
+fn paint_hint_glyph(frame: &mut ratatui::Frame<'_>, rect: Rect, state: &AppState) {
+    if rect.height == 0 || rect.width == 0 {
+        return;
+    }
+    let hint_fg = state.frontend.theme.warning;
+    let Some(cell) = frame
+        .buffer_mut()
+        .cell_mut((rect.x, rect.y + rect.height - 1))
+    else {
+        return;
+    };
+    cell.set_symbol("i");
+    cell.set_fg(hint_fg);
 }
 
 #[cfg(test)]
@@ -197,7 +177,7 @@ mod tests {
         clippy::semicolon_if_nothing_returned,
         reason = "test code, panics are acceptable"
     )]
-    use super::meter_rect;
+    use super::paint_idle;
     use super::paint_recording;
     use jinn_app_state::AppState;
     use ratatui::Terminal;
@@ -211,77 +191,41 @@ mod tests {
         AppState::default_with_scope_focus()
     }
 
-    /// The layout composition derives for the same inputs.
-    fn layout_for(state: &AppState) -> jinn_tui::render::AppLayout {
-        let input_lines = state.active_session().with_input(
-            jinn_chat_input_msg::ChatInputBoxState::visual_line_count,
-            || 0,
-        ) as u16;
-        jinn_tui::render::AppLayout::new(
-            FRAME,
-            input_lines,
-            FRAME.height / 2,
-            state.frontend.sidebar_width,
-        )
-    }
-
     #[rstest::rstest]
     #[test]
-    fn meter_rect_matches_the_layout_seam() {
-        // Given a production-wired state with a multi-line input.
-        let mut state = wired_state();
-        state.active_session_mut().update_input(|buffer| {
-            jinn_chat_input_msg::append_paste_to_buffer(buffer, "one\ntwo\nthree");
-        });
-
-        // When the meter rect is derived for the frame.
-        let rect = meter_rect(&state, FRAME, false).expect("chat layout has a seam");
-
-        // Then it rides the border column exactly where the layout put
-        // it: the border column, spanning the chat-log stretch.
-        let layout = layout_for(&state);
-        assert_eq!(rect.x, layout.border.x);
-        assert_eq!(rect.width, 1);
-        assert_eq!(rect.y, layout.content.y);
-        assert_eq!(
-            rect.height,
-            layout.content.height.saturating_sub(super::BOTTOM_LINES)
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn meter_rect_is_none_on_a_full_width_tab() {
-        // Given any state.
+    fn idle_paints_dotted_cells_and_the_constant_hint() {
+        // Given a wired state and an idle strip rect.
         let state = wired_state();
+        let rect = Rect::new(20, 2, 1, 8);
+        let backend = TestBackend::new(FRAME.width, FRAME.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        let theme = state.frontend.theme.clone();
 
-        // When deriving the rect with the full-width flag set.
-        // Then there is no rect: full-width tabs have no seam.
-        assert!(meter_rect(&state, FRAME, true).is_none());
+        // When painting the idle strip.
+        terminal
+            .draw(|frame| paint_idle(frame, rect, &state))
+            .expect("draw into the test backend");
+
+        // Then every cell above the bottom is a dotted glyph in the
+        // inactive border color on a reset background.
+        let buffer = terminal.backend().buffer();
+        for y in rect.y..(rect.y + rect.height - 1) {
+            let cell = buffer[(rect.x, y)].clone();
+            assert_eq!(cell.symbol(), "┇");
+            assert_eq!(cell.fg, theme.border_unfocused);
+            assert_eq!(cell.bg, ratatui::style::Color::Reset);
+        }
+        // And the bottom cell is the orange `i`, in idle just as in
+        // recording.
+        let hint = buffer[(rect.x, rect.y + rect.height - 1)].clone();
+        assert_eq!(hint.symbol(), "i");
+        assert_eq!(hint.fg, theme.warning);
     }
 
     #[rstest::rstest]
     #[test]
-    fn meter_rect_tracks_a_narrow_sidebar() {
-        // Given a state with the minimum sidebar width.
-        let mut state = wired_state();
-        state.frontend.sidebar_width = 15;
-
-        // When deriving the rect.
-        let rect = meter_rect(&state, FRAME, false).expect("chat layout has a seam");
-
-        // Then the rect sits at the seam for that width — one column
-        // left of the sidebar.
-        let layout = layout_for(&state);
-        assert_eq!(layout.sidebar.width, 15);
-        assert_eq!(rect.x, layout.border.x);
-        assert_eq!(rect.x, layout.sidebar.x - 1);
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn recording_paints_a_success_strip_with_bars_and_the_hint_glyph() {
-        // Given a wired state and a recording strip rect.
+    fn recording_paints_green_bar_with_a_partial_cap() {
+        // Given a wired state and a 10-row strip (9 meter cells + hint).
         let state = wired_state();
         let rect = Rect::new(20, 2, 1, 10);
         let backend = TestBackend::new(FRAME.width, FRAME.height);
@@ -293,49 +237,30 @@ mod tests {
             .draw(|frame| paint_recording(frame, rect, 0.5, &state))
             .expect("draw into the test backend");
 
-        // Then the strip is theme-success with a level-proportional bar
-        // and an orange `i` hint at the bottom.
+        // Then the strip is theme-success: the bottom meter cell holds a
+        // full block on green.
         let buffer = terminal.backend().buffer();
-        // Bottom hint row: orange `i` on green.
+        let bottom_meter = buffer[(rect.x, rect.y + rect.height - 2)].clone();
+        assert_eq!(bottom_meter.symbol(), "█");
+        assert_eq!(bottom_meter.bg, theme.success);
+        // And the cell one above the filled run is the partial cap —
+        // 4 full cells of 9 leaves a 0.5 remainder, the `▅` glyph.
+        let cap = buffer[(rect.x, rect.y + rect.height - 6)].clone();
+        assert_eq!(cap.symbol(), "▅");
+        // And the cells above the cap are empty green strip.
+        let top = buffer[(rect.x, rect.y)].clone();
+        assert_eq!(top.symbol(), " ");
+        assert_eq!(top.bg, theme.success);
+        // And the hint glyph is untouched orange `i`.
         let hint = buffer[(rect.x, rect.y + rect.height - 1)].clone();
         assert_eq!(hint.symbol(), "i");
         assert_eq!(hint.fg, theme.warning);
-        assert_eq!(hint.bg, theme.success);
-        // Below the bar's midpoint: filled glyph on green.
-        let filled_row = buffer[(rect.x, rect.y + rect.height - 4)].clone();
-        assert_eq!(filled_row.symbol(), "█");
-        assert_eq!(filled_row.bg, theme.success);
-        // Near the top: empty strip cell, still green.
-        let empty_row = buffer[(rect.x, rect.y)].clone();
-        assert_eq!(empty_row.symbol(), " ");
-        assert_eq!(empty_row.bg, theme.success);
     }
 
     #[rstest::rstest]
     #[test]
-    fn idle_level_paints_no_bars() {
-        // Given a wired state.
-        let state = wired_state();
-        let rect = Rect::new(20, 2, 1, 8);
-        let backend = TestBackend::new(FRAME.width, FRAME.height);
-        let mut terminal = Terminal::new(backend).expect("test backend");
-
-        // When painting with a zero level.
-        terminal
-            .draw(|frame| paint_recording(frame, rect, 0.0, &state))
-            .expect("draw into the test backend");
-
-        // Then the strip is green with no filled glyph above the hint.
-        let buffer = terminal.backend().buffer();
-        let mid = buffer[(rect.x, rect.y + 1)].clone();
-        assert_eq!(mid.symbol(), " ");
-        assert_eq!(mid.bg, state.frontend.theme.success);
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn full_scale_level_clamps_above_the_hint_row() {
-        // Given a wired state.
+    fn full_scale_level_fills_every_meter_cell() {
+        // Given a wired state and a 6-row strip (5 meter cells + hint).
         let state = wired_state();
         let rect = Rect::new(20, 2, 1, 6);
         let backend = TestBackend::new(FRAME.width, FRAME.height);
@@ -346,12 +271,42 @@ mod tests {
             .draw(|frame| paint_recording(frame, rect, 1.0, &state))
             .expect("draw into the test backend");
 
-        // Then every row above the hint glyph is a filled glyph — the
-        // bar never covers the hint.
+        // Then every meter cell is a filled glyph — the bar never covers
+        // the hint.
         let buffer = terminal.backend().buffer();
         for y in rect.y..(rect.y + rect.height - 1) {
             assert_eq!(buffer[(rect.x, y)].symbol(), "█");
         }
+        // And the hint glyph sits below the fill.
         assert_eq!(buffer[(rect.x, rect.y + rect.height - 1)].symbol(), "i");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn zero_level_paints_a_bare_green_strip() {
+        // Given a wired state and a recording strip rect.
+        let state = wired_state();
+        let rect = Rect::new(20, 2, 1, 8);
+        let backend = TestBackend::new(FRAME.width, FRAME.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        let theme = state.frontend.theme.clone();
+
+        // When painting with a zero level.
+        terminal
+            .draw(|frame| paint_recording(frame, rect, 0.0, &state))
+            .expect("draw into the test backend");
+
+        // Then the strip is green with no glyphs at all — zero shows
+        // nothing but the background.
+        let buffer = terminal.backend().buffer();
+        for y in rect.y..(rect.y + rect.height - 1) {
+            let cell = buffer[(rect.x, y)].clone();
+            assert_eq!(cell.symbol(), " ");
+            assert_eq!(cell.bg, theme.success);
+        }
+        // And the hint glyph is the only glyph on the strip.
+        let hint = buffer[(rect.x, rect.y + rect.height - 1)].clone();
+        assert_eq!(hint.symbol(), "i");
+        assert_eq!(hint.fg, theme.warning);
     }
 }

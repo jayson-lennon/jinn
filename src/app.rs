@@ -52,8 +52,11 @@ fn resolve_dump_requests(
 /// runner handles the command. Owns the tokio runtime and delegates
 /// to [`Runner`] variants.
 pub struct App {
-    /// The tokio runtime.
-    runtime: Runtime,
+    /// The tokio runtime. `None` once [`App::run_and_shutdown`] has
+    /// consumed it with a bounded deadline — the runtime's ordinary
+    /// `Drop` waits for every blocking task, which a quit during a
+    /// model download must not do.
+    runtime: Option<Runtime>,
 }
 
 impl App {
@@ -66,13 +69,27 @@ impl App {
         let runtime = Runtime::new()
             .change_context(AppError)
             .attach("failed to create tokio runtime")?;
-        Ok(Self { runtime })
+        Ok(Self {
+            runtime: Some(runtime),
+        })
     }
 
     /// Returns a handle to the tokio runtime for spawning tasks.
     #[must_use]
     pub fn handle(&self) -> tokio::runtime::Handle {
-        self.runtime.handle().clone()
+        self.runtime().handle().clone()
+    }
+
+    /// The live runtime.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called after [`App::run_and_shutdown`], the one
+    /// consumer, has already taken it.
+    fn runtime(&self) -> &Runtime {
+        self.runtime
+            .as_ref()
+            .expect("the runtime is consumed only by the final shutdown")
     }
 
     /// Runs a runner to completion, then shuts down the session store.
@@ -84,11 +101,19 @@ impl App {
     /// already drained via graceful shutdown, so no competing writers
     /// remain.
     ///
+    /// As its final act it consumes the runtime with a bounded
+    /// deadline. The runtime's `Drop` joins every blocking task before
+    /// returning, so an ordinary exit would hang until an in-flight
+    /// blocking task — a 600 MB model download quit mid-stream —
+    /// finished. The 2s deadline abandons such stragglers instead:
+    /// they die with the process, and the fetch backend resumes
+    /// cleanly on the next launch.
+    ///
     /// # Errors
     ///
     /// Returns an error if the runner fails or the store shutdown fails.
     fn run_and_shutdown(
-        &self,
+        &mut self,
         runner: crate::runner::Runner,
         store: &jinn_session_state::SessionStoreService,
     ) -> Result<(), Report<AppError>> {
@@ -124,7 +149,7 @@ impl App {
         // then flushes the store. A wedged actor can't prevent process
         // exit — the sweep hard-stops stragglers at the deadline.
         if let Some(trouper_system) = trouper_system {
-            self.runtime.block_on(async {
+            self.runtime().block_on(async {
                 if tokio::time::timeout(
                     std::time::Duration::from_secs(20),
                     trouper_system.shutdown_graceful(std::time::Duration::from_secs(10)),
@@ -137,10 +162,20 @@ impl App {
             });
         }
 
-        self.runtime
+        self.runtime()
             .block_on(store.shutdown())
             .change_context(AppError)
             .attach("session store shutdown (WAL checkpoint) failed")?;
+
+        // Bounded final shutdown: consume the runtime so its `Drop` never
+        // runs — the drop joins every blocking task, and a quit during a
+        // model download would hang on it. Abandoned tasks die with the
+        // process; the fetch backend resumes on the next launch. This
+        // runs after the WAL checkpoint so the abandon cannot interrupt
+        // a mid-write checkpoint.
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+        }
         run_result
     }
 
@@ -159,7 +194,7 @@ impl App {
         // `config providers`, `install`) — and intercepts the bundled MCP
         // servers, which never open the session store or the config (see
         // `bootstrap::config` for why the order there is behavioural).
-        match bootstrap::config::prepare(&cli, &self.runtime).change_context(AppError)? {
+        match bootstrap::config::prepare(&cli, self.runtime()).change_context(AppError)? {
             // A bundled server runs over stdio until the client disconnects,
             // then the process returns; no TUI, no session store. With
             // --fetch-model, the child warms the embedding model's cache and
@@ -179,7 +214,7 @@ impl App {
                         .change_context(AppError)
                         .attach("overgraph embedding model pre-fetch failed");
                 }
-                self.runtime
+                self.runtime()
                     .block_on(jinn_mcp_overgraph::serve(args))
                     .change_context(AppError)
                     .attach("overgraph MCP server failed")
@@ -221,7 +256,7 @@ impl App {
                         )
                         .change_context(AppError)?;
                         let (core, services, discord_activated) = self
-                            .runtime
+                            .runtime()
                             .block_on(async {
                                 actor_wiring::ActorSystemBuilder::new(
                                     actor_wiring::ActorSystemBuilderArgs {
@@ -271,7 +306,7 @@ impl App {
                         )
                         .change_context(AppError)?;
                         let (core, services, _discord_activated) = self
-                            .runtime
+                            .runtime()
                             .block_on(async {
                                 actor_wiring::ActorSystemBuilder::new(
                                     actor_wiring::ActorSystemBuilderArgs {
@@ -320,7 +355,7 @@ impl App {
 
                         match subcommand {
                             FetchCommands::Models => {
-                                self.runtime
+                                self.runtime()
                                     .block_on(async { fetch_models().await })
                                     .change_context(AppError)?;
                             }
@@ -328,7 +363,7 @@ impl App {
                                 // A dedicated exit path: a platform
                                 // without a real backend prints and
                                 // exits non-zero here.
-                                fetch_dictation_model(&self.runtime);
+                                fetch_dictation_model(self.runtime());
                             }
                         }
                     }

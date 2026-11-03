@@ -670,8 +670,10 @@ Entries are added or amended **only with human approval**.
 - (dictation) The real Parakeet backend is a linux-only target-scoped dependency outside the workspace member globs; every other platform runs NullBackend with the full lifecycle intact.
 - (dictation) alt-i toggles dictation from any scope: state-reporting hints while fetching or loading, arm on Ready, disarm with a force-finalized trailing utterance on Recording.
 - (dictation) Committed utterances append to the focused chat input through a shared paste-append helper in jinn-chat-input-msg, one implementation also serving the bracketed-paste intent path.
-- (dictation) The volume meter renders at the sidebar/chat seam through the always-painted slice draw path: invisible against the chat background when idle, green background while recording, with an orange alt-hint glyph.
+- (dictation) The volume meter owns the minimap column from the streaming-indicator row to the terminal bottom: idle it paints dotted cells in the inactive border color with a constant orange i at the bottom cell; recording it paints a green-background bar capped by a partial block at the live level (a zero level shows nothing but the background).
+- (dictation) The meter's geometry is composition-owned: AppLayout carries a meter_strip rect, the dispatch hands it to the painter, and full-width tabs never dispatch the region at all.
 - (config) The [dictation] section carries enabled (default false), device, model, and noise_reduction (default true); disabled keeps the actor Offline and the meter hidden.
+- (app) Quit runs a bounded runtime shutdown: in-flight blocking tasks such as a model download are abandoned after ~2s and die with the process, and the fetch backend resumes on the next launch.
 - (dictation) The dictation model cache lives in a jinn-managed AppPaths directory; hf-hub's default cache location is overridden.
 - (cli) jinn fetch downloads the configured dictation model into the jinn-managed cache and exits non-zero on platforms without a real backend.
 - (build) Native dictation dependencies compile only inside the parakeet backend crate and the slice's linux target table; exactly one cfg module in jinn-dictation holds the platform split.

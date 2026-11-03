@@ -212,6 +212,11 @@ impl ParakeetBackend {
     ) -> Result<(), Report<BackendError>> {
         let api = hf_hub::api::sync::ApiBuilder::new()
             .with_cache_dir(self.cache_dir.as_path().to_path_buf())
+            // hf-hub draws indicatif progress bars on the terminal by
+            // default; jinn's TUI owns that surface, and fetch progress
+            // already reports through the dictation state cell (the
+            // dashboard row). The bars would corrupt the frame.
+            .with_progress(false)
             .build()
             .change_context(BackendError)
             .attach("failed to build the HuggingFace client")?;

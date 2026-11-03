@@ -98,8 +98,10 @@ pub fn activate(
         .reader::<jinn_dictation_msg::DictationLevel>(&jinn_dictation_msg::dictation_level_slot())
         .expect("the cell catalog registers the dictation level cell before any slice activates");
 
-    // The meter's draw slot: always-painted, composition dispatches it
-    // on chat frames with the full area; the geometry derives inside.
+    // The meter's draw slot: always-painted; composition dispatches it
+    // on chat frames with the strip rect (the minimap column from the
+    // indicator row to the terminal bottom), so the painter derives no
+    // geometry of its own.
     host.slices()
         .register_render_slot::<jinn_kernel::common::app_state::AppState>(
             jinn_slices::Region::DictationMeter,

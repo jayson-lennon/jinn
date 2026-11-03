@@ -513,6 +513,108 @@ fn rows_of_text(buffer: &ratatui::buffer::Buffer, popup: Rect, chat_right: u16) 
 
 #[rstest::rstest]
 #[tokio::test]
+async fn the_meter_strip_dispatches_on_chat_frames_at_the_layout_rect() {
+    // Given a TuiApp whose DictationMeter region holds a test-local
+    // sentinel slot, and a chat frame (default tab).
+    let mut app = render_test_app().await;
+    let dispatches = meter_dispatch_probe::install(&app.services.slices);
+
+    let (mut terminal, _area) = setup_term(80, 24);
+    terminal
+        .draw(|frame| {
+            app.render(frame);
+        })
+        .unwrap();
+
+    // Then the sentinel painted at exactly the layout's strip rect: the
+    // minimap column from the indicator row to the terminal bottom.
+    let layout = AppLayout::new(frame_area(80, 24), 1, 12, 30);
+    let strip = layout.meter_strip;
+    let buffer = terminal.backend().buffer();
+    for y in strip.y..(strip.y + strip.height) {
+        let cell = buffer.cell((strip.x, y)).expect("strip cell");
+        assert_eq!(
+            cell.symbol(),
+            meter_dispatch_probe::GLYPH,
+            "the meter slot must paint the strip rect, row {y}"
+        );
+    }
+    // And it dispatched exactly once — one dispatch per frame.
+    assert_eq!(
+        dispatches.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "the meter slot must dispatch exactly once per chat frame"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_meter_strip_never_dispatches_on_a_full_width_tab() {
+    // Given a TuiApp whose DictationMeter region holds a sentinel slot,
+    // focused on a registered tab scope (full-width framing).
+    let mut app = render_test_app().await;
+    let dispatches = meter_dispatch_probe::install(&app.services.slices);
+    let tab = jinn_slices::SliceScopeId::new("tests", "full-width-tab");
+    app.services.slices.register_tab_scope(
+        tab.clone(),
+        jinn_slices::SlotKey::builtin("tests", "full-width-tab"),
+    );
+    app.core
+        .state
+        .write()
+        .frontend
+        .scope_swap_base(jinn_slices::FocusScope::Dynamic(tab));
+
+    let (mut terminal, _area) = setup_term(80, 24);
+    terminal
+        .draw(|frame| {
+            app.render(frame);
+        })
+        .unwrap();
+
+    // Then the sentinel never ran: the tab path has no strip to hand it.
+    assert_eq!(
+        dispatches.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "full-width tabs must not dispatch the DictationMeter region"
+    );
+}
+
+/// A test-local draw slot for the `DictationMeter` region: paints a
+/// glyph down the target rect and counts dispatches. Same pattern as
+/// the chat-log/chat-input render-region registrations above — the
+/// production slot belongs to the dictation slice, which does not
+/// activate in this test harness.
+mod meter_dispatch_probe {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use jinn_kernel::AppState;
+
+    pub(super) const GLYPH: &str = "M";
+
+    /// Registers the sentinel draw function and returns its counter.
+    pub(super) fn install(slices: &jinn_slices::Slices) -> Arc<AtomicUsize> {
+        let dispatches = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&dispatches);
+        slices.register_render_slot::<AppState>(
+            jinn_slices::Region::DictationMeter,
+            Arc::new(move |frame, target, _ctx, _rects| {
+                for y in target.area.y..(target.area.y + target.area.height) {
+                    if let Some(cell) = frame.buffer_mut().cell_mut((target.area.x, y)) {
+                        cell.set_symbol(GLYPH);
+                    }
+                }
+                counter.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
+        dispatches
+    }
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn the_session_preview_paints_its_keybinds_over_the_chat_column() {
     // Given a TuiApp with the sessions sidebar focused on a loaded session, a
     // history long enough to fill the chat log, and a preview the worker has

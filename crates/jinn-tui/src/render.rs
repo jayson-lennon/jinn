@@ -179,19 +179,6 @@ fn render_base_layers(
         AppFrameLayout::Chat(chat) => {
             tab_bar::render_tab_bar(frame, chat.tab_bar, ctx);
             chat_tab::border::render_border(frame, chat.border, ctx);
-            // The dictation meter rides the border column's chat-log
-            // stretch. It dispatches on every chat frame (the slice's
-            // paint decides visible vs. idle-invisible from its cell);
-            // the tab path below never reaches this arm, which is the
-            // hidden-on-full-width-tabs rule.
-            region_dispatch::draw_region(
-                slices,
-                jinn_slices::Region::DictationMeter,
-                frame,
-                jinn_slices::DrawTarget::new(chat.border),
-                ctx,
-                rects,
-            );
             // The sidebar column: the slice's section list. It is
             // mouse-selectable only while it holds focus, which is what
             // `select` carries; the slice decides whether to register it,
@@ -206,6 +193,21 @@ fn render_base_layers(
                 );
             }
             chat_tab::render_chat_tab(slices, frame, chat, ctx, rects);
+            // The dictation meter strip owns the minimap column from the
+            // streaming-indicator row to the terminal bottom edge. It
+            // dispatches on every chat frame (the slice's paint decides
+            // idle dots vs. recording bar from its cell) and comes after
+            // the chat tab so the minimap can never repaint over it. The
+            // tab path below never reaches this arm, which is the
+            // hidden-on-full-width-tabs rule.
+            region_dispatch::draw_region(
+                slices,
+                jinn_slices::Region::DictationMeter,
+                frame,
+                jinn_slices::DrawTarget::new(chat.meter_strip),
+                ctx,
+                rects,
+            );
             // The status bar is a slice-owned region too.
             region_dispatch::draw_region(
                 slices,

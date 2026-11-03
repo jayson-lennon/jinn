@@ -16,6 +16,9 @@ pub struct AppLayout {
     pub main: Rect,
     /// The vertical minimap column (1 char wide, same height as chat log area).
     pub minimap: Rect,
+    /// The dictation meter strip: the minimap column from the streaming
+    /// indicator row down to the terminal bottom edge (chat layout only).
+    pub meter_strip: Rect,
     /// The right column: sidebar (full height).
     pub sidebar: Rect,
     /// The vertical border between minimap and sidebar (1 column wide).
@@ -95,6 +98,20 @@ impl AppLayout {
             height: chat_log_height,
         };
 
+        // Dictation meter strip: the minimap column from the streaming
+        // indicator row (first of the content area's two bottom rows, see
+        // chat_tab's `bottom_lines`) to the terminal bottom edge. It spans
+        // the input-box and status-bar bands, which paint nothing in this
+        // column, and its top anchor rides the indicator row, so the strip
+        // resizes automatically as the input box grows.
+        let indicator_row_y = content.y + content.height.saturating_sub(bottom_lines);
+        let meter_strip = Rect {
+            x: minimap.x,
+            y: indicator_row_y,
+            width: minimap_width,
+            height: (area.y + area.height).saturating_sub(indicator_row_y),
+        };
+
         let border = Rect {
             x: main.x + main.width + minimap_width,
             y: area.y,
@@ -111,6 +128,7 @@ impl AppLayout {
         Self {
             main,
             minimap,
+            meter_strip,
             sidebar,
             border,
             tab_bar,
@@ -254,6 +272,43 @@ mod tests {
         assert_eq!(layout.tab_bar, Rect::new(0, 0, 80, 1));
         // And the content fills everything below, full width.
         assert_eq!(layout.content, Rect::new(0, 1, 80, 23));
+    }
+
+    #[rstest::rstest]
+    fn meter_strip_anchors_the_indicator_row_to_the_term_bottom() {
+        // Given an 80x24 area.
+        let area = Rect::new(0, 0, 80, 24);
+        let layout = AppLayout::new(area, 1, area.height / 2, 30);
+
+        // When reading the meter strip off the layout.
+        let strip = layout.meter_strip;
+
+        // Then it is the minimap column, starting at the indicator row
+        // (the first of content's two bottom rows) and reaching the
+        // terminal bottom edge.
+        assert_eq!(strip.x, layout.minimap.x);
+        assert_eq!(strip.width, 1);
+        assert_eq!(strip.y, layout.content.y + layout.content.height - 2);
+        assert_eq!(strip.y + strip.height, area.y + area.height);
+        // And it does not overlap the minimap (strip starts below it).
+        assert_eq!(strip.y, layout.minimap.y + layout.minimap.height);
+    }
+
+    #[rstest::rstest]
+    fn meter_strip_grows_when_the_input_adds_lines() {
+        // Given an 80x24 area laid out with a 1-line input.
+        let area = Rect::new(0, 0, 80, 24);
+        let narrow = AppLayout::new(area, 1, area.height / 2, 30);
+
+        // When the input grows to 4 visual lines.
+        let tall = AppLayout::new(area, 4, area.height / 2, 30);
+
+        // Then the strip is taller: its top anchor moved up with the
+        // indicator row while its bottom stayed on the terminal edge.
+        assert!(tall.meter_strip.height > narrow.meter_strip.height);
+        assert_eq!(tall.meter_strip.height, narrow.meter_strip.height + (4 - 1));
+        assert_eq!(tall.meter_strip.y + tall.meter_strip.height, area.bottom());
+        assert_eq!(tall.meter_strip.y, tall.content.y + tall.content.height - 2);
     }
 
     #[rstest::rstest]
