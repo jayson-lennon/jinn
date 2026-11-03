@@ -6,6 +6,10 @@
 - Add "interrupt" mode to `tell_session` tool. This uses the steering buffer to deliver a message quickly instead of waiting for turn end.
 - Persona picker + sidebar will now always stay synced.
 - Creating new sessions will always inherit the persona of the most recent active session.
+- Add basic remote messaging functionality.
+  - `jinn remote instances` lists running `jinn` instances
+  - `jinn remote send` sends a message to a running `jinn` session. Defaults to the most recently opened instance.
+    - A session ID to receive the message is required. Use existing `y` keybind to copy a session ID for use with `jinn remote send`.
 
 ## 2026-11-01 v1.16.0
 
