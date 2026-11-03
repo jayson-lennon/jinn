@@ -116,6 +116,7 @@ jinn-model-market = { workspace = true }
 jinn-dashboard = { workspace = true }
 jinn-discord = { workspace = true }
 jinn-discord-msg = { workspace = true }
+jinn-dictation = { workspace = true }
 jinn-quake-bar = { workspace = true }
 jinn-status-bar = { workspace = true }
 jinn-session-msg = { workspace = true }
@@ -282,6 +283,8 @@ jinn-selection-widget = { path = "crates/jinn-selection-widget" }
 jinn-picker = { path = "crates/jinn-picker" }
 jinn-testutil = { path = "crates/jinn-testutil" }
 jinn-dictation-backend = { path = "crates/jinn-dictation-backend" }
+jinn-dictation-msg = { path = "crates/slices/jinn-dictation-msg" }
+jinn-dictation = { path = "crates/slices/jinn-dictation" }
 
 jinn-theme = { path = "crates/jinn-theme" }
 jinn-mcp = { path = "crates/jinn-mcp" }

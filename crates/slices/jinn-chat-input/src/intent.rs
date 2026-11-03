@@ -184,12 +184,11 @@ fn handle_insert_while_autocomplete_active(ch: char, state: &mut AppState) -> In
 
 /// Handles `PasteText` - bulk inserts pasted text and deactivates autocomplete.
 ///
-/// Pastes bypass the per-character insertion pipeline entirely, inserting the
-/// full string in one O(n) operation. Autocomplete is always deactivated on
-/// paste since the pasted content may span multiple lines or tokens.
+/// The mutation itself is the shared paste-append helper in the
+/// crossing crate — the same implementation the dictation actor's
+/// utterance commits run through — so the two paths cannot drift.
 pub fn handle_paste_text(text: &str, state: &mut AppState) -> IntentResult {
-    state.update_active_input(ChatInputBoxState::deactivate_autocomplete);
-    state.update_active_input(|i| i.insert_text(text));
+    state.update_active_input(|i| jinn_chat_input_msg::append_paste_to_buffer(i, text));
     IntentResult::empty()
 }
 

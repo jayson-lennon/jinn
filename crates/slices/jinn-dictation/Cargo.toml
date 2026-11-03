@@ -1,0 +1,38 @@
+[package]
+name = "jinn-dictation"
+version.workspace = true
+edition.workspace = true
+description = "The dictation slice: one actor owning the backend lifecycle (fetch, load, arm, disarm) plus the alt-i toggle row and the seam volume meter."
+
+[dependencies]
+# Platform gate: the real Parakeet backend compiles only on linux
+# targets; every other platform links the null path through the single
+# cfg module (platform.rs). This target-scoped table is the whole
+# manifest-side platform split.
+jinn-dictation-backend = { workspace = true }
+jinn-dictation-msg = { workspace = true }
+jinn-chat-input-msg = { workspace = true }
+jinn-preferences-config = { workspace = true }
+jinn-kernel = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-config = { workspace = true }
+jinn-status-bar-msg = { workspace = true }
+error-stack = { workspace = true }
+wherror = { workspace = true }
+trouper = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+ratatui = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+jinn-dictation-backend-parakeet = { path = "../../backends/jinn-dictation-backend-parakeet" }
+
+[dev-dependencies]
+rstest = { workspace = true }
+jinn-testutil = { workspace = true }
+jinn-app-state = { workspace = true }
+
+[lints]
+workspace = true

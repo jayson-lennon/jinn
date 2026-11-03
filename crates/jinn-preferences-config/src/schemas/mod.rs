@@ -27,6 +27,7 @@ pub mod canvas;
 pub mod chat_log;
 pub mod compaction;
 pub mod cwd_selector;
+pub mod dictation;
 pub mod discord;
 pub mod legacy_command_policy;
 pub mod maintenance;
@@ -57,6 +58,7 @@ pub use canvas::{CanvasBindError, CanvasConfig, DEFAULT_CANVAS_BIND};
 pub use chat_log::ChatLogConfig;
 pub use compaction::CompactionConfig;
 pub use cwd_selector::CwdSelectorConfig;
+pub use dictation::DictationConfig;
 pub use discord::DiscordConfig;
 pub use legacy_command_policy::{
     LEGACY_COMMAND_POLICY_KEY, LegacyCommandPolicyRule, LegacyProjectConfig,

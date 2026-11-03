@@ -485,6 +485,22 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
     let discord =
         jinn_discord::activate(&mut ctx.host(), &services_snapshot, state_snapshot).await?;
 
+    // The dictation slice is an independent: its cells came from the
+    // catalog (Block 0), it reads `[dictation]` and the shared state
+    // handle, registers the alt-i route row and the meter's render slot,
+    // and spawns its lifecycle actor. Nothing below resolves a dictation
+    // cell it does not already have; the row needs only the route table
+    // composition folds after every activation.
+    let config_snapshot = ctx.services().config.clone();
+    let state_snapshot = ctx.state().clone();
+    let services_snapshot = ctx.services().clone();
+    jinn_dictation::activate(
+        &mut ctx.host(),
+        &state_snapshot,
+        &services_snapshot,
+        &config_snapshot,
+    );
+
     Ok(Activated { boot, discord })
 }
 
