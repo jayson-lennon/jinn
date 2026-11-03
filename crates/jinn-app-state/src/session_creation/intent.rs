@@ -14,7 +14,7 @@
 
 use crate::app_state::AppState;
 use jinn_config::ConfigLayer;
-use jinn_core_types::{DEFAULT_PERSONA_NAME, SessionId, SessionProfile};
+use jinn_core_types::{SessionId, SessionProfile};
 use jinn_preferences_config::schemas::SessionLifecycle;
 use jinn_session_lifecycle_msg::CommandTemplate;
 use jinn_session_lifecycle_msg::command::{RunSessionSetup, RunSessionTeardown};
@@ -50,10 +50,10 @@ pub fn handle_session_lifecycle_setup(
         .clone()
         .unwrap_or_default();
 
-    let persona_name = state
-        .persona_selection()
-        .and_then(|cell| cell.read().active.clone())
-        .unwrap_or_else(|| DEFAULT_PERSONA_NAME.to_owned());
+    // Inherit the active session's persona — the same inheritance rule the
+    // session's CWD follows below. The read happens BEFORE insert/set_active
+    // so "the active session" here is the session being cloned from.
+    let persona_name = state.active_session().persona_name().to_owned();
 
     let reasoning_effort = state.frontend.app_state.reasoning_effort;
 
@@ -537,6 +537,28 @@ mod tests {
         let text =
             toml::to_string(&toml::Value::Table(document)).expect("fixture document serializes");
         jinn_config::testutil::config_layer(&text)
+    }
+
+    #[rstest::rstest]
+    fn new_session_inherits_active_sessions_persona() {
+        // Given a state whose active session carries a persona.
+        let mut state = AppState::default_with_scope_focus();
+        state
+            .active_session_mut()
+            .set_persona_name("learning-tutor".to_owned());
+
+        // When creating a new session.
+        let _result = handle_session_lifecycle_setup(
+            &mut state,
+            "",
+            &[],
+            None,
+            jinn_config::empty_config_layer(),
+        );
+
+        // Then the new active session carries the old session's persona —
+        // the same inheritance rule its CWD follows.
+        assert_eq!(state.active_session().persona_name(), "learning-tutor");
     }
 
     #[rstest::rstest]

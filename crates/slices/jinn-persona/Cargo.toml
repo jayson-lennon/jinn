@@ -6,6 +6,7 @@ description = "The persona slice: parses persona markdown into the personas cell
 
 [dependencies]
 marked-path = { workspace = true }
+jinn-core-types = { workspace = true }
 jinn-persona-msg = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-picker = { workspace = true }
@@ -30,6 +31,10 @@ jinn-cell-catalog = { workspace = true }
 # kernel's Services. Production code reaches the state through jinn-app-state
 # and never touches the kernel, which is what keeps this slice kernel-free.
 jinn-kernel = { workspace = true }
+# The confirm test decodes the published UpdateAppState payload from its
+# schema id, the same erased-publish parity every other picker test uses.
+trouper = { workspace = true }
+serde_json = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true }
 

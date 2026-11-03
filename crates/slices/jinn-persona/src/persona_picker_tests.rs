@@ -257,13 +257,13 @@ async fn opening_the_picker_shows_the_scanned_personas() {
 #[rstest::rstest]
 #[tokio::test]
 async fn the_picker_marks_the_active_persona() {
-    // Given a slice whose active persona is "tutor".
+    // Given a slice whose active session's persona is "tutor".
     let wired = Wired::new(vec![("coder", "a"), ("tutor", "b")]).await;
     wired
-        .slices
-        .reader::<jinn_persona_msg::Personas>(&personas_slot())
-        .expect("personas cell")
-        .update(|p: &mut jinn_persona_msg::Personas| p.active = Some("tutor".to_owned()));
+        .state
+        .borrow_mut()
+        .active_session_mut()
+        .set_persona_name("tutor".to_owned());
 
     // When the picker is opened.
     wired.open();
@@ -281,6 +281,33 @@ async fn the_picker_marks_the_active_persona() {
     // decoration, not a filter.
     assert_eq!(active, vec![false, true]);
     assert_eq!(wired.all_names().len(), 2);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn picker_enter_preselects_active_sessions_persona() {
+    // Given a slice whose active session carries a persona the picker lists.
+    let wired = Wired::new(vec![("coder", "a"), ("tutor", "b")]).await;
+    wired
+        .state
+        .borrow_mut()
+        .active_session_mut()
+        .set_persona_name("tutor".to_owned());
+
+    // When the picker is entered through a non-picker opener (the sidebar key).
+    wired.enter();
+
+    // Then the session's persona is the marked one.
+    let cell = wired.cell();
+    let guard = cell.read();
+    let marked: Vec<&str> = guard
+        .selection
+        .items()
+        .iter()
+        .filter(|item| item.entry().is_active)
+        .map(|item| item.entry().name.as_str())
+        .collect();
+    assert_eq!(marked, vec!["tutor"]);
 }
 
 // ── 2. Every opener lands on the same fresh menu ────────────────────────
@@ -566,7 +593,7 @@ fn widget_layout(
 
 #[rstest::rstest]
 #[tokio::test]
-async fn confirming_records_the_highlighted_persona_as_active() {
+async fn confirming_binds_the_highlighted_persona_to_the_active_session() {
     // Given an open picker whose highlight is on the second persona.
     let wired = Wired::new(vec![("coder", "a"), ("tutor", "b")]).await;
     wired.open();
@@ -575,12 +602,75 @@ async fn confirming_records_the_highlighted_persona_as_active() {
     // When enter is pressed.
     wired.fire("confirm-persona-picker");
 
-    // Then the personas cell records the highlighted persona as active.
-    let personas = wired
-        .slices
-        .reader::<jinn_persona_msg::Personas>(&personas_slot())
-        .expect("personas cell");
-    assert_eq!(personas.read().active.as_deref(), Some("tutor"));
+    // Then the active session carries the highlighted persona.
+    assert_eq!(
+        wired.state.borrow().active_session().persona_name(),
+        "tutor"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn confirm_binds_session_and_persists_last_persona() {
+    // Given an open picker whose highlight is on the second persona.
+    let wired = Wired::new(vec![("coder", "a"), ("tutor", "b")]).await;
+    wired.open();
+    wired.fire("move-persona-picker-down");
+
+    // When enter is pressed.
+    let result = wired.fire("confirm-persona-picker");
+
+    // Then the persisted last-persona seed travels out as SetPersona.
+    let applied = persisted_persona_of(result).expect("confirm persists the persona");
+    assert_eq!(applied, Some("tutor".to_owned()));
+}
+
+/// Drains `result`'s publish closures into a sink and decodes the
+/// `UpdateAppState` command they carried, if any.
+///
+/// The `Option<Option<String>>` is deliberate: the outer `None` means "no
+/// `UpdateAppState` was published", the inner `None` means "published, with
+/// `SetPersona(None)`" — the distinction a confirm assertion needs.
+#[expect(
+    clippy::option_option,
+    reason = "outer None = command absent, inner None = SetPersona(None); the confirm assertion needs both"
+)]
+fn persisted_persona_of(result: jinn_slices::RouteResult) -> Option<Option<String>> {
+    #[derive(Default)]
+    struct RecordingSink {
+        published: std::sync::Mutex<Vec<(String, serde_json::Value)>>,
+    }
+
+    impl jinn_slices::PublishSink for RecordingSink {
+        fn publish_schema(
+            &self,
+            schema_id: trouper::schema::SchemaId,
+            payload: serde_json::Value,
+            _name: &'static str,
+        ) {
+            self.published
+                .lock()
+                .expect("sink lock")
+                .push((format!("{schema_id}"), payload));
+        }
+    }
+
+    let sink = RecordingSink::default();
+    for closure in result.messages {
+        closure(&sink);
+    }
+    let published = sink.published.lock().expect("sink lock");
+    let (_, payload) = published
+        .iter()
+        .find(|(id, _)| id.ends_with("UpdateAppState"))?;
+    let command: jinn_preferences_config::protocol::app_state_command::UpdateAppState =
+        serde_json::from_value(payload.clone()).expect("the payload is an UpdateAppState");
+    command.updates.into_iter().find_map(|update| match update {
+        jinn_preferences_config::protocol::app_state_command::AppStateUpdate::SetPersona(name) => {
+            Some(name)
+        }
+        _ => None,
+    })
 }
 
 #[rstest::rstest]
@@ -605,25 +695,24 @@ async fn confirming_asks_the_scope_stack_to_pop_the_picker() {
 #[rstest::rstest]
 #[tokio::test]
 async fn escape_leaves_the_active_persona_alone() {
-    // Given an open picker over a slice whose active persona is "coder".
+    // Given an open picker over a slice whose session persona is "coder".
     let wired = Wired::new(vec![("coder", "a"), ("tutor", "b")]).await;
     wired
-        .slices
-        .reader::<jinn_persona_msg::Personas>(&personas_slot())
-        .expect("personas cell")
-        .update(|p: &mut jinn_persona_msg::Personas| p.active = Some("coder".to_owned()));
+        .state
+        .borrow_mut()
+        .active_session_mut()
+        .set_persona_name("coder".to_owned());
     wired.open();
     wired.fire("move-persona-picker-down");
 
     // When escape is pressed.
     wired.fire("cancel-persona-picker");
 
-    // Then the previously active persona is still active.
-    let personas = wired
-        .slices
-        .reader::<jinn_persona_msg::Personas>(&personas_slot())
-        .expect("personas cell");
-    assert_eq!(personas.read().active.as_deref(), Some("coder"));
+    // Then the session still carries its original persona.
+    assert_eq!(
+        wired.state.borrow().active_session().persona_name(),
+        "coder"
+    );
 }
 
 #[rstest::rstest]

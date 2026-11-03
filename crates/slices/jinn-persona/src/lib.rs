@@ -54,10 +54,7 @@ pub fn activate(
     personas_dir: &MarkedPathBuf<Absolute>,
 ) -> Personas {
     let entries = scan(personas_dir);
-    let scanned = Personas {
-        entries,
-        ..Default::default()
-    };
+    let scanned = Personas { entries };
     let cell = host
         .slices()
         .reader::<Personas>(&personas_slot())

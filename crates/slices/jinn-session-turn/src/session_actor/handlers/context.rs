@@ -111,13 +111,17 @@ impl SessionPersistenceActor {
         );
     }
 
-    /// Stores loaded personas in state and selects the active persona.
+    /// Replaces the persona catalog and normalizes every live session's
+    /// persona against it.
     ///
-    /// Priority:
-    /// 1. Honor state.persona_name if set and found in list.
-    /// 2. Keep current active_persona if it still exists in the new list.
-    /// 3. Fallback to `"coding-assistant"` by name.
-    /// 4. If coding-assistant not found, pick first available.
+    /// The active session's profile persona is the only persona authority,
+    /// so a landing catalog carries no selection to apply. What it does
+    /// carry is the authority on which names exist: any session whose
+    /// stored persona is absent from the scan is rewritten (default
+    /// persona first, first-available backstop), keeping the invariant
+    /// that no session holds a persona that does not exist. The rewrites
+    /// ride each session's next stamped save — in-memory correctness is
+    /// what the sidebar and context assembly read.
     pub(in crate::session_actor) fn on_personas_loaded(&self, payload: &PersonasLoaded) {
         if payload.error.is_some() {
             tracing::warn!(
@@ -127,12 +131,7 @@ impl SessionPersistenceActor {
             return;
         }
 
-        // Read frontend.app_state.persona_name (if set) before writing.
-        let seeded_persona_name = self.state.read().frontend.app_state.persona_name.clone();
-
-        // The persona catalog lives in the persona slice's cell now; the
-        // actor only carries authority to write the selection it was
-        // seeded with.
+        // The persona catalog lives in the persona slice's cell.
         let Some(cell) = self
             .services
             .slices
@@ -141,12 +140,31 @@ impl SessionPersistenceActor {
             tracing::warn!("persona slice not activated; dropping PersonasLoaded catalog");
             return;
         };
-        cell.update(|personas| {
-            personas.seeded_replace(
-                payload.personas.clone(),
-                seeded_persona_name.as_deref(),
-                DEFAULT_PERSONA_NAME,
-            );
+        cell.update(|personas| personas.replace_entries(payload.personas.clone()));
+
+        // Every live session whose persona stopped resolving is rewritten.
+        let unknown: Vec<jinn_core_types::SessionId> = {
+            let state = self.state.read();
+            state
+                .session
+                .iter()
+                .filter(|(_, session)| cell.read().persona(session.persona_name()).is_none())
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        if unknown.is_empty() {
+            return;
+        }
+        self.state.with_session(|view| {
+            for session_id in unknown {
+                let Some(session) = view.session.map().get_mut(&session_id) else {
+                    continue;
+                };
+                let normalized = cell
+                    .read()
+                    .normalize_name(session.persona_name(), DEFAULT_PERSONA_NAME);
+                session.set_persona_name(normalized);
+            }
         });
     }
 }
@@ -194,170 +212,108 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn on_personas_loaded_selects_coding_assistant_when_none_active() {
-        // Given a session actor with no active persona.
-        let (actor, _state, _audit) = create_actor().await;
-        let personas = vec![
-            make_persona("learning-tutor"),
-            make_persona("coding-assistant"),
-        ];
-        let payload = PersonasLoaded {
-            personas,
-            error: None,
-        };
-
-        // When receiving PersonasLoaded.
-        actor.on_personas_loaded(&payload);
-
-        // Then coding-assistant is selected by name, not position.
-        let selection = actor
-            .services
-            .slices
-            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-            .expect("personas cell seeded");
-        let selection_guard = selection.read();
-        assert_eq!(selection_guard.active.as_deref(), Some("coding-assistant"));
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn on_personas_loaded_keeps_existing_active_persona() {
-        // Given a session actor with active persona "learning-tutor".
+    async fn on_personas_loaded_replaces_the_catalog() {
+        // Given a session actor whose personas cell holds a stale catalog.
         let (actor, _state, _audit) = create_actor().await;
         actor
             .services
             .slices
             .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
             .expect("personas cell seeded")
-            .update(|p| p.active = Some("learning-tutor".to_owned()));
-        let personas = vec![
-            make_persona("coding-assistant"),
-            make_persona("learning-tutor"),
-        ];
+            .update(|p| p.replace_entries(vec![make_persona("stale")]));
         let payload = PersonasLoaded {
-            personas,
+            personas: vec![make_persona("fresh")],
             error: None,
         };
 
         // When receiving PersonasLoaded.
         actor.on_personas_loaded(&payload);
 
-        // Then learning-tutor is kept (still exists in list).
-        let selection = actor
+        // Then the cell holds exactly the scanned catalog.
+        let cell = actor
             .services
             .slices
             .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
             .expect("personas cell seeded");
-        assert_eq!(selection.read().active.as_deref(), Some("learning-tutor"));
+        let names: Vec<String> = cell.read().entries.iter().map(|p| p.name.clone()).collect();
+        assert_eq!(names, vec!["fresh".to_owned()]);
     }
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn on_personas_loaded_falls_back_when_active_missing() {
-        // Given a session actor where active persona "foo" was deleted from disk.
-        let (actor, _state, _audit) = create_actor().await;
-        actor
-            .services
-            .slices
-            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-            .expect("personas cell seeded")
-            .update(|p| p.active = Some("foo".to_owned()));
-        let personas = vec![make_persona("coding-assistant")];
+    async fn personas_loaded_normalizes_unknown_session_persona() {
+        // Given a session actor whose active session carries a persona the
+        // scan no longer finds (deleted from disk while jinn was closed).
+        let (actor, state, _audit) = create_actor().await;
+        state
+            .write()
+            .active_session_mut()
+            .set_persona_name("learning-tutor".to_owned());
         let payload = PersonasLoaded {
-            personas,
+            personas: vec![make_persona("coding-assistant")],
             error: None,
         };
 
         // When receiving PersonasLoaded.
         actor.on_personas_loaded(&payload);
 
-        // Then falls back to coding-assistant.
-        let selection = actor
-            .services
-            .slices
-            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-            .expect("personas cell seeded");
-        let selection_guard = selection.read();
-        assert_eq!(selection_guard.active.as_deref(), Some("coding-assistant"));
+        // Then the session is rewritten to the default persona.
+        assert_eq!(
+            state.read().active_session().persona_name(),
+            "coding-assistant"
+        );
     }
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn on_personas_loaded_uses_first_when_coding_assistant_missing() {
-        // Given a session actor with no coding-assistant in the scanned list.
-        let (actor, _state, _audit) = create_actor().await;
-        let personas = vec![make_persona("learning-tutor")];
+    async fn personas_loaded_leaves_known_session_personas_alone() {
+        // Given a session actor whose active session carries a persona the
+        // scan does find.
+        let (actor, state, _audit) = create_actor().await;
+        state
+            .write()
+            .active_session_mut()
+            .set_persona_name("learning-tutor".to_owned());
         let payload = PersonasLoaded {
-            personas,
+            personas: vec![
+                make_persona("coding-assistant"),
+                make_persona("learning-tutor"),
+            ],
             error: None,
         };
 
         // When receiving PersonasLoaded.
         actor.on_personas_loaded(&payload);
 
-        // Then first available is selected.
-        let selection = actor
-            .services
-            .slices
-            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-            .expect("personas cell seeded");
-        assert_eq!(selection.read().active.as_deref(), Some("learning-tutor"));
+        // Then the session keeps its persona.
+        assert_eq!(
+            state.read().active_session().persona_name(),
+            "learning-tutor"
+        );
     }
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn on_personas_loaded_clears_active_when_list_empty() {
-        // Given a session actor with some active persona.
-        let (actor, _state, _audit) = create_actor().await;
-        actor
-            .services
-            .slices
-            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-            .expect("personas cell seeded")
-            .update(|p| p.active = Some("foo".to_owned()));
+    async fn on_personas_loaded_skips_a_failed_scan() {
+        // Given a session actor whose active session carries an unknown persona.
+        let (actor, state, _audit) = create_actor().await;
+        state
+            .write()
+            .active_session_mut()
+            .set_persona_name("learning-tutor".to_owned());
         let payload = PersonasLoaded {
             personas: vec![],
-            error: None,
+            error: Some("scan failed".to_owned()),
         };
 
-        // When receiving PersonasLoaded with empty list.
+        // When receiving PersonasLoaded with an error.
         actor.on_personas_loaded(&payload);
 
-        // Then active_persona is None.
-        let selection = actor
-            .services
-            .slices
-            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-            .expect("personas cell seeded");
-        let selection_guard = selection.read();
-        assert!(selection_guard.active.is_none());
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn on_personas_loaded_resolves_seeded_persona_name() {
-        // Given a session actor with a persisted persona_name in frontend.app_state
-        // (the value the store actor's environment handler seeds from state.toml at startup).
-        let (actor, state, _audit) = create_actor().await;
-        {
-            let mut guard = state.write();
-            guard.frontend.app_state.persona_name = Some("general".to_owned());
-        }
-        let payload = PersonasLoaded {
-            personas: vec![make_persona("coding-assistant"), make_persona("general")],
-            error: None,
-        };
-
-        // When receiving PersonasLoaded.
-        actor.on_personas_loaded(&payload);
-
-        // Then the seeded persona_name wins over the coding-assistant default.
-        let selection = actor
-            .services
-            .slices
-            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-            .expect("personas cell seeded");
-        assert_eq!(selection.read().active.as_deref(), Some("general"));
+        // Then the session is untouched — a failed scan is not a catalog.
+        assert_eq!(
+            state.read().active_session().persona_name(),
+            "learning-tutor"
+        );
     }
 
     #[rstest::rstest]

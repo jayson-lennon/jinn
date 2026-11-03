@@ -174,9 +174,9 @@ mod tests {
 
     #[rstest::rstest]
     fn content_height_is_four_with_active_persona() {
-        // Given a PersonaSection and state with an active persona.
+        // Given a PersonaSection and state whose session carries a persona.
         let mut section = PersonaSection;
-        let state = AppState::default_with_scope_focus();
+        let mut state = AppState::default_with_scope_focus();
         state
             .persona_selection()
             .expect("persona cell attached")
@@ -186,8 +186,10 @@ mod tests {
                     description: "Expert coder".to_owned(),
                     body: String::new(),
                 });
-                p.active = Some("coding-assistant".to_owned());
             });
+        state
+            .active_session_mut()
+            .set_persona_name("coding-assistant".to_owned());
 
         // When asking for content height.
         let slices = jinn_slices::Slices::new();

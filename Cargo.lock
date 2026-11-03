@@ -3660,6 +3660,7 @@ dependencies = [
  "error-stack",
  "jinn-app-state",
  "jinn-cell-catalog",
+ "jinn-core-types",
  "jinn-kernel",
  "jinn-persona-msg",
  "jinn-picker",
@@ -3673,9 +3674,11 @@ dependencies = [
  "ratatui",
  "rstest",
  "serde",
+ "serde_json",
  "tokio",
  "toml",
  "tracing",
+ "trouper",
  "wherror",
 ]
 
@@ -4188,6 +4191,7 @@ dependencies = [
  "jinn-core-types",
  "jinn-kernel",
  "jinn-mcp-msg",
+ "jinn-persona-msg",
  "jinn-picker",
  "jinn-preferences-config",
  "jinn-provider",

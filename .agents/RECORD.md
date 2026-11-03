@@ -656,3 +656,7 @@ Entries are added or amended **only with human approval**.
 - (tools) The tell_session tool takes an optional mode parameter of queue or interrupt and resolves an absent mode to queue.
 - (tools) A tell_session interrupt to a busy target lands as an attribution-prefixed steering fragment at the target's next prompt-assembly boundary and never cancels in-flight work.
 - (tools) A tell_session interrupt to an idle target falls back to the ordinary delivery — a seeded bot run or an intersession user turn.
+- (persona) The active session's profile persona is the single persona authority: the sidebar, the persona picker's pre-selection, and context assembly all read it.
+- (persona) Confirming the persona picker binds the active session only and persists the choice as the startup-session seed; no global active-persona selection exists.
+- (persona) A session whose stored persona name is absent from the scanned catalog is rewritten to the default persona when the catalog lands or the session hydrates, with the first available persona as the backstop.
+- (session) New sessions inherit the active session's persona, the same way they inherit its working directory.

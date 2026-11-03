@@ -33,6 +33,9 @@ jinn-token-count-msg = { workspace = true }
 jinn-work-time-msg = { workspace = true }
 jinn-tools-msg = { workspace = true }
 jinn-slices = { workspace = true }
+# The startup seed normalizes the persisted persona against the persona
+# slice's catalog cell. Read-only.
+jinn-persona-msg = { workspace = true }
 # The status bar's hint cell, so a failed archive reaches the screen
 # instead of leaving the keypress looking like a no-op.
 jinn-status-bar-msg = { workspace = true }

@@ -44,6 +44,10 @@ impl SessionStoreActor {
     }
 
     /// Applies persisted preferences to the welcome session only.
+    ///
+    /// The persisted persona seeds the startup session the same way
+    /// `last_model` does, normalized against the persona catalog so the
+    /// welcome session can never carry a name the scan does not have.
     fn seed_welcome_session(
         &self,
         app_state: &jinn_preferences_config::app_state_file::AppStateFile,
@@ -58,6 +62,25 @@ impl SessionStoreActor {
                 session.set_model(model.clone());
             }
             session.profile_mut().reasoning_effort = app_state.reasoning_effort;
+
+            // The persisted persona is the startup-session seed. An unset
+            // value leaves the profile's own default; a set one is
+            // normalized through the catalog (absent names fall to the
+            // default persona, first-available backstop).
+            if let Some(persisted) = app_state.persona_name.as_deref() {
+                let catalog = self
+                    .services
+                    .slices
+                    .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot());
+                let normalized = catalog.map_or_else(
+                    || persisted.to_owned(),
+                    |cell| {
+                        cell.read()
+                            .normalize_name(persisted, jinn_core_types::DEFAULT_PERSONA_NAME)
+                    },
+                );
+                session.set_persona_name(normalized);
+            }
 
             let seed = SessionSeed::from_config(&self.services.config);
             {

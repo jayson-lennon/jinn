@@ -57,6 +57,10 @@ struct ActorFixture {
     /// The library cell, from the same `Slices` as the actor's own handle —
     /// the same reason as `status_bar`.
     library_cell: jinn_slices::cell::TypedCell<jinn_session_store_msg::LibraryState>,
+    /// The personas cell, from the same `Slices` — the startup seed
+    /// normalizes the persisted persona against it, so a test asserting
+    /// that seed reads the same cell the actor reads.
+    personas: jinn_slices::cell::TypedCell<jinn_persona_msg::Personas>,
 }
 
 impl ActorFixture {
@@ -69,6 +73,11 @@ impl ActorFixture {
     /// the seeded builder reads.
     fn services_config(&self) -> &jinn_config::ConfigLayer {
         &self.config
+    }
+
+    /// The personas cell.
+    fn personas_cell(&self) -> jinn_slices::cell::TypedCell<jinn_persona_msg::Personas> {
+        self.personas.clone()
     }
 }
 
@@ -108,6 +117,10 @@ async fn actor_fixture() -> ActorFixture {
         .slices
         .reader::<jinn_session_store_msg::LibraryState>(&jinn_session_store_msg::library_slot())
         .expect("the cell catalog registers the library slot");
+    let personas = services
+        .slices
+        .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+        .expect("the cell catalog registers the personas slot");
     let state = State::new(AppState::default());
     let app_state_storage = services.app_state_storage.clone();
     let config = services.config.clone();
@@ -134,6 +147,7 @@ async fn actor_fixture() -> ActorFixture {
         work_time,
         actor_path,
         library_cell,
+        personas,
     }
 }
 
@@ -3320,6 +3334,137 @@ fn seed_persisted_preferences(fixture: &ActorFixture) -> jinn_core_types::ModelS
         .save(&app_state)
         .expect("persist preferences");
     model
+}
+
+/// Seeds the persisted persona the startup seed reads.
+fn seed_persisted_persona(fixture: &ActorFixture, persona: &str) {
+    let mut app_state = fixture.app_state_storage.read();
+    app_state.persona_name = Some(persona.to_owned());
+    fixture
+        .app_state_storage
+        .save(&app_state)
+        .expect("persist persona");
+}
+
+/// Puts `names` into the personas cell, as the persona slice's scan would.
+///
+/// The cell comes from the fixture's own `Slices` — the same registry the
+/// actor reads the catalog through, which is what makes the seed's
+/// normalization observable.
+fn seed_persona_catalog(fixture: &ActorFixture, names: &[&str]) {
+    fixture.personas_cell().update(|personas| {
+        personas.replace_entries(
+            names
+                .iter()
+                .map(|name| jinn_slices::Persona {
+                    name: (*name).to_owned(),
+                    description: String::new(),
+                    body: String::new(),
+                })
+                .collect(),
+        );
+    });
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn welcome_session_seeds_persisted_persona() {
+    // Given a persisted persona and a catalog that carries it.
+    let fixture = actor_fixture().await;
+    seed_persona_catalog(&fixture, &["coding-assistant", "general"]);
+    seed_persisted_persona(&fixture, "general");
+
+    // When startup runs.
+    fixture
+        .harness
+        .publish(EnvironmentLoaded {
+            config: empty_providers_config(),
+        })
+        .await;
+    jinn_testutil::wait::await_inbox_drained(
+        fixture.harness.system(),
+        &fixture.actor_path,
+        Duration::from_secs(10),
+    )
+    .await;
+
+    // Then the welcome session carries the persisted persona.
+    assert_eq!(
+        fixture.state.read().active_session().persona_name(),
+        "general"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn welcome_session_seed_normalizes_a_persona_the_catalog_lacks() {
+    // Given a persisted persona the catalog no longer carries.
+    let fixture = actor_fixture().await;
+    seed_persona_catalog(&fixture, &["coding-assistant"]);
+    seed_persisted_persona(&fixture, "deleted-persona");
+
+    // When startup runs.
+    fixture
+        .harness
+        .publish(EnvironmentLoaded {
+            config: empty_providers_config(),
+        })
+        .await;
+    jinn_testutil::wait::await_inbox_drained(
+        fixture.harness.system(),
+        &fixture.actor_path,
+        Duration::from_secs(10),
+    )
+    .await;
+
+    // Then the welcome session carries the default persona instead.
+    assert_eq!(
+        fixture.state.read().active_session().persona_name(),
+        "coding-assistant"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hydrate_normalizes_unknown_session_persona() {
+    // Given a stored session whose persona the catalog no longer carries —
+    // deleted from disk while jinn was closed — and a running actor.
+    let fixture = actor_fixture().await;
+    seed_persona_catalog(&fixture, &["coding-assistant"]);
+    let session_id = SessionId::new();
+    let mut stored = ChatSessionState::new();
+    stored.set_session_id(session_id.clone());
+    stored.set_persona_name("deleted-persona".to_owned());
+    stored.push_entry(jinn_core_types::ChatEntry::user("older work"));
+    fixture
+        .store
+        .save(&stored.capture_snapshot())
+        .await
+        .expect("save session");
+
+    // When the session is hydrated back.
+    fixture
+        .harness
+        .publish(SessionLoadRequested {
+            session_id: session_id.clone(),
+            content_width: Some(60),
+        })
+        .await;
+    let loaded = jinn_testutil::wait::poll_until_async_fn(Duration::from_secs(2), || async {
+        fixture.state.read().session.contains(&session_id)
+    })
+    .await;
+    assert!(loaded, "the session should have hydrated");
+
+    // Then the live session carries the default persona, not the dead name.
+    let session = fixture
+        .state
+        .read()
+        .session
+        .get(&session_id)
+        .expect("hydrated session")
+        .clone();
+    assert_eq!(session.persona_name(), "coding-assistant");
 }
 
 /// Inserts one live listed session, saves it to the store, and returns its id.

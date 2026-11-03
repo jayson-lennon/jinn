@@ -16,74 +16,64 @@ use jinn_slices::SlotKey;
 /// The name-sorted persona set the activation scan produced. The session
 /// actor copies it into `context.personas` on `PersonasLoaded`; the cell
 /// is the slice's own durable record of what was scanned.
+///
+/// There is no active selection here: the active session's profile
+/// persona is the single persona authority, and this payload is a pure
+/// catalog of what exists.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Personas {
     /// The scanned personas, sorted by name.
     pub entries: Vec<Persona>,
-    /// The active persona's NAME (not the payload — resolve via
-    /// [`Personas::active`]). `None` until a selection is made; seeded
-    /// to the default persona by the session actor on `PersonasLoaded`.
-    #[serde(default)]
-    pub active: Option<String>,
 }
 
 impl Personas {
+    /// Builds a catalog from the scanned personas.
+    #[must_use]
+    pub fn new(entries: Vec<Persona>) -> Self {
+        Self { entries }
+    }
+
     /// Looks up one persona by exact name.
     #[must_use]
     pub fn persona(&self, name: &str) -> Option<&Persona> {
         self.entries.iter().find(|p| p.name == name)
     }
 
-    /// The active persona payload, if its name still resolves.
-    ///
-    /// Selections that outlive their persona (file deleted, scan shrank)
-    /// resolve to `None` — the caller applies the default-persona
-    /// fallback, mirroring the old context-state behavior.
-    #[must_use]
-    pub fn active(&self) -> Option<&Persona> {
-        match self.active.as_deref() {
-            Some(n) => self.persona(n),
-            None => None,
-        }
-    }
-
-    /// Replaces the catalog while preserving an existing selection when
-    /// possible (the session actor's `PersonasLoaded` policy):
-    ///
-    /// 1. `seeded_persona_name` (if set and present in the new list) wins.
-    /// 2. Otherwise the current `active` selection survives if still present.
-    /// 3. Otherwise `default_name`.
-    /// 4. Otherwise the first entry (alphabetically first, since the scan
-    ///    is name-sorted).
-    pub fn seeded_replace(
-        &mut self,
-        entries: Vec<Persona>,
-        seeded_persona_name: Option<&str>,
-        default_name: &str,
-    ) {
-        let present = |name: &str| entries.iter().any(|p: &Persona| p.name == name);
-        let target = seeded_persona_name
-            .filter(|n| present(n))
-            .or_else(|| self.active.as_deref().filter(|n| present(n)))
-            .unwrap_or(default_name);
-        let target = if present(target) {
-            Some(target.to_owned())
-        } else {
-            entries.first().map(|p| p.name.clone())
-        };
+    /// Replaces the catalog with a freshly scanned persona set.
+    pub fn replace_entries(&mut self, entries: Vec<Persona>) {
         self.entries = entries;
-        self.active = target;
     }
 
-    /// Resolves the persona for a session's requested name with the
-    /// same fallback order the old context state used: the session's
-    /// persona name first, then the active selection, then the default
-    /// persona name.
+    /// Resolves the persona for a session's requested name: the
+    /// session's persona name first, then the default persona name.
+    ///
+    /// Names that stopped resolving (file deleted, scan shrank) are
+    /// rewritten to the default by the session actor at ingestion, so
+    /// this fallback is a display-time safety net, not a state machine.
     #[must_use]
     pub fn resolve_for(&self, session_persona_name: &str, default_name: &str) -> Option<&Persona> {
         self.persona(session_persona_name)
-            .or_else(|| self.active())
             .or_else(|| self.persona(default_name))
+    }
+
+    /// The catalog's name for `name`: itself when present, else
+    /// `default_name` when present, else the first entry (alphabetically
+    /// first, since the scan is name-sorted), else `name` unchanged.
+    ///
+    /// The pass-through on an empty catalog means a failed scan can
+    /// never blank a session's persona.
+    #[must_use]
+    pub fn normalize_name(&self, name: &str, default_name: &str) -> String {
+        if self.persona(name).is_some() {
+            return name.to_owned();
+        }
+        if self.persona(default_name).is_some() {
+            return default_name.to_owned();
+        }
+        match self.entries.first() {
+            Some(first) => first.name.clone(),
+            None => name.to_owned(),
+        }
     }
 }
 
@@ -91,4 +81,122 @@ impl Personas {
 #[must_use]
 pub fn personas_slot() -> SlotKey {
     SlotKey::builtin("persona", "entries")
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::indexing_slicing,
+        reason = "test code"
+    )]
+    use super::Personas;
+    use jinn_slices::Persona;
+
+    const DEFAULT: &str = "coding-assistant";
+
+    fn persona_named(name: &str) -> Persona {
+        Persona {
+            name: name.to_owned(),
+            description: String::new(),
+            body: String::new(),
+        }
+    }
+
+    fn catalog(names: &[&str]) -> Personas {
+        Personas::new(names.iter().map(|n| persona_named(n)).collect())
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn resolve_for_returns_the_sessions_own_persona() {
+        // Given a catalog with two personas.
+        let personas = catalog(&["coding-assistant", "general"]);
+
+        // When resolving a session persona the catalog holds.
+        let resolved = personas.resolve_for("general", DEFAULT);
+
+        // Then it is the requested persona, not the default.
+        assert_eq!(resolved.map(|p| p.name.as_str()), Some("general"));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn resolve_for_falls_back_to_default() {
+        // Given a catalog holding only the default persona.
+        let personas = catalog(&[DEFAULT]);
+
+        // When resolving a session persona the catalog does not hold.
+        let resolved = personas.resolve_for("deleted-persona", DEFAULT);
+
+        // Then the default persona's payload is the resolution.
+        assert_eq!(resolved.map(|p| p.name.as_str()), Some(DEFAULT));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn resolve_for_is_none_when_session_and_default_are_both_absent() {
+        // Given a catalog holding neither the session's persona nor the default.
+        let personas = catalog(&["only-one"]);
+
+        // When resolving an unknown persona against an unknown default.
+        let resolved = personas.resolve_for("deleted-persona", DEFAULT);
+
+        // Then nothing resolves — no global selection can sneak in behind it.
+        assert!(resolved.is_none());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn normalize_name_keeps_a_present_name() {
+        // Given a catalog holding the name.
+        let personas = catalog(&[DEFAULT, "general"]);
+
+        // When normalizing it.
+        let normalized = personas.normalize_name("general", DEFAULT);
+
+        // Then it comes back unchanged.
+        assert_eq!(normalized, "general");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn normalize_name_rewrites_an_absent_name_to_the_default() {
+        // Given a catalog holding the default but not the name.
+        let personas = catalog(&[DEFAULT]);
+
+        // When normalizing the absent name.
+        let normalized = personas.normalize_name("deleted-persona", DEFAULT);
+
+        // Then the default comes back.
+        assert_eq!(normalized, DEFAULT);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn normalize_name_falls_back_to_the_first_entry_when_the_default_is_absent() {
+        // Given a catalog without the default persona.
+        let personas = catalog(&["alpha", "beta"]);
+
+        // When normalizing a name the catalog lacks.
+        let normalized = personas.normalize_name("deleted-persona", DEFAULT);
+
+        // Then the first (name-sorted) entry is the target.
+        assert_eq!(normalized, "alpha");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn normalize_name_passes_the_name_through_an_empty_catalog() {
+        // Given an empty catalog — a scan that found nothing.
+        let personas = catalog(&[]);
+
+        // When normalizing any name.
+        let normalized = personas.normalize_name("deleted-persona", DEFAULT);
+
+        // Then the name survives: a failed scan must never blank a persona.
+        assert_eq!(normalized, "deleted-persona");
+    }
 }

@@ -7,7 +7,7 @@
 //! persona slice's own message crate, which the context assembler must not
 //! depend on.
 //!
-//! The persona slice's cell payload ([`Personas`], [`Personas::seeded_replace`],
+//! The persona slice's cell payload ([`Personas`], [`Personas::normalize_name`],
 //! [`personas_slot`]) is genuinely slice state and stays in `jinn-persona-msg`.
 
 /// A parsed persona ready for use in the system prompt.

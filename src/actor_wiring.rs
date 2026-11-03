@@ -122,7 +122,6 @@ impl ActorSystemBuilder {
             let mut guard = state.write();
             guard.frontend.app_state.last_model = app_state.last_model.clone();
             guard.frontend.app_state.theme_name = app_state.theme_name.clone();
-            guard.frontend.app_state.persona_name = app_state.persona_name.clone();
             guard.frontend.app_state.sidebar_width = app_state.sidebar_width;
         }
 

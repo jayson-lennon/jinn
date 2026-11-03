@@ -36,6 +36,7 @@
 
 use std::sync::Arc;
 
+use jinn_core_types::DEFAULT_PERSONA_NAME;
 use jinn_persona_msg::{PersonaPickerState, persona_picker_scope, personas_slot};
 use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use jinn_session_msg::MarkSessionInteracted;
@@ -237,32 +238,33 @@ pub fn register_persona_picker_input_hook(routes: &KeyRoutes, cell: &PersonaPick
 ///
 /// Every opener — this slice's `<leader>se` row and the sidebar's persona
 /// section key — does nothing but request the transition, so both land on the
-/// same fresh menu: filter cleared, highlight back at the top, rows rebuilt
-/// from the personas cell. The rows come from the personas this slice already
-/// owns, so entering needs no loader command and no kernel involvement.
+/// same fresh menu: filter cleared, highlight on the active session's
+/// persona, rows rebuilt from the personas cell. The rows come from the
+/// personas this slice already owns, so entering needs no loader command and
+/// no kernel involvement.
 pub fn register_persona_picker_enter_hook(routes: &KeyRoutes, cell: &PersonaPickerCell) {
     // The hook outlives this call, so it owns the cell rather than borrowing it.
     let owned = cell.clone();
     let hook: ScopeEnterHook = Arc::new(move |mut ctx: ActionCtx<'_>| {
         // Only the theme falls back when the state is not the kernel's (a test
         // double); the rows must be seeded either way.
-        let theme = app(&mut ctx).map_or_else(jinn_theme::default_theme, |state| {
-            state.frontend.theme.clone()
-        });
+        let (theme, active) = app(&mut ctx).map_or_else(
+            || (jinn_theme::default_theme(), DEFAULT_PERSONA_NAME.to_owned()),
+            |state| {
+                (
+                    state.frontend.theme.clone(),
+                    state.active_session().persona_name().to_owned(),
+                )
+            },
+        );
         // Snapshot the personas into an owned list before touching the picker:
         // the personas cell's guard and the picker's guard must not overlap.
-        let (entries, active) = ctx
+        let entries = ctx
             .slices
             .reader::<jinn_persona_msg::Personas>(&personas_slot())
-            .map_or_else(
-                || (Vec::new(), None),
-                |personas| {
-                    let guard = personas.read();
-                    (guard.entries.clone(), guard.active.clone())
-                },
-            );
+            .map_or_else(Vec::new, |personas| personas.read().entries.clone());
         owned.update(|picker| {
-            persona_picker_actions::open(picker, &entries, active.as_deref(), &theme);
+            persona_picker_actions::open(picker, &entries, Some(&active), &theme);
         });
     });
     routes.register_scope_enter_hook(&persona_picker_scope(), hook);
@@ -279,10 +281,12 @@ fn open_persona_picker(_ctx: &mut ActionCtx<'_>, _cell: &PersonaPickerCell) -> I
     IntentResult::empty().with_scope_signal(ScopeSignal::Push(persona_picker_scope()))
 }
 
-/// Enter: set the active persona, bind it to the session, persist, and close.
+/// Enter: bind the highlighted persona to the active session, persist it as
+/// the last-persona seed, and close.
 ///
-/// The personas cell records the choice and the session records the binding,
-/// because a persona applies to the session even though the list is global.
+/// The active session's profile persona is the only persona authority: the
+/// binding is the whole effect. The persisted `SetPersona` seeds the startup
+/// session on the next launch, exactly like `last_model`.
 fn confirm_persona_picker(ctx: &mut ActionCtx<'_>, cell: &PersonaPickerCell) -> IntentResult {
     let Some(state) = app(ctx) else {
         return IntentResult::empty();
@@ -295,16 +299,6 @@ fn confirm_persona_picker(ctx: &mut ActionCtx<'_>, cell: &PersonaPickerCell) -> 
     else {
         return IntentResult::empty();
     };
-
-    // Record the choice in the slice's own cell.
-    if let Some(slices) = state.frontend.slices()
-        && let Some(personas) = slices.reader::<jinn_persona_msg::Personas>(&personas_slot())
-    {
-        let present = personas.read().entries.iter().any(|p| p.name == name);
-        if present {
-            personas.update(|selection| selection.active = Some(name.clone()));
-        }
-    }
 
     // Bind it to the active session.
     let session_id = state.session.active_session_id().clone();

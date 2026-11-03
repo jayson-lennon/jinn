@@ -122,22 +122,6 @@ impl AppStateActor {
             cell.update(jinn_chat_log_view_msg::EntryLineCache::clear);
         }
 
-        // Sync active_persona when persona_name changes (persona
-        // selection lives in the persona slice's cell).
-        if let Some(ref persona_name) = updated.persona_name
-            && let Some(cell) = self
-                .services
-                .slices
-                .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-        {
-            let present = cell.read().entries.iter().any(|p| p.name == *persona_name);
-            if present {
-                cell.update(|selection| {
-                    selection.active = Some(persona_name.clone());
-                });
-            }
-        }
-
         // The skills picker caches its preview lines already rendered in the
         // old theme's colors, so a theme switch must drop them or the open
         // menu keeps showing stale text. The cache lives in the skills slice's
@@ -350,48 +334,6 @@ mod tests {
         // Then sidebar_width is 50.
         let guard = actor.state.read();
         assert_eq!(guard.frontend.sidebar_width, 50);
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn sync_state_sets_correct_persona() {
-        // If the condition were flipped, the wrong persona would be set.
-        // Given an app-state actor with two personas in the persona cell.
-        let (actor, _services) = create_actor().await;
-        let cell = actor
-            .services
-            .slices
-            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-            .expect("test: persona cell seeded");
-        cell.update(|selection| {
-            selection.entries = vec![
-                jinn_slices::Persona {
-                    name: "coder".to_owned(),
-                    description: String::new(),
-                    body: String::new(),
-                },
-                jinn_slices::Persona {
-                    name: "writer".to_owned(),
-                    description: String::new(),
-                    body: String::new(),
-                },
-            ];
-        });
-
-        // When syncing AppStateFile with persona_name = "writer".
-        let app_state = AppStateFile {
-            persona_name: Some("writer".to_owned()),
-            ..AppStateFile::default()
-        };
-        actor.sync_state(&app_state);
-
-        // Then the active persona is "writer", not "coder".
-        let active = cell
-            .read()
-            .active
-            .clone()
-            .expect("should have active persona");
-        assert_eq!(active, "writer");
     }
 
     #[rstest::rstest]
