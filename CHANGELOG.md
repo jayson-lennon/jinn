@@ -7,9 +7,39 @@
 - Persona picker + sidebar will now always stay synced.
 - Creating new sessions will always inherit the persona of the most recent active session.
 - Add basic remote messaging functionality.
+  - `curl` accessible. See below.
   - `jinn remote instances` lists running `jinn` instances
   - `jinn remote send` sends a message to a running `jinn` session. Defaults to the most recently opened instance.
     - A session ID to receive the message is required. Use existing `y` keybind to copy a session ID for use with `jinn remote send`.
+
+```bash
+$ jinn remote instances
+PID      PORT   STARTED              CWD
+1953660  36913  2026-11-03T07:40:25Z /home/jayson_nvme/500g/buildcache/jinn
+
+curl http://127.0.0.1:36913/health
+# {"pid":1953660,"version":"1.16.0","port":36913}
+
+curl http://127.0.0.1:36913/sessions
+# {"sessions":[{"id":"01a1a05a-f0f3-77d6-8521-b48c3e420f40","title":null,"phase":"idle","bot":false}]}
+
+curl -X POST http://127.0.0.1:36913/send \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":"01a1a05a-f0f3-77d6-8521-b48c3e420f40","text":"hello via curl"}'
+# {"status":"queued","session_id":"01a1a05a-…","fell_back":false}
+
+curl -X POST http://127.0.0.1:36913/send -H 'Content-Type: application/json' \
+  -d '{"session_id":"01a1a05a-…","text":"steer try","mode":"steer"}'
+# {"status":"queued","session_id":"01a1a05a-…","fell_back":true}   ← idle target
+# {"status":"steered","session_id":"01a1a05a-…","fell_back":false} ← busy target
+
+
+# Send a message to the first session
+PORT=$(jinn remote instances | awk 'NR==2{print $2}')
+SESS=$(curl -s http://127.0.0.1:$PORT/sessions | jq -r '.sessions[0].id')
+curl -s -X POST http://127.0.0.1:$PORT/send -H 'Content-Type: application/json' \
+  -d "{\"session_id\":\"$SESS\",\"text\":\"build finished\"}"
+```
 
 ## 2026-11-01 v1.16.0
 
