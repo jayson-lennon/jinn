@@ -33,6 +33,8 @@ pub mod platform;
 pub mod routes;
 pub mod row;
 
+pub use capture::default_input_device;
+pub use capture::list_input_devices;
 pub use dictation_actor::DictationActor;
 pub use dictation_actor::DictationActorDeps;
 pub use machine::DictationMachine;

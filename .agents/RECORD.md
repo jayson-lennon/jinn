@@ -678,4 +678,5 @@ Entries are added or amended **only with human approval**.
 - (app) Quit runs a bounded runtime shutdown: in-flight blocking tasks such as a model download are abandoned after ~2s and die with the process, and the fetch backend resumes on the next launch.
 - (dictation) The dictation model cache lives in a jinn-managed AppPaths directory; hf-hub's default cache location is overridden.
 - (cli) jinn fetch downloads the configured dictation model into the jinn-managed cache and exits non-zero on platforms without a real backend.
+- (cli) jinn dictation list-devices prints the capture input devices one per line, marking the system default; the printed names are exactly what a [dictation] device value must equal, and the command exits non-zero on platforms without a real backend or with no devices.
 - (build) Native dictation dependencies compile only inside the parakeet backend crate and the slice's linux target table; exactly one cfg module in jinn-dictation holds the platform split.

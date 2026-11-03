@@ -103,6 +103,8 @@ mod device;
 #[path = "capture_null.rs"]
 mod device;
 
+pub use device::default_input_device;
+pub use device::list_input_devices;
 pub use device::open;
 
 #[cfg(test)]

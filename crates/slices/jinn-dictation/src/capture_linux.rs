@@ -43,6 +43,23 @@ fn input_device_names() -> Vec<String> {
         .collect()
 }
 
+/// The system default input device's name, when the host has one.
+pub fn default_input_device() -> Option<String> {
+    let host = cpal::default_host();
+    host.default_input_device()
+        .and_then(|device| device.description().ok())
+        .map(|description| description.name().to_owned())
+}
+
+/// Lists the capture input devices, for `jinn dictation list-devices`.
+///
+/// The same enumeration `find_device` matches against — the names
+/// printed here are exactly the names a `[dictation] device` value
+/// must equal.
+pub fn list_input_devices() -> Vec<String> {
+    input_device_names()
+}
+
 /// Finds the configured device, or the default input.
 fn find_device(configured: Option<&str>) -> Result<cpal::Device, String> {
     let host = cpal::default_host();

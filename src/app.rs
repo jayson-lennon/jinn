@@ -367,6 +367,19 @@ impl App {
                             }
                         }
                     }
+                    Commands::Dictation { subcommand } => {
+                        use jinn_cli::cli::DictationCommands;
+
+                        match subcommand {
+                            DictationCommands::ListDevices => {
+                                // A dedicated exit path, the same
+                                // contract as the fetch runner: a
+                                // platform without a real backend
+                                // prints and exits non-zero here.
+                                list_dictation_devices();
+                            }
+                        }
+                    }
                     // Config subcommands are dispatched above, before the early
                     // preferences parse. Reaching this match arm is impossible.
                     Commands::Config { .. } => {}
@@ -433,6 +446,48 @@ fn fetch_dictation_model(runtime: &tokio::runtime::Runtime) -> ! {
         }
     }
     std::process::exit(0);
+}
+
+/// Prints the capture input devices, then exits.
+///
+/// Runs regardless of `[dictation] enabled` — listing devices is an
+/// inspection query, not a lifecycle decision. The names printed are
+/// exactly what a `[dictation] device` value must equal (`find_device`
+/// matches strictly), and the system default is marked, since an
+/// unset `device` resolves to it. On a platform without a real
+/// backend it prints the unavailability sentence and exits non-zero,
+/// the same contract as [`fetch_dictation_model`].
+fn list_dictation_devices() -> ! {
+    if !jinn_dictation::platform_supports_real_backend() {
+        eprintln!("dictation backend unavailable on this platform");
+        std::process::exit(1);
+    }
+    let devices = jinn_dictation::list_input_devices();
+    let default = jinn_dictation::default_input_device();
+    if devices.is_empty() {
+        eprintln!("no capture devices found");
+        std::process::exit(1);
+    }
+    for line in format_device_lines(&devices, default.as_deref()) {
+        println!("{line}");
+    }
+    std::process::exit(0);
+}
+
+/// Renders the device list for the CLI: one name per line, the system
+/// default marked. Pure so the presentation is testable without an
+/// audio host.
+fn format_device_lines(devices: &[String], default: Option<&str>) -> Vec<String> {
+    devices
+        .iter()
+        .map(|device| {
+            if default.is_some_and(|name| name == device) {
+                format!("* {device}  (system default)")
+            } else {
+                format!("  {device}")
+            }
+        })
+        .collect()
 }
 
 /// Fetches model metadata from models.dev and saves it to the user's cache directory.
@@ -520,6 +575,43 @@ mod tests {
     use crate::config_path::{config_init_target, resolve_config_path};
 
     use super::*;
+
+    #[rstest::rstest]
+    #[test]
+    fn format_device_lines_marks_the_default() {
+        // Given three devices where the second is the system default.
+        let devices = vec![
+            "Built-in Mic".to_owned(),
+            "voix".to_owned(),
+            "Webcam".to_owned(),
+        ];
+
+        // When rendering the lines.
+        let lines = format_device_lines(&devices, Some("voix"));
+
+        // Then the default carries the marker and the rest are indented.
+        assert_eq!(
+            lines,
+            vec![
+                "  Built-in Mic".to_owned(),
+                "* voix  (system default)".to_owned(),
+                "  Webcam".to_owned(),
+            ]
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn format_device_lines_without_a_default_marks_nothing() {
+        // Given a device list whose host reports no default input.
+        let devices = vec!["Built-in Mic".to_owned()];
+
+        // When rendering the lines.
+        let lines = format_device_lines(&devices, None);
+
+        // Then every line is indented and no marker appears.
+        assert_eq!(lines, vec!["  Built-in Mic".to_owned()]);
+    }
 
     // Note: there is no unit test for `run_and_shutdown` / `dispatch` calling
     // `store.shutdown()`. `Runner::run` is a concrete enum (not a trait), and

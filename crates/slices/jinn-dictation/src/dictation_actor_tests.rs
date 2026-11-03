@@ -36,7 +36,10 @@ const WAIT: Duration = Duration::from_secs(10);
 /// supported set carries this name on every platform, and the stub
 /// backend answers `is_cached`/`fetch`/`load` without caring which
 /// model it was built for.
-const MODEL: &str = crate::platform::SUPPORTED_MODELS[0];
+const MODEL: &str = match *crate::platform::SUPPORTED_MODELS {
+    [model, ..] => model,
+    [] => panic!("the platform supported-model set is never empty"),
+};
 
 /// The actor's kickoff publication, driven through the bus harness.
 struct KickoffFixture {
@@ -173,7 +176,7 @@ async fn a_full_lifecycle_publishes_every_transition() {
     // is the fabric's; the set is the behavior.
     for expected in [format!("loading {MODEL}"), format!("ready ({MODEL})")] {
         assert!(
-            notes.iter().any(|note| *note == expected),
+            notes.contains(&expected),
             "expected a {expected:?} note in the lifecycle publications, saw: {notes:?}"
         );
     }

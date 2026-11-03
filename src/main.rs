@@ -40,6 +40,7 @@ fn main() {
         | Some(jinn_cli::cli::Commands::Tui)
         | Some(jinn_cli::cli::Commands::Completions { .. }) => TracingMode::Tui { log_path },
         Some(jinn_cli::cli::Commands::Fetch { .. })
+        | Some(jinn_cli::cli::Commands::Dictation { .. })
         | Some(jinn_cli::cli::Commands::Config { .. })
         | Some(jinn_cli::cli::Commands::Install { .. })
         | Some(jinn_cli::cli::Commands::Mcp { .. })
