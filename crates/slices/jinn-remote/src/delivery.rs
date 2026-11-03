@@ -10,9 +10,8 @@
 //! - `steer` on an idle session falls back to queue delivery — the same
 //!   rule `tell_session` applies — and the ack reports `fell_back`.
 //!
-//! Text carries the [`EXTERNAL_PREFIX`] attribution so provenance is
-//! visible in the transcript; the prefix is composed at exactly one
-//! site (here).
+//! Text is delivered verbatim: no prefix, no transformation. An
+//! external caller that wants attribution writes it into the message.
 
 use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_chat_input_msg::SubmitSteeringMessage;
@@ -25,11 +24,6 @@ use jinn_remote_msg::SendStatus;
 use jinn_slices::PhaseView;
 use jinn_slices::bus::BusService;
 use wherror::Error;
-
-/// Every external message carries this bracketed origin tag, mirroring
-/// jinn's convention for non-keyboard messages (intersession entries,
-/// steering fragments).
-pub const EXTERNAL_PREFIX: &str = "[External]: ";
 
 /// Why a send request was refused.
 #[derive(Debug, Error)]
@@ -119,7 +113,7 @@ pub async fn handle_send(
             SendMode::Steer if session.phase() != PhaseView::Idle => {
                 let message = SubmitSteeringMessage {
                     session_id,
-                    text: format!("{EXTERNAL_PREFIX}{}", request.text),
+                    text: request.text.clone(),
                 };
                 (SendStatus::Steered, false, BusMessage::Steer(message))
             }
@@ -129,10 +123,7 @@ pub async fn handle_send(
             _ => {
                 let message = EnqueueUserMessage {
                     session_id,
-                    entry: jinn_core_types::ChatEntry::user(format!(
-                        "{EXTERNAL_PREFIX}{}",
-                        request.text
-                    )),
+                    entry: jinn_core_types::ChatEntry::user(request.text.clone()),
                 };
                 (
                     SendStatus::Queued,

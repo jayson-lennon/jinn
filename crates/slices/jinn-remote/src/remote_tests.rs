@@ -20,7 +20,6 @@ use jinn_slices::bus::BusAudit;
 use jinn_slices::bus::BusService;
 use tower::ServiceExt as _;
 
-use crate::delivery::EXTERNAL_PREFIX;
 use crate::server::ServerShared;
 use crate::server::router;
 
@@ -182,7 +181,7 @@ mod send {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn queue_send_publishes_an_enqueued_user_entry_with_the_prefix() {
+    async fn queue_send_publishes_an_enqueued_user_entry_with_the_text_verbatim() {
         // Given a live session and the control surface over it.
         let (state, audit, router) = harness();
         let id = seed_session(&state);
@@ -201,7 +200,7 @@ mod send {
         assert!(body.contains("\"queued\""), "{body}");
         assert!(body.contains("\"fell_back\":false"), "{body}");
 
-        // And the audit holds the enqueue with the attribution prefix.
+        // And the audit holds the enqueue carrying the text verbatim.
         let names = audit.names();
         assert!(
             names.iter().any(|n| n.ends_with("EnqueueUserMessage")),
@@ -211,7 +210,7 @@ mod send {
             .of_type::<jinn_chat_input_msg::EnqueueUserMessage>()
             .pop()
             .expect("enqueue captured");
-        assert!(published.entry.text().starts_with(EXTERNAL_PREFIX));
+        assert_eq!(published.entry.text(), "hello from outside");
     }
 
     #[rstest::rstest]
@@ -241,12 +240,12 @@ mod send {
         assert!(body.contains("\"steered\""), "{body}");
         assert!(body.contains("\"fell_back\":false"), "{body}");
 
-        // And the audit holds the steering fragment with the prefix.
+        // And the audit holds the steering fragment carrying the text verbatim.
         let published = audit
             .of_type::<jinn_chat_input_msg::SubmitSteeringMessage>()
             .pop()
             .expect("steer captured");
-        assert!(published.text.starts_with(EXTERNAL_PREFIX));
+        assert_eq!(published.text, "change course");
     }
 
     #[rstest::rstest]

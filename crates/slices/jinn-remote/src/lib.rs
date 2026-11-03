@@ -13,8 +13,8 @@
 //!
 //! Units, by module:
 //!
-//! - [`delivery`] — validate → route → publish; the one composition
-//!   site for the `[External]: ` attribution prefix.
+//! - [`delivery`] — validate → route → publish; text is delivered
+//!   verbatim, with no added attribution.
 //! - [`server`] — the axum routes and the shared handler state.
 //! - [`remote_actor`] — the listener actor: bind, registry write, serve
 //!   task, best-effort deregistration.
