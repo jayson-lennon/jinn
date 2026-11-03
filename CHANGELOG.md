@@ -4,6 +4,8 @@
 
 - Canceling a long-running tool call now properly terminates the call + changes the session state
 - Add "interrupt" mode to `tell_session` tool. This uses the steering buffer to deliver a message quickly instead of waiting for turn end.
+- Persona picker + sidebar will now always stay synced.
+- Creating new sessions will always inherit the persona of the most recent active session.
 
 ## 2026-11-01 v1.16.0
 
