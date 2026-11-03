@@ -1,0 +1,40 @@
+[package]
+name = "jinn-remote"
+version.workspace = true
+edition.workspace = true
+description = "The remote slice: the external control surface — a loopback HTTP listener that delivers messages into live sessions, an instance registry, and the jinn remote CLI client."
+
+[dependencies]
+# The remote slice is a leaf like canvas: jinn-preferences-config ([remote]
+# schema), jinn-slices (SliceHost, BusService, State), jinn-remote-msg (the
+# wire + registry contract), jinn-chat-input-msg (the delivery schemas).
+# No other slice's implementation crate; the only workspace consumer is
+# the jinn binary (composition).
+jinn-preferences-config = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-remote-msg = { workspace = true }
+jinn-chat-input-msg = { workspace = true }
+jinn-config = { workspace = true }
+jinn-kernel = { workspace = true }
+jinn-core-types = { workspace = true }
+axum = { version = "0.8" }
+trouper = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wherror = { workspace = true }
+error-stack = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+marked-path = { workspace = true }
+
+[dev-dependencies]
+marked-path = { workspace = true }
+rstest = { workspace = true }
+jinn-testutil = { workspace = true }
+jinn-app-state = { workspace = true }
+jinn-session-state = { workspace = true }
+tower = { version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true

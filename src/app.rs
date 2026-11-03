@@ -96,6 +96,17 @@ impl App {
         // so the graceful shutdown sweep can run after the event loop exits.
         let trouper_system = runner.trouper_system();
 
+        // Best-effort registry removal: a graceful exit stops advertising
+        // this instance immediately rather than waiting for the next
+        // reader's port probe. Correctness never depends on it — a dead
+        // entry is invisible to every `jinn remote` client either way.
+        jinn_remote::remote_actor::deregister(
+            jinn_kernel::AppPaths::default()
+                .remote_instances_path()
+                .as_path(),
+            std::process::id(),
+        );
+
         // Run the runner, but don't short-circuit shutdown on its error.
         // The WAL checkpoint is non-destructive and must run whenever the actor
         // system started, so that a clean quit leaves sessions.db self-contained
@@ -197,8 +208,9 @@ impl App {
                     // variant remains for argv-shape compatibility; the real
                     // bundled servers were intercepted in `prepare`. Canvas
                     // commands are intercepted the same way; this arm is
-                    // unreachable for them.
-                    Commands::Tui | Commands::Mcp { .. } => {
+                    // unreachable for them. `jinn remote …` is intercepted
+                    // in `prepare` too — it never reaches a startup path.
+                    Commands::Tui | Commands::Mcp { .. } | Commands::Remote { .. } => {
                         let dump_requests = resolve_dump_requests(cli.dump_requests.as_deref())?;
                         let app_paths = jinn_kernel::AppPaths::default();
                         let compaction_prompt = jinn_tui::load_compaction_prompt(

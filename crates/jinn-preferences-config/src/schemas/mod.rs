@@ -34,6 +34,7 @@ pub mod mcp;
 pub mod minimap;
 pub mod project;
 pub mod provider;
+pub mod remote;
 pub mod request_retry;
 pub mod session_lifecycle;
 pub mod shell;
@@ -68,6 +69,7 @@ pub use mcp::{
 pub use minimap::MinimapConfig;
 pub use project::ProjectConfig;
 pub use provider::WebSearchConfig;
+pub use remote::{DEFAULT_REMOTE_BIND, RemoteBindError, RemoteConfig};
 pub use request_retry::RequestRetryConfig;
 pub use session_lifecycle::{BuiltinId, LifecycleCommand, SessionLifecycle};
 pub use shell::ShellConfig;

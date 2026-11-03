@@ -83,8 +83,9 @@ impl Cli {
     }
 
     /// Debug-build guard: `--db-path` is required unless the command is a
-    /// bundled MCP server (`jinn mcp …`), which never opens the session
-    /// store. Release builds always pass.
+    /// bundled MCP server (`jinn mcp …`, which never opens the session
+    /// store) or the external-remote client (`jinn remote …`, an HTTP
+    /// client that needs no session store). Release builds always pass.
     ///
     /// # Errors
     ///
@@ -92,7 +93,10 @@ impl Cli {
     pub fn debug_db_path_required(&self) -> Result<(), DebugDbPathError> {
         if cfg!(debug_assertions)
             && self.db_path.is_none()
-            && !matches!(self.command, Some(Commands::Mcp { .. }))
+            && !matches!(
+                self.command,
+                Some(Commands::Mcp { .. } | Commands::Remote { .. })
+            )
         {
             return Err(DebugDbPathError);
         }
@@ -166,6 +170,50 @@ pub enum Commands {
         #[command(subcommand)]
         subcommand: McpCommands,
     },
+
+    /// Talk to a running jinn instance from outside.
+    ///
+    /// Discovers instances through the registry file each running jinn
+    /// maintains (pid, port, working directory) and delivers a message
+    /// into a live session. Not a TUI command: a short-lived HTTP
+    /// client that needs no config or session store.
+    Remote {
+        /// The remote subcommand to run.
+        #[command(subcommand)]
+        subcommand: RemoteCommands,
+    },
+}
+
+/// External-remote client subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum RemoteCommands {
+    /// Deliver a message into a live session of a running jinn.
+    Send {
+        /// The target session's id (`jinn remote sessions` lists them).
+        #[arg(long)]
+        session: String,
+
+        /// Queue the message behind any in-flight turn (the default).
+        #[arg(long, group = "remote_mode")]
+        queue: bool,
+
+        /// Steer the running turn at its next prompt-assembly boundary.
+        /// A steer aimed at an idle session is delivered as a queue
+        /// message instead.
+        #[arg(long, group = "remote_mode")]
+        steer: bool,
+
+        /// The target instance's pid (`jinn remote instances` lists
+        /// them). Omit to target the most recently launched instance.
+        #[arg(long)]
+        instance: Option<u32>,
+
+        /// The message text.
+        message: String,
+    },
+
+    /// List the running jinn instances a client can reach.
+    Instances,
 }
 
 /// MCP server subcommands.
@@ -242,7 +290,11 @@ pub enum ConfigCommands {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used, reason = "test code")]
+    #![allow(
+        clippy::expect_used,
+        clippy::panic,
+        reason = "test code: assertions use expect/panic to state what went wrong"
+    )]
     use super::*;
     use clap::Parser;
     use marked_path::MarkedPathAccess;
@@ -487,6 +539,146 @@ mod tests {
 
         // Then the guard passes: server children never open the session store.
         assert!(result.is_ok());
+    }
+
+    #[cfg(debug_assertions)]
+    #[rstest::rstest]
+    #[test]
+    fn debug_guard_admits_remote_subcommands_without_db_path() {
+        // Given no --db-path flag and the external remote client.
+        // When parsing and running the debug guard.
+        let cli = Cli::parse_from(["jinn", "remote", "instances"]);
+        let result = cli.debug_db_path_required();
+
+        // Then the guard passes: the client never opens the session store.
+        assert!(result.is_ok());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn remote_send_parses_with_an_explicit_mode() {
+        // Given a send argv naming the mode and the session.
+        // When parsing.
+        let cli = Cli::parse_from([
+            "jinn",
+            "remote",
+            "send",
+            "--session",
+            "abc",
+            "--steer",
+            "do the thing",
+        ]);
+
+        // Then the variant carries the mode and the message.
+        let Some(Commands::Remote {
+            subcommand:
+                RemoteCommands::Send {
+                    session,
+                    queue,
+                    steer,
+                    instance,
+                    message,
+                },
+        }) = cli.command
+        else {
+            panic!("remote send should parse");
+        };
+        assert_eq!(session, "abc");
+        assert!(!queue);
+        assert!(steer);
+        assert_eq!(instance, None);
+        assert_eq!(message, "do the thing");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn remote_send_defaults_to_queue_when_no_mode_flag_is_given() {
+        // Given a send argv with neither mode flag.
+        // When parsing.
+        let cli = Cli::parse_from(["jinn", "remote", "send", "--session", "abc", "hello"]);
+
+        // Then neither flag is set; the client reads that as queue.
+        let Some(Commands::Remote {
+            subcommand: RemoteCommands::Send { queue, steer, .. },
+        }) = cli.command
+        else {
+            panic!("remote send should parse");
+        };
+        assert!(!queue);
+        assert!(!steer);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn remote_send_rejects_both_mode_flags() {
+        // Given a send argv carrying both --queue and --steer.
+        // When parsing.
+        let result = Cli::try_parse_from([
+            "jinn",
+            "remote",
+            "send",
+            "--session",
+            "abc",
+            "--queue",
+            "--steer",
+            "hello",
+        ]);
+
+        // Then parsing fails: the caller must pick one mode.
+        assert!(result.is_err());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn remote_send_requires_the_session_flag() {
+        // Given a send argv with no --session.
+        // When parsing.
+        let result = Cli::try_parse_from(["jinn", "remote", "send", "hello"]);
+
+        // Then parsing fails naming the missing flag.
+        assert!(result.is_err());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn remote_send_parses_an_instance_pid() {
+        // Given a send argv targeting an explicit instance.
+        // When parsing.
+        let cli = Cli::parse_from([
+            "jinn",
+            "remote",
+            "send",
+            "--session",
+            "abc",
+            "--instance",
+            "4242",
+            "hello",
+        ]);
+
+        // Then the pid rides the variant.
+        let Some(Commands::Remote {
+            subcommand: RemoteCommands::Send { instance, .. },
+        }) = cli.command
+        else {
+            panic!("remote send should parse");
+        };
+        assert_eq!(instance, Some(4242));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn remote_instances_parses_bare() {
+        // Given the listing argv.
+        // When parsing.
+        let cli = Cli::parse_from(["jinn", "remote", "instances"]);
+
+        // Then the variant matches.
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Remote {
+                subcommand: RemoteCommands::Instances
+            })
+        ));
     }
 
     #[cfg(debug_assertions)]

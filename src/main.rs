@@ -42,7 +42,8 @@ fn main() {
         Some(jinn_cli::cli::Commands::Fetch { .. })
         | Some(jinn_cli::cli::Commands::Config { .. })
         | Some(jinn_cli::cli::Commands::Install { .. })
-        | Some(jinn_cli::cli::Commands::Mcp { .. }) => TracingMode::Headless { log_path },
+        | Some(jinn_cli::cli::Commands::Mcp { .. })
+        | Some(jinn_cli::cli::Commands::Remote { .. }) => TracingMode::Headless { log_path },
         #[cfg(debug_assertions)]
         Some(jinn_cli::cli::Commands::Headless { .. }) => TracingMode::Headless { log_path },
     };

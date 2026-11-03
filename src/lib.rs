@@ -7,6 +7,7 @@ pub mod cli_paths;
 pub mod config_path;
 #[cfg(debug_assertions)]
 pub mod headless;
+pub mod remote_cli;
 pub mod runner;
 pub mod tracing;
 
