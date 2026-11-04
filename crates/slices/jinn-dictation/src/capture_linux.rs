@@ -84,9 +84,14 @@ fn find_device(configured: Option<&str>) -> Result<cpal::Device, String> {
     }
 }
 
-/// The per-arm pipeline state: denoiser frame tail, denoise output
-/// tail, and the resampler. Owned by the audio callback.
+/// The per-arm pipeline state: the channel layout, denoiser frame
+/// tail, denoise output tail, and the resampler. Owned by the audio
+/// callback.
 struct Pipeline {
+    /// The device's channels per frame; >1 de-interleaves and
+    /// downmixes to mono first, so no downstream stage ever sees
+    /// interleaved samples.
+    channels: u16,
     denoiser: Option<Box<nnnoiseless::DenoiseState<'static>>>,
     /// Samples waiting for a full denoise frame.
     denoise_tail: Vec<f32>,
@@ -100,6 +105,30 @@ struct Pipeline {
 impl Pipeline {
     /// Runs one callback's samples through the stages.
     fn process(&mut self, data: &[f32]) {
+        if data.is_empty() {
+            return;
+        }
+        // De-interleave and downmix first: every stage after this —
+        // the meter, the denoiser, the resampler, the VAD — consumes
+        // mono, and interleaved stereo through any of them is noise
+        // the VAD never hears speech in. Each interleaved frame
+        // averages into one sample; a trailing partial frame (never
+        // delivered by cpal) would carry wrong-order samples, so
+        // `chunks_exact` drops it.
+        let mono = match self.channels {
+            0 | 1 => std::borrow::Cow::Borrowed(data),
+            channels => std::borrow::Cow::Owned(
+                data.chunks_exact(usize::from(channels))
+                    .map(|frame| frame.iter().sum::<f32>() / f32::from(channels))
+                    .collect::<Vec<f32>>(),
+            ),
+        };
+        self.process_mono(&mono);
+    }
+
+    /// Runs one callback's mono samples through the remaining stages:
+    /// meter level, denoise, resample, and the chunked backend feed.
+    fn process_mono(&mut self, data: &[f32]) {
         if data.is_empty() {
             return;
         }
@@ -211,6 +240,7 @@ pub fn open(
         let resampler = sherpa_onnx::LinearResampler::create(sample_rate, 16_000)
             .filter(|_| sample_rate != 16_000);
         Pipeline {
+            channels: config.channels(),
             denoiser,
             denoise_tail: Vec::new(),
             feed_tail: Vec::new(),
@@ -262,7 +292,9 @@ mod tests {
         clippy::expect_used,
         clippy::indexing_slicing,
         clippy::panic,
-        reason = "test code, panics are acceptable"
+        clippy::unwrap_in_result,
+        clippy::type_complexity,
+        reason = "test code: panics and lock expects are acceptable"
     )]
     use super::*;
 
@@ -317,9 +349,10 @@ mod tests {
     }
 
     /// A pipeline wired to `backend`, no denoiser or resampler, over a
-    /// fresh shared slot.
+    /// fresh shared slot; `channels` selects the de-interleave.
     fn pipeline_over(
-        backend: ScriptedFeedBackend,
+        channels: u16,
+        backend: impl DictationBackend + 'static,
     ) -> (
         Arc<Mutex<Box<dyn DictationBackend>>>,
         Arc<Mutex<CaptureShared>>,
@@ -329,6 +362,7 @@ mod tests {
             Arc::new(Mutex::new(Box::new(backend)));
         let shared = Arc::new(Mutex::new(CaptureShared::default()));
         let pipeline = Pipeline {
+            channels,
             denoiser: None,
             denoise_tail: Vec::new(),
             feed_tail: Vec::new(),
@@ -347,13 +381,13 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn pipeline_queues_decoded_utterances_from_the_backend_feed() {
-        // Given a pipeline over a scripted backend that closes one
-        // utterance per feed.
+        // Given a mono pipeline over a scripted backend that closes
+        // one utterance per feed.
         let scripted = ScriptedFeedBackend {
             feed_fails: false,
             utterances: vec![Utterance::new("hello there.".to_owned())],
         };
-        let (_backend, shared, mut pipeline) = pipeline_over(scripted);
+        let (_backend, shared, mut pipeline) = pipeline_over(1, scripted);
 
         // When one chunk of audio runs through the pipeline.
         pipeline.process(&one_chunk());
@@ -365,6 +399,110 @@ mod tests {
             vec![Utterance::new("hello there.".to_owned())],
             "the pipeline must queue feed output, not discard it"
         );
+    }
+
+    /// A backend that records every sample it is fed, so a test can
+    /// assert what actually reached the backend. The fed buffer is
+    /// shared with the test through the arc.
+    struct RecordingBackend {
+        fed: Arc<std::sync::Mutex<Vec<f32>>>,
+    }
+
+    impl RecordingBackend {
+        fn new() -> (Self, Arc<std::sync::Mutex<Vec<f32>>>) {
+            let fed = Arc::new(std::sync::Mutex::new(Vec::new()));
+            (
+                Self {
+                    fed: Arc::clone(&fed),
+                },
+                fed,
+            )
+        }
+    }
+
+    impl DictationBackend for RecordingBackend {
+        fn model_name(&self) -> &'static str {
+            "recording"
+        }
+
+        fn is_cached(&self) -> bool {
+            true
+        }
+
+        fn is_loaded(&self) -> bool {
+            true
+        }
+
+        fn fetch(
+            &mut self,
+            _on_progress: &mut dyn FnMut(FetchProgress),
+        ) -> Result<(), Report<BackendError>> {
+            Ok(())
+        }
+
+        fn load(&mut self) -> Result<(), Report<BackendError>> {
+            Ok(())
+        }
+
+        fn feed(&mut self, samples: &[f32]) -> Result<Vec<Utterance>, Report<BackendError>> {
+            self.fed
+                .lock()
+                .expect("recording backend lock")
+                .extend_from_slice(samples);
+            Ok(Vec::new())
+        }
+
+        fn flush(&mut self) -> Result<Option<Utterance>, Report<BackendError>> {
+            Ok(None)
+        }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn stereo_input_downmixes_to_mono_before_the_backend_feed() {
+        // Given a stereo pipeline over a backend that records its feed,
+        // and enough interleaved frames to cross the backend's
+        // 1600-sample chunk threshold, left carrying a sawtooth and
+        // right silence.
+        let (recording, fed) = RecordingBackend::new();
+        let (_backend, _shared, mut pipeline) = pipeline_over(2, recording);
+        let interleaved: Vec<f32> = (0..1_600)
+            .flat_map(|i| {
+                let left = f32::from(u8::try_from(i % 10).unwrap_or(0)) / 10.0;
+                [left, 0.0]
+            })
+            .collect();
+
+        // When the callback runs.
+        pipeline.process(&interleaved);
+
+        // Then the backend was fed the averaged mono — left halved
+        // against silent right, never the interleaved pairs.
+        let fed = fed.lock().expect("recording backend lock");
+        assert_eq!(fed.len(), 1_600, "each stereo frame yields one mono sample");
+        assert_eq!(fed[0], 0.0);
+        assert_eq!(fed[1], 0.05);
+        assert_eq!(fed[2], 0.1);
+        assert_eq!(fed[5], 0.25);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn mono_input_passes_through_unchanged() {
+        // Given a mono pipeline over a recording backend, and enough
+        // samples to cross the backend's 1600-sample chunk threshold.
+        let (recording, fed) = RecordingBackend::new();
+        let (_backend, _shared, mut pipeline) = pipeline_over(1, recording);
+        let mono: Vec<f32> = (0..1_600)
+            .map(|i| f32::from(u8::try_from(i % 10).unwrap_or(0)) / 10.0)
+            .collect();
+
+        // When the callback runs.
+        pipeline.process(&mono);
+
+        // Then the backend was fed exactly the samples from the
+        // callback, in order.
+        assert_eq!(*fed.lock().expect("recording backend lock"), mono);
     }
 
     /// Records every event's fields, so a test can assert a warn fired.
@@ -424,7 +562,7 @@ mod tests {
             feed_fails: true,
             utterances: Vec::new(),
         };
-        let (_backend, shared, mut pipeline) = pipeline_over(scripted);
+        let (_backend, shared, mut pipeline) = pipeline_over(1, scripted);
         let captured = CapturedEvents(Arc::new(std::sync::Mutex::new(Vec::new())));
 
         // When one chunk of audio runs through the pipeline.
