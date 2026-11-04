@@ -1,6 +1,6 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
-## (development)
+## 2026-11-03 v0.17.0
 
 - Canceling a long-running tool call now properly terminates the call + changes the session state
 - Add "interrupt" mode to `tell_session` tool. This uses the steering buffer to deliver a message quickly instead of waiting for turn end.
