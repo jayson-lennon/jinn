@@ -22,6 +22,8 @@ pub struct DictationSettings {
     pub model: String,
     /// Whether the capture pipeline denoises before transcription.
     pub noise_reduction: bool,
+    /// The backend tuning options the decode graph builds with.
+    pub options: jinn_dictation_backend::BackendOptions,
 }
 
 /// The `[dictation]` section failed to read.
@@ -53,6 +55,7 @@ impl DictationSettings {
             device: section.device.clone(),
             model: section.model.clone(),
             noise_reduction: section.noise_reduction,
+            options: jinn_dictation_backend::BackendOptions::from(&section),
         })
     }
 }
@@ -72,10 +75,15 @@ mod tests {
         let settings = DictationSettings::from_layer(layer).expect("empty layer reads defaults");
 
         // Then the section's defaults apply: off, default model, denoise
-        // on, no device.
+        // on, no device, and the tuning options at their shipped
+        // values.
         assert!(!settings.enabled);
         assert_eq!(settings.device, None);
         assert_eq!(settings.model, "parakeet-tdt-0.6b-v2");
         assert!(settings.noise_reduction);
+        assert_eq!(
+            settings.options,
+            jinn_dictation_backend::BackendOptions::default()
+        );
     }
 }

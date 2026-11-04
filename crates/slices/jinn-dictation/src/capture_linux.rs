@@ -25,6 +25,7 @@ use super::CaptureArm;
 use super::CaptureShared;
 use super::arm_refusal_note;
 use super::push_utterances;
+#[cfg(test)]
 use super::take_utterances;
 
 /// nnnoiseless consumes exactly this many samples per frame.

@@ -76,6 +76,7 @@ impl KickoffFixture {
                     device: None,
                     model: MODEL.to_owned(),
                     noise_reduction: false,
+                    options: jinn_dictation_backend::BackendOptions::default(),
                 },
                 backend: Box::new(backend),
                 state: State::new(AppState::default()),

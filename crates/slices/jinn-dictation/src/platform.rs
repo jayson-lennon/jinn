@@ -35,13 +35,17 @@ mod imp {
         false
     }
 
-    /// Builds the platform's backend for the configured model name.
+    /// Builds the platform's backend for the configured model name and
+    /// tuning options.
     ///
     /// The null build returns [`jinn_dictation_backend::NullBackend`],
     /// which succeeds trivially at everything: the lifecycle runs
     /// identically and transcribes nothing.
     #[must_use]
-    pub fn build_backend(model: &str) -> Box<dyn jinn_dictation_backend::DictationBackend> {
+    pub fn build_backend(
+        model: &str,
+        _options: jinn_dictation_backend::BackendOptions,
+    ) -> Box<dyn jinn_dictation_backend::DictationBackend> {
         Box::new(jinn_dictation_backend::NullBackend::new(model))
     }
 }
@@ -69,6 +73,7 @@ pub fn platform_default_model() -> String {
 
 /// Fetches the named model into jinn's cache through the platform
 /// backend: the same `fetch` the actor runs, driven from the CLI.
+/// Fetch touches no tuning options, so the defaults build the backend.
 ///
 /// # Errors
 ///
@@ -76,7 +81,7 @@ pub fn platform_default_model() -> String {
 pub fn fetch_model(
     model: &str,
 ) -> Result<(), error_stack::Report<jinn_dictation_backend::BackendError>> {
-    let mut backend = build_backend(model);
+    let mut backend = build_backend(model, jinn_dictation_backend::BackendOptions::default());
     let mut no_progress = |_: jinn_dictation_backend::FetchProgress| {};
     backend.fetch(&mut no_progress)
 }

@@ -30,9 +30,11 @@
 //! Every fallible method returns `error_stack::Report<BackendError>`.
 
 mod null_backend;
+mod options;
 mod utterance;
 
 pub use null_backend::NullBackend;
+pub use options::BackendOptions;
 pub use utterance::{FetchProgress, Utterance};
 
 use error_stack::Report;

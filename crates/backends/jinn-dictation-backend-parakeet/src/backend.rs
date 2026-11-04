@@ -7,6 +7,7 @@ use error_stack::ResultExt as _;
 use marked_path::MarkedPathAccess as _;
 
 use jinn_dictation_backend::BackendError;
+use jinn_dictation_backend::BackendOptions;
 use jinn_dictation_backend::DictationBackend;
 use jinn_dictation_backend::FetchProgress;
 use jinn_dictation_backend::Utterance;
@@ -139,6 +140,8 @@ pub struct ParakeetBackend {
     model_name: String,
     /// The jinn-managed cache directory the fetch writes into.
     cache_dir: marked_path::MarkedPathBuf<marked_path::Absolute>,
+    /// The tuning knobs the graph builds with.
+    options: BackendOptions,
     /// The decode graph, resident after a successful load.
     graph: Option<DecodeGraph>,
 }
@@ -147,9 +150,17 @@ impl ParakeetBackend {
     /// Builds the backend for `model_name`, caching under `cache_dir`.
     #[must_use]
     pub fn new(model_name: &str) -> Self {
+        Self::with_options(model_name, BackendOptions::default())
+    }
+
+    /// Builds the backend with explicit tuning options; the values
+    /// apply when the graph builds (on `load`).
+    #[must_use]
+    pub fn with_options(model_name: &str, options: BackendOptions) -> Self {
         Self {
             model_name: model_name.to_owned(),
             cache_dir: jinn_common::app_paths::AppPaths::default().dictation_models_dir(),
+            options,
             graph: None,
         }
     }
@@ -275,12 +286,14 @@ impl ParakeetBackend {
         Ok(())
     }
 
-    /// Builds the decode graph from the fetched files.
+    /// Builds the decode graph from the fetched files, tuned by the
+    /// configured options.
     fn build_graph(&self) -> Result<DecodeGraph, Report<BackendError>> {
         // HF stores the blobs under its own `models--<org>--<repo>`
         // layout; `repo.get` returns the snapshot path the fetch
         // resolved to, so the graph reads the files from there.
         let model_dir = self.hf_snapshot_dir()?;
+        let options = &self.options;
         let transducer = sherpa_onnx::OfflineTransducerModelConfig {
             encoder: Some(model_file(&model_dir, "encoder.int8.onnx")?),
             decoder: Some(model_file(&model_dir, "decoder.int8.onnx")?),
@@ -289,7 +302,7 @@ impl ParakeetBackend {
         let model_config = sherpa_onnx::OfflineModelConfig {
             transducer,
             tokens: Some(model_file(&model_dir, "tokens.txt")?),
-            num_threads: 2,
+            num_threads: options.num_threads,
             debug: false,
             provider: Some("cpu".to_owned()),
             ..sherpa_onnx::OfflineModelConfig::default()
@@ -300,6 +313,12 @@ impl ParakeetBackend {
                 feature_dim: 80,
             },
             model_config,
+            decoding_method: options.decoding_method.clone(),
+            max_active_paths: options.max_active_paths,
+            hotwords_file: options.hotwords_file.clone(),
+            hotwords_score: options.hotwords_score,
+            blank_penalty: options.blank_penalty,
+            rule_fsts: options.rule_fsts.clone(),
             ..sherpa_onnx::OfflineRecognizerConfig::default()
         };
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config)
@@ -308,11 +327,11 @@ impl ParakeetBackend {
         let vad_config = sherpa_onnx::VadModelConfig {
             silero_vad: sherpa_onnx::SileroVadModelConfig {
                 model: Some(model_file(&model_dir, VAD_FILE)?),
-                threshold: 0.5,
-                min_silence_duration: 0.5,
-                min_speech_duration: 0.25,
+                threshold: options.vad_threshold,
+                min_silence_duration: options.min_silence_duration,
+                min_speech_duration: options.min_speech_duration,
                 window_size: i32::try_from(VAD_WINDOW_SAMPLES).unwrap_or(512),
-                max_speech_duration: 20.0,
+                max_speech_duration: options.max_speech_duration,
             },
             ten_vad: sherpa_onnx::TenVadModelConfig::default(),
             sample_rate: 16_000,
@@ -320,7 +339,11 @@ impl ParakeetBackend {
             debug: false,
             provider: Some("cpu".to_owned()),
         };
-        let vad = sherpa_onnx::VoiceActivityDetector::create(&vad_config, 30.0).ok_or(
+        // The detector buffers the open segment in a ring of this many
+        // seconds; a max_speech_duration beyond the shipped 30 s
+        // default must grow it or the ring overflows mid-utterance.
+        let buffer_seconds = f32::max(30.0, options.max_speech_duration + 10.0);
+        let vad = sherpa_onnx::VoiceActivityDetector::create(&vad_config, buffer_seconds).ok_or(
             Report::new(BackendError).attach("failed to build the voice activity detector"),
         )?;
 

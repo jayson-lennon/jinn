@@ -24,10 +24,14 @@ pub fn real_backend_available() -> bool {
     true
 }
 
-/// Builds the platform's backend for the configured model name: the real
-/// Parakeet backend, backed by sherpa-onnx, Silero VAD, and jinn's own
-/// model cache.
+/// Builds the platform's backend for the configured model name and
+/// tuning options: the real Parakeet backend, backed by sherpa-onnx,
+/// Silero VAD, and jinn's own model cache. The options apply when the
+/// graph builds (on load), so they take effect on jinn's next start.
 #[must_use]
-pub fn build_backend(model: &str) -> Box<dyn jinn_dictation_backend::DictationBackend> {
-    Box::new(jinn_dictation_backend_parakeet::ParakeetBackend::new(model))
+pub fn build_backend(
+    model: &str,
+    options: jinn_dictation_backend::BackendOptions,
+) -> Box<dyn jinn_dictation_backend::DictationBackend> {
+    Box::new(jinn_dictation_backend_parakeet::ParakeetBackend::with_options(model, options))
 }

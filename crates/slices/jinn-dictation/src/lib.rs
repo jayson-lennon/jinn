@@ -89,6 +89,7 @@ pub fn activate(
                 device: None,
                 model: platform::DEFAULT_MODEL.to_owned(),
                 noise_reduction: true,
+                options: jinn_dictation_backend::BackendOptions::default(),
             }
         }
     };
@@ -122,8 +123,9 @@ pub fn activate(
     // The alt-i row.
     routes::attach_all(host.key_routes());
 
-    // The lifecycle actor.
-    let backend = platform::build_backend(&settings.model);
+    // The lifecycle actor. The options ride along: the backend builds
+    // its decode graph from them on load.
+    let backend = platform::build_backend(&settings.model, settings.options.clone());
     DictationActor::spawn(
         host.system(),
         DictationActorDeps {

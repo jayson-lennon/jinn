@@ -4331,6 +4331,7 @@ dependencies = [
  "jinn-common",
  "jinn-config",
  "jinn-core-types",
+ "jinn-dictation-backend",
  "jinn-slices",
  "jinn-testutil",
  "marked-path",
