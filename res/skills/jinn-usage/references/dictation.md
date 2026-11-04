@@ -27,9 +27,9 @@ downloads.
 
 ## Recording
 
-| Key      | Action                                    |
-| -------- | ----------------------------------------- |
-| `<M-i>`  | Arm when ready; disarm when recording     |
+| Key       | Action                                     |
+| --------- | ------------------------------------------ |
+| `<M-i>`   | Arm when ready; disarm when recording      |
 | `<enter>` | Submit whatever dictation typed (as usual) |
 
 - **While recording**, the meter strip at the right edge of the chat area
@@ -46,15 +46,15 @@ downloads.
 The dashboard row names the current phase and model (e.g. "ready
 (parakeet-tdt-0.6b-v2)") and updates on every transition.
 
-| Phase       | Meaning                                                       |
-| ----------- | ------------------------------------------------------------- |
-| Offline     | Disabled (or not yet enabled) — `<M-i>` hints how to enable   |
-| Fetching    | Model downloading; percent shown on the row                   |
-| Loading     | Model loading into memory                                     |
-| Ready       | Waiting for `<M-i>` to arm                                    |
-| Arming      | Device opening; yellow meter dots                             |
-| Recording   | Live; cyan meter bars; utterances commit as they close        |
-| Error       | Terminal fault; the row names it                              |
+| Phase     | Meaning                                                     |
+| --------- | ----------------------------------------------------------- |
+| Offline   | Disabled (or not yet enabled) — `<M-i>` hints how to enable |
+| Fetching  | Model downloading; percent shown on the row                 |
+| Loading   | Model loading into memory                                   |
+| Ready     | Waiting for `<M-i>` to arm                                  |
+| Arming    | Device opening; yellow meter dots                           |
+| Recording | Live; cyan meter bars; utterances commit as they close      |
+| Error     | Terminal fault; the row names it                            |
 
 A failed arm reverts to Ready and puts the reason in the row's note — a
 `device` name that matches nothing lists the available inputs, so a typo is
@@ -82,12 +82,10 @@ rule (see `configuration.md`), any `[dictation]` change needs a relaunch.
 
 ## CLI utilities
 
-Both run regardless of `enabled`:
-
-| Command                       | What it does                                                                                               |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Command                       | What it does                                                                                                    |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `jinn dictation list-devices` | Print capture inputs one per line, marking the system default — these names are what `[dictation] device` takes |
-| `jinn fetch dictation-model`  | Download the configured model into jinn's cache                                                             |
+| `jinn fetch dictation-model`  | Download the configured model into jinn's cache                                                                 |
 
 ## Platforms
 
