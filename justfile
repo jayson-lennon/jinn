@@ -66,6 +66,29 @@ test-failures:
 test-one FILTER:
     cargo test --workspace --no-fail-fast {{FILTER}}
 
+# Cross-build the Windows test suite on Linux, for running in the VM
+# against the shared checkout. The exes land in
+# target/x86_64-pc-windows-msvc/debug/deps/ — one per crate, named after
+# it. They are CRT-static, so the VM needs nothing installed: run them
+# from the same cwd the Linux side uses.
+build-tests-windows:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v cargo-xwin >/dev/null 2>&1; then
+        echo "Error: cargo-xwin is not installed." >&2
+        echo "  Run: just setup-windows-cross" >&2
+        exit 1
+    fi
+    export XWIN_ARCH=x86_64
+    export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=lld-link
+    # Same flags as the release tarball: crt-static so the exes run bare
+    # in the VM (no VC++ redistributable), /ignore:4099 for the static
+    # CRT libs' never-distributed PDBs.
+    export RUSTFLAGS="-Ctarget-feature=+crt-static -Clink-arg=/ignore:4099"
+    cargo xwin test --workspace --no-run --target x86_64-pc-windows-msvc
+    echo "==> Windows test exes in target/x86_64-pc-windows-msvc/debug/deps/:"
+    ls -1 target/x86_64-pc-windows-msvc/debug/deps/*.exe | sed 's/^/    /'
+
 # Fast compile check of the whole workspace (no codegen).
 check:
     cargo check --workspace
