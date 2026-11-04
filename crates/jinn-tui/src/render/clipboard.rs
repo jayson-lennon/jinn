@@ -138,17 +138,13 @@ mod tests {
     }
 
     impl ClipboardBackend for RecordingBackend {
-        fn set_text(
-            &self,
-            text: &str,
-        ) -> Result<(), crate::clipboard_writer::ClipboardBackendError> {
+        fn write_with_hold(&self, text: &str, on_resolved: crate::clipboard_writer::Resolved) {
             if let Ok(mut written) = self.written.lock() {
                 written.push(text.to_owned());
             }
-            Ok(())
+            // Report before the hold — the contract the hint latency rides.
+            on_resolved(Ok(()));
         }
-
-        fn hold_open(&self) {}
     }
 
     #[rstest::rstest]

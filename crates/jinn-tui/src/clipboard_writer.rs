@@ -11,10 +11,12 @@
 //! - success → `copied {label} to the clipboard`
 //! - failure → `could not copy {label} to the clipboard`
 //!
-//! The detached thread also holds the clipboard open for ~2 seconds after
-//! writing. On X11, clipboard data is only available while the clipboard
-//! instance is alive — dropping it immediately prevents clipboard managers
-//! from syncing. The hold is load-bearing, not waste.
+//! The hint lands the moment the write resolves — *before* the hold — so
+//! the copy feedback is not delayed by clipboard-manager bookkeeping. The
+//! detached thread then holds the clipboard open for ~2 seconds: on X11,
+//! clipboard data is only available while the clipboard instance is alive
+//! — dropping it immediately prevents clipboard managers from syncing. The
+//! hold is load-bearing, not waste.
 //!
 //! Tests swap the backend through [`ClipboardBackend`]; a fake makes both
 //! the write and the hint deterministic without touching a real clipboard
@@ -24,8 +26,8 @@ use std::sync::Arc;
 
 use wherror::Error;
 
+use jinn_slices::ClipboardRequest;
 use jinn_slices::cell::TypedCell;
-use jinn_slices::{ClipboardRequest, SlotKey};
 use jinn_status_bar_msg::{StatusBarState, status_bar_slot};
 
 /// How long the writer's thread holds the clipboard open after writing.
@@ -46,52 +48,59 @@ pub enum ClipboardBackendError {
     Write(String),
 }
 
+/// The write-outcome callback a backend invokes the moment its write
+/// resolves — boxed so the backend trait stays object-safe behind
+/// [`ClipboardWriter`]'s `Arc<dyn ClipboardBackend>`.
+pub type Resolved = Box<dyn FnOnce(Result<(), ClipboardBackendError>) + Send>;
+
 /// The capability the writer needs: put text on the system clipboard.
 ///
-/// The production write path is arboard with the clipboard-open hold in
-/// scope ([`write_and_hold`]); tests install a fake via
-/// [`ClipboardWriter::with_backend`] so a write's outcome — and therefore
-/// the hint — is deterministic.
+/// The production backend is arboard (see [`ArboardBackend`]); tests
+/// install a fake via [`ClipboardWriter::with_backend`] so a write's
+/// outcome — and therefore the hint — is deterministic.
 pub trait ClipboardBackend: Send + Sync + 'static {
-    /// Places `text` on the system clipboard.
+    /// Places `text` on the system clipboard, reports the outcome the
+    /// moment it resolves, then holds the clipboard open.
     ///
-    /// # Errors
-    ///
-    /// Returns [`ClipboardBackendError`] when the clipboard cannot be
-    /// opened or the write fails.
-    fn set_text(&self, text: &str) -> Result<(), ClipboardBackendError>;
-
-    /// Holds the clipboard open so clipboard managers can sync.
-    ///
-    /// The hold runs after the write resolves, whichever way it went: a
-    /// failed write still opened the clipboard, and a successful one must
-    /// stay reachable for clipboard managers. The production path sleeps
-    /// [`HOLD_DURATION`]; fakes return immediately.
-    fn hold_open(&self);
+    /// `on_resolved` must run as soon as the write's outcome is known and
+    /// *before* any hold: the status hint rides this callback, and copy
+    /// feedback must not wait on clipboard-manager bookkeeping. The hold
+    /// itself — [`HOLD_DURATION`] on the production backend, a no-op on
+    /// fakes — keeps X11 clipboard managers able to sync, so it runs after
+    /// the callback with the writing instance still alive.
+    fn write_with_hold(&self, text: &str, on_resolved: Resolved);
 }
 
-/// One arboard write with the hold in scope: the `Clipboard` instance is
-/// created, written, and then kept alive through the sleep — exactly the
-/// X11 requirement that data is available only while the instance lives.
-fn write_and_hold(text: &str) -> Result<(), ClipboardBackendError> {
-    let mut cb =
-        arboard::Clipboard::new().map_err(|e| ClipboardBackendError::Open(e.to_string()))?;
-    cb.set_text(text)
-        .map_err(|e| ClipboardBackendError::Write(e.to_string()))?;
-    // Hold the clipboard open so clipboard managers can sync. `cb` must
-    // live through the sleep — X11 clipboard data is only available while
-    // the Clipboard instance is alive.
-    std::thread::sleep(HOLD_DURATION);
-    Ok(())
+/// The production backend: arboard.
+struct ArboardBackend;
+
+impl ClipboardBackend for ArboardBackend {
+    fn write_with_hold(&self, text: &str, on_resolved: Resolved) {
+        // The `Clipboard` instance is created, written, reported, and held
+        // in ONE scope: X11 clipboard data is only available while the
+        // writing instance is alive, so `cb` must live through the sleep.
+        let mut cb = match arboard::Clipboard::new() {
+            Ok(cb) => cb,
+            Err(e) => {
+                on_resolved(Err(ClipboardBackendError::Open(e.to_string())));
+                return;
+            }
+        };
+        let outcome = cb
+            .set_text(text)
+            .map_err(|e| ClipboardBackendError::Write(e.to_string()));
+        // Report before the hold: the status hint rides `on_resolved`, and
+        // feedback must not wait out the clipboard-manager window.
+        on_resolved(outcome);
+        // Hold the clipboard open so clipboard managers can sync. `cb`
+        // must live through the sleep.
+        std::thread::sleep(HOLD_DURATION);
+    }
 }
 
 impl<B: ClipboardBackend + ?Sized> ClipboardBackend for std::sync::Arc<B> {
-    fn set_text(&self, text: &str) -> Result<(), ClipboardBackendError> {
-        (**self).set_text(text)
-    }
-
-    fn hold_open(&self) {
-        (**self).hold_open();
+    fn write_with_hold(&self, text: &str, on_resolved: Resolved) {
+        (**self).write_with_hold(text, on_resolved);
     }
 }
 
@@ -142,16 +151,17 @@ impl ClipboardWriter {
         }
     }
 
-    /// Runs one write against the chosen backend, arboard-with-hold when
-    /// no explicit backend was installed.
-    fn run_write(&self, text: &str) -> Result<(), ClipboardBackendError> {
+    /// Runs one write against the chosen backend, calling `on_resolved`
+    /// with the write's outcome the moment it is known — the
+    /// arboard-with-hold path when no explicit backend was installed.
+    fn run_write<R>(&self, text: &str, label: String, on_resolved: R)
+    where
+        R: FnOnce(String, Result<(), ClipboardBackendError>) + Send + 'static,
+    {
+        let on_resolved: Resolved = Box::new(move |outcome| on_resolved(label, outcome));
         match &self.backend {
-            Some(backend) => {
-                let outcome = backend.set_text(text);
-                backend.hold_open();
-                outcome
-            }
-            None => write_and_hold(text),
+            Some(backend) => backend.write_with_hold(text, on_resolved),
+            None => ArboardBackend.write_with_hold(text, on_resolved),
         }
     }
 
@@ -161,7 +171,8 @@ impl ClipboardWriter {
     /// {label} to the clipboard`.
     ///
     /// Returns immediately; the hint arrives asynchronously, exactly when
-    /// the write's outcome is known and not before.
+    /// the write's outcome is known and not before — and before the
+    /// backend's clipboard-manager hold begins, so feedback is instant.
     pub fn write_async(&self, request: ClipboardRequest, slices: &jinn_slices::Slices) {
         // The write runs on the thread; the hint is computed from its
         // outcome there, never before it resolves.
@@ -170,10 +181,12 @@ impl ClipboardWriter {
         // Detached by design: the write (and its ~2s hold on the
         // production backend) outlives the keypress that staged it.
         std::thread::spawn(move || {
-            let hint = hint_for(&request.label, writer.run_write(&request.text));
-            if let Some(status) = status {
-                status.update(|state| state.hint = Some(hint));
-            }
+            writer.run_write(&request.text, request.label, |label, outcome| {
+                let hint = hint_for(&label, outcome);
+                if let Some(status) = status {
+                    status.update(|state| state.hint = Some(hint));
+                }
+            });
         });
     }
 
@@ -184,8 +197,12 @@ impl ClipboardWriter {
     /// both the write and the hint fully deterministic, with no wall-clock
     /// wait and no detached thread to synchronize against.
     pub fn write(&self, request: &ClipboardRequest, status: &TypedCell<StatusBarState>) {
-        let hint = hint_for(&request.label, self.run_write(&request.text));
-        status.update(|state| state.hint = Some(hint));
+        let status = status.clone();
+        let label = request.label.clone();
+        self.run_write(&request.text, label, move |label, outcome| {
+            let hint = hint_for(&label, outcome);
+            status.update(|state| state.hint = Some(hint));
+        });
     }
 }
 
@@ -199,15 +216,6 @@ fn hint_for(label: &str, outcome: Result<(), ClipboardBackendError>) -> String {
             format!("could not copy {label} to the clipboard")
         }
     }
-}
-
-/// The status-bar slot the writer writes hints into: re-exported so a
-/// caller resolving the cell for [`ClipboardWriter::write`] seeds the real
-/// slot rather than a parallel one.
-#[doc(hidden)]
-#[must_use]
-pub fn status_slot() -> SlotKey {
-    status_bar_slot()
 }
 
 #[cfg(test)]
@@ -234,17 +242,17 @@ mod tests {
     }
 
     impl ClipboardBackend for FakeSuccessBackend {
-        fn set_text(&self, text: &str) -> Result<(), ClipboardBackendError> {
-            match self.written.lock() {
+        fn write_with_hold(&self, text: &str, on_resolved: Resolved) {
+            let outcome = match self.written.lock() {
                 Ok(mut written) => {
                     written.push(text.to_owned());
                     Ok(())
                 }
                 Err(_) => Err(ClipboardBackendError::Write("backend poisoned".to_owned())),
-            }
+            };
+            // Report before the hold — the contract the hint latency rides.
+            on_resolved(outcome);
         }
-
-        fn hold_open(&self) {}
     }
 
     /// A fake backend whose writes always fail.
@@ -252,18 +260,34 @@ mod tests {
     struct FakeFailingBackend;
 
     impl ClipboardBackend for FakeFailingBackend {
-        fn set_text(&self, _text: &str) -> Result<(), ClipboardBackendError> {
-            Err(ClipboardBackendError::Write("backend refused".to_owned()))
+        fn write_with_hold(&self, _text: &str, on_resolved: Resolved) {
+            on_resolved(Err(ClipboardBackendError::Write(
+                "backend refused".to_owned(),
+            )));
         }
+    }
 
-        fn hold_open(&self) {}
+    /// A fake whose hold phase blocks until the test releases it, so a
+    /// test can observe state *while* the hold is in progress.
+    struct HoldBlockedBackend {
+        release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl ClipboardBackend for HoldBlockedBackend {
+        fn write_with_hold(&self, _text: &str, on_resolved: Resolved) {
+            // Report first, then block in the hold phase.
+            on_resolved(Ok(()));
+            if let Ok(rx) = self.release.lock() {
+                let _ = rx.recv();
+            }
+        }
     }
 
     fn status_slices() -> (Slices, TypedCell<StatusBarState>) {
         let slices = Slices::new();
         let cell = jinn_kernel::common::render_test::seed_cell(
             &slices,
-            &status_slot(),
+            &status_bar_slot(),
             StatusBarState::default(),
         );
         (slices, cell)
@@ -339,6 +363,29 @@ mod tests {
             hint_of(&status),
             Some("copied session id to the clipboard".to_owned())
         );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn write_async_raises_the_hint_while_the_hold_is_still_running() {
+        // Given a backend whose hold blocks until the test releases it.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let writer = ClipboardWriter::with_backend(HoldBlockedBackend {
+            release: std::sync::Mutex::new(rx),
+        });
+        let (slices, status) = status_slices();
+
+        // When dispatching an async write and waiting for the hint.
+        writer.write_async(ClipboardRequest::new("text", "selection"), &slices);
+        jinn_testutil::wait::await_cell(&status, std::time::Duration::from_secs(5), |state| {
+            state.hint.as_deref() == Some("copied selection to the clipboard")
+        })
+        .await;
+
+        // Then the hint arrived while the hold phase was still running —
+        // copy feedback does not wait out the clipboard-manager window.
+        // (Releasing is best-effort: the detached thread exits regardless.)
+        let _ = tx.send(());
     }
 
     #[rstest::rstest]
