@@ -8,6 +8,7 @@ use marked_path::MarkedPathAccess as _;
 
 use jinn_dictation_backend::BackendError;
 use jinn_dictation_backend::BackendOptions;
+use jinn_dictation_backend::DecodableAudio;
 use jinn_dictation_backend::DictationBackend;
 use jinn_dictation_backend::FetchProgress;
 use jinn_dictation_backend::Utterance;
@@ -59,9 +60,9 @@ struct DecodeSession<'a> {
 impl DecodeSession<'_> {
     /// Feeds samples through the VAD windows, decoding every utterance
     /// the VAD closes.
-    fn feed(&mut self, samples: &[f32]) -> Vec<Utterance> {
+    fn feed(&mut self, audio: &DecodableAudio) -> Vec<Utterance> {
         let mut utterances = Vec::new();
-        let mut available = samples;
+        let mut available = audio.as_samples();
         while !available.is_empty() {
             let tail = self.window_tail.len();
             let take = (VAD_WINDOW_SAMPLES - tail).min(available.len());
@@ -83,12 +84,26 @@ impl DecodeSession<'_> {
 
     /// Decodes every VAD-closed segment, appending to the open
     /// utterance's samples as speech continues.
+    ///
+    /// A segment shorter than one feature frame is dropped before
+    /// decode: sherpa can hand back a degenerate (even empty) segment
+    /// when its endpointing misfires, and a zero-frame batch through
+    /// the int8 encoder aborts the process from inside onnxruntime.
+    /// `DecodableAudio::new` is the guard — the reject case cannot
+    /// reach `decode`.
     fn drain_closed(&mut self, utterances: &mut Vec<Utterance>) {
         while let Some(segment) = self.vad.front() {
             let samples = segment.samples().to_vec();
             self.vad.pop();
             self.open_utterance.extend_from_slice(&samples);
-            let text = self.decode(&samples);
+            let Some(audio) = DecodableAudio::new(samples) else {
+                tracing::debug!(
+                    samples = self.open_utterance.len(),
+                    "dropping a degenerate VAD segment: shorter than one feature frame"
+                );
+                continue;
+            };
+            let text = self.decode(&audio);
             if !text.is_empty() {
                 utterances.push(Utterance::new(text));
             }
@@ -97,19 +112,43 @@ impl DecodeSession<'_> {
 
     /// Force-closes the VAD's open speech, decoding whatever it hands
     /// back; `None` when no utterance was open.
+    ///
+    /// Leaves the graph fully reset (see [`DecodeSession::reset`]): the
+    /// disarm path is a session boundary, so nothing survives it.
     fn flush(&mut self) -> Option<Utterance> {
         self.vad.flush();
         let mut closed = Vec::new();
         self.drain_closed(&mut closed);
-        self.open_utterance.clear();
-        self.vad.clear();
+        self.reset();
         closed.into_iter().next()
     }
 
+    /// Wipes every trace of the current session's endpointing state:
+    /// the VAD's segment queue, Silero model counters, sample ring, and
+    /// trailing-window buffer, plus this session's window tail and open
+    /// utterance.
+    ///
+    /// `vad.reset()`, not `vad.clear()`: `clear()` empties only the
+    /// segment queue, leaving the Silero model's internal counters
+    /// frozen mid-session — the stale state that let the VAD declare
+    /// "end of speech" on the first windows of the next session and
+    /// hand back a degenerate (negative-length, empty) segment. `reset`
+    /// rewinds the counters, the ring, and sherpa's trailing window
+    /// along with the queue.
+    fn reset(&mut self) {
+        self.vad.reset();
+        self.window_tail.clear();
+        self.open_utterance.clear();
+    }
+
     /// Batch-decodes one utterance's samples.
-    fn decode(&self, samples: &[f32]) -> String {
+    ///
+    /// The input is [`DecodableAudio`]: at least one feature frame by
+    /// construction, so the engine below can never see the zero-frame
+    /// batch shape that aborts a quantized encoder.
+    fn decode(&self, audio: &DecodableAudio) -> String {
         let stream = self.recognizer.create_stream();
-        stream.accept_waveform(16_000, samples);
+        stream.accept_waveform(16_000, audio.as_samples());
         self.recognizer.decode(&stream);
         stream
             .get_result()
@@ -385,7 +424,7 @@ impl DictationBackend for ParakeetBackend {
         Ok(())
     }
 
-    fn feed(&mut self, samples: &[f32]) -> Result<Vec<Utterance>, Report<BackendError>> {
+    fn feed(&mut self, audio: DecodableAudio) -> Result<Vec<Utterance>, Report<BackendError>> {
         let Some(graph) = self.graph.as_mut() else {
             return Ok(Vec::new());
         };
@@ -401,7 +440,7 @@ impl DictationBackend for ParakeetBackend {
             window_tail,
             open_utterance,
         };
-        Ok(session.feed(samples))
+        Ok(session.feed(&audio))
     }
 
     fn flush(&mut self) -> Result<Option<Utterance>, Report<BackendError>> {
@@ -422,6 +461,27 @@ impl DictationBackend for ParakeetBackend {
         };
         Ok(session.flush())
     }
+
+    fn reset(&mut self) {
+        self.reset_graph();
+    }
+}
+
+impl ParakeetBackend {
+    /// Resets the resident decode graph's endpointing state, or no-ops
+    /// when no graph is loaded (a reset before load has nothing to
+    /// wipe, and the contract requires the no-op to succeed).
+    fn reset_graph(&mut self) {
+        let Some(graph) = self.graph.as_mut() else {
+            return;
+        };
+        // The recognizer is session-independent (a stateless decode
+        // engine over a fixed graph) — only the VAD and the session
+        // tails carry state across feeds.
+        graph.vad.reset();
+        graph.window_tail.clear();
+        graph.open_utterance.clear();
+    }
 }
 
 #[cfg(test)]
@@ -432,6 +492,7 @@ mod tests {
         reason = "test code, panics are acceptable"
     )]
     use super::ParakeetBackend;
+    use jinn_dictation_backend::DecodableAudio;
     use jinn_dictation_backend::DictationBackend;
 
     #[rstest::rstest]
@@ -455,10 +516,8 @@ mod tests {
         // When feeding audio and flushing.
         // Then neither produces utterances and nothing reports loaded.
         assert!(!backend.is_loaded());
-        assert_eq!(
-            backend.feed(&[0.0_f32; 512]).expect("feed succeeds").len(),
-            0
-        );
+        let audio = DecodableAudio::new(vec![0.0_f32; 512]).expect("512 is decodable");
+        assert_eq!(backend.feed(audio).expect("feed succeeds").len(), 0);
         assert!(backend.flush().expect("flush succeeds").is_none());
     }
 
@@ -474,11 +533,92 @@ mod tests {
         }
 
         // When feeding silence (below any VAD threshold) and flushing.
-        let utterances = backend.feed(&[0.0_f32; 512]).expect("feed succeeds");
+        let audio = DecodableAudio::new(vec![0.0_f32; 512]).expect("512 is decodable");
+        let utterances = backend.feed(audio).expect("feed succeeds");
         let flushed = backend.flush().expect("flush succeeds");
 
         // Then silence closes no utterance, and the flush finds none.
         assert_eq!(utterances.len(), 0);
         assert!(flushed.is_none());
+    }
+
+    /// Speech-shaped audio: a 220 Hz tone with a decaying envelope,
+    /// loud enough for the Silero VAD to trigger, long enough to hold
+    /// several VAD windows.
+    fn speechish(seconds: f32) -> Vec<f32> {
+        let total = (seconds * 16_000.0) as usize;
+        (0..total)
+            .map(|i| {
+                let t = i as f32 / 16_000.0;
+                let envelope = 1.0 - (t / seconds) * 0.5;
+                0.6 * envelope * (2.0 * std::f32::consts::PI * 220.0 * t).sin()
+            })
+            .collect()
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn flush_returns_text_and_leaves_a_fresh_session() {
+        // Given a loaded backend fed speech the VAD opens a segment on.
+        let mut backend = ParakeetBackend::new("parakeet-tdt-0.6b-v2");
+        if backend.load().is_err() {
+            // No fetched model in the test environment: the load is a
+            // legitimate failure, and the graph stays absent.
+            return;
+        }
+
+        // When the open speech is force-finalized (the disarm path),
+        // and the now-fresh session is fed silence and flushed again.
+        let audio = DecodableAudio::new(speechish(1.5)).expect("1.5 s is decodable");
+        backend.feed(audio).expect("feed succeeds");
+        let flushed = backend.flush().expect("flush succeeds");
+        let fresh_audio = DecodableAudio::new(vec![0.0_f32; 1_024]).expect("1_024 is decodable");
+        let fresh_feed = backend.feed(fresh_audio).expect("feed succeeds");
+        let fresh_flush = backend.flush().expect("flush succeeds");
+
+        // Then whatever the flush closed carries text — a committed
+        // utterance is never empty (the degenerate guard on the live
+        // decode path) — and the fresh session decoded nothing: the
+        // reset left no stale state for it to misfire on.
+        assert!(
+            flushed.is_none_or(|utterance| !utterance.text.is_empty()),
+            "a flushed utterance must never be empty"
+        );
+        assert_eq!(fresh_feed.len(), 0);
+        assert!(fresh_flush.is_none());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn back_to_back_sessions_do_not_panic() {
+        // Given a loaded backend driven through the original crash
+        // cycle: a first session's feed and flush, then a second
+        // session's feed — before the fix, the stale VAD state could
+        // hand back a degenerate segment whose zero-frame batch aborted
+        // the process from inside onnxruntime.
+        let mut backend = ParakeetBackend::new("parakeet-tdt-0.6b-v2");
+        if backend.load().is_err() {
+            // No fetched model in the test environment: the load is a
+            // legitimate failure, and the graph stays absent.
+            return;
+        }
+
+        // When both sessions run back to back.
+        let first = DecodableAudio::new(speechish(2.0)).expect("2 s is decodable");
+        backend.feed(first).expect("first session feed succeeds");
+        backend.flush().expect("first session flush succeeds");
+
+        let second = DecodableAudio::new(speechish(2.0)).expect("2 s is decodable");
+        let utterances = backend.feed(second).expect("second session feed succeeds");
+        let flushed = backend.flush().expect("second session flush succeeds");
+
+        // Then the process is still alive and nothing empty slipped
+        // through: any utterance the second session closed carries text.
+        for utterance in utterances.iter().chain(flushed.iter()) {
+            assert!(
+                !utterance.text.is_empty(),
+                "a committed utterance must never be empty"
+            );
+        }
     }
 }

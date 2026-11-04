@@ -63,12 +63,19 @@ impl DictationBackend for NullBackend {
         Ok(())
     }
 
-    fn feed(&mut self, _samples: &[f32]) -> Result<Vec<Utterance>, Report<BackendError>> {
+    fn feed(
+        &mut self,
+        _audio: crate::DecodableAudio,
+    ) -> Result<Vec<Utterance>, Report<BackendError>> {
         Ok(Vec::new())
     }
 
     fn flush(&mut self) -> Result<Option<Utterance>, Report<BackendError>> {
         Ok(None)
+    }
+
+    fn reset(&mut self) {
+        // The null backend holds no endpointing state — nothing to wipe.
     }
 }
 
@@ -132,8 +139,9 @@ mod tests {
         // Given a null backend.
         let mut backend = NullBackend::new("any");
 
-        // When feeding audio.
-        let utterances = backend.feed(&[0.0_f32; 1024]).expect("null feed succeeds");
+        // When feeding valid decodable audio.
+        let audio = crate::DecodableAudio::new(vec![0.0_f32; 1024]).expect("1024 is decodable");
+        let utterances = backend.feed(audio).expect("null feed succeeds");
 
         // Then nothing was transcribed.
         assert_eq!(utterances.len(), 0);
@@ -150,6 +158,19 @@ mod tests {
 
         // Then there was no open utterance to close.
         assert_eq!(flushed, None);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn null_reset_is_a_no_op_that_succeeds() {
+        // Given a null backend.
+        let mut backend = NullBackend::new("any");
+
+        // When resetting between sessions.
+        backend.reset();
+
+        // Then nothing failed and nothing was observable — the null
+        // backend has no endpointing state to wipe.
     }
 
     #[rstest::rstest]

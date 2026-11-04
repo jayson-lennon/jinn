@@ -22,13 +22,16 @@ use error_stack::Report;
 
 /// A backend the tests script: cached or not, loadable or not, and one
 /// scripted utterance out of `flush`. Crate-visible so the actor
-/// suite can script the same lifecycle.
+/// suite can script the same lifecycle. `resets` counts `reset` calls
+/// — clone the Arc before the backend is boxed and moved, and the
+/// counter survives behind the trait object.
 #[derive(Default)]
 pub(crate) struct StubBackend {
     pub cached: bool,
     pub load_fails: bool,
     pub fetch_fails: bool,
     pub flushed: Option<Utterance>,
+    pub resets: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl DictationBackend for StubBackend {
@@ -62,12 +65,20 @@ impl DictationBackend for StubBackend {
         Ok(())
     }
 
-    fn feed(&mut self, _samples: &[f32]) -> Result<Vec<Utterance>, Report<BackendError>> {
+    fn feed(
+        &mut self,
+        _audio: jinn_dictation_backend::DecodableAudio,
+    ) -> Result<Vec<Utterance>, Report<BackendError>> {
         Ok(Vec::new())
     }
 
     fn flush(&mut self) -> Result<Option<Utterance>, Report<BackendError>> {
         Ok(self.flushed.take())
+    }
+
+    fn reset(&mut self) {
+        self.resets
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -431,7 +442,10 @@ fn stub_backend_serves_the_full_trait_surface() {
     assert_eq!(last_percent, Some(50));
     assert!(
         backend
-            .feed(&[0.0; 512])
+            .feed(
+                jinn_dictation_backend::DecodableAudio::new(vec![0.0; 512])
+                    .expect("512 is decodable")
+            )
             .expect("stub feed succeeds")
             .is_empty()
     );

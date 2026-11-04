@@ -316,6 +316,12 @@ pub(super) async fn open_capture(actor: &mut DictationActor) {
         let runtime = actor.runtime.clone();
         runtime
             .spawn_blocking(move || {
+                // Fresh endpointing state for every session: a capture
+                // loss skips the disarm flush, so the arm-side reset is
+                // the only guarantee the graph starts clean. It runs
+                // before the stream opens, so no audio callback can
+                // interleave with it.
+                backend.lock().reset();
                 crate::capture::open(configured.as_deref(), noise_reduction, &backend)
             })
             .await

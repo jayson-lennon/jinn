@@ -18,6 +18,7 @@ use crate::dictation_actor::DictationActorDeps;
 use crate::machine_tests::StubBackend;
 use jinn_dictation_msg::DictationLevel;
 use jinn_dictation_msg::DictationState;
+use jinn_dictation_msg::DictationToggle;
 use jinn_dictation_msg::dictation_level_slot;
 use jinn_dictation_msg::dictation_state_slot;
 use jinn_kernel::common::app_state::AppState;
@@ -181,4 +182,45 @@ async fn a_full_lifecycle_publishes_every_transition() {
             "expected a {expected:?} note in the lifecycle publications, saw: {notes:?}"
         );
     }
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn arm_resets_the_backend_before_capture_opens() {
+    // Given a spawned actor on a warm cache that reached Ready, and the
+    // shared reset counter its stub backend carries (cloned before the
+    // backend was boxed, so it survives behind the trait object).
+    let resets = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let fixture = KickoffFixture::spawn(StubBackend {
+        cached: true,
+        resets: std::sync::Arc::clone(&resets),
+        ..StubBackend::default()
+    })
+    .await;
+    let seen = fixture
+        .harness
+        .spawn_recorder::<ServiceStatusUpdate>()
+        .await;
+
+    // When the machine runs to Ready and toggles are pressed. The
+    // device outcome on a press is environment-dependent — a machine
+    // with a microphone enters Recording (the next press disarms, the
+    // stub's flush counts nothing), one without refuses back to Ready —
+    // so presses continue until a second arm has happened, bounded to
+    // three: arm, then either arm (refused) or disarm-then-arm.
+    await_recorded::<ServiceStatusUpdate>(&seen, 2, WAIT).await;
+    let mut settled = 0;
+    while resets.load(std::sync::atomic::Ordering::SeqCst) < 2 && settled < 3 {
+        fixture.harness.publish(DictationToggle).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        settled += 1;
+    }
+
+    // Then every arm reset the backend: two sessions, two resets — no
+    // session can start on stale VAD state, whatever the device did.
+    assert_eq!(
+        resets.load(std::sync::atomic::Ordering::SeqCst),
+        2,
+        "every arm must reset the backend before capture opens"
+    );
 }
