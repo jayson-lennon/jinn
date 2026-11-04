@@ -39,7 +39,7 @@ Extraction (making them produce answers) and instruction (telling them things) a
 
 ## Learner thinking
 
-Tell the learner they can paste their thinking at any time — raw, unpolished, mid-sentence. Read every paste before you pick the next question. It shows the reasoning, not just the answer, and it usually says where the confusion actually is. When the answer and the thinking disagree, go with the thinking.
+Tell the learner they can paste their thinking at any time — raw, unpolished, mid-sentence. Read every paste before you pick the next question. It shows the reasoning, not just the answer, and it usually says where the confusion actually is. When the answer and the thinking disagree, go with the thinking. Use this information to help direct the direction the curriculum takes, and to identify potential gaps in the learner's knowledge that need sharpening.
 
 ## Topic files
 
