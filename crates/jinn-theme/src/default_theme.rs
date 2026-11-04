@@ -87,6 +87,7 @@ mod tests {
             ("infopopup_border", theme.infopopup_border),
             ("infopopup_fg", theme.infopopup_fg),
             ("quake_bar_bg", theme.quake_bar_bg),
+            ("meter_bg", theme.meter_bg),
         ]
     }
 
@@ -142,6 +143,21 @@ mod tests {
         assert_ne!(
             theme.input_mode_queue, theme.input_mode_steer,
             "queue and steer colors must differ"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn meter_bg_defaults_to_the_hot_mic_dark_red() {
+        // Given the default theme.
+        let theme = default_theme();
+
+        // When reading the meter background.
+        // Then it is the hot-mic dark red, exactly as shipped.
+        assert_eq!(
+            theme.meter_bg,
+            ratatui::style::Color::Rgb(138, 31, 31),
+            "meter_bg must stay the hot-mic dark red the recording meter is designed around"
         );
     }
 }

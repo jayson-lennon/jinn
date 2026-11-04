@@ -47,6 +47,12 @@ pub struct CaptureShared {
     /// Set once when the stream dies without a toggle; the actor
     /// reads and clears it on its tick.
     pub lost: Option<String>,
+    /// Utterances the backend closed during recording, in the order
+    /// they were spoken. The audio callback pushes; the actor's tick
+    /// drains and commits each to the focused input. Written only
+    /// through [`push_utterances`], read only through
+    /// [`take_utterances`].
+    pub utterances: Vec<jinn_dictation_backend::Utterance>,
 }
 
 /// A live capture arm.
@@ -90,6 +96,25 @@ pub fn take_lost(shared: &parking_lot::Mutex<CaptureShared>) -> Option<String> {
     shared.lock().lost.take()
 }
 
+/// Queues the utterances the backend closed on one feed, preserving
+/// the order they were spoken. The audio callback's write side.
+pub fn push_utterances(
+    shared: &parking_lot::Mutex<CaptureShared>,
+    utterances: Vec<jinn_dictation_backend::Utterance>,
+) {
+    shared.lock().utterances.extend(utterances);
+}
+
+/// Drains every queued utterance, oldest first. The actor's tick
+/// read side: each returned utterance is committed to the focused
+/// input and never queued again.
+#[must_use]
+pub fn take_utterances(
+    shared: &parking_lot::Mutex<CaptureShared>,
+) -> Vec<jinn_dictation_backend::Utterance> {
+    std::mem::take(&mut shared.lock().utterances)
+}
+
 // The platform split, same shape as `platform.rs`: the linux body in
 // `capture_linux.rs`, the null body in `capture_null.rs`, swapped by
 // one `cfg` pair — the integration's other platform gate, beside
@@ -110,6 +135,39 @@ pub use device::open;
 #[cfg(test)]
 mod tests {
     use super::arm_refusal_note;
+    use super::push_utterances;
+    use super::take_utterances;
+    use jinn_dictation_backend::Utterance;
+    use parking_lot::Mutex;
+
+    #[rstest::rstest]
+    #[test]
+    fn capture_shared_queues_utterances_in_fifo_order() {
+        // Given a capture shared slot with two queued utterances.
+        let shared = Mutex::new(super::CaptureShared::default());
+        push_utterances(
+            &shared,
+            vec![
+                Utterance::new("first.".to_owned()),
+                Utterance::new("second.".to_owned()),
+            ],
+        );
+
+        // When draining the queue, then draining again.
+        let first_take = take_utterances(&shared);
+        let second_take = take_utterances(&shared);
+
+        // Then the first drain returns both, in the order spoken.
+        assert_eq!(
+            first_take,
+            vec![
+                Utterance::new("first.".to_owned()),
+                Utterance::new("second.".to_owned()),
+            ]
+        );
+        // And the second drain is empty — the take clears the queue.
+        assert!(second_take.is_empty());
+    }
 
     #[rstest::rstest]
     #[test]

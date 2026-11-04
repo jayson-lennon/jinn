@@ -24,6 +24,8 @@ use jinn_dictation_backend::DictationBackend;
 use super::CaptureArm;
 use super::CaptureShared;
 use super::arm_refusal_note;
+use super::push_utterances;
+use super::take_utterances;
 
 /// nnnoiseless consumes exactly this many samples per frame.
 const DENOISE_FRAME: usize = nnnoiseless::DenoiseState::FRAME_SIZE;
@@ -130,15 +132,28 @@ impl Pipeline {
         self.feed_tail.append(&mut samples_16k);
         if self.feed_tail.len() >= 1_600 {
             let chunk = std::mem::take(&mut self.feed_tail);
-            if let Some(mut backend) = self.backend.try_lock()
-                && let Ok(utterances) = backend.feed(&chunk)
-            {
-                drop(backend);
-                // Utterances committed here land through the actor on
-                // its tick; the shared-mutex seam is the same one the
-                // disarm flush drains.
-                let _ = utterances;
+            if let Some(mut backend) = self.backend.try_lock() {
+                match backend.feed(&chunk) {
+                    Ok(utterances) => {
+                        drop(backend);
+                        // Queue for the actor's tick: each closed
+                        // utterance commits to the focused input as
+                        // it closes. An empty Vec is the common no-op.
+                        push_utterances(&self.shared, utterances);
+                    }
+                    Err(report) => {
+                        drop(backend);
+                        // The audio thread cannot surface an error to
+                        // the user; the log is the only record. The
+                        // feed tail is already consumed — the next
+                        // chunk starts fresh, losing this one's audio.
+                        tracing::warn!(error = ?report, "dictation backend feed failed");
+                    }
+                }
             }
+            // Backend busy (load in flight, or the disarm flush holds
+            // the mutex): drop the chunk silently — the busy path is
+            // the normal end-of-utterance overlap, not a fault.
         }
         self.shared.lock().level = level;
     }
@@ -239,4 +254,194 @@ pub fn open(
         closer: Some(Box::new(stream)),
         shared,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic,
+        reason = "test code, panics are acceptable"
+    )]
+    use super::*;
+
+    use jinn_dictation_backend::BackendError;
+    use jinn_dictation_backend::DictationBackend;
+    use jinn_dictation_backend::FetchProgress;
+    use jinn_dictation_backend::Utterance;
+
+    use error_stack::Report;
+
+    /// A backend the tests script: one canned feed result, success or
+    /// failure, returned for every feed call.
+    struct ScriptedFeedBackend {
+        feed_fails: bool,
+        utterances: Vec<Utterance>,
+    }
+
+    impl DictationBackend for ScriptedFeedBackend {
+        fn model_name(&self) -> &'static str {
+            "scripted-feed"
+        }
+
+        fn is_cached(&self) -> bool {
+            true
+        }
+
+        fn is_loaded(&self) -> bool {
+            true
+        }
+
+        fn fetch(
+            &mut self,
+            _on_progress: &mut dyn FnMut(FetchProgress),
+        ) -> Result<(), Report<BackendError>> {
+            Ok(())
+        }
+
+        fn load(&mut self) -> Result<(), Report<BackendError>> {
+            Ok(())
+        }
+
+        fn feed(&mut self, _samples: &[f32]) -> Result<Vec<Utterance>, Report<BackendError>> {
+            if self.feed_fails {
+                return Err(Report::new(BackendError).attach("scripted feed failure"));
+            }
+            Ok(std::mem::take(&mut self.utterances))
+        }
+
+        fn flush(&mut self) -> Result<Option<Utterance>, Report<BackendError>> {
+            Ok(None)
+        }
+    }
+
+    /// A pipeline wired to `backend`, no denoiser or resampler, over a
+    /// fresh shared slot.
+    fn pipeline_over(
+        backend: ScriptedFeedBackend,
+    ) -> (
+        Arc<Mutex<Box<dyn DictationBackend>>>,
+        Arc<Mutex<CaptureShared>>,
+        Pipeline,
+    ) {
+        let backend: Arc<Mutex<Box<dyn DictationBackend>>> =
+            Arc::new(Mutex::new(Box::new(backend)));
+        let shared = Arc::new(Mutex::new(CaptureShared::default()));
+        let pipeline = Pipeline {
+            denoiser: None,
+            denoise_tail: Vec::new(),
+            feed_tail: Vec::new(),
+            resampler: None,
+            backend: Arc::clone(&backend),
+            shared: Arc::clone(&shared),
+        };
+        (backend, shared, pipeline)
+    }
+
+    /// One full backend feed: 1600 samples is the chunk threshold.
+    fn one_chunk() -> Vec<f32> {
+        vec![0.1_f32; 1_600]
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn pipeline_queues_decoded_utterances_from_the_backend_feed() {
+        // Given a pipeline over a scripted backend that closes one
+        // utterance per feed.
+        let scripted = ScriptedFeedBackend {
+            feed_fails: false,
+            utterances: vec![Utterance::new("hello there.".to_owned())],
+        };
+        let (_backend, shared, mut pipeline) = pipeline_over(scripted);
+
+        // When one chunk of audio runs through the pipeline.
+        pipeline.process(&one_chunk());
+
+        // Then the decoded utterance is queued on the shared slot —
+        // the actor's tick can commit it; nothing was dropped.
+        assert_eq!(
+            take_utterances(&shared),
+            vec![Utterance::new("hello there.".to_owned())],
+            "the pipeline must queue feed output, not discard it"
+        );
+    }
+
+    /// Records every event's fields, so a test can assert a warn fired.
+    #[derive(Clone)]
+    struct CapturedEvents(Arc<std::sync::Mutex<Vec<String>>>);
+
+    impl tracing::Subscriber for CapturedEvents {
+        fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+
+        fn register_callsite(
+            &self,
+            _metadata: &'static tracing::Metadata<'static>,
+        ) -> tracing::subscriber::Interest {
+            tracing::subscriber::Interest::always()
+        }
+
+        fn new_span(&self, _attributes: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+
+        fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+
+        fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+
+        fn event(&self, event: &tracing::Event<'_>) {
+            let mut rendered = String::new();
+            event.record(
+                &mut |field: &tracing::field::Field, value: &dyn std::fmt::Debug| {
+                    use std::fmt::Write as _;
+                    let _ = std::write!(rendered, "{}={:?} ", field.name(), value);
+                },
+            );
+            self.0.lock().expect("event capture lock").push(rendered);
+        }
+
+        fn enter(&self, _span: &tracing::span::Id) {}
+
+        fn exit(&self, _span: &tracing::span::Id) {}
+
+        fn clone_span(&self, id: &tracing::span::Id) -> tracing::span::Id {
+            id.clone()
+        }
+
+        fn try_close(&self, _id: tracing::span::Id) -> bool {
+            true
+        }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn feed_error_is_logged_not_swallowed() {
+        // Given a pipeline over a scripted failing backend, with this
+        // thread's events captured.
+        let scripted = ScriptedFeedBackend {
+            feed_fails: true,
+            utterances: Vec::new(),
+        };
+        let (_backend, shared, mut pipeline) = pipeline_over(scripted);
+        let captured = CapturedEvents(Arc::new(std::sync::Mutex::new(Vec::new())));
+
+        // When one chunk of audio runs through the pipeline.
+        tracing::subscriber::with_default(captured.clone(), || {
+            pipeline.process(&one_chunk());
+        });
+
+        // Then the failure was logged as a feed-failed warn, not
+        // skipped in silence.
+        let events = captured.0.lock().expect("event capture lock");
+        assert!(
+            events
+                .iter()
+                .any(|rendered| rendered.contains("dictation backend feed failed")),
+            "expected a feed-failed warn among: {events:?}"
+        );
+        // And nothing was queued — a failed feed yields no utterance.
+        assert!(take_utterances(&shared).is_empty());
+    }
 }

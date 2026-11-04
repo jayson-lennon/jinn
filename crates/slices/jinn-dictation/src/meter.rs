@@ -6,10 +6,13 @@
 //! hint). While arming — the press asked for the microphone but the
 //! device open has not decided yet — the dots turn the theme's
 //! warning yellow, the honest "working on it" signal. Recording it
-//! paints the theme's success green with a level-proportional fill
-//! growing from the bottom, capped by a partial block at the level
-//! boundary; the green appears only once the capture stream actually
-//! plays. All colors come from existing theme keys.
+//! paints the theme's `meter_bg` hot-mic dark red with a
+//! level-proportional fill growing from the bottom, capped by a
+//! partial block at the level boundary; the red appears only once
+//! the capture stream actually plays. The bars take the theme's
+//! `streaming` cyan by foreground inheritance, and the bottom hint
+//! cell stays untouched — symbol, fg, and bg are identical in every
+//! phase.
 //!
 //! Geometry is composition's, not ours: the dispatch hands the paint
 //! the strip rect ([`jinn_slices::DrawTarget::area`]), computed by
@@ -77,7 +80,7 @@ pub fn paint(
 /// Paints the idle strip into `rect`: one dotted cell per row in
 /// `dot_color`, with the hint glyph at the bottom. The background
 /// resets with the dots — the strip covers cells nothing else
-/// repaints, so a stale recording green would otherwise linger. The
+/// repaints, so a stale recording red would otherwise linger. The
 /// dot color is the phase's: inactive-border idle, warning yellow
 /// while arming.
 ///
@@ -115,25 +118,30 @@ pub fn paint_recording(frame: &mut ratatui::Frame<'_>, rect: Rect, level: f32, s
     paint_hint_glyph(frame, rect, state);
 }
 
-/// Paints the recording background: the full strip in the theme's
-/// success green.
+/// Paints the recording background: the strip above the hint row in
+/// the theme's `meter_bg` hot-mic dark red, with the `streaming`
+/// foreground the full-block bar glyphs inherit.
+///
+/// The loop stops one row short: the hint cell belongs to the hint
+/// painter, and the `i` keeps its reset background in every phase.
 fn paint_recording_background(frame: &mut ratatui::Frame<'_>, rect: Rect, state: &AppState) {
-    let background = state.frontend.theme.success;
-    let text_fg = state.frontend.theme.primary_text;
-    for y in rect.y..(rect.y + rect.height) {
+    let background = state.frontend.theme.meter_bg;
+    let bar_fg = state.frontend.theme.streaming;
+    for y in rect.y..(rect.y + rect.height.saturating_sub(1)) {
         let Some(cell) = frame.buffer_mut().cell_mut((rect.x, y)) else {
             continue;
         };
         cell.set_symbol(" ");
         cell.set_bg(background);
-        cell.set_fg(text_fg);
+        cell.set_fg(bar_fg);
     }
 }
 
 /// Paints the level fill above the hint glyph: full blocks growing
 /// from the bottom meter cell, capped by one partial block at the
-/// level boundary. A zero level paints nothing — the bare green strip
-/// is the zero reading.
+/// level boundary. A zero level paints nothing — the bare red strip
+/// is the zero reading. The glyphs carry no fg of their own; they
+/// inherit the `streaming` color `paint_recording_background` set.
 fn paint_level_fill(frame: &mut ratatui::Frame<'_>, rect: Rect, level: f32) {
     if level <= 0.0 {
         return;
@@ -169,7 +177,9 @@ fn paint_level_fill(frame: &mut ratatui::Frame<'_>, rect: Rect, level: f32) {
 
 /// Paints the alt-hint glyph: the `i` at the strip's bottom cell in
 /// the theme's hotkey accent, identical in every phase so the
-/// shortcut never moves.
+/// shortcut never moves. Symbol, fg, and bg are all written — the
+/// cell is fully specified whether the phase above it painted dots
+/// or a recording bar.
 fn paint_hint_glyph(frame: &mut ratatui::Frame<'_>, rect: Rect, state: &AppState) {
     if rect.height == 0 || rect.width == 0 {
         return;
@@ -183,6 +193,7 @@ fn paint_hint_glyph(frame: &mut ratatui::Frame<'_>, rect: Rect, state: &AppState
     };
     cell.set_symbol("i");
     cell.set_fg(hint_fg);
+    cell.set_bg(ratatui::style::Color::Reset);
 }
 
 #[cfg(test)]
@@ -273,7 +284,7 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn recording_paints_green_bar_with_a_partial_cap() {
+    fn recording_paints_streaming_bars_on_the_meter_bg() {
         // Given a wired state and a 10-row strip (9 meter cells + hint).
         let state = wired_state();
         let rect = Rect::new(20, 2, 1, 10);
@@ -286,24 +297,92 @@ mod tests {
             .draw(|frame| paint_recording(frame, rect, 0.5, &state))
             .expect("draw into the test backend");
 
-        // Then the strip is theme-success: the bottom meter cell holds a
-        // full block on green.
+        // Then the bar is the streaming cyan on the hot-mic dark red:
+        // the bottom meter cell holds a full block with both.
         let buffer = terminal.backend().buffer();
         let bottom_meter = buffer[(rect.x, rect.y + rect.height - 2)].clone();
         assert_eq!(bottom_meter.symbol(), "█");
-        assert_eq!(bottom_meter.bg, theme.success);
-        // And the cell one above the filled run is the partial cap —
-        // 4 full cells of 9 leaves a 0.5 remainder, the `▅` glyph.
+        assert_eq!(bottom_meter.fg, theme.streaming);
+        assert_eq!(bottom_meter.bg, theme.meter_bg);
+        // And the cell one above the filled run is the partial cap in
+        // the same streaming cyan — 4 full cells of 9 leaves a 0.5
+        // remainder, the `▅` glyph.
         let cap = buffer[(rect.x, rect.y + rect.height - 6)].clone();
         assert_eq!(cap.symbol(), "▅");
-        // And the cells above the cap are empty green strip.
+        assert_eq!(cap.fg, theme.streaming);
+        // And the cells above the cap are empty dark-red strip.
         let top = buffer[(rect.x, rect.y)].clone();
         assert_eq!(top.symbol(), " ");
-        assert_eq!(top.bg, theme.success);
+        assert_eq!(top.bg, theme.meter_bg);
         // And the hint glyph is untouched hotkey-orange `i`.
         let hint = buffer[(rect.x, rect.y + rect.height - 1)].clone();
         assert_eq!(hint.symbol(), "i");
         assert_eq!(hint.fg, theme.accent_action);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn recording_strip_stops_above_the_hint_row() {
+        // Given a wired state and a recording strip rect.
+        let state = wired_state();
+        let rect = Rect::new(20, 2, 1, 8);
+        let backend = TestBackend::new(FRAME.width, FRAME.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        let theme = state.frontend.theme.clone();
+
+        // When painting a recording strip.
+        terminal
+            .draw(|frame| paint_recording(frame, rect, 0.0, &state))
+            .expect("draw into the test backend");
+
+        // Then the strip background reaches the row just above the
+        // hint — the meter area is fully painted.
+        let buffer = terminal.backend().buffer();
+        let last_strip_row = buffer[(rect.x, rect.y + rect.height - 2)].clone();
+        assert_eq!(last_strip_row.bg, theme.meter_bg);
+        // And the hint row itself keeps a reset background — the strip
+        // never paints it.
+        let hint_row = buffer[(rect.x, rect.y + rect.height - 1)].clone();
+        assert_eq!(hint_row.bg, ratatui::style::Color::Reset);
+    }
+
+    /// The strip phases the hint-constancy test paints, one `#[case]`
+    /// per phase — the same assertion runs against each.
+    #[derive(Clone, Copy)]
+    enum Phase {
+        Idle,
+        Arming,
+        Recording,
+    }
+
+    #[rstest::rstest]
+    #[case::idle(Phase::Idle)]
+    #[case::arming(Phase::Arming)]
+    #[case::recording(Phase::Recording)]
+    fn hint_cell_is_identical_in_every_phase(#[case] phase: Phase) {
+        // Given a wired state and a strip rect.
+        let state = wired_state();
+        let rect = Rect::new(20, 2, 1, 10);
+        let backend = TestBackend::new(FRAME.width, FRAME.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        let theme = state.frontend.theme.clone();
+
+        // When painting the phase's strip.
+        terminal
+            .draw(|frame| match phase {
+                Phase::Idle => paint_idle(frame, rect, theme.border_unfocused, &state),
+                Phase::Arming => paint_idle(frame, rect, theme.warning, &state),
+                Phase::Recording => paint_recording(frame, rect, 0.5, &state),
+            })
+            .expect("draw into the test backend");
+
+        // Then the hint cell is the same three-part glyph in every
+        // phase: the `i`, hotkey orange, on a reset background.
+        let buffer = terminal.backend().buffer();
+        let hint = buffer[(rect.x, rect.y + rect.height - 1)].clone();
+        assert_eq!(hint.symbol(), "i");
+        assert_eq!(hint.fg, theme.accent_action);
+        assert_eq!(hint.bg, ratatui::style::Color::Reset);
     }
 
     #[rstest::rstest]
@@ -314,17 +393,20 @@ mod tests {
         let rect = Rect::new(20, 2, 1, 6);
         let backend = TestBackend::new(FRAME.width, FRAME.height);
         let mut terminal = Terminal::new(backend).expect("test backend");
+        let theme = state.frontend.theme.clone();
 
         // When painting at full scale.
         terminal
             .draw(|frame| paint_recording(frame, rect, 1.0, &state))
             .expect("draw into the test backend");
 
-        // Then every meter cell is a filled glyph — the bar never covers
-        // the hint.
+        // Then every meter cell is a filled streaming-cyan glyph — the
+        // bar never covers the hint.
         let buffer = terminal.backend().buffer();
         for y in rect.y..(rect.y + rect.height - 1) {
-            assert_eq!(buffer[(rect.x, y)].symbol(), "█");
+            let cell = buffer[(rect.x, y)].clone();
+            assert_eq!(cell.symbol(), "█");
+            assert_eq!(cell.fg, theme.streaming);
         }
         // And the hint glyph sits below the fill.
         assert_eq!(buffer[(rect.x, rect.y + rect.height - 1)].symbol(), "i");
@@ -332,7 +414,7 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn zero_level_paints_a_bare_green_strip() {
+    fn zero_level_paints_a_bare_red_strip() {
         // Given a wired state and a recording strip rect.
         let state = wired_state();
         let rect = Rect::new(20, 2, 1, 8);
@@ -345,13 +427,13 @@ mod tests {
             .draw(|frame| paint_recording(frame, rect, 0.0, &state))
             .expect("draw into the test backend");
 
-        // Then the strip is green with no glyphs at all — zero shows
-        // nothing but the background.
+        // Then the strip is the dark red with no glyphs at all — zero
+        // shows nothing but the hot-mic background.
         let buffer = terminal.backend().buffer();
         for y in rect.y..(rect.y + rect.height - 1) {
             let cell = buffer[(rect.x, y)].clone();
             assert_eq!(cell.symbol(), " ");
-            assert_eq!(cell.bg, theme.success);
+            assert_eq!(cell.bg, theme.meter_bg);
         }
         // And the hint glyph is the only glyph on the strip.
         let hint = buffer[(rect.x, rect.y + rect.height - 1)].clone();

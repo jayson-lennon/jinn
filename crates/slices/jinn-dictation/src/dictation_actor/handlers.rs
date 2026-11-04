@@ -157,16 +157,27 @@ pub(super) async fn handle_tick(
         }
         "capture-lost" => {
             let reason = fault.unwrap_or_else(|| "capture device closed".to_owned());
+            // Drain whatever decoded before the loss: the arm is about
+            // to close, and its queue would die with it.
+            commit_queued_utterances(actor);
             let step = actor.machine.capture_lost(&reason);
             close_capture(actor);
             apply(actor, &step).await;
         }
         "level-sync" => {
-            // The meter's live level, and the arm's loss report: a
-            // vanished device lands here as a capture-lost fold.
+            // The meter's live level, the utterances the backend
+            // closed since the last tick, and the arm's loss report:
+            // a vanished device lands here as a capture-lost fold.
             if let Some(arm) = actor.capture.as_ref() {
-                crate::capture::sync_level(arm.shared(), &actor.level_cell);
-                if let Some(reason) = crate::capture::take_lost(arm.shared()) {
+                // A cheap Arc clone, so the slot outlives the arm
+                // borrow and the drain can take the actor mutably.
+                let shared = arm.shared().clone();
+                crate::capture::sync_level(&shared, &actor.level_cell);
+                commit_queued_utterances(actor);
+                if let Some(reason) = crate::capture::take_lost(&shared) {
+                    // The device is gone; the queue above is the last
+                    // decode — commit it before the arm closes, or the
+                    // loss would eat already-transcribed text.
                     let step = actor.machine.capture_lost(&reason);
                     close_capture(actor);
                     apply(actor, &step).await;
@@ -190,7 +201,11 @@ pub(super) async fn handle_tick(
 
 /// Disarms: flush on the blocking context, commit the trailing words,
 /// back to Ready.
+///
+/// Ordering: queued utterances commit first, then the flush fragment —
+/// the words land in the order they were spoken.
 async fn disarm_with_flush(actor: &mut DictationActor, _ctx: &mut MsgCtx<'_>) {
+    commit_queued_utterances(actor);
     let backend = std::sync::Arc::clone(&actor.backend);
     let runtime = actor.runtime.clone();
     let outcome = runtime
@@ -329,5 +344,17 @@ pub(super) async fn open_capture(actor: &mut DictationActor) {
 pub(super) fn close_capture(actor: &mut DictationActor) {
     if actor.capture.take().is_some() {
         actor.level_cell.update(|cell| cell.level = 0.0);
+    }
+}
+
+/// Commits every utterance queued on the arm's shared slot, oldest
+/// first, to the focused chat input — the streaming-insertion half of
+/// recording. No-op when nothing decoded.
+fn commit_queued_utterances(actor: &mut DictationActor) {
+    let Some(arm) = actor.capture.as_ref() else {
+        return;
+    };
+    for utterance in crate::capture::take_utterances(arm.shared()) {
+        actor.commit_utterance(&utterance);
     }
 }
