@@ -71,11 +71,25 @@ Included workflows:
 
 ![Workflows](doc/screenshots/workflow.png)
 
+### Canvas
+
+`jinn` hosts a web server which includes several JavaScript libraries so an agent can make interactive illustrations, guides, charts, presentations, etc.
+
+Ask to "show me" something, and it will create a web page with an appropriate visual.
+
+### Applets
+
+If you have a canvas page you want to reuse, have `jinn` turn it into an applet so you can open it again later anytime from a picker.
+
 ### Task/todo list
 
 Agent-managed task list with task search.
 
 ![Task List](doc/screenshots/task-list.png)
+
+### Dictation
+
+Speech-to-text capability activated with `<alt-i>`. Analysis performed locally by `parakeet-tdt-0.6b-v2`.
 
 ### Interactive term
 

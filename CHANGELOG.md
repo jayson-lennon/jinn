@@ -1,6 +1,6 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
-## (development)
+## 2026-11-03 v0.18.0
 
 - Add "applet" feature.
 
@@ -10,7 +10,7 @@
 - Add "interrupt" mode to `tell_session` tool. This uses the steering buffer to deliver a message quickly instead of waiting for turn end.
 - Persona picker + sidebar will now always stay synced.
 - Creating new sessions will always inherit the persona of the most recent active session.
-- Add dictation via `<a-i>` keybind (disabled by default). Currently `parakeet-tdt-06b-v2` is supported.
+- Add dictation via `<M-i>` keybind (disabled by default). Currently `parakeet-tdt-06b-v2` is supported.
   - Add CLI command `jinn dictation list-devices` to list available audio capture devices for dictation.
   - Add CLI command `jinn fetch dictation-model` to download `parakeet-tdt-06b-v2`
   - Dictation model will download automatically if dictation is enabled.
