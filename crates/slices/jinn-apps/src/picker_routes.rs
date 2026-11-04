@@ -259,16 +259,19 @@ pub fn register_apps_picker_enter_hook(routes: &KeyRoutes, picker: &AppsPickerCe
 
 // ── Actions ─────────────────────────────────────────────────────────────
 
-/// `ENTER`: publish the open command for the highlighted app.
+/// `ENTER`: publish the open command for the highlighted app and close
+/// the picker.
 ///
 /// The store actor does the ensure-bind, the URL build, and the browser
-/// launch; the picker's action only snapshots the highlighted id and
-/// publishes. An empty picker (nothing highlighted) is a no-op.
+/// launch; the picker's action only snapshots the highlighted id,
+/// publishes, and pops. An empty picker (nothing highlighted) is a
+/// no-op — nothing opens, so the picker stays.
 fn open_highlighted_app(_ctx: &mut ActionCtx<'_>, picker: &AppsPickerCell) -> IntentResult {
     let Some(id) = picker.read().highlighted_id() else {
         return IntentResult::empty();
     };
     IntentResult::new_message(OpenApp { id })
+        .with_scope_signal(ScopeSignal::PopIf(apps_picker_scope()))
 }
 
 /// `<c-r>`: push the rename popup, seeded with the highlighted title.
