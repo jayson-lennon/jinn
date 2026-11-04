@@ -91,6 +91,8 @@ jinn-context-assembly = { workspace = true }
 jinn-theme-slice = { workspace = true }
 jinn-cli = { workspace = true }
 jinn-canvas = { workspace = true }
+jinn-applets = { workspace = true }
+jinn-applets-msg = { workspace = true }
 jinn-remote = { workspace = true }
 jinn-remote-msg = { workspace = true }
 jinn-mcp-overgraph = { workspace = true }
@@ -276,6 +278,8 @@ jinn-provider = { path = "crates/jinn-provider" }
 jinn-tui = { path = "crates/jinn-tui" }
 jinn-canvas = { path = "crates/slices/jinn-canvas" }
 jinn-canvas-msg = { path = "crates/slices/jinn-canvas-msg" }
+jinn-applets = { path = "crates/slices/jinn-applets" }
+jinn-applets-msg = { path = "crates/slices/jinn-applets-msg" }
 jinn-remote = { path = "crates/slices/jinn-remote" }
 jinn-remote-msg = { path = "crates/slices/jinn-remote-msg" }
 jinn-cli = { path = "crates/jinn-cli" }
@@ -393,7 +397,7 @@ throbber-widgets-tui = "0.11"
 parking_lot = "0.12"
 
 # Binary discovery
-which = "7"
+which = { version = "7" }
 
 
 # Time
@@ -418,7 +422,7 @@ dirs = "6"
 toml = "0.8"
 toml_edit = "0.22"
 dotenvy = "0.15"
-unicode-segmentation = "1"
+unicode-segmentation = { version = "1" }
 unicode-width = "0.2"
 strip-ansi-escapes = "0.2"
 textwrap = "0.16"

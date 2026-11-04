@@ -410,6 +410,19 @@ impl AppPaths {
             .expect("name joins keep the base absolute")
     }
 
+    /// Saved applets directory (`~/.local/share/jinn/applets`).
+    ///
+    /// One directory per saved applet (an agent-built HTML page the user
+    /// pinned), with the `applets.json` catalog at the root. User data the
+    /// user expects to survive jinn and its sessions, so it lives under
+    /// the data dir, not cache or state.
+    #[must_use]
+    pub fn applets_dir(&self) -> MarkedPathBuf<Absolute> {
+        self.data_dir
+            .join_all([APP_NAME, "applets"])
+            .expect("name joins keep the base absolute")
+    }
+
     /// OpenRouter market cache directory (`~/.cache/jinn/openrouter`).
     ///
     /// Holds the model-market's TTL disk caches: the models listing and
@@ -768,6 +781,25 @@ mod tests {
             headless,
             root.path
                 .join("data/jinn/browser-profile/headless")
+                .expect("temp root joins a bare name")
+        );
+    }
+
+    #[rstest::rstest]
+    fn applets_dir_lands_under_data_base() {
+        // Given an AppPaths rooted at a temp dir.
+        let root = jinn_testutil::tempdir();
+        let paths = AppPaths::new_in(&root.path.as_marked_path());
+
+        // When resolving the saved-applets directory.
+        let dir = paths.applets_dir();
+
+        // Then it is data/jinn/applets — the data dir, the same base as the
+        // session store and the graph databases.
+        assert_eq!(
+            dir,
+            root.path
+                .join("data/jinn/applets")
                 .expect("temp root joins a bare name")
         );
     }
