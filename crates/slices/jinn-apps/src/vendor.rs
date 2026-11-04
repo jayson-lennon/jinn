@@ -98,4 +98,31 @@ mod tests {
             );
         }
     }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_authored_canvas_files_are_present() {
+        // Given the generated vendor inventory.
+        // When reading the served-path set.
+        // Then the two authored files canvas's build appends after the
+        // manifest rows — absent from the manifest itself — are in the
+        // apps inventory too. Parity means the whole inventory; a saved
+        // app referencing `/vendor/canvas.css` serves the same bytes a
+        // live canvas server would.
+        let paths: std::collections::BTreeSet<&str> =
+            VENDOR_ASSETS.iter().map(|a| a.path).collect();
+        for required in ["canvas.css", "canvas-telemetry.js"] {
+            assert!(
+                paths.contains(required),
+                "vendor inventory is missing the authored file {required}"
+            );
+        }
+        // And both ride as identity encoding — they are plain text, not
+        // gzip-wrapped library dists.
+        for asset in VENDOR_ASSETS {
+            if asset.path == "canvas.css" || asset.path == "canvas-telemetry.js" {
+                assert_eq!(asset.encoding, "identity", "{} is plain text", asset.path);
+            }
+        }
+    }
 }

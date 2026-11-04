@@ -156,6 +156,32 @@ fn main() {
         );
     }
 
+    // The two authored canvas files are jinn-owned, not manifest-pinned,
+    // so they are absent from the manifest — canvas's build emits their
+    // static rows after the manifest loop, and parity means apps emits
+    // the same rows here. Each `fs::read` is the existence check; a
+    // missing authored asset fails this build the same way it fails
+    // canvas's.
+    let canvas_vendor_literal = canvas_vendor_literal(&manifest_dir);
+    for (served, content_type) in [
+        ("canvas.css", "text/css; charset=utf-8"),
+        ("canvas-telemetry.js", "text/javascript; charset=utf-8"),
+    ] {
+        let file_path = vendor_dir.join_all([served]).unwrap_or_else(|error| {
+            panic!("authored vendor asset path {served} did not type-check: {error}")
+        });
+        fs::read(file_path.as_path()).unwrap_or_else(|e| {
+            panic!(
+                "authored vendor asset {} missing from disk ({e})",
+                file_path.as_path().display()
+            )
+        });
+        let _ = writeln!(
+            table,
+            "    VendorAsset {{\n        path: \"{served}\",\n        bytes: include_bytes!(concat!(\"{canvas_vendor_literal}\", \"/{served}\")),\n        encoding: \"identity\",\n        content_type: \"{content_type}\",\n    }},"
+        );
+    }
+
     let _ = writeln!(table, "];\n");
 
     #[expect(
