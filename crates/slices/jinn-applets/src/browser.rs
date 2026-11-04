@@ -7,12 +7,12 @@
 //! unit tested on the *command resolution*, not on any browser actually
 //! opening — a test that launches a browser is not a test.
 
-/// Builds the URL an open lands on: the loopback base plus the app's
+/// Builds the URL an open lands on: the loopback base plus the applet's
 /// path, always with the trailing slash so relative sibling references
 /// in the artifact resolve.
 #[must_use]
-pub fn app_url(resolved_bind: std::net::SocketAddr, id: &str) -> String {
-    format!("http://{resolved_bind}/apps/{id}/")
+pub fn applet_url(resolved_bind: std::net::SocketAddr, id: &str) -> String {
+    format!("http://{resolved_bind}/applets/{id}/")
 }
 
 /// Why a browser could not be launched.
@@ -79,7 +79,7 @@ pub fn open_in_browser(url: &str) -> Result<(), error_stack::Report<BrowserLaunc
 /// launch fails — user-facing prose, not a code.
 #[must_use]
 pub fn open_failed_note(reason: &str) -> String {
-    format!("could not open the app in a browser: {reason}")
+    format!("could not open the applet in a browser: {reason}")
 }
 
 #[cfg(test)]
@@ -90,21 +90,21 @@ mod tests {
         reason = "test assertions need expect/unwrap"
     )]
 
-    use super::{app_url, open_failed_note, opener_command};
+    use super::{applet_url, open_failed_note, opener_command};
 
     #[rstest::rstest]
     #[test]
     fn url_carries_the_resolved_bind_and_trailing_slash() {
         // Given a resolved bind (port 0 already resolved by the server
-        // actor) and an app id.
+        // actor) and an applet id.
         let bind: std::net::SocketAddr = "127.0.0.1:41234".parse().expect("bind parses");
 
         // When building the URL.
-        let url = app_url(bind, "sales-dashboard");
+        let url = applet_url(bind, "sales-dashboard");
 
-        // Then the URL names the app path with the trailing slash, so
+        // Then the URL names the applet path with the trailing slash, so
         // relative sibling references resolve.
-        assert_eq!(url, "http://127.0.0.1:41234/apps/sales-dashboard/");
+        assert_eq!(url, "http://127.0.0.1:41234/applets/sales-dashboard/");
     }
 
     #[rstest::rstest]
@@ -112,7 +112,7 @@ mod tests {
     fn opener_resolves_on_this_platform() {
         // Given the current platform.
         // When resolving the opener.
-        let command = opener_command("http://127.0.0.1:1/apps/a/");
+        let command = opener_command("http://127.0.0.1:1/applets/a/");
 
         // Then some opener resolves on every supported platform — the
         // resolution is compile-time platform dispatch, and CI runs on
@@ -121,7 +121,7 @@ mod tests {
         let argv = command.expect("checked above");
         assert_eq!(
             argv.last().expect("argv ends with the url"),
-            "http://127.0.0.1:1/apps/a/"
+            "http://127.0.0.1:1/applets/a/"
         );
     }
 
@@ -132,7 +132,7 @@ mod tests {
         // When rendering the note.
         let note = open_failed_note("no browser opener on this platform");
         // Then it names the cause without a code.
-        assert!(note.starts_with("could not open the app in a browser:"));
+        assert!(note.starts_with("could not open the applet in a browser:"));
         assert!(note.contains("no browser opener"));
     }
 
@@ -140,7 +140,7 @@ mod tests {
     #[test]
     fn app_url_is_built_from_a_catalog_entry_id() {
         // Given a catalog entry.
-        let entry = jinn_apps_msg::AppEntry {
+        let entry = jinn_applets_msg::AppletEntry {
             id: "quiz".to_owned(),
             title: "Quiz".to_owned(),
             created_at: "1".to_owned(),
@@ -148,9 +148,9 @@ mod tests {
         let bind: std::net::SocketAddr = "[::1]:8123".parse().expect("bind parses");
 
         // When building the URL from its id.
-        let url = app_url(bind, entry.id.as_str());
+        let url = applet_url(bind, entry.id.as_str());
 
         // Then the id is the path segment, unmodified.
-        assert_eq!(url, "http://[::1]:8123/apps/quiz/");
+        assert_eq!(url, "http://[::1]:8123/applets/quiz/");
     }
 }

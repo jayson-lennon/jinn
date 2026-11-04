@@ -1,9 +1,9 @@
-//! The apps slice — saved agent-built artifacts, served verbatim.
+//! The applets slice — saved agent-built artifacts, served verbatim.
 //!
 //! Where the canvas slice serves one artifact per process with reload
 //! and telemetry injection, this slice is the durable home: an agent
-//! (via the bundled `apps` skill) copies an artifact directory into
-//! `~/.local/share/jinn/apps/<id>/`, and the user reopens it any time
+//! (via the bundled `applets` skill) copies an artifact directory into
+//! `~/.local/share/jinn/applets/<id>/`, and the user reopens it any time
 //! from the `<leader>sa` picker. The server is static-only —
 //! **no script injection of any kind** — and binds lazily on the first
 //! open, staying bound for the process lifetime.
@@ -14,13 +14,13 @@
 //!   same manifest-defined file tree canvas's build verifies, so served
 //!   vendor bytes are byte-identical without a dependency on the canvas
 //!   implementation crate.
-//! - [`server`] — the axum listener: `/apps/<id>/…` read fresh from disk
+//! - [`server`] — the axum listener: `/applets/<id>/…` read fresh from disk
 //!   on every request, `/vendor/`, `/healthz`. No `/ws`, no `/metrics`,
 //!   no watcher.
 //! - [`server_actor`] — the dormant-until-first-open actor that owns the
 //!   listener; the store actor asks it to bind on the first open.
-//! - [`store_actor`] — owns the on-disk catalog (`apps.json`) and the
-//!   apps directory: rescans on [`jinn_apps_msg::RescanApps`], writes
+//! - [`store_actor`] — owns the on-disk catalog (`applets.json`) and the
+//!   applets directory: rescans on [`jinn_applets_msg::RescanApplets`], writes
 //!   through rename and delete, and republishes the reconciled catalog.
 //!   The open path (ensure-bind + browser launch) also lives here, since
 //!   route actions are synchronous.
@@ -36,7 +36,7 @@
 //!
 //! What this slice deliberately is not: a canvas replacement (no
 //! injection, no watcher), a session library member (disjoint code), and
-//! not a marketplace of manifests (an app is a directory of files).
+//! not a marketplace of manifests (an applet is a directory of files).
 
 pub mod browser;
 pub mod picker_actions;
@@ -49,39 +49,40 @@ pub mod server_actor;
 pub mod store_actor;
 pub mod vendor;
 
-pub use jinn_apps_msg::{
-    AppCatalog, AppEntry, apps_catalog_slot, apps_picker_scope, apps_picker_slot, apps_rename_scope,
+pub use jinn_applets_msg::{
+    AppletEntry, AppletsCatalog, applets_catalog_slot, applets_picker_scope, applets_picker_slot,
+    applets_rename_scope,
 };
-pub use picker_routes::{APPS_PICKER_BINDINGS, attach_apps_picker_rows};
-pub use picker_routes::{register_apps_picker_enter_hook, register_apps_picker_input_hook};
+pub use picker_routes::{APPLETS_PICKER_BINDINGS, attach_applets_picker_rows};
+pub use picker_routes::{register_applets_picker_enter_hook, register_applets_picker_input_hook};
 pub use rename_popup::rename_scope;
-pub use server_actor::AppsServerActor;
-pub use store_actor::AppsStoreActor;
+pub use server_actor::AppletsServerActor;
+pub use store_actor::AppletsStoreActor;
 
 use error_stack::ResultExt as _;
 use jinn_slices::SliceHost;
 
-/// Why the apps slice could not activate.
+/// Why the applets slice could not activate.
 ///
-/// Colocated with `activate`, which produces it. A broken `[apps] bind`
+/// Colocated with `activate`, which produces it. A broken `[applets] bind`
 /// is launch-fatal — the same severity the canvas bind gets — because
 /// the server would refuse every later open with the same sentence.
 #[derive(Debug, wherror::Error)]
 #[error(debug)]
-pub struct AppsActivateError;
+pub struct AppletsActivateError;
 
-/// Installs the apps slice: reads `[apps] bind` (launch-fatal when
+/// Installs the applets slice: reads `[applets] bind` (launch-fatal when
 /// malformed or non-loopback), spawns the dormant server actor and the
 /// store actor, and registers the picker plus its republisher.
 ///
 /// The picker's cells are catalog-registered (block 0); this resolves
 /// them. The server is dormant — no listener binds, no filesystem work
 /// at activation. The store actor reads the catalog lazily on the first
-/// `RescanApps` (the picker's opener publishes one), never at activation.
+/// `RescanApplets` (the picker's opener publishes one), never at activation.
 ///
 /// # Errors
 ///
-/// Returns [`AppsActivateError`] when the `[apps]` section cannot be
+/// Returns [`AppletsActivateError`] when the `[applets]` section cannot be
 /// read, its bind is not a host:port socket address, or the bind is not
 /// loopback (the server has no authentication, so a non-loopback bind is
 /// refused at activation, not bound and warned).
@@ -92,32 +93,34 @@ pub struct AppsActivateError;
 ///
 /// # Panics
 ///
-/// Panics when the shared cell catalog has not registered the apps
+/// Panics when the shared cell catalog has not registered the applets
 /// catalog or picker slots — a bootstrap-ordering bug (the catalog
 /// block must run before this slice), which aborts launch by contract.
 pub fn activate(
     host: &mut SliceHost<'_, jinn_slices::RenderFacts>,
     config: &jinn_config::ConfigLayer,
-    apps_dir: &marked_path::MarkedPathBuf<marked_path::Absolute>,
+    applets_dir: &marked_path::MarkedPathBuf<marked_path::Absolute>,
     bus: &jinn_slices::bus::BusService,
-) -> Result<(), error_stack::Report<AppsActivateError>> {
-    let apps_config = config
-        .get::<jinn_preferences_config::schemas::AppsConfig>()
-        .change_context(AppsActivateError)
-        .attach("failed to read the [apps] config section")?;
-    let bind = apps_config
+) -> Result<(), error_stack::Report<AppletsActivateError>> {
+    let applets_config = config
+        .get::<jinn_preferences_config::schemas::AppletsConfig>()
+        .change_context(AppletsActivateError)
+        .attach("failed to read the [applets] config section")?;
+    let bind = applets_config
         .parse_bind()
-        .change_context(AppsActivateError)
-        .attach("the [apps] bind must be a host:port socket address")?;
+        .change_context(AppletsActivateError)
+        .attach("the [applets] bind must be a host:port socket address")?;
 
     // Loopback only, no exceptions — the server has no authentication,
     // so it must not listen on an exposed interface. Refused here at
     // activation (launch-fatal), never bound and warned.
     if !bind.ip().is_loopback() {
-        return Err(error_stack::Report::new(AppsActivateError).attach(format!(
-            "the configured [apps] bind {bind} is not a loopback address; \
-             the saved-apps server has no authentication"
-        )));
+        return Err(
+            error_stack::Report::new(AppletsActivateError).attach(format!(
+                "the configured [applets] bind {bind} is not a loopback address; \
+             the saved-applets server has no authentication"
+            )),
+        );
     }
 
     let system: trouper::system::ActorSystem = host.system().clone();
@@ -127,22 +130,24 @@ pub fn activate(
     // the picker's enter hook and render read the picker cell only.
     let catalog_cell = host
         .slices()
-        .reader::<jinn_apps_msg::AppCatalog>(&jinn_apps_msg::apps_catalog_slot())
-        .expect("the cell catalog registers the apps catalog slot before any slice activates");
+        .reader::<jinn_applets_msg::AppletsCatalog>(&jinn_applets_msg::applets_catalog_slot())
+        .expect("the cell catalog registers the applets catalog slot before any slice activates");
     let picker_cell = host
         .slices()
-        .reader::<jinn_apps_msg::AppsPickerState>(&jinn_apps_msg::apps_picker_slot())
-        .expect("the cell catalog registers the apps picker slot before any slice activates");
+        .reader::<jinn_applets_msg::AppletsPickerState>(&jinn_applets_msg::applets_picker_slot())
+        .expect("the cell catalog registers the applets picker slot before any slice activates");
 
     // The store actor: catalog and directory mutations, plus the open
     // path. Its command subscriptions are the readiness point.
-    AppsStoreActor::spawn(
+    AppletsStoreActor::spawn(
         &system,
-        &store_actor::AppsStoreActorDeps {
-            apps_dir: apps_dir.clone(),
+        &store_actor::AppletsStoreActorDeps {
+            applets_dir: applets_dir.clone(),
             catalog_cell: catalog_cell.clone(),
             bus: bus.clone(),
-            server_actor: trouper::actor::ActorPath::new(server_actor::APPS_ACTOR_NAME.to_owned()),
+            server_actor: trouper::actor::ActorPath::new(
+                server_actor::APPLETS_ACTOR_NAME.to_owned(),
+            ),
         },
     );
 
@@ -150,7 +155,7 @@ pub fn activate(
     // ask. Spawned after the store so the ensure path's target exists —
     // though an ask cannot precede an open, and no open precedes the
     // picker, which binds its rows below.
-    AppsServerActor::spawn(&system, &server_actor::AppsServerActorDeps { bind });
+    AppletsServerActor::spawn(&system, &server_actor::AppletsServerActorDeps { bind });
 
     // The picker: overlay, rows, hooks.
     picker_routes::activate_picker(host, &picker_cell);
@@ -158,24 +163,26 @@ pub fn activate(
     // The republisher: repaints the open picker (and mirrors the catalog
     // cell) when a store event lands — the in-place refresh of pattern B.
     trouper::builder::spawn_service_builder::<
-        picker_republisher_actor::AppsPickerRepublisherActor,
+        picker_republisher_actor::AppletsPickerRepublisherActor,
     >(&system)
     .at(trouper::actor::ActorPath::new(
-        picker_republisher_actor::AppsPickerRepublisherActor::PATH.to_owned(),
+        picker_republisher_actor::AppletsPickerRepublisherActor::PATH.to_owned(),
     ))
     .init_with({
         move || {
             Box::pin(async move {
-                Ok(picker_republisher_actor::AppsPickerRepublisherActor::new(
-                    picker_cell,
-                    catalog_cell,
-                ))
+                Ok(
+                    picker_republisher_actor::AppletsPickerRepublisherActor::new(
+                        picker_cell,
+                        catalog_cell,
+                    ),
+                )
             })
         }
     })
-    .handles::<jinn_apps_msg::AppsRescanned>()
-    .handles::<jinn_apps_msg::AppRenamed>()
-    .handles::<jinn_apps_msg::AppDeleted>()
+    .handles::<jinn_applets_msg::AppletsRescanned>()
+    .handles::<jinn_applets_msg::AppletRenamed>()
+    .handles::<jinn_applets_msg::AppletDeleted>()
     .start();
 
     Ok(())
@@ -192,7 +199,7 @@ mod tests {
     /// the given TOML text.
     fn layer_with(bind: Option<&str>) -> jinn_config::ConfigLayer {
         let doc_text = match bind {
-            Some(bind) => format!("[apps]\nbind = \"{bind}\"\n"),
+            Some(bind) => format!("[applets]\nbind = \"{bind}\"\n"),
             None => String::new(),
         };
         let doc = toml_edit::DocumentMut::from_str(&doc_text).expect("doc parses");
@@ -226,7 +233,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn activation_refuses_a_non_loopback_bind() {
-        // Given an exposed-interface bind in the [apps] section.
+        // Given an exposed-interface bind in the [applets] section.
         let config = layer_with(Some("192.168.1.10:0"));
 
         // When activating against a live test host.
@@ -279,12 +286,13 @@ mod tests {
         });
     }
 
-    /// A throwaway apps root (never touched — activation does no IO).
+    /// A throwaway applets root (never touched — activation does no IO).
     fn apps_dir_for_test() -> marked_path::MarkedPathBuf<marked_path::Absolute> {
         let dir = jinn_testutil::retained_tempdir();
-        let apps = dir.path.join("apps").expect("join");
-        std::fs::create_dir_all(apps.as_path()).expect("mkdir");
-        marked_path::MarkedPathBuf::<marked_path::Absolute>::new(apps.as_path()).expect("absolute")
+        let applets = dir.path.join("applets").expect("join");
+        std::fs::create_dir_all(applets.as_path()).expect("mkdir");
+        marked_path::MarkedPathBuf::<marked_path::Absolute>::new(applets.as_path())
+            .expect("absolute")
     }
 
     /// A recording bus, so activation's publishes are captured, not sent.

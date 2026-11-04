@@ -410,16 +410,16 @@ impl AppPaths {
             .expect("name joins keep the base absolute")
     }
 
-    /// Saved apps directory (`~/.local/share/jinn/apps`).
+    /// Saved applets directory (`~/.local/share/jinn/applets`).
     ///
-    /// One directory per saved app (an agent-built HTML artifact the user
-    /// pinned), with the `apps.json` catalog at the root. User data the
+    /// One directory per saved applet (an agent-built HTML page the user
+    /// pinned), with the `applets.json` catalog at the root. User data the
     /// user expects to survive jinn and its sessions, so it lives under
     /// the data dir, not cache or state.
     #[must_use]
-    pub fn apps_dir(&self) -> MarkedPathBuf<Absolute> {
+    pub fn applets_dir(&self) -> MarkedPathBuf<Absolute> {
         self.data_dir
-            .join_all([APP_NAME, "apps"])
+            .join_all([APP_NAME, "applets"])
             .expect("name joins keep the base absolute")
     }
 
@@ -786,20 +786,20 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn apps_dir_lands_under_data_base() {
+    fn applets_dir_lands_under_data_base() {
         // Given an AppPaths rooted at a temp dir.
         let root = jinn_testutil::tempdir();
         let paths = AppPaths::new_in(&root.path.as_marked_path());
 
-        // When resolving the saved-apps directory.
-        let dir = paths.apps_dir();
+        // When resolving the saved-applets directory.
+        let dir = paths.applets_dir();
 
-        // Then it is data/jinn/apps — the data dir, the same base as the
+        // Then it is data/jinn/applets — the data dir, the same base as the
         // session store and the graph databases.
         assert_eq!(
             dir,
             root.path
-                .join("data/jinn/apps")
+                .join("data/jinn/applets")
                 .expect("temp root joins a bare name")
         );
     }

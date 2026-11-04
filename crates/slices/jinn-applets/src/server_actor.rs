@@ -1,9 +1,9 @@
-//! The apps server actor — the one serving host, dormant until the
+//! The applets server actor — the one serving host, dormant until the
 //! first open.
 //!
 //! Nothing binds at activation: no listener, no filesystem work. The
 //! store actor sends the actor an [`EnsureServing`] internal command the
-//! first time an app is opened (and on every open after — the bound
+//! first time an applet is opened (and on every open after — the bound
 //! listener is reused, never restarted). The first `EnsureServing`
 //! establishes the axum listener (port `0` resolved there, so the URL an
 //! opener builds is the truth); every later one is a no-op that reads
@@ -28,18 +28,18 @@ use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
 /// The actor's registered path segment.
-pub const APPS_ACTOR_NAME: &str = "apps-server";
+pub const APPLETS_ACTOR_NAME: &str = "applets-server";
 
-/// The internal command the store actor sends on an app open: make sure
+/// The internal command the store actor sends on an applet open: make sure
 /// the listener is up, and answer with the resolved bind.
 ///
 /// Rides the actor's mailbox as an ask — the reply is the resolved
 /// bind, or the refusal sentence on a bind failure. Not a bus schema:
 /// it is actor-internal, between the two actors of one slice.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, trouper::schema::Command)]
-#[schema(description = "Ensure the apps server is bound; reply with the resolved bind.")]
+#[schema(description = "Ensure the applets server is bound; reply with the resolved bind.")]
 pub struct EnsureServing {
-    /// The apps root to serve from (the store actor owns the path).
+    /// The applets root to serve from (the store actor owns the path).
     pub apps_root: String,
 }
 
@@ -83,9 +83,9 @@ impl EnsureServingOutcome {
 
 impl jinn_slices::BusMessage for EnsureServingOutcome {}
 
-/// The apps server actor: dormant until the first `EnsureServing`.
-pub struct AppsServerActor {
-    /// The bind from `[apps] bind` at activation. Port `0` binds an
+/// The applets server actor: dormant until the first `EnsureServing`.
+pub struct AppletsServerActor {
+    /// The bind from `[applets] bind` at activation. Port `0` binds an
     /// OS-assigned port at the first ensure.
     bind: SocketAddr,
     /// The serving phase once the first ensure has established it;
@@ -100,7 +100,7 @@ struct ServingState {
     bind: SocketAddr,
 }
 
-impl ServiceActor for AppsServerActor {
+impl ServiceActor for AppletsServerActor {
     // Never called: spawned via `init_with` (typed deps cannot ride
     // JSON args).
     #[expect(
@@ -109,24 +109,24 @@ impl ServiceActor for AppsServerActor {
     )]
     async fn init(_args: &trouper::json::Json) -> Result<Self, error_stack::Report<RegistryError>> {
         Err(error_stack::Report::new(RegistryError::InvalidSpec)
-            .attach("AppsServerActor spawns via init_with"))
+            .attach("AppletsServerActor spawns via init_with"))
     }
 }
 
-/// Dependencies for [`AppsServerActor`].
+/// Dependencies for [`AppletsServerActor`].
 #[derive(Clone)]
-pub struct AppsServerActorDeps {
-    /// The bind from `[apps] bind`, pre-parsed and pre-validated
+pub struct AppletsServerActorDeps {
+    /// The bind from `[applets] bind`, pre-parsed and pre-validated
     /// loopback by `activate`. A bind that cannot parse or names an
     /// exposed interface never gets here: activation aborts launch.
     pub bind: SocketAddr,
 }
 
-impl AppsServerActor {
+impl AppletsServerActor {
     /// Spawns the actor, dormant — no listener binds during the spawn
     /// handshake.
-    pub fn spawn(system: &ActorSystem, deps: &AppsServerActorDeps) -> ActorPath {
-        let path = ActorPath::new(APPS_ACTOR_NAME);
+    pub fn spawn(system: &ActorSystem, deps: &AppletsServerActorDeps) -> ActorPath {
+        let path = ActorPath::new(APPLETS_ACTOR_NAME);
         trouper::builder::spawn_service_builder::<Self>(system)
             .at(path)
             .init_with({
@@ -146,7 +146,7 @@ impl AppsServerActor {
     }
 }
 
-impl MsgHandler<EnsureServing> for AppsServerActor {
+impl MsgHandler<EnsureServing> for AppletsServerActor {
     async fn handle(&mut self, msg: &EnsureServing, ctx: &mut MsgCtx<'_>) {
         handlers::handle_ensure_serving(self, msg, ctx).await;
     }

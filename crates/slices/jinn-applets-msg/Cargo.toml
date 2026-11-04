@@ -1,5 +1,5 @@
 [package]
-name = "jinn-apps-msg"
+name = "jinn-applets-msg"
 version.workspace = true
 edition.workspace = true
 description = "Apps crossing contracts: the saved-app catalog payload, the picker state/slot/scope, and the rescan command."

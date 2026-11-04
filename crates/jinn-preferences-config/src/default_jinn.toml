@@ -126,15 +126,15 @@ skill_filter = { mode = "deny", names = ["phased-task-loop"] }
 bind = "127.0.0.1:0"
 
 # ###########################################################################
-# Apps (saved artifacts)
+# Applets (saved artifacts)
 # ###########################################################################
-[apps]
-# > Where the saved-apps server binds when you open an app from the apps
+[applets]
+# > Where the saved-applet server binds when you open an applet from the applets
 # > picker (<leader>sa). Host:port as one value. Port 0 (the default) asks
 # > the OS for an ephemeral port, so two running jinn instances never
 # > fight over one port; the resolved port is what the opened URL carries.
 # >
-# > The bind must be a loopback address — the saved-apps server has no
+# > The bind must be a loopback address — the saved-applet server has no
 # > authentication, so it never listens on an exposed interface.
 bind = "127.0.0.1:0"
 

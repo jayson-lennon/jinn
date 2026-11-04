@@ -1,6 +1,6 @@
-//! The apps picker's state cell payload and its entry type.
+//! The applets picker's state cell payload and its entry type.
 //!
-//! The picker is owned entirely by the apps slice: this payload is what
+//! The picker is owned entirely by the applets slice: this payload is what
 //! its cell holds, so no other crate names a field for it. The rows are
 //! rebuilt from the catalog cell on every open (the scope-enter hook)
 //! and repainted in place when a rescan republishes the catalog — the
@@ -12,12 +12,12 @@ use jinn_selection_widget::highlight_text_with_bg;
 use jinn_theme::Theme;
 use ratatui::text::{Line, Span};
 
-use crate::catalog::AppEntry;
+use crate::catalog::AppletEntry;
 use crate::scope::RESULTS_VIEWPORT_FALLBACK;
 
-/// An app entry ready for display in the apps picker.
+/// An applet entry ready for display in the applets picker.
 #[derive(Debug, Clone)]
-pub struct AppPickerEntry {
+pub struct AppletPickerEntry {
     /// The app's directory id (its URL path segment).
     pub id: String,
     /// The app's display title.
@@ -26,10 +26,10 @@ pub struct AppPickerEntry {
     pub theme: Theme,
 }
 
-impl AppPickerEntry {
+impl AppletPickerEntry {
     /// Builds one picker entry from a catalog entry.
     #[must_use]
-    pub fn from_catalog(entry: &AppEntry, theme: &Theme) -> Self {
+    pub fn from_catalog(entry: &AppletEntry, theme: &Theme) -> Self {
         Self {
             id: entry.id.clone(),
             title: entry.title.clone(),
@@ -38,9 +38,9 @@ impl AppPickerEntry {
     }
 }
 
-/// Renders one apps picker row: the cursor marker and the app title.
+/// Renders one applets picker row: the cursor marker and the applet title.
 #[must_use]
-pub fn app_row(entry: &AppPickerEntry, ctx: &RowCtx<'_>) -> Line<'static> {
+pub fn applet_row(entry: &AppletPickerEntry, ctx: &RowCtx<'_>) -> Line<'static> {
     let base_style = selected_style(ctx.is_selected, &entry.theme);
     let mut spans = vec![active_marker(ctx.is_selected, &entry.theme)];
 
@@ -58,7 +58,7 @@ pub fn app_row(entry: &AppPickerEntry, ctx: &RowCtx<'_>) -> Line<'static> {
     Line::from(spans)
 }
 
-impl jinn_selection_widget::TreeItem for AppPickerEntry {
+impl jinn_selection_widget::TreeItem for AppletPickerEntry {
     fn id(&self) -> &str {
         &self.id
     }
@@ -86,12 +86,13 @@ impl jinn_selection_widget::TreeItem for AppPickerEntry {
     }
 }
 
-/// The apps picker's complete state: the rows, the filter, the
+/// The applets picker's complete state: the rows, the filter, the
 /// highlight, and the in-progress rename input.
 #[derive(Debug)]
-pub struct AppsPickerState {
+pub struct AppletsPickerState {
     /// The selection/filter state backing the picker's rows.
-    pub selection: jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<AppPickerEntry>>,
+    pub selection:
+        jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<AppletPickerEntry>>,
     /// How many result rows fit on screen, measured by the render pass.
     pub results_viewport: usize,
     /// The theme the rows were built with, so a repaint recolors them
@@ -102,7 +103,7 @@ pub struct AppsPickerState {
     pub rename_input: jinn_slices::LineInput,
 }
 
-impl Default for AppsPickerState {
+impl Default for AppletsPickerState {
     fn default() -> Self {
         Self {
             selection: jinn_selection_widget::SelectionState::new(),
@@ -115,7 +116,7 @@ impl Default for AppsPickerState {
     }
 }
 
-impl AppsPickerState {
+impl AppletsPickerState {
     /// Clears the filter and moves the highlight back to the top, ready
     /// for a fresh open.
     pub fn reset(&mut self) {
@@ -143,27 +144,27 @@ impl AppsPickerState {
 /// The row's search text: the title, so filtering matches what the user
 /// sees.
 #[must_use]
-pub fn app_search_text(entry: &AppPickerEntry) -> String {
+pub fn applet_search_text(entry: &AppletPickerEntry) -> String {
     entry.title.clone()
 }
 
 /// Builds picker entries from the catalog, in the catalog's order (the
 /// store actor has already sorted it recency-newest-first).
 #[must_use]
-pub fn build_app_entries(
-    entries: &[AppEntry],
+pub fn build_applet_entries(
+    entries: &[AppletEntry],
     theme: &Theme,
-) -> Vec<jinn_picker::PickerEntry<AppPickerEntry>> {
-    let picker_entries: Vec<AppPickerEntry> = entries
+) -> Vec<jinn_picker::PickerEntry<AppletPickerEntry>> {
+    let picker_entries: Vec<AppletPickerEntry> = entries
         .iter()
-        .map(|entry| AppPickerEntry::from_catalog(entry, theme))
+        .map(|entry| AppletPickerEntry::from_catalog(entry, theme))
         .collect();
 
     jinn_picker::make_items_with_hooks(
         picker_entries,
         jinn_picker::PickerItemHooks::new()
-            .row(app_row)
-            .search(app_search_text),
+            .row(applet_row)
+            .search(applet_search_text),
     )
 }
 
@@ -175,13 +176,15 @@ mod tests {
         clippy::single_range_in_vec_init,
         reason = "test code"
     )]
-    use super::{AppPickerEntry, AppsPickerState, app_row, app_search_text, build_app_entries};
-    use crate::catalog::AppEntry;
+    use super::{
+        AppletPickerEntry, AppletsPickerState, applet_row, applet_search_text, build_applet_entries,
+    };
+    use crate::catalog::AppletEntry;
     use jinn_picker::RowCtx;
     use jinn_theme::default_theme;
 
-    fn entry(id: &str, title: &str) -> AppEntry {
-        AppEntry {
+    fn entry(id: &str, title: &str) -> AppletEntry {
+        AppletEntry {
             id: id.to_owned(),
             title: title.to_owned(),
             created_at: "2026-01-01T00:00:00Z".to_owned(),
@@ -191,15 +194,15 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn row_shows_the_title() {
-        // Given one app entry.
-        let app = AppPickerEntry {
+        // Given one applet entry.
+        let app = AppletPickerEntry {
             id: "sales-dashboard".to_owned(),
             title: "Sales Dashboard".to_owned(),
             theme: default_theme(),
         };
 
         // When rendering its row unselected with no filter matches.
-        let line = app_row(&app, &RowCtx::flat(false, &Vec::new()));
+        let line = applet_row(&app, &RowCtx::flat(false, &Vec::new()));
 
         // Then the row starts with the unselected padding and shows the
         // title.
@@ -211,7 +214,7 @@ mod tests {
     #[test]
     fn search_text_is_the_title() {
         // Given one entry.
-        let app = AppPickerEntry {
+        let app = AppletPickerEntry {
             id: "id".to_owned(),
             title: "The Title".to_owned(),
             theme: default_theme(),
@@ -219,7 +222,7 @@ mod tests {
 
         // When building its search text.
         // Then it is the title.
-        assert_eq!(app_search_text(&app), "The Title");
+        assert_eq!(applet_search_text(&app), "The Title");
     }
 
     #[rstest::rstest]
@@ -229,7 +232,7 @@ mod tests {
         let entries = vec![entry("newest", "Newest"), entry("older", "Older")];
 
         // When building the picker's entries.
-        let items = build_app_entries(&entries, &default_theme());
+        let items = build_applet_entries(&entries, &default_theme());
 
         // Then the order is the catalog's — the store actor owns ordering.
         let ids: Vec<&str> = items
@@ -243,8 +246,8 @@ mod tests {
     #[test]
     fn reset_clears_the_filter_and_returns_to_the_top() {
         // Given a picker state with a filter and a moved highlight.
-        let mut state = AppsPickerState::default();
-        state.selection.set_items(build_app_entries(
+        let mut state = AppletsPickerState::default();
+        state.selection.set_items(build_applet_entries(
             &[entry("a", "Alpha"), entry("b", "Beta")],
             &default_theme(),
         ));
@@ -263,8 +266,8 @@ mod tests {
     #[test]
     fn highlighted_accessors_read_the_highlighted_row() {
         // Given a picker with rows and the highlight at the top.
-        let mut state = AppsPickerState::default();
-        state.selection.set_items(build_app_entries(
+        let mut state = AppletsPickerState::default();
+        state.selection.set_items(build_applet_entries(
             &[entry("a", "Alpha"), entry("b", "Beta")],
             &default_theme(),
         ));
@@ -274,7 +277,7 @@ mod tests {
         assert_eq!(state.highlighted_id().as_deref(), Some("a"));
         assert_eq!(state.highlighted_title().as_deref(), Some("Alpha"));
 
-        let empty = AppsPickerState::default();
+        let empty = AppletsPickerState::default();
         assert!(empty.highlighted_id().is_none());
         assert!(empty.highlighted_title().is_none());
     }

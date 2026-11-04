@@ -501,20 +501,25 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
         &config_snapshot,
     );
 
-    // The apps slice: saved agent-built artifacts. Reads `[apps] bind`
+    // The applets slice: saved agent-built artifacts. Reads `[applets] bind`
     // (fatal on malformed or non-loopback — the server has no
     // authentication), spawns the dormant server actor and the store
     // actor, and wires the `<leader>sa` picker. Dormant like canvas: no
     // listener, no disk IO at activation — the store reads the catalog
     // on the picker's first open, and the server binds on the first
-    // open. Nothing below resolves an apps cell, so this position only
+    // open. Nothing below resolves an applets cell, so this position only
     // has to follow Block 0's catalog registration.
     {
         let config_snapshot = ctx.services().config.clone();
         let bus_snapshot = ctx.services().bus.clone();
-        let apps_dir = ctx.services().paths.apps_dir();
-        jinn_apps::activate(&mut ctx.host(), &config_snapshot, &apps_dir, &bus_snapshot)
-            .map_err(|report| ActivateError::Apps(format!("{report:?}")))?;
+        let applets_dir = ctx.services().paths.applets_dir();
+        jinn_applets::activate(
+            &mut ctx.host(),
+            &config_snapshot,
+            &applets_dir,
+            &bus_snapshot,
+        )
+        .map_err(|report| ActivateError::Applets(format!("{report:?}")))?;
     }
 
     Ok(Activated { boot, discord })
@@ -547,13 +552,13 @@ pub enum ActivateError {
     /// report rides as rendered text.
     #[error(debug)]
     Remote(String),
-    /// The `[apps]` section failed to read or its bind was malformed or
+    /// The `[applets]` section failed to read or its bind was malformed or
     /// not loopback. Fatal with the same severity as canvas: every
     /// later picker open would refuse with the same sentence, so launch
     /// stops where the cause is visible. The report rides as rendered
     /// text.
     #[error(debug)]
-    Apps(String),
+    Applets(String),
     /// A producer slice's cell was absent when a consumer resolved it.
     ///
     /// The three producers in Block 1 register these cells, so a missing

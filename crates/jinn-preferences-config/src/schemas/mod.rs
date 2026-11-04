@@ -21,7 +21,7 @@
 //! (`config.get::<T>()` / `get_list::<T>()`), so a section type is pure
 //! data with no dependency back on the code that reads it.
 
-pub mod apps;
+pub mod applets;
 pub mod auto_prune;
 pub mod bot;
 pub mod canvas;
@@ -48,7 +48,7 @@ pub mod term;
 pub mod tool_call_watchdog;
 pub mod tools;
 
-pub use apps::{AppsBindError, AppsConfig, DEFAULT_APPS_BIND};
+pub use applets::{AppletsBindError, AppletsConfig, DEFAULT_APPLETS_BIND};
 pub use auto_prune::{
     AnchoredAssistantAutoPruneConfig, AutoPruneConfig, BrokenEditAutoPruneConfig,
     ConsecutiveReadsAutoPruneConfig, DoubleEditAutoPruneConfig, EditReadAutoPruneConfig,

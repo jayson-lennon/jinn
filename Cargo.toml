@@ -91,8 +91,8 @@ jinn-context-assembly = { workspace = true }
 jinn-theme-slice = { workspace = true }
 jinn-cli = { workspace = true }
 jinn-canvas = { workspace = true }
-jinn-apps = { workspace = true }
-jinn-apps-msg = { workspace = true }
+jinn-applets = { workspace = true }
+jinn-applets-msg = { workspace = true }
 jinn-remote = { workspace = true }
 jinn-remote-msg = { workspace = true }
 jinn-mcp-overgraph = { workspace = true }
@@ -278,8 +278,8 @@ jinn-provider = { path = "crates/jinn-provider" }
 jinn-tui = { path = "crates/jinn-tui" }
 jinn-canvas = { path = "crates/slices/jinn-canvas" }
 jinn-canvas-msg = { path = "crates/slices/jinn-canvas-msg" }
-jinn-apps = { path = "crates/slices/jinn-apps" }
-jinn-apps-msg = { path = "crates/slices/jinn-apps-msg" }
+jinn-applets = { path = "crates/slices/jinn-applets" }
+jinn-applets-msg = { path = "crates/slices/jinn-applets-msg" }
 jinn-remote = { path = "crates/slices/jinn-remote" }
 jinn-remote-msg = { path = "crates/slices/jinn-remote-msg" }
 jinn-cli = { path = "crates/jinn-cli" }

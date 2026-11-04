@@ -106,7 +106,7 @@ mod tests {
         // When reading the served-path set.
         // Then the two authored files canvas's build appends after the
         // manifest rows — absent from the manifest itself — are in the
-        // apps inventory too. Parity means the whole inventory; a saved
+        // applets inventory too. Parity means the whole inventory; a saved
         // app referencing `/vendor/canvas.css` serves the same bytes a
         // live canvas server would.
         let paths: std::collections::BTreeSet<&str> =

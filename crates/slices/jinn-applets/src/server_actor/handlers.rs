@@ -1,8 +1,8 @@
-//! Message handlers for [`AppsServerActor`] — the lazy-bind transition.
+//! Message handlers for [`AppletsServerActor`] — the lazy-bind transition.
 //!
 //! The flow is the actor's whole job:
 //!
-//! 1. Dormant phase: canonicalize the apps root, bind the tokio
+//! 1. Dormant phase: canonicalize the applets root, bind the tokio
 //!    listener (port `0` resolved here), start the axum task.
 //! 2. Live phase: read back the resolved bind — the listener is never
 //!    restarted, so every open of any app lands on the same URL base.
@@ -22,7 +22,7 @@ use crate::server_actor::{EnsureServing, EnsureServingOutcome, ServingState};
 
 /// Handles an ensure ask: bind on the first ask, read back on the rest.
 pub(crate) async fn handle_ensure_serving(
-    actor: &mut crate::server_actor::AppsServerActor,
+    actor: &mut crate::server_actor::AppletsServerActor,
     msg: &EnsureServing,
     ctx: &mut MsgCtx<'_>,
 ) {
@@ -41,7 +41,7 @@ pub(crate) async fn handle_ensure_serving(
         Ok(root) => root,
         Err(error) => {
             ctx.reply(EnsureServingOutcome::refused(format!(
-                "failed to resolve the apps directory: {error}"
+                "failed to resolve the applets directory: {error}"
             )));
             return;
         }
@@ -77,7 +77,7 @@ pub(crate) async fn handle_ensure_serving(
     // listener closes). Dropping the JoinHandle detaches, not aborts.
     tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, crate::server::router_arc(shared)).await {
-            tracing::error!("apps server task failed: {e}");
+            tracing::error!("applets server task failed: {e}");
         }
     });
 

@@ -4,16 +4,16 @@
 //! in-progress text from the picker cell, an input hook that serves the
 //! editing intents while the popup's scope is focused, and three rows
 //! (`ENTER` confirm, `<esc>` cancel, `<c-c>` clear-or-leave). The
-//! confirm publishes [`RenameApp`](jinn_apps_msg::RenameApp); the store
+//! confirm publishes [`RenameApplet`](jinn_applets_msg::RenameApplet); the store
 //! actor writes cell and file, the republisher repaints the still-open
 //! picker underneath.
 //!
-//! The popup's state lives on the picker cell ([`AppsPickerState`]'s
+//! The popup's state lives on the picker cell ([`AppletsPickerState`]'s
 //! `rename_input`) rather than a second cell: the popup is the picker's
 //! own affordance, and one cell per surface keeps the render path
 //! single-registry.
 
-use jinn_apps_msg::AppsPickerState;
+use jinn_applets_msg::AppletsPickerState;
 use jinn_slices::RenderFacts;
 use jinn_slices::SliceScopeId;
 use jinn_slices::cell::TypedCell;
@@ -27,7 +27,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 /// `<c-r>` from the picker.
 #[must_use]
 pub fn rename_scope() -> SliceScopeId {
-    jinn_apps_msg::apps_rename_scope()
+    jinn_applets_msg::applets_rename_scope()
 }
 
 /// Horizontal padding fraction for the rename popup (20% each side) —
@@ -64,7 +64,7 @@ pub fn rename_overlay_rect(area: &Rect) -> Option<Rect> {
 pub fn render_rename_overlay(frame: &mut Frame<'_>, area: Rect, ctx: &RenderFacts) {
     let Some(cell) = ctx
         .slices
-        .reader::<AppsPickerState>(&jinn_apps_msg::apps_picker_slot())
+        .reader::<AppletsPickerState>(&jinn_applets_msg::applets_picker_slot())
     else {
         return;
     };
@@ -133,36 +133,36 @@ fn draw(
 }
 
 /// The rename popup's route rows: confirm, cancel, clear-or-leave.
-pub fn attach_rename_rows(routes: &jinn_slices::KeyRoutes, picker: &TypedCell<AppsPickerState>) {
+pub fn attach_rename_rows(routes: &jinn_slices::KeyRoutes, picker: &TypedCell<AppletsPickerState>) {
     use jinn_slices::RouteId;
     use jinn_slices::RouteResult as IntentResult;
     use jinn_slices::route::{ActionFn, BindSite, RouteOutcome, RouteRow};
 
     let confirm_picker = picker.clone();
     routes.attach(RouteRow {
-        route_id: RouteId::new("apps-rename-confirm"),
+        route_id: RouteId::new("applets-rename-confirm"),
         scope: rename_scope(),
         key: "<enter>",
         category: "input",
         site: BindSite::OwnScope,
-        feature: "apps",
+        feature: "applets",
         outcome: RouteOutcome::Action {
-            action: "apps-rename-confirm",
-            display: "rename the app",
+            action: "applets-rename-confirm",
+            display: "rename the applet",
             run: ActionFn::new(move |_ctx| crate::picker_actions::confirm_rename(&confirm_picker)),
         },
     });
 
     let cancel_picker = picker.clone();
     routes.attach(RouteRow {
-        route_id: RouteId::new("apps-rename-cancel"),
+        route_id: RouteId::new("applets-rename-cancel"),
         scope: rename_scope(),
         key: "<esc>",
         category: "general",
         site: BindSite::OwnScope,
-        feature: "apps",
+        feature: "applets",
         outcome: RouteOutcome::Action {
-            action: "apps-rename-cancel",
+            action: "applets-rename-cancel",
             display: "cancel rename",
             run: ActionFn::new(move |_ctx| crate::picker_actions::cancel_rename(&cancel_picker)),
         },
@@ -170,14 +170,14 @@ pub fn attach_rename_rows(routes: &jinn_slices::KeyRoutes, picker: &TypedCell<Ap
 
     let clear_picker = picker.clone();
     routes.attach(RouteRow {
-        route_id: RouteId::new("apps-rename-clear-or-leave"),
+        route_id: RouteId::new("applets-rename-clear-or-leave"),
         scope: rename_scope(),
         key: "<c-c>",
         category: "input",
         site: BindSite::OwnScope,
-        feature: "apps",
+        feature: "applets",
         outcome: RouteOutcome::Action {
-            action: "apps-rename-clear-or-leave",
+            action: "applets-rename-clear-or-leave",
             display: "clear the title, or leave when already empty",
             run: ActionFn::new(move |_ctx| {
                 crate::picker_actions::clear_or_leave_rename(&clear_picker)

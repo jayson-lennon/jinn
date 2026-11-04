@@ -161,20 +161,20 @@ fn register_catalog(slices: &Slices) -> usize {
         jinn_cwd_msg::CwdInputState::default()
     );
 
-    // jinn-apps — the saved-app catalog (store-actor-written) and the
+    // jinn-applets — the saved-app catalog (store-actor-written) and the
     // picker's UI state (sync-written on open, repainted from the
     // catalog cell).
     register!(
         slices,
         count,
-        jinn_apps_msg::apps_catalog_slot(),
-        jinn_apps_msg::AppCatalog::default()
+        jinn_applets_msg::applets_catalog_slot(),
+        jinn_applets_msg::AppletsCatalog::default()
     );
     register!(
         slices,
         count,
-        jinn_apps_msg::apps_picker_slot(),
-        jinn_apps_msg::AppsPickerState::default()
+        jinn_applets_msg::applets_picker_slot(),
+        jinn_applets_msg::AppletsPickerState::default()
     );
 
     // jinn-bot — the bot properties popup, the report history

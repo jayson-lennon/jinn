@@ -1,15 +1,15 @@
-//! The apps picker's actions — the rename handoff and the empty-picker
+//! The applets picker's actions — the rename handoff and the empty-picker
 //! guards, factored out of the route rows so the tests can drive them
 //! without a full route table.
 
-use jinn_apps_msg::{AppsPickerState, RenameApp, apps_rename_scope};
+use jinn_applets_msg::{AppletsPickerState, RenameApplet, applets_rename_scope};
 use jinn_slices::RouteResult as IntentResult;
 use jinn_slices::ScopeSignal;
 use jinn_slices::cell::TypedCell;
 use jinn_slices::line_input::LineInput;
 
 /// The picker's cell.
-pub type AppsPickerCell = TypedCell<AppsPickerState>;
+pub type AppletsPickerCell = TypedCell<AppletsPickerState>;
 
 /// `<c-r>`: seed the rename popup with the highlighted title and push
 /// the popup's scope.
@@ -17,14 +17,14 @@ pub type AppsPickerCell = TypedCell<AppsPickerState>;
 /// A no-op when nothing is highlighted — the empty picker accepts every
 /// key as a no-op by contract.
 #[must_use]
-pub fn begin_rename(picker: &AppsPickerCell) -> IntentResult {
+pub fn begin_rename(picker: &AppletsPickerCell) -> IntentResult {
     let Some(title) = picker.read().highlighted_title() else {
         return IntentResult::empty();
     };
     picker.update(|state| {
         state.rename_input = rename_input_seeded(&title);
     });
-    IntentResult::empty().with_scope_signal(ScopeSignal::Push(apps_rename_scope()))
+    IntentResult::empty().with_scope_signal(ScopeSignal::Push(applets_rename_scope()))
 }
 
 /// The rename popup's seeded input: the current title, cursor at the
@@ -36,17 +36,17 @@ pub fn rename_input_seeded(title: &str) -> LineInput {
     input
 }
 
-/// Confirms the rename: validate, publish [`RenameApp`], pop the popup.
+/// Confirms the rename: validate, publish [`RenameApplet`], pop the popup.
 ///
 /// An empty (or whitespace-only) title is refused silently — no partial
 /// mutation, no error surfaced; the popup stays open for another try,
 /// the same policy the session rename's confirm applies.
 #[must_use]
-pub fn confirm_rename(picker: &AppsPickerCell) -> IntentResult {
+pub fn confirm_rename(picker: &AppletsPickerCell) -> IntentResult {
     let (id, text) =
         picker.update(|state| (state.highlighted_id(), state.rename_input.input.clone()));
     let Some(id) = id else {
-        return IntentResult::empty().with_scope_signal(ScopeSignal::PopIf(apps_rename_scope()));
+        return IntentResult::empty().with_scope_signal(ScopeSignal::PopIf(applets_rename_scope()));
     };
     let title = text.trim().to_owned();
     if title.is_empty() {
@@ -56,23 +56,23 @@ pub fn confirm_rename(picker: &AppsPickerCell) -> IntentResult {
     picker.update(|state| {
         state.rename_input = LineInput::new();
     });
-    IntentResult::new_message(RenameApp { id, title })
-        .with_scope_signal(ScopeSignal::PopIf(apps_rename_scope()))
+    IntentResult::new_message(RenameApplet { id, title })
+        .with_scope_signal(ScopeSignal::PopIf(applets_rename_scope()))
 }
 
 /// Cancels the rename: discard the input, pop the popup.
 #[must_use]
-pub fn cancel_rename(picker: &AppsPickerCell) -> IntentResult {
+pub fn cancel_rename(picker: &AppletsPickerCell) -> IntentResult {
     picker.update(|state| {
         state.rename_input = LineInput::new();
     });
-    IntentResult::empty().with_scope_signal(ScopeSignal::PopIf(apps_rename_scope()))
+    IntentResult::empty().with_scope_signal(ScopeSignal::PopIf(applets_rename_scope()))
 }
 
 /// Clears a non-empty rename input, or leaves the popup when already
 /// empty — the session-rename clear-or-leave shape.
 #[must_use]
-pub fn clear_or_leave_rename(picker: &AppsPickerCell) -> IntentResult {
+pub fn clear_or_leave_rename(picker: &AppletsPickerCell) -> IntentResult {
     let empty = picker.update(|state| state.rename_input.input.is_empty());
     if empty {
         return cancel_rename(picker);
@@ -90,30 +90,32 @@ mod tests {
     use super::{
         begin_rename, cancel_rename, clear_or_leave_rename, confirm_rename, rename_input_seeded,
     };
-    use jinn_apps_msg::{AppEntry, AppsPickerState, apps_picker_slot, build_app_entries};
+    use jinn_applets_msg::{
+        AppletEntry, AppletsPickerState, applets_picker_slot, build_applet_entries,
+    };
     use jinn_slices::RouteResult;
     use jinn_slices::ScopeSignal;
     use jinn_slices::cell::TypedCell;
 
-    fn picker_cell_with_apps() -> TypedCell<AppsPickerState> {
+    fn picker_cell_with_apps() -> TypedCell<AppletsPickerState> {
         let slices = jinn_slices::Slices::new();
         let cell = slices
-            .register::<AppsPickerState>(apps_picker_slot(), AppsPickerState::default())
+            .register::<AppletsPickerState>(applets_picker_slot(), AppletsPickerState::default())
             .expect("register picker cell");
         let theme = jinn_theme::default_theme();
         let entries = vec![
-            AppEntry {
+            AppletEntry {
                 id: "alpha".to_owned(),
                 title: "Alpha".to_owned(),
                 created_at: "2026-01-01T00:00:00Z".to_owned(),
             },
-            AppEntry {
+            AppletEntry {
                 id: "beta".to_owned(),
                 title: "Beta".to_owned(),
                 created_at: "2026-01-02T00:00:00Z".to_owned(),
             },
         ];
-        let items = build_app_entries(&entries, &theme);
+        let items = build_applet_entries(&entries, &theme);
         cell.update(|state| {
             state.selection.set_items(items);
         });
@@ -133,7 +135,7 @@ mod tests {
         let SignalCheck::Push(scope) = signal_of(&result) else {
             panic!("expected a push signal");
         };
-        assert_eq!(scope, jinn_apps_msg::apps_rename_scope());
+        assert_eq!(scope, jinn_applets_msg::applets_rename_scope());
         // And the input is seeded with the highlighted title, cursor at
         // the end.
         let state = cell.read();
@@ -147,7 +149,7 @@ mod tests {
         // Given a picker with no rows.
         let slices = jinn_slices::Slices::new();
         let cell = slices
-            .register::<AppsPickerState>(apps_picker_slot(), AppsPickerState::default())
+            .register::<AppletsPickerState>(applets_picker_slot(), AppletsPickerState::default())
             .expect("register");
 
         // When beginning a rename.
@@ -172,14 +174,14 @@ mod tests {
         // When confirming.
         let result = confirm_rename(&cell);
 
-        // Then a RenameApp command is published naming the id and the
+        // Then a RenameApplet command is published naming the id and the
         // new title.
-        assert_eq!(result.message_names, ["RenameApp"]);
+        assert_eq!(result.message_names, ["RenameApplet"]);
         // And the rename scope pops.
         let SignalCheck::PopIf(scope) = signal_of(&result) else {
             panic!("expected a pop signal");
         };
-        assert_eq!(scope, jinn_apps_msg::apps_rename_scope());
+        assert_eq!(scope, jinn_applets_msg::applets_rename_scope());
         // And the popup input is cleared.
         assert_eq!(cell.read().rename_input.input, "");
     }
@@ -217,7 +219,7 @@ mod tests {
         let SignalCheck::PopIf(scope) = signal_of(&result) else {
             panic!("expected a pop signal");
         };
-        assert_eq!(scope, jinn_apps_msg::apps_rename_scope());
+        assert_eq!(scope, jinn_applets_msg::applets_rename_scope());
         // And the input is cleared.
         assert_eq!(cell.read().rename_input.input, "");
     }

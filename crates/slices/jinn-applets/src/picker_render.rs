@@ -1,26 +1,26 @@
-//! The apps picker's overlay rendering.
+//! The applets picker's overlay rendering.
 //!
 //! A slice-owned picker renders from the slice's own cell. The render
 //! context deliberately never sees `AppState` (see `RenderFacts`), so
-//! this reads `AppsPickerState` straight off the registered slot.
+//! this reads `AppletsPickerState` straight off the registered slot.
 
-use jinn_apps_msg::AppsPickerState;
+use jinn_applets_msg::AppletsPickerState;
 use jinn_slices::RenderFacts;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::Line;
 
-/// The popup rect for the apps picker: the shared selection-widget popup.
+/// The popup rect for the applets picker: the shared selection-widget popup.
 #[must_use]
-pub fn apps_picker_overlay_rect(area: &Rect) -> Option<Rect> {
+pub fn applets_picker_overlay_rect(area: &Rect) -> Option<Rect> {
     Some(jinn_selection_widget::compute_popup_rect(*area))
 }
 
-/// The colors the apps picker draws with — the same chrome/accent split
+/// The colors the applets picker draws with — the same chrome/accent split
 /// the sibling pickers use.
 #[must_use]
-pub fn apps_picker_palette(theme: &jinn_theme::Theme) -> jinn_picker::Palette {
+pub fn applets_picker_palette(theme: &jinn_theme::Theme) -> jinn_picker::Palette {
     jinn_picker::Palette {
         border: ratatui::style::Color::DarkGray,
         filter_text: ratatui::style::Color::White,
@@ -34,13 +34,13 @@ pub fn apps_picker_palette(theme: &jinn_theme::Theme) -> jinn_picker::Palette {
     }
 }
 
-/// The apps picker's declared binds, in footer order.
+/// The applets picker's declared binds, in footer order.
 ///
 /// Sourced from the route rows the slice actually attaches, so the
 /// footer can never advertise a key the picker does not bind.
 #[must_use]
-pub fn apps_picker_binds() -> Vec<jinn_picker::BindRow> {
-    crate::picker_routes::APPS_PICKER_BINDINGS
+pub fn applets_picker_binds() -> Vec<jinn_picker::BindRow> {
+    crate::picker_routes::APPLETS_PICKER_BINDINGS
         .iter()
         .map(|(notation, label)| jinn_picker::BindRow {
             notation,
@@ -50,9 +50,12 @@ pub fn apps_picker_binds() -> Vec<jinn_picker::BindRow> {
         .collect()
 }
 
-/// Draws the apps picker popup for one frame.
-pub fn render_apps_picker(frame: &mut Frame<'_>, area: Rect, facts: &RenderFacts) {
-    let Some(cell) = facts.slices.reader(&jinn_apps_msg::apps_picker_slot()) else {
+/// Draws the applets picker popup for one frame.
+pub fn render_applets_picker(frame: &mut Frame<'_>, area: Rect, facts: &RenderFacts) {
+    let Some(cell) = facts
+        .slices
+        .reader(&jinn_applets_msg::applets_picker_slot())
+    else {
         return;
     };
 
@@ -61,13 +64,13 @@ pub fn render_apps_picker(frame: &mut Frame<'_>, area: Rect, facts: &RenderFacts
     // deadlock the render thread.
     let layout = {
         let guard = cell.read();
-        let state: &AppsPickerState = &guard;
-        apps_picker_widget(state, &facts.theme).render(frame, area)
+        let state: &AppletsPickerState = &guard;
+        applets_picker_widget(state, &facts.theme).render(frame, area)
     };
 
     // Publish what the widget actually solved, for the navigation keys,
     // which need a real row count to keep the highlight on screen.
-    cell.update(|state: &mut AppsPickerState| {
+    cell.update(|state: &mut AppletsPickerState| {
         state.results_viewport = usize::from(layout.inner.height);
     });
 }
@@ -78,18 +81,18 @@ pub fn render_apps_picker(frame: &mut Frame<'_>, area: Rect, facts: &RenderFacts
 /// Both the render pass and the render tests build through this helper,
 /// so a test's second construction is identical to what the frame drew.
 #[must_use]
-pub fn apps_picker_widget<'a>(
-    state: &'a AppsPickerState,
+pub fn applets_picker_widget<'a>(
+    state: &'a AppletsPickerState,
     theme: &jinn_theme::Theme,
 ) -> jinn_selection_widget::SelectionWidget<
     'a,
-    jinn_picker::PickerEntry<jinn_apps_msg::AppPickerEntry>,
+    jinn_picker::PickerEntry<jinn_applets_msg::AppletPickerEntry>,
 > {
-    let palette = apps_picker_palette(theme);
-    let binds = apps_picker_binds();
+    let palette = applets_picker_palette(theme);
+    let binds = applets_picker_binds();
     let keybind = jinn_picker::keybind_line(&binds, jinn_picker::Tail::Standard, &palette);
     jinn_selection_widget::SelectionWidget::new(&state.selection)
-        .title(Line::from(" Apps "))
+        .title(Line::from(" Applets "))
         .title_style(Style::default().fg(theme.popup_title))
         .footers(vec![Line::from(keybind.0)])
         .colors(palette.selection_colors())

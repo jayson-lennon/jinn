@@ -1,47 +1,47 @@
 //! The saved-app catalog — what the picker shows and the server serves.
 //!
-//! [`AppCatalog`] is the apps slice's data cell payload: one [`AppEntry`]
-//! per saved app directory. The on-disk `apps.json` at the apps root has
+//! [`AppletsCatalog`] is the applets slice's data cell payload: one [`AppletEntry`]
+//! per saved applet directory. The on-disk `applets.json` at the applets root has
 //! the same shape; the catalog cell is the in-memory authority during a
 //! run and the file is written through on every mutation, so the two
-//! always agree. A missing or unreadable `apps.json` deserializes to an
-//! empty catalog — a first-run user has no apps and that is a state,
+//! always agree. A missing or unreadable `applets.json` deserializes to an
+//! empty catalog — a first-run user has no applets and that is a state,
 //! never an error.
 
 use serde::{Deserialize, Serialize};
 
-/// The file name of the on-disk catalog at the apps root.
-pub const CATALOG_FILE_NAME: &str = "apps.json";
+/// The file name of the on-disk catalog at the applets root.
+pub const CATALOG_FILE_NAME: &str = "applets.json";
 
-/// One saved app: a directory of static files under the apps root.
+/// One saved applet: a directory of static files under the applets root.
 ///
 /// `id` is the directory's name and the URL path segment
-/// (`/apps/<id>/`); it is stable across renames — the title is the
+/// (`/applets/<id>/`); it is stable across renames — the title is the
 /// display name, so renaming rewrites neither the directory nor any
 /// link the user already has.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AppEntry {
-    /// The app's directory name under the apps root, and its URL path
+pub struct AppletEntry {
+    /// The app's directory name under the applets root, and its URL path
     /// segment. Directory-name safe by construction (see
     /// [`sanitize_app_id`]).
     pub id: String,
     /// The display name the picker shows and `<c-r>` edits.
     pub title: String,
-    /// When the app was saved (RFC 3339), for recency ordering.
+    /// When the applet was saved (RFC 3339), for recency ordering.
     pub created_at: String,
 }
 
-/// The catalog cell's payload: every saved app, newest first.
+/// The catalog cell's payload: every saved applet, newest first.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AppCatalog {
-    /// The saved apps, recency-ordered (newest first).
-    pub entries: Vec<AppEntry>,
+pub struct AppletsCatalog {
+    /// The saved applets, recency-ordered (newest first).
+    pub entries: Vec<AppletEntry>,
 }
 
-impl AppCatalog {
+impl AppletsCatalog {
     /// Looks up one entry by id.
     #[must_use]
-    pub fn entry(&self, id: &str) -> Option<&AppEntry> {
+    pub fn entry(&self, id: &str) -> Option<&AppletEntry> {
         self.entries.iter().find(|entry| entry.id == id)
     }
 
@@ -56,7 +56,7 @@ impl AppCatalog {
 /// Lowercases, keeps only ASCII alphanumerics, `-`, and `_`; every other
 /// run collapses to one `-`; the result is trimmed of leading and
 /// trailing `-` and capped at 64 bytes. An input that reduces to
-/// nothing yields the fallback `app`, so a saved app always has a
+/// nothing yields the fallback `app`, so a saved applet always has a
 /// servable URL segment.
 #[must_use]
 pub fn sanitize_app_id(title: &str) -> String {
@@ -100,7 +100,7 @@ pub fn sanitize_app_id(title: &str) -> String {
     }
 }
 
-/// Rejects an app id that could escape the apps root or collide with the
+/// Rejects an applet id that could escape the applets root or collide with the
 /// catalog file.
 ///
 /// A valid id is one or more ASCII alphanumerics, `-`, `_`, or `.` — but
@@ -122,10 +122,10 @@ pub fn is_valid_app_id(id: &str) -> bool {
 mod tests {
     #![allow(clippy::expect_used, reason = "test assertions need expect")]
 
-    use super::{AppCatalog, AppEntry, is_valid_app_id, sanitize_app_id};
+    use super::{AppletEntry, AppletsCatalog, is_valid_app_id, sanitize_app_id};
 
-    fn entry(id: &str, title: &str, created_at: &str) -> AppEntry {
-        AppEntry {
+    fn entry(id: &str, title: &str, created_at: &str) -> AppletEntry {
+        AppletEntry {
             id: id.to_owned(),
             title: title.to_owned(),
             created_at: created_at.to_owned(),
@@ -134,9 +134,9 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn catalog_serializes_to_the_apps_json_shape() {
+    fn catalog_serializes_to_the_applets_json_shape() {
         // Given a catalog with one entry.
-        let catalog = AppCatalog {
+        let catalog = AppletsCatalog {
             entries: vec![entry(
                 "sales-dashboard",
                 "Sales Dashboard",
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn catalog_round_trips_through_json() {
         // Given a catalog with two entries.
-        let catalog = AppCatalog {
+        let catalog = AppletsCatalog {
             entries: vec![
                 entry("a", "A", "2026-11-01T10:00:00Z"),
                 entry("b", "B", "2026-11-02T10:00:00Z"),
@@ -167,7 +167,7 @@ mod tests {
 
         // When serializing then re-parsing.
         let json = serde_json::to_string(&catalog).expect("serialize");
-        let back: AppCatalog = serde_json::from_str(&json).expect("reparse");
+        let back: AppletsCatalog = serde_json::from_str(&json).expect("reparse");
 
         // Then the entries survive.
         assert_eq!(back, catalog);
@@ -176,9 +176,9 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn empty_catalog_deserializes_from_an_empty_entries_list() {
-        // Given the file body an empty apps.json carries.
+        // Given the file body an empty applets.json carries.
         // When parsing.
-        let catalog: AppCatalog = serde_json::from_str(r#"{"entries": []}"#).expect("parse");
+        let catalog: AppletsCatalog = serde_json::from_str(r#"{"entries": []}"#).expect("parse");
 
         // Then the catalog is empty — the first-run state.
         assert_eq!(catalog.entries.len(), 0);
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn entry_lookup_finds_by_id() {
         // Given a catalog with two entries.
-        let catalog = AppCatalog {
+        let catalog = AppletsCatalog {
             entries: vec![entry("a", "A", "1"), entry("b", "B", "2")],
         };
 
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn recency_sort_puts_newest_first() {
         // Given a catalog written oldest-first.
-        let mut catalog = AppCatalog {
+        let mut catalog = AppletsCatalog {
             entries: vec![
                 entry("old", "Old", "2026-01-01T00:00:00Z"),
                 entry("new", "New", "2026-06-01T00:00:00Z"),
@@ -232,7 +232,7 @@ mod tests {
     fn sanitize_of_symbols_falls_back() {
         // Given a title with no id-worthy characters at all.
         // When sanitizing.
-        // Then the fallback keeps the app servable.
+        // Then the fallback keeps the applet servable.
         assert_eq!(sanitize_app_id("!!!"), "app");
         assert_eq!(sanitize_app_id(""), "app");
     }
@@ -260,7 +260,7 @@ mod tests {
     #[case(".hidden", false)]
     #[case("a/b", false)]
     #[case("a\\b", false)]
-    #[case("apps.json", false)]
+    #[case("applets.json", false)]
     #[case("with space", false)]
     fn id_validation_gates_traversal_and_catalog_collisions(#[case] id: &str, #[case] valid: bool) {
         assert_eq!(is_valid_app_id(id), valid, "id: {id}");

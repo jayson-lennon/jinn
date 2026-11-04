@@ -36,7 +36,7 @@ use jinn_common::template_check::collect_toml_key_paths;
 use crate::config_template::{DEFAULT_CONFIG, STREAM_RULES_TEMPLATE};
 use crate::registration::register_all_sections;
 use crate::schemas::{
-    AppsConfig, CanvasConfig, DiscordConfig, McpServersConfig, RemoteConfig, StreamRuleConfig,
+    AppletsConfig, CanvasConfig, DiscordConfig, McpServersConfig, RemoteConfig, StreamRuleConfig,
     StreamRuleFileEntry, parse_stream_rules_file,
 };
 
@@ -157,7 +157,7 @@ const OWNED_KEYS: &[&str] = &[
     "mcp",
     "discord",
     "canvas",
-    "apps",
+    "applets",
     "remote",
     "dictation",
     // Read on demand (`ConfigList`).
@@ -403,25 +403,27 @@ fn template_ships_canvas_as_loopback_port_zero() {
     );
 }
 
-/// The shipped `[apps]` section is active and binds loopback port 0:
+/// The shipped `[applets]` section is active and binds loopback port 0:
 /// an OS-assigned ephemeral port per running jinn instance, so two
-/// instances never fight over one fixed port. The saved-apps server
+/// instances never fight over one fixed port. The saved-applet server
 /// has no authentication, so the shipped bind must never name an
 /// exposed interface. An explicit configured value still wins — the
 /// schema keeps whatever a user wrote.
 #[rstest::rstest]
 #[test]
-fn template_ships_apps_as_loopback_port_zero() {
+fn template_ships_applets_as_loopback_port_zero() {
     // Given the shipped template parsed as a config layer.
     let config = jinn_config::testutil::config_layer(DEFAULT_CONFIG);
     register_all_sections(&config);
 
-    // When reading the apps section.
-    let apps = config.get::<AppsConfig>().expect("apps section parses");
+    // When reading the applets section.
+    let applets = config
+        .get::<AppletsConfig>()
+        .expect("applets section parses");
 
     // Then the shipped bind is loopback port 0.
-    assert_eq!(apps.bind, "127.0.0.1:0");
-    let addr = apps.parse_bind().expect("shipped bind parses");
+    assert_eq!(applets.bind, "127.0.0.1:0");
+    let addr = applets.parse_bind().expect("shipped bind parses");
     assert!(addr.ip().is_loopback());
     assert_eq!(addr.port(), 0);
 }

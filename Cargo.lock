@@ -3047,8 +3047,8 @@ dependencies = [
  "error-stack",
  "jiff",
  "jinn-app-state",
- "jinn-apps",
- "jinn-apps-msg",
+ "jinn-applets",
+ "jinn-applets-msg",
  "jinn-boot",
  "jinn-boot-msg",
  "jinn-bot",
@@ -3204,7 +3204,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "jinn-apps"
+name = "jinn-applets"
 version = "1.17.0"
 dependencies = [
  "async-trait",
@@ -3212,7 +3212,7 @@ dependencies = [
  "error-stack",
  "jiff",
  "jinn-app-state",
- "jinn-apps-msg",
+ "jinn-applets-msg",
  "jinn-cell-catalog",
  "jinn-common",
  "jinn-config",
@@ -3240,7 +3240,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "jinn-apps-msg"
+name = "jinn-applets-msg"
 version = "1.17.0"
 dependencies = [
  "jinn-picker",
@@ -3395,7 +3395,7 @@ dependencies = [
 name = "jinn-cell-catalog"
 version = "1.17.0"
 dependencies = [
- "jinn-apps-msg",
+ "jinn-applets-msg",
  "jinn-bot-msg",
  "jinn-chat-input-msg",
  "jinn-chat-log-view-msg",

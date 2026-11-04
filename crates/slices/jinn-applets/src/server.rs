@@ -1,23 +1,23 @@
-//! The axum listener — everything a running apps server does.
+//! The axum listener — everything a running applets server does.
 //!
 //! Surfaces, and nothing else:
 //!
-//! - `/apps/<id>/` serves the app's entry HTML, read fresh from disk on
+//! - `/applets/<id>/` serves the applet's entry HTML, read fresh from disk on
 //!   every request, **byte for byte** — no reload snippet, no telemetry
 //!   snippet, no injection of any kind.
-//! - `/apps/<id>/<path>` serves sibling files under the same app
+//! - `/applets/<id>/<path>` serves sibling files under the same app
 //!   directory, same read-fresh-verbatim rule.
 //! - `/vendor/<path>` serves the embedded vendor set, byte-identical to
 //!   canvas's (the same manifest-defined files, the same headers).
 //! - `/healthz` is the liveness marker.
 //!
-//! There is no `/ws`, no `/metrics`, no watcher, no broadcast: the apps
+//! There is no `/ws`, no `/metrics`, no watcher, no broadcast: the applets
 //! server is static-only by contract.
 //!
-//! Traversal is impossible: the app id is validated
-//! ([`jinn_apps_msg::is_valid_app_id`]) and the requested sub-path is
-//! resolved against the app directory and rejected when it escapes the
-//! apps root — a crafted id or path answers 404, never a directory
+//! Traversal is impossible: the applet id is validated
+//! ([`jinn_applets_msg::is_valid_app_id`]) and the requested sub-path is
+//! resolved against the applet directory and rejected when it escapes the
+//! applets root — a crafted id or path answers 404, never a directory
 //! listing or a redirect.
 //!
 //! The module has no serve orchestration (that is
@@ -33,21 +33,21 @@ use axum::extract::State;
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use jinn_apps_msg::is_valid_app_id;
+use jinn_applets_msg::is_valid_app_id;
 use marked_path::{Absolute, MarkedPathAccess as _, MarkedPathBuf};
 
 use crate::vendor::VENDOR_ASSETS;
 
-/// The health body prefix a live apps server answers with.
-pub const HEALTH_MARKER: &str = "jinn-apps";
+/// The health body prefix a live applets server answers with.
+pub const HEALTH_MARKER: &str = "jinn-applets";
 
 /// The URL path prefix every app is served under.
-pub const APPS_ROUTE_PREFIX: &str = "/apps/";
+pub const APPS_ROUTE_PREFIX: &str = "/applets/";
 
 /// State shared across the server's request handlers.
 #[derive(Clone)]
 pub struct ServerShared {
-    /// The apps root — every `/apps/<id>` resolves under it. Set once at
+    /// The applets root — every `/applets/<id>` resolves under it. Set once at
     /// bind time; the server never re-targets.
     pub apps_root: MarkedPathBuf<Absolute>,
 }
@@ -60,8 +60,8 @@ impl ServerShared {
     }
 }
 
-/// Builds the full router for an apps server.
-#[must_use = "the router carries every apps route; building it without serving it is a wiring bug"]
+/// Builds the full router for an applets server.
+#[must_use = "the router carries every applets route; building it without serving it is a wiring bug"]
 pub fn router(shared: ServerShared) -> Router {
     router_arc(Arc::new(shared))
 }
@@ -75,8 +75,8 @@ pub fn router_arc(shared: Arc<ServerShared>) -> Router {
         .with_state(shared)
 }
 
-/// `GET /healthz` — the apps-specific liveness marker. Any 200 whose
-/// body starts with [`HEALTH_MARKER`] identifies a live apps server.
+/// `GET /healthz` — the applets-specific liveness marker. Any 200 whose
+/// body starts with [`HEALTH_MARKER`] identifies a live applets server.
 async fn health_handler() -> impl IntoResponse {
     (StatusCode::OK, format!("{HEALTH_MARKER}\n"))
 }
@@ -118,14 +118,14 @@ async fn serve_vendor(axum::extract::Path(path): axum::extract::Path<String>) ->
 }
 
 /// The fallback handler: every request that is not `/healthz` or
-/// `/vendor/…` is an app path. Routes `/apps/<id>/` (and bare `/apps/<id>`)
-/// to the app's entry HTML, and `/apps/<id>/<sub>` to a sibling file.
+/// `/vendor/…` is an applet path. Routes `/applets/<id>/` (and bare `/applets/<id>`)
+/// to the applet's entry HTML, and `/applets/<id>/<sub>` to a sibling file.
 async fn serve_apps_path(State(shared): State<Arc<ServerShared>>, uri: Uri) -> Response {
     let raw = uri.path();
     let Some(rest) = raw.strip_prefix(APPS_ROUTE_PREFIX) else {
         return not_found(raw);
     };
-    // Split off the app id, then the sub-path. Both arrive percent-decoded
+    // Split off the applet id, then the sub-path. Both arrive percent-decoded
     // by the URI parse; the id gate and the traversal check below reject
     // anything that could reinterpret the boundary.
     let (id, sub) = match rest.split_once('/') {
@@ -136,7 +136,7 @@ async fn serve_apps_path(State(shared): State<Arc<ServerShared>>, uri: Uri) -> R
         return not_found(raw);
     }
 
-    // A directory-style request (`/apps/<id>/` or `/apps/<id>`) serves
+    // A directory-style request (`/applets/<id>/` or `/applets/<id>`) serves
     // the entry HTML; anything after the id serves the named sibling.
     let entry_html = sub.is_empty() || sub == "index.html";
     let requested = if entry_html {
@@ -165,7 +165,7 @@ async fn serve_apps_path(State(shared): State<Arc<ServerShared>>, uri: Uri) -> R
         }
     };
 
-    // Resolve under the app directory and prove containment: the typed
+    // Resolve under the applet directory and prove containment: the typed
     // path system rejects a join that leaves the absolute base, which is
     // the traversal authority.
     let Some(app_dir) = shared.apps_root.join_all([id]).ok() else {
@@ -247,15 +247,15 @@ mod tests {
     use marked_path::MarkedPathAccess as _;
     use std::sync::Arc;
 
-    /// Seeds an app directory with an entry page and a sibling, and
-    /// builds the shared state over the temp apps root.
+    /// Seeds an applet directory with an entry page and a sibling, and
+    /// builds the shared state over the temp applets root.
     fn shared_with_app(
         id: &str,
         entry_html: &str,
         sibling: Option<(&str, &str)>,
     ) -> (Arc<ServerShared>, jinn_testutil::JinnTempDir) {
         let dir = jinn_testutil::retained_tempdir();
-        let app_dir = dir.path.join_all(["apps", id]).expect("name joins");
+        let app_dir = dir.path.join_all(["applets", id]).expect("name joins");
         std::fs::create_dir_all(app_dir.as_path()).expect("mkdir app");
         std::fs::write(
             app_dir.join("index.html").expect("join").as_path(),
@@ -266,7 +266,7 @@ mod tests {
             std::fs::write(app_dir.join(name).expect("join").as_path(), body)
                 .expect("seed sibling");
         }
-        let root = dir.path.join("apps").expect("join");
+        let root = dir.path.join("applets").expect("join");
         let canonical =
             marked_path::CanonicalPath::from_path(root.as_path()).expect("canonical root");
         (Arc::new(ServerShared::new(canonical.into_marked())), dir)
@@ -290,12 +290,12 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn entry_request_serves_disk_bytes_verbatim() {
-        // Given an app whose entry file holds exact bytes on disk.
+        // Given an applet whose entry file holds exact bytes on disk.
         let entry = "<html><head><title>t</title></head><body>verbatim</body></html>";
         let (shared, _apps_root_guard) = shared_with_app("sales-dashboard", entry, None);
 
-        // When requesting the app root.
-        let response = get(&shared, "/apps/sales-dashboard/").await;
+        // When requesting the applet root.
+        let response = get(&shared, "/applets/sales-dashboard/").await;
 
         // Then the response body is byte-identical to the disk file —
         // no reload snippet, no tracker, nothing injected.
@@ -306,12 +306,12 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn entry_request_without_trailing_slash_serves_the_entry() {
-        // Given an app with an entry file.
+        // Given an applet with an entry file.
         let entry = "<html><body>x</body></html>";
         let (shared, _apps_root_guard) = shared_with_app("my-app", entry, None);
 
-        // When requesting the app path without the trailing slash.
-        let response = get(&shared, "/apps/my-app").await;
+        // When requesting the applet path without the trailing slash.
+        let response = get(&shared, "/applets/my-app").await;
 
         // Then the entry is served the same way.
         assert_eq!(response.status(), StatusCode::OK);
@@ -321,12 +321,12 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn sibling_request_serves_the_named_file() {
-        // Given an app with a sibling data file.
+        // Given an applet with a sibling data file.
         let (shared, _dir) =
             shared_with_app("my-app", "<html></html>", Some(("data.json", "[1,2,3]")));
 
         // When requesting the sibling.
-        let response = get(&shared, "/apps/my-app/data.json").await;
+        let response = get(&shared, "/applets/my-app/data.json").await;
 
         // Then its bytes come back verbatim.
         assert_eq!(response.status(), StatusCode::OK);
@@ -336,11 +336,11 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn missing_app_id_is_a_404() {
-        // Given an apps root holding one app.
+        // Given an applets root holding one applet.
         let (shared, _apps_root_guard) = shared_with_app("real", "<html></html>", None);
 
         // When requesting an id that was never saved.
-        let response = get(&shared, "/apps/never-saved/").await;
+        let response = get(&shared, "/applets/never-saved/").await;
 
         // Then the answer is 404 — no listing, no redirect.
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
@@ -349,35 +349,35 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn missing_sibling_is_a_404() {
-        // Given an app.
+        // Given an applet.
         let (shared, _apps_root_guard) = shared_with_app("real", "<html></html>", None);
 
         // When requesting a sibling that does not exist.
-        let response = get(&shared, "/apps/real/nope.txt").await;
+        let response = get(&shared, "/applets/real/nope.txt").await;
 
         // Then the answer is 404.
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[rstest::rstest]
-    #[case("/apps/../etc/passwd")]
-    #[case("/apps/%2e%2e/etc/passwd")]
-    #[case("/apps/real/../../etc/passwd")]
-    #[case("/apps/real/..%2f..%2fetc%2fpasswd")]
-    #[case("/apps/./real")]
-    #[case("/apps/.hidden/")]
-    #[case("/apps/")]
-    #[case("/not-apps/real")]
+    #[case("/applets/../etc/passwd")]
+    #[case("/applets/%2e%2e/etc/passwd")]
+    #[case("/applets/real/../../etc/passwd")]
+    #[case("/applets/real/..%2f..%2fetc%2fpasswd")]
+    #[case("/applets/./real")]
+    #[case("/applets/.hidden/")]
+    #[case("/applets/")]
+    #[case("/not-applets/real")]
     #[tokio::test]
     async fn hostile_paths_are_404_never_served(#[case] path: &str) {
-        // Given an apps root holding one app.
+        // Given an applets root holding one applet.
         let (shared, _apps_root_guard) = shared_with_app("real", "<html></html>", None);
 
         // When requesting a hostile path (traversal, dot segments,
-        // hidden ids, or a non-apps prefix).
+        // hidden ids, or a non-applets prefix).
         let response = get(&shared, path).await;
 
-        // Then the answer is 404 — the request cannot escape the apps
+        // Then the answer is 404 — the request cannot escape the applets
         // root, and no sibling content is disclosed.
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "path: {path}");
     }
@@ -385,13 +385,13 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn catalog_file_is_never_served_as_an_app() {
-        // Given an apps root whose catalog file sits beside the apps.
+        // Given an applets root whose catalog file sits beside the applets.
         let (shared, _apps_root_guard) = shared_with_app("real", "<html></html>", None);
-        // (the catalog lives at the apps root; `apps.json` as an id is
+        // (the catalog lives at the applets root; `applets.json` as an id is
         // rejected by the id gate)
-        let response = get(&shared, "/apps/apps.json").await;
+        let response = get(&shared, "/applets/applets.json").await;
 
-        // Then it is not servable as an app id.
+        // Then it is not servable as an applet id.
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
@@ -400,11 +400,11 @@ mod tests {
     async fn reads_reflect_later_disk_writes() {
         // Given a served app.
         let (shared, dir_guard) = shared_with_app("live", "<html>v1</html>", None);
-        let first = get(&shared, "/apps/live/").await;
+        let first = get(&shared, "/applets/live/").await;
         assert_eq!(body(first).await, b"<html>v1</html>");
 
         // When the file on disk changes.
-        let app_dir = dir_guard.path.join_all(["apps", "live"]).expect("join");
+        let app_dir = dir_guard.path.join_all(["applets", "live"]).expect("join");
         std::fs::write(
             app_dir.join("index.html").expect("join").as_path(),
             "<html>v2</html>",
@@ -413,18 +413,18 @@ mod tests {
 
         // Then the next request reads the new bytes — the file is read
         // fresh on every request.
-        let second = get(&shared, "/apps/live/").await;
+        let second = get(&shared, "/applets/live/").await;
         assert_eq!(body(second).await, b"<html>v2</html>");
     }
 
     #[rstest::rstest]
     #[tokio::test]
     async fn html_entry_carries_the_html_content_type() {
-        // Given a served app entry.
+        // Given a served applet entry.
         let (shared, _apps_root_guard) = shared_with_app("typed", "<html></html>", None);
 
         // When requesting it.
-        let response = get(&shared, "/apps/typed/").await;
+        let response = get(&shared, "/applets/typed/").await;
 
         // Then the response declares text/html.
         assert_eq!(

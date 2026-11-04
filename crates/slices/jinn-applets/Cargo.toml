@@ -1,19 +1,19 @@
 [package]
-name = "jinn-apps"
+name = "jinn-applets"
 version.workspace = true
 edition.workspace = true
-description = "The apps slice: saves agent-built HTML artifacts under the data dir and serves them back verbatim over loopback HTTP, with the <leader>sa picker."
+description = "The applets slice: saves agent-built HTML artifacts under the data dir and serves them back verbatim over loopback HTTP, with the <leader>sa picker."
 
 [dependencies]
-# The apps slice is a leaf: jinn-preferences-config ([apps] schema),
-# jinn-slices (SliceHost, BusService), jinn-apps-msg (the contract), and
-# jinn-common (AppPaths::apps_dir). No kernel, no canvas implementation
+# The applets slice is a leaf: jinn-preferences-config ([applets] schema),
+# jinn-slices (SliceHost, BusService), jinn-applets-msg (the contract), and
+# jinn-common (AppPaths::applets_dir). No kernel, no canvas implementation
 # crate — the /vendor/ parity is a build-time file path, not a
 # dependency.
 jinn-common = { workspace = true }
 jinn-preferences-config = { workspace = true }
 jinn-slices = { workspace = true }
-jinn-apps-msg = { workspace = true }
+jinn-applets-msg = { workspace = true }
 jinn-config = { workspace = true }
 jinn-picker = { workspace = true }
 jinn-selection-widget = { workspace = true }
