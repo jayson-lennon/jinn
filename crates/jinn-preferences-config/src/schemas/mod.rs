@@ -21,8 +21,8 @@
 //! (`config.get::<T>()` / `get_list::<T>()`), so a section type is pure
 //! data with no dependency back on the code that reads it.
 
-pub mod auto_prune;
 pub mod apps;
+pub mod auto_prune;
 pub mod bot;
 pub mod canvas;
 pub mod chat_log;

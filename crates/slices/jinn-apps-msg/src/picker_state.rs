@@ -7,7 +7,7 @@
 //! picker never reads disk itself.
 
 use jinn_picker::RowCtx;
-use jinn_picker::picker_style::{active_marker, dim_style, selected_style};
+use jinn_picker::picker_style::{active_marker, selected_style};
 use jinn_selection_widget::highlight_text_with_bg;
 use jinn_theme::Theme;
 use ratatui::text::{Line, Span};
@@ -86,18 +86,20 @@ impl jinn_selection_widget::TreeItem for AppPickerEntry {
     }
 }
 
-/// The apps picker's complete state: the rows, the filter, and the
-/// highlight.
+/// The apps picker's complete state: the rows, the filter, the
+/// highlight, and the in-progress rename input.
 #[derive(Debug)]
 pub struct AppsPickerState {
     /// The selection/filter state backing the picker's rows.
-    pub selection:
-        jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<AppPickerEntry>>,
+    pub selection: jinn_selection_widget::SelectionState<jinn_picker::PickerEntry<AppPickerEntry>>,
     /// How many result rows fit on screen, measured by the render pass.
     pub results_viewport: usize,
     /// The theme the rows were built with, so a repaint recolors them
     /// consistently instead of stranding them on a stale palette.
     pub theme: Theme,
+    /// The in-progress rename (`<c-r>` popup), owned here so the popup
+    /// renders from the same cell the picker does.
+    pub rename_input: jinn_slices::LineInput,
 }
 
 impl Default for AppsPickerState {
@@ -108,6 +110,7 @@ impl Default for AppsPickerState {
             // keypress before any render behaves as it does everywhere.
             results_viewport: RESULTS_VIEWPORT_FALLBACK,
             theme: jinn_theme::default_theme(),
+            rename_input: jinn_slices::LineInput::new(),
         }
     }
 }

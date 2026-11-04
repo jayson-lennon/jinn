@@ -67,12 +67,18 @@ pub fn sanitize_app_id(title: &str) -> String {
     let mut id = String::with_capacity(lowered.len().min(MAX_ID_BYTES));
     let mut last_was_dash = true; // a leading dash must not survive
     for ch in lowered.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '_' {
-            id.push(ch);
-            last_was_dash = false;
-        } else if !last_was_dash {
-            id.push('-');
-            last_was_dash = true;
+        match ch.is_ascii_alphanumeric() || ch == '_' {
+            true => {
+                id.push(ch);
+                last_was_dash = false;
+            }
+            // A separator run collapses to one dash; a leading dash is
+            // never emitted (it starts as "last was dash").
+            false if !last_was_dash => {
+                id.push('-');
+                last_was_dash = true;
+            }
+            false => {}
         }
     }
     let mut id = id.trim_matches('-').to_owned();
@@ -87,7 +93,11 @@ pub fn sanitize_app_id(title: &str) -> String {
         id.truncate(cut);
     }
     let id = id.trim_matches('-').to_owned();
-    if id.is_empty() { FALLBACK.to_owned() } else { id }
+    if id.is_empty() {
+        FALLBACK.to_owned()
+    } else {
+        id
+    }
 }
 
 /// Rejects an app id that could escape the apps root or collide with the
@@ -101,12 +111,7 @@ pub fn sanitize_app_id(title: &str) -> String {
 /// from disk or the wire.
 #[must_use]
 pub fn is_valid_app_id(id: &str) -> bool {
-    if id.is_empty()
-        || id == "."
-        || id == ".."
-        || id == CATALOG_FILE_NAME
-        || id.starts_with('.')
-    {
+    if id.is_empty() || id == "." || id == ".." || id == CATALOG_FILE_NAME || id.starts_with('.') {
         return false;
     }
     id.chars()
@@ -132,7 +137,11 @@ mod tests {
     fn catalog_serializes_to_the_apps_json_shape() {
         // Given a catalog with one entry.
         let catalog = AppCatalog {
-            entries: vec![entry("sales-dashboard", "Sales Dashboard", "2026-11-01T10:00:00Z")],
+            entries: vec![entry(
+                "sales-dashboard",
+                "Sales Dashboard",
+                "2026-11-01T10:00:00Z",
+            )],
         };
 
         // When serializing.
@@ -172,7 +181,7 @@ mod tests {
         let catalog: AppCatalog = serde_json::from_str(r#"{"entries": []}"#).expect("parse");
 
         // Then the catalog is empty — the first-run state.
-        assert!(catalog.entries.is_empty());
+        assert_eq!(catalog.entries.len(), 0);
     }
 
     #[rstest::rstest]
@@ -194,15 +203,18 @@ mod tests {
     fn recency_sort_puts_newest_first() {
         // Given a catalog written oldest-first.
         let mut catalog = AppCatalog {
-            entries: vec![entry("old", "Old", "2026-01-01T00:00:00Z"), entry("new", "New", "2026-06-01T00:00:00Z")],
+            entries: vec![
+                entry("old", "Old", "2026-01-01T00:00:00Z"),
+                entry("new", "New", "2026-06-01T00:00:00Z"),
+            ],
         };
 
         // When sorting by recency.
         catalog.sort_recency();
 
         // Then the newest leads — the picker's row order.
-        assert_eq!(catalog.entries[0].id, "new");
-        assert_eq!(catalog.entries[1].id, "old");
+        let ids: Vec<&str> = catalog.entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, ["new", "old"]);
     }
 
     #[rstest::rstest]

@@ -23,11 +23,9 @@ mod messages;
 mod picker_state;
 mod scope;
 
-pub use catalog::{
-    AppCatalog, AppEntry, CATALOG_FILE_NAME, is_valid_app_id, sanitize_app_id,
-};
+pub use catalog::{AppCatalog, AppEntry, CATALOG_FILE_NAME, is_valid_app_id, sanitize_app_id};
 pub use messages::{
-    AppDeleted, AppRenamed, AppsRescanned, DeleteApp, RenameApp, RescanApps,
+    AppDeleted, AppRenamed, AppsRescanned, DeleteApp, OpenApp, RenameApp, RescanApps,
 };
 pub use picker_state::{
     AppPickerEntry, AppsPickerState, app_row, app_search_text, build_app_entries,
@@ -53,7 +51,13 @@ mod tests {
             <AppsRescanned as Schema>::schema_id().name(),
             "AppsRescanned"
         );
-        assert!(matches!(<RescanApps as Schema>::schema_def().kind, SchemaKind::Command));
-        assert!(matches!(<AppsRescanned as Schema>::schema_def().kind, SchemaKind::Event));
+        assert!(matches!(
+            <RescanApps as Schema>::schema_def().kind,
+            SchemaKind::Command
+        ));
+        assert!(matches!(
+            <AppsRescanned as Schema>::schema_def().kind,
+            SchemaKind::Event
+        ));
     }
 }

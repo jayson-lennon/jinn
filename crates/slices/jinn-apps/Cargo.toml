@@ -32,8 +32,11 @@ marked-path = { workspace = true }
 async-trait = { workspace = true }
 trouper = { workspace = true }
 ratatui = { workspace = true }
+which = { workspace = true }
+unicode-segmentation = { workspace = true }
 
 [build-dependencies]
+marked-path = { workspace = true }
 # The build script verifies the shared vendor manifest against the bytes
 # on disk (the same pin gate canvas's build runs) and generates the
 # embedded asset table the server serves /vendor/ from.
@@ -46,6 +49,7 @@ jinn-testutil = { workspace = true }
 jinn-cell-catalog = { workspace = true }
 serde_json = { workspace = true }
 trouper = { workspace = true }
+toml_edit = { workspace = true }
 
 [lints]
 workspace = true

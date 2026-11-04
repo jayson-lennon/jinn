@@ -3231,9 +3231,12 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "toml 0.8.23",
+ "toml_edit 0.22.27",
  "tracing",
  "trouper",
+ "unicode-segmentation",
  "wherror",
+ "which 7.0.3",
 ]
 
 [[package]]

@@ -93,9 +93,27 @@ pub struct AppDeleted {
 
 impl BusMessage for AppDeleted {}
 
+/// Opens one saved app in the user's browser.
+///
+/// The picker's `ENTER` publishes this; the store actor validates the
+/// id, ensures the server is bound (the lazy bind happens on the first
+/// open), builds `http://<resolved>/apps/<id>/`, and launches the OS
+/// opener. Route actions are synchronous, so the ensure-and-launch
+/// lives here rather than in the keypress.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Command, PartialEq)]
+#[schema(description = "Open a saved app in the user's browser.")]
+pub struct OpenApp {
+    /// The app's directory id.
+    pub id: String,
+}
+
+impl BusMessage for OpenApp {}
+
 #[cfg(test)]
 mod tests {
-    use super::{AppDeleted, AppRenamed, AppsRescanned, DeleteApp, RenameApp, RescanApps};
+    #![allow(clippy::expect_used, reason = "test assertions need expect")]
+
+    use super::{AppDeleted, AppRenamed, AppsRescanned, DeleteApp, OpenApp, RenameApp, RescanApps};
     use crate::catalog::AppCatalog;
     use trouper::schema::{Schema, SchemaKind};
 
@@ -107,12 +125,34 @@ mod tests {
         // Then commands and events carry the kinds their names promise —
         // an imperative message stays a Command and a past-tense fact
         // stays an Event.
-        assert!(matches!(<RescanApps as Schema>::schema_def().kind, SchemaKind::Command));
-        assert!(matches!(<RenameApp as Schema>::schema_def().kind, SchemaKind::Command));
-        assert!(matches!(<DeleteApp as Schema>::schema_def().kind, SchemaKind::Command));
-        assert!(matches!(<AppsRescanned as Schema>::schema_def().kind, SchemaKind::Event));
-        assert!(matches!(<AppRenamed as Schema>::schema_def().kind, SchemaKind::Event));
-        assert!(matches!(<AppDeleted as Schema>::schema_def().kind, SchemaKind::Event));
+        assert!(matches!(
+            <RescanApps as Schema>::schema_def().kind,
+            SchemaKind::Command
+        ));
+        assert!(matches!(
+            <RenameApp as Schema>::schema_def().kind,
+            SchemaKind::Command
+        ));
+        assert!(matches!(
+            <DeleteApp as Schema>::schema_def().kind,
+            SchemaKind::Command
+        ));
+        assert!(matches!(
+            <OpenApp as Schema>::schema_def().kind,
+            SchemaKind::Command
+        ));
+        assert!(matches!(
+            <AppsRescanned as Schema>::schema_def().kind,
+            SchemaKind::Event
+        ));
+        assert!(matches!(
+            <AppRenamed as Schema>::schema_def().kind,
+            SchemaKind::Event
+        ));
+        assert!(matches!(
+            <AppDeleted as Schema>::schema_def().kind,
+            SchemaKind::Event
+        ));
     }
 
     #[rstest::rstest]
