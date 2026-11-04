@@ -233,7 +233,9 @@ Entries are added or amended **only with human approval**.
 - (pickers) The session-lifecycle picker starts sessions with a scripted lifecycle from jinn.toml; entries whose setup command has $-parameters hand off to the arg-input popup before setup runs.
 - (pickers) The reasoning-effort picker builds its seven effort entries inline at open and on confirm sets the session's reasoning override, emits MarkSessionInteracted, and seeds the global default via UpdateAppState.
 - (config) The compaction model is configured only by the `model` key of `[context_curation.compaction]` in jinn.toml; the compaction-model picker was removed.
-- (slices) The status-bar slice is a crate owning the status bar element and the status-hint cell; the IntentHandler writes the hint and the element renders it.
+- (slices) The status-bar slice is a crate owning the status bar element and the status-hint cell; the IntentHandler, the clipboard writer, and slice actions write the hint, and the element renders it.
+- (clipboard) All system-clipboard writes go through the clipboard writer in jinn-tui, behind a clipboard-backend trait with arboard as the production backend.
+- (clipboard) The clipboard writer raises the status hint from its write thread only after the write completes: "copied <label> to the clipboard" on success, "could not copy <label> to the clipboard" on failure.
 - (ui) The status hint renders warning-colored on the status bar's second line in place of the model string and clears on the next intent.
 - (ui) The cancel-stream, close-session, and archive-tree confirm prompts live in FrontendState and render near their invocation areas, outside the status bar.
 - (slices) The scope-focus slice is a crate owning the focus-scope stack, TUI signals, and quit latch behind one cell; the IntentHandler writes through a facade on FrontendState.
@@ -293,6 +295,7 @@ Entries are added or amended **only with human approval**.
 - (slices) Context assembly never reads AppState; the kernel's queue and session-enqueue dispatch paths build the inputs snapshot from their own state guards before asking the service.
 - (slices) The tools registry cell is owned by the jinn-tools slice, which mints it at activation; kernel dispatch snapshots, the session actor, and the TUI read it.
 - (slices) The term slice is a crate owning the PTY actor family, the per-session terminal tab state cell, and the terminal control registry; the tools ask it through a TermHandle trait and the TUI renders the terminal overlay from jinn-term-msg types.
+- (term) The terminal overlay's push-screen key sends the screen text to the agent with the hint "screen queued to agent" and never writes the clipboard.
 - (term) The terminal control toggle is a per-session ownership flip between the user and the agent, resolved through the control registry the term slice mints at spawn.
 - (term) The previous session's terminal control holder is released when the active session changes while the overlay is open.
 - (term) Keys forwarded to a child pty encode to the byte sequences of the `xterm-256color` identity jinn advertises, rather than the alternate CSI forms a real xterm also accepts.
@@ -627,7 +630,7 @@ Entries are added or amended **only with human approval**.
 - (turn-ledger) Turn identity has no legacy sentinel: the ledger admits solely by token equality, and the zero turn/stream value is only the unset serde default on bus events.
 - (sidebar) The `y` key yanks the highlighted session's id in the sessions, bots, and library sections, through one shared handler that resolves whichever cursor belongs to the focused section.
 - (sidebar) A library member's session id is yanked from its cursor alone, so an archived member yanks without being loaded or unarchived.
-- (sidebar) The "Session ID yanked" banner renders in the sessions, bots, and library sections, anchored above the focused section's cursor row.
+- (sidebar) Session-ID yank's only confirmation is the status-bar hint; no yank banner renders in the sidebar.
 - (sidebar) The close-session and archive-tree prompts render only for the sessions section and anchor to the sessions cursor row.
 - (sidebar) The library section binds `i` to the shared activate-and-insert handler, landing in Input over a Normal base like the sessions and bots sections.
 - (canvas) The canvas HTTP server runs inside the running jinn instance on the canvas actor, bound lazily on the first `canvas` tool call; no detached canvas process exists, and pages die with the session.
