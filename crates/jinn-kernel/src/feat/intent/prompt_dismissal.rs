@@ -65,13 +65,6 @@ pub(crate) fn dismiss_unrelated_prompts(intent: &KernelIntent, state: &mut AppSt
         }
     }
 
-    // The yank banner has no confirming key — it is pure feedback, armed and
-    // shown by one press — so any other keypress hides it. Dismissal runs
-    // ahead of dispatch, so the yank press itself re-arms it afterwards.
-    if state.frontend.session_id_yank_popup {
-        state.frontend.session_id_yank_popup = false;
-    }
-
     // The cancel prompt belongs to the session, not the sidebar: only the
     // confirming escape may leave it standing, and a turn that finished on
     // its own leaves nothing to cancel.
@@ -232,26 +225,6 @@ mod tests {
 
         // Then the prompt is dismissed.
         assert!(!state.frontend.close_session_prompt);
-    }
-
-    #[rstest::rstest]
-    fn session_id_yank_popup_other_intent_dismisses() {
-        // Given the "Session ID yanked" banner is showing.
-        let mut state = AppState::default_with_scope_focus();
-        state.frontend.session_id_yank_popup = true;
-
-        // When handling a different intent (NoOp).
-        let _result = IntentHandler::handle(
-            &KernelIntent::NoOp,
-            &mut state,
-            &empty_slices(),
-            &empty_routes(),
-            jinn_slices::empty_config_layer(),
-        );
-
-        // Then the banner is dismissed. It has no confirming key: pure
-        // feedback hides on the next keypress whatever that keypress is.
-        assert!(!state.frontend.session_id_yank_popup);
     }
 
     #[rstest::rstest]

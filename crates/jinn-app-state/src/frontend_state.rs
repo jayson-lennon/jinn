@@ -73,10 +73,6 @@ pub struct FrontendState {
     /// OWNER: sidebar route action; IntentHandler dismisses it for unrelated actions.
     pub archive_tree_prompt: Option<jinn_sidebar_msg::ArchiveTreePrompt>,
 
-    /// Whether the "Session ID yanked" confirmation banner is showing.
-    /// OWNER: sidebar route action sets; IntentHandler dismisses.
-    pub session_id_yank_popup: bool,
-
     /// All picker state - grouped for independent evolution.
 
     /// Creation stash for the next session from the projects UI.
@@ -111,7 +107,6 @@ impl Default for FrontendState {
             cancel_stream_prompt: false,
             close_session_prompt: false,
             archive_tree_prompt: None,
-            session_id_yank_popup: false,
             pending_creation: None,
 
             sidebar_width: 30,

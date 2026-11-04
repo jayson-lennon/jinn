@@ -1,18 +1,20 @@
-//! Clipboard flush - extracts selected text from the buffer and copies to system clipboard.
+//! Clipboard flush - extracts selected text from the buffer and hands the
+//! write to the app's clipboard writer.
 
 use ratatui::buffer::Buffer;
+
+use jinn_slices::ClipboardRequest;
 
 use crate::TuiApp;
 use crate::selection::SelectionState;
 
-/// If a clipboard copy is pending, extracts the selected text from the buffer
-/// and copies it to the system clipboard. Clears the pending flag regardless
-/// of success or failure.
+/// If a clipboard copy is pending, extracts the selected text from the
+/// buffer and hands it to [`TuiApp::clipboard_writer`]. Clears the pending
+/// flag regardless of success or failure.
 ///
-/// The clipboard write runs on a spawned thread that holds the
-/// [`arboard::Clipboard`] open for a few seconds after writing. On X11,
-/// clipboard data is only available while the `Clipboard` instance is alive -
-/// dropping it immediately prevents clipboard managers from syncing.
+/// This module owns extraction only. The write itself — thread, backend,
+/// ~2-second hold, and the copied/could-not-copy status hint raised after
+/// the write resolves — belongs to the clipboard writer.
 pub(super) fn flush_pending_clipboard(app: &mut TuiApp, buf: &Buffer) {
     if !app.pending_clipboard {
         return;
@@ -31,25 +33,10 @@ pub(super) fn flush_pending_clipboard(app: &mut TuiApp, buf: &Buffer) {
     // Clear selection highlight immediately.
     app.selection = SelectionState::Idle;
 
-    // Spawn a thread to hold the clipboard open for clipboard managers.
-    std::thread::spawn(move || {
-        let mut cb = match arboard::Clipboard::new() {
-            Ok(cb) => cb,
-            Err(e) => {
-                tracing::warn!(err = %e, "failed to create clipboard");
-                return;
-            }
-        };
-        if let Err(e) = cb.set_text(&text) {
-            tracing::warn!(err = %e, "failed to copy selection to clipboard");
-            return;
-        }
-        tracing::debug!(len = text.len(), "copied selection to clipboard");
-        // Hold clipboard open so clipboard managers can sync.
-        // cb must live through the sleep - X11 clipboard data is only
-        // available while the Clipboard instance is alive.
-        std::thread::sleep(std::time::Duration::from_secs(2));
-    });
+    app.clipboard_writer.write_async(
+        ClipboardRequest::new(text, "selection"),
+        &app.services.slices,
+    );
 }
 
 #[cfg(test)]
@@ -60,7 +47,10 @@ mod tests {
         reason = "test code, panics are acceptable"
     )]
     use super::*;
+    use crate::clipboard_writer::ClipboardBackend;
     use crate::selection::SelectionState;
+    use jinn_status_bar_msg::StatusBarState;
+    use jinn_status_bar_msg::status_bar_slot;
     use ratatui::layout::Rect;
 
     /// Creates a minimal `TuiApp` for render testing.
@@ -140,14 +130,34 @@ mod tests {
         assert_eq!(app.selection, SelectionState::Idle);
     }
 
+    /// A fake backend recording what it was handed, standing in for the
+    /// system clipboard so the flush's write is deterministic.
+    #[derive(Debug, Default)]
+    struct RecordingBackend {
+        written: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl ClipboardBackend for RecordingBackend {
+        fn set_text(
+            &self,
+            text: &str,
+        ) -> Result<(), crate::clipboard_writer::ClipboardBackendError> {
+            if let Ok(mut written) = self.written.lock() {
+                written.push(text.to_owned());
+            }
+            Ok(())
+        }
+
+        fn hold_open(&self) {}
+    }
+
     #[rstest::rstest]
-    #[ignore = "requires clipboard access (run with --ignored)"]
     #[tokio::test]
-    async fn clipboard_contains_selected_text() {
-        // Given a buffer with known text and an active selection.
+    async fn flush_writes_the_selection_through_the_app_writer_and_reports_it() {
+        // Given a buffer with known text, an active selection, and an app
+        // whose writer runs on a recording backend.
         let area = Rect::new(0, 0, 20, 5);
         let mut buf = ratatui::buffer::Buffer::empty(area);
-        // Write "Hello" on row 2.
         for (i, ch) in "Hello".chars().enumerate() {
             buf.cell_mut((2 + i as u16, 2))
                 .unwrap()
@@ -155,6 +165,16 @@ mod tests {
         }
 
         let mut app = render_test_app().await;
+        let backend = std::sync::Arc::new(RecordingBackend::default());
+        app.clipboard_writer =
+            crate::clipboard_writer::ClipboardWriter::with_backend(backend.clone());
+        // The hint resolves through the app's own registry — the same path
+        // production takes — so read it from there, not a parallel registry.
+        let status = app
+            .services
+            .slices
+            .reader::<StatusBarState>(&status_bar_slot())
+            .expect("the cell catalog seeded the status-bar cell");
         app.selection = SelectionState::Active {
             anchor: (2, 2),
             focus: (6, 2),
@@ -165,16 +185,17 @@ mod tests {
         // When flushing the pending clipboard.
         flush_pending_clipboard(&mut app, &buf);
 
-        // Then after the clipboard thread completes, the clipboard contains
-        // the selected text. The wait is on the observable itself — the
-        // clipboard is written on a detached thread, and a fixed sleep would
-        // only guess at how long that thread takes.
-        jinn_testutil::wait::poll_until_async_fn(std::time::Duration::from_secs(5), || async {
-            arboard::Clipboard::new()
-                .ok()
-                .and_then(|mut cb| cb.get_text().ok())
-                .is_some_and(|content| content == "Hello")
+        // Then the copied hint — raised from the write thread, after the
+        // write resolves — names the selection label. The hint is the
+        // completion signal: once it is up, the write is known to be done.
+        jinn_testutil::wait::await_cell(&status, std::time::Duration::from_secs(5), |state| {
+            state.hint.as_deref() == Some("copied selection to the clipboard")
         })
         .await;
+        // And the app's writer received the selection verbatim.
+        assert_eq!(
+            backend.written.lock().expect("backend lock").as_slice(),
+            ["Hello"]
+        );
     }
 }

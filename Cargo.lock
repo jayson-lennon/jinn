@@ -5503,6 +5503,7 @@ dependencies = [
  "jinn-sidebar-msg",
  "jinn-slices",
  "jinn-status-bar",
+ "jinn-status-bar-msg",
  "jinn-term-msg",
  "jinn-testutil",
  "jinn-theme",

@@ -110,6 +110,7 @@ impl TuiAppBuilder {
             selection: SelectionState::Idle,
             selectable_rects: SelectableRects::default(),
             pending_clipboard: false,
+            clipboard_writer: crate::clipboard_writer::ClipboardWriter::arboard(),
             config: TuiConfig::default(),
         }
     }

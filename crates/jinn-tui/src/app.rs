@@ -14,6 +14,7 @@ use jinn_kernel::{FocusScope, KernelIntent};
 use ratatui::Frame;
 use ratatui_which_key::{CrosstermKeymapExt as _, WhichKeyState};
 
+use crate::clipboard_writer;
 use crate::config::TuiConfig;
 use crate::msg::Msg;
 use crate::render;
@@ -57,6 +58,10 @@ pub struct TuiApp {
     /// Set to `true` when a selection is finalized and the selected text
     /// should be copied to the system clipboard during the next render.
     pub pending_clipboard: bool,
+    /// The clipboard writer both copy paths delegate to (signal drain and
+    /// selection flush). Production holds the arboard writer; tests swap
+    /// in a fake-backed writer to observe writes and hints deterministically.
+    pub clipboard_writer: clipboard_writer::ClipboardWriter,
     /// TUI configuration (mouse capture, etc.).
     pub config: TuiConfig,
 }
@@ -295,22 +300,12 @@ impl TuiApp {
             self.suspend
                 .request(SuspendAction::ChangeCwd { search_root });
         }
-        if let Some(text) = signals.yank_text {
-            std::thread::spawn(move || {
-                let mut cb = match arboard::Clipboard::new() {
-                    Ok(cb) => cb,
-                    Err(e) => {
-                        tracing::warn!(err = %e, "failed to create clipboard");
-                        return;
-                    }
-                };
-                if let Err(e) = cb.set_text(&text) {
-                    tracing::warn!(err = %e, "failed to yank entry to clipboard");
-                    return;
-                }
-                tracing::debug!(len = text.len(), "yanked entry to clipboard");
-                std::thread::sleep(std::time::Duration::from_secs(2));
-            });
+        if let Some(request) = signals.yank_text {
+            // The writer owns the clipboard: it writes on a detached
+            // thread and raises the copied/could-not-copy hint from that
+            // thread, only after the write resolves.
+            self.clipboard_writer
+                .write_async(request, &self.services.slices);
         }
 
         // Step 6: Update scope based on new focus.

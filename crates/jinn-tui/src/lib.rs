@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod app_state;
+pub mod clipboard_writer;
 pub mod config;
 pub mod convert;
 pub mod keymap;

@@ -404,8 +404,10 @@ fn build_seed_entry(text: String, is_assistant: bool) -> ChatEntry {
 ///
 /// Extracts the entry's clipboard text via [`ChatEntry::yank_text`] — tool
 /// results yield untruncated output without the tool-name prefix, tool calls
-/// yield the raw JSON arguments — and stashes it in [`TuiSignals::yank_text`]
-/// for the TUI layer to write to the system clipboard.
+/// yield the raw JSON arguments — and stages it on
+/// [`TuiSignals::yank_text`] under the label `entry`, for the TUI layer's
+/// clipboard writer to write and report. No hint is written here: the
+/// writer raises the copied/could-not-copy hint after the write resolves.
 pub fn handle_yank_selected(state: &mut AppState) -> RouteResult {
     if validator::validate_yank_selected(state).is_err() {
         return RouteResult::empty();
@@ -414,9 +416,9 @@ pub fn handle_yank_selected(state: &mut AppState) -> RouteResult {
         return RouteResult::empty();
     };
     let text = entry.yank_text();
-    state
-        .frontend
-        .update_scope(|s| s.signals.yank_text = Some(text));
+    state.frontend.update_scope(|s| {
+        s.signals.yank_text = Some(jinn_slices::ClipboardRequest::new(text, "entry"));
+    });
     RouteResult::empty()
 }
 
@@ -1011,10 +1013,11 @@ mod tests {
         // When handling yank selected.
         let _result = handle_yank_selected(&mut state);
 
-        // Then yank_text is set to the entry text.
+        // Then the staged clipboard request carries the entry text under
+        // the "entry" label.
         assert_eq!(
             state.frontend.signals_snapshot().yank_text,
-            Some("hello".to_owned())
+            Some(jinn_slices::ClipboardRequest::new("hello", "entry"))
         );
     }
 
@@ -1077,9 +1080,9 @@ mod tests {
         // When handling yank selected.
         let _result = handle_yank_selected(&mut state);
 
-        // Then yank_text contains the assistant text.
+        // Then the staged request carries the assistant text.
         assert_eq!(
-            state.frontend.signals_snapshot().yank_text,
+            state.frontend.signals_snapshot().yank_text.map(|r| r.text),
             Some("response text".to_owned())
         );
     }
@@ -1101,9 +1104,10 @@ mod tests {
         // When handling yank selected.
         let _result = handle_yank_selected(&mut state);
 
-        // Then yank_text contains the raw content, without the name prefix.
+        // Then the staged request carries the raw content, without the
+        // name prefix.
         assert_eq!(
-            state.frontend.signals_snapshot().yank_text,
+            state.frontend.signals_snapshot().yank_text.map(|r| r.text),
             Some("output text".to_owned())
         );
     }
@@ -1122,9 +1126,10 @@ mod tests {
         // When handling yank selected.
         let _result = handle_yank_selected(&mut state);
 
-        // Then yank_text contains the raw JSON arguments, without the name prefix.
+        // Then the staged request carries the raw JSON arguments, without
+        // the name prefix.
         assert_eq!(
-            state.frontend.signals_snapshot().yank_text,
+            state.frontend.signals_snapshot().yank_text.map(|r| r.text),
             Some("{\"command\":\"ls\"}".to_owned())
         );
     }

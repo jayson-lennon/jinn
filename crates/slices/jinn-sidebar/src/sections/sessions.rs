@@ -55,7 +55,6 @@ pub use reconcile::{reconcile_after_session_removal, reconcile_split};
 pub use render::SessionsSection;
 pub use render::render_archive_tree_prompt_for_state;
 pub use render::render_close_session_prompt_for_state;
-pub use render::render_session_id_yank_popup_for_state;
 pub use setup::handle_session_rerun_setup;
 pub use state::SessionsSectionState;
 #[allow(
