@@ -1,5 +1,9 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- Add branch + merge commit lifecycle script for git in default `jinn.toml`.
+
 ## 2026-11-03 v0.18.0
 
 - Add "applet" feature.

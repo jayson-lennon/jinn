@@ -276,28 +276,34 @@ description = "Open a new checkout + branch"
 setup_command = "mkdir <branch> && cd <branch> && fossil open ../<repo>.fossil && fossil commit -m 'Open <branch>' --branch <branch> --allow-empty && echo ./<branch>"
 teardown_command = "fossil merge trunk --force && fossil addremove && fossil commit -m 'Bring in latest trunk' && fossil update trunk && fossil merge <branch> && fossil addremove && fossil commit -m 'Merge <branch>' && fossil branch close <branch> && cd .. && rm -rfv <branch>"
 
-# >Git worktrees. Project directory should be a parent folder of the repo:
+# > Git worktrees. Project directory should be a parent folder of the repo:
 #
-# >my_project/        <-- configured as the project directory in jinn
-# >   repo/           <-- your actual repo
-# >      .git/
-# >   worktrees_will_go_here_as_siblings/
-# >      .git/
-# >
-# >Setup opens the worktree as a sibling of the repo. Teardown lands the
-# >branch on `main` as a single commit (flat history), reusing the FIRST
-# >commit on the branch as the landed commit's author — so a branch whose
-# >first commit carries a contributor's identity (e.g. applied from a
-# >patch) keeps that attribution after landing. The branch is expected to
-# >contain `main` in its history; the rebase rewrites the branch.
-# >Symlink-safe: paths are captured before any `cd`, so a repo reached
-# >through a symlink still lands its worktree beside the repo (not in the
-# >symlink target's parent).
+# > my_project/        <-- configured as the project directory in jinn
+# >    repo/           <-- your actual repo
+# >       .git/
+# >    worktrees_will_go_here_as_siblings/
+# >       .git/
+# > 
+# > Setup opens the worktree as a sibling of the repo. Teardown lands the
+# > branch on `main` as a single commit (flat history), reusing the FIRST
+# > commit on the branch as the landed commit's author — so a branch whose
+# > first commit carries a contributor's identity (e.g. applied from a
+# > patch) keeps that attribution after landing. The branch is expected to
+# > contain `main` in its history; the rebase rewrites the branch.
+# > Symlink-safe: paths are captured before any `cd`, so a repo reached
+# > through a symlink still lands its worktree beside the repo (not in the
+# > symlink target's parent).
 [[session_lifecycle.script]]
-name = "git worktree"
-description = "Open a git worktree + branch (flat-history teardown: collapses the branch into one commit on main, preserving the first commit's Author; symlink-safe)"
+name = "git worktree (rebase + squash)"
+description = "Open a git worktree + branch (teardown: squash branch to ONE commit, flat history)"
 setup_command = """[ -d "<repo>" ] || { echo "repo dir '<repo>' not found under the project dir" >&2; exit 1; } && git -C "<repo>" worktree add -q -b "<branch>" "$(pwd)/<branch>" && echo "$(pwd)/<branch>\""""
 teardown_command = """[ -z "$(git status --porcelain)" ] || { echo "TEARDOWN-DIRTY: uncommitted changes; commit or clean first" >&2; exit 1; } && wt="$(pwd)" && main="$(cd .. && pwd)/<repo>" && git rebase main && [ -z "$(git diff --name-only --diff-filter=U)" ] || { echo "TEARDOWN-CONFLICT: rebase conflicts; resolve and re-run" >&2; exit 1; } && landed=$(git rev-list --reverse main..HEAD | head -1) && { [ -z "$landed" ] || { git reset --soft main && git commit -q -C "$landed"; }; } && git -C "$main" merge --ff-only -q <branch> && git worktree remove "$wt" && git -C "$main" branch -d <branch>"""
+
+[[session_lifecycle.script]]
+name = "git worktree (branch + merge commit)"
+description = "Open a git worktree + branch (teardown: merge into main; one merge commit per branch)"
+setup_command = """[ -d "<repo>" ] || { echo "repo dir '<repo>' not found under the project dir" >&2; exit 1; } && git -C "<repo>" worktree add -q -b "<branch>" "$(pwd)/<branch>" && echo "$(pwd)/<branch>\""""
+teardown_command = """[ -z "$(git status --porcelain)" ] || { echo "TEARDOWN-DIRTY: uncommitted changes; commit or clean first" >&2; exit 1; } && wt="$(pwd)" && main="$(cd .. && pwd)/<repo>" && { git merge main --no-edit || { git merge --abort 2>/dev/null; echo "TEARDOWN-CONFLICT: resolve 'git merge main' here in the worktree, then re-run teardown" >&2; exit 1; }; } && git -C "$main" merge --no-ff --no-edit <branch> && git worktree remove "$wt" && git -C "$main" branch -d <branch>"""
 
 # ###########################################################################
 # Projects
