@@ -1,8 +1,8 @@
 # MCP Servers
 
 jinn is an MCP **client**: it launches or connects to MCP servers and exposes
-their tools to the model as `mcp__<server>__<tool>`. Servers are configured
-once and toggled per session.
+their tools to the model as `mcp__<server>__<tool>`. Configure servers once;
+toggle them per session.
 
 ## Declaring servers
 
@@ -41,15 +41,15 @@ url = "http://127.0.0.1:<port>/mcp"
 singleton = true
 ```
 
-Transport options: `stdio` (spawn + pipes), `local_http` (spawn, then connect
-over HTTP — jinn allocates a free port and expands `<ip>`/`<port>` tokens in
-`args` and `url`), and `remote_http` (externally managed, `command` unused).
-Adding, removing, or editing a server requires a **jinn restart**.
+Three transports. `stdio` — spawn + pipes. `local_http` — spawn, then
+connect over HTTP. jinn allocates a free port and expands `<ip>`/`<port>`
+tokens in `args` and `url`. `remote_http` — externally managed, `command`
+unused. Adding, removing, or editing a server requires a **jinn restart**.
 
 - `auto_enable = true` in a server block makes new sessions start with that
   server already enabled.
-- Header values support `${VAR}` expansion; an unset variable blocks that
-  connection with an error naming the variable, and header values are never
+- Header values support `${VAR}` expansion. An unset variable blocks that
+  connection with an error naming the variable. Header values are never
   logged or rendered.
 
 ## Bundled servers
@@ -71,37 +71,38 @@ Six tools: `graph_query` (GQL — reads, writes, schema DDL),
 search over nodes carrying embeddings), `graph_ingest_file` (bulk-load a
 JSONL batch file in one call), and `graph_docs` (bundled GQL reference; call
 it before writing queries you are unsure of). Data persists under a
-jinn-managed directory across sessions; add your own entry with
-`args = ["mcp", "overgraph", "--db", "/path/to/dir"]` to work against a
-different graph database. For usage patterns, worked examples, and batch
-ingestion, see `graph-database.md`.
+jinn-managed directory across sessions. To work against a different graph
+database, add your own entry with
+`args = ["mcp", "overgraph", "--db", "/path/to/dir"]`. For usage patterns,
+worked examples, and batch ingestion, see `graph-database.md`.
 
-## Enabling for a session
+## Enable for a session
 
-Servers are **off by default** per session (the choice persists with the
-session; forks and subagents inherit it):
+Servers are **off by default** per session. The choice persists with the
+session; forks and subagents inherit it.
 
 1. Press `<leader>sM` (normal mode) to open the MCP server picker.
-2. `<Tab>` toggles the highlighted server for this session — enabling spawns
-   the server process/connection; disabling kills it and unregisters its
-   tools immediately.
+2. `<Tab>` stages the highlighted server's enable/disable toggle. Nothing
+   applies yet. Confirming makes it real: enabling spawns the server
+   process/connection, disabling kills it and unregisters its tools. `<esc>`
+   closes and reverts to the toggles the picker opened with.
 3. `<c-t>` flips the preview pane between the server's live status/stderr
    tail and its tool list.
-4. `<c-r>` restarts the selected server (useful after it dies or you edited
-   its code). Restart blocks until the server is `Running` or definitively
+4. `<c-r>` restarts the selected server — useful after it dies or you edit
+   its code. Restart blocks until the server is `Running` or definitively
    failed.
-5. `<enter>` confirms / `<esc>` closes.
+5. `<enter>` applies the staged toggles. `<esc>` closes and reverts them.
 
 Status is surfaced in the sidebar's MCP servers section: connecting, running,
-dead. A dead server's captured stderr explains why (view it in the picker's
-preview). The agent can also restart a dead server itself via its built-in
+dead. A dead server's captured stderr explains why — view it in the picker's
+preview. The agent can also restart a dead server itself via its built-in
 `restart_mcp_server` tool.
 
 ## Tools in context
 
-Enabled servers register their tools for the session automatically (namespace
-`mcp__<server>__<tool>`); disabling unregisters them, keeping them out of the
-model's context. Tool-call timeouts and other tool defaults come from
-`default_timeout_secs` in `jinn.toml`. Disable individual MCP tools the
-same way as built-ins: the tool picker (`<leader>st`), or the
-`tool_filter` default in `jinn.toml` using the full namespaced name.
+Enabled servers register their tools for the session automatically
+(namespace `mcp__<server>__<tool>`); disabling unregisters them, keeping them
+out of the model's context. Tool-call timeouts and other tool defaults come
+from `default_timeout_secs` in `jinn.toml`. Disable individual MCP tools the
+same way as built-ins: the tool picker (`<leader>st`), or the `tool_filter`
+default in `jinn.toml` using the full namespaced name.
