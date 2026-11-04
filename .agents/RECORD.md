@@ -685,3 +685,5 @@ Entries are added or amended **only with human approval**.
 - (cli) jinn dictation list-devices prints the capture input devices one per line, marking the system default; the printed names are exactly what a [dictation] device value must equal, and the command exits non-zero on platforms without a real backend or with no devices.
 - (build) Native dictation dependencies compile only inside the parakeet backend crate and the slice's linux+windows target tables; exactly one cfg module pair in jinn-dictation holds the platform split.
 - (build) The Windows release binary statically links the CRT (crt-static via RUSTFLAGS in the build-release-tarball recipe), matching the /MT sherpa-onnx prebuilt libraries; jinn.exe needs no VC++ redistributable.
+- (dictation) Voice-activity state resets at every dictation session boundary, on arm and on disarm, so no VAD counters survive between recording sessions.
+- (dictation) Degenerate VAD segments are dropped before decode, and recognizer input is typed: feed takes a DecodableAudio newtype whose construction guarantees at least one feature frame, so the recognizer never receives audio too short to yield one.
