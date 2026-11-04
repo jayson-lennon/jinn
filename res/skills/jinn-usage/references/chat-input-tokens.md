@@ -1,55 +1,62 @@
 # Chat Input Tokens
 
 While typing a message (input mode — `i` from normal mode), three token kinds
-have special behavior. Each has an autocomplete popup that anchors to the
-token you're typing; `<tab>` confirms the highlighted suggestion, arrows move
-the selection, typing narrows it.
+do something special. Each opens an autocomplete popup anchored to the token
+you're typing: `<tab>` confirms the highlighted suggestion, arrows move the
+selection, typing narrows it.
 
 ## `#name` — prompt templates
 
-Typing `#` + a name expands to the full body of a **prompt template** at send
-time. Templates are markdown files (with TOML frontmatter) in
-`~/.config/jinn/prompts/`.
+`#` + a name expands to the full body of a **prompt template** at send time.
+Templates are markdown files (with TOML frontmatter) loaded from
+`~/.config/jinn/prompts/` and the project's `.agents/prompts/` directories —
+when a name exists in both, the most-local file wins.
 
 - `#plan` might expand into your standard planning instructions.
-- Browse available templates in the popup as you type after `#`.
-- Re-scan the directory (after adding a file) with `gcr` in normal mode —
-  no restart needed.
-- Expansion happens in a second pass before the message is dispatched, so the
-  model sees the template body, never the `#token`.
+- Browse the available templates in the popup as you type after `#`.
+- **Added a file? Re-scan with `gcr` in normal mode** — no restart needed.
+- **Expansion runs in a first pass** before the message dispatches; `@path`
+  attachment resolution is the second pass. The model sees the template body,
+  never the `#token`.
 
 ## `@path` — file attachments
 
-Typing `@` + a path attaches an **image** to the message. The popup lists
-matching files (directories with trailing slashes) as you type.
+`@` + a path attaches an **image** to the message. The popup lists matching
+files (directories with trailing slashes) as you type.
 
-- Resolves relative to the session cwd (also understands `~`-style home
-  paths); the file must exist and be a readable image.
-- Attached images render green in your message; a failed resolution (missing
-  file, not an image) leaves the token as literal text and renders red — the
-  message still sends.
-- The active model must support image input; jinn blocks image attachments on
-  text-only or unknown models with an error entry instead of a broken send.
-- Image input is the entire multimodal surface: jinn sends images, it never
+- Paths resolve against the session cwd (`~`-style home paths work). The file
+  must exist and be a readable image.
+- **Attached images render green. Failed resolutions render red** — missing
+  file, not an image — and the token stays literal text. The message still
+  sends.
+- The active model must support image input. On a text-only or unknown
+  model, jinn blocks the attachment with an error entry instead of a broken
+  send.
+- Images are the entire multimodal surface: jinn sends them, it never
   generates them.
 
 ## `/command` — command popup
 
-Typing `/` opens the command popup over the input (same confirm/filter keys).
-Autocomplete popups appear for all three trigger characters and share the
-confirm key (`<tab>`) and list navigation.
+`/` opens the command popup only as the buffer's very first character — same
+confirm/filter keys. Anywhere else in the text it is a literal slash. All
+three trigger characters share the confirm key (`<tab>`) and list navigation.
 
 ## Newlines and submission
 
 | Key | Action |
 | --- | --- |
 | `<enter>` | Send the message |
-| `<s-enter>`, `<c-enter>`, `<c-j>` | Insert a newline (multi-line input) |
+| `<s-enter>`, `<c-enter>` | Insert a newline (multi-line input) |
 | `<c-e>` | Open the buffer in `$EDITOR` for long-form composition |
 
-## Steering an in-flight turn
+## Steer an in-flight turn
 
-Messages typed while the agent is working don't interrupt it: jinn queues
-them in a steering buffer and they're delivered to the model at the next
-safe point (drained before the next dispatch), becoming normal user messages
-in history. Queue a correction mid-turn instead of canceling.
+Input mode has two behaviors, toggled with `<M-q>`:
+
+- **Queue** (the default): a message typed while the agent is working queues
+  as a normal follow-up turn — delivered after the current turn ends.
+- **Steer**: a message typed while the agent is working enters the steering
+  buffer and reaches the model at the next safe point (drained before the
+  next dispatch), becoming a normal user message in history. Correct mid-turn
+  instead of canceling. On an idle session, a Steer-mode submission behaves
+  like a normal turn.

@@ -1,9 +1,9 @@
 # Default Keybindings
 
-> These are the **default** bindings for the built-in keymap. Press `?`
-> (normal-like scopes) or `<f1>` (input mode) to open the which-key popup —
-> it always shows the bindings live in the current scope and is the source of
-> truth if this file and your build disagree.
+> **Default** bindings for the built-in keymap. Press `?` (normal-like scopes)
+> or `<f1>` (input mode) for the which-key popup — it shows the bindings live
+> in the current scope and is the source of truth if this file and your build
+> disagree.
 
 ## Notation
 
@@ -16,9 +16,9 @@
 | `gci`                                | A sequence: press `g`, then `c`, then `i` |
 | `<leader>sm`                         | Space, then `s`, then `m`                 |
 
-jinn is modal: keys mean different things depending on where focus is
-(normal mode, input mode, a sidebar section, a picker, the terminal overlay).
-The which-key popup shows the active scope's bindings.
+jinn is modal — keys mean different things depending on where focus is:
+normal mode, input mode, a sidebar section, a picker, the terminal overlay.
+The which-key popup shows the bindings for the scope you're in.
 
 ## Normal mode (chat focus)
 
@@ -32,6 +32,10 @@ General / app:
 | `<esc>`      | Cancel selection / dismiss prompts   |
 | `n`          | New session                          |
 | `<Tab>`      | Cycle tabs (Dashboard ↔ Normal)      |
+
+`gci` and `gcp` are prefixes — press `g`, then `c`, then the final key.
+Sequences compose — `gcip` is isolate-and-pin: `gci`, then `p`. `<c-j>` enters
+input mode from normal mode. The newline keys live in input mode.
 
 Navigation:
 
@@ -99,7 +103,11 @@ Misc:
 | `<leader>sE` | OpenRouter endpoint picker       |
 | `<leader>sp` | Project picker                   |
 | `<leader>sl` | Session lifecycle recipe picker  |
+| `<leader>sb` | Saved-bots picker                |
 | `<leader>sw` | Workflow picker                  |
+| `<leader>sa` | Applets picker                   |
+| `<leader>so` | OpenRouter model market          |
+| `<leader>sx` | Stream-rule picker               |
 | `<leader>cd` | CWD input (type a path directly) |
 
 ## Input mode (typing a message)
@@ -107,7 +115,7 @@ Misc:
 | Key                                      | Action                                 |
 | ---------------------------------------- | -------------------------------------- |
 | `<enter>`                                | Submit the message                     |
-| `<s-enter>` / `<c-enter>` / `<c-j>`      | Insert a newline                       |
+| `<s-enter>` / `<c-enter>`                | Insert a newline                       |
 | `<esc>` / `<c-k>`                        | Back to normal mode                    |
 | `<M-q>`                                  | Toggle input mode behavior             |
 | `<c-e>`                                  | Open the message in `$EDITOR`          |
@@ -123,21 +131,21 @@ Misc:
 | `<M-c>` / `<M-d>`                        | Change cwd (session root / home)       |
 | `<M-t>`                                  | Toggle the terminal overlay            |
 
-Typing `#`, `@`, or `/` at the start of a token opens autocomplete popups —
-see `chat-input-tokens.md`.
+Type `#`, `@`, or `/` to open autocomplete popups — `/` only works as the
+buffer's very first character. See `chat-input-tokens.md`.
 
 ## Sidebar
 
-Press `<c-l>` (or `<M-s>` for Sessions) from normal mode to enter it. Common
-to every section:
+Enter it from normal mode with `<c-l>` — or `<M-s>` to land straight on
+Sessions. Common to every section:
 
 | Key               | Action                                                         |
 | ----------------- | -------------------------------------------------------------- |
 | `j` / `k`         | Move down / up within the section                              |
 | `J` / `K`         | Next / previous section (stops at the ends)                     |
 | `<esc>` / `<c-h>` | Leave the sidebar, back to chat                                |
-| `<c-w>`           | Enter sidebar resize mode (`h`/`l` widen/narrow, `<esc>` done) |
-| `q`, `<c-c>`, `?` | Quit / quit / which-key                                        |
+| `<c-w>`           | Enter sidebar resize mode (`h`/`l` widen/narrow, `<esc>`/`<c-c>` done) |
+| `q`, `?`          | Quit / which-key                                               |
 | `<M-t>`           | Toggle the terminal overlay                                    |
 
 ### Persona section
@@ -165,9 +173,10 @@ to every section:
 | `i`       | Switch and enter input mode                                              |
 | `y`       | Yank (copy) the session's ID to the clipboard                            |
 | `r`       | Rename the session                                                       |
-| `a` / `A` | Archive the session / archive it and its subtree                         |
-| `x`       | Close (archive) the selected session                                     |
-| `t`       | Tear down the session (run its teardown command)                         |
+| `a`       | Archive the session (press again to confirm)                             |
+| `A`       | Archive the session **and its subtree** (press again to confirm)         |
+| `x`       | Close the selected session (press again to confirm)                      |
+| `t`       | Tear down the session: run its teardown command (leaves it open)         |
 | `X`       | Tear down the session **and its whole subtree** (press again to confirm) |
 | `c`       | Resume the session: re-send its context to the provider (no new message, no switch) |
 | `s`       | Run the session's lifecycle setup command (only when it has not run yet) |
@@ -179,42 +188,45 @@ to every section:
 | `P`       | Open the selected bot's properties popup                                 |
 | `T`       | Toggle the terminal overlay for the selected session                     |
 
-`b`/`B`/`G`/`R`/`P` act on the selected session when it is a bot and do
-nothing otherwise; `L` is refused only for a bot that has a parent. See
-`bots.md` for the popup's and the pickers' own keys.
+- **`b`, `B`, `G`, `R`, and `P` only act when the selected session is a bot** — on a plain session, nothing.
+- **`L` has one refusal — a bot that has a parent.** Everything else moves into the Library.
 
-Section navigation does not wrap: `J` on the last section (Sessions) and `K`
+The properties popup and the pickers have their own keys — see `bots.md`.
+
+Section navigation doesn't wrap — `J` on the last section (Sessions) and `K`
 on the first (Persona) do nothing. Sections with nothing in them are skipped
 over, so a section you never see is still reachable.
 
 ### Bots section
 
-Sessions that watch another session. See `bots.md` for what a bot
-is, and for the properties popup's and the pickers' own keys.
+Sessions that watch another session. `bots.md` has what a bot is, plus the
+properties popup's and the pickers' own keys.
 
 | Key       | Action                                             |
 | --------- | --------------------------------------------------- |
 | `<enter>` | Switch to the highlighted bot                       |
 | `i`       | Switch to it and enter input mode                   |
+| `y`       | Yank (copy) the bot's session ID to the clipboard   |
 | `G`       | Re-run the highlighted bot (cancels a busy turn)    |
 | `R`       | Reset the bot's context without dispatching         |
 | `c`       | Resume the bot: re-send its context to the provider |
 | `P`       | Open the bot's properties popup                     |
 | `s`       | Browse the highlighted bot's report history         |
 
-`b` (new bot) and `B` (standalone bot) work only in the **Sessions**
-section, not here — they act on the session selected there.
+`b` (new bot) and `B` (standalone bot) don't work here — only in **Sessions**,
+on the session selected there.
 
 ### Library section
 
-A flat list of sessions bookmarked with `L` in the Sessions section.
-Archived members render dimmed, and loading one with `<enter>` unarchives
-it. Members are hidden from the Sessions list while they are in the
-Library, and a bot that has a parent cannot be moved in.
+A flat list of sessions bookmarked with `L` in Sessions. Archived members
+render dimmed — `<enter>` loads one and unarchives it. Members hide from the
+Sessions list while they're here, and a bot that has a parent can't be moved in.
 
 | Key       | Action                                             |
 | --------- | --------------------------------------------------- |
 | `<enter>` | Load and switch to the member (unarchives it)       |
+| `i`       | Switch to the member and enter input mode           |
+| `y`       | Yank (copy) the member's session ID to the clipboard |
 | `G`       | Re-run the member bot (cancels a busy turn)         |
 | `R`       | Reset the member bot's context without dispatching  |
 | `c`       | Resume the member (loaded members only)             |
@@ -244,7 +256,8 @@ Read-only navigation (status view). Manage servers via the MCP picker — see
 | `<up>` / `<down>`                    | Move selection        |
 | `<pgup>` / `<pgdn>`                  | Page the list         |
 | `<left>` / `<right>` / `<backspace>` | Edit the filter       |
-| `<c-n>`                              | New session (all pickers except Model) |
+| `<c-c>`                              | Clear the filter, or close when it is empty |
+| `<c-n>`                              | New session (Session, Persona, Tool, Skill, Endpoint, Theme, Reasoning, Lifecycle, Project, and Task-list pickers) |
 | any letter                           | Type into the filter  |
 
 ### Picker-specific keys
@@ -260,7 +273,7 @@ Read-only navigation (status view). Manage servers via the MCP picker — see
 | Skill      | `<c-u>` / `<c-d>` | Scroll the preview pane                                 |
 | Skill      | `<c-r>`           | Re-scan skills                                          |
 | Endpoint   | `<c-r>`           | Refresh endpoint listings                               |
-| MCP server | `<Tab>`           | Enable/disable for this session                         |
+| MCP server | `<Tab>`           | Stage enable/disable — `<enter>` applies it, `<esc>` reverts to how the picker opened |
 | MCP server | `<c-r>`           | Restart the selected server                             |
 | MCP server | `<c-t>`           | Toggle preview pane (status/log ↔ tool list)            |
 | Project    | `<c-n>`           | Start a new session (leaves the picker)              |
@@ -268,7 +281,8 @@ Read-only navigation (status view). Manage servers via the MCP picker — see
 | Project    | `<c-enter>`       | New session at the highlighted project with a lifecycle |
 | Workflow   | `<enter>`         | Load the highlighted workflow into the current session |
 | Workflow   | `<c-enter>`       | New session running the highlighted workflow          |
-| Task list  | —                 | Read-only browser                                       |
+| Workflow   | `<c-r>`           | Re-scan the workflows directory                         |
+| Task list  | `<c-n>`           | Start a new session                                     |
 
 ## Text-input scopes
 
@@ -297,12 +311,14 @@ See `terminal-overlay.md` for the full workflow. Scope-specific keys:
 
 ## Slice-provided keys (feature bindings)
 
-Some keys come from feature slices rather than the static keymap and are only
-bound when the feature is active:
+Some keys come from feature slices, not the static keymap — they're only
+bound while the feature is active:
 
-| Key   | Feature        | Action                                           |
-| ----- | -------------- | ------------------------------------------------ |
-| `gdc` | Discord bridge | Continue the current session in a Discord thread |
+| Key      | Feature        | Action                                           |
+| -------- | -------------- | ------------------------------------------------ |
+| `gdc`    | Discord bridge | Continue the current session in a Discord thread |
+| `<M-i>`  | Dictation      | Toggle voice recording (see `dictation.md`)      |
+| ``<M-`>`` | Quake bar     | Toggle the drop-down command console (inside it: ``<M-`>`` or `<esc>` closes, `<enter>` submits a command, `<pgup>`/`<pgdn>` scroll the log, `<c-c>` clears the input) |
 
 ## Mouse
 
