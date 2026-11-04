@@ -76,7 +76,7 @@ pub fn register_all_cells(slices: &Slices) {
 /// The `jinn-slices` infrastructure slots are not counted: they are
 /// registered lazily by the first caller that resolves one, and a harness
 /// that never renders never creates them.
-const EXPECTED_CELL_COUNT: usize = 44;
+const EXPECTED_CELL_COUNT: usize = 46;
 
 // ── The catalog ─────────────────────────────────────────────────────
 //
@@ -436,6 +436,21 @@ fn register_catalog(slices: &Slices) -> usize {
         count,
         jinn_stream_rule_picker_msg::stream_rule_picker_slot(),
         jinn_stream_rule_picker_msg::StreamRulePickerState::default()
+    );
+
+    // jinn-dictation — the lifecycle state and the recording meter's
+    // live level, both written only by the dictation actor.
+    register!(
+        slices,
+        count,
+        jinn_dictation_msg::dictation_state_slot(),
+        jinn_dictation_msg::DictationState::default()
+    );
+    register!(
+        slices,
+        count,
+        jinn_dictation_msg::dictation_level_slot(),
+        jinn_dictation_msg::DictationLevel::default()
     );
 
     count

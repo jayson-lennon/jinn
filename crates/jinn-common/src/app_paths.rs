@@ -432,6 +432,20 @@ impl AppPaths {
             .join_all([APP_NAME, "embed-models"])
             .expect("name joins keep the base absolute")
     }
+
+    /// Dictation-model cache directory (`~/.cache/jinn/dictation-models`).
+    ///
+    /// Holds the dictation backend's model weights, downloaded from
+    /// HuggingFace on first use and reused offline after that.
+    /// Re-downloadable content, so it lives under the cache dir. The
+    /// HuggingFace client's default cache location is overridden to
+    /// this directory — nothing lands in `~/.cache/huggingface`.
+    #[must_use]
+    pub fn dictation_models_dir(&self) -> MarkedPathBuf<Absolute> {
+        self.cache_dir
+            .join_all([APP_NAME, "dictation-models"])
+            .expect("name joins keep the base absolute")
+    }
 }
 
 #[cfg(test)]

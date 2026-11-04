@@ -1,6 +1,6 @@
 ---
 name: jinn-usage
-description: Explain and configure jinn, the terminal agent harness — keybindings, workflows (pinning, forking, subagents, MCP, terminal overlay, providers), adding new capability (MCP servers, skills, prompts, personas, themes), and jinn.toml/providers.toml configuration. Use when the user asks how to do something in jinn, what a key does, how a feature works, wants to add or extend a feature, or wants a behavior changed via configuration. Offer to edit the user's config when an ask maps to a TOML setting; config changes require a jinn restart.
+description: Explain and configure jinn, the terminal agent harness — keybindings, workflows (pinning, forking, subagents, MCP, terminal overlay, dictation, providers), adding new capability (MCP servers, skills, prompts, personas, themes), and jinn.toml/providers.toml configuration. Use when the user asks how to do something in jinn, what a key does, how a feature works, wants to add or extend a feature, or wants a behavior changed via configuration. Offer to edit the user's config when an ask maps to a TOML setting; config changes require a jinn restart.
 ---
 
 # jinn Usage Guide
@@ -66,6 +66,7 @@ the current truth — and echo that.
 | `references/terminal-overlay.md`       | Interactive terminal overlay, control mode                                                 |
 | `references/mcp-servers.md`            | MCP server config, enabling, the inspector                                                 |
 | `references/chat-input-tokens.md`      | `#prompt`, `@attachment`, `//` autocomplete tokens                                         |
+| `references/dictation.md`              | Local voice input: `<M-i>` toggle, the meter, `[dictation]` config, the CLI utilities      |
 | `references/builtin-prompts.md`        | The builtin `#prompts`: what each is for, how they work, choosing between them             |
 | `references/models-and-providers.md`   | Model/provider pickers, alloys, endpoint pinning, reasoning effort                         |
 | `references/remote.md`                  | `jinn remote`: messaging a running instance from outside (CLI + curl HTTP surface)         |

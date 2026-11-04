@@ -16,6 +16,7 @@ jinn-chat-log-view-msg = { workspace = true }
 jinn-cwd-msg = { workspace = true }
 jinn-bot-msg = { workspace = true }
 jinn-dashboard-msg = { workspace = true }
+jinn-dictation-msg = { workspace = true }
 jinn-discord-msg = { workspace = true }
 jinn-mcp-msg = { workspace = true }
 jinn-persona-msg = { workspace = true }

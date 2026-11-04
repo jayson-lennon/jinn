@@ -91,3 +91,8 @@ infopopup_fg = [220, 220, 220]
 
 # Quake bar (global overlay console)
 quake_bar_bg = [42, 28, 24]
+
+# Dictation meter (recording strip background)
+# Dark red reads as hot-mic while leaving the cyan streaming bars at
+# full contrast — red+green is not a colorblind-safe pairing.
+meter_bg = [138, 31, 31]

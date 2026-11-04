@@ -6,11 +6,32 @@
 - Add "interrupt" mode to `tell_session` tool. This uses the steering buffer to deliver a message quickly instead of waiting for turn end.
 - Persona picker + sidebar will now always stay synced.
 - Creating new sessions will always inherit the persona of the most recent active session.
-- Add basic remote messaging functionality.
-  - `curl` accessible. See below.
+- Add dictation via `<a-i>` keybind (disabled by default). Currently `parakeet-tdt-06b-v2` is supported.
+  - Add CLI command `jinn dictation list-devices` to list available audio capture devices for dictation.
+  - Add CLI command `jinn fetch dictation-model` to download `parakeet-tdt-06b-v2`
+  - Dictation model will download automatically if dictation is enabled.
+- Add basic remote messaging functionality (also `curl` accessible, see below).
   - `jinn remote instances` lists running `jinn` instances
   - `jinn remote send` sends a message to a running `jinn` session. Defaults to the most recently opened instance.
     - A session ID to receive the message is required. Use existing `y` keybind to copy a session ID for use with `jinn remote send`.
+
+### Dictation
+
+Enabling dictation and available configuration options.
+
+```toml
+[dictation]
+enabled = true
+model = "parakeet-tdt-0.6b-v2"
+noise_reduction = true
+# There are many other options for adjusting noise thresholds and segmentation lengths.
+# Documentation is in the default jinn.toml file. Run `jinn config init sample.toml`
+# to create a default TOML if you want to see everything.
+```
+
+### Remote Messaging
+
+Remote messaging is currently fire-and-forget. More functionality will be added over time.
 
 ```bash
 $ jinn remote instances

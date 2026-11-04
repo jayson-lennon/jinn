@@ -2,6 +2,7 @@ pub mod chat_input_state;
 pub mod command;
 pub mod event;
 mod file_picker_state;
+pub mod paste;
 pub mod scope;
 pub mod slash_command;
 
@@ -11,6 +12,7 @@ pub use event::ChatEntrySubmitted;
 pub use file_picker_state::{
     FileEntry, FilePickerState, file_picker_slot, home_dir, resolve_list_dir,
 };
+pub use paste::append_paste_to_buffer;
 pub use scope::chat_input_scope;
 pub use slash_command::{SlashCommand, SlashCommandEntry};
 

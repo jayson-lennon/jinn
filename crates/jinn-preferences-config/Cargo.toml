@@ -13,6 +13,10 @@ jinn-slices = { workspace = true }
 # The bot entry's activation/trigger vocabulary; the shape follows the
 # session state so a saved bot restores exactly as it ran.
 jinn-bot-msg = { workspace = true }
+# The dictation tuning options: the `[dictation]` section's endpointing
+# and decode keys default from (and convert into) the backend contract's
+# pure-data options struct.
+jinn-dictation-backend = { workspace = true }
 
 # The trouper runtime: crossing_schema! impls for the two protocol commands.
 trouper = { workspace = true }

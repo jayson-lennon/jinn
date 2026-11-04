@@ -1,0 +1,15 @@
+[package]
+name = "jinn-dictation-backend"
+version.workspace = true
+edition.workspace = true
+description = "The dictation backend contract: one trait any speech-to-text engine implements, plus the null backend non-supporting platforms run."
+
+[dependencies]
+error-stack = { workspace = true }
+wherror = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[lints]
+workspace = true

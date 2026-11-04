@@ -46,3 +46,4 @@ worktrees/*
 .issues/*
 .autodev.ledger.md
 *.html
+*.wav

@@ -73,6 +73,18 @@ pub enum Region {
     /// call order. Until then there is one registrant and the sequence is
     /// the whole of the ordering.
     FloatingSurfaces,
+    /// The dictation recording meter, riding the border column between
+    /// the main column and the sidebar.
+    ///
+    /// Dispatched with the full frame area — the meter's geometry is
+    /// *derived*, not laid out: the slice re-derives the seam from the
+    /// same state inputs the layout computed (`sidebar_width`, the
+    /// active input's line count), so the strip tracks the border column
+    /// without composition learning anything about dictation. An
+    /// unregistered region paints nothing (the dictation slice absent,
+    /// a full-width tab, or the meter idle), and the paint itself
+    /// no-ops unless the state cell says Recording.
+    DictationMeter,
 }
 
 impl Region {
@@ -90,6 +102,7 @@ impl Region {
             Region::AuditPopup,
             Region::Autocomplete,
             Region::FloatingSurfaces,
+            Region::DictationMeter,
         ]
     }
 }
@@ -106,6 +119,7 @@ impl fmt::Display for Region {
             Region::AuditPopup => "audit-popup",
             Region::Autocomplete => "autocomplete",
             Region::FloatingSurfaces => "floating-surfaces",
+            Region::DictationMeter => "dictation-meter",
         };
         f.write_str(name)
     }

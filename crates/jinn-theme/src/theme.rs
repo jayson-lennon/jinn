@@ -176,6 +176,11 @@ pub struct Theme {
     // Quake bar
     /// Background color for the quake bar overlay.
     pub quake_bar_bg: Color,
+
+    // Dictation meter
+    /// Recording meter strip background. A dark, red-biased tone that
+    /// reads as hot-mic while leaving the `streaming` bars full contrast.
+    pub meter_bg: Color,
 }
 
 impl Theme {
@@ -252,6 +257,7 @@ impl Theme {
             "subagent_bg" => subagent_bg,
             "bot_bg" => bot_bg,
             "quake_bar_bg" => quake_bar_bg,
+            "meter_bg" => meter_bg,
             }
         }
         m
@@ -395,6 +401,12 @@ pub struct ThemeFile {
     // Quake bar
     #[serde(default)]
     pub quake_bar_bg: Option<ThemeColor>,
+
+    // Dictation meter
+    /// Recording meter strip background (`None` resolves to the
+    /// default theme's hot-mic dark red).
+    #[serde(default)]
+    pub meter_bg: Option<ThemeColor>,
 }
 
 impl ThemeFile {
@@ -587,6 +599,9 @@ impl ThemeFile {
             quake_bar_bg: self
                 .quake_bar_bg
                 .map_or(fallback.quake_bar_bg, crate::color::ThemeColor::inner),
+            meter_bg: self
+                .meter_bg
+                .map_or(fallback.meter_bg, crate::color::ThemeColor::inner),
         }
     }
 
@@ -657,6 +672,7 @@ impl ThemeFile {
             infopopup_border: Self::resolve_field(self.infopopup_border),
             infopopup_fg: Self::resolve_field(self.infopopup_fg),
             quake_bar_bg: Self::resolve_field(self.quake_bar_bg),
+            meter_bg: Self::resolve_field(self.meter_bg),
             input_mode_queue: self
                 .input_mode_queue
                 .map_or(Color::Reset, crate::color::ThemeColor::inner),
@@ -732,6 +748,7 @@ mod tests {
             infopopup_border: None,
             infopopup_fg: None,
             quake_bar_bg: None,
+            meter_bg: None,
         }
     }
 
@@ -795,6 +812,7 @@ mod tests {
             infopopup_border: Some(ThemeColor(Color::Cyan)),
             infopopup_fg: Some(ThemeColor(Color::Rgb(220, 220, 220))),
             quake_bar_bg: Some(ThemeColor(Color::Rgb(42, 28, 24))),
+            meter_bg: Some(ThemeColor(Color::Rgb(138, 31, 31))),
             popup_title: Some(ThemeColor(Color::Yellow)),
             input_mode_queue: Some(ThemeColor(Color::DarkGray)),
             input_mode_steer: Some(ThemeColor(Color::Magenta)),

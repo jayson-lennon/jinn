@@ -126,6 +126,95 @@ skill_filter = { mode = "deny", names = ["phased-task-loop"] }
 bind = "127.0.0.1:0"
 
 # ###########################################################################
+# Dictation (local voice input)
+# ###########################################################################
+[dictation]
+# > Local speech-to-text for the chat input. alt-i toggles recording;
+# > committed utterances append to the input of whichever session holds
+# > focus. The model runs entirely on this machine — no cloud path.
+#
+# > Whether dictation is active. Disabled (the default) keeps the actor
+# > offline: alt-i reports "disabled", nothing downloads, the meter
+# > never shows. Config changes take effect on the next jinn start.
+enabled = false
+#
+# > The capture device to open, matched exactly against the input
+# > device names. Omit it to use the system default input. A name that
+# > matches nothing refuses to arm and lists the available inputs.
+# device = "USB Microphone"
+#
+# > Which model to run. Currently supported:
+# >
+# >   parakeet-tdt-0.6b-v2   NVIDIA Parakeet TDT 0.6B v2, English,
+# >                          int8 ONNX (the shipped default)
+#
+# > An unknown value fails the actor into an error state naming the
+# > valid set.
+model = "parakeet-tdt-0.6b-v2"
+#
+# > Denoise the capture before transcription (recommended; the filter
+# > runs at the device's native rate before the model's 16 kHz
+# > resample).
+noise_reduction = true
+#
+# > --- Endpointing tuning (applied on the next jinn start) ----------
+# >
+# > The voice-activity detector decides when you have finished an
+# > utterance and the words should land in the input. These four keys
+# > shape that decision.
+#
+# > How certain the detector must be that a sound is speech
+# > (0.0-1.0). Lower catches quieter, mumblier speech; higher
+# > demands clearer speech and ignores more background noise.
+# vad_threshold = 0.5
+#
+# > Seconds of silence that close an utterance — the main "how long
+# > after I stop talking does text land" knob. Lower (0.3) delivers
+# > mid-sentence fragments faster; higher (0.8) holds out for natural
+# > sentence ends and delivers fewer, longer chunks.
+# min_silence_duration = 0.5
+#
+# > Seconds of speech required before a segment counts as an
+# > utterance; shorter blips ("mm", clicks) are dropped.
+# min_speech_duration = 0.25
+#
+# > Seconds of continuous speech at which a segment force-closes even
+# > without a pause — a safety valve for rambling without stops; text
+# > arrives in chunks of at most this length.
+# max_speech_duration = 20.0
+#
+# > --- Decode tuning (applied on the next jinn start) ---------------
+#
+# > The decoder's search strategy. "modified_beam_search" (the
+# > default) is more accurate at the cost of CPU; "greedy_search" is
+# > faster and a little less accurate.
+# decoding_method = "modified_beam_search"
+#
+# > Beam width for modified_beam_search (ignored by greedy). Higher
+# > is marginally more accurate, linearly more CPU.
+# max_active_paths = 4
+#
+# > Penalty on blank tokens during decoding; higher biases against
+# > long silences inside words.
+# blank_penalty = 0.0
+#
+# > ONNX Runtime threads per model. More decodes faster at higher
+# > CPU cost.
+# num_threads = 2
+#
+# > Path to a hotwords file (one phrase per line) the decoder boosts —
+# > names, jargon, product terms the base model mangles. Needs
+# > modified_beam_search to take effect.
+# hotwords_file = ""
+#
+# > Boost score for hotwords; higher biases harder toward them.
+# hotwords_score = 1.5
+#
+# > Paths to inverse-text-normalization FSTs (spoken numbers to
+# > digits, currency, dates), colon-separated.
+# rule_fsts = ""
+
+# ###########################################################################
 # Remote control surface
 # ###########################################################################
 [remote]

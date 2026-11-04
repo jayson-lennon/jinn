@@ -1,0 +1,16 @@
+[package]
+name = "jinn-dictation-msg"
+version.workspace = true
+edition.workspace = true
+description = "The dictation slice's crossing contracts: the state and meter-level cell payloads, their slot keys, and the messages the dictation actor exchanges."
+
+[dependencies]
+jinn-slices = { workspace = true }
+serde = { workspace = true }
+trouper = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[lints]
+workspace = true

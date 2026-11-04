@@ -84,8 +84,10 @@ impl Cli {
 
     /// Debug-build guard: `--db-path` is required unless the command is a
     /// bundled MCP server (`jinn mcp …`, which never opens the session
-    /// store) or the external-remote client (`jinn remote …`, an HTTP
-    /// client that needs no session store). Release builds always pass.
+    /// store), the external-remote client (`jinn remote …`, an HTTP
+    /// client that needs no session store), or a dictation utility
+    /// (`jinn dictation …`, which reads the audio host, not the store).
+    /// Release builds always pass.
     ///
     /// # Errors
     ///
@@ -95,7 +97,7 @@ impl Cli {
             && self.db_path.is_none()
             && !matches!(
                 self.command,
-                Some(Commands::Mcp { .. } | Commands::Remote { .. })
+                Some(Commands::Mcp { .. } | Commands::Remote { .. } | Commands::Dictation { .. })
             )
         {
             return Err(DebugDbPathError);
@@ -150,6 +152,13 @@ pub enum Commands {
         /// The fetch subcommand to run.
         #[command(subcommand)]
         subcommand: FetchCommands,
+    },
+
+    /// Dictation utilities.
+    Dictation {
+        /// The dictation subcommand to run.
+        #[command(subcommand)]
+        subcommand: DictationCommands,
     },
 
     /// Manage user configuration files.
@@ -265,6 +274,25 @@ pub enum HeadlessCommands {
 pub enum FetchCommands {
     /// Fetch model metadata from models.dev and save locally.
     Models,
+
+    /// Download the dictation model into jinn's own cache directory.
+    ///
+    /// Fetches regardless of `[dictation] enabled` — fetching is a
+    /// network operation, enabling is a config decision. Exits
+    /// non-zero on platforms without a real backend.
+    DictationModel,
+}
+
+/// Dictation subcommands.
+#[derive(Debug, Subcommand)]
+pub enum DictationCommands {
+    /// List the capture input devices, marking the system default.
+    ///
+    /// The printed names are exactly what a `[dictation] device`
+    /// value must equal — matching is strict, not fuzzy. Runs
+    /// regardless of `[dictation] enabled`. Exits non-zero on
+    /// platforms without a real backend.
+    ListDevices,
 }
 
 /// Config subcommands.
@@ -731,5 +759,33 @@ mod tests {
                 subcommand: McpCommands::Overgraph { .. }
             })
         ));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn dictation_list_devices_parses() {
+        // Given the dictation list-devices argv shape.
+        // When parsing.
+        let cli = Cli::parse_from(["jinn", "dictation", "list-devices"]);
+
+        // Then the variant matches.
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Dictation {
+                subcommand: DictationCommands::ListDevices
+            })
+        ));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn dictation_command_needs_no_db_path() {
+        // Given a dictation command with no --db-path (it reads the
+        // audio host, never the session store).
+        let cli = Cli::parse_from(["jinn", "dictation", "list-devices"]);
+
+        // When the debug-build guard runs.
+        // Then it passes: dictation joins the MCP/remote exemption.
+        cli.debug_db_path_required().expect("dictation is exempt");
     }
 }

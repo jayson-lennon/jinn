@@ -52,8 +52,11 @@ fn resolve_dump_requests(
 /// runner handles the command. Owns the tokio runtime and delegates
 /// to [`Runner`] variants.
 pub struct App {
-    /// The tokio runtime.
-    runtime: Runtime,
+    /// The tokio runtime. `None` once [`App::run_and_shutdown`] has
+    /// consumed it with a bounded deadline — the runtime's ordinary
+    /// `Drop` waits for every blocking task, which a quit during a
+    /// model download must not do.
+    runtime: Option<Runtime>,
 }
 
 impl App {
@@ -66,13 +69,27 @@ impl App {
         let runtime = Runtime::new()
             .change_context(AppError)
             .attach("failed to create tokio runtime")?;
-        Ok(Self { runtime })
+        Ok(Self {
+            runtime: Some(runtime),
+        })
     }
 
     /// Returns a handle to the tokio runtime for spawning tasks.
     #[must_use]
     pub fn handle(&self) -> tokio::runtime::Handle {
-        self.runtime.handle().clone()
+        self.runtime().handle().clone()
+    }
+
+    /// The live runtime.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called after [`App::run_and_shutdown`], the one
+    /// consumer, has already taken it.
+    fn runtime(&self) -> &Runtime {
+        self.runtime
+            .as_ref()
+            .expect("the runtime is consumed only by the final shutdown")
     }
 
     /// Runs a runner to completion, then shuts down the session store.
@@ -84,11 +101,19 @@ impl App {
     /// already drained via graceful shutdown, so no competing writers
     /// remain.
     ///
+    /// As its final act it consumes the runtime with a bounded
+    /// deadline. The runtime's `Drop` joins every blocking task before
+    /// returning, so an ordinary exit would hang until an in-flight
+    /// blocking task — a 600 MB model download quit mid-stream —
+    /// finished. The 2s deadline abandons such stragglers instead:
+    /// they die with the process, and the fetch backend resumes
+    /// cleanly on the next launch.
+    ///
     /// # Errors
     ///
     /// Returns an error if the runner fails or the store shutdown fails.
     fn run_and_shutdown(
-        &self,
+        &mut self,
         runner: crate::runner::Runner,
         store: &jinn_session_state::SessionStoreService,
     ) -> Result<(), Report<AppError>> {
@@ -124,7 +149,7 @@ impl App {
         // then flushes the store. A wedged actor can't prevent process
         // exit — the sweep hard-stops stragglers at the deadline.
         if let Some(trouper_system) = trouper_system {
-            self.runtime.block_on(async {
+            self.runtime().block_on(async {
                 if tokio::time::timeout(
                     std::time::Duration::from_secs(20),
                     trouper_system.shutdown_graceful(std::time::Duration::from_secs(10)),
@@ -137,10 +162,20 @@ impl App {
             });
         }
 
-        self.runtime
+        self.runtime()
             .block_on(store.shutdown())
             .change_context(AppError)
             .attach("session store shutdown (WAL checkpoint) failed")?;
+
+        // Bounded final shutdown: consume the runtime so its `Drop` never
+        // runs — the drop joins every blocking task, and a quit during a
+        // model download would hang on it. Abandoned tasks die with the
+        // process; the fetch backend resumes on the next launch. This
+        // runs after the WAL checkpoint so the abandon cannot interrupt
+        // a mid-write checkpoint.
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+        }
         run_result
     }
 
@@ -159,7 +194,7 @@ impl App {
         // `config providers`, `install`) — and intercepts the bundled MCP
         // servers, which never open the session store or the config (see
         // `bootstrap::config` for why the order there is behavioural).
-        match bootstrap::config::prepare(&cli, &self.runtime).change_context(AppError)? {
+        match bootstrap::config::prepare(&cli, self.runtime()).change_context(AppError)? {
             // A bundled server runs over stdio until the client disconnects,
             // then the process returns; no TUI, no session store. With
             // --fetch-model, the child warms the embedding model's cache and
@@ -179,7 +214,7 @@ impl App {
                         .change_context(AppError)
                         .attach("overgraph embedding model pre-fetch failed");
                 }
-                self.runtime
+                self.runtime()
                     .block_on(jinn_mcp_overgraph::serve(args))
                     .change_context(AppError)
                     .attach("overgraph MCP server failed")
@@ -221,7 +256,7 @@ impl App {
                         )
                         .change_context(AppError)?;
                         let (core, services, discord_activated) = self
-                            .runtime
+                            .runtime()
                             .block_on(async {
                                 actor_wiring::ActorSystemBuilder::new(
                                     actor_wiring::ActorSystemBuilderArgs {
@@ -271,7 +306,7 @@ impl App {
                         )
                         .change_context(AppError)?;
                         let (core, services, _discord_activated) = self
-                            .runtime
+                            .runtime()
                             .block_on(async {
                                 actor_wiring::ActorSystemBuilder::new(
                                     actor_wiring::ActorSystemBuilderArgs {
@@ -320,9 +355,28 @@ impl App {
 
                         match subcommand {
                             FetchCommands::Models => {
-                                self.runtime
+                                self.runtime()
                                     .block_on(async { fetch_models().await })
                                     .change_context(AppError)?;
+                            }
+                            FetchCommands::DictationModel => {
+                                // A dedicated exit path: a platform
+                                // without a real backend prints and
+                                // exits non-zero here.
+                                fetch_dictation_model(self.runtime());
+                            }
+                        }
+                    }
+                    Commands::Dictation { subcommand } => {
+                        use jinn_cli::cli::DictationCommands;
+
+                        match subcommand {
+                            DictationCommands::ListDevices => {
+                                // A dedicated exit path, the same
+                                // contract as the fetch runner: a
+                                // platform without a real backend
+                                // prints and exits non-zero here.
+                                list_dictation_devices();
                             }
                         }
                     }
@@ -360,6 +414,80 @@ pub(crate) fn seed_config_template(path: &MarkedPathBuf<Absolute>) {
         eprintln!("  {report:?}");
         std::process::exit(1);
     }
+}
+
+/// Fetches the dictation model into jinn's cache, then exits.
+///
+/// Runs on the real platform backend regardless of `[dictation]
+/// enabled` — fetching is a network operation, enabling is a config
+/// decision. On a platform without a real backend it prints the
+/// unavailability sentence and exits non-zero: the null backend has
+/// nothing to fetch, and a silent zero exit would look like success.
+fn fetch_dictation_model(runtime: &tokio::runtime::Runtime) -> ! {
+    if !jinn_dictation::platform_supports_real_backend() {
+        eprintln!("dictation backend unavailable on this platform");
+        std::process::exit(1);
+    }
+    let model = jinn_dictation::platform_default_model();
+    let result = runtime.block_on(async {
+        tokio::task::spawn_blocking(move || jinn_dictation::fetch_model(&model)).await
+    });
+    match result {
+        Ok(Ok(())) => {
+            println!("dictation model fetched into the jinn cache");
+        }
+        Ok(Err(report)) => {
+            eprintln!("dictation model fetch failed: {report:?}");
+            std::process::exit(1);
+        }
+        Err(join_error) => {
+            eprintln!("dictation model fetch task failed: {join_error}");
+            std::process::exit(1);
+        }
+    }
+    std::process::exit(0);
+}
+
+/// Prints the capture input devices, then exits.
+///
+/// Runs regardless of `[dictation] enabled` — listing devices is an
+/// inspection query, not a lifecycle decision. The names printed are
+/// exactly what a `[dictation] device` value must equal (`find_device`
+/// matches strictly), and the system default is marked, since an
+/// unset `device` resolves to it. On a platform without a real
+/// backend it prints the unavailability sentence and exits non-zero,
+/// the same contract as [`fetch_dictation_model`].
+fn list_dictation_devices() -> ! {
+    if !jinn_dictation::platform_supports_real_backend() {
+        eprintln!("dictation backend unavailable on this platform");
+        std::process::exit(1);
+    }
+    let devices = jinn_dictation::list_input_devices();
+    let default = jinn_dictation::default_input_device();
+    if devices.is_empty() {
+        eprintln!("no capture devices found");
+        std::process::exit(1);
+    }
+    for line in format_device_lines(&devices, default.as_deref()) {
+        println!("{line}");
+    }
+    std::process::exit(0);
+}
+
+/// Renders the device list for the CLI: one name per line, the system
+/// default marked. Pure so the presentation is testable without an
+/// audio host.
+fn format_device_lines(devices: &[String], default: Option<&str>) -> Vec<String> {
+    devices
+        .iter()
+        .map(|device| {
+            if default.is_some_and(|name| name == device) {
+                format!("* {device}  (system default)")
+            } else {
+                format!("  {device}")
+            }
+        })
+        .collect()
 }
 
 /// Fetches model metadata from models.dev and saves it to the user's cache directory.
@@ -447,6 +575,43 @@ mod tests {
     use crate::config_path::{config_init_target, resolve_config_path};
 
     use super::*;
+
+    #[rstest::rstest]
+    #[test]
+    fn format_device_lines_marks_the_default() {
+        // Given three devices where the second is the system default.
+        let devices = vec![
+            "Built-in Mic".to_owned(),
+            "voix".to_owned(),
+            "Webcam".to_owned(),
+        ];
+
+        // When rendering the lines.
+        let lines = format_device_lines(&devices, Some("voix"));
+
+        // Then the default carries the marker and the rest are indented.
+        assert_eq!(
+            lines,
+            vec![
+                "  Built-in Mic".to_owned(),
+                "* voix  (system default)".to_owned(),
+                "  Webcam".to_owned(),
+            ]
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn format_device_lines_without_a_default_marks_nothing() {
+        // Given a device list whose host reports no default input.
+        let devices = vec!["Built-in Mic".to_owned()];
+
+        // When rendering the lines.
+        let lines = format_device_lines(&devices, None);
+
+        // Then every line is indented and no marker appears.
+        assert_eq!(lines, vec!["  Built-in Mic".to_owned()]);
+    }
 
     // Note: there is no unit test for `run_and_shutdown` / `dispatch` calling
     // `store.shutdown()`. `Runner::run` is a concrete enum (not a trait), and
