@@ -76,7 +76,7 @@ pub fn register_all_cells(slices: &Slices) {
 /// The `jinn-slices` infrastructure slots are not counted: they are
 /// registered lazily by the first caller that resolves one, and a harness
 /// that never renders never creates them.
-const EXPECTED_CELL_COUNT: usize = 46;
+const EXPECTED_CELL_COUNT: usize = 48;
 
 // ── The catalog ─────────────────────────────────────────────────────
 //
@@ -159,6 +159,22 @@ fn register_catalog(slices: &Slices) -> usize {
         count,
         jinn_cwd_msg::cwds_slot(),
         jinn_cwd_msg::CwdInputState::default()
+    );
+
+    // jinn-apps — the saved-app catalog (store-actor-written) and the
+    // picker's UI state (sync-written on open, repainted from the
+    // catalog cell).
+    register!(
+        slices,
+        count,
+        jinn_apps_msg::apps_catalog_slot(),
+        jinn_apps_msg::AppCatalog::default()
+    );
+    register!(
+        slices,
+        count,
+        jinn_apps_msg::apps_picker_slot(),
+        jinn_apps_msg::AppsPickerState::default()
     );
 
     // jinn-bot — the bot properties popup, the report history

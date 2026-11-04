@@ -1,0 +1,22 @@
+[package]
+name = "jinn-apps-msg"
+version.workspace = true
+edition.workspace = true
+description = "Apps crossing contracts: the saved-app catalog payload, the picker state/slot/scope, and the rescan command."
+
+[dependencies]
+jinn-picker = { workspace = true }
+jinn-selection-widget = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-theme = { workspace = true }
+ratatui = { workspace = true }
+serde = { workspace = true }
+trouper = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+serde_json = { workspace = true }
+jinn-testutil = { workspace = true }
+
+[lints]
+workspace = true

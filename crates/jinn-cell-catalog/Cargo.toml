@@ -12,6 +12,7 @@ jinn-slices = { workspace = true }
 # strictly below the layer that calls it — a cycle here would break the
 # test harnesses in `jinn-app-state` and `jinn-kernel`.
 jinn-chat-input-msg = { workspace = true }
+jinn-apps-msg = { workspace = true }
 jinn-chat-log-view-msg = { workspace = true }
 jinn-cwd-msg = { workspace = true }
 jinn-bot-msg = { workspace = true }

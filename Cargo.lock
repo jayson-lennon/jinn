@@ -3047,6 +3047,8 @@ dependencies = [
  "error-stack",
  "jiff",
  "jinn-app-state",
+ "jinn-apps",
+ "jinn-apps-msg",
  "jinn-boot",
  "jinn-boot-msg",
  "jinn-bot",
@@ -3202,6 +3204,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "jinn-apps"
+version = "1.17.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "error-stack",
+ "jiff",
+ "jinn-app-state",
+ "jinn-apps-msg",
+ "jinn-cell-catalog",
+ "jinn-common",
+ "jinn-config",
+ "jinn-picker",
+ "jinn-preferences-config",
+ "jinn-selection-widget",
+ "jinn-slices",
+ "jinn-testutil",
+ "jinn-theme",
+ "marked-path",
+ "parking_lot",
+ "ratatui",
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+ "trouper",
+ "wherror",
+]
+
+[[package]]
+name = "jinn-apps-msg"
+version = "1.17.0"
+dependencies = [
+ "jinn-picker",
+ "jinn-selection-widget",
+ "jinn-slices",
+ "jinn-testutil",
+ "jinn-theme",
+ "ratatui",
+ "rstest",
+ "serde",
+ "serde_json",
+ "trouper",
+]
+
+[[package]]
 name = "jinn-boot"
 version = "1.17.0"
 dependencies = [
@@ -3341,6 +3392,7 @@ dependencies = [
 name = "jinn-cell-catalog"
 version = "1.17.0"
 dependencies = [
+ "jinn-apps-msg",
  "jinn-bot-msg",
  "jinn-chat-input-msg",
  "jinn-chat-log-view-msg",
