@@ -328,6 +328,21 @@ impl AppPaths {
             .expect("name joins keep the base absolute")
     }
 
+    /// Instance registry (`~/.local/state/jinn/remote-instances.json` on
+    /// Linux) — where each running jinn advertises the external control
+    /// surface it serves (pid, bound port, working directory).
+    ///
+    /// Machine-local bookkeeping like the manifest above: readers prune
+    /// dead entries, so the file never needs manual curation. The file
+    /// name is owned by `jinn-remote-msg`'s registry module; keep the
+    /// two in step.
+    #[must_use]
+    pub fn remote_instances_path(&self) -> MarkedPathBuf<Absolute> {
+        self.state_dir
+            .join_all([APP_NAME, "remote-instances.json"])
+            .expect("name joins keep the base absolute")
+    }
+
     /// Themes directory (`~/.config/jinn/themes`).
     #[must_use]
     pub fn themes_dir(&self) -> MarkedPathBuf<Absolute> {
@@ -679,6 +694,27 @@ mod tests {
                 .join_all(["state", "jinn"])
                 .expect("root joins bare names")
                 .join("bundled-files.toml")
+                .expect("typed parent joins a bare name"),
+        );
+    }
+
+    #[rstest::rstest]
+    fn remote_instances_path_sits_beside_the_state_file() {
+        // Given an AppPaths rooted in a temp dir.
+        let root = jinn_testutil::tempdir();
+        let paths = AppPaths::new_in(&root.path.as_marked_path());
+
+        // When reading the remote instance registry path.
+        let registry_path = paths.remote_instances_path();
+
+        // Then it is root/state/jinn/remote-instances.json — the state
+        // dir, the same home as state.toml and jinn.log.
+        assert_eq!(
+            registry_path,
+            root.path
+                .join_all(["state", "jinn"])
+                .expect("root joins bare names")
+                .join("remote-instances.json")
                 .expect("typed parent joins a bare name"),
         );
     }

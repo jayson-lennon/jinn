@@ -36,8 +36,8 @@ use jinn_common::template_check::collect_toml_key_paths;
 use crate::config_template::{DEFAULT_CONFIG, STREAM_RULES_TEMPLATE};
 use crate::registration::register_all_sections;
 use crate::schemas::{
-    CanvasConfig, DiscordConfig, McpServersConfig, StreamRuleConfig, StreamRuleFileEntry,
-    parse_stream_rules_file,
+    CanvasConfig, DiscordConfig, McpServersConfig, RemoteConfig, StreamRuleConfig,
+    StreamRuleFileEntry, parse_stream_rules_file,
 };
 
 /// The template with every `(uncomment below to activate)` region expanded.
@@ -156,6 +156,8 @@ const OWNED_KEYS: &[&str] = &[
     "shell",
     "mcp",
     "discord",
+    "canvas",
+    "remote",
     // Read on demand (`ConfigList`).
     "session_lifecycle",
     "project",
@@ -397,4 +399,25 @@ fn template_ships_canvas_as_loopback_port_zero() {
         !DEFAULT_CONFIG.contains("jinn canvas serve"),
         "retired CLI surface named in default_jinn.toml"
     );
+}
+
+/// The shipped `[remote]` section is active and binds loopback port 0:
+/// an OS-assigned ephemeral port per running jinn instance, so two
+/// instances never fight over one fixed port. An explicit configured
+/// value still wins — the schema keeps whatever a user wrote.
+#[rstest::rstest]
+#[test]
+fn template_ships_remote_as_loopback_port_zero() {
+    // Given the shipped template parsed as a config layer.
+    let config = jinn_config::testutil::config_layer(DEFAULT_CONFIG);
+    register_all_sections(&config);
+
+    // When reading the remote section.
+    let remote = config.get::<RemoteConfig>().expect("remote section parses");
+
+    // Then the shipped bind is loopback port 0.
+    assert_eq!(remote.bind, "127.0.0.1:0");
+    let addr = remote.parse_bind().expect("shipped bind parses");
+    assert!(addr.ip().is_loopback());
+    assert_eq!(addr.port(), 0);
 }

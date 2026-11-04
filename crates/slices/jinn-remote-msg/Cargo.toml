@@ -1,0 +1,17 @@
+[package]
+name = "jinn-remote-msg"
+version.workspace = true
+edition.workspace = true
+description = "The remote slice's contract: the HTTP wire payloads and the instance-registry types for the external control surface."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+marked-path = { workspace = true }
+rstest = { workspace = true }
+jinn-testutil = { workspace = true }
+
+[lints]
+workspace = true

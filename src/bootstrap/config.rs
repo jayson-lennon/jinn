@@ -98,6 +98,16 @@ pub fn prepare(
         return Ok(handled);
     }
 
+    // The external-remote client intercepts before any config read or
+    // session-store open: it is a short-lived HTTP caller that needs
+    // only the registry file under the state dir, so a fresh machine
+    // without a config can still list instances.
+    if let Some(jinn_cli::cli::Commands::Remote { subcommand }) = &cli.command {
+        crate::remote_cli::run(subcommand.clone(), runtime)
+            .map_err(|report| report.change_context(AppError))?;
+        return Ok(Prepared::Handled);
+    }
+
     reconcile_bundled_resources();
 
     let (config_storage, config, app_state_storage) = read_config(cli)?;

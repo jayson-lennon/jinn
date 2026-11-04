@@ -456,6 +456,28 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
     )
     .map_err(|report| ActivateError::Canvas(format!("{report:?}")))?;
 
+    // The remote slice binds the loopback control surface at launch: the
+    // registry entry (pid, port, cwd) must exist before any `jinn remote`
+    // client can discover this instance, so the listener comes up
+    // eagerly, not lazily like canvas. Consumes nothing — delivery
+    // publishes the existing chat-input schemas; /sessions reads State
+    // at request time.
+    {
+        let config_snapshot = ctx.services().config.clone();
+        let bus_snapshot = ctx.services().bus.clone();
+        let state_snapshot = ctx.state().clone();
+        let registry_path = ctx.services().paths.remote_instances_path();
+        jinn_remote::activate(
+            &mut ctx.host(),
+            &config_snapshot,
+            bus_snapshot,
+            state_snapshot,
+            registry_path,
+        )
+        .await
+        .map_err(|report| ActivateError::Remote(format!("{report:?}")))?;
+    }
+
     // The discord slice resolves `[discord]` (fail-fast on a malformed
     // section) and parks the gateway channels for the frontend spawn.
     let services_snapshot = ctx.services().clone();
@@ -486,6 +508,13 @@ pub enum ActivateError {
     /// clone.
     #[error(debug)]
     Canvas(String),
+    /// The `[remote]` section failed to read, its bind did not parse or
+    /// was not loopback, the port was taken, or the registry write
+    /// failed. Fatal: an instance nothing can reach defeats the surface
+    /// discovery model, so launch stops where the cause is visible. The
+    /// report rides as rendered text.
+    #[error(debug)]
+    Remote(String),
     /// A producer slice's cell was absent when a consumer resolved it.
     ///
     /// The three producers in Block 1 register these cells, so a missing

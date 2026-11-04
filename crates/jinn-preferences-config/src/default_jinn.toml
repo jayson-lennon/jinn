@@ -115,6 +115,7 @@ skill_filter = { mode = "deny", names = ["phased-task-loop"] }
 # ###########################################################################
 # Canvas
 # ###########################################################################
+[canvas]
 # > Where the canvas server binds when the agent serves an artifact with
 # > the `canvas` tool. Host:port as one value. Port 0 (the default) asks
 # > the OS for an ephemeral port, so two running jinn instances never
@@ -123,6 +124,20 @@ skill_filter = { mode = "deny", names = ["phased-task-loop"] }
 # > The bind must be a loopback address — the canvas server has no
 # > authentication, so it never listens on an exposed interface.
 bind = "127.0.0.1:0"
+
+# ###########################################################################
+# Remote control surface
+# ###########################################################################
+[remote]
+# > Where the external control surface binds so `jinn remote` (or plain
+# > curl) can deliver a message into a live session of a running
+# > instance. Host:port as one value. Port 0 (the default) asks the OS
+# > for an ephemeral port, so two running jinn instances never fight
+# > over one port; the resolved port is listed by `jinn remote
+# > instances`.
+# >
+# > The bind must be a loopback address — the control surface has no
+# > authentication, so it never listens on an exposed interface.
 
 # ###########################################################################
 # Session lifecycle commands

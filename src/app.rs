@@ -104,6 +104,20 @@ impl App {
         // trouble the caller should see).
         let run_result = runner.run().change_context(AppError);
 
+        // Best-effort registry removal: a graceful exit stops advertising
+        // this instance immediately rather than waiting for the next
+        // reader's port probe. It runs AFTER `runner.run()` — deregistering
+        // first would erase the entry the listener just registered and
+        // leave the instance undiscoverable for its whole life.
+        // Correctness never depends on it — a dead entry is invisible to
+        // every `jinn remote` client either way.
+        jinn_remote::remote_actor::deregister(
+            jinn_kernel::AppPaths::default()
+                .remote_instances_path()
+                .as_path(),
+            std::process::id(),
+        );
+
         // Graceful shutdown: the trouper sweep fires every supervised
         // child's shutdown watcher (each loop drains, runs its `on_stop`
         // hook, and tears down), races the drain against a 10s deadline,
@@ -197,8 +211,9 @@ impl App {
                     // variant remains for argv-shape compatibility; the real
                     // bundled servers were intercepted in `prepare`. Canvas
                     // commands are intercepted the same way; this arm is
-                    // unreachable for them.
-                    Commands::Tui | Commands::Mcp { .. } => {
+                    // unreachable for them. `jinn remote …` is intercepted
+                    // in `prepare` too — it never reaches a startup path.
+                    Commands::Tui | Commands::Mcp { .. } | Commands::Remote { .. } => {
                         let dump_requests = resolve_dump_requests(cli.dump_requests.as_deref())?;
                         let app_paths = jinn_kernel::AppPaths::default();
                         let compaction_prompt = jinn_tui::load_compaction_prompt(

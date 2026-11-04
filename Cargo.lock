@@ -2587,6 +2587,8 @@ dependencies = [
  "jinn-provider-selection",
  "jinn-provider-selection-msg",
  "jinn-quake-bar",
+ "jinn-remote",
+ "jinn-remote-msg",
  "jinn-scope-focus",
  "jinn-session-history-msg",
  "jinn-session-init",
@@ -3944,6 +3946,45 @@ dependencies = [
  "jinn-slices",
  "rstest",
  "serde",
+]
+
+[[package]]
+name = "jinn-remote"
+version = "1.16.0"
+dependencies = [
+ "axum",
+ "error-stack",
+ "jinn-app-state",
+ "jinn-chat-input-msg",
+ "jinn-config",
+ "jinn-core-types",
+ "jinn-kernel",
+ "jinn-preferences-config",
+ "jinn-remote-msg",
+ "jinn-session-state",
+ "jinn-slices",
+ "jinn-testutil",
+ "marked-path",
+ "parking_lot",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tracing",
+ "trouper",
+ "wherror",
+]
+
+[[package]]
+name = "jinn-remote-msg"
+version = "1.16.0"
+dependencies = [
+ "jinn-testutil",
+ "marked-path",
+ "rstest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
