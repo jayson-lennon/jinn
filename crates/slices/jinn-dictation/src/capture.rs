@@ -7,11 +7,13 @@
 //! cell and publishes a `capture-lost` tick when the stream ends
 //! without a toggle.
 //!
-//! Platform shape: on linux this module compiles the real device open;
-//! every other platform compiles a stub whose `open` reports the
-//! refusal vocabulary (the null backend transcribes nothing, so there
-//! is nothing to arm). This is the integration's one platform split,
-//! shared with `platform.rs` — no other `cfg` exists in the slice.
+//! Platform shape: on linux and windows this module compiles the real
+//! device open (cpal's PipeWire host on linux, its WASAPI host on
+//! windows); every other platform compiles a stub whose `open` reports
+//! the refusal vocabulary (the null backend transcribes nothing, so
+//! there is nothing to arm). This is the integration's one platform
+//! split, shared with `platform.rs` — no other `cfg` exists in the
+//! slice.
 //!
 //! Pipeline order matters: nnnoiseless is a 48 kHz-era architecture, so
 //! denoise runs first at the device's native rate, then the resample to
@@ -38,8 +40,8 @@ pub fn arm_refusal_note(configured: Option<&str>, available: &[String]) -> Strin
 
 /// What the audio callback writes and the actor's tick drains.
 ///
-/// Platform-blind: both platforms carry the same slot; only the linux
-/// callback ever writes it.
+/// Platform-blind: every platform carries the same slot; only the
+/// native callback ever writes it.
 #[derive(Default)]
 pub struct CaptureShared {
     /// The latest peak level, `0.0..=1.0`, for the meter cell.
@@ -57,13 +59,14 @@ pub struct CaptureShared {
 
 /// A live capture arm.
 ///
-/// On linux it holds the device closer (dropping the boxed stream ends
-/// the audio thread); on the null platform it is never constructed —
-/// `open` always refuses. The closer is a boxed `Any` so the shared
-/// type names no platform crate.
+/// On the native platforms it holds the device closer (dropping the
+/// boxed stream ends the audio thread); on the null platform it is
+/// never constructed — `open` always refuses. The closer is a boxed
+/// `Any` so the shared type names no platform crate.
 pub struct CaptureArm {
-    /// The device closer (linux only; the null platform never builds
-    /// one). Never read: its Drop *is* the close — that is the point.
+    /// The device closer (native platforms only; the null platform
+    /// never builds one). Never read: its Drop *is* the close — that
+    /// is the point.
     #[expect(
         dead_code,
         reason = "the field exists for its Drop; the close is the drop"
@@ -115,16 +118,16 @@ pub fn take_utterances(
     std::mem::take(&mut shared.lock().utterances)
 }
 
-// The platform split, same shape as `platform.rs`: the linux body in
-// `capture_linux.rs`, the null body in `capture_null.rs`, swapped by
+// The platform split, same shape as `platform.rs`: the native body in
+// `capture_native.rs`, the null body in `capture_null.rs`, swapped by
 // one `cfg` pair — the integration's other platform gate, beside
 // `platform.rs`'s own. Only `open` differs; the arm, the shared slot,
 // and the level/loss vocabulary above are platform-blind.
-#[cfg(target_os = "linux")]
-#[path = "capture_linux.rs"]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[path = "capture_native.rs"]
 mod device;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 #[path = "capture_null.rs"]
 mod device;
 
@@ -166,7 +169,7 @@ mod tests {
             ]
         );
         // And the second drain is empty — the take clears the queue.
-        assert!(second_take.is_empty());
+        assert_eq!(second_take, [] as [Utterance; 0]);
     }
 
     #[rstest::rstest]

@@ -2,7 +2,7 @@
 //!
 //! Drives the real [`DictationActor::spawn`] against [`TestHarness`]
 //! with the suite's stub backend: no network, no audio device, and no
-//! linux gate — the spawn takes any `Box<dyn DictationBackend>`, and
+//! platform gate — the spawn takes any `Box<dyn DictationBackend>`, and
 //! the bus recorder sees what the dashboard sees. The kickoff toggle
 //! is the publish-first seam: the spawn-time init state reached the
 //! cell with no fold, so the kickoff is what carries it to the

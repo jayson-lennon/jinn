@@ -18,8 +18,9 @@
 //! jinn's own AppPaths-derived directory — nothing lands in
 //! `~/.cache/huggingface`.
 //!
-//! This crate compiles on linux targets only; the dictation slice's
-//! target-scoped dependency table is the only edge into it.
+//! This crate compiles on linux and windows targets only; the
+//! dictation slice's target-scoped dependency tables are the only edge
+//! into it.
 
 mod backend;
 

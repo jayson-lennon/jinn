@@ -5,12 +5,14 @@ edition.workspace = true
 description = "The real dictation backend: NVIDIA Parakeet TDT 0.6B v2 (int8 ONNX) via sherpa-onnx, with Silero VAD endpointing, nnnoiseless denoising, and hf-hub model fetch into jinn's own cache."
 
 # This crate sits outside every workspace member glob (`crates/jinn-*`,
-# `crates/slices/*`, `vendor/*`) on purpose: its dependencies
-# (sherpa-onnx, cpal, nnnoiseless) cannot compile on non-linux targets, so
-# a glob that swept this directory would break `just check-windows`. It
-# enters the build only through the dictation slice's linux target-scoped
-# dependency table, and its code is exercised on linux by `just check` /
-# `just test` through that same edge.
+# `crates/slices/*`, `vendor/*`) on purpose: its native dependencies
+# (sherpa-onnx, nnnoiseless) compile only on linux and windows targets
+# (sherpa-onnx via prebuilt platform libs), so a glob that swept this
+# directory would break `just check` on every other platform. It enters
+# the build only through the dictation slice's linux-and-windows
+# target-scoped dependency tables; its code is exercised on linux by
+# `just check` / `just test` and on windows by `just check`'s xwin leg,
+# through that same edge.
 
 [dependencies]
 jinn-dictation-backend = { workspace = true }

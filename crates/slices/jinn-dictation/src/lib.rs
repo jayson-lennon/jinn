@@ -5,11 +5,11 @@
 //! driving the pure [`DictationMachine`] and writing the two cells the
 //! rest of the app reads: the state cell (phase, model, fetch percent,
 //! fault) and the meter-level cell. The real Parakeet backend runs on
-//! linux; every other platform runs
+//! linux and windows; every other platform runs
 //! [`jinn_dictation_backend::NullBackend`] through the one gated module
-//! ([`platform`]) and the linux target-scoped dependency table in
-//! `Cargo.toml` — the lifecycle runs identically everywhere, and only
-//! the transcription differs.
+//! ([`platform`]) and the linux-and-windows target-scoped dependency
+//! tables in `Cargo.toml` — the lifecycle runs identically everywhere,
+//! and only the transcription differs.
 //!
 //! alt-i ([`routes`]) is a global-toggle route row: busy phases push
 //! the state-name hint, Ready arms, Recording disarms with a

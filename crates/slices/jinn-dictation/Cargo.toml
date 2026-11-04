@@ -5,10 +5,10 @@ edition.workspace = true
 description = "The dictation slice: one actor owning the backend lifecycle (fetch, load, arm, disarm) plus the alt-i toggle row and the seam volume meter."
 
 [dependencies]
-# Platform gate: the real Parakeet backend compiles only on linux
-# targets; every other platform links the null path through the single
-# cfg module (platform.rs). This target-scoped table is the whole
-# manifest-side platform split.
+# Platform gate: the real Parakeet backend compiles on linux and
+# windows targets; every other platform links the null path through the
+# single cfg module (platform.rs). The target-scoped tables below are
+# the whole manifest-side platform split.
 jinn-dictation-backend = { workspace = true }
 jinn-dictation-msg = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
@@ -26,17 +26,27 @@ parking_lot = { workspace = true }
 serde = { workspace = true }
 ratatui = { workspace = true }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 jinn-dictation-backend-parakeet = { path = "../../backends/jinn-dictation-backend-parakeet" }
-# The capture arm: device enumeration and stream open. Linux's PipeWire
-# backend; the null-platform path never touches cpal (the arm compiles
-# out with the gated module).
-cpal = { version = "0.18", features = ["pipewire"] }
 # The denoise stage (48 kHz frames, before the resample): pure Rust.
 nnnoiseless = "0.5"
 # The resample stage (device rate -> 16 kHz): sherpa-onnx's linear
 # resampler, the same native dependency the backend already carries.
+# On Windows the `static` feature's build script downloads sherpa's
+# prebuilt MSVC libs (sherpa core + onnxruntime, /MT) — no onnxruntime
+# install, no CMake.
 sherpa-onnx = { version = "2.0", default-features = false, features = ["static"] }
+
+# The capture arm: device enumeration and stream open. One cpal table
+# per OS so each names only the features its backend needs: Linux
+# rides PipeWire; Windows rides cpal's default WASAPI backend (no
+# feature list). The null-platform path never touches cpal (the arm
+# compiles out with the gated module).
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "0.18", features = ["pipewire"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+cpal = { version = "0.18" }
 
 [dev-dependencies]
 rstest = { workspace = true }

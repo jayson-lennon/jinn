@@ -667,7 +667,7 @@ Entries are added or amended **only with human approval**.
 
 - (dictation) Voice input is delivered by the jinn-dictation slice: one actor owns the backend lifecycle (Offline, Fetching, Loading, Ready, Arming, Recording, Error), self-inits at startup, and reports state through the dictation cell.
 - (dictation) The DictationBackend trait in jinn-dictation-backend defines model_name, is_cached, is_loaded, fetch, load, feed, and flush; every backend owns its own utterance endpointing and returns closed utterances from feed.
-- (dictation) The real Parakeet backend is a linux-only target-scoped dependency outside the workspace member globs; every other platform runs NullBackend with the full lifecycle intact.
+- (dictation) The real Parakeet backend is a linux-and-windows target-scoped dependency outside the workspace member globs; every other platform runs NullBackend with the full lifecycle intact.
 - (dictation) alt-i toggles dictation from any scope: state-reporting hints while fetching, loading, or arming, arm on Ready, disarm with a force-finalized trailing utterance on Recording.
 - (dictation) Committed utterances append to the focused chat input through a shared paste-append helper in jinn-chat-input-msg, one implementation also serving the bracketed-paste intent path.
 - (dictation) The volume meter owns the minimap column from the streaming-indicator row to the terminal bottom: idle it paints dotted cells in the inactive border color with a constant hotkey-accent i at the bottom cell; while arming it paints the dotted strip in the warning color; recording it paints cyan bars (the streaming color) capped by a partial block at the live level over a dark-red meter_bg background — the hint cell keeps a reset background in every phase, and the bars appear only once the capture stream actually plays.
@@ -683,4 +683,5 @@ Entries are added or amended **only with human approval**.
 - (dictation) The dictation model cache lives in a jinn-managed AppPaths directory; hf-hub's default cache location is overridden.
 - (cli) jinn fetch downloads the configured dictation model into the jinn-managed cache and exits non-zero on platforms without a real backend.
 - (cli) jinn dictation list-devices prints the capture input devices one per line, marking the system default; the printed names are exactly what a [dictation] device value must equal, and the command exits non-zero on platforms without a real backend or with no devices.
-- (build) Native dictation dependencies compile only inside the parakeet backend crate and the slice's linux target table; exactly one cfg module in jinn-dictation holds the platform split.
+- (build) Native dictation dependencies compile only inside the parakeet backend crate and the slice's linux+windows target tables; exactly one cfg module pair in jinn-dictation holds the platform split.
+- (build) The Windows release binary statically links the CRT (crt-static via RUSTFLAGS in the build-release-tarball recipe), matching the /MT sherpa-onnx prebuilt libraries; jinn.exe needs no VC++ redistributable.

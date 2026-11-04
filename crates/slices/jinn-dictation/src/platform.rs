@@ -8,12 +8,12 @@
 //! the config schema are all platform-blind; this module is the seam
 //! between them and the native world.
 //!
-//! The manifest side of the same gate is the linux target-scoped
-//! dependency table in this crate's `Cargo.toml`.
+//! The manifest side of the same gate is the linux-and-windows
+//! target-scoped dependency tables in this crate's `Cargo.toml`.
 //!
-//! The gated twin of this module is `platform_linux.rs`, swapped in by
-//! the single `cfg` attribute in `lib.rs`.
-#[cfg(not(target_os = "linux"))]
+//! The gated twin of this module is `platform_native.rs`, selected by
+//! the one `cfg` pair in this file.
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 mod imp {
     /// The model names the platform's backend can run, for the
     /// unknown-model validation at init.
@@ -50,8 +50,8 @@ mod imp {
     }
 }
 
-#[cfg(target_os = "linux")]
-#[path = "platform_linux.rs"]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[path = "platform_native.rs"]
 mod imp;
 
 pub use imp::{DEFAULT_MODEL, SUPPORTED_MODELS, build_backend, real_backend_available};

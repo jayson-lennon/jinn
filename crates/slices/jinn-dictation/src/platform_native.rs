@@ -8,8 +8,8 @@
 //! the config schema are all platform-blind; this module is the seam
 //! between them and the native world.
 //!
-//! The manifest side of the same gate is the linux target-scoped
-//! dependency table in this crate's `Cargo.toml`.
+//! The manifest side of the same gate is the linux-and-windows
+//! target-scoped dependency tables in this crate's `Cargo.toml`.
 
 /// The model names the platform's backend can run, for the
 /// unknown-model validation at init.

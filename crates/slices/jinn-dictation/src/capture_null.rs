@@ -1,6 +1,6 @@
 //! The null-platform capture body: there is no real backend to
 //! transcribe, so arming always refuses with the standard vocabulary.
-//! The twin of `capture_linux.rs`, selected by the one `cfg` pair in
+//! The twin of `capture_native.rs`, selected by the one `cfg` pair in
 //! `capture.rs`.
 
 use super::CaptureArm;

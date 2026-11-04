@@ -1,9 +1,9 @@
-//! The linux capture body: the cpal device open and the audio-thread
-//! pipeline (denoise, resample, backend feed). Compiled only on linux
-//! — the twin of `capture_null.rs`, selected by the one `cfg` pair in
-//! `capture.rs`.
+//! The native capture body: the cpal device open and the audio-thread
+//! pipeline (denoise, resample, backend feed). Compiled on linux and
+//! windows — the twin of `capture_null.rs`, selected by the one `cfg`
+//! pair in `capture.rs`.
 
-//! The linux device open and the audio-thread pipeline.
+//! The device open and the audio-thread pipeline.
 //!
 //! `open` builds the cpal input stream and returns the live arm; the
 //! arm's drop closes the device. The audio callback runs entirely off
@@ -530,6 +530,10 @@ mod tests {
 
         fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
 
+        #[expect(
+            clippy::use_debug,
+            reason = "tracing's visitor contract hands us Debug; there is no Display path"
+        )]
         fn event(&self, event: &tracing::Event<'_>) {
             let mut rendered = String::new();
             event.record(
@@ -581,6 +585,6 @@ mod tests {
             "expected a feed-failed warn among: {events:?}"
         );
         // And nothing was queued — a failed feed yields no utterance.
-        assert!(take_utterances(&shared).is_empty());
+        assert_eq!(take_utterances(&shared), [] as [Utterance; 0]);
     }
 }
