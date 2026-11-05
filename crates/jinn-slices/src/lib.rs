@@ -82,6 +82,7 @@ pub use scope_focus_state::ScopeFocusState;
 pub use scope_focus_state::scope_focus_slot;
 pub use scope_hints::Accent;
 pub use scope_hints::ScopeRenderHint;
+pub use tui_signals::ClipboardRequest;
 pub use tui_signals::TuiSignals;
 
 /// The slice host specialized to jinn's render facts — the spelling

@@ -23,11 +23,41 @@
 //! All flags are cleared at the start of each `handle()` call so they are
 //! always fresh.
 
+/// A staged clipboard write: the payload text plus the caller-chosen label
+/// the clipboard writer composes its status hints around.
+///
+/// The caller owns the label — short, lowercase, domain-owned ("entry",
+/// "selection", "session id", "3 terminal lines") — because the writer only
+/// knows how to compose the two hint phrasings, never which domain it
+/// served.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClipboardRequest {
+    /// The text to place on the system clipboard.
+    pub text: String,
+    /// The label the writer names in its copied/could-not-copy hints.
+    pub label: String,
+}
+
+impl ClipboardRequest {
+    /// Stages a clipboard write of `text`, to be reported as `label`.
+    #[must_use]
+    pub fn new<T, L>(text: T, label: L) -> Self
+    where
+        T: Into<String>,
+        L: Into<String>,
+    {
+        Self {
+            text: text.into(),
+            label: label.into(),
+        }
+    }
+}
+
 /// Flags set by the intent handler for the outer platform layer to act on.
 ///
 /// These represent requests that cannot be fulfilled by the intent handler
 /// itself because they require platform-specific machinery (TUI widgets,
-/// external editor, split manager, etc.).
+/// external editor, clipboard writer, split manager, etc.).
 #[derive(Debug, Clone)]
 pub struct TuiSignals {
     /// The which-key popup should be toggled (shown ↔ hidden).
@@ -36,8 +66,9 @@ pub struct TuiSignals {
     /// An external editor should be launched for the chat input.
     pub edit_requested: bool,
 
-    /// Text to copy to the system clipboard (set by yank-selected-entry intent).
-    pub yank_text: Option<String>,
+    /// A clipboard write to perform (set by yank intents): the payload text
+    /// and the label the writer reports it under.
+    pub yank_text: Option<ClipboardRequest>,
 
     /// Request to change CWD via external command. Carries the search root.
     pub change_cwd_requested: Option<crate::cwd_root::CwdRoot>,
@@ -96,5 +127,17 @@ mod tests {
         assert!(!signals.toggle_whichkey);
         assert!(!signals.edit_requested);
         assert!(signals.change_cwd_requested.is_none());
+        // And the clipboard request is cleared too.
+        assert!(signals.yank_text.is_none());
+    }
+
+    #[rstest::rstest]
+    fn clipboard_request_carries_text_and_label() {
+        // Given a clipboard request built from text and a label.
+        let request = ClipboardRequest::new("payload", "entry");
+
+        // Then it carries both, each under its own name.
+        assert_eq!(request.text, "payload");
+        assert_eq!(request.label, "entry");
     }
 }

@@ -18,6 +18,7 @@ jinn-chat-log-view-msg = { workspace = true }
 jinn-theme = { workspace = true }
 jinn-kernel = { workspace = true }
 jinn-status-bar = { workspace = true }
+jinn-status-bar-msg = { workspace = true }
 jinn-slices = { workspace = true }
 trouper = { workspace = true }
 

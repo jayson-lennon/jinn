@@ -35,8 +35,7 @@ pub fn validate_session_yank_id(state: &AppState) -> Result<(), SessionYankError
     Ok(())
 }
 
-/// Yanks the highlighted session's ID to the clipboard and arms the
-/// "Session ID yanked" banner.
+/// Yanks the highlighted session's ID to the clipboard.
 ///
 /// Three sidebar sections keep a session in their cursor — sessions, bots,
 /// and library — each over its own list, so "the highlighted session" is
@@ -48,20 +47,22 @@ pub fn validate_session_yank_id(state: &AppState) -> Result<(), SessionYankError
 /// the session's id directly, so nothing here reads the in-memory session and
 /// no load is requested — copying an id is not opening it.
 ///
-/// The clipboard write rides [`jinn_slices::TuiSignals::yank_text`]: the TUI
-/// layer drains the signal after dispatch and hands the text to the system
-/// clipboard, so this slice touches no clipboard backend. The banner is a
-/// flag on `FrontendState` — the same transient confirmation the close prompt
-/// uses — and the next keypress dismisses it before dispatch runs, so this
-/// action only ever sets it.
+/// The clipboard write rides [`jinn_slices::TuiSignals::yank_text`], staged
+/// under the label `session id`: the TUI layer's clipboard writer drains the
+/// signal after dispatch, writes the id, and raises the copied/could-not-copy
+/// hint from its write thread — so this slice touches no clipboard backend
+/// and writes no clipboard-success claim of its own. The status hint is the
+/// yank's only confirmation; there is no banner.
 pub fn handle_session_yank_id(state: &mut AppState) -> IntentResult {
     let Some(selected) = yankable_session_id(state) else {
         return IntentResult::empty();
     };
-    state
-        .frontend
-        .update_scope(|s| s.signals.yank_text = Some(selected.to_string()));
-    state.frontend.session_id_yank_popup = true;
+    state.frontend.update_scope(|s| {
+        s.signals.yank_text = Some(jinn_slices::ClipboardRequest::new(
+            selected.to_string(),
+            "session id",
+        ));
+    });
     IntentResult::empty()
 }
 

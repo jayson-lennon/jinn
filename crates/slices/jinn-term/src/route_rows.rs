@@ -23,12 +23,13 @@
 //! - `release-control` — the control-toggle key in `term:control`:
 //!   releases control back to the agent and pops to `term:view`. Sends
 //!   nothing to the model — the status hint advertises `I` for that.
-//! - `yank-screen` — `y` in `term:view`: copies the visible screen to
-//!   the clipboard via the TUI signal.
-//! - `push-screen` — `I` in `term:view`: yanks the screen *and* pushes
-//!   its text to the model using the same session-phase routing as chat
-//!   submit (busy → steering buffer drained at next dispatch; idle →
-//!   dispatched immediately by the queue actor).
+//! - `yank-screen` — `y` in `term:view`: stages the visible screen for the
+//!   TUI layer's clipboard writer, under the counted label.
+//! - `push-screen` — `I` in `term:view`: pushes the screen text to the
+//!   model using the same session-phase routing as chat submit (busy →
+//!   steering buffer drained at next dispatch; idle → dispatched
+//!   immediately by the queue actor). Never writes the clipboard — `y`
+//!   yanks.
 //!
 //! Toggle targets without a live terminal no-op: the overlay is a
 //! *window* onto a running program, never a spawner; a status hint
@@ -243,9 +244,10 @@ fn active_screen(state: &AppState) -> Option<String> {
 
 /// Handles the `yank-screen` action (`y` in `term:view`).
 ///
-/// Copies the visible screen to the clipboard (via the TUI yank signal)
-/// and reports the copied size in a status hint. No mirror → no-op with
-/// a hint.
+/// Stages the visible screen for the clipboard writer under the counted
+/// label "`{N}` terminal lines" (the count is computed here, where the
+/// screen is at hand). The writer raises the copied/could-not-copy hint
+/// after the write resolves. No mirror → no-op with a hint.
 pub fn handle_yank(state: &mut AppState, slices: &jinn_slices::Slices) {
     if overlay_scope_of(state).is_none_or(|id| id != view_scope()) {
         return;
@@ -260,23 +262,18 @@ pub fn handle_yank(state: &mut AppState, slices: &jinn_slices::Slices) {
         }
         return;
     };
-    let lines = screen.lines().count();
-    state
-        .frontend
-        .update_scope(|s| s.signals.yank_text = Some(screen));
-    if let Some(status) = slices.reader::<StatusBarState>(&status_bar_slot()) {
-        status.update(|state| {
-            state.hint = Some(format!("yanked {lines} terminal lines to the clipboard"));
-        });
-    }
+    let label = format!("{} terminal lines", screen.lines().count());
+    state.frontend.update_scope(|s| {
+        s.signals.yank_text = Some(jinn_slices::ClipboardRequest::new(screen, label));
+    });
 }
 
 /// Handles the `push-screen` action (`I` in `term:view`).
 ///
-/// Yanks (see [`handle_yank`]) and pushes the screen text to the model:
+/// Pushes the screen text to the model — never the clipboard (`y` yanks):
 /// busy → `SubmitSteeringMessage` (drained at the next dispatch-resume);
-/// idle → `EnqueueUserMessage` (dispatched immediately). No mirror →
-/// no-op with a hint.
+/// idle → `EnqueueUserMessage` (dispatched immediately). A status hint
+/// says the screen was queued. No mirror → no-op with a hint.
 #[must_use]
 pub fn handle_push_screen(state: &mut AppState, slices: &jinn_slices::Slices) -> IntentResult {
     if overlay_scope_of(state).is_none_or(|id| id != view_scope()) {
@@ -293,15 +290,9 @@ pub fn handle_push_screen(state: &mut AppState, slices: &jinn_slices::Slices) ->
         }
         return IntentResult::empty();
     };
-    let lines = screen.lines().count();
-    state
-        .frontend
-        .update_scope(|s| s.signals.yank_text = Some(screen.clone()));
     if let Some(status) = slices.reader::<StatusBarState>(&status_bar_slot()) {
         status.update(|state| {
-            state.hint = Some(format!(
-                "yanked {lines} terminal lines and sent the screen to the agent"
-            ));
+            state.hint = Some("screen queued to agent".to_owned());
         });
     }
 
@@ -932,7 +923,7 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn yank_stages_screen_text_and_sets_line_count_hint() {
+    fn yank_stages_screen_text_with_the_counted_label_and_no_hint() {
         // Given an AppState in the view overlay with a multi-line mirror.
         let mut state = app_state();
         let slices = status_bar_slices();
@@ -944,17 +935,19 @@ mod tests {
         // When handling yank-screen.
         handle_yank(&mut state, &slices);
 
-        // Then the screen text was staged for the clipboard.
+        // Then the screen text was staged with the counted label.
+        let request = state.frontend.signals_snapshot().yank_text;
         assert_eq!(
-            state.frontend.signals_snapshot().yank_text.as_deref(),
+            request.as_ref().map(|r| r.text.as_str()),
             Some("line one\nline two\nline three")
         );
-        // And the status hint reports the copied line count.
-        let hint = status_hint(&slices);
-        assert!(
-            hint.as_deref().is_some_and(|h| h.contains('3')),
-            "yank hint must report the line count; got {hint:?}"
+        assert_eq!(
+            request.map(|r| r.label),
+            Some("3 terminal lines".to_owned())
         );
+        // And no copied-phrasing hint was written here — the clipboard
+        // writer raises the hint only after the write resolves.
+        assert_eq!(status_hint(&slices), None);
     }
 
     #[rstest::rstest]
@@ -1035,24 +1028,42 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn push_screen_yanks_the_screen_text() {
+    fn push_screen_stages_nothing_for_the_clipboard() {
         // Given the view overlay with a screen mirror.
         let mut state = app_state();
         let slices = status_bar_slices();
         state
             .frontend
             .scope_swap_base(FocusScope::Dynamic(view_scope()));
-        mirror_screen(&mut state, "yank-and-push-marker");
+        mirror_screen(&mut state, "push-does-not-yank-marker");
 
         // When handling push-screen.
         let _must_use = handle_push_screen(&mut state, &slices);
 
-        // Then the screen text was also staged for the clipboard.
-        assert_eq!(
-            state.frontend.signals_snapshot().yank_text.as_deref(),
-            Some("yank-and-push-marker"),
-            "push must also yank (I = yank + push)"
+        // Then nothing was staged for the clipboard: `I` only sends, `y`
+        // is the yank.
+        assert!(
+            state.frontend.signals_snapshot().yank_text.is_none(),
+            "push must not stage a clipboard write"
         );
+    }
+
+    #[rstest::rstest]
+    fn push_screen_sets_the_screen_queued_hint() {
+        // Given the view overlay with a screen mirror.
+        let mut state = app_state();
+        let slices = status_bar_slices();
+        state
+            .frontend
+            .scope_swap_base(FocusScope::Dynamic(view_scope()));
+        mirror_screen(&mut state, "hint-marker");
+
+        // When handling push-screen.
+        let _must_use = handle_push_screen(&mut state, &slices);
+
+        // Then the status hint says the screen was queued to the agent.
+        let hint = status_hint(&slices);
+        assert_eq!(hint.as_deref(), Some("screen queued to agent"));
     }
 
     #[rstest::rstest]
