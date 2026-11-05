@@ -5,6 +5,7 @@
 - Add branch + merge commit lifecycle script for git in default `jinn.toml`.
 - Yanking now displays a status bar message.
   - Yanking a session ID now uses the status bar instead of a popup.
+- Audio thread is now fed correctly sized audio chunks to prevent a decoding crash.
 
 ## 2026-11-03 v0.18.0
 
