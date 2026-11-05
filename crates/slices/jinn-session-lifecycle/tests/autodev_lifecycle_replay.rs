@@ -14,17 +14,56 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 use jinn_session_lifecycle_msg::command_template::CommandTemplate;
 use marked_path::{Absolute, MarkedPathBuf};
 
-/// The path of the autodev lifecycle file, resolved from this crate's
-/// manifest against the workspace root.
+/// The workspace root, resolved at run time.
+///
+/// `env!("CARGO_MANIFEST_DIR")` is baked in at compile time, which for a
+/// cross build (Linux compiling the Windows test exes) is a POSIX path —
+/// absolute on the build host but not on Windows, where absoluteness
+/// requires a drive prefix — and stale wherever the checkout has moved.
+/// Resolution therefore tries, in order:
+///
+/// 1. the runtime `CARGO_MANIFEST_DIR` cargo sets on every test process,
+/// 2. the process working directory — the cross-built exes run from the
+///    shared checkout, so an ancestor of it names the repo root,
+/// 3. the compile-time manifest dir — correct only for a native build.
+///
+/// Each seed is walked upward until a directory containing the lifecycle
+/// file turns up; if none does, the test fails with instructions instead of
+/// a misleading path error.
+fn workspace_root() -> MarkedPathBuf<Absolute> {
+    const LIFECYCLE_REL: &str = "res/workflows/autodev/lifecycle.toml";
+    let mut seeds = Vec::new();
+    if let Some(dir) = std::env::var_os("CARGO_MANIFEST_DIR") {
+        seeds.push(PathBuf::from(dir));
+    }
+    if let Ok(dir) = std::env::current_dir() {
+        seeds.push(dir);
+    }
+    seeds.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+
+    for seed in &seeds {
+        for dir in seed.ancestors() {
+            if dir.join(LIFECYCLE_REL).is_file() {
+                return MarkedPathBuf::<Absolute>::new(dir).expect("a seed's ancestor is absolute");
+            }
+        }
+    }
+    panic!(
+        "no ancestor of CARGO_MANIFEST_DIR or the working directory contains {LIFECYCLE_REL}; \
+         run the test from the repository checkout"
+    );
+}
+
+/// The path of the autodev lifecycle file, under the workspace root.
 fn autodev_lifecycle_path() -> MarkedPathBuf<Absolute> {
-    MarkedPathBuf::<Absolute>::new(env!("CARGO_MANIFEST_DIR"))
-        .expect("CARGO_MANIFEST_DIR is absolute")
-        .join("../../../res/workflows/autodev/lifecycle.toml")
-        .expect("repo-relative constant joins keep the manifest dir absolute")
+    workspace_root()
+        .join("res/workflows/autodev/lifecycle.toml")
+        .expect("repo-relative constant joins keep the workspace root absolute")
 }
 
 /// Reads the autodev lifecycle file with line endings normalized to `\n`.

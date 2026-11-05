@@ -124,6 +124,25 @@ fn sha256_hex(bytes: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// The shipped bytes of a bundled resource, from the binary's own embedded
+/// catalogue.
+///
+/// Reading the repo tree (`CARGO_MANIFEST_DIR/res/...`) would be a POSIX
+/// path baked in at compile time for a cross build — absolute on the build
+/// host, not on Windows, and stale wherever the checkout has moved. The
+/// embedded catalogue is what the binary actually installs from, so
+/// asserting against it is the stronger claim anyway.
+fn shipped(res_relative: &str) -> Vec<u8> {
+    let key = res_key(res_relative);
+    jinn_install::expected_catalogue()
+        .expect("embedded resource catalogue builds")
+        .into_iter()
+        .find(|file| file.path.as_path().to_string_lossy() == key)
+        .unwrap_or_else(|| panic!("bundled catalogue contains {res_relative}"))
+        .bytes
+        .to_vec()
+}
+
 /// Spells a `res/`-relative key the way production does — through the typed
 /// relative path, whose separators are the platform's own
 /// (`themes/default.toml` on Unix, `themes\default.toml` on Windows). Every
@@ -597,10 +616,7 @@ fn boot_reconcile_heals_a_tracked_stale_file() {
     assert!(next.status.success());
 
     // Then the stale copy was healed to the shipped bytes.
-    let shipped = std::fs::read(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("res/themes/default.toml"),
-    )
-    .expect("read shipped theme from the repo tree");
+    let shipped = shipped("themes/default.toml");
     assert_eq!(
         std::fs::read(theme_path.as_path()).expect("read healed theme"),
         shipped,
@@ -721,10 +737,7 @@ fn install_builtins_overwrites_user_edits_and_reclaims_them() {
     );
 
     // Then the theme was reclaimed with the shipped bytes.
-    let shipped = std::fs::read(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("res/themes/default.toml"),
-    )
-    .expect("read shipped theme");
+    let shipped = shipped("themes/default.toml");
     assert_eq!(
         std::fs::read(theme_path.as_path()).expect("read reclaimed theme"),
         shipped,
