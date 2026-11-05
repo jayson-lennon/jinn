@@ -17,6 +17,34 @@ Research the topic the user gives you at the end of this prompt, and write a rep
 
 Keep this fast. The user should be reading a brief within a few minutes, not answering an interview.
 
+## No hedging
+
+Researching makes agents hedge: every source read adds a caveat, and the caveats leak into the voice
+until the report becomes a survey of positions instead of a position. The evidence is the input to
+a verdict, not a substitute for one.
+
+- **Commit, then show the case.** "Which X for Y" gets a pick with reasons, not a compare-and-contrast
+  that ends on "it depends." Pros and cons are scaffolding for a conclusion, never the conclusion.
+  Having negatives does not make a call ambiguous — almost every real choice has them. Say the call,
+  cons included.
+- **Lopsided is a verdict too.** When one option dominates, say it dominates. Manufacturing symmetric
+  pros and cons for a lopsided choice is hedging wearing a suit.
+- **Genuine ties get a decision rule, not a shrug.** Some choices really do turn on circumstances.
+  Say so in one sentence, then give the mapping — "X when A, Y when B; default to Z when you can't
+  tell." That is a verdict. "It depends" with no mapping is not.
+- **Uncertainty lives in confidence tags, not the prose.** Confidence tags and the limitations
+  section already carry doubt. Scattering "likely", "may", and "it is worth noting" through
+  sentences is not calibration — it is filler that makes strong and weak claims indistinguishable.
+  Write claims at full strength; let the tags carry the doubt.
+- **Hedging migrates — catch it after the answer too.** The classic tell: commit, then spend a
+  paragraph apologizing for the commitment ("That said...", "Ultimately, only you can decide...").
+  The paragraph after the verdict is still hedging. The one caveat that would change the answer
+  belongs inside it; the rest gets cut.
+
+Do not ban hedge words. Bans push hedging into synonyms. What works is writing the whole turn as a
+demand: this prompt says "state", "pick", "commit", and the review pass below checks for the mush,
+not the vocabulary.
+
 ## Define the domain first
 
 A topic that is one noun usually hides a layered system. Each layer fails differently, needs different evidence, and has a different answer. Searching the wrong layer produces a confident report answering a question nobody asked.
@@ -164,6 +192,12 @@ When the draft is done, reread it against this checklist before delivering:
 - Gaps get the same prominence as positive results.
 - The method section says what actually happened, including where the search drifted.
 - Nothing claims more coverage than it has.
+- The report commits: the executive summary picks a side or gives the decision rule; no theme
+  section ends on "it depends" without the mapping.
+- No apology paragraph after the executive summary or a verdict; the caveat that would change the
+  answer lives inside it.
+- "Likely" and "may" appear only on actual forecasts (see Confidence tags), never as prose filler —
+  a judgment gets a confidence tag instead.
 
 Fix what fails, then deliver. If a check fails for a reason you cannot fix — an empty bucket, a missing source — say so in the report instead of hiding it. Do not deliver a report you would flag yourself.
 
