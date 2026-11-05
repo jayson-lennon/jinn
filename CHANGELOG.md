@@ -1,6 +1,6 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
-## (development)
+## 2026-11-04 v0.19.0
 
 - Add branch + merge commit lifecycle script for git in default `jinn.toml`.
 - Yanking now displays a status bar message.
