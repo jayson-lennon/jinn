@@ -98,7 +98,7 @@ Save it to `~/.config/jinn/personas/`, then select it with the persona
 picker (`<leader>se`) or edit it with `c` from the sidebar's Persona
 section.
 
-## The research prompt
+## The research prompts
 
 ### `#research <topic>`
 
@@ -121,6 +121,24 @@ It does not write your output artifact (the post, the paper) — it produces
 the research data. Gaps count as findings: no good source exists for a
 claim, and the report says so. Output is saved to `./research/` with
 markdown footnote citations.
+
+### `#lookup <request>`
+
+`#research` minus the checkpoints. Same rigor — source buckets, evidence
+discipline, footnote citations, report saved to `./research/` — but one
+straight pass: orient → decompose the topic into its parts → search to
+depth → answer. There is no interrogation round and no brief approval;
+anything it would have asked becomes a stated assumption at the top of the
+report, written so a one-line reply from you corrects it and it re-runs.
+
+The bar is comprehensiveness: the answer must actually answer the request —
+compare and take a position, state behavior and where it breaks, cover
+every part of the topic it decomposed. "More research needed" is never
+offered as the answer; if the full answer doesn't exist, the best-supported
+partial answer with disagreements shown per bucket is the answer.
+
+Use `#research` when the topic is big or the angle matters and you want to
+steer before work starts; use `#lookup` when you just want the information.
 
 ## The code workflow prompts
 

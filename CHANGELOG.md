@@ -1,5 +1,9 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- Add `#lookup` prompt to search the web without needing to answer additional questions.
+
 ## 2026-11-04 v0.19.0
 
 - Add branch + merge commit lifecycle script for git in default `jinn.toml`.
