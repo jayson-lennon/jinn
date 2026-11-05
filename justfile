@@ -66,14 +66,13 @@ test-failures:
 test-one FILTER:
     cargo test --workspace --no-fail-fast {{FILTER}}
 
-# Cross-build the Windows test suite on Linux, for running in the VM
-# against the shared checkout. The exes land in
-# target/x86_64-pc-windows-msvc/debug/deps/ — one per crate, named after
-# it. They are CRT-static, so the VM needs nothing installed: run them
-# from the same cwd the Linux side uses.
+# Cross-build the Windows test exes for running in the VM against the shared checkout.
 build-tests-windows:
     #!/usr/bin/env bash
     set -euo pipefail
+    # Exes land in target/x86_64-pc-windows-msvc/debug/deps/ — one per crate,
+    # named after it. They are CRT-static, so the VM needs nothing installed:
+    # run them from the same cwd the Linux side uses.
     if ! command -v cargo-xwin >/dev/null 2>&1; then
         echo "Error: cargo-xwin is not installed." >&2
         echo "  Run: just setup-windows-cross" >&2
