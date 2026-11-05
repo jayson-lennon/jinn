@@ -78,6 +78,9 @@ state, treating its entries as true of the present and never as future intent.
   question before proposing anything. Do not work around a recorded fact.
 - **Gaps are opportunities.** A fact the implementation will establish is a
   candidate record entry, proposed verbatim in the contract's "Record Updates".
+- **Entries carry their why.** Every entry you propose ends with
+  `BECAUSE: <one sentence>` — the reason from the dialogue that settled the fact.
+  Amending an entry replaces the whole line, because included.
 - **Absence is not a constraint.** It means nothing is recorded there yet.
 - **The record is not yours to edit.** Proposed entries take effect at the end of
   implementation, never at contract approval.
@@ -102,7 +105,11 @@ Proposed entries obey this floor:
   the rename test: if renaming this thing tomorrow would make the entry false, it
   describes today's source tree rather than the application. Delete it.
 - **On-disk form.** Plain markdown list lines — no surrounding quotes, no
-  rationale, no prose wrapper.
+  prose wrapper.
+- **Every entry carries its why.** The line is `<fact>. BECAUSE: <why>.` The
+  fact states how it works. The because states why it works that way — the
+  reason settled in this dialogue. One sentence. Not history ("we originally
+  used X"), not a restatement of the fact.
 
 If `.agents/RECORD.md` does not exist, "Record Updates" must lead with one
 bootstrap item: create the file with the Canonical Preamble below as its body,
@@ -126,7 +133,9 @@ This file is consulted before proposing work on a task. If a task **contradicts*
 
 ## Why This File Exists
 
-This file is read _instead of_ reading the code, so an entry earns its place only by being **expensive to re-derive** — a decision, a boundary, a user-visible behavior, or a fact whose only copy is scattered across several files.
+**IMPORTANT**:
+
+- Its common for behaviors in code to span multiple lines or modules. For example, emitting a message in module `Foo` may be listened to by module `Bar` which then performs side-effect `Baz`. This behavior requires 3 hops to discover, so is _expensive to derive_. The RECORD.md file encodes this entire behavior in a **single line**, providing the context needed for the agent to easily learn how the application works.
 
 If a reader could recover the fact from one grep or one file read, it does not belong here. Most things do not belong here. The list is expected to be short, and adding an entry is a claim that the fact is not already obvious from the code.
 
@@ -134,22 +143,23 @@ Deleting an entry is always safe; a reader that needs it will find it. A record 
 
 ## Format Rules
 
-- **Factual.** Assert how things are _now_. Never future intent ("we will...", "should..."). Each entry is the current state of the application.
+- **Factual.** Assert how things are _now_. Never future intent ("we will...", "should..."). Each entry is the _current state_ of the application.
 - **Durable.** Every entry must survive a routine change. Apply the **rename test**: if the codebase renamed this thing tomorrow — a config key, a crate, a type, an actor, an event, a schema version — would the entry be false? If yes, it is not a fact about the application; it is a fact about today's source tree. Delete it.
 - **Scoped.** Name what each entry applies to — repo, app, frontend, or a named subsystem. An unscoped fact (e.g. "uses Fossil") is ambiguous: is that the repo, or the app's supported VCS list? Always disambiguate.
 - **High-level.** One-liners (a few sentences at most). Capture decisions and facts a reader needs, not implementation minutiae.
 - **Single tag.** Each entry carries exactly one subsystem tag as a `(tag)` prefix: `- (tools) The bash tool runs...`. One entry, one tag — this keeps tag usage a meaningful coverage metric (a tag growing large signals over-specification or a tag that should split). If you cannot decide between two tags for an entry, that is a signal to **re-evaluate the entry itself**, not to assign both. Use `(tag)` rather than `[tag]` to avoid colliding with markdown task-list (checkbox) syntax.
 - **Tag subsystem scope.** It's not always obvious what tag to use for a given record entry. Pick based on existing tags or somewhat related subsystem. As particular tags start to become numerous, evaluate whether a new tag (subsystem) should be created based on the content of the tags. It's normal for subsystems to form after-the-fact so feel free to propose re-tagging of existing records.
 - **Singular concept.** Each entry should be a single sentence and only concerned with a single concept. Prefer multiple entries versus combining many things into one.
+- **Because.** Every entry ends with `BECAUSE: <one sentence>` — why the fact holds, from the dialogue that established it. Not history. The clause is exempt from the singular-concept budget; the fact before it is not.
 
 ## Templates
 
-| Pattern     | Form                                                             | Example                                                                                             |
-| ----------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| State       | `[Scope] currently [does X / is Y].`                             | "(TUI) The TUI's first screen at startup is the chat screen."                                       |
-| Persistence | `[Scope] persists [what] to [where].`                            | "(sessions) Sessions persist to SQLite."                                                            |
-| Flow        | `[Input/event] is handled by [actor/subsystem], which [action].` | "(tools) File edits route through the `edit` tool, which requires a unique match or `replace_all`." |
-| Boundary    | `[Scope] is bounded by [constraint].`                            | "(projects) Project discovery walks ancestors until a VCS root or `$HOME`, whichever comes first."  |
+| Pattern     | Form                                                                           | Example                                                                                                                                                                            |
+| ----------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| State       | `[Scope] currently [does X / is Y]. BECAUSE: <why>.`                             | "(TUI) The TUI's first screen at startup is the chat screen. BECAUSE: startup always resumes or creates a session, so no landing screen is needed."                                  |
+| Persistence | `[Scope] persists [what] to [where]. BECAUSE: <why>.`                            | "(sessions) Sessions persist to SQLite. BECAUSE: one embedded file, no server, transactional."                                                                                       |
+| Flow        | `[Input/event] is handled by [actor/subsystem], which [action]. BECAUSE: <why>.` | "(tools) File edits route through the `edit` tool, which requires a unique match or `replace_all`. BECAUSE: a non-unique match must fail loudly, not edit an arbitrary occurrence."  |
+| Boundary    | `[Scope] is bounded by [constraint]. BECAUSE: <why>.`                            | "(projects) Project discovery walks ancestors until a VCS root or `$HOME`, whichever comes first. BECAUSE: a repo under `$HOME` must not swallow the home directory as one project." |
 
 ## Absence
 
@@ -520,9 +530,10 @@ A **Task Contract**: dense in content.
   not need; never pad with defaults.
 - **References** — external material to consult. Omit entirely if there is none.
 - **Non-Goals** — what is deliberately excluded, even though it looks adjacent.
-- **Record Updates** — verbatim entries for `.agents/RECORD.md`, entries only,
-  never preamble changes. DO NOT EDIT THE RECORD now. Record edits are applied
-  at the end of the task after completion.
+- **Record Updates** — verbatim entries for `.agents/RECORD.md`, complete entry
+  lines only — each line is fact plus `BECAUSE:`; an amendment replaces the
+  existing line in full. Never preamble changes. DO NOT EDIT THE RECORD now.
+  Record edits are applied at the end of the task after completion.
 - **Decision Ledger** — mandatory, and not an appendix. One row per question
   closed during the dialectic, in the order asked:
 

@@ -21,7 +21,7 @@ If the spec/plan included "Record Updates", also **confirm accuracy against the 
 
 - For each "Record Updates" entry the approved plan promised, confirm it was written into `.agents/RECORD.md` and that it **matches what was actually implemented**. If it was not written, or if what was written does not match the implementation, include this information in the "Record reconciliation" section.
 - For any recorded entry the implementation changed, broke, or made stale that was **not** covered by the planned Record Updates, include this information in the "Record reconciliation" section.
-- If the work established a new high-level fact that has no entry yet, propose a verbatim entry in the "Record reconciliation" section.
+- If the work established a new high-level fact that has no entry yet, propose a verbatim entry in the "Record reconciliation" section, in full on-disk form — fact plus `BECAUSE: <why>`.
 - Do not flag cosmetic or unrelated edits; only surface entries whose stated behavior diverged or was newly established.
 
 <example>
@@ -47,7 +47,7 @@ If the spec/plan included "Record Updates", also **confirm accuracy against the 
 ## Record reconciliation recommendations
 
 - The implementation changed the display for the calculator.
-  - Add: `(calculator) Display now uses a high-contrast font`
+  - Add: `(calculator) Display now uses a high-contrast font. BECAUSE: low-contrast text was unreadable on e-ink panels.`
 - The button colors were changed to black and white.
   - Remove: `(calculator) Number buttons use rainbow colors`
 
