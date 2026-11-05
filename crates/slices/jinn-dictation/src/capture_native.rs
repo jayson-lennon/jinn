@@ -162,28 +162,36 @@ impl Pipeline {
         self.feed_tail.append(&mut samples_16k);
         if self.feed_tail.len() >= 1_600 {
             let chunk = std::mem::take(&mut self.feed_tail);
-            if let Some(mut backend) = self.backend.try_lock() {
-                match backend.feed(&chunk) {
-                    Ok(utterances) => {
-                        drop(backend);
-                        // Queue for the actor's tick: each closed
-                        // utterance commits to the focused input as
-                        // it closes. An empty Vec is the common no-op.
-                        push_utterances(&self.shared, utterances);
-                    }
-                    Err(report) => {
-                        drop(backend);
-                        // The audio thread cannot surface an error to
-                        // the user; the log is the only record. The
-                        // feed tail is already consumed — the next
-                        // chunk starts fresh, losing this one's audio.
-                        tracing::warn!(error = ?report, "dictation backend feed failed");
+            // The chunk crossed the 1,600-sample gate, so it is always
+            // decodable (the floor is 400); the None arm is a defensive
+            // drop that cannot fire today. Either way the backend never
+            // sees undecodable audio — the type enforces it.
+            if let Some(audio) = jinn_dictation_backend::DecodableAudio::new(chunk) {
+                if let Some(mut backend) = self.backend.try_lock() {
+                    match backend.feed(audio) {
+                        Ok(utterances) => {
+                            drop(backend);
+                            // Queue for the actor's tick: each closed
+                            // utterance commits to the focused input as
+                            // it closes. An empty Vec is the common no-op.
+                            push_utterances(&self.shared, utterances);
+                        }
+                        Err(report) => {
+                            drop(backend);
+                            // The audio thread cannot surface an error to
+                            // the user; the log is the only record. The
+                            // feed tail is already consumed — the next
+                            // chunk starts fresh, losing this one's audio.
+                            tracing::warn!(error = ?report, "dictation backend feed failed");
+                        }
                     }
                 }
+                // Backend busy (load in flight, or the disarm flush holds
+                // the mutex): drop the chunk silently — the busy path is
+                // the normal end-of-utterance overlap, not a fault.
+            } else {
+                tracing::debug!("capture chunk below the decodable floor; dropped");
             }
-            // Backend busy (load in flight, or the disarm flush holds
-            // the mutex): drop the chunk silently — the busy path is
-            // the normal end-of-utterance overlap, not a fault.
         }
         self.shared.lock().level = level;
     }
@@ -337,7 +345,10 @@ mod tests {
             Ok(())
         }
 
-        fn feed(&mut self, _samples: &[f32]) -> Result<Vec<Utterance>, Report<BackendError>> {
+        fn feed(
+            &mut self,
+            _audio: jinn_dictation_backend::DecodableAudio,
+        ) -> Result<Vec<Utterance>, Report<BackendError>> {
             if self.feed_fails {
                 return Err(Report::new(BackendError).attach("scripted feed failure"));
             }
@@ -347,6 +358,8 @@ mod tests {
         fn flush(&mut self) -> Result<Option<Utterance>, Report<BackendError>> {
             Ok(None)
         }
+
+        fn reset(&mut self) {}
     }
 
     /// A pipeline wired to `backend`, no denoiser or resampler, over a
@@ -445,17 +458,22 @@ mod tests {
             Ok(())
         }
 
-        fn feed(&mut self, samples: &[f32]) -> Result<Vec<Utterance>, Report<BackendError>> {
+        fn feed(
+            &mut self,
+            audio: jinn_dictation_backend::DecodableAudio,
+        ) -> Result<Vec<Utterance>, Report<BackendError>> {
             self.fed
                 .lock()
                 .expect("recording backend lock")
-                .extend_from_slice(samples);
+                .extend_from_slice(audio.as_samples());
             Ok(Vec::new())
         }
 
         fn flush(&mut self) -> Result<Option<Utterance>, Report<BackendError>> {
             Ok(None)
         }
+
+        fn reset(&mut self) {}
     }
 
     #[rstest::rstest]
