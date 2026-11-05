@@ -2,7 +2,8 @@
 
 ## (development)
 
-- Add `#lookup` prompt to search the web without needing to answer additional questions.
+- Update `#research` prompt to generate a more comprehensive report.
+- Add `#lookup` prompt to do a quick web search.
 
 ## 2026-11-04 v0.19.0
 

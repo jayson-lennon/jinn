@@ -113,9 +113,17 @@ before doing the work:
    suggests which kinds of sources to use — papers, practitioner blogs,
    issue trackers, forums — and asks which to weight), and what the report
    will contain. Nothing starts until you approve it.
-4. **Report.** Findings group by source category, each source classified at
-   the point of use. Where categories disagree, the report shows the
-   disagreement — it doesn't merge them into one conclusion.
+4. **Report.** Findings are organized by theme, each source classified at
+   the point of use. Where sources disagree, the report shows the
+   disagreement — it doesn't merge them into one conclusion. The report
+   follows a fixed skeleton: executive summary and numbered key findings
+   up front (the answer, even if you stop reading there), themed findings,
+   a comparison table when the question is "which X", implications, gaps,
+   open questions, and a method section at the back recording what was
+   searched and what was excluded.
+5. **Review.** Before delivering, it rereads the draft against a
+   checklist — synthesis quality, citations, confidence tags, gaps given
+   real space — and fixes what fails.
 
 It does not write your output artifact (the post, the paper) — it produces
 the research data. Gaps count as findings: no good source exists for a
@@ -125,17 +133,23 @@ markdown footnote citations.
 ### `#lookup <request>`
 
 `#research` minus the checkpoints. Same rigor — source buckets, evidence
-discipline, footnote citations, report saved to `./research/` — but one
-straight pass: orient → decompose the topic into its parts → search to
-depth → answer. There is no interrogation round and no brief approval;
-anything it would have asked becomes a stated assumption at the top of the
-report, written so a one-line reply from you corrects it and it re-runs.
+discipline, footnote citations — but one straight pass: orient → decompose
+the topic into its parts → search to depth → answer. There is no
+interrogation round and no brief approval; anything it would have asked
+becomes a stated assumption at the top of the answer, written so a one-line
+reply from you corrects it and it re-runs.
 
 The bar is comprehensiveness: the answer must actually answer the request —
 compare and take a position, state behavior and where it breaks, cover
 every part of the topic it decomposed. "More research needed" is never
 offered as the answer; if the full answer doesn't exist, the best-supported
 partial answer with disagreements shown per bucket is the answer.
+
+The answer lands in chat. Nothing is written to disk unless you explicitly
+ask for a report. Before sending, it checks its own draft: answer up
+front, every part of the topic covered, every claim cited to something it
+actually read, disagreements shown as disagreements, gaps stated as
+findings.
 
 Use `#research` when the topic is big or the angle matters and you want to
 steer before work starts; use `#lookup` when you just want the information.

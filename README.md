@@ -243,8 +243,8 @@ Use this when you want a `plan` -> `implement` -> `verify` workflow with control
 - `#judge <a thing>`: determine if one thing is any good
 - `#falsify <a thing>`: find the ways something goes wrong
 - `#metaprompt <repeatable 1-shot task>`: generate a new prompt which can be used to perform some task. This is meant for smaller tasks that can be completed in 1-2 prompts.
-- `#research <topic>`: search the web and produce a report. Need to answer a few anchoring questions first so the research is correctly targeted to your use-case.
-- `#lookup <request>`: like `#research`, but the agent doesn't require any additional information other than your initial request.
+- `#research <topic>`: search the web and produce a report after answering a few anchoring questions
+- `#lookup <request>`: get a comprehensive, cited answer to a question directly in chat
 - `#generate-persona <description>`: make a new `jinn` persona. Examples: `ruthless article editor`, `pedantic code reviewer`
 
 ### Code-specific
