@@ -56,6 +56,7 @@ Before any analysis, read `.agents/RECORD.md` if it exists. This file is the pro
 
 - **Contradictions gate the plan.** If the intended feature changes, breaks, or replaces the behavior described by any entry, surface the conflict as a dialectic question before proposing a plan. Do not silently work around a recorded fact.
 - **Gaps are opportunities to fill the record.** If the feature establishes a new high-level fact about the application, capture it as a verbatim, scoped entry and surface it in the plan's "Record Updates" section for human approval. Do not record implementation minutiae.
+- **Entries carry their why.** Every entry you propose ends with `BECAUSE: <one sentence>` — the reason from the dialogue that settled the fact. Amending an entry replaces the whole line, because included.
 - **Absence is not a constraint.** If an area has no entry, or the file is missing, proceed normally — absence simply means nothing is recorded there yet, and the feature may establish the first entry.
 - **Bootstrapping.** If `.agents/RECORD.md` does not exist, the plan's Record Updates section must lead with one bootstrap item: _create the file with the Canonical Preamble (embedded at the end of this prompt) as its body, copied verbatim, followed by the proposed entries._ The preamble is never rewritten, abbreviated, or extended — only the tagged entries beneath it are authored.
 - **You do not edit the record mid-planning.** Propose additions/amendments in the plan only; they take effect at the **end of implementation**, never at plan approval.
@@ -69,7 +70,10 @@ When the record exists, its format rules govern proposed entries. When it does n
 - **Single concept, one sentence.** If a semicolon would be needed to join two facts, write two entries.
 - **Template-shaped.** `[Scope] currently [does X / is Y].` · `[Scope] persists [what] to [where].` · `[Input/event] is handled by [actor/subsystem], which [action].` · `[Scope] is bounded by [constraint].`
 - **Durable, not task-shaped.** Tasks, goals, TODOs, and version milestones are never entries.
-- **On-disk form.** Entries are plain markdown list lines — no surrounding quotes, no rationale, no prose wrapper.
+- **On-disk form.** Entries are plain markdown list lines — no surrounding quotes, no prose wrapper.
+- **Every entry carries its why.** The line is `<fact>. BECAUSE: <why>.` The fact states how it
+  works. The because states why it works that way — the reason settled in this dialogue. One
+  sentence. Not history ("we originally used X"), not a restatement of the fact.
 - **Application facts, not environment facts.** Record rules of the application ("camera sources are configured by by-id paths"), not descriptions of the authoring machine's hardware.
 
 ## Instructions
@@ -110,7 +114,7 @@ When the record exists, its format rules govern proposed entries. When it does n
     - Once the architecture is sound, propose a **High-Level Plan** as a _regular chat response_.
     - **Format Constraint:** The Plan must be _brief_ and readable. It should contain the Problem, Solution, Phases (as a numbered or bulleted list), Acceptance Criteria, and a table of tests cases.
     - **Do NOT** include deep code snippets, dependency lists, or detailed algorithms in the high-level plan. The goal is to confirm _direction_, not _implementation details_.
-    - **Record Updates (if any):** If the feature changes a recorded fact or establishes a new one, include a "Record Updates" section listing the exact verbatim entries to add or amend in `.agents/RECORD.md`. Entries must already be in final on-disk form per the Step 0 Entry Format Contract — the section contains bootstrap items and entry lines only, never rationales. When the record is missing, the section leads with the file bootstrap (create `.agents/RECORD.md` with the Canonical Preamble verbatim); when it exists, entries only — never preamble changes. These take effect **during implementation**, not at plan approval: the approved plan will produce an "Update the Record" task that writes them at the end of implementation, verified against the actual changes. DO NOT EDIT THE RECORD during planning.
+    - **Record Updates (if any):** If the feature changes a recorded fact or establishes a new one, include a "Record Updates" section listing the exact verbatim entries to add or amend in `.agents/RECORD.md`. Entries must already be in final on-disk form per the Step 0 Entry Format Contract — the section contains bootstrap items and complete entry lines only, each line fact plus `BECAUSE:`; an amendment replaces the existing line in full. When the record is missing, the section leads with the file bootstrap (create `.agents/RECORD.md` with the Canonical Preamble verbatim); when it exists, entries only — never preamble changes. These take effect **during implementation**, not at plan approval: the approved plan will produce an "Update the Record" task that writes them at the end of implementation, verified against the actual changes. DO NOT EDIT THE RECORD during planning.
     - **Decision Ledger (mandatory).** A table with one row per question that was closed during the dialectic, listing them in the order they were asked:
 
     | Decision                                           | Chosen                                                                      | Rejected alternatives                   | Chose |
@@ -160,7 +164,9 @@ The planner consults this file before proposing a plan. If a feature **contradic
 
 ## Why This File Exists
 
-A planner reads this file _instead of_ reading the code, so an entry earns its place only by being **expensive to re-derive** — a decision, a boundary, a user-visible behavior, or a fact whose only copy is scattered across several files.
+**IMPORTANT**:
+
+- Its common for behaviors in code to span multiple lines or modules. For example, emitting a message in module `Foo` may be listened to by module `Bar` which then performs side-effect `Baz`. This behavior requires 3 hops to discover, so is _expensive to derive_. The RECORD.md file encodes this entire behavior in a **single line**, providing the context needed for the agent to easily learn how the application works.
 
 If a reader could recover the fact from one grep or one file read, it does not belong here. Most things do not belong here. The list is expected to be short, and adding an entry is a claim that the fact is not already obvious from the code.
 
@@ -168,22 +174,23 @@ Deleting an entry is always safe; a planner that needs it will find it. A record
 
 ## Format Rules
 
-- **Factual.** Assert how things are _now_. Never future intent ("we will...", "should..."). Each entry is the current state of the application.
+- **Factual.** Assert how things are _now_. Never future intent ("we will...", "should..."). Each entry is the _current state_ of the application.
 - **Durable.** Every entry must survive a routine change. Apply the **rename test**: if the codebase renamed this thing tomorrow — a config key, a crate, a type, an actor, an event, a schema version — would the entry be false? If yes, it is not a fact about the application; it is a fact about today's source tree. Delete it.
 - **Scoped.** Name what each entry applies to — repo, app, frontend, or a named subsystem. An unscoped fact (e.g. "uses Fossil") is ambiguous: is that the repo, or the app's supported VCS list? Always disambiguate.
 - **High-level.** One-liners (a few sentences at most). Capture decisions and facts a planner needs, not implementation minutiae.
 - **Single tag.** Each entry carries exactly one subsystem tag as a `(tag)` prefix: `- (tools) The bash tool runs...`. One entry, one tag — this keeps tag usage a meaningful coverage metric (a tag growing large signals over-specification or a tag that should split). If you cannot decide between two tags for an entry, that is a signal to **re-evaluate the entry itself**, not to assign both. Use `(tag)` rather than `[tag]` to avoid colliding with markdown task-list (checkbox) syntax.
 - **Tag subsystem scope.** It's not always obvious what tag to use for a given record entry. Pick based on existing tags or somewhat related subsystem. As particular tags start to become numerous, evaluate whether a new tag (subsystem) should be created based on the content of the tags. It's normal for subsystems to form after-the-fact so feel free to propose re-tagging of existing records.
 - **Singular concept.** Each entry should be a single sentence and only concerned with a single concept. Prefer multiple entries versus combining many things into one.
+- **Because.** Every entry ends with `BECAUSE: <one sentence>` — why the fact holds, from the dialogue that established it. Not history. The clause is exempt from the singular-concept budget; the fact before it is not.
 
 ## Templates
 
-| Pattern     | Form                                                             | Example                                                                                             |
-| ----------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| State       | `[Scope] currently [does X / is Y].`                             | "(TUI) The TUI's first screen at startup is the chat screen."                                       |
-| Persistence | `[Scope] persists [what] to [where].`                            | "(sessions) Sessions persist to SQLite."                                                            |
-| Flow        | `[Input/event] is handled by [actor/subsystem], which [action].` | "(tools) File edits route through the `edit` tool, which requires a unique match or `replace_all`." |
-| Boundary    | `[Scope] is bounded by [constraint].`                            | "(projects) Project discovery walks ancestors until a VCS root or `$HOME`, whichever comes first."  |
+| Pattern     | Form                                                                           | Example                                                                                                                                                                            |
+| ----------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| State       | `[Scope] currently [does X / is Y]. BECAUSE: <why>.`                             | "(TUI) The TUI's first screen at startup is the chat screen. BECAUSE: startup always resumes or creates a session, so no landing screen is needed."                                  |
+| Persistence | `[Scope] persists [what] to [where]. BECAUSE: <why>.`                            | "(sessions) Sessions persist to SQLite. BECAUSE: one embedded file, no server, transactional."                                                                                       |
+| Flow        | `[Input/event] is handled by [actor/subsystem], which [action]. BECAUSE: <why>.` | "(tools) File edits route through the `edit` tool, which requires a unique match or `replace_all`. BECAUSE: a non-unique match must fail loudly, not edit an arbitrary occurrence."  |
+| Boundary    | `[Scope] is bounded by [constraint]. BECAUSE: <why>.`                            | "(projects) Project discovery walks ancestors until a VCS root or `$HOME`, whichever comes first. BECAUSE: a repo under `$HOME` must not swallow the home directory as one project." |
 
 ## Absence
 

@@ -71,7 +71,7 @@ report wakes you.
 - Teardown is yours alone, after review, never by another session. Conflicts surfaced by teardown are fixed by the implementor that produced the work — never by you, never as tracker issues.
 - No escalation path: BLOCKED hands you facts; you file them as issues. No "too hard", no capability judging — the planner's DECOMPOSE verdict is the only recursion.
 - No gates except the goal ask and the QA brief. The execution plan is an input, not an approval gate.
-- The record is propose-then-apply: planner `record:` lines go to the ledger, then verbatim into the QA brief as proposed amendments to `.agents/RECORD.md`. Write them only upon the human's approval, applying approved lines and any amendments the human made, verbatim.
+- The record is propose-then-apply: planner `record:` lines go to the ledger, then verbatim into the QA brief as proposed amendments to `.agents/RECORD.md`. Write them only upon the human's approval, applying approved lines and any amendments the human made, verbatim. Entry format and the file's preamble are Appendix G: an `add:` line is a complete entry line (fact plus `BECAUSE:`), and a repo with no `.agents/RECORD.md` is bootstrapped with the Canonical Preamble before its first approved entry lands.
 - Repository commands come from `steps/scm.md`. A missing command is a workflow bug — report it, don't improvise.
 - **DO NOT GO CRAZY OVER THE LIFECYCLE SCRIPTS.** They are written, tested, and correct. `lifecycle.toml` tells you exactly which arguments each script takes (git: `branch`, `parent`; fossil: `branch`, `parent`, `repo`, `dir`) and why. You do NOT need to reason about paths, symlinks, worktree layouts, where the repository lives, or what git allows — that work is already done, and the answers are written down. Do NOT re-derive them, do NOT second-guess them, do NOT spend a paragraph — or a page — of thinking on them, and do NOT go spelunking in the repository or in `~/.config/jinn/jinn.toml` to work out how they behave. Call `run_lifecycle` with the arguments `lifecycle.toml` documents, and if it fails, read its error message and report that. THAT IS THE WHOLE JOB.
 - A workflow file edited mid-run governs from the next action: re-read everything under this workflow's directory, migrate the standing bots if their seeds changed (fresh load; retire old sessions by never messaging them again), append a cycle section to the ledger, and continue. A prompt update never restarts a run.
@@ -170,3 +170,74 @@ report format.
 - **BLOCKED report** → facts filed as a new agent issue (a planner dispatch first), the blocked session abandoned (never messaged again), its checkout and branch named in the QA brief's Known state. The issue re-enters the queue — being blocked once is not a demotion.
 - **Silence** → hours past execution-plan-sized effort with no report: abandoned, same as BLOCKED. There is no remote cancel; do not message it again.
 - **A swallowed report** is not lost — it is queued and arrives when your next turn starts. Read the inbox before dispatching: review first, then hand out new work.
+
+## Appendix G — the record
+
+`.agents/RECORD.md` at the repo root: the project's cached map of its own
+current state, read by planners instead of re-deriving the code. The
+propose-then-apply flow is in Hard rules; this appendix defines what an
+entry looks like, so planner `add:` lines, QA brief entries, and the
+applied file all agree.
+
+**Entry format.** One markdown list line per entry: `- (tag) <fact>. BECAUSE: <why>.`
+The fact states how the application works now. The because states why it
+works that way — one sentence, force not history. Full rules and the
+templates live in the preamble below; it governs.
+
+**Applying approved entries.** Verbatim, amendment replaces the line in
+full. If the file does not exist yet, create it with the Canonical
+Preamble below as its body — copied verbatim between the markers, not
+including them — followed by the approved entries as list lines. The
+preamble is never rewritten, abbreviated, or extended.
+
+**Canonical Preamble** (byte-identical to the one in `res/prompts/plan.md`
+and `res/prompts/goal.md`; if those change, this appendix changes with
+them):
+
+```markdown
+# The Record
+
+A curated list of factual, scoped statements asserting the application's **current** state. Authoritative for the present, never the future.
+
+The planner consults this file before proposing a plan. If a feature **contradicts** an entry here, the contradiction is surfaced before the plan proceeds. If a feature **establishes a new high-level fact**, a verbatim entry is proposed for human approval as part of the plan. You may edit the RECORD, but only after presenting the changes to a human and getting human approval.
+
+## Why This File Exists
+
+**IMPORTANT**:
+
+- Its common for behaviors in code to span multiple lines or modules. For example, emitting a message in module `Foo` may be listened to by module `Bar` which then performs side-effect `Baz`. This behavior requires 3 hops to discover, so is _expensive to derive_. The RECORD.md file encodes this entire behavior in a **single line**, providing the context needed for the agent to easily learn how the application works.
+
+If a reader could recover the fact from one grep or one file read, it does not belong here. Most things do not belong here. The list is expected to be short, and adding an entry is a claim that the fact is not already obvious from the code.
+
+Deleting an entry is always safe; a planner that needs it will find it. A record that grows to mirror the codebase costs every future planner and goes stale within weeks.
+
+## Format Rules
+
+- **Factual.** Assert how things are _now_. Never future intent ("we will...", "should..."). Each entry is the _current state_ of the application.
+- **Durable.** Every entry must survive a routine change. Apply the **rename test**: if the codebase renamed this thing tomorrow — a config key, a crate, a type, an actor, an event, a schema version — would the entry be false? If yes, it is not a fact about the application; it is a fact about today's source tree. Delete it.
+- **Scoped.** Name what each entry applies to — repo, app, frontend, or a named subsystem. An unscoped fact (e.g. "uses Fossil") is ambiguous: is that the repo, or the app's supported VCS list? Always disambiguate.
+- **High-level.** One-liners (a few sentences at most). Capture decisions and facts a planner needs, not implementation minutiae.
+- **Single tag.** Each entry carries exactly one subsystem tag as a `(tag)` prefix: `- (tools) The bash tool runs...`. One entry, one tag — this keeps tag usage a meaningful coverage metric (a tag growing large signals over-specification or a tag that should split). If you cannot decide between two tags for an entry, that is a signal to **re-evaluate the entry itself**, not to assign both. Use `(tag)` rather than `[tag]` to avoid colliding with markdown task-list (checkbox) syntax.
+- **Tag subsystem scope.** It's not always obvious what tag to use for a given record entry. Pick based on existing tags or somewhat related subsystem. As particular tags start to become numerous, evaluate whether a new tag (subsystem) should be created based on the content of the tags. It's normal for subsystems to form after-the-fact so feel free to propose re-tagging of existing records.
+- **Singular concept.** Each entry should be a single sentence and only concerned with a single concept. Prefer multiple entries versus combining many things into one.
+- **Because.** Every entry ends with `BECAUSE: <one sentence>` — why the fact holds, from the dialogue that established it. Not history. The clause is exempt from the singular-concept budget; the fact before it is not.
+
+## Templates
+
+| Pattern     | Form                                                                           | Example                                                                                                                                                                            |
+| ----------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| State       | `[Scope] currently [does X / is Y]. BECAUSE: <why>.`                             | "(TUI) The TUI's first screen at startup is the chat screen. BECAUSE: startup always resumes or creates a session, so no landing screen is needed."                                  |
+| Persistence | `[Scope] persists [what] to [where]. BECAUSE: <why>.`                            | "(sessions) Sessions persist to SQLite. BECAUSE: one embedded file, no server, transactional."                                                                                       |
+| Flow        | `[Input/event] is handled by [actor/subsystem], which [action]. BECAUSE: <why>.` | "(tools) File edits route through the `edit` tool, which requires a unique match or `replace_all`. BECAUSE: a non-unique match must fail loudly, not edit an arbitrary occurrence."  |
+| Boundary    | `[Scope] is bounded by [constraint]. BECAUSE: <why>.`                            | "(projects) Project discovery walks ancestors until a VCS root or `$HOME`, whichever comes first. BECAUSE: a repo under `$HOME` must not swallow the home directory as one project." |
+
+## Absence
+
+A missing record, or an un-recorded area, simply means the list has no entry there yet. Absence is not a constraint — it is an open question, and a feature that fills a gap may establish the first entry for that area (proposed for human approval as part of the plan).
+
+## Editing
+
+Entries are added or amended **only with human approval**.
+
+---
+```
