@@ -1,5 +1,10 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- Update `RECORD.md` templates to now contain a `BECAUSE:` clause to explain _why_ a fact exists.
+- Add anti-hedging instructions to `#lookup` and `#research` prompts.
+
 ## 2026-11-04 v0.20.0
 
 - Update `#research` prompt to generate a more comprehensive report.
