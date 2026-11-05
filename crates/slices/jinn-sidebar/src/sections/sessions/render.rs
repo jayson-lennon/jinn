@@ -367,83 +367,12 @@ pub fn render_archive_tree_prompt_for_state(
     render_right_aligned_banner(frame, frame_area, prompt_y, &text, bg);
 }
 
-/// Renders the "Session ID yanked" confirmation banner as a floating surface.
-///
-/// Painted in the sidebar's floating-surface layer (`Region::FloatingSurfaces`),
-/// after every base column, so the banner may extend left over the input box.
-/// Anchored 1 row above the focused section's cursor row and right-aligned to
-/// the frame's right edge — the same geometry as the close-session prompt. The
-/// background is the theme's success color, so the banner reads as a healthy
-/// confirmation in whatever theme is in force; the fg stays the black every
-/// banner uses against a saturated bg.
-///
-/// The banner renders in the three sections that keep a session in their
-/// cursor — sessions, bots, and library — because those are the sections
-/// whose `y` press armed it. Each of them anchors to its own cursor, so the
-/// banner stays attached to the row it describes.
-pub fn render_session_id_yank_popup_for_state(
-    frame: &mut Frame<'_>,
-    sidebar_rect: Rect,
-    frame_area: Rect,
-    ctx: &dyn DrawContext<AppState>,
-) {
-    let state = ctx.state();
-    if !state.frontend.session_id_yank_popup || !state.frontend.is_sidebar() {
-        return;
-    }
-    let Some(focused) = yank_banner_section(state.frontend.sidebar_section()) else {
-        return;
-    };
-    if cursor_row_absent(state, focused) {
-        return;
-    }
-
-    // Shared cursor-row math: see `render_sidebar_cursor_y`.
-    let prompt_y = render_sidebar_cursor_y(sidebar_rect, state, ctx.config(), focused)
-        .saturating_sub(BANNER_GAP);
-    let text = " Session ID yanked ";
-    render_right_aligned_banner(
-        frame,
-        frame_area,
-        prompt_y,
-        text,
-        state.frontend.theme.success,
-    );
-}
-
-/// The focused section, when it is one of the three the yank banner renders
-/// in — the same set whose `y` press arms it.
-fn yank_banner_section(
-    section: Option<jinn_sidebar_msg::SidebarSectionId>,
-) -> Option<jinn_sidebar_msg::SidebarSectionId> {
-    match section? {
-        section @ (jinn_sidebar_msg::SidebarSectionId::Sessions
-        | jinn_sidebar_msg::SidebarSectionId::Bot
-        | jinn_sidebar_msg::SidebarSectionId::Library) => Some(section),
-        _ => None,
-    }
-}
-
-/// Whether the section's cursor names nothing to anchor to.
-fn cursor_row_absent(state: &AppState, section: jinn_sidebar_msg::SidebarSectionId) -> bool {
-    state.frontend.with_sections(
-        |s| match section {
-            jinn_sidebar_msg::SidebarSectionId::Sessions => s.sessions.selected_id.is_none(),
-            jinn_sidebar_msg::SidebarSectionId::Bot => s.bot.selected_id.is_none(),
-            jinn_sidebar_msg::SidebarSectionId::Library => s.library.selected_id.is_none(),
-            _ => true,
-        },
-        || true,
-    )
-}
-
 /// Computes a section's cursor row inside the sidebar rect.
 ///
-/// Runs the same document layout the `Sidebar` container uses, so the banner
-/// stays attached to the cursor even when the sidebar is scrolled. `section`
-/// says which section's cursor anchors the row; the close-session and
-/// archive-tree prompts pass Sessions, the yank banner passes the focused
-/// section.
+/// Runs the same document layout the `Sidebar` container uses, so the
+/// floating prompts stay attached to the cursor even when the sidebar is
+/// scrolled. `section` says which section's cursor anchors the row; the
+/// close-session and archive-tree prompts pass Sessions.
 fn render_sidebar_cursor_y(
     sidebar_rect: Rect,
     state: &AppState,

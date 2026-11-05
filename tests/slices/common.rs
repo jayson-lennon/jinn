@@ -119,6 +119,7 @@ pub async fn launch_for_test(core: AppCore, mut services: jinn_kernel::Services)
         selection: SelectionState::Idle,
         selectable_rects: SelectableRects::default(),
         pending_clipboard: false,
+        clipboard_writer: jinn_tui::clipboard_writer::ClipboardWriter::arboard(),
         config: TuiConfig::default(),
     }
 }

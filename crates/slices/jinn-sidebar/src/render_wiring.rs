@@ -285,12 +285,6 @@ pub fn draw_floating_surfaces(
         frame_area,
         ctx,
     );
-    crate::sections::sessions::render_session_id_yank_popup_for_state(
-        frame,
-        sidebar_rect,
-        frame_area,
-        ctx,
-    );
     crate::sections::sessions::render_session_preview_for_state(
         frame,
         sidebar_rect,
