@@ -1,6 +1,6 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
-## (development)
+## 2026-11-04 v0.20.0
 
 - Update `#research` prompt to generate a more comprehensive report.
 - Add `#lookup` prompt to do a quick web search.
