@@ -133,7 +133,7 @@ path the dispatch names.
    - READY <issue-id>-<slug> <execution-plan-path>
    - end state in a few sentences
    - anything the orchestrator must decide (or "none")
-   - record.md changes: `update:`/`remove:` + existing entry, or `add:` + proposed line, verbatim (or "none")
+   - record.md changes: `update:`/`remove:` + existing entry, or `add:` + proposed line verbatim in full on-disk form — `<fact>. BECAUSE: <why>.` (or "none")
 
    OR:
 
