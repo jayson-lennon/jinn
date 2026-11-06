@@ -155,8 +155,40 @@ impl SessionPersistenceActor {
         }
         // The `Err` arm returned above, so the `Ok` payload is a plain value
         // here — no re-`expect` on a `Result` clippy already knows is checked.
+        //
+        // The settle is inlined rather than delegated to `settle_turn`:
+        // that helper derives the outcome from `history().last()`, and by
+        // give-up time the tail is this watchdog's own retry/wait markers —
+        // system entries that would read as `Succeeded` for a failed turn.
+        // The give-up knows the outcome by construction, so it publishes
+        // `Error` explicitly (the same trust boundary the `Cancel` arm
+        // draws with its literal `Canceled`).
         if let Ok(Some(settlement)) = ack {
-            self.settle_turn(session_id, settlement.next).await;
+            debug_assert_eq!(settlement.next, Next::End, "give-up always ends");
+            let (old, new) = self.state.with_session(|view| {
+                let session = view.session.map().get_or_create(session_id);
+                let old = session.phase();
+                session.settle_to_idle();
+                // The settled turn owns the in-flight guard; the settle
+                // kills both, exactly as the ordinary fold's settle does.
+                session.clear_stream_generation();
+                (old, session.phase())
+            });
+            if old != new {
+                jinn_kernel::common::phase_events::publish_phase_change(
+                    self.bus(),
+                    session_id,
+                    old,
+                    new,
+                )
+                .await;
+            }
+            self.bus()
+                .publish(jinn_session_msg::TurnCompleted {
+                    session_id: session_id.clone(),
+                    outcome: jinn_session_msg::TurnOutcome::Error,
+                })
+                .await;
         }
 
         super::super::helpers::emit_history_appended(self.bus(), session_id).await;

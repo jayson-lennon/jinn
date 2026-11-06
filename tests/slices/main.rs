@@ -40,6 +40,7 @@ mod model_market_actors;
 mod phase_control;
 mod preferences;
 mod project;
+mod provider_error_watchdog;
 mod provider_selection;
 mod quake_bar;
 mod session_init;
