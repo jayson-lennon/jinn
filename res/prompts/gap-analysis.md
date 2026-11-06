@@ -15,6 +15,15 @@ Read the plan/spec from the `.plans/` directory. There may be multiple from othe
 
 After reading the plan/spec, browse the codebase and use your context history to ensure that the Acceptance Criteria section was actually met. Evaluate each entry in the Acceptance Criteria 1 by 1 to ensure compliance.
 
+## Brevity — the example below is the required shape and length
+
+Each AC section is a **Status line plus 1–2 sentences of Evidence**, nothing more. The report is a verdict, not an audit log — its job is to flag gaps, not to prove you checked everything.
+
+- State the single decisive fact per AC. If many mechanisms satisfy one AC, compress them into one summary sentence ("all reload paths re-resolve at check time") — never one bullet per mechanism.
+- Cite at most one code/test location per sentence (`file.rs:123` or a test name). Do not enumerate every file, test, and line number you verified; the reader assumes you checked them.
+- No nested bullets, no quoted code, no test-name inventories. A recommendation is one sentence. The whole report fits on one screen.
+- The Record reconciliation section follows the same rule: one line per finding, matching the example.
+
 ## Record reconciliation
 
 If the spec/plan included "Record Updates", also **confirm accuracy against the actual implementation**. Read `.agents/RECORD.md` if it exists. The implementer writes Record updates at the end of implementation (via the "Update the Record" task), so by the time you check, the Record should already reflect this work.
