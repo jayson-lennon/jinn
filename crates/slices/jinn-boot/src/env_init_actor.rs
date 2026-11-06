@@ -226,6 +226,7 @@ mod tests {
     /// Unique env-var names so parallel test runs never collide.
     const SET_VAR: &str = "JINN_TEST_MCP_HEADER_RESOLVED";
     const RELOAD_VAR: &str = "JINN_TEST_PROVIDERS_RELOAD_KEY";
+    const RELOAD_VAR_SECOND: &str = "JINN_TEST_PROVIDERS_RELOAD_KEY_2";
     const MISSING_VAR: &str = "JINN_TEST_MCP_HEADER_NEVER_SET";
 
     /// A document declaring one MCP server whose headers reference the
@@ -422,13 +423,13 @@ mod tests {
     async fn a_providers_reload_resolves_a_changed_env_var_name() {
         // Given an env-init actor with no key in the store.
         // SAFETY: single-threaded test setup; unique var name avoids races.
-        unsafe { std::env::set_var(RELOAD_VAR, "fresh-value") };
+        unsafe { std::env::set_var(RELOAD_VAR_SECOND, "fresh-value") };
         let harness = TestHarness::new().await;
         let services = harness.services().await;
         let bus = harness.bus();
 
         // When a reload lands whose provider now names the env var.
-        seed_providers_storage(&services, &format!("{RELOAD_VAR}=kept"));
+        seed_providers_storage(&services, &format!("{RELOAD_VAR_SECOND}=kept"));
         let path = EnvInitActor::spawn(
             &services.trouper_system,
             EnvInitActorDeps {
@@ -447,12 +448,12 @@ mod tests {
 
         // Then the new env var is resolved and cached.
         assert_eq!(
-            services.api_keys.get(RELOAD_VAR),
+            services.api_keys.get(RELOAD_VAR_SECOND),
             Some("fresh-value".to_owned()),
             "the reload resolved the new key"
         );
         // SAFETY: removing the test-only var set above; no concurrent readers.
-        unsafe { std::env::remove_var(RELOAD_VAR) };
+        unsafe { std::env::remove_var(RELOAD_VAR_SECOND) };
     }
 
     #[rstest::rstest]
