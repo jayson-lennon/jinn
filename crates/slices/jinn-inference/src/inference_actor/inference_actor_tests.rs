@@ -91,13 +91,55 @@ mod test_fakes {
             Err(Report::new(LlmServiceError::Provider))
         }
     }
+
+    /// Factory that produces [`RetryableErroringLlmService`] instances.
+    #[derive(Debug)]
+    pub(in crate::inference_actor) struct RetryableErroringLlmFactory;
+
+    impl LlmServiceFactory for RetryableErroringLlmFactory {
+        fn create(&self) -> Result<Box<dyn LlmService>, Report<LlmServiceError>> {
+            Ok(Box::new(RetryableErroringLlmService))
+        }
+        fn name(&self) -> &'static str {
+            "RetryableErroringLlm"
+        }
+    }
+
+    /// A service whose stream construction fails with a transient (retryable)
+    /// error — the class the fast tier would retry and the watchdog may
+    /// re-schedule.
+    #[derive(Debug)]
+    struct RetryableErroringLlmService;
+
+    #[async_trait::async_trait]
+    impl LlmService for RetryableErroringLlmService {
+        fn name(&self) -> &'static str {
+            "RetryableErroringLlm"
+        }
+        async fn chat_stream(
+            &self,
+            _system_prompt: Option<&str>,
+            _messages: Vec<jinn_provider::LlmMessage>,
+        ) -> Result<ChatStream, Report<LlmServiceError>> {
+            Err(Report::new(LlmServiceError::Retryable))
+        }
+        async fn chat_stream_with_tools(
+            &self,
+            _system_prompt: Option<&str>,
+            _messages: Vec<jinn_provider::LlmMessage>,
+            _tools: Vec<jinn_core_types::ToolDefinition>,
+        ) -> Result<ToolStream, Report<LlmServiceError>> {
+            Err(Report::new(LlmServiceError::Retryable))
+        }
+    }
 }
 
 use super::*;
 use crate::session::SessionState;
-use test_fakes::{ErroringLlmFactory, HangingLlmFactory};
+use test_fakes::{ErroringLlmFactory, HangingLlmFactory, RetryableErroringLlmFactory};
 
 use jinn_inference_msg::{StreamActivity, StreamOrigin};
+use jinn_preferences_config::schemas::RequestRetryConfig;
 use jinn_provider::FakeLlmServiceFactory;
 use jinn_testutil::bus_harness::{TestHarness, await_recorded};
 
@@ -191,6 +233,7 @@ async fn handle_stream_completed_error_reason_removes_session() {
         dispatched_at: jiff::Timestamp::now(),
         turn: jinn_core_types::turn_identity::TurnToken::from_counter(101),
         stream: jinn_core_types::turn_identity::StreamId::from_counter(101),
+        retryable: false,
     };
     actor.handle_stream_completed(&payload);
 
@@ -223,6 +266,7 @@ async fn handle_stream_completed_finished_reason_removes_session() {
         dispatched_at: jiff::Timestamp::now(),
         turn: jinn_core_types::turn_identity::TurnToken::from_counter(102),
         stream: jinn_core_types::turn_identity::StreamId::from_counter(102),
+        retryable: false,
     };
     actor.handle_stream_completed(&payload);
 
@@ -258,6 +302,7 @@ async fn handle_stream_completed_tool_use_keeps_session() {
         dispatched_at: jiff::Timestamp::now(),
         turn: jinn_core_types::turn_identity::TurnToken::from_counter(103),
         stream: jinn_core_types::turn_identity::StreamId::from_counter(103),
+        retryable: false,
     };
     actor.handle_stream_completed(&payload);
 
@@ -290,6 +335,7 @@ async fn handle_stream_completed_unknown_session_is_noop() {
         dispatched_at: jiff::Timestamp::now(),
         turn: jinn_core_types::turn_identity::TurnToken::from_counter(104),
         stream: jinn_core_types::turn_identity::StreamId::from_counter(104),
+        retryable: false,
     };
     actor.handle_stream_completed(&payload);
 
@@ -664,7 +710,7 @@ fn scripted_stream(events: Vec<jinn_provider::StreamEvent>) -> jinn_provider::To
 #[tokio::test]
 async fn process_stream_events_completes_on_done_event() {
     // Given a stream that yields a token then Done.
-    use jinn_provider::{StopReason, StreamEvent};
+    use jinn_provider::StreamEvent;
     let harness = TestHarness::new().await;
     let stream = scripted_stream(vec![
         StreamEvent::Text("hi".to_owned()),
@@ -705,7 +751,7 @@ async fn process_stream_events_completes_on_done_event() {
 async fn done_overrides_model_used_with_response_model() {
     // Given a stream whose Done carries the provider's routed model, while
     // the requested model was the dispatcher's.
-    use jinn_provider::{StopReason, StreamEvent};
+    use jinn_provider::StreamEvent;
     let harness = TestHarness::new().await;
     let stream = scripted_stream(vec![
         StreamEvent::Text("hi".to_owned()),
@@ -745,7 +791,7 @@ async fn done_overrides_model_used_with_response_model() {
 async fn done_without_model_keeps_request_model() {
     // Given a stream whose Done carries no model (a transport that never
     // echoes one), requested as "test-model".
-    use jinn_provider::{StopReason, StreamEvent};
+    use jinn_provider::StreamEvent;
     let harness = TestHarness::new().await;
     let stream = scripted_stream(vec![
         StreamEvent::Text("hi".to_owned()),
@@ -889,7 +935,7 @@ async fn tool_only_stream_publishes_no_stream_tokens() {
 #[tokio::test]
 async fn process_stream_events_publishes_no_activity_for_the_terminal_done_event() {
     // Given a stream whose only non-terminal event is a single text token.
-    use jinn_provider::{StopReason, StreamEvent};
+    use jinn_provider::StreamEvent;
     let harness = TestHarness::new().await;
     let activity_recorder = harness.spawn_recorder::<StreamActivity>().await;
     let stream = scripted_stream(vec![
@@ -1094,7 +1140,7 @@ async fn run_with_rules(
 #[tokio::test]
 async fn an_intercepted_delta_publishes_no_stream_token() {
     // Given a stream whose second token trips the rule.
-    use jinn_provider::{StopReason, StreamEvent};
+    use jinn_provider::StreamEvent;
     let harness = TestHarness::new().await;
     let stream = scripted_stream(vec![
         StreamEvent::Text("harmless ".to_owned()),
@@ -1127,7 +1173,7 @@ async fn an_intercepted_delta_publishes_no_stream_token() {
 #[tokio::test]
 async fn an_intercept_completes_the_stream_as_a_rule_intercept() {
     // Given a stream that trips the rule.
-    use jinn_provider::{StopReason, StreamEvent};
+    use jinn_provider::StreamEvent;
     let harness = TestHarness::new().await;
     let stream = scripted_stream(vec![
         StreamEvent::Text("FORBIDDEN".to_owned()),
@@ -1181,7 +1227,7 @@ async fn an_intercept_publishes_no_cancelled_completion() {
 #[tokio::test]
 async fn an_intercept_injects_the_rule_body_as_a_user_entry() {
     // Given a stream that trips the rule.
-    use jinn_provider::{StopReason, StreamEvent};
+    use jinn_provider::StreamEvent;
     let harness = TestHarness::new().await;
     // The stream completes: a rule whose evidence rides the buffer's final
     // bytes fires at the stream's end, so the scripted response must carry
@@ -1217,7 +1263,7 @@ async fn an_intercept_injects_the_rule_body_as_a_user_entry() {
 #[tokio::test]
 async fn an_intercept_injects_guidance_the_model_can_still_read() {
     // Given a stream that trips the rule.
-    use jinn_provider::{StopReason, StreamEvent};
+    use jinn_provider::StreamEvent;
     let harness = TestHarness::new().await;
     // Completing stream, as in the guidance test above: the intercept fires
     // at the stream's end when the held match is released.
@@ -1350,7 +1396,7 @@ async fn an_intercepted_tool_call_still_reaches_the_chat_log() {
 #[tokio::test]
 async fn an_intercept_aborts_the_stream_before_the_done_event() {
     // Given a stream that would otherwise complete normally after tripping.
-    use jinn_provider::{StopReason, StreamEvent};
+    use jinn_provider::StreamEvent;
     let harness = TestHarness::new().await;
     let stream = scripted_stream(vec![
         StreamEvent::Text("FORBIDDEN".to_owned()),
@@ -1394,7 +1440,7 @@ async fn an_intercept_aborts_the_stream_before_the_done_event() {
 #[tokio::test]
 async fn a_stream_with_no_rule_completes_unchanged() {
     // Given a stream with a clean token and a Done.
-    use jinn_provider::{StopReason, StreamEvent};
+    use jinn_provider::StreamEvent;
     let harness = TestHarness::new().await;
     let stream = scripted_stream(vec![
         StreamEvent::Text("hello".to_owned()),
@@ -1424,7 +1470,7 @@ async fn a_stream_with_no_rule_completes_unchanged() {
 #[tokio::test]
 async fn a_rule_that_matches_nothing_leaves_the_stream_untouched() {
     // Given a stream whose tokens no rule matches, and a rule installed.
-    use jinn_provider::{StopReason, StreamEvent};
+    use jinn_provider::StreamEvent;
     let harness = TestHarness::new().await;
     let stream = scripted_stream(vec![
         StreamEvent::Text("all fine".to_owned()),
@@ -1667,7 +1713,7 @@ async fn an_undated_cancel_applies_to_whichever_generation_is_current() {
 /// Returns the rule name rather than a bool so the two deliveries can be
 /// compared on *which* rule fired as well as on whether one did.
 async fn fired_rule_for(harness: &TestHarness, chunks: &[&str]) -> Option<String> {
-    use jinn_provider::{StopReason, StreamEvent};
+    use jinn_provider::StreamEvent;
     let stream = scripted_stream(
         chunks
             .iter()
@@ -2179,4 +2225,192 @@ async fn a_legitimate_stream_is_not_interrupted_as_a_loop() {
             .any(|c| c.reason == StreamCompletedReason::Finished),
         "an ordinary stream must complete normally"
     );
+
+// Provider-error retryability stamp
+// ------------------------------------------------------------------
+
+#[rstest::rstest]
+#[case(LlmServiceError::Retryable, true)]
+#[case(LlmServiceError::RateLimited { retry_after: None }, true)]
+#[case(LlmServiceError::Provider, false)]
+#[case(LlmServiceError::ApiKey, false)]
+#[case(LlmServiceError::Config, false)]
+fn construction_error_classification_names_transient_classes_retryable(
+    #[case] error: LlmServiceError,
+    #[case] expected: bool,
+) {
+    // Given a stream-construction failure of the given class.
+    let report = Report::new(error);
+
+    // When classifying it.
+    let retryable = classify_construction_error(&report);
+
+    // Then only the transient transport classes are retryable.
+    assert_eq!(retryable, expected);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_transient_construction_failure_stamps_the_completion_retryable() {
+    // Given an actor whose service fails stream construction with a
+    // transient (retryable) error, and a fast tier of zero retries so the
+    // error completion publishes immediately instead of after the
+    // decorator's backoff.
+    let harness = TestHarness::new().await;
+    let mut actor = test_llm_actor_with_factory(&harness, RetryableErroringLlmFactory).await;
+    actor
+        .services
+        .config
+        .put::<RequestRetryConfig>(&RequestRetryConfig {
+            max_retries: 0,
+            ..RequestRetryConfig::default()
+        })
+        .expect("test seed: the fast tier is disabled");
+    let completed_recorder = harness.spawn_recorder::<StreamCompleted>().await;
+
+    // When a dispatch runs.
+    let session_id = SessionId::new();
+    actor.start_stream(&dispatch_for(&session_id)).await;
+
+    // Then the error completion is stamped retryable.
+    let completed = await_recorded(&completed_recorder, 1, std::time::Duration::from_secs(5)).await;
+    let emitted = completed
+        .iter()
+        .find(|sc| sc.reason == StreamCompletedReason::Error)
+        .expect("the construction failure publishes an error completion");
+    assert!(
+        emitted.retryable,
+        "a transient construction failure must carry the retry verdict"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_deterministic_construction_failure_stamps_the_completion_non_retryable() {
+    // Given an actor whose service fails stream construction with a
+    // provider error a retry cannot fix.
+    let harness = TestHarness::new().await;
+    let mut actor = test_llm_actor_with_factory(&harness, ErroringLlmFactory).await;
+    let completed_recorder = harness.spawn_recorder::<StreamCompleted>().await;
+
+    // When a dispatch runs.
+    let session_id = SessionId::new();
+    actor.start_stream(&dispatch_for(&session_id)).await;
+
+    // Then the error completion is stamped non-retryable.
+    let completed = await_recorded(&completed_recorder, 1, std::time::Duration::from_secs(5)).await;
+    let emitted = completed
+        .iter()
+        .find(|sc| sc.reason == StreamCompletedReason::Error)
+        .expect("the construction failure publishes an error completion");
+    assert!(
+        !emitted.retryable,
+        "a provider-class construction failure must not ask for a retry"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_unknown_provider_stamps_the_completion_non_retryable() {
+    // Given an actor dispatching to a provider id no registry entry names —
+    // the factory-resolution failure site.
+    let harness = TestHarness::new().await;
+    let mut actor = test_llm_actor(&harness).await;
+    let completed_recorder = harness.spawn_recorder::<StreamCompleted>().await;
+
+    let session_id = SessionId::new();
+    let payload = SendToLlmProvider {
+        provider_id: Some("no-such-provider/no-such-model".to_owned()),
+        ..dispatch_for(&session_id)
+    };
+
+    // When the dispatch runs.
+    actor.start_stream(&payload).await;
+
+    // Then the error completion is stamped non-retryable.
+    let completed = await_recorded(&completed_recorder, 1, std::time::Duration::from_secs(5)).await;
+    let emitted = completed
+        .iter()
+        .find(|sc| sc.reason == StreamCompletedReason::Error)
+        .expect("the resolve failure publishes an error completion");
+    assert!(
+        !emitted.retryable,
+        "a config-class resolve failure must not ask for a retry"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_midstream_provider_error_carries_the_parser_verdict_through() {
+    // Given a stream whose provider emits an error event classified
+    // non-retryable by its parser (a deterministic error type).
+    use jinn_provider::StreamEvent;
+    let harness = TestHarness::new().await;
+    let completed_recorder = harness.spawn_recorder::<StreamCompleted>().await;
+    let stream = scripted_stream(vec![
+        StreamEvent::Text("partial".to_owned()),
+        StreamEvent::Error {
+            error_type: "authentication_error".to_owned(),
+            message: "bad key".to_owned(),
+            retryable: false,
+        },
+    ]);
+    let sid = SessionId::new();
+
+    // When processing the stream.
+    process_stream_events(
+        stream,
+        &harness.bus(),
+        &sid,
+        "test-model",
+        jiff::Timestamp::now(),
+        jinn_core_types::turn_identity::TurnToken::from_counter(112),
+        jinn_core_types::turn_identity::StreamId::from_counter(112),
+        None,
+    )
+    .await;
+
+    // Then the completion carries the parser's verdict, not a blanket one.
+    let completed = await_recorded(&completed_recorder, 1, std::time::Duration::from_secs(5)).await;
+    let emitted = completed
+        .iter()
+        .find(|sc| sc.reason == StreamCompletedReason::Error)
+        .expect("the error event publishes an error completion");
+    assert!(!emitted.retryable);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_dying_stream_stamps_its_completion_retryable() {
+    // Given a stream whose item resolves to an error (a dropped connection).
+    use jinn_provider::StreamEvent;
+    let harness = TestHarness::new().await;
+    let completed_recorder = harness.spawn_recorder::<StreamCompleted>().await;
+    let items: Vec<Result<StreamEvent, Report<LlmServiceError>>> = vec![
+        Ok(StreamEvent::Text("partial".to_owned())),
+        Err(Report::new(LlmServiceError::Retryable)),
+    ];
+    let stream: jinn_provider::ToolStream = Box::pin(futures::stream::iter(items));
+    let sid = SessionId::new();
+
+    // When processing the stream.
+    process_stream_events(
+        stream,
+        &harness.bus(),
+        &sid,
+        "test-model",
+        jiff::Timestamp::now(),
+        jinn_core_types::turn_identity::TurnToken::from_counter(113),
+        jinn_core_types::turn_identity::StreamId::from_counter(113),
+        None,
+    )
+    .await;
+
+    // Then the completion is stamped retryable: a dropped stream is transient.
+    let completed = await_recorded(&completed_recorder, 1, std::time::Duration::from_secs(5)).await;
+    let emitted = completed
+        .iter()
+        .find(|sc| sc.reason == StreamCompletedReason::Error)
+        .expect("the chunk error publishes an error completion");
+    assert!(emitted.retryable);
 }

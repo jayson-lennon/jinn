@@ -189,6 +189,15 @@ pub struct RetryStalledSession {
     pub max_restarts: u32,
 }
 
+/// Settle the turn a retryable provider error deferred, after the
+/// provider-error watchdog exhausted its schedule.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Command)]
+#[schema(description = "Settle a turn whose provider-error retries are exhausted.")]
+pub struct GiveUpProviderRetries {
+    /// The session whose deferred error should now settle.
+    pub session_id: SessionId,
+}
+
 /// Emitted after a session's close workflow has completed.
 #[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event)]
 #[schema(description = "A session close workflow completed.")]
@@ -228,6 +237,7 @@ pub struct SessionArchiveFailed {
 // ── wire contracts ──────────────────────────────────────────────────
 
 impl jinn_slices::BusMessage for MarkSessionInteracted {}
+impl jinn_slices::BusMessage for GiveUpProviderRetries {}
 impl jinn_slices::BusMessage for RetryStalledSession {}
 impl jinn_slices::BusMessage for SessionClosed {}
 impl jinn_slices::BusMessage for SessionRemoved {}

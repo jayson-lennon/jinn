@@ -16,7 +16,9 @@ use jinn_config::ConfigLayer;
 use crate::schemas::{
     AppletsConfig, AutoPruneConfig, CanvasConfig, ChatLogConfig, CompactionConfig,
     CwdSelectorConfig, DictationConfig, DiscordConfig, InteractiveTermPrefs, MaintenanceConfig,
-    McpServersConfig, MinimapConfig, ReasoningLoopWatchdogConfig, RemoteConfig, RequestRetryConfig,
+    McpServersConfig, MinimapConfig, ProviderErrorWatchdogConfig, ReasoningLoopWatchdogConfig,
+    RemoteConfig, RequestRetryConfig, ShellConfig, SkillsConfig, StallWatchdogConfig,
+    StreamRuleWatchdogConfig, ToolCallWatchdogConfig, ToolsConfig, WebSearchConfig,
     ShellConfig, SkillsConfig, StallWatchdogConfig, StreamRuleWatchdogConfig,
     ToolCallWatchdogConfig, ToolsConfig, WebSearchConfig,
 };
@@ -67,6 +69,7 @@ pub fn register_all_sections(config: &ConfigLayer) {
     config.register::<ToolCallWatchdogConfig>();
     config.register::<ReasoningLoopWatchdogConfig>();
     config.register::<StreamRuleWatchdogConfig>();
+    config.register::<ProviderErrorWatchdogConfig>();
     config.register::<AutoPruneConfig>();
     config.register::<InteractiveTermPrefs>();
     config.register::<ShellConfig>();

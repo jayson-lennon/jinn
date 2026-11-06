@@ -161,6 +161,7 @@ impl SessionPersistenceActor {
             dispatched_at,
             turn,
             stream,
+            retryable: false,
         })
         .await;
     }
@@ -278,6 +279,23 @@ impl SessionPersistenceActor {
         if event.reason == StreamCompletedReason::RepetitionLoop {
             self.on_loop_retry(&event.session_id, event.reason, event.dispatched_at)
                 .await;
+            return;
+        }
+
+        // A retryable provider error does not end the turn either: the
+        // provider-error watchdog schedules the re-dispatch, and the turn
+        // must stay live — streaming indices, in-flight guard, ledger
+        // stream, and message queue all intact — for the stall-retry path
+        // it reuses to accept the retry. The deferral is all-or-nothing:
+        // running the fold here would destroy exactly the state the retry
+        // handler requires. Any gate miss falls through to today's settle.
+        //
+        // Handled before the completion fold, like the intercept above, and
+        // for the same class of reason.
+        if event.reason == StreamCompletedReason::Error
+            && event.retryable
+            && self.defer_provider_error_settle(event)
+        {
             return;
         }
 
@@ -710,7 +728,7 @@ async fn resolve_output_tokens(counter: TiktokenCounter, event: &StreamCompleted
 ///
 /// Returns `None` when there are no user messages to drain. Tool continuations
 /// contribute no text and are dropped.
-fn drained_queue_to_text(items: &VecDeque<QueueItem>) -> Option<String> {
+pub(super) fn drained_queue_to_text(items: &VecDeque<QueueItem>) -> Option<String> {
     let texts: Vec<&str> = items
         .iter()
         .filter_map(|item| match item {
@@ -849,6 +867,7 @@ mod tests {
             dispatched_at: jiff::Timestamp::now(),
             turn: live.turn,
             stream: live.stream.unwrap_or_default(),
+            retryable: false,
         }
     }
 
@@ -2134,6 +2153,7 @@ mod tests {
             dispatched_at: stamp,
             turn: straggler_identity.0,
             stream: straggler_identity.1,
+            retryable: false,
         };
         actor.on_stream_completed(&event).await;
 
@@ -3094,6 +3114,7 @@ mod tests {
             model_used: None,
             turn,
             stream,
+            retryable: false,
         };
         actor.on_stream_completed(&event).await;
 
@@ -3256,6 +3277,7 @@ mod tests {
             model_used: None,
             turn,
             stream,
+            retryable: false,
         };
         actor.on_stream_completed(&event).await;
 
@@ -3326,6 +3348,7 @@ mod tests {
             model_used: None,
             turn,
             stream,
+            retryable: false,
         };
         actor.on_stream_completed(&event).await;
 
@@ -3403,6 +3426,7 @@ mod tests {
             model_used: None,
             turn,
             stream,
+            retryable: false,
         };
         actor.on_stream_completed(&event).await;
 
@@ -3694,6 +3718,7 @@ mod tests {
             dispatched_at: backdated,
             turn: live.turn,
             stream: live.stream.unwrap_or_default(),
+            retryable: false,
         };
         actor.on_stream_completed(&event).await;
 
@@ -3762,6 +3787,7 @@ mod tests {
             dispatched_at: jiff::Timestamp::now(),
             turn: joined.turn,
             stream: superseded,
+            retryable: false,
         };
         actor.on_stream_completed(&event).await;
 
@@ -4014,6 +4040,7 @@ mod tests {
             dispatched_at: jiff::Timestamp::now(),
             turn: minted_identity.0,
             stream: minted_identity.1,
+            retryable: false,
         };
         actor.on_stream_completed(&event).await;
 
@@ -4261,6 +4288,7 @@ mod tool_loop_round_order {
                 dispatched_at: jiff::Timestamp::now(),
                 turn,
                 stream,
+                retryable: false,
             })
             .await;
 

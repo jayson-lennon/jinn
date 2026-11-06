@@ -26,6 +26,19 @@ use crate::StreamEvent;
 use crate::stream_event::StopReason;
 use jinn_core_types::tool_types::ToolCall;
 
+/// OpenAI-compatible mid-stream error types that a retry cannot fix: the same
+/// request will deterministically fail again. These names appear across the
+/// OpenAI-compatible ecosystem (OpenAI, OpenRouter); unknown dialects default
+/// to retryable.
+const DETERMINISTIC_ERROR_TYPES: &[&str] = &[
+    "context_length_exceeded",
+    "invalid_request_error",
+    "invalid_api_key",
+    "insufficient_quota",
+    "permission_error",
+    "not_found_error",
+];
+
 /// State tracked per tool call index during streaming.
 #[derive(Debug, Default)]
 struct ToolCallState {
@@ -287,9 +300,12 @@ fn extract_error(chunk: &serde_json::Value) -> Option<StreamEvent> {
         .and_then(|m| m.as_str())
         .unwrap_or("Unknown error")
         .to_owned();
+    let retryable =
+        crate::service::stream_error_is_retryable(&error_type, DETERMINISTIC_ERROR_TYPES);
     Some(StreamEvent::Error {
         error_type,
         message,
+        retryable,
     })
 }
 
@@ -887,7 +903,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             &events[0],
-            StreamEvent::Error { error_type, message }
+            StreamEvent::Error { error_type, message, .. }
             if error_type == "invalid_request_error" && message == "context_length_exceeded"
         ));
     }
@@ -904,8 +920,32 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             &events[0],
-            StreamEvent::Error { error_type, message }
+            StreamEvent::Error { error_type, message, .. }
             if error_type == "unknown_error" && message == "Unknown error"
+        ));
+    }
+
+    #[rstest::rstest]
+    #[case("context_length_exceeded", false)]
+    #[case("invalid_api_key", false)]
+    #[case("insufficient_quota", false)]
+    #[case("permission_error", false)]
+    #[case("not_found_error", false)]
+    #[case("rate_limit_error", true)]
+    #[case("server_error", true)]
+    #[case("some_brand_new_dialect", true)]
+    fn error_object_classifies_retryability(#[case] provider_type: &str, #[case] expected: bool) {
+        // Given an OpenAI-compatible error object of the given type.
+        let json = format!(r#"{{"error":{{"type":"{provider_type}","message":"m"}}}}"#);
+
+        // When parsing.
+        let events = parse_single(&json);
+
+        // Then the classification matches the deny-list decision.
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            &events[0],
+            StreamEvent::Error { retryable, .. } if *retryable == expected
         ));
     }
 

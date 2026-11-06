@@ -47,7 +47,10 @@ pub use openai_compat::{
     ProviderConfig, list_endpoints, list_endpoints_default_client,
 };
 pub use sample::SampleLlmServiceFactory;
-pub use service::{ChatStream, LlmService, LlmServiceError, LlmServiceFactory, ToolStream};
+pub use service::{
+    ChatStream, LlmService, LlmServiceError, LlmServiceFactory, ToolStream,
+    stream_error_is_retryable,
+};
 pub use stream_event::{StopReason, StreamEvent, StreamUsage};
 
 pub use retry::{NoOpOnRetry, OnRetry, RetryConfig, RetryingLlmService};

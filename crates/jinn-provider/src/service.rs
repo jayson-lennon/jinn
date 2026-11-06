@@ -148,6 +148,20 @@ pub fn classify_http_error(
     }
 }
 
+/// Classify a provider's mid-stream error type against a backend's deny-list
+/// of deterministic error names.
+///
+/// `false` when `error_type` names a deterministic failure a retry cannot fix
+/// (auth, invalid request, permission, quota); `true` otherwise — unknown
+/// dialects default to retryable, because a deny-list miss costs one wasted
+/// retry schedule while an allow-list miss silently disables the retry.
+/// Matching is case-insensitive on the trimmed name.
+#[must_use]
+pub fn stream_error_is_retryable(error_type: &str, deterministic: &[&str]) -> bool {
+    let normalized = error_type.trim().to_ascii_lowercase();
+    !deterministic.contains(&normalized.as_str())
+}
+
 /// Attempt to extract a retry-after duration from the error response body.
 ///
 /// Looks for datetime patterns like `"reset at 2026-05-21 14:45:38"` and computes
@@ -275,6 +289,63 @@ mod tests {
         // Then it is a provider error.
         let err = report.downcast_ref::<LlmServiceError>().expect("downcast");
         assert!(matches!(err, LlmServiceError::Provider));
+    }
+
+    #[rstest::rstest]
+    fn stream_error_retryable_when_type_not_in_deny_list() {
+        // Given a deny-list and a transient error type the list does not name.
+        let deterministic = ["invalid_request_error"];
+
+        // When classifying.
+        let retryable = stream_error_is_retryable("overloaded_error", &deterministic);
+
+        // Then it is retryable — the deny-list decides, not the name itself.
+        assert!(retryable);
+    }
+
+    #[rstest::rstest]
+    fn stream_error_not_retryable_when_type_in_deny_list() {
+        // Given a deny-list and a deterministic error type.
+        let deterministic = ["invalid_request_error"];
+
+        // When classifying.
+        let retryable = stream_error_is_retryable("invalid_request_error", &deterministic);
+
+        // Then it is not retryable.
+        assert!(!retryable);
+    }
+
+    #[rstest::rstest]
+    fn stream_error_classification_normalizes_case_and_whitespace() {
+        // Given a deny-list and variants of the same name the provider
+        // might spell differently.
+        let deterministic = ["invalid_request_error"];
+        let variants = [
+            " Invalid_Request_Error ",
+            "INVALID_REQUEST_ERROR",
+            "\tinvalid_request_error\n",
+        ];
+
+        // When classifying each variant.
+        let results: Vec<bool> = variants
+            .iter()
+            .map(|v| stream_error_is_retryable(v, &deterministic))
+            .collect();
+
+        // Then every variant is still recognized as non-retryable.
+        assert!(results.iter().all(|r| !r));
+    }
+
+    #[rstest::rstest]
+    fn stream_error_empty_type_is_retryable() {
+        // Given a deny-list and an empty error type.
+        let deterministic = ["invalid_request_error"];
+
+        // When classifying.
+        let retryable = stream_error_is_retryable("", &deterministic);
+
+        // Then it defaults to retryable.
+        assert!(retryable);
     }
 
     #[rstest::rstest]

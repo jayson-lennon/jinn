@@ -15,6 +15,17 @@ use crate::StreamEvent;
 use crate::stream_event::{StopReason, StreamUsage};
 use jinn_core_types::tool_types::ToolCall;
 
+/// Anthropic mid-stream error types that a retry cannot fix: the same request
+/// will deterministically fail again. Everything else (including
+/// `overloaded_error` and unknown dialects) is classified retryable.
+const DETERMINISTIC_ERROR_TYPES: &[&str] = &[
+    "invalid_request_error",
+    "authentication_error",
+    "permission_error",
+    "not_found_error",
+    "request_too_large",
+];
+
 /// State tracked per content block index for tool use.
 #[derive(Debug, Default)]
 struct ToolUseState {
@@ -212,9 +223,12 @@ impl AnthropicStreamParser {
             .and_then(|m| m.as_str())
             .unwrap_or("Unknown streaming error")
             .to_owned();
+        let retryable =
+            crate::service::stream_error_is_retryable(&error_type, DETERMINISTIC_ERROR_TYPES);
         Some(StreamEvent::Error {
             error_type,
             message,
+            retryable,
         })
     }
 }
@@ -394,7 +408,7 @@ mod tests {
         // Then it produces a StreamEvent::Error with the error details.
         assert!(matches!(
             event,
-            Some(StreamEvent::Error { ref error_type, ref message })
+            Some(StreamEvent::Error { ref error_type, ref message, .. })
             if error_type == "overloaded_error" && message == "Overloaded"
         ));
     }
@@ -410,8 +424,50 @@ mod tests {
         // Then it produces a StreamEvent::Error with default values.
         assert!(matches!(
             event,
-            Some(StreamEvent::Error { ref error_type, ref message })
+            Some(StreamEvent::Error { ref error_type, ref message, .. })
             if error_type == "unknown_error" && message == "Unknown streaming error"
+        ));
+    }
+
+    #[rstest::rstest]
+    #[case("invalid_request_error", false)]
+    #[case("authentication_error", false)]
+    #[case("permission_error", false)]
+    #[case("not_found_error", false)]
+    #[case("request_too_large", false)]
+    #[case("overloaded_error", true)]
+    #[case("api_error", true)]
+    #[case("some_brand_new_dialect", true)]
+    fn error_event_classifies_retryability(#[case] provider_type: &str, #[case] expected: bool) {
+        // Given an Anthropic error event of the given type.
+        let json =
+            format!(r#"{{"type":"error","error":{{"type":"{provider_type}","message":"m"}}}}"#);
+
+        // When parsing.
+        let event = parse_single(&json);
+
+        // Then the classification matches the deny-list decision.
+        assert!(matches!(
+            event,
+            Some(StreamEvent::Error { retryable, .. }) if retryable == expected
+        ));
+    }
+
+    #[rstest::rstest]
+    fn error_event_retryability_is_case_insensitive() {
+        // Given an Anthropic error event with mixed-case type.
+        let json = r#"{"type":"error","error":{"type":"Authentication_Error","message":"m"}}"#;
+
+        // When parsing.
+        let event = parse_single(json);
+
+        // Then the deterministic type is still classified non-retryable.
+        assert!(matches!(
+            event,
+            Some(StreamEvent::Error {
+                retryable: false,
+                ..
+            })
         ));
     }
 
