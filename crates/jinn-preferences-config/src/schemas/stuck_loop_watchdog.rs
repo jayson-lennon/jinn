@@ -1,5 +1,5 @@
 //! Reasoning-loop-watchdog configuration schema — the `jinn.toml`
-//! `[watchdog.reasoning_loop]` section.
+//! `[watchdog.stuck_loop]` section.
 //!
 //! Pure serde data; the watchdog slice (`crates/slices/jinn-watchdog`)
 //! imports the shape from here and reads a snapshot at activation.
@@ -12,10 +12,10 @@ const DEFAULT_MAX_FAILURES: u8 = 3;
 
 /// Reasoning-loop-watchdog configuration.
 ///
-/// Serialized as `[watchdog.reasoning_loop]` in `jinn.toml`. The watchdog
+/// Serialized as `[watchdog.stuck_loop]` in `jinn.toml`. The watchdog
 /// is always on; the knob only tunes when it intervenes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ReasoningLoopWatchdogConfig {
+pub struct StuckLoopWatchdogConfig {
     /// Detected repetition loops tolerated before the watchdog cancels
     /// the turn. A response that completes without a detected loop
     /// debits the count by one. Default: 3.
@@ -27,7 +27,7 @@ fn default_max_failures() -> u8 {
     DEFAULT_MAX_FAILURES
 }
 
-impl ReasoningLoopWatchdogConfig {
+impl StuckLoopWatchdogConfig {
     /// The surrender threshold for the accumulator.
     ///
     /// A zero maximum is nonsense (the watchdog would surrender the
@@ -39,7 +39,7 @@ impl ReasoningLoopWatchdogConfig {
     }
 }
 
-impl Default for ReasoningLoopWatchdogConfig {
+impl Default for StuckLoopWatchdogConfig {
     fn default() -> Self {
         Self {
             max_failures: DEFAULT_MAX_FAILURES,
@@ -47,8 +47,8 @@ impl Default for ReasoningLoopWatchdogConfig {
     }
 }
 
-impl jinn_config::Configurable for ReasoningLoopWatchdogConfig {
-    const KEY: &'static str = "watchdog.reasoning_loop";
+impl jinn_config::Configurable for StuckLoopWatchdogConfig {
+    const KEY: &'static str = "watchdog.stuck_loop";
 }
 
 #[cfg(test)]
@@ -61,7 +61,7 @@ mod tests {
     #[test]
     fn max_failures_passes_through_when_valid() {
         // Given a config with an explicit maximum.
-        let config = ReasoningLoopWatchdogConfig { max_failures: 2 };
+        let config = StuckLoopWatchdogConfig { max_failures: 2 };
 
         // When reading the effective threshold.
         // Then the value passes through unchanged.
@@ -72,7 +72,7 @@ mod tests {
     #[test]
     fn zero_max_failures_floors_at_one() {
         // Given a config with a zero maximum.
-        let config = ReasoningLoopWatchdogConfig { max_failures: 0 };
+        let config = StuckLoopWatchdogConfig { max_failures: 0 };
 
         // When reading the effective threshold.
         // Then it floors at one failure.
@@ -82,11 +82,11 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn section_defaults_when_absent_from_toml() {
-        // Given a jinn.toml without the [watchdog.reasoning_loop] section.
+        // Given a jinn.toml without the [watchdog.stuck_loop] section.
         #[derive(Default, serde::Deserialize)]
         struct WatchdogSection {
             #[serde(default)]
-            reasoning_loop: ReasoningLoopWatchdogConfig,
+            stuck_loop: StuckLoopWatchdogConfig,
         }
         #[derive(Default, serde::Deserialize)]
         #[serde(default)]
@@ -98,7 +98,7 @@ mod tests {
         let wrapper: Wrapper = toml::from_str("").expect("empty toml parses");
 
         // Then the inherited default applies (3 failures).
-        assert_eq!(wrapper.watchdog.reasoning_loop.max_failures, 3);
+        assert_eq!(wrapper.watchdog.stuck_loop.max_failures, 3);
     }
 
     #[rstest::rstest]
@@ -108,7 +108,7 @@ mod tests {
         #[derive(serde::Deserialize)]
         struct WatchdogSection {
             #[serde(default)]
-            reasoning_loop: ReasoningLoopWatchdogConfig,
+            stuck_loop: StuckLoopWatchdogConfig,
         }
         #[derive(serde::Deserialize)]
         struct Wrapper {
@@ -117,9 +117,9 @@ mod tests {
 
         // When deserializing.
         let wrapper: Wrapper =
-            toml::from_str("[watchdog.reasoning_loop]\nmax_failures = 2").expect("parses");
+            toml::from_str("[watchdog.stuck_loop]\nmax_failures = 2").expect("parses");
 
         // Then the user's value wins over the default.
-        assert_eq!(wrapper.watchdog.reasoning_loop.max_failures, 2);
+        assert_eq!(wrapper.watchdog.stuck_loop.max_failures, 2);
     }
 }

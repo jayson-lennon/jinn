@@ -1,7 +1,7 @@
-//! The reasoning-loop pipeline, composed end to end on one bus.
+//! The stuck-loop pipeline, composed end to end on one bus.
 //!
 //! Spawns the pipeline's real actors over a [`jinn_testutil::bus_harness::TestHarness`]
-//! — context assembly, turn dispatch, the session actor, the reasoning-loop
+//! — context assembly, turn dispatch, the session actor, the stuck-loop
 //! watchdog, and the inference actor with a scripted provider — and drives a
 //! looping turn through the full message graph: enqueue → dispatch mint →
 //! provider stream → loop detection → completion → watchdog marker → silent
@@ -37,8 +37,8 @@ use jinn_testutil::bus_harness::{TestHarness, await_recorded};
 use jinn_token_count_msg::HistoryWorkerChatEntryTokenCache;
 use jinn_turn_dispatch::queue_actor::QueueActor;
 use jinn_turn_dispatch_msg::DispatchTurn;
-use jinn_watchdog::reasoning_loop_watchdog_actor::{
-    ReasoningLoopWatchdogActor, ReasoningLoopWatchdogActorDeps,
+use jinn_watchdog::stuck_loop_watchdog_actor::{
+    StuckLoopWatchdogActor, StuckLoopWatchdogActorDeps,
 };
 
 use jinn_kernel::common::services::Services;
@@ -108,9 +108,9 @@ async fn pipeline(scripted: Vec<ScriptedResponse>) -> Pipeline {
             image_converter: jinn_llm_support::image_convert::ImageConverterService::unavailable(),
         },
     );
-    ReasoningLoopWatchdogActor::spawn(
+    StuckLoopWatchdogActor::spawn(
         harness.system(),
-        ReasoningLoopWatchdogActorDeps {
+        StuckLoopWatchdogActorDeps {
             services: services.clone(),
             max_failures: 3,
         },

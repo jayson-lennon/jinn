@@ -57,7 +57,7 @@ jinn-session-state = { workspace = true }
 jinn-session-store-msg = { workspace = true }
 # The project-narrowing tests root fixture cwds in a temp directory rather
 # than spelling absolute machine paths.
-# The reasoning-loop pipeline integration test composes the pipeline's
+# The stuck-loop pipeline integration test composes the pipeline's
 # actors on one harness bus. Every edge is acyclic: these crates consume
 # jinn-inference's messages; none depends on the jinn-inference impl.
 jinn-watchdog = { workspace = true }
