@@ -1,6 +1,7 @@
 //! The canvas slice — one HTML artifact, served inside the running jinn
-//! over loopback HTTP with embedded vendored visualization libraries and
-//! WebSocket live reload.
+//! over HTTP (on whatever interface the `[canvas] bind` config names;
+//! loopback by default) with embedded vendored visualization libraries
+//! and WebSocket live reload.
 //!
 //! The agent writes an artifact file with its ordinary file tools and
 //! serves it through the `canvas` tool, which asks this slice's actor.

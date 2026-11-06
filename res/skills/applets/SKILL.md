@@ -6,10 +6,10 @@ description: Save an agent-built HTML page as a durable applet — a small stand
 # Applets — saved pages the user can reopen
 
 An **applet** is a snapshot of an agent-built page in
-`~/.local/share/jinn/applets/<id>/`, served by jinn's applets server on
-loopback and listed in the `<leader>sa` picker, where `ENTER` opens it
-in the user's browser any time — even after the session that built it
-is gone.
+`~/.local/share/jinn/applets/<id>/`, served by jinn's applets server
+(loopback by default) and listed in the `<leader>sa` picker, where
+`ENTER` opens it in the user's browser any time — even after the
+session that built it is gone.
 
 An applet is a *saved, re-openable* page — a small standalone web page
 hosted by jinn. Ordinary app-building requests ("make me a web app")

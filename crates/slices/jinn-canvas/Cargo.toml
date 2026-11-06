@@ -2,7 +2,7 @@
 name = "jinn-canvas"
 version.workspace = true
 edition.workspace = true
-description = "The canvas slice: the serving actor — one HTML artifact per process over loopback HTTP with embedded vendored viz libraries and WebSocket live reload."
+description = "The canvas slice: the serving actor — one HTML artifact per process over HTTP (loopback by default) with embedded vendored viz libraries and WebSocket live reload."
 
 [dependencies]
 # The canvas slice is a leaf: jinn-preferences-config ([canvas] schema),

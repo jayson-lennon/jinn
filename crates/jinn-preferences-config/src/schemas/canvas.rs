@@ -139,8 +139,8 @@ mod tests {
             .parse_bind()
             .expect("schema layer parses any socket addr");
 
-        // Then the parse succeeds — refusing non-loopback binds is the
-        // serve path's policy, not the data's.
+        // Then the parse succeeds — the schema layer is address-class
+        // agnostic: a bind parses, whatever interface it names.
         assert_eq!(addr.to_string(), "192.168.1.10:8899");
     }
 

@@ -9,7 +9,7 @@
 //!   the pinned MIME types and `Content-Encoding: gzip`.
 //! - `/ws` is the reload broadcast; `/healthz` is the canvas liveness
 //!   marker.
-//! - `/reload` is the loopback control request: swap the artifact and
+//! - `/reload` is the control request: swap the artifact and
 //!   broadcast, for tools that drive the running server directly.
 //! - `/metrics` is the page→jinn telemetry sink: the injected tracker
 //!   posts interaction events here; they accumulate in
@@ -291,8 +291,9 @@ async fn serve_vendor(AxPath(path): AxPath<String>) -> Response {
             ),
             // Vendored libraries are plain scripts and fonts, but ES
             // module imports and font loads from a `file://` page or a
-            // foreign origin need the CORS blessing; `*` is safe on a
-            // loopback server with no credentials.
+            // foreign origin need the CORS blessing; `*` is safe here
+            // because the assets carry no credentials and the server has
+            // no session state to expose.
             (
                 header::ACCESS_CONTROL_ALLOW_ORIGIN,
                 HeaderValue::from_static("*"),
@@ -400,8 +401,9 @@ struct ReloadQuery {
 /// `refresh`: optionally swap the artifact, then broadcast a reload to
 /// every connected browser.
 ///
-/// This endpoint is the loopback control plane; the server binds a
-/// loopback address only, so nothing off-machine can reach it.
+/// This endpoint is the control plane: whoever can reach the bind can
+/// drive the server, so securing the interface it listens on is the
+/// operator's call, made through the `[canvas] bind` config.
 async fn reload_handler(
     Query(query): Query<ReloadQuery>,
     State(shared): State<Arc<ServerShared>>,
