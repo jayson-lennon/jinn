@@ -329,6 +329,21 @@ async fn process_stream_events(
                         )
                         .await;
                     }
+                    // Rule verdict first, loop verdict second: both end the
+                    // stream before this delta or any later one is handled.
+                    if let Some(signal) = crate::repetition::scan(&accum.text) {
+                        return apply_loop_interrupt(
+                            bus,
+                            sid,
+                            signal,
+                            "text",
+                            dispatched_at,
+                            turn,
+                            stream_id,
+                            &accum.model_id,
+                        )
+                        .await;
+                    }
                 }
                 StreamEvent::Reasoning(token) => {
                     publish_activity(bus, sid).await;
@@ -351,6 +366,21 @@ async fn process_stream_events(
                             dispatched_at,
                             turn,
                             stream_id,
+                        )
+                        .await;
+                    }
+                    // As on the text path: the loop check runs only after
+                    // the rule check declined, before the next delta.
+                    if let Some(signal) = crate::repetition::scan(&accum.thinking) {
+                        return apply_loop_interrupt(
+                            bus,
+                            sid,
+                            signal,
+                            "thinking",
+                            dispatched_at,
+                            turn,
+                            stream_id,
+                            &accum.model_id,
                         )
                         .await;
                     }
@@ -382,6 +412,13 @@ async fn process_stream_events(
                         let name = accum.tool_names.get(&index).map_or("", String::as_str);
                         session.check(&partial_json, StreamContext::tool(index, name))
                     });
+                    // The repetition detector scans the accumulated argument
+                    // text (kept here; the rule session buffers privately),
+                    // one step behind the rule verdict — same rule-first
+                    // ordering as the text and reasoning paths.
+                    let args = accum.tool_args.entry(index).or_default();
+                    args.push_str(&partial_json);
+                    let loop_signal = crate::repetition::scan(args);
                     // Published even when a rule fired, unlike the text and
                     // reasoning paths. Because a tool rule accumulates, the
                     // delta that trips it is usually the first one — dropping
@@ -412,10 +449,27 @@ async fn process_stream_events(
                         )
                         .await;
                     }
+                    if let Some(signal) = loop_signal {
+                        return apply_loop_interrupt(
+                            bus,
+                            sid,
+                            signal,
+                            "tool-args",
+                            dispatched_at,
+                            turn,
+                            stream_id,
+                            &accum.model_id,
+                        )
+                        .await;
+                    }
                 }
-                StreamEvent::ToolUseComplete { tool_call, .. } => {
+                StreamEvent::ToolUseComplete { index, tool_call } => {
                     publish_activity(bus, sid).await;
                     accum.tool_calls.push(tool_call.clone());
+                    // The index is reusable: drop this call's argument
+                    // buffer so the next call on the same index starts
+                    // clean.
+                    accum.tool_args.remove(&index);
                     bus.publish(ToolCallReceived {
                         session_id: sid.clone(),
                         tool_call,
@@ -622,6 +676,74 @@ async fn intercept_and_resume(
     .await;
 }
 
+/// Ends a stream the repetition detector flagged, returning the loop's
+/// stream outcome.
+///
+/// The intercept's teardown minus the guidance entry: two publishes, in
+/// this order —
+///
+/// 1. [`StreamCompleted`] with
+///    [`StreamCompletedReason::RepetitionLoop`] — the terminal fact the
+///    session actor's retry handler acts on.
+/// 2. [`AbortStream`] — the teardown, stamped with this generation for
+///    the same reason the intercept stamps it, and published last so it
+///    cannot cut off the completion (the abort cancels the very task
+///    that issued it).
+///
+/// There is deliberately *no* [`PushChatEntry`]: the model is never told
+/// it looped — a guidance entry cannot help it and would poison the
+/// retry's context. The user-facing marker is the watchdog's job
+/// (`jinn-watchdog`), and system entries are already excluded from LLM
+/// context by default, so nothing here speaks for the model to read.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per part of the completion payload, mirroring intercept_and_resume"
+)]
+async fn apply_loop_interrupt(
+    bus: &BusService,
+    sid: &SessionId,
+    signal: crate::repetition::RepetitionSignal,
+    buffer: &'static str,
+    dispatched_at: jiff::Timestamp,
+    turn: jinn_core_types::turn_identity::TurnToken,
+    stream: jinn_core_types::turn_identity::StreamId,
+    model_id: &str,
+) -> StreamOutcome {
+    tracing::warn!(
+        session_id = ?sid,
+        buffer,
+        period = signal.period,
+        repeats = signal.repeats,
+        "repetition loop detected; ending the stream for a silent retry"
+    );
+
+    bus.publish(StreamCompleted {
+        model_used: Some(model_id.to_owned()),
+        session_id: sid.clone(),
+        reason: StreamCompletedReason::RepetitionLoop,
+        assistant_content: None,
+        tool_calls: None,
+        cost: None,
+        provider_completion_tokens: None,
+        provider_prompt_tokens: None,
+        cached_tokens: None,
+        thinking_content: None,
+        dispatched_at,
+        turn,
+        stream,
+    })
+    .await;
+
+    // Published after the completion, stamped with this generation, and
+    // last — the same ordering contract as the intercept's teardown.
+    bus.publish(AbortStream {
+        session_id: sid.clone(),
+        dispatched_at,
+    })
+    .await;
+    StreamOutcome::Interrupted
+}
+
 /// Emit an `emit_stream_error` for a terminal stream failure, with matched
 /// `info!` (diagnostic) and `error!` (operator) log lines.
 async fn emit_terminal_error(
@@ -662,6 +784,14 @@ struct StreamAccumulator {
     /// JSON fragment and nothing else. A `tool:<name>(<glob>)` scope needs
     /// the name, and the provider will not repeat it.
     tool_names: HashMap<usize, String>,
+    /// The accumulated argument text of each in-flight tool call, keyed by
+    /// its index — the repetition detector's input for the args buffer,
+    /// which the rule session keeps privately.
+    ///
+    /// The entry is cleared when the call completes: providers reuse an
+    /// index for the next call, and a fresh call must not inherit the
+    /// previous call's argument text.
+    tool_args: HashMap<usize, String>,
 }
 
 impl StreamAccumulator {
@@ -676,6 +806,7 @@ impl StreamAccumulator {
             model_id: model_id.to_owned(),
             parser,
             tool_names: HashMap::new(),
+            tool_args: HashMap::new(),
         }
     }
 
@@ -1141,6 +1272,14 @@ impl InferenceActor {
             StreamCompletedReason::RuleIntercept => {
                 // Already cleaned up by abort_stream, which the stream task
                 // reached through `AbortStream` before publishing this.
+            }
+            #[expect(
+                clippy::match_same_arms,
+                reason = "arm kept separate: the loop path's cleanup is the abort's, same as an intercept — merging would hide which teardown owns it"
+            )]
+            StreamCompletedReason::RepetitionLoop => {
+                // Already cleaned up by abort_stream, which the stream task
+                // reaches through `AbortStream` after publishing this.
             }
         }
     }

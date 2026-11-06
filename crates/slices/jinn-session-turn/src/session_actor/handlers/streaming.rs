@@ -247,7 +247,8 @@ impl SessionPersistenceActor {
             StreamCompletedReason::Finished
                 | StreamCompletedReason::Error
                 | StreamCompletedReason::Canceled
-                | StreamCompletedReason::RuleIntercept,
+                | StreamCompletedReason::RuleIntercept
+                | StreamCompletedReason::RepetitionLoop,
         );
 
         // A rule intercept does not end the turn: the stream was stopped so
@@ -262,6 +263,20 @@ impl SessionPersistenceActor {
         // turn end and report the turn as finished.
         if event.reason == StreamCompletedReason::RuleIntercept {
             self.on_rule_intercept(&event.session_id, event.reason, event.dispatched_at)
+                .await;
+            return;
+        }
+
+        // A repetition loop does not end the turn either: the stream was
+        // stopped so the looped output could be taken out of context and
+        // the turn re-dispatched silently — no guidance, no fold.
+        //
+        // Handled before the completion fold for the same reason as the
+        // intercept: the fold would finalize the streaming entries, clear
+        // the in-flight-stream guard, and report the turn ended — every
+        // one of which the retry needs intact or refused as stale.
+        if event.reason == StreamCompletedReason::RepetitionLoop {
+            self.on_loop_retry(&event.session_id, event.reason, event.dispatched_at)
                 .await;
             return;
         }

@@ -530,6 +530,13 @@ max_restarts = 3
 # > failures may or may not be consecutive.
 max_failures = 6
 
+# > Monitors for degenerate repetition loops — a response whose reasoning,
+# > prose, or tool-call arguments repeat the same text over and over.
+[watchdog.reasoning_loop]
+# > Detected loops retried before the turn is cancelled. A response that
+# > completes without a detected loop debits the count.
+max_failures = 3
+
 # ###########################################################################
 # Interactive terminal panes
 # ###########################################################################

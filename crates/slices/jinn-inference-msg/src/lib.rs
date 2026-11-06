@@ -171,6 +171,15 @@ pub enum StreamCompletedReason {
     /// own. A consumer that reads an intercept as a cancel would end the
     /// turn; one that reads a cancel as an intercept would retry it.
     RuleIntercept,
+    /// The repetition detector matched the output: the stream stopped
+    /// because the model was repeating itself verbatim.
+    ///
+    /// Distinct from [`StreamCompletedReason::Canceled`] (the user ended
+    /// the turn) and from [`StreamCompletedReason::RuleIntercept`]
+    /// (guidance was injected and read by the model): a loop is retried
+    /// *silently* — the model is never told it looped — so consumers that
+    /// would surface guidance on an intercept must not on this reason.
+    RepetitionLoop,
 }
 
 /// Streaming response completed for a session.
@@ -334,6 +343,9 @@ mod tests {
         assert_eq!(json, r#""tool_use""#);
         let json = serde_json::to_string(&StreamCompletedReason::Canceled).expect("serialize");
         assert_eq!(json, r#""canceled""#);
+        let json =
+            serde_json::to_string(&StreamCompletedReason::RepetitionLoop).expect("serialize");
+        assert_eq!(json, r#""repetition_loop""#);
     }
 
     #[rstest::rstest]

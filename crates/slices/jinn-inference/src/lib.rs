@@ -18,6 +18,7 @@
 mod session;
 
 pub mod inference_actor;
+pub mod repetition;
 pub mod streaming_indicator;
 
 use jinn_slices::SliceHost;

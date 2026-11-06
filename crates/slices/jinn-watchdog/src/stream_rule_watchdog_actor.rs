@@ -241,7 +241,7 @@ impl StreamRuleWatchdogActor {
     /// Applies the response-end policy and returns the actions to publish, in
     /// order.
     ///
-    /// The three reasons split three ways, and each split is the design:
+    /// The reasons split three ways, and each split is the design:
     ///
     /// - `Finished` / `ToolUse` — the model completed a response after being
     ///   corrected: a whole answer, or a stop to run the tools the turn asked
@@ -253,6 +253,10 @@ impl StreamRuleWatchdogActor {
     ///   completing anything. Retained deliberately: debiting on those would
     ///   repay the debt on exactly the path the budget exists to bound, and
     ///   the count could never be spent.
+    /// - `RepetitionLoop` — the reasoning-loop watchdog's fault, not this
+    ///   rule budget's: the count neither rises (no rule fired) nor is
+    ///   repaid (nothing was completed), and the turn ended at most
+    ///   non-terminally, so the clear comes from `on_turn_end`.
     #[must_use]
     pub fn on_response_end(
         &mut self,
@@ -267,7 +271,9 @@ impl StreamRuleWatchdogActor {
                 }
                 Vec::new()
             }
-            StreamCompletedReason::Canceled | StreamCompletedReason::Error => Vec::new(),
+            StreamCompletedReason::Canceled
+            | StreamCompletedReason::Error
+            | StreamCompletedReason::RepetitionLoop => Vec::new(),
         }
     }
 

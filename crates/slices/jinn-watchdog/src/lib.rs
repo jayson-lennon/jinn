@@ -21,10 +21,18 @@
 //!   `RuleIntercept`), trips at the configured count (trip marker +
 //!   `CancelTurn`), and repays one interrupt per response that completes
 //!   without an interrupt (`Finished` or `ToolUse`).
+//! - [`reasoning_loop_watchdog_actor::ReasoningLoopWatchdogActor`]
+//!   accumulates repetition-loop detections (`StreamCompleted` with
+//!   `RepetitionLoop`, published by the inference actor's detector),
+//!   retries under the configured budget (visible retry marker per
+//!   detection — the retry itself is silent toward the model), and
+//!   surrenders at the count (surrender marker + `CancelTurn`), repaying
+//!   one detection per response that completes without looping.
 //!
-//! All three actors publish through `Services`' bus (kernel dependency, see
+//! All four actors publish through `Services`' bus (kernel dependency, see
 //! Cargo.toml) and write no shared state.
 
+pub mod reasoning_loop_watchdog_actor;
 pub mod stall_watchdog_actor;
 pub mod stream_rule_watchdog_actor;
 pub mod tool_call_watchdog_actor;
@@ -32,6 +40,7 @@ pub mod tool_call_watchdog_actor;
 use jinn_kernel::Services;
 use jinn_kernel::common::state::State;
 use jinn_preferences_config::schemas::LegacyStreamRulesBudget;
+use jinn_preferences_config::schemas::ReasoningLoopWatchdogConfig;
 use jinn_preferences_config::schemas::STREAM_RULE_WATCHDOG_KEY;
 use jinn_preferences_config::schemas::STREAM_RULES_BUDGET_KEY;
 use jinn_preferences_config::schemas::StallWatchdogConfig;
@@ -125,6 +134,18 @@ pub fn activate(host: &mut SliceHost<'_, RenderFacts>, _state: &State, services:
         stream_rule_watchdog_actor::StreamRuleWatchdogActorDeps {
             services: services.clone(),
             max_failures: stream_rule_max_failures(&services.config),
+        },
+    );
+
+    let loop_cfg = services
+        .config
+        .get::<ReasoningLoopWatchdogConfig>()
+        .unwrap_or_default();
+    reasoning_loop_watchdog_actor::ReasoningLoopWatchdogActor::spawn(
+        host.system(),
+        reasoning_loop_watchdog_actor::ReasoningLoopWatchdogActorDeps {
+            services: services.clone(),
+            max_failures: loop_cfg.effective_max_failures(),
         },
     );
 }

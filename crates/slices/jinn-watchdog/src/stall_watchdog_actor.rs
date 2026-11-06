@@ -408,9 +408,15 @@ impl StallWatchdogActor {
             // session actor re-dispatches immediately, so the watchdog must
             // stand down rather than count the silence between them as a
             // stall. The resumed dispatch re-arms it.
+            //
+            // A repetition loop lands in the same arm: the loop completion
+            // ends this generation, and the session actor's silent retry
+            // re-dispatches immediately. The budget is retained — a loop is
+            // not a stall, and the reasoning-loop watchdog counts it.
             StreamCompletedReason::Canceled
             | StreamCompletedReason::Error
-            | StreamCompletedReason::RuleIntercept => {
+            | StreamCompletedReason::RuleIntercept
+            | StreamCompletedReason::RepetitionLoop => {
                 if let Some(stall) = self.sessions.get_mut(session_id) {
                     stall.armed = false;
                 }
@@ -1174,5 +1180,29 @@ mod tests {
         // default budget of 3 would still have restarts left.
         assert_restart(&first, &session, 1);
         assert_give_up(&second, &session);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_repetition_loop_completion_disarms_without_clearing_the_budget() {
+        // Given a watchdog with one stall already spent on a session.
+        let session = SessionId::new();
+        let mut actor = watchdog(1, 2).await;
+        actor.on_stream_start(&session, 0);
+        let _ = actor.on_tick(2_000);
+
+        // When the reasoning-loop detector ends the stream.
+        actor.on_stream_end(&session, StreamCompletedReason::RepetitionLoop);
+
+        // Then the budget survives: a loop is the reasoning-loop watchdog's
+        // fault, not a stall — and a later silence of the same turn still
+        // restarts with attempt 2, not from a reset budget.
+        actor.on_stream_start(&session, 3_000);
+        let actions = actor.on_tick(4_500);
+        assert!(
+            !actions.is_empty(),
+            "the stall budget must survive a loop teardown"
+        );
+        assert_restart(&actions, &session, 2);
     }
 }

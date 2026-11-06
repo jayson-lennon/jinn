@@ -48,7 +48,6 @@ jinn-stream-rules = { workspace = true }
 # resolves a rule set the way production does. Same reasoning: test-only.
 jinn-cell-catalog = { workspace = true }
 
-rstest = { workspace = true }
 serde_json = { workspace = true }
 jinn-kernel = { workspace = true }
 # The project-narrowing tests stamp a fake session store with a project
@@ -58,6 +57,19 @@ jinn-session-state = { workspace = true }
 jinn-session-store-msg = { workspace = true }
 # The project-narrowing tests root fixture cwds in a temp directory rather
 # than spelling absolute machine paths.
+# The reasoning-loop pipeline integration test composes the pipeline's
+# actors on one harness bus. Every edge is acyclic: these crates consume
+# jinn-inference's messages; none depends on the jinn-inference impl.
+jinn-watchdog = { workspace = true }
+jinn-session-turn = { workspace = true }
+jinn-turn-dispatch = { workspace = true }
+jinn-context-assembly = { workspace = true }
+jinn-llm-support = { workspace = true }
+jinn-chat-input-msg = { workspace = true }
+jinn-turn-dispatch-msg = { workspace = true }
+jinn-token-count-msg = { workspace = true }
+
+rstest = { workspace = true }
 
 [lints]
 workspace = true

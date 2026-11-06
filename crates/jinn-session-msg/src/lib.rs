@@ -125,6 +125,16 @@ pub enum TurnOutcome {
     /// turn counter being cleared mid-turn, so the condition it is watching for
     /// never accumulates.
     RuleIntercepted,
+    /// The stream stopped because the repetition detector matched and the
+    /// turn was rewound and re-dispatched *silently* — the model is never
+    /// told it looped.
+    ///
+    /// **This is not a terminal outcome, despite arriving on
+    /// [`TurnCompleted`]** — the same contract as
+    /// [`TurnOutcome::RuleIntercepted`]: the turn did not end, a fresh
+    /// generation follows, and a consumer that reacts to a turn ending must
+    /// exclude it via [`TurnOutcome::is_terminal`].
+    LoopRetried,
 }
 
 impl TurnOutcome {
@@ -136,7 +146,7 @@ impl TurnOutcome {
     /// the two derivations are what let a watchdog disarm on an intercept.
     #[must_use]
     pub fn is_terminal(self) -> bool {
-        !matches!(self, Self::RuleIntercepted)
+        !matches!(self, Self::RuleIntercepted | Self::LoopRetried)
     }
 }
 

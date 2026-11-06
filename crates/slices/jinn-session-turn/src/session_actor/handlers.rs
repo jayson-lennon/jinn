@@ -1,5 +1,6 @@
 pub(super) mod context;
 pub(super) mod enqueue;
+pub(super) mod loop_retry;
 pub(super) mod misc;
 mod persistence;
 pub(super) mod rule_intercept;

@@ -2026,3 +2026,157 @@ async fn an_unlatched_session_keeps_streaming_through_intercepts() {
         "an unlatched session must still intercept and report it"
     );
 }
+
+// ------------------------------------------------------------------
+// Repetition-loop detection
+// ------------------------------------------------------------------
+
+/// A token sequence that loops: the mantra repeated past the detector's
+/// thresholds, chunked as a provider would chunk it.
+fn looping_tokens() -> Vec<String> {
+    let unit = "Let me carefully re-examine the situation. \
+                I should reflect on what has been done so far. \
+                The next step is to proceed methodically and without haste. \
+                I need to remain focused on the task at hand. ";
+    let run = unit.repeat(6);
+    run.as_bytes()
+        .chunks(32)
+        .map(|chunk| String::from_utf8(chunk.to_vec()).expect("ascii chunks"))
+        .collect()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_looping_stream_completes_as_a_repetition_loop() {
+    // Given a stream whose text repeats a mantra past the thresholds.
+    let harness = TestHarness::new().await;
+    let stream = scripted_stream({
+        let mut events: Vec<jinn_provider::StreamEvent> = looping_tokens()
+            .into_iter()
+            .map(StreamEvent::Text)
+            .collect();
+        events.push(StreamEvent::Done {
+            stop_reason: jinn_provider::StopReason::EndTurn,
+            usage: None,
+            model: None,
+        });
+        events
+    });
+    let sid = SessionId::new();
+    let completed = harness.spawn_recorder::<StreamCompleted>().await;
+
+    // When the stream is processed (no rules installed).
+    run_with_rules(&harness, stream, &sid, None).await;
+
+    // Then the completion reports a repetition loop.
+    let recorded = await_recorded(&completed, 1, std::time::Duration::from_secs(5)).await;
+    assert!(
+        recorded
+            .iter()
+            .any(|c| c.reason == StreamCompletedReason::RepetitionLoop),
+        "a looping stream must complete as a repetition loop, got: {:?}",
+        recorded.iter().map(|c| c.reason).collect::<Vec<_>>()
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_loop_interrupt_publishes_no_chat_entry() {
+    // Given the same looping stream.
+    let harness = TestHarness::new().await;
+    let stream = scripted_stream(
+        looping_tokens()
+            .into_iter()
+            .map(StreamEvent::Text)
+            .collect::<Vec<_>>(),
+    );
+    let sid = SessionId::new();
+    let entries = harness.spawn_recorder::<PushChatEntry>().await;
+    let aborts = harness.spawn_recorder::<AbortStream>().await;
+
+    // When the stream is processed.
+    run_with_rules(&harness, stream, &sid, None).await;
+
+    // Then no chat entry was published — the model is never told it looped,
+    // and the user-facing marker is the watchdog's.
+    let aborts = await_recorded(&aborts, 1, std::time::Duration::from_secs(5)).await;
+    assert_eq!(
+        entries.len(),
+        0,
+        "a loop interrupt must stay silent toward the model"
+    );
+    // And the abort is stamped with the dispatch generation, so it cannot
+    // tear down the stream the retry resumes into.
+    assert!(!aborts.is_empty(), "the teardown must reach the actor");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_loop_in_tool_arguments_tears_the_stream_down() {
+    // Given a stream whose tool-call arguments repeat garbage past the
+    // thresholds (the call-loop sample's signature).
+    let harness = TestHarness::new().await;
+    let mut events: Vec<jinn_provider::StreamEvent> = vec![StreamEvent::ToolUseStart {
+        index: 0,
+        id: jinn_core_types::ToolCallId::new("call-0"),
+        name: "bash".to_owned(),
+    }];
+    for chunk in "dot".repeat(400).as_bytes().chunks(9) {
+        events.push(StreamEvent::ToolUseInputDelta {
+            index: 0,
+            partial_json: String::from_utf8(chunk.to_vec()).expect("ascii chunks"),
+        });
+    }
+    let stream = scripted_stream(events);
+    let sid = SessionId::new();
+    let completed = harness.spawn_recorder::<StreamCompleted>().await;
+
+    // When the stream is processed.
+    run_with_rules(&harness, stream, &sid, None).await;
+
+    // Then the completion reports a repetition loop — the args buffer is
+    // scanned like the prose and thinking buffers.
+    let recorded = await_recorded(&completed, 1, std::time::Duration::from_secs(5)).await;
+    assert!(
+        recorded
+            .iter()
+            .any(|c| c.reason == StreamCompletedReason::RepetitionLoop),
+        "a looping args stream must complete as a repetition loop"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_legitimate_stream_is_not_interrupted_as_a_loop() {
+    // Given a normal stream of varied prose past the run threshold.
+    let harness = TestHarness::new().await;
+    let mut varied = String::new();
+    for i in 0..30 {
+        let _ = std::fmt::Write::write_fmt(
+            &mut varied,
+            format_args!("Answer part {i}: the result is item number {i} of the batch. "),
+        );
+    }
+    let stream = scripted_stream(vec![
+        StreamEvent::Text(varied),
+        StreamEvent::Done {
+            stop_reason: jinn_provider::StopReason::EndTurn,
+            usage: None,
+            model: None,
+        },
+    ]);
+    let sid = SessionId::new();
+    let completed = harness.spawn_recorder::<StreamCompleted>().await;
+
+    // When the stream is processed.
+    run_with_rules(&harness, stream, &sid, None).await;
+
+    // Then it completes as Finished, not as a loop.
+    let recorded = await_recorded(&completed, 1, std::time::Duration::from_secs(5)).await;
+    assert!(
+        recorded
+            .iter()
+            .any(|c| c.reason == StreamCompletedReason::Finished),
+        "an ordinary stream must complete normally"
+    );
+}
