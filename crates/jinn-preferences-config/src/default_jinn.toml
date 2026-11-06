@@ -537,6 +537,13 @@ max_failures = 6
 # > completes without a detected loop debits the count.
 max_failures = 3
 
+# > Retries a turn whose provider stream failed with a transient error.
+[watchdog.provider_error]
+# > Seconds to wait before each successive retry. Attempt N waits the Nth
+# > entry; a failure past the list ends the turn as an ordinary error. Every
+# > entry has a one-second floor; an empty list disables the watchdog.
+waits_secs = [10, 30, 60]
+
 # ###########################################################################
 # Interactive terminal panes
 # ###########################################################################

@@ -3045,6 +3045,7 @@ dependencies = [
  "dirs",
  "dotenvy",
  "error-stack",
+ "futures",
  "jiff",
  "jinn-app-state",
  "jinn-applets",

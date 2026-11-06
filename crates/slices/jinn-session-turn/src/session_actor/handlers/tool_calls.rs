@@ -587,6 +587,7 @@ mod tests {
             dispatched_at: jiff::Timestamp::now(),
             turn: live.turn,
             stream: live.stream.unwrap_or_default(),
+            retryable: false,
         }
     }
 
@@ -613,6 +614,7 @@ mod tests {
             dispatched_at,
             turn,
             stream,
+            retryable: false,
         }
     }
 
@@ -1369,6 +1371,7 @@ mod tests {
                 dispatched_at: jiff::Timestamp::now(),
                 turn,
                 stream: jinn_core_types::turn_identity::StreamId::default(),
+                retryable: false,
             })
             .await;
 
@@ -1574,6 +1577,7 @@ mod tests {
             dispatched_at: jiff::Timestamp::now(),
             turn: live.turn,
             stream: live.stream.unwrap_or_default(),
+            retryable: false,
         };
         actor.on_stream_completed(&event).await;
 

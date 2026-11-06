@@ -3,6 +3,7 @@ pub(super) mod enqueue;
 pub(super) mod loop_retry;
 pub(super) mod misc;
 mod persistence;
+pub(super) mod provider_error;
 pub(super) mod rule_intercept;
 pub(super) mod stall_retry;
 pub(super) mod streaming;

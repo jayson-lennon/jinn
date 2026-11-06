@@ -94,6 +94,7 @@ async fn emit_stream_error(
     dispatched_at: Timestamp,
     turn: jinn_core_types::turn_identity::TurnToken,
     stream: jinn_core_types::turn_identity::StreamId,
+    retryable: bool,
 ) {
     bus.publish(PushChatEntry {
         session_id: session_id.clone(),
@@ -115,6 +116,7 @@ async fn emit_stream_error(
         dispatched_at,
         turn,
         stream,
+        retryable,
     })
     .await;
 }
@@ -525,7 +527,9 @@ async fn process_stream_events(
                     .await;
                     return StreamOutcome::Completed;
                 }
-                StreamEvent::Error { message, .. } => {
+                StreamEvent::Error {
+                    message, retryable, ..
+                } => {
                     // Terminal: as with `Done`, no liveness is declared.
                     emit_terminal_error(
                         bus,
@@ -537,6 +541,7 @@ async fn process_stream_events(
                         turn,
                         stream_id,
                         "LLM stream error event",
+                        retryable,
                     )
                     .await;
                     return StreamOutcome::Completed;
@@ -553,6 +558,7 @@ async fn process_stream_events(
                     turn,
                     stream_id,
                     "LLM stream chunk error",
+                    true,
                 )
                 .await;
                 return StreamOutcome::Completed;
@@ -571,6 +577,7 @@ async fn process_stream_events(
         turn,
         stream_id,
         "LLM stream ended without a terminal event (Done/Error)",
+        true,
     )
     .await;
     StreamOutcome::Completed
@@ -661,6 +668,7 @@ async fn intercept_and_resume(
         dispatched_at,
         turn,
         stream,
+        retryable: false,
     })
     .await;
 
@@ -731,6 +739,10 @@ async fn apply_loop_interrupt(
         dispatched_at,
         turn,
         stream,
+        // The loop retry is the reasoning-loop watchdog's domain, not this
+        // one: a `true` here would schedule a provider-error retry on top
+        // of the silent loop retry racing the same turn.
+        retryable: false,
     })
     .await;
 
@@ -756,6 +768,7 @@ async fn emit_terminal_error(
     turn: jinn_core_types::turn_identity::TurnToken,
     stream: jinn_core_types::turn_identity::StreamId,
     log_label: &str,
+    retryable: bool,
 ) {
     tracing::info!(
         session_id = ?sid,
@@ -765,7 +778,7 @@ async fn emit_terminal_error(
         "{log_label} - terminal"
     );
     tracing::error!(session_id = ?sid, error = %message, "{log_label}");
-    emit_stream_error(bus, sid, message, dispatched_at, turn, stream).await;
+    emit_stream_error(bus, sid, message, dispatched_at, turn, stream, retryable).await;
 }
 
 /// Accumulates streamed text, reasoning, and tool calls during an LLM stream.
@@ -901,6 +914,9 @@ async fn publish_stream_completed(
         dispatched_at,
         turn,
         stream,
+        // Only a failed generation carries a retry verdict; a completed
+        // one (`Finished`/`ToolUse`/`RuleIntercept`) never asks for a retry.
+        retryable: false,
     })
     .await;
 }
@@ -1157,6 +1173,7 @@ impl InferenceActor {
                     payload.dispatched_at,
                     payload.turn,
                     payload.stream,
+                    false,
                 )
                 .await;
                 return;
@@ -1376,6 +1393,7 @@ async fn run_stream(
                 dispatched_at,
                 turn,
                 stream_id,
+                false,
             )
             .await;
             return;
@@ -1389,6 +1407,7 @@ async fn run_stream(
         Ok(s) => s,
         Err(e) => {
             tracing::error!(err = ?e, "failed to start LLM stream");
+            let retryable = classify_construction_error(&e);
             emit_stream_error(
                 &bus,
                 &sid,
@@ -1396,6 +1415,7 @@ async fn run_stream(
                 dispatched_at,
                 turn,
                 stream_id,
+                retryable,
             )
             .await;
             return;
@@ -1434,6 +1454,18 @@ async fn run_stream(
 #[derive(Debug, wherror::Error)]
 #[error("{0}")]
 struct LlmResolveError(String);
+
+/// Classifies a stream-construction failure for the provider-error watchdog.
+///
+/// `true` when the construction error is a transient transport class
+/// ([`LlmServiceError::Retryable`] or [`LlmServiceError::RateLimited`]);
+/// `false` for provider, api-key, and config failures a retry cannot fix.
+fn classify_construction_error(error: &Report<LlmServiceError>) -> bool {
+    matches!(
+        error.downcast_ref::<LlmServiceError>(),
+        Some(LlmServiceError::RateLimited { .. } | LlmServiceError::Retryable)
+    )
+}
 
 /// Constructs a fresh retrying service for one streaming attempt.
 fn build_streaming_service(

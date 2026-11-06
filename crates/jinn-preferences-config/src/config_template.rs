@@ -23,8 +23,9 @@ use wherror::Error;
 pub use crate::schemas::{
     AutoPruneConfig, ChatLogConfig, CompactionConfig, CwdSelectorConfig, DiscordConfig,
     InteractiveTermPrefs, LegacyCommandPolicyRule, McpServerConfig, McpServersConfig,
-    MinimapConfig, ProjectConfig, RequestRetryConfig, SessionLifecycle, SkillsConfig,
-    StallWatchdogConfig, ToolCallWatchdogConfig, ToolsConfig, TransportKind, WebSearchConfig,
+    MinimapConfig, ProjectConfig, ProviderErrorWatchdogConfig, RequestRetryConfig,
+    SessionLifecycle, SkillsConfig, StallWatchdogConfig, ToolCallWatchdogConfig, ToolsConfig,
+    TransportKind, WebSearchConfig,
 };
 
 /// Canonical default `jinn.toml` embedded at compile time.

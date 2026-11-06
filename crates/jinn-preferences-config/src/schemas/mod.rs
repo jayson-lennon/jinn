@@ -36,6 +36,7 @@ pub mod mcp;
 pub mod minimap;
 pub mod project;
 pub mod provider;
+pub mod provider_error_watchdog;
 pub mod reasoning_loop_watchdog;
 pub mod remote;
 pub mod request_retry;
@@ -74,6 +75,7 @@ pub use mcp::{
 pub use minimap::MinimapConfig;
 pub use project::ProjectConfig;
 pub use provider::WebSearchConfig;
+pub use provider_error_watchdog::ProviderErrorWatchdogConfig;
 pub use reasoning_loop_watchdog::ReasoningLoopWatchdogConfig;
 pub use remote::{DEFAULT_REMOTE_BIND, RemoteBindError, RemoteConfig};
 pub use request_retry::RequestRetryConfig;

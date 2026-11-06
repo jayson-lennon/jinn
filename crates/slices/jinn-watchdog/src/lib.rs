@@ -28,10 +28,19 @@
 //!   detection — the retry itself is silent toward the model), and
 //!   surrenders at the count (surrender marker + `CancelTurn`), repaying
 //!   one detection per response that completes without looping.
+//! - [`provider_error_watchdog_actor::ProviderErrorWatchdogActor`] counts
+//!   retryable provider failures (`StreamCompleted` with `Error` stamped
+//!   retryable), schedules the escalating waits from
+//!   `[watchdog.provider_error]`, and re-dispatches through the stall-retry
+//!   path (`RetryStalledSession`); past the schedule it surrenders the turn
+//!   to the ordinary error settle (surrender marker +
+//!   `GiveUpProviderRetries`). An empty wait list disables it, and the
+//!   spawn is skipped entirely on one.
 //!
 //! All four actors publish through `Services`' bus (kernel dependency, see
 //! Cargo.toml) and write no shared state.
 
+pub mod provider_error_watchdog_actor;
 pub mod reasoning_loop_watchdog_actor;
 pub mod stall_watchdog_actor;
 pub mod stream_rule_watchdog_actor;
@@ -40,6 +49,7 @@ pub mod tool_call_watchdog_actor;
 use jinn_kernel::Services;
 use jinn_kernel::common::state::State;
 use jinn_preferences_config::schemas::LegacyStreamRulesBudget;
+use jinn_preferences_config::schemas::ProviderErrorWatchdogConfig;
 use jinn_preferences_config::schemas::ReasoningLoopWatchdogConfig;
 use jinn_preferences_config::schemas::STREAM_RULE_WATCHDOG_KEY;
 use jinn_preferences_config::schemas::STREAM_RULES_BUDGET_KEY;
@@ -148,6 +158,33 @@ pub fn activate(host: &mut SliceHost<'_, RenderFacts>, _state: &State, services:
             max_failures: loop_cfg.effective_max_failures(),
         },
     );
+
+    // The provider-error watchdog's schedule is read at activation; an
+    // empty (or floored-empty) list means the user disabled it, and the
+    // actor is not spawned at all — its subscriptions would be noise.
+    let provider_cfg = services
+        .config
+        .get::<ProviderErrorWatchdogConfig>()
+        .unwrap_or_default();
+    let waits: Vec<std::time::Duration> = provider_cfg
+        .effective_waits_secs()
+        .into_iter()
+        .map(std::time::Duration::from_secs)
+        .collect();
+    if waits.is_empty() {
+        tracing::info!(
+            "provider-error watchdog disabled by an empty [watchdog.provider_error] waits_secs"
+        );
+    } else {
+        provider_error_watchdog_actor::ProviderErrorWatchdogActor::spawn(
+            host.system(),
+            provider_error_watchdog_actor::ProviderErrorWatchdogActorDeps {
+                services: services.clone(),
+                waits,
+                tick_interval: provider_error_watchdog_actor::PROVIDER_TICK_INTERVAL,
+            },
+        );
+    }
 }
 
 #[cfg(test)]

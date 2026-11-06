@@ -241,6 +241,11 @@ pub struct StreamCompleted {
     /// The stream this completion retires.
     #[serde(default)]
     pub stream: jinn_core_types::turn_identity::StreamId,
+    /// Whether a watchdog may retry this failed generation. `false` for
+    /// config, auth, and deterministic provider errors; `true` for
+    /// transient ones. Serde default `false` keeps old wire messages inert.
+    #[serde(default)]
+    pub retryable: bool,
 }
 
 impl jinn_slices::BusMessage for StreamCompleted {}
@@ -366,6 +371,27 @@ mod tests {
         assert!(back.tool_calls.is_none());
         assert!(back.cost.is_none());
         assert!(back.model_used.is_none());
+        // And the retry stamp defaults to inert.
+        assert!(!back.retryable);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn stream_completed_defaults_retryable_false_for_old_wire_messages() {
+        // Given JSON for a StreamCompleted shaped as before the retryable
+        // field existed (an error completion from an older publisher).
+        let json = format!(
+            r#"{{"session_id":"{}","reason":"error","dispatched_at":"1970-01-01T00:00:00Z"}}"#,
+            SessionId::new()
+        );
+
+        // When deserializing.
+        let back: StreamCompleted = serde_json::from_str(&json).expect("deserialize");
+
+        // Then the completion deserializes with retryable false, so the
+        // watchdog treats it exactly as today's path does.
+        assert_eq!(back.reason, StreamCompletedReason::Error);
+        assert!(!back.retryable);
     }
 
     #[rstest::rstest]

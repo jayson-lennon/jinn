@@ -52,6 +52,7 @@ pub use schemas::StreamRulesConfig;
 // import home for the `[context_curation.auto_prune]` section.
 pub use schemas::auto_prune::{AnchoredAssistantAutoPruneConfig, TodoAutoPruneConfig};
 // Watchdog sections: consumed by the `jinn-watchdog` slice at activation.
+pub use schemas::ProviderErrorWatchdogConfig;
 pub use schemas::StallWatchdogConfig;
 pub use schemas::ToolCallWatchdogConfig;
 pub use schemas::maintenance::{MaintenanceConfig, retention_duration};

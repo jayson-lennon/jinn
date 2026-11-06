@@ -160,6 +160,9 @@ dotenvy = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 mockito = { workspace = true }
+# The slice-composition tests' dying-stream factory builds tool streams;
+# the provider's stream types are `futures::Stream` aliases.
+futures = { workspace = true }
 toml = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

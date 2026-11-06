@@ -55,9 +55,9 @@ fn workspace_root() -> MarkedPathBuf<Absolute> {
         }
     }
     panic!(
-        "no ancestor of CARGO_MANIFEST_DIR or the working directory contains {LIFECYCLE_REL}; \
-         run the test from the repository checkout"
-    );
+        "no ancestor of CARGO_MANIFEST_DIR or the working directory contains \
+         {LIFECYCLE_REL}; run the test from the repository checkout"
+    )
 }
 
 /// The path of the autodev lifecycle file, under the workspace root.

@@ -11,9 +11,21 @@
 ```toml
 # jinn.toml
 [watchdog.reasoning_loop]
+# Abort the stream after this many failures accumulate. Successful responses
+# decrement the counter.
 max_failures = 3
 ```
+
 - Minimap context usage display is now only shown when in Normal mode.
+- Add new watchdog to restart streams if an error occurs _during streaming_.
+  - The existing `provider.request_retry` is similar, but only handles failed _connection attempts_.
+
+```toml
+# jinn.toml
+[watchdog.provider_error]
+# Retry 3 times, waiting this many seconds between the attempts.
+waits_secs = [10, 30, 60]
+```
 
 ## 2026-11-04 v0.20.0
 

@@ -111,11 +111,17 @@ pub enum StreamEvent {
     /// Some providers (e.g., Anthropic) send error events within the SSE stream
     /// for issues like `overloaded_error`. This variant surfaces those errors
     /// so the LLM actor can display them to the user and terminate gracefully.
+    /// It also classifies the failure for the provider-error watchdog: a
+    /// `false` here names a deterministic failure a retry cannot fix.
     Error {
         /// The error type from the provider (e.g., "overloaded_error").
         error_type: String,
         /// The human-readable error message from the provider.
         message: String,
+        /// `false` when this backend's parser recognizes a deterministic
+        /// error type (auth, invalid request, permission); `true` otherwise —
+        /// unknown dialects default to retryable.
+        retryable: bool,
     },
     /// Accumulated source citations from server-side tooling (e.g. the
     /// OpenRouter `openrouter:web_search` tool, surfaced as `url_citation`

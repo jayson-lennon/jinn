@@ -260,6 +260,7 @@ pub(super) mod tests {
             dispatched_at: jiff::Timestamp::now(),
             turn: live.turn,
             stream: live.stream.unwrap_or_default(),
+            retryable: false,
         }
     }
 
@@ -288,6 +289,7 @@ pub(super) mod tests {
             dispatched_at: jiff::Timestamp::now(),
             turn: live.turn,
             stream: live.stream.expect("an intercepted stream is in flight"),
+            retryable: false,
         }
     }
 
