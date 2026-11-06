@@ -7,9 +7,9 @@
 //! unit tested on the *command resolution*, not on any browser actually
 //! opening — a test that launches a browser is not a test.
 
-/// Builds the URL an open lands on: the loopback base plus the applet's
-/// path, always with the trailing slash so relative sibling references
-/// in the artifact resolve.
+/// Builds the URL an open lands on: the resolved bind as the base plus
+/// the applet's path, always with the trailing slash so relative sibling
+/// references in the artifact resolve.
 #[must_use]
 pub fn applet_url(resolved_bind: std::net::SocketAddr, id: &str) -> String {
     format!("http://{resolved_bind}/applets/{id}/")

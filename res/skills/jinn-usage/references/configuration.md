@@ -483,8 +483,9 @@ output while it's being produced.
 Absent means every project. A project-scoped rule can add to a global rule
 but never remove one.
 
-**Canvas and applets binds** (loopback-only local servers; no
-authentication):
+**Canvas and applets binds** (local servers; the bind is taken as
+configured — securing the interface you point them at is your
+responsibility; the defaults listen on loopback only):
 
 ```toml
 [canvas]

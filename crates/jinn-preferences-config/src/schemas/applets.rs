@@ -8,10 +8,9 @@
 //! bind.
 //!
 //! The server that binds it lives in `jinn-applets`. This module is data
-//! plus the bind-string grammar — no server, no I/O, and deliberately no
-//! loopback check: refusing non-loopback binds is the serve path's
-//! policy, so the schema layer accepts any host:port (the canvas
-//! schema's tests pin that same layering).
+//! plus the bind-string grammar — no server, no I/O, and no address-class
+//! check: the schema layer accepts any host:port (the canvas schema's
+//! tests pin that same layering).
 
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -143,8 +142,8 @@ mod tests {
             .parse_bind()
             .expect("schema layer parses any socket addr");
 
-        // Then the parse succeeds — refusing non-loopback binds is the
-        // serve path's policy, not the data's.
+        // Then the parse succeeds — the schema layer is address-class
+        // agnostic: a bind parses, whatever interface it names.
         assert_eq!(addr.to_string(), "192.168.1.10:8123");
     }
 

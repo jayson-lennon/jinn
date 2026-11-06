@@ -72,8 +72,9 @@ use jinn_slices::SliceHost;
 pub struct AppletsActivateError;
 
 /// Installs the applets slice: reads `[applets] bind` (launch-fatal when
-/// malformed or non-loopback), spawns the dormant server actor and the
-/// store actor, and registers the picker plus its republisher.
+/// malformed — the bind itself is taken as configured), spawns the dormant
+/// server actor and the store actor, and registers the picker plus its
+/// republisher.
 ///
 /// The picker's cells are catalog-registered (block 0); this resolves
 /// them. The server is dormant — no listener binds, no filesystem work
@@ -83,9 +84,7 @@ pub struct AppletsActivateError;
 /// # Errors
 ///
 /// Returns [`AppletsActivateError`] when the `[applets]` section cannot be
-/// read, its bind is not a host:port socket address, or the bind is not
-/// loopback (the server has no authentication, so a non-loopback bind is
-/// refused at activation, not bound and warned).
+/// read, or its bind is not a host:port socket address.
 #[expect(
     clippy::expect_used,
     reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
@@ -110,18 +109,6 @@ pub fn activate(
         .parse_bind()
         .change_context(AppletsActivateError)
         .attach("the [applets] bind must be a host:port socket address")?;
-
-    // Loopback only, no exceptions — the server has no authentication,
-    // so it must not listen on an exposed interface. Refused here at
-    // activation (launch-fatal), never bound and warned.
-    if !bind.ip().is_loopback() {
-        return Err(
-            error_stack::Report::new(AppletsActivateError).attach(format!(
-                "the configured [applets] bind {bind} is not a loopback address; \
-             the saved-applets server has no authentication"
-            )),
-        );
-    }
 
     let system: trouper::system::ActorSystem = host.system().clone();
 
@@ -231,22 +218,22 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[test]
-    fn activation_refuses_a_non_loopback_bind() {
-        // Given an exposed-interface bind in the [applets] section.
-        let config = layer_with(Some("192.168.1.10:0"));
+    #[tokio::test]
+    async fn activation_accepts_a_non_loopback_bind() {
+        // Given a bind on an exposed interface (0.0.0.0: every machine).
+        let config = layer_with(Some("0.0.0.0:0"));
 
         // When activating against a live test host.
-        let error = with_test_host!(|host| {
-            match super::activate(&mut host, &config, &apps_dir_for_test(), &bus_for_test()) {
-                Err(report) => format!("{report:?}"),
-                Ok(()) => panic!("expected activation to fail"),
-            }
+        // Then activation succeeds — the bind is taken as configured;
+        // securing the interface is the operator's call.
+        with_test_host!(|host| {
+            let result = super::activate(&mut host, &config, &apps_dir_for_test(), &bus_for_test());
+            assert!(
+                result.is_ok(),
+                "err: {:?}",
+                result.err().map(|e| e.to_string())
+            );
         });
-
-        // Then the refusal names the loopback policy — the server has no
-        // authentication, so it must not bind an exposed interface.
-        assert!(error.contains("loopback"), "got: {error}");
     }
 
     #[rstest::rstest]
@@ -270,12 +257,12 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn activation_of_a_well_formed_bind_reaches_the_picker_wiring() {
-        // Given a loopback bind (the shipped default).
+        // Given the shipped default bind.
         let config = layer_with(Some("127.0.0.1:0"));
 
         // When activating against a live test host.
-        // Then activation succeeds end to end — bind parse, loopback
-        // check, both actors, the picker, and the republisher.
+        // Then activation succeeds end to end — bind parse, both actors,
+        // the picker, and the republisher.
         with_test_host!(|host| {
             let result = super::activate(&mut host, &config, &apps_dir_for_test(), &bus_for_test());
             assert!(

@@ -1,9 +1,10 @@
 //! The applets contract — what crosses the applets slice boundary.
 //!
 //! The applets slice saves agent-built HTML artifacts under the data dir's
-//! `applets/` root and serves them back verbatim over loopback HTTP. The
-//! payloads that cross the boundary live here so the picker, the store
-//! actor, and the server never share an implementation crate:
+//! `applets/` root and serves them back verbatim over HTTP (loopback by
+//! default). The payloads that cross the boundary live here so the
+//! picker, the store actor, and the server never share an
+//! implementation crate:
 //!
 //! - [`AppletsCatalog`] / [`AppletEntry`] — the saved-app list, mirroring the
 //!   on-disk `applets.json` at the applets root.

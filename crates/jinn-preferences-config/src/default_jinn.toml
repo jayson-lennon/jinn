@@ -121,8 +121,9 @@ skill_filter = { mode = "deny", names = ["phased-task-loop"] }
 # > the OS for an ephemeral port, so two running jinn instances never
 # > fight over one port; the resolved URL comes back in the tool result.
 # >
-# > The bind must be a loopback address — the canvas server has no
-# > authentication, so it never listens on an exposed interface.
+# > The bind is taken as configured — point it at any interface you
+# > like; securing that endpoint is your responsibility. The default
+# > listens on loopback only, which is safe on a single-user machine.
 bind = "127.0.0.1:0"
 
 # ###########################################################################
@@ -134,8 +135,9 @@ bind = "127.0.0.1:0"
 # > the OS for an ephemeral port, so two running jinn instances never
 # > fight over one port; the resolved port is what the opened URL carries.
 # >
-# > The bind must be a loopback address — the saved-applet server has no
-# > authentication, so it never listens on an exposed interface.
+# > The bind is taken as configured — point it at any interface you
+# > like; securing that endpoint is your responsibility. The default
+# > listens on loopback only, which is safe on a single-user machine.
 bind = "127.0.0.1:0"
 
 # ###########################################################################

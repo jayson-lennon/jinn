@@ -377,8 +377,9 @@ fn template_ships_overgraph_as_a_disabled_singleton_builtin() {
 /// The shipped `[canvas]` section is active and binds loopback port 0:
 /// an OS-assigned ephemeral port per running jinn instance, so two
 /// instances never fight over one fixed port (end state: multi-instance
-/// isolation). An explicit configured value still wins — the schema
-/// keeps whatever a user wrote.
+/// isolation). The bind is taken as configured — the shipped default is
+/// loopback, but an explicit configured value wins and the schema keeps
+/// whatever a user wrote.
 #[rstest::rstest]
 #[test]
 fn template_ships_canvas_as_loopback_port_zero() {
@@ -405,10 +406,9 @@ fn template_ships_canvas_as_loopback_port_zero() {
 
 /// The shipped `[applets]` section is active and binds loopback port 0:
 /// an OS-assigned ephemeral port per running jinn instance, so two
-/// instances never fight over one fixed port. The saved-applet server
-/// has no authentication, so the shipped bind must never name an
-/// exposed interface. An explicit configured value still wins — the
-/// schema keeps whatever a user wrote.
+/// instances never fight over one fixed port. The bind is taken as
+/// configured — the shipped default is loopback, but an explicit
+/// configured value wins and the schema keeps whatever a user wrote.
 #[rstest::rstest]
 #[test]
 fn template_ships_applets_as_loopback_port_zero() {
