@@ -14,7 +14,6 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 use jinn_session_lifecycle_msg::command_template::CommandTemplate;
 use marked_path::{Absolute, MarkedPathBuf};
@@ -34,25 +33,21 @@ use marked_path::{Absolute, MarkedPathBuf};
 ///
 /// Each seed is walked upward until a directory containing the lifecycle
 /// file turns up; if none does, the test fails with instructions instead of
-/// a misleading path error. The seeds are held as `&Path` views over the
-/// owned env/cwd values (the path guard denies owning raw `PathBuf`; the
-/// owned values live in bindings so the views outlive the loop).
+/// a misleading path error.
 fn workspace_root() -> MarkedPathBuf<Absolute> {
     const LIFECYCLE_REL: &str = "res/workflows/autodev/lifecycle.toml";
-    let env_seed = std::env::var_os("CARGO_MANIFEST_DIR");
-    let cwd_seed = std::env::current_dir().ok();
-    let compile_seed = Path::new(env!("CARGO_MANIFEST_DIR"));
+    // Seeds are path views, not owned PathBufs: the owning raw path is
+    // denied workspace-wide, and the seeds are only walked for ancestors
+    // before the surviving root is marked absolute below.
+    let cwd = std::env::current_dir().ok();
+    let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR");
+    let seeds = [
+        manifest_dir.as_deref().map(std::path::Path::new),
+        cwd.as_deref(),
+        Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))),
+    ];
 
-    let mut seeds: Vec<&Path> = Vec::new();
-    if let Some(dir) = env_seed.as_deref() {
-        seeds.push(Path::new(dir));
-    }
-    if let Some(dir) = cwd_seed.as_deref() {
-        seeds.push(dir);
-    }
-    seeds.push(compile_seed);
-
-    for seed in &seeds {
+    for seed in seeds.into_iter().flatten() {
         for dir in seed.ancestors() {
             if dir.join(LIFECYCLE_REL).is_file() {
                 return MarkedPathBuf::<Absolute>::new(dir).expect("a seed's ancestor is absolute");

@@ -142,7 +142,7 @@ async fn minimap_arrow_is_yellow_when_normal_scope() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn minimap_arrow_is_darkgray_when_input_scope() {
+async fn minimap_arrow_is_not_rendered_in_input_scope() {
     // Given a TuiApp rendered with Input scope and one chat entry.
     let mut app = render_test_app().await;
     app.core
@@ -164,12 +164,48 @@ async fn minimap_arrow_is_darkgray_when_input_scope() {
         })
         .unwrap();
 
-    // Then the minimap arrow is DarkGray (border_unfocused).
+    // Then the minimap arrow cell is blank — no glyph, no token counts.
     let layout = AppLayout::new(frame_area(80, 24), 1, 12, 30);
     let (x, y) = arrow_cell_position(&layout);
     let buffer = terminal.backend().buffer();
     let cell = buffer.cell((x, y)).expect("minimap arrow cell");
-    assert_eq!(cell.fg, Color::DarkGray);
+    assert_eq!(cell.symbol(), " ");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn minimap_strip_still_renders_in_input_scope() {
+    // Given a TuiApp rendered with Input scope and one entry with a token
+    // count, so the strip paints a block for it.
+    let mut app = render_test_app().await;
+    app.core
+        .state
+        .write()
+        .frontend
+        .scope_push(FocusScope::Input);
+    {
+        let mut state = app.core.state.write();
+        let mut entry = ChatEntry::user("hello");
+        entry.token_count = Some(100);
+        state.active_session_mut().push_entry(entry);
+    }
+    let (mut terminal, _area) = setup_term(80, 24);
+
+    // When rendering.
+    terminal
+        .draw(|frame| {
+            app.render(frame);
+        })
+        .unwrap();
+
+    // Then the minimap column still carries strip content in Input scope.
+    let layout = AppLayout::new(frame_area(80, 24), 1, 12, 30);
+    let buffer = terminal.backend().buffer();
+    let strip_has_content = (0..layout.minimap.height)
+        .map(|dy| (layout.minimap.x, layout.minimap.y + dy))
+        .filter_map(|(x, y)| buffer.cell((x, y)))
+        .any(|cell| cell.symbol() != " ");
+    assert!(strip_has_content);
 }
 
 #[rstest::rstest]

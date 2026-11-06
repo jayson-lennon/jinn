@@ -13,6 +13,7 @@
 [watchdog.reasoning_loop]
 max_failures = 3
 ```
+- Minimap context usage display is now only shown when in Normal mode.
 
 ## 2026-11-04 v0.20.0
 

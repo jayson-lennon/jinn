@@ -118,9 +118,9 @@ Unidirectional: frontend → actors. The shared `AppState` and the cell registry
 
 ### 2.7 Actors and the bus
 
-There is no central actor host. The bus is a **schema broadcast**: a published message is addressed by its schema and delivered to the actors that declared `.handles::<M>()` at spawn, and to no one else. Publishing is not a route table — but the *transport* a message rides depends on the path it takes and on the schema's declared kind, so read the rule below before giving a schema more than one declarant.
+There is no central actor host. The bus is a **schema broadcast**: a published message is addressed by its schema and delivered to the actors that declared `.handles::<M>()` at spawn, and to no one else. Publishing is not a route table — but the _transport_ a message rides depends on the path it takes and on the schema's declared kind, so read the rule below before giving a schema more than one declarant.
 
-**One declarant per schema — the rule that keeps the two publish paths agreeing.** A schema's *declared kind* decides its transport on the erased path (see `Bridge` below): an **Event** broadcasts to every declarant, a **Command** routes to **one** handler — and the route table rotates between handlers when a second actor declares the same schema. So a message declared by two actors is delivered to one of them, alternating, while the same message published directly reaches both. Keep one declarant per schema, and keep an imperative message a **Command** and a past-tense fact an **Event**: re-declaring a Command as an Event to obtain broadcast semantics makes the kind lie about what the message is. When one press must drive two actors, chain them — the first actor emits the fact, the second subscribes to it.
+**One declarant per schema — the rule that keeps the two publish paths agreeing.** A schema's _declared kind_ decides its transport on the erased path (see `Bridge` below): an **Event** broadcasts to every declarant, a **Command** routes to **one** handler — and the route table rotates between handlers when a second actor declares the same schema. So a message declared by two actors is delivered to one of them, alternating, while the same message published directly reaches both. Keep one declarant per schema, and keep an imperative message a **Command** and a past-tense fact an **Event**: re-declaring a Command as an Event to obtain broadcast semantics makes the kind lie about what the message is. When one press must drive two actors, chain them — the first actor emits the fact, the second subscribes to it.
 
 An actor is a struct ending in `Actor` that implements three things:
 
@@ -130,7 +130,7 @@ An actor is a struct ending in `Actor` that implements three things:
 
 **The flush gate.** A spawn builder's `.handles::<M>()` declares subscriptions; its `.emits::<M>()` declares what the actor is allowed to send. A type that is neither handled nor emitted is **dropped silently at runtime**. When an outbound message vanishes, the fix is almost always a missing `.emits::<M>()`.
 
-`Bridge` (`crates/jinn-kernel/src/common/bridge.rs`) is how a synchronous caller reaches the bus: the handler produces erased `PublishClosure`s, the bridge takes them over a synchronous channel, and an async task drains them through the same `BusService` every actor uses. The closure rides the same recording mode as a direct publish, and the same transport **when the schema has one declarant** — but a closure's publish is *erased*, so the system's transport comes from the schema's declared kind: an Event broadcasts, a Command routes to one handler. A direct `publish` always broadcasts. The two paths therefore disagree for a Command with more than one declarant, which is why the rule above keeps one declarant per schema.
+`Bridge` (`crates/jinn-kernel/src/common/bridge.rs`) is how a synchronous caller reaches the bus: the handler produces erased `PublishClosure`s, the bridge takes them over a synchronous channel, and an async task drains them through the same `BusService` every actor uses. The closure rides the same recording mode as a direct publish, and the same transport **when the schema has one declarant** — but a closure's publish is _erased_, so the system's transport comes from the schema's declared kind: an Event broadcasts, a Command routes to one handler. A direct `publish` always broadcasts. The two paths therefore disagree for a Command with more than one declarant, which is why the rule above keeps one declarant per schema.
 
 ### 2.8 State ownership
 
@@ -677,7 +677,7 @@ Skills refer to commands by **role**; the table below resolves each role to this
 | `test-attr`     | `just lint-testattr`      | Fail on a bare test attribute missing its `rstest` companion.                                                             |
 | `format`        | `just fmt-fix`            | Apply formatting fixes.                                                                                                   |
 | `commit`        | `just commit '<message>'` | Commit changes (uses `--dotfiles` so `.agents/` is included).                                                             |
-| `sync-trunk`    | `git rebase main`         | Sync latest changes onto your branch — resolve conflicts, re-test, commit. Rebase, **not merge**: branches are local-only worktree branches (history rewrite is safe), and a merge-free branch keeps session teardown's flat-history rebase trivial. |
+| `sync-trunk`    | `git merge main`          | Sync latest changes onto your branch — resolve conflicts, re-test, commit.                                                |
 
 ## 8. Misc
 
