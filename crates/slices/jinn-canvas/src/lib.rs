@@ -79,7 +79,14 @@ pub fn activate(
         .attach("failed to read the [canvas] config section")?;
     let bind = canvas_config.parse_bind()?;
     let system: ActorSystem = host.system().clone();
-    let path = CanvasActor::spawn(&system, &CanvasActorDeps { bind, bus });
+    let path = CanvasActor::spawn(
+        &system,
+        &CanvasActorDeps {
+            bind,
+            config: config.clone(),
+            bus,
+        },
+    );
     set_handle(canvas_actor::canvas_server_handle(system, path));
     Ok(())
 }

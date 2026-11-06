@@ -17,6 +17,7 @@ trouper = { workspace = true }
 # Kernel dep: the compaction worker reads and writes shared state through
 # the `State` API and consumes the kernel token estimator. Tool-definition
 # inputs remain kernel-bound until the session-family migration.
+jinn-common = { workspace = true }
 jinn-kernel = { workspace = true }
 jinn-llm-support = { workspace = true }
 jinn-core-types = { workspace = true }

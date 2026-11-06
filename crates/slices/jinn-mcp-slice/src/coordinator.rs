@@ -41,6 +41,7 @@ use trouper::context::MsgCtx;
 use trouper::registry::RegistryError;
 
 use crate::connection::{McpActor, McpActorDeps, McpConnectionStateProbe, McpConnectionStateReply};
+use jinn_boot_msg::JinnTomlReloaded;
 use jinn_core_types::SessionId;
 use jinn_kernel::Services;
 use jinn_kernel::common::actor_deps::{ActorDeps, BusPublish};
@@ -146,6 +147,9 @@ impl McpCoordinatorActor {
             .handles::<SessionTeardownFinished>()
             .handles::<RestartMcpServer>()
             .handles::<McpServerStatus>()
+            // Live config: a jinn.toml reload reconciles every session
+            // against the re-read `[mcp.server.<name>]` entries.
+            .handles::<JinnTomlReloaded>()
             .handles::<McpServerLog>()
             // Restart-ask replies leave the handler through ctx.reply; the
             // flush gate drops any outbound type not declared here.
@@ -507,6 +511,31 @@ impl MsgHandler<McpEnablementChanged> for McpCoordinatorActor {
         // Given a new desired enablement set for a session.
         // When reconciling.
         self.reconcile(&msg.session_id, &msg.enabled).await;
+    }
+}
+
+// A jinn.toml reload re-reads `[mcp.server.<name>]` at the point of use
+// (reconcile's first line), so every live session reconciles against the
+// new entries: added servers spawn on the next reconcile pass, removed
+// servers are killed. Enablement per session is untouched — a reload
+// changes what *can* run, not what the user chose to run. No config
+// write happens here: writing would re-trigger the config watcher.
+impl MsgHandler<JinnTomlReloaded> for McpCoordinatorActor {
+    async fn handle(&mut self, _msg: &JinnTomlReloaded, _ctx: &mut MsgCtx<'_>) {
+        // Given a live config file whose MCP section just changed.
+        let desired_by_session: Vec<(SessionId, BTreeSet<String>)> = self
+            .state
+            .read()
+            .session
+            .iter()
+            .map(|(id, session)| (id.clone(), session.enabled_mcp_servers().clone()))
+            .collect();
+
+        // When reconciling every live session (diff-based, so a session
+        // whose enablement is unchanged under the new config is a no-op).
+        for (session_id, enabled) in desired_by_session {
+            self.reconcile(&session_id, &enabled).await;
+        }
     }
 }
 

@@ -7,6 +7,7 @@ description = "The persona slice: parses persona markdown into the personas cell
 [dependencies]
 marked-path = { workspace = true }
 jinn-core-types = { workspace = true }
+jinn-boot-msg = { workspace = true }
 jinn-persona-msg = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-picker = { workspace = true }
@@ -19,8 +20,13 @@ ratatui = { workspace = true }
 toml = { workspace = true, features = ["parse"] }
 serde = { workspace = true, features = ["derive"] }
 tracing = { workspace = true }
+trouper = { workspace = true }
 wherror = { workspace = true }
 error-stack = { workspace = true }
+# The persona rescan actor resolves the personas dir from the kernel's
+# Services paths; the picker tests already seeded their registry through
+# the catalog so this was dev-only until the actor existed.
+jinn-kernel = { workspace = true }
 
 [dev-dependencies]
 jinn-testutil = { workspace = true }
@@ -30,7 +36,6 @@ jinn-cell-catalog = { workspace = true }
 # The picker tests wire the slice the way composition does, which needs the
 # kernel's Services. Production code reaches the state through jinn-app-state
 # and never touches the kernel, which is what keeps this slice kernel-free.
-jinn-kernel = { workspace = true }
 # The confirm test decodes the published UpdateAppState payload from its
 # schema id, the same erased-publish parity every other picker test uses.
 trouper = { workspace = true }

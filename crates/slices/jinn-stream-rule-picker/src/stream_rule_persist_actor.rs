@@ -7,7 +7,7 @@
 //! `tokio::task::spawn_blocking` — the write stats and rewrites the user's
 //! `jinn.toml`, and a slow disk must not hold the bus thread. The writes
 //! run first-to-last until one fails; only when all of them landed does the
-//! actor publish [`RefreshStreamRuleMatcher`], so the matcher never
+//! actor publish [`StreamRulesReloaded`], so the matcher never
 //! recompiles from a half-applied set. The first failure aborts the loop,
 //! pushes an `Error` entry into the chat through the shared failure
 //! formatter, and publishes no refresh — the file and the live matcher
@@ -18,7 +18,7 @@ use jinn_core_types::SessionId;
 use jinn_preferences_config::StreamRulesStorage;
 use jinn_preferences_config::StreamRulesStorageError;
 use jinn_session_history_msg::PushChatEntry;
-use jinn_stream_rules_msg::RefreshStreamRuleMatcher;
+use jinn_stream_rules_msg::StreamRulesReloaded;
 use trouper::actor::ActorPath;
 use trouper::actor::MsgHandler;
 use trouper::actor::ServiceActor;
@@ -80,9 +80,9 @@ impl StreamRulePersistActor {
             .handles::<PersistStreamRuleDisabled>()
             // trouper enforces an emit gate: an outbound message that the
             // actor has not declared here is dead-lettered at flush and
-            // never routes. The refresh must follow the writes; the error
-            // entry must follow a failure.
-            .emits::<RefreshStreamRuleMatcher>()
+            // never routes. The reload event must follow the writes; the
+            // error entry must follow a failure.
+            .emits::<StreamRulesReloaded>()
             .emits::<PushChatEntry>()
             .mailbox(16, OverloadPolicy::Block)
             .start();
@@ -111,7 +111,7 @@ impl StreamRulePersistActor {
             });
 
         match result {
-            Ok(()) => ctx.publish(RefreshStreamRuleMatcher),
+            Ok(()) => ctx.publish(StreamRulesReloaded),
             Err(failure) => Self::report_error(&msg.session_id, &failure, ctx),
         }
     }
@@ -397,7 +397,7 @@ mod bus_tests {
         let (layer, prefs_path, _dir) = layer_over_pref_dir();
         let harness = TestHarness::new().await;
         let _ = StreamRulePersistActor::spawn(harness.system(), layer.clone());
-        let refreshes = harness.spawn_recorder::<RefreshStreamRuleMatcher>().await;
+        let refreshes = harness.spawn_recorder::<StreamRulesReloaded>().await;
         let pushes = harness.spawn_recorder::<PushChatEntry>().await;
         let session_id = SessionId::new();
 
@@ -464,7 +464,7 @@ mod bus_tests {
         let dir = jinn_testutil::tempdir();
         let harness = TestHarness::new().await;
         let _ = StreamRulePersistActor::spawn(harness.system(), layer);
-        let refreshes = harness.spawn_recorder::<RefreshStreamRuleMatcher>().await;
+        let refreshes = harness.spawn_recorder::<StreamRulesReloaded>().await;
         let pushes = harness.spawn_recorder::<PushChatEntry>().await;
         let session_id = SessionId::new();
 

@@ -155,7 +155,13 @@ pub fn activate(
     // ask. Spawned after the store so the ensure path's target exists —
     // though an ask cannot precede an open, and no open precedes the
     // picker, which binds its rows below.
-    AppletsServerActor::spawn(&system, &server_actor::AppletsServerActorDeps { bind });
+    AppletsServerActor::spawn(
+        &system,
+        &server_actor::AppletsServerActorDeps {
+            bind,
+            config: config.clone(),
+        },
+    );
 
     // The picker: overlay, rows, hooks.
     picker_routes::activate_picker(host, &picker_cell);

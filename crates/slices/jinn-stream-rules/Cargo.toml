@@ -11,6 +11,13 @@ jinn-slices = { workspace = true }
 jinn-preferences-config = { workspace = true }
 jinn-config = { workspace = true }
 jinn-stream-rules-msg = { workspace = true }
+# The Services/State handles the matcher actor reads the refusal's
+# recipient from and publishes the refusal over. jinn-boot-msg carries
+# the JinnTomlReloaded trigger (rules may live in jinn.toml itself).
+jinn-kernel = { workspace = true }
+jinn-app-state = { workspace = true }
+jinn-boot-msg = { workspace = true }
+jinn-session-history-msg = { workspace = true }
 # The trouper runtime: the matcher actor that re-installs the compiled set.
 trouper = { workspace = true }
 error-stack = { workspace = true }

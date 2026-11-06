@@ -17,6 +17,7 @@ use marked_path::MarkedPathAccess as _;
 use marked_path::MarkedPathBuf;
 use std::sync::Arc;
 
+use jinn_boot_msg::JinnTomlReloaded;
 use jinn_kernel::State;
 use jinn_remote_msg::registry;
 use jinn_slices::bus::BusService;
@@ -31,9 +32,14 @@ pub const REMOTE_ACTOR_NAME: &str = "remote";
 /// The listener actor: bound and serving from init onward.
 pub struct RemoteListenerActor {
     /// The resolved port, for the registry entry and shutdown removal.
-    _port: u16,
+    port: u16,
     /// The registry path, for best-effort shutdown removal.
     _registry_path: MarkedPathBuf<Absolute>,
+    /// The live config layer: a `JinnTomlReloaded` re-reads `[remote]
+    /// bind` from here and names a changed bind on the log — the
+    /// listener itself is stable for its life, and the registry entry
+    /// (`jinn remote` discovery) resolves it.
+    config: jinn_config::ConfigLayer,
 }
 
 /// Dependencies for [`RemoteListenerActor`].
@@ -41,6 +47,8 @@ pub struct RemoteListenerActor {
 pub struct RemoteListenerActorDeps {
     /// The bind from `[remote] bind`, pre-parsed and loopback-checked.
     pub bind: std::net::SocketAddr,
+    /// The live config layer: a `JinnTomlReloaded` re-reads the bind.
+    pub config: jinn_config::ConfigLayer,
     /// The live session state the handlers read and mark.
     pub state: State,
     /// The message fabric, for delivery publications.
@@ -135,31 +143,55 @@ impl RemoteListenerActor {
 
         let path = ActorPath::new(REMOTE_ACTOR_NAME);
         let registry_path = deps.registry_path.clone();
+        let config_layer = deps.config.clone();
+
         trouper::builder::spawn_service_builder::<Self>(system)
             .at(path.clone())
             .init_with(move || {
                 let port = resolved;
                 let registry_path = registry_path.clone();
+                let config_layer = config_layer;
                 Box::pin(async move {
                     Ok(Self {
-                        _port: port,
+                        port,
                         _registry_path: registry_path,
+                        config: config_layer,
                     })
                 })
             })
+            .handles::<JinnTomlReloaded>()
             .start();
         Ok(path)
     }
 }
 
-impl MsgHandler<trouper::json::Json> for RemoteListenerActor {
-    async fn handle(
-        &mut self,
-        _msg: &trouper::json::Json,
-        _ctx: &mut trouper::context::MsgCtx<'_>,
-    ) {
-        // The actor consumes no messages: delivery publishes existing
-        // schemas from the HTTP handlers directly.
+// The actor consumes no other messages: delivery publishes existing
+// schemas from the HTTP handlers directly.
+impl MsgHandler<JinnTomlReloaded> for RemoteListenerActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "async signature symmetry; the re-read is synchronous"
+    )]
+    async fn handle(&mut self, _msg: &JinnTomlReloaded, _ctx: &mut trouper::context::MsgCtx<'_>) {
+        // Given a jinn.toml whose [remote] bind just changed.
+        let parsed = self
+            .config
+            .get::<jinn_preferences_config::schemas::RemoteConfig>()
+            .ok()
+            .and_then(|config| config.parse_bind().ok());
+        match parsed {
+            Some(bind) if bind.port() != self.port => {
+                // The live listener is stable for its life: the port is
+                // already in the instance registry a `jinn remote`
+                // client resolves, and every surface URL a user holds
+                // names it. The new bind is a pending note, not a swap.
+                tracing::info!("remote bind changed to {bind} — applies on the next jinn start");
+            }
+            Some(_) => {}
+            None => {
+                tracing::warn!("remote bind re-read refused; the previous bind stays live");
+            }
+        }
     }
 }
 

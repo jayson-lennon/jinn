@@ -46,6 +46,7 @@ async fn spawn_actor() -> ActorFixture {
         harness.system(),
         &CanvasActorDeps {
             bind: "127.0.0.1:0".parse::<SocketAddr>().expect("bind parses"),
+            config: jinn_config::testutil::config_layer(""),
             bus: harness.bus(),
         },
     );

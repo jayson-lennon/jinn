@@ -348,7 +348,7 @@ fn confirm_stream_rule_picker(
 /// when it bites.
 ///
 /// "Shortly", not "on restart": the confirm publishes the persist command,
-/// and the persist actor publishes the matcher-refresh command after the
+/// and the persist actor publishes the matcher-reload event after the
 /// writes land — the stream-rules slice's matcher actor recompiles then.
 /// The refresh is eventual, so the wording claims immediacy only as far as
 /// the code guarantees it.

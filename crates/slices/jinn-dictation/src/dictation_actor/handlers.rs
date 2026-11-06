@@ -310,8 +310,28 @@ pub(super) fn run_load(actor: &mut DictationActor) {
 /// device.
 pub(super) async fn open_capture(actor: &mut DictationActor) {
     let backend = std::sync::Arc::clone(&actor.backend);
-    let configured = actor.config.device.clone();
-    let noise_reduction = actor.config.noise_reduction;
+    // Arm-time resolution: the settings the arm opens under are read
+    // from the live layer now, not carried from activation — the heavy
+    // tier's deferred application, so a `[dictation]` edit lands at the
+    // next dictation. The capture never sees settings change
+    // mid-recording: resolution happens once, here, before the device
+    // opens. A failed read keeps the applied settings — a bad edit
+    // degrades to the last good config, never to nothing.
+    let resolved = match crate::config::DictationSettings::from_layer(&actor.config) {
+        Ok(settings) => {
+            actor.applied = settings.clone();
+            settings
+        }
+        Err(report) => {
+            tracing::warn!(
+                ?report,
+                "failed to resolve [dictation] at arm; keeping the applied settings"
+            );
+            actor.applied.clone()
+        }
+    };
+    let configured = resolved.device.clone();
+    let noise_reduction = resolved.noise_reduction;
     let outcome = {
         let runtime = actor.runtime.clone();
         runtime
@@ -363,4 +383,57 @@ fn commit_queued_utterances(actor: &mut DictationActor) {
     for utterance in crate::capture::take_utterances(arm.shared()) {
         actor.commit_utterance(&utterance);
     }
+}
+
+/// Folds a live reload of `jinn.toml` into the dictation lifecycle.
+///
+/// The heavy tier's deferred application: the fresh `[dictation]`
+/// resolution applies only when the machine is between sessions
+/// (Offline — disabled, or never armed). Mid-recording, the running
+/// capture keeps its settings and the row names the pending change
+/// instead, so a deferred edit is never silent; the next arm picks the
+/// new values up through the arm-time resolution. A resolution failure
+/// keeps the applied settings and says so on the row.
+pub(super) async fn handle_reload(actor: &mut DictationActor) {
+    let fresh = match crate::config::DictationSettings::from_layer(&actor.config) {
+        Ok(settings) => settings,
+        Err(report) => {
+            tracing::warn!(
+                ?report,
+                "post-reload [dictation] resolution failed; keeping the applied settings"
+            );
+            crate::row::publish_pending_note(
+                &actor.bus,
+                "[dictation] reload refused; keeping the applied settings",
+            )
+            .await;
+            return;
+        }
+    };
+    if fresh == actor.applied {
+        return;
+    }
+    if actor.machine.state().phase != jinn_dictation_msg::DictationPhase::Offline {
+        // Busy: the pending change is named, not applied. The capture
+        // never sees its device or model change mid-utterance.
+        crate::row::publish_pending_note(
+            &actor.bus,
+            "[dictation] changed — applies at the next dictation",
+        )
+        .await;
+        return;
+    }
+    // Between sessions: apply now. The machine re-runs its init gate
+    // under the new settings, so an unsupported model lands in Error
+    // with the same refusal an activation-time typo gets.
+    let supported: Vec<String> = crate::platform::SUPPORTED_MODELS
+        .iter()
+        .map(|model| (*model).to_owned())
+        .collect();
+    let cached = actor.backend.lock().is_cached();
+    let step = actor
+        .machine
+        .reconfigure(fresh.enabled, &fresh.model, &supported, cached);
+    actor.applied = fresh;
+    apply(actor, &step).await;
 }

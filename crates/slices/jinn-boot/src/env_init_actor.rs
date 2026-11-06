@@ -15,7 +15,9 @@ use trouper::registry::RegistryError;
 use jinn_kernel::common::actor_deps::{ActorDeps, BusPublish};
 use wherror::Error;
 
-use jinn_boot_msg::{EnvironmentConfigReply, EnvironmentLoaded, GetEnvironmentConfig};
+use jinn_boot_msg::{
+    EnvironmentConfigReply, EnvironmentLoaded, GetEnvironmentConfig, ProvidersTomlReloaded,
+};
 use jinn_preferences_config::schemas::mcp::McpServersConfig;
 
 /// Error type for environment initialization failures.
@@ -80,6 +82,8 @@ impl EnvInitActor {
             })
             .handles::<GetEnvironmentConfig>()
             .handles::<EnvironmentLoaded>()
+            // Live config: a providers.toml change re-resolves the keys.
+            .handles::<ProvidersTomlReloaded>()
             // Ask replies leave the handler through ctx.reply; the flush
             // gate drops any outbound type not declared here.
             .emits::<EnvironmentConfigReply>()
@@ -106,6 +110,28 @@ impl MsgHandler<EnvironmentLoaded> for EnvInitActor {
     }
 }
 
+// Live config: a providers.toml reload re-resolves everything this actor
+// resolved at startup. The key store is rebuilt fresh and swapped whole
+// (`replace`, not per-key inserts): a provider removed from the file must
+// drop its key too, or availability checks keep reporting a provider
+// that no longer exists. The fresh load is also the parse gate — the
+// watcher refused a malformed file before publishing, so a handler-time
+// failure is unexpected and keeps the previous cached config.
+impl MsgHandler<ProvidersTomlReloaded> for EnvInitActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "async signature symmetry; the reload body is synchronous"
+    )]
+    async fn handle(&mut self, _msg: &ProvidersTomlReloaded, _ctx: &mut MsgCtx<'_>) {
+        // Given a providers.toml whose contents just changed.
+        if let Some(config) = self.load_config_and_resolve_keys() {
+            // Then the cached config is replaced; readers observe the
+            // new file on their next read.
+            self.config = Some(config);
+        }
+    }
+}
+
 impl BusPublish for EnvInitActor {
     fn bus(&self) -> &jinn_kernel::common::services::bus_service::BusService {
         self.deps.bus()
@@ -129,15 +155,19 @@ impl EnvInitActor {
             }
         };
 
-        // Resolve API keys from environment variables.
+        // Resolve API keys into a fresh store, then swap it whole: a
+        // provider removed from the file drops its key with it (per-key
+        // inserts would leave the removed provider resolvable).
+        let mut keys = jinn_provider_config::ApiKeys::new();
         for provider in config.providers.values() {
             if let Some(ref env_var) = provider.api_key_env
                 && let Ok(value) = std::env::var(env_var)
                 && !value.is_empty()
             {
-                self.deps.services.api_keys.insert(env_var.clone(), value);
+                keys.insert(env_var.clone(), value);
             }
         }
+        self.deps.services.api_keys.replace(keys);
 
         // Resolve MCP header variables from environment variables.
         self.resolve_mcp_header_variables();
@@ -189,10 +219,13 @@ mod tests {
     use jinn_testutil::bus_harness::{TestHarness, await_recorded};
     use std::sync::Arc;
 
+    use jinn_boot_msg::ProvidersTomlReloaded;
     use jinn_preferences_config::schemas::mcp::McpServerConfig;
+    use jinn_provider_config::ConfigStorage as _;
 
     /// Unique env-var names so parallel test runs never collide.
     const SET_VAR: &str = "JINN_TEST_MCP_HEADER_RESOLVED";
+    const RELOAD_VAR: &str = "JINN_TEST_PROVIDERS_RELOAD_KEY";
     const MISSING_VAR: &str = "JINN_TEST_MCP_HEADER_NEVER_SET";
 
     /// A document declaring one MCP server whose headers reference the
@@ -225,6 +258,29 @@ mod tests {
 
     /// Points the services' config layer at a document seeded with
     /// `document`, then re-reads so the swap is visible immediately.
+    /// Seeds the services' providers storage with a `[providers.sample]`
+    /// entry whose `api_key_env` names `VAR=value` (empty string = no
+    /// providers at all), the way an edited providers.toml would land.
+    fn seed_providers_storage(services: &jinn_kernel::Services, spec: &str) {
+        let body = if spec.is_empty() {
+            String::new()
+        } else {
+            let (var, _value) = spec.split_once('=').unwrap_or((spec, ""));
+            format!(
+                "[providers.sample]\nbackend = \"sample\"\nmodels = [\"m\"]\napi_key_env = \"{var}\"\n"
+            )
+        };
+        let storage = jinn_provider_config::InMemoryConfigStorage::new();
+        if !body.is_empty() {
+            let config: jinn_provider_config::ProvidersConfig =
+                toml::from_str(&body).expect("seed config parses");
+            storage.save(&config).expect("seed saves");
+        }
+        services
+            .config_storage
+            .swap(Arc::new(storage) as Arc<dyn jinn_provider_config::ConfigStorage>);
+    }
+
     fn layer_with(services: &jinn_kernel::Services, document: &str) {
         let parsed = document.parse().expect("test TOML parses");
         services
@@ -313,6 +369,90 @@ mod tests {
 
         // Then ask succeeds (but config may be None without a config file).
         assert!(reply.is_ok(), "ask should succeed");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_providers_reload_drops_a_removed_provider_s_key() {
+        // Given an env-init actor whose store holds a key for a provider
+        // the fresh file no longer lists.
+        // SAFETY: single-threaded test setup; unique var name avoids races.
+        unsafe { std::env::set_var(RELOAD_VAR, "stale-value") };
+        let harness = TestHarness::new().await;
+        let services = harness.services().await;
+        seed_providers_storage(&services, &format!("{RELOAD_VAR}=kept"));
+        let bus = harness.bus();
+        let path = EnvInitActor::spawn(
+            &services.trouper_system,
+            EnvInitActorDeps {
+                deps: jinn_kernel::common::actor_deps::ActorDeps {
+                    services: services.clone(),
+                },
+            },
+        );
+        bus.publish(ProvidersTomlReloaded).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &services.trouper_system,
+            &path,
+            Duration::from_secs(2),
+        )
+        .await;
+
+        // When the reload re-resolves after the provider was removed.
+        seed_providers_storage(&services, "");
+        bus.publish(ProvidersTomlReloaded).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &services.trouper_system,
+            &path,
+            Duration::from_secs(2),
+        )
+        .await;
+
+        // Then the removed provider's key is gone from the store.
+        assert!(
+            services.api_keys.get(RELOAD_VAR).is_none(),
+            "a removed provider must drop its key"
+        );
+        // SAFETY: removing the test-only var set above; no concurrent readers.
+        unsafe { std::env::remove_var(RELOAD_VAR) };
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_providers_reload_resolves_a_changed_env_var_name() {
+        // Given an env-init actor with no key in the store.
+        // SAFETY: single-threaded test setup; unique var name avoids races.
+        unsafe { std::env::set_var(RELOAD_VAR, "fresh-value") };
+        let harness = TestHarness::new().await;
+        let services = harness.services().await;
+        let bus = harness.bus();
+
+        // When a reload lands whose provider now names the env var.
+        seed_providers_storage(&services, &format!("{RELOAD_VAR}=kept"));
+        let path = EnvInitActor::spawn(
+            &services.trouper_system,
+            EnvInitActorDeps {
+                deps: jinn_kernel::common::actor_deps::ActorDeps {
+                    services: services.clone(),
+                },
+            },
+        );
+        bus.publish(ProvidersTomlReloaded).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &services.trouper_system,
+            &path,
+            Duration::from_secs(2),
+        )
+        .await;
+
+        // Then the new env var is resolved and cached.
+        assert_eq!(
+            services.api_keys.get(RELOAD_VAR),
+            Some("fresh-value".to_owned()),
+            "the reload resolved the new key"
+        );
+        // SAFETY: removing the test-only var set above; no concurrent readers.
+        unsafe { std::env::remove_var(RELOAD_VAR) };
     }
 
     #[rstest::rstest]

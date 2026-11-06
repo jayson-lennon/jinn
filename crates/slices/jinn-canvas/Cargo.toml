@@ -14,6 +14,8 @@ jinn-preferences-config = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-canvas-msg = { workspace = true }
 jinn-config = { workspace = true }
+# The live-reload trigger: a jinn.toml change re-reads [canvas] bind.
+jinn-boot-msg = { workspace = true }
 axum = { version = "0.8", features = ["ws"] }
 notify = "8.2"
 parking_lot = { workspace = true }

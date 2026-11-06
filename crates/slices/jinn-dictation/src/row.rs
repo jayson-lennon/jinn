@@ -35,6 +35,21 @@ pub async fn publish_row(
     .await;
 }
 
+/// Publishes a pending-change note on the dictation row.
+///
+/// The live-reload path's visible half: a deferred or refused
+/// `[dictation]` edit must never be silent, and the row is where the
+/// actor can say so. Warning tone — attention, not failure.
+pub async fn publish_pending_note(bus: &jinn_slices::bus::BusService, note: &str) {
+    bus.publish(ServiceStatusUpdate {
+        name: crate::dictation_actor::DICTATION_PATH.to_owned(),
+        description: None,
+        status_message: Some(note.to_owned()),
+        note_tone: Some(NoteTone::Warning),
+    })
+    .await;
+}
+
 /// The dashboard row's note for a state.
 #[must_use]
 pub fn row_note(state: &DictationState) -> String {

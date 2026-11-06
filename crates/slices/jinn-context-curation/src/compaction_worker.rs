@@ -64,7 +64,9 @@ pub struct CompactionWorker {
     handle: Handle,
     /// Shared application state (for reading session history).
     state: State,
-    /// The compaction system prompt loaded once at startup.
+    /// The last good compaction system prompt — the fallback when a
+    /// point-of-use reload fails (a deleted or unreadable prompt file
+    /// must not silently compact with an empty prompt).
     compaction_prompt: String,
     /// Sessions with an auto-compaction currently in flight.
     ///
@@ -86,6 +88,11 @@ pub struct CompactionWorker {
 
 impl CompactionWorker {
     /// Creates a new compaction worker.
+    ///
+    /// `compaction_prompt` is the initial (launch-time) prompt; from
+    /// then on every compaction re-reads `_compaction.md` from the
+    /// prompts directory, so an edited prompt file applies to the next
+    /// compaction without a restart.
     pub fn new(
         services: Services,
         handle: Handle,
@@ -105,6 +112,25 @@ impl CompactionWorker {
     /// Shared application state reference (for reading session history).
     pub fn state(&self) -> &State {
         &self.state
+    }
+
+    /// Loads the compaction prompt at the point of use, falling back to
+    /// the last good one when the file cannot be read.
+    ///
+    /// A `ResourcesChanged`-driven edit therefore applies by the next
+    /// compaction, and a mid-edit delete degrades to the previous
+    /// prompt rather than an empty one.
+    fn current_prompt(&self) -> String {
+        match jinn_common::system_resource::load_system_resource(
+            "_compaction.md",
+            &self.services.paths.prompts_dir().as_marked_path(),
+        ) {
+            Ok(prompt) => prompt,
+            Err(report) => {
+                tracing::warn!(err = ?report, "compaction prompt reload failed; using the last good prompt");
+                self.compaction_prompt.clone()
+            }
+        }
     }
 
     /// Check whether the compaction summary from a previous auto-compaction
@@ -184,7 +210,7 @@ impl CompactionWorker {
             })
         };
 
-        let compaction_prompt = self.compaction_prompt.clone();
+        let compaction_prompt = self.current_prompt();
 
         if history.is_empty() {
             return Ok(vec![]);
@@ -263,7 +289,7 @@ impl CompactionWorker {
                 return vec![];
             };
             let model_name = session.profile().model.clone();
-            let compaction_prompt = self.compaction_prompt.clone();
+            let compaction_prompt = self.current_prompt();
 
             // Uses the exact same values displayed in the status bar:
             //   - context_size() = tiktoken count from last prompt assembly

@@ -67,6 +67,16 @@ impl ApiKeysService {
         self.inner.write().insert(env_var, value);
     }
 
+    /// Replaces the whole key store.
+    ///
+    /// The live-reload path needs this shape, not per-key inserts: a
+    /// provider removed from `providers.toml` must drop its key too, or
+    /// availability checks keep reporting a provider that no longer
+    /// exists. Clear-then-repopulate over the shared lock.
+    pub fn replace(&self, keys: ApiKeys) {
+        *self.inner.write() = keys;
+    }
+
     /// Returns `true` if no keys have been resolved.
     #[must_use]
     pub fn is_empty(&self) -> bool {

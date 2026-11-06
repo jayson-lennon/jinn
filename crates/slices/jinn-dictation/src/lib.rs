@@ -55,9 +55,10 @@ use jinn_slices::SliceHost;
 ///
 /// `state` is the shared application state handle (the utterance
 /// commits write the focused input buffer through it); `config` is the
-/// same `jinn.toml` layer every slice receives, read here at
-/// activation — a changed `[dictation]` section takes effect on the
-/// next jinn start.
+/// same `jinn.toml` layer every slice receives. `[dictation]` is read
+/// at activation for the starting state and again at each arm, so a
+/// live reload applies at the next dictation — never mid-recording;
+/// mid-recording the row names the pending change.
 /// # Panics
 ///
 /// Panics if the catalog has not run — the actor would hold no cells and
@@ -84,13 +85,7 @@ pub fn activate(
                 ?report,
                 "failed to read the [dictation] section; dictation disabled for this run"
             );
-            config::DictationSettings {
-                enabled: false,
-                device: None,
-                model: platform::DEFAULT_MODEL.to_owned(),
-                noise_reduction: true,
-                options: jinn_dictation_backend::BackendOptions::default(),
-            }
+            config::DictationSettings::disabled()
         }
     };
 
@@ -133,7 +128,8 @@ pub fn activate(
             level_cell,
             bus: services.bus.clone(),
             runtime: tokio::runtime::Handle::current(),
-            config: settings,
+            config: config.clone(),
+            applied: settings,
             backend,
             state: state.clone(),
         },

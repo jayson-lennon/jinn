@@ -230,7 +230,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
         // The PowerShell executable, resolved at launch. A machine with no
         // PowerShell is a real state, and the model reads why the command
         // could not run.
-        let powershell = match ctx.shells.powershell() {
+        let powershell = match ctx.shells.read().powershell() {
             Ok(shell) => shell.program().to_owned(),
             Err(error) => {
                 return failed(call.id, call.name, error.to_string());

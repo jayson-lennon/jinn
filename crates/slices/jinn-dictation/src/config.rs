@@ -11,7 +11,10 @@ use jinn_preferences_config::schemas::DictationConfig;
 use wherror::Error;
 
 /// The resolved `[dictation]` settings the actor carries.
-#[derive(Debug, Clone)]
+///
+/// Compares by value so a live reload can tell a real change from a
+/// no-op rewrite of the section.
+#[derive(Debug, Clone, PartialEq)]
 pub struct DictationSettings {
     /// Whether the lifecycle runs at all.
     pub enabled: bool,
@@ -50,13 +53,39 @@ impl DictationSettings {
                 "failed to read the [dictation] config section: {error:?}"
             ))
         })?;
-        Ok(Self {
+        Ok(Self::from_section(&section))
+    }
+
+    /// Resolves the settings from a parsed section.
+    ///
+    /// The one construction path: [`Self::from_layer`] and the live
+    /// reload's arm-time resolution both fold through here, so a
+    /// reload can never resolve settings differently than activation
+    /// did.
+    #[must_use]
+    pub fn from_section(section: &DictationConfig) -> Self {
+        Self {
             enabled: section.enabled,
             device: section.device.clone(),
             model: section.model.clone(),
             noise_reduction: section.noise_reduction,
-            options: jinn_dictation_backend::BackendOptions::from(&section),
-        })
+            options: jinn_dictation_backend::BackendOptions::from(section),
+        }
+    }
+
+    /// A settings value with dictation disabled and the platform's
+    /// default model — the degraded value the activation path falls
+    /// back to when the section cannot be read at all, and the value
+    /// arm-time resolution falls back to on the same failure.
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            device: None,
+            model: crate::platform::DEFAULT_MODEL.to_owned(),
+            noise_reduction: true,
+            options: jinn_dictation_backend::BackendOptions::default(),
+        }
     }
 }
 

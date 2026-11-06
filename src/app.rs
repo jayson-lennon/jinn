@@ -280,15 +280,23 @@ impl App {
                             .change_context(AppError)
                             .attach("slice activation failed")?;
 
-                        // The discord frontend consumes the slice activation's
-                        // parked channels + config; no-ops when disabled.
-                        jinn_discord::spawn_gateway(
-                            &self.handle(),
-                            &core,
-                            &services,
-                            session_pool.clone(),
-                            discord_activated,
-                        );
+                        // The discord frontend attaches its spawn hook to
+                        // the activation's supervisor: an enabled config
+                        // spawns immediately, a live enablement flip
+                        // spawns later through the same hook.
+                        {
+                            let spawner = jinn_discord::backend::spawn::gateway_spawner(
+                                &self.handle(),
+                                &core,
+                                &services,
+                                session_pool.clone(),
+                                discord_activated.parked.clone(),
+                            );
+                            let mut supervisor = tokio::task::block_in_place(|| {
+                                discord_activated.supervisor.blocking_lock()
+                            });
+                            supervisor.attach_spawner(Box::new(spawner));
+                        }
 
                         let app =
                             jinn_tui::launch(core, services, bootstrap::ui::build_ui_registry())

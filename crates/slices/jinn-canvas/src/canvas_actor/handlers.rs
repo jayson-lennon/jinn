@@ -273,6 +273,51 @@ fn arm_watcher(shared: &server::ServerShared, artifact: &MarkedPathBuf<Absolute>
     }
 }
 
+/// Live-config landing: re-read `[canvas] bind` from the layer the
+/// actor carries.
+///
+/// Dormant (no listener yet): the new bind is adopted and the next
+/// serve uses it. A re-read that fails to parse keeps the current bind
+/// and notes the refusal on the row — the same keep-old behavior a
+/// refused config reload gives every other reader.
+/// Serving: the listener is stable for its documented lifetime (the
+/// served URL is already in a user's hands), so the row names the
+/// pending change and the next jinn start applies it.
+pub(crate) async fn handle_reload(actor: &mut CanvasActor) {
+    let parsed = actor
+        .config
+        .get::<jinn_preferences_config::schemas::CanvasConfig>()
+        .ok()
+        .and_then(|config| config.parse_bind().ok());
+    let Some(bind) = parsed else {
+        actor
+            .publish_status(
+                Some("canvas bind re-read refused; the previous bind stays live".to_owned()),
+                Some(jinn_slices::NoteTone::Error),
+            )
+            .await;
+        return;
+    };
+    if actor.server.is_some() {
+        // Live listener: stable for its life by contract.
+        if bind != actor.bind {
+            actor
+                .publish_status(
+                    Some(format!(
+                        "canvas bind changed to {bind} — applies on the next jinn start"
+                    )),
+                    None,
+                )
+                .await;
+        }
+        return;
+    }
+    if bind != actor.bind {
+        actor.bind = bind;
+        actor.publish_offline().await;
+    }
+}
+
 /// Renders a refusal sentence: the cause, then the variant's fix.
 ///
 /// Consumes its arguments: the rendered sentence is the whole payload

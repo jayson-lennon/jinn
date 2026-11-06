@@ -210,6 +210,53 @@ impl Default for Shells {
     }
 }
 
+/// Shared service wrapper around a [`Shells`] resolution.
+///
+/// The launch-time resolution is a snapshot of the machine plus the
+/// user's `[shell]` keys; the live-reload path re-resolves on a
+/// `jinn.toml` change and swaps the whole value here — keeping the old
+/// resolution when a re-read fails, so a running jinn never loses a
+/// working shell to one bad edit. All clones share the same slot via
+/// `Arc<RwLock<...>>` (the project's service-wrapper pattern).
+#[derive(Debug, Clone)]
+pub struct ShellsService {
+    inner: std::sync::Arc<std::sync::RwLock<Shells>>,
+}
+
+impl ShellsService {
+    /// Wraps a resolution.
+    #[must_use]
+    pub fn new(shells: Shells) -> Self {
+        Self {
+            inner: std::sync::Arc::new(std::sync::RwLock::new(shells)),
+        }
+    }
+
+    /// Reads a snapshot of the current resolution.
+    ///
+    /// Returns an owned `Shells` (two `Result`s over cheap handles), so
+    /// callers keep no lock across an await or a process spawn.
+    #[must_use]
+    pub fn read(&self) -> Shells {
+        self.inner
+            .read()
+            .expect("shells lock is never poisoned")
+            .clone()
+    }
+
+    /// Swaps the resolution whole.
+    pub fn replace(&self, shells: Shells) {
+        *self.inner.write().expect("shells lock is never poisoned") = shells;
+    }
+}
+
+impl Default for ShellsService {
+    /// Wraps the auto-detected shells.
+    fn default() -> Self {
+        Self::new(Shells::default())
+    }
+}
+
 /// One candidate in a shell resolution chain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellCandidate {

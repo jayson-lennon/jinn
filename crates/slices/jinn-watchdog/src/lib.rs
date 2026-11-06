@@ -52,7 +52,6 @@ use jinn_preferences_config::schemas::LegacyStreamRulesBudget;
 use jinn_preferences_config::schemas::ProviderErrorWatchdogConfig;
 use jinn_preferences_config::schemas::STREAM_RULE_WATCHDOG_KEY;
 use jinn_preferences_config::schemas::STREAM_RULES_BUDGET_KEY;
-use jinn_preferences_config::schemas::StallWatchdogConfig;
 use jinn_preferences_config::schemas::StreamRuleWatchdogConfig;
 use jinn_preferences_config::schemas::StuckLoopWatchdogConfig;
 use jinn_preferences_config::schemas::ToolCallWatchdogConfig;
@@ -69,7 +68,7 @@ use jinn_slices::SliceHost;
 ///
 /// Read at activation rather than per publish, so the warning names the
 /// migration once per launch instead of on every interrupt.
-fn stream_rule_max_failures(config: &jinn_preferences_config::ConfigLayer) -> u8 {
+pub(crate) fn stream_rule_max_failures(config: &jinn_preferences_config::ConfigLayer) -> u8 {
     let configured = config.get::<StreamRuleWatchdogConfig>().unwrap_or_default();
 
     // A malformed or absent legacy table reads as the floor rather than as an
@@ -107,35 +106,23 @@ fn stream_rule_max_failures(config: &jinn_preferences_config::ConfigLayer) -> u8
     reason = "activation surface matches the sibling slices' convention; Services is an Arc-backed handle, cheap to clone"
 )]
 pub fn activate(host: &mut SliceHost<'_, RenderFacts>, _state: &State, services: Services) {
-    let stall_cfg = services
-        .config
-        .get::<StallWatchdogConfig>()
-        .unwrap_or_default();
-    let tool_cfg = services
-        .config
-        .get::<ToolCallWatchdogConfig>()
-        .unwrap_or_default();
-
-    // The stall watchdog needs the system for its self-addressed tick;
-    // the config floors make a zero window or budget behave like the
-    // inherited parse clamps (≥ 1).
-    let stall_timeout_secs = stall_cfg.effective_timeout_secs();
-    let stall_max_restarts = stall_cfg.effective_max_restarts();
+    // The stall watchdog needs the system for its self-addressed tick.
+    // Its window and budget are read from the live layer at each tick
+    // (`effective_budget`), so a jinn.toml reload applies to the next
+    // check — nothing is snapshotted here.
     stall_watchdog_actor::StallWatchdogActor::spawn(
         host.system(),
         stall_watchdog_actor::StallWatchdogActorDeps {
             services: services.clone(),
-            timeout_ms: stall_timeout_secs.saturating_mul(1_000),
-            max_restarts: stall_max_restarts,
             tick_interval: stall_watchdog_actor::STALL_TICK_INTERVAL,
         },
     );
 
+    // Same live-read story: the tool-call budget is read per failure.
     tool_call_watchdog_actor::ToolCallWatchdogActor::spawn(
         host.system(),
         tool_call_watchdog_actor::ToolCallWatchdogActorDeps {
             services: services.clone(),
-            max_failures: tool_cfg.effective_max_failures(),
         },
     );
 
@@ -143,7 +130,6 @@ pub fn activate(host: &mut SliceHost<'_, RenderFacts>, _state: &State, services:
         host.system(),
         stream_rule_watchdog_actor::StreamRuleWatchdogActorDeps {
             services: services.clone(),
-            max_failures: stream_rule_max_failures(&services.config),
         },
     );
 

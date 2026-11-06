@@ -13,4 +13,4 @@ pub mod session_route;
 pub mod spawn;
 
 pub use gateway::{BotData, SpawnError};
-pub use spawn::spawn_gateway;
+pub use spawn::gateway_spawner;

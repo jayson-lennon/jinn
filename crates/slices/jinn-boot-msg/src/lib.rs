@@ -57,3 +57,50 @@ pub struct EnvironmentConfigReply {
 }
 
 impl jinn_slices::BusMessage for EnvironmentConfigReply {}
+
+/// The `jinn.toml` document has been reloaded from disk.
+///
+/// Published by the config-watch slice *after* the new snapshot has been
+/// validated and swapped into the configuration layer, so every handler of
+/// this event reads through the layer observes the post-reload values. A
+/// refused edit (malformed TOML, a section that fails validation) never
+/// publishes this — the old snapshot stays live.
+///
+/// Handlers re-resolve what they own from the layer: point-of-use readers
+/// need no subscription at all, but a subscriber that snapped a value at
+/// spawn (a bind address, a server roster, a shell resolution) uses this
+/// event as its trigger to re-read.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, trouper::schema::Event)]
+#[schema(description = "The jinn.toml snapshot was reloaded from disk after validation.")]
+pub struct JinnTomlReloaded;
+
+impl jinn_slices::BusMessage for JinnTomlReloaded {}
+
+/// The `providers.toml` document has been re-read from disk.
+///
+/// Published by the config-watch slice after the file parsed, so handlers
+/// can rebuild what they snapshotted at startup: the provider registry,
+/// the resolved API keys, the model cache, the picker entries. Unlike
+/// [`JinnTomlReloaded`] this carries no layer swap — `providers.toml` is
+/// read through its own storage boundary, not the layer — so handlers
+/// re-read the file themselves and *refuse* on their own failure.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, trouper::schema::Event)]
+#[schema(description = "The providers.toml file changed on disk; handlers rebuild their snapshot.")]
+pub struct ProvidersTomlReloaded;
+
+impl jinn_slices::BusMessage for ProvidersTomlReloaded {}
+
+/// A resource directory (themes, personas, prompts, skills, workflows)
+/// changed on disk.
+///
+/// Published by the config-watch slice when a directory's fingerprint
+/// changed — file added, removed, or rewritten. One event covers all
+/// directories: a handler re-scans what it owns and dedupes by finding
+/// nothing new. Carries no payload because the watcher cannot know which
+/// slice cares about which directory; the fingerprint change is the whole
+/// fact.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, trouper::schema::Event)]
+#[schema(description = "A resource directory changed; handlers re-scan what they own.")]
+pub struct ResourcesChanged;
+
+impl jinn_slices::BusMessage for ResourcesChanged {}

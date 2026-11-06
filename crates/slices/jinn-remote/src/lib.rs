@@ -90,6 +90,7 @@ pub async fn activate(
     let system: trouper::system::ActorSystem = host.system().clone();
     let deps = remote_actor::RemoteListenerActorDeps {
         bind,
+        config: config.clone(),
         state,
         bus,
         registry_path,

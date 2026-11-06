@@ -91,6 +91,7 @@ jinn-context-assembly = { workspace = true }
 jinn-theme-slice = { workspace = true }
 jinn-cli = { workspace = true }
 jinn-canvas = { workspace = true }
+jinn-config-watch = { workspace = true }
 jinn-applets = { workspace = true }
 jinn-applets-msg = { workspace = true }
 jinn-remote = { workspace = true }
@@ -245,6 +246,7 @@ jinn-session-msg = { path = "crates/jinn-session-msg" }
 jinn-session-state = { path = "crates/jinn-session-state" }
 jinn-boot = { path = "crates/slices/jinn-boot" }
 jinn-boot-msg = { path = "crates/slices/jinn-boot-msg" }
+jinn-config-watch = { path = "crates/slices/jinn-config-watch" }
 jinn-bot-msg = { path = "crates/slices/jinn-bot-msg" }
 jinn-bot = { path = "crates/slices/jinn-bot" }
 jinn-session-store = { path = "crates/slices/jinn-session-store" }

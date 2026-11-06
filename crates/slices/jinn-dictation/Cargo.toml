@@ -9,6 +9,7 @@ description = "The dictation slice: one actor owning the backend lifecycle (fetc
 # windows targets; every other platform links the null path through the
 # single cfg module (platform.rs). The target-scoped tables below are
 # the whole manifest-side platform split.
+jinn-boot-msg = { workspace = true }
 jinn-dictation-backend = { workspace = true }
 jinn-dictation-msg = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
@@ -49,6 +50,7 @@ cpal = { version = "0.18", features = ["pipewire"] }
 cpal = { version = "0.18" }
 
 [dev-dependencies]
+toml_edit = { workspace = true }
 rstest = { workspace = true }
 jinn-testutil = { workspace = true }
 jinn-app-state = { workspace = true }

@@ -595,11 +595,38 @@ impl ConfigLayer {
     pub fn validate(&self) -> Result<(), ConfigSectionError> {
         let doc = self.inner.doc.read().clone();
         let registry = self.inner.registry.read().clone();
-        for section in &registry {
-            if let Some(table) = section_table(&doc, section.key)? {
-                (section.check)(&table)?;
-            }
-        }
+        validate_document(&doc, &registry)
+    }
+
+    /// Re-reads the document, validates the candidate, and only then
+    /// atomically replaces the in-memory snapshot.
+    ///
+    /// This is the reload a live config-watch uses. [`Self::reload`]
+    /// swaps unconditionally — fine for tests, wrong for a watcher: a
+    /// malformed or shape-invalid edit must not blank the running
+    /// program's configuration. Here the registered section checks run
+    /// against the *candidate* document before the swap, so on any
+    /// failure the old snapshot stays live and the error is returned.
+    ///
+    /// The section registry is *not* re-run or rebuilt: registration
+    /// persists across reloads, and the checks are the same ones
+    /// [`Self::validate`] applies at launch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError::Storage`] or [`ConfigError::Malformed`]
+    /// when the document cannot be re-read or parsed, and the first
+    /// [`ConfigSectionError`] a registered section reports against the
+    /// candidate.
+    pub fn reload_validated(&self) -> Result<(), Report<ConfigError>> {
+        let candidate = self.inner.storage.read().read()?;
+        let registry = self.inner.registry.read().clone();
+        validate_document(&candidate, &registry).map_err(|section| {
+            Report::new(ConfigError::Malformed {
+                detail: format!("candidate document failed validation: {section}"),
+            })
+        })?;
+        *self.inner.doc.write() = candidate;
         Ok(())
     }
 
@@ -641,6 +668,24 @@ impl ConfigLayer {
         *self.inner.doc.write() = doc;
         Ok(())
     }
+}
+
+/// Runs every registered section's check against `doc`.
+///
+/// Shared by [`ConfigLayer::validate`] (the launch snapshot) and
+/// [`ConfigLayer::reload_validated`] (a live-reload candidate): an
+/// absent section is fine, a present-but-malformed one fails with the
+/// first error in registration order.
+fn validate_document(
+    doc: &DocumentMut,
+    registry: &[RegisteredSection],
+) -> Result<(), ConfigSectionError> {
+    for section in registry {
+        if let Some(table) = section_table(doc, section.key)? {
+            (section.check)(&table)?;
+        }
+    }
+    Ok(())
 }
 
 /// Resolves a section's table by its dotted key.
@@ -1771,6 +1816,78 @@ mod tests {
             values.iter().all(|timeout| *timeout == 1),
             "a reader observed a mixed snapshot: {values:?}"
         );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn reload_validated_picks_up_a_valid_edit() {
+        // Given a layer with a registered section whose backing document
+        // is edited behind its back to a still-valid value.
+        let (layer, storage) = layer("[watchdog.stall]\ntimeout_secs = 1\n");
+        layer.register::<WatchdogCfg>();
+        storage
+            .write(&doc("[watchdog.stall]\ntimeout_secs = 321\n"))
+            .expect("external write");
+
+        // When reloading through the validated path.
+        layer.reload_validated().expect("candidate validates");
+
+        // Then the next read sees the edit.
+        let value = layer.get::<WatchdogCfg>().expect("section reads");
+        assert_eq!(
+            value.timeout_secs, 321,
+            "validated reload observed the edit"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn reload_validated_leaves_the_snapshot_intact_when_a_section_fails_validation() {
+        // Given a layer with a registered section whose backing document
+        // is edited to a shape the section rejects.
+        let (layer, storage) = layer("[watchdog.stall]\ntimeout_secs = 1\n");
+        layer.register::<WatchdogCfg>();
+        storage
+            .write(&doc("[watchdog.stall]\ntimeout_secs = \"soon\"\n"))
+            .expect("external write");
+
+        // When reloading through the validated path.
+        let result = layer.reload_validated();
+
+        // Then the reload reports failure.
+        assert!(
+            result.is_err(),
+            "a validation-refused edit fails the reload"
+        );
+
+        // And the layer still holds the last good snapshot.
+        let value = layer.get::<WatchdogCfg>().expect("section still reads");
+        assert_eq!(
+            value.timeout_secs, 1,
+            "a refused candidate must not blank the running snapshot"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn reload_validated_ignores_an_unregistered_section() {
+        // Given a layer whose registry does not cover the section the
+        // candidate adds.
+        let (layer, storage) = layer("[watchdog.stall]\ntimeout_secs = 1\n");
+        layer.register::<WatchdogCfg>();
+        storage
+            .write(&doc("[other]\nkey = \"arbitrary\"\n"))
+            .expect("external write");
+
+        // When reloading through the validated path.
+        let result = layer.reload_validated();
+
+        // Then the swap lands — registration is what opts a section in.
+        assert!(result.is_ok(), "an unregistered section is not a refusal");
+        // And the candidate dropped the registered section, so it now
+        // reads its default: absence is a default, not a refusal.
+        let value = layer.get::<WatchdogCfg>().expect("section still reads");
+        assert_eq!(value.timeout_secs, 0);
     }
 
     #[rstest::rstest]

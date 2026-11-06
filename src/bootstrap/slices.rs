@@ -196,8 +196,16 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
     // to a working directory (or that the glob engine rejects) would install
     // a matcher that silently never fires the rule, so a bad glob is a boot
     // error, not a warn-and-skip.
-    jinn_stream_rules::activate(&mut ctx.host(), &config_snapshot, &prefs_snapshot)
-        .map_err(ActivateError::StreamRules)?;
+    let services_snapshot = ctx.services().clone();
+    let state_snapshot = ctx.state().clone();
+    jinn_stream_rules::activate(
+        &mut ctx.host(),
+        &config_snapshot,
+        &prefs_snapshot,
+        &services_snapshot,
+        state_snapshot,
+    )
+    .map_err(ActivateError::StreamRules)?;
     let services_snapshot = ctx.services().clone();
     let state_snapshot = ctx.state().clone();
     jinn_session_init::activate(&services_snapshot, state_snapshot)
@@ -234,6 +242,24 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
     let services_snapshot = ctx.services().clone();
     jinn_persona::activate(&mut ctx.host(), &services_snapshot.paths.personas_dir());
     jinn_persona::activate_picker(&mut ctx.host());
+    // The persona rescan actor listens for live persona-directory
+    // changes and republishes `PersonasLoaded` — the session actor's
+    // handler then rewrites the catalog cell and every live session's
+    // stored persona. Spawned here, beside the slice it extends, while
+    // its publish path is proven (activation publishes through the
+    // same event after every subscriber is up).
+    jinn_persona::persona_rescan_actor::PersonaRescanActor::spawn(
+        &services_snapshot.trouper_system,
+        services_snapshot.clone(),
+    );
+    // The theme rescan actor is the theme twin of the persona one:
+    // re-runs the directory scan and re-seeds the shared catalog's
+    // theme-entries cell on a resource change. Spawned beside the
+    // slice it extends, for the same publish-path reason.
+    jinn_theme_slice::theme_rescan_actor::ThemeRescanActor::spawn(
+        &services_snapshot.trouper_system,
+        services_snapshot.clone(),
+    );
 
     // The chat input spawns the directory-lister actor behind `@path`.
     let services_snapshot = ctx.services().clone();
@@ -342,11 +368,13 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
                 controls: term_controls.clone(),
                 state: ctx.state().clone(),
                 config: ctx.services().config.clone(),
-                // The shell the pty children run through, resolved at
-                // launch and carried on the services container.
+                // The shell the pty children run through — the current
+                // resolution off the services container (a live reload
+                // may have swapped it).
                 shell: ctx
                     .services()
                     .shells
+                    .read()
                     .bash()
                     .map_or_else(|_| "bash".to_owned(), |shell| shell.program().to_owned()),
             },
@@ -401,9 +429,10 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
     let services_snapshot = ctx.services().clone();
     let state_snapshot = ctx.state().clone();
     // The shell scripted commands run under (bash semantics; see
-    // `jinn_common::shell`), resolved once at launch.
+    // `jinn_common::shell`), the current resolution.
     let shell = services_snapshot
         .shells
+        .read()
         .bash()
         .map_or_else(|_| "bash".to_owned(), |shell| shell.program().to_owned());
     jinn_session_lifecycle::activate(
@@ -522,6 +551,20 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
         .map_err(|report| ActivateError::Applets(format!("{report:?}")))?;
     }
 
+    // The config-watch slice: the file watcher that feeds the live
+    // configuration layer. MUST BE LAST: it activates after every slice
+    // whose re-resolution its events trigger (boot's provider actors,
+    // the MCP coordinator, canvas/remote/applets binds, discord,
+    // dictation), so a settle that lands during startup finds its
+    // subscriber already spawned. Its signature ledger is seeded from
+    // disk here, so nothing publishes for the launch-time state; a
+    // watch-establishment failure degrades to a row note, never an
+    // activation error.
+    let services_snapshot = ctx.services().clone();
+    let state_snapshot = ctx.state().clone();
+    jinn_config_watch::activate(&mut ctx.host(), &services_snapshot, &state_snapshot)
+        .map_err(|report| ActivateError::ConfigWatch(format!("{report:?}")))?;
+
     Ok(Activated { boot, discord })
 }
 
@@ -559,6 +602,11 @@ pub enum ActivateError {
     /// text.
     #[error(debug)]
     Applets(String),
+    /// The config-watch actor could not spawn (trouper registration
+    /// failed). A watch failure is *not* this error — that degrades to a
+    /// row note — but an actor that cannot register is a broken wiring.
+    #[error(debug)]
+    ConfigWatch(String),
     /// A producer slice's cell was absent when a consumer resolved it.
     ///
     /// The three producers in Block 1 register these cells, so a missing

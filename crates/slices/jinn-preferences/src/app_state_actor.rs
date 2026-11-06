@@ -66,7 +66,25 @@ impl AppStateActor {
                 }
             })
             .handles::<UpdateAppState>()
+            // Live resources: a theme file added, edited, or removed
+            // while jinn runs re-runs the sync path — the persisted name
+            // is re-resolved against the re-scanned entries cell, so an
+            // edited theme repaints and a removed one falls back.
+            .handles::<jinn_boot_msg::ResourcesChanged>()
             .start()
+    }
+
+    /// Re-syncs the frontend from the persisted state without a save.
+    ///
+    /// A `ResourcesChanged` event lands after the config-watch slice has
+    /// already re-seeded the theme-entries cell, so re-running the sync
+    /// path re-resolves the persisted theme name against the fresh scan:
+    /// an edited theme repaints, a removed one falls back to the
+    /// embedded default through the same resolver a preference save uses.
+    /// Nothing persists — `state.toml` is unchanged by a file edit.
+    pub(crate) fn handle_resource_rescan(&self) {
+        let state = self.services.app_state_storage.read();
+        self.sync_state(&state);
     }
 
     /// Apply state updates, persist, and sync the frontend fields.
@@ -152,6 +170,17 @@ impl AppStateActor {
 impl MsgHandler<UpdateAppState> for AppStateActor {
     async fn handle(&mut self, msg: &UpdateAppState, _ctx: &mut MsgCtx<'_>) {
         self.handle_update(msg);
+    }
+}
+
+impl MsgHandler<jinn_boot_msg::ResourcesChanged> for AppStateActor {
+    async fn handle(&mut self, _msg: &jinn_boot_msg::ResourcesChanged, _ctx: &mut MsgCtx<'_>) {
+        // The event carries no payload (the watcher cannot know which
+        // slice cares about which directory), so this re-syncs on every
+        // resource change. The sync is a pure re-resolve of unchanged
+        // persisted state against the re-scanned cell — idempotent when
+        // the themes dir is not the one that changed.
+        self.handle_resource_rescan();
     }
 }
 
@@ -407,5 +436,96 @@ mod tests {
         // Then the frontend keeps the embedded default theme.
         let applied = actor.state.read().frontend.theme.focus_accent;
         assert_eq!(applied, jinn_theme::default_theme().focus_accent);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn resource_rescan_re_resolves_a_rewritten_theme() {
+        // Given an app-state actor whose persisted theme is "dracula",
+        // applied with its original accent — the user picked it from a
+        // scan that contained it, then edited the file on disk.
+        let (mut actor, _services) = create_actor().await;
+        actor.handle_update(&UpdateAppState {
+            updates: vec![AppStateUpdate::SetTheme(Some("dracula".to_owned()))],
+        });
+        let mut original = jinn_theme::default_theme();
+        original.focus_accent = ratatui::style::Color::Red;
+        let entries_cell = actor
+            .services
+            .slices
+            .reader::<jinn_theme_msg::ThemeEntries>(&jinn_theme_msg::theme_entries_slot())
+            .expect("the catalog registers the theme entries cell");
+        entries_cell.update(|entries| {
+            entries.entries = vec![jinn_theme_msg::NamedTheme {
+                name: "dracula".to_owned(),
+                theme: original,
+            }];
+        });
+        actor.handle_resource_rescan();
+        assert_eq!(
+            actor.state.read().frontend.theme.focus_accent,
+            ratatui::style::Color::Red
+        );
+
+        // When the theme file is rewritten on disk (the config-watch
+        // slice re-seeded the cell) and ResourcesChanged lands.
+        let mut rewritten = jinn_theme::default_theme();
+        rewritten.focus_accent = ratatui::style::Color::Cyan;
+        entries_cell.update(|entries| {
+            entries.entries = vec![jinn_theme_msg::NamedTheme {
+                name: "dracula".to_owned(),
+                theme: rewritten,
+            }];
+        });
+        actor.handle_resource_rescan();
+
+        // Then the frontend theme is the rewritten palette.
+        assert_eq!(
+            actor.state.read().frontend.theme.focus_accent,
+            ratatui::style::Color::Cyan
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn resource_rescan_falls_back_when_the_theme_file_is_removed() {
+        // Given an app-state actor whose persisted theme is "dracula",
+        // applied from a scan that contained it.
+        let (mut actor, _services) = create_actor().await;
+        actor.handle_update(&UpdateAppState {
+            updates: vec![AppStateUpdate::SetTheme(Some("dracula".to_owned()))],
+        });
+        let mut scanned = jinn_theme::default_theme();
+        scanned.focus_accent = ratatui::style::Color::Red;
+        actor
+            .services
+            .slices
+            .reader::<jinn_theme_msg::ThemeEntries>(&jinn_theme_msg::theme_entries_slot())
+            .expect("the catalog registers the theme entries cell")
+            .update(|entries| {
+                entries.entries = vec![jinn_theme_msg::NamedTheme {
+                    name: "dracula".to_owned(),
+                    theme: scanned,
+                }];
+            });
+        actor.handle_resource_rescan();
+
+        // When the file is removed — the re-scan no longer holds the name.
+        actor
+            .services
+            .slices
+            .reader::<jinn_theme_msg::ThemeEntries>(&jinn_theme_msg::theme_entries_slot())
+            .expect("the catalog registers the theme entries cell")
+            .update(|entries| {
+                entries.entries.clear();
+            });
+        actor.handle_resource_rescan();
+
+        // Then the frontend falls back to the embedded default, the same
+        // resolver a preference save uses — no panic, no stale palette.
+        assert_eq!(
+            actor.state.read().frontend.theme.focus_accent,
+            jinn_theme::default_theme().focus_accent
+        );
     }
 }

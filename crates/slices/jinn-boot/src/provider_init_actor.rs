@@ -7,7 +7,7 @@
 //! is set, sends a `ProviderSwitch` command to apply it.
 
 use error_stack::Report;
-use jinn_boot_msg::EnvironmentLoaded;
+use jinn_boot_msg::{EnvironmentLoaded, ProvidersTomlReloaded};
 use jinn_kernel::common::actor_deps::{ActorDeps, BusPublish};
 use jinn_kernel::common::services::bus_service::BusService;
 use jinn_kernel::common::state::State;
@@ -90,6 +90,8 @@ impl ProviderInitActor {
                 }
             })
             .handles::<EnvironmentLoaded>()
+            // Live config: a providers.toml change rebuilds the registry.
+            .handles::<ProvidersTomlReloaded>()
             .mailbox(64, trouper::inbox::OverloadPolicy::Block)
             .start();
         path
@@ -99,6 +101,58 @@ impl ProviderInitActor {
 impl MsgHandler<EnvironmentLoaded> for ProviderInitActor {
     async fn handle(&mut self, msg: &EnvironmentLoaded, _ctx: &mut MsgCtx<'_>) {
         self.on_environment_loaded(&msg.config).await;
+    }
+}
+
+// Live config: a providers.toml change rebuilds the registry, re-merges
+// the model cache, and republishes `ModelCacheLoaded` (whose handler
+// refreshes the picker entries). Deliberately NOT re-run from startup:
+// the `last_model` → `ProviderSwitch` tail would clobber a model the
+// user switched to at runtime, and the no-api-keys guidance is a
+// once-per-launch message, not a condition to re-report on every save.
+// In-flight streams keep their already-created factories; dispatch
+// resolves registry entries and keys per request, so the next request
+// observes the new registry.
+impl MsgHandler<ProvidersTomlReloaded> for ProviderInitActor {
+    async fn handle(&mut self, _msg: &ProvidersTomlReloaded, _ctx: &mut MsgCtx<'_>) {
+        self.handle_reload().await;
+    }
+}
+
+impl ProviderInitActor {
+    /// Re-runs the registry build against the current storage.
+    ///
+    /// The reload path stops after the cache and picker refresh: no
+    /// `last_model` re-application (a runtime model choice must survive
+    /// an edit) and no no-api-keys guidance re-push (a reload is not a
+    /// startup).
+    pub async fn handle_reload(&self) {
+        // Given a providers.toml whose contents just changed (already
+        // parse-gated by the watcher).
+        let Ok(config) = self.deps.services.config_storage.load() else {
+            tracing::error!("provider-init reload could not load config; keeping the old registry");
+            return;
+        };
+        let Ok(registry) = ProviderRegistry::from_config(config) else {
+            tracing::error!("provider-init reload could not build a registry; keeping the old one");
+            return;
+        };
+        self.deps.services.provider_registry.replace(registry);
+
+        // Re-merge the cache and announce it — the provider actor's
+        // handler refreshes the picker entries from this event.
+        let cache_path = self.deps.services.paths.cache_path();
+        let cache = ModelCache::load(&cache_path).unwrap_or_else(|e| {
+            tracing::warn!("provider-init reload failed to load model cache: {e:?}");
+            None
+        });
+        if let Some(ref c) = cache {
+            self.deps.services.provider_registry.merge_cache(c);
+            self.publish(ModelCacheLoaded { cache: c.clone() }).await;
+        }
+        self.provider_cell.update(|cell| {
+            cell.model_cache = cache;
+        });
     }
 }
 
@@ -202,6 +256,7 @@ mod tests {
     use jinn_kernel::common::services::Services;
     use jinn_kernel::common::services::bus_service::BusAudit;
     use jinn_kernel::common::state::State;
+    use jinn_provider_config::ConfigStorage as _;
     use jinn_provider_config::ProviderEntry;
     use jinn_provider_selection_msg::ModelCacheLoaded;
     use jinn_provider_selection_msg::ProviderSwitch;
@@ -279,6 +334,44 @@ mod tests {
         assert_eq!(
             switches[0].provider_id,
             ModelSelection::Single("sample/sample".to_owned())
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_providers_reload_replaces_the_registry_without_a_provider_switch() {
+        // Given a provider-init actor whose registry holds one provider.
+        let (actor, audit, services, _state) = create_actor().await;
+        let config = sample_config();
+        actor.on_environment_loaded(&config).await;
+        let switches_before = audit.of_type::<ProviderSwitch>().len();
+
+        // When a reload lands whose config no longer lists any provider.
+        let empty = jinn_provider_config::ProvidersConfig {
+            providers: std::collections::BTreeMap::new(),
+            aliases: vec![],
+            default_provider: None,
+            endpoint_defaults: vec![],
+        };
+        let storage = jinn_provider_config::InMemoryConfigStorage::new();
+        storage.save(&empty).expect("empty config saves");
+        services
+            .config_storage
+            .swap(std::sync::Arc::new(storage)
+                as std::sync::Arc<dyn jinn_provider_config::ConfigStorage>);
+        actor.handle_reload().await;
+
+        // Then the registry no longer resolves the removed provider, and
+        // no ProviderSwitch was re-sent (a runtime model choice survives).
+        let id = jinn_provider_config::ProviderId::new("sample".to_owned());
+        assert!(
+            services.provider_registry.get(&id).is_none(),
+            "the removed provider is gone from the registry"
+        );
+        assert_eq!(
+            audit.of_type::<ProviderSwitch>().len(),
+            switches_before,
+            "the reload must not re-apply last_model"
         );
     }
 

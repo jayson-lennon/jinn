@@ -84,6 +84,7 @@ pub async fn run(
     rx: kanal::AsyncReceiver<BridgeEvent>,
     gw_rx: kanal::AsyncReceiver<GatewayRequest>,
     status_tx: kanal::Sender<DiscordStatusUpdate>,
+    stop_signal: std::sync::Arc<tokio::sync::Notify>,
 ) -> Result<(), Report<SpawnError>> {
     if token.trim().is_empty() {
         tracing::error!("discord bot enabled but no token configured");
@@ -122,6 +123,9 @@ pub async fn run(
     let build_status_tx = status_tx.clone();
 
     let drain_data = data.clone();
+    // The supervisor's stop signal, cloned per consumer: the loops
+    // spawned inside setup take one, the run select below another.
+    let stop_for_loops = std::sync::Arc::clone(&stop_signal);
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: vec![
@@ -150,12 +154,22 @@ pub async fn run(
                 let http = ctx.http.clone();
                 let status_tx = status_tx.clone();
                 let drain_data = drain_data.clone();
-                tokio::spawn(drain_loop(drain_data, http.clone(), rx));
+                tokio::spawn(drain_loop(
+                    drain_data,
+                    http.clone(),
+                    rx,
+                    std::sync::Arc::clone(&stop_for_loops),
+                ));
                 // Drain the request channel: domain → gateway do-something
                 // requests (currently only CreateThreadForSession). The loop
                 // creates the Discord thread, records the mapping, and reports
                 // the result back onto the bus.
-                tokio::spawn(request_loop(data.clone(), http.clone(), gw_rx));
+                tokio::spawn(request_loop(
+                    data.clone(),
+                    http.clone(),
+                    gw_rx,
+                    std::sync::Arc::clone(&stop_for_loops),
+                ));
 
                 // The bot is online — the setup callback fires after the
                 // gateway's `ready` event, so this is the right place to
@@ -187,12 +201,30 @@ pub async fn run(
             Report::new(SpawnError)
         })?;
 
-    client.start().await.map_err(|e| {
-        tracing::error!(error = ?e, "discord gateway exited with error");
-        let _ = build_status_tx.send(DiscordStatusUpdate::Disconnected);
-        Report::new(SpawnError)
-    })?;
-    Ok(())
+    // The websocket runs until either it exits on its own or the
+    // supervisor's stop signal fires (a deferred disable landing at the
+    // idle boundary). The shard manager is cloned up front so the stop
+    // arm doesn't touch `client`: the `start` future borrows it for the
+    // whole select, and dropping that future on the stop path is what
+    // unwinds the poise framework tasks.
+    let stop_for_run = std::sync::Arc::clone(&stop_signal);
+    let shard_manager = std::sync::Arc::clone(&client.shard_manager);
+    let outcome = tokio::select! {
+        outcome = client.start() => {
+            outcome.map_err(|e| {
+                tracing::error!(error = ?e, "discord gateway exited with error");
+                let _ = build_status_tx.send(DiscordStatusUpdate::Disconnected);
+                Report::new(SpawnError)
+            })
+        }
+        () = stop_for_run.notified() => {
+            tracing::info!("discord gateway stopping (config change)");
+            shard_manager.shutdown_all().await;
+            let _ = build_status_tx.send(DiscordStatusUpdate::Disconnected);
+            Ok(())
+        }
+    };
+    outcome
 }
 
 /// Consume [`GatewayRequest`]s from the bridge actor and execute them.
@@ -205,9 +237,23 @@ async fn request_loop(
     data: BotData,
     http: Arc<serenity::Http>,
     gw_rx: kanal::AsyncReceiver<GatewayRequest>,
+    stop_signal: std::sync::Arc<tokio::sync::Notify>,
 ) {
     loop {
-        match gw_rx.recv().await {
+        // The stop signal and the next request race: whichever arrives
+        // first wins. `notify_waiters` does not buffer, so a signal that
+        // fired before this task started does not strand it — the
+        // spawner starts this task only after `run` has registered its
+        // own watcher, and `client.start()` keeps the websocket alive
+        // until every loop has run down.
+        let received = tokio::select! {
+            () = stop_signal.notified() => {
+                tracing::info!("discord gateway request loop stopping (config change)");
+                break;
+            }
+            received = gw_rx.recv() => received,
+        };
+        match received {
             Ok(GatewayRequest::CreateThreadForSession { session_id, title }) => {
                 handle_create_thread(&data, &http, session_id, title).await;
             }
@@ -350,9 +396,17 @@ async fn drain_loop(
     data: BotData,
     http: Arc<serenity::Http>,
     rx: kanal::AsyncReceiver<BridgeEvent>,
+    stop_signal: std::sync::Arc<tokio::sync::Notify>,
 ) {
     loop {
-        match rx.recv().await {
+        let received = tokio::select! {
+            () = stop_signal.notified() => {
+                tracing::info!("discord bridge-event drain loop stopping (config change)");
+                break;
+            }
+            received = rx.recv() => received,
+        };
+        match received {
             Ok(event) => match event {
                 BridgeEvent::SetupCompleted {
                     session_id,

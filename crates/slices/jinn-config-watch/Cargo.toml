@@ -1,0 +1,42 @@
+[package]
+name = "jinn-config-watch"
+version.workspace = true
+edition.workspace = true
+description = "The config-watch slice: watches jinn.toml, providers.toml, stream_rules.toml, and the resource directories, reloading the layer through a validate-gated swap and publishing past-tense change events."
+
+[dependencies]
+# The reload spine: the layer's validate-gated reload, the paths the
+# watcher covers, and the past-tense events the watcher publishes.
+jinn-config = { workspace = true }
+jinn-kernel = { workspace = true }
+jinn-boot-msg = { workspace = true }
+jinn-stream-rules-msg = { workspace = true }
+jinn-session-history-msg = { workspace = true }
+jinn-slices = { workspace = true }
+# The [shell] section schema and the swappable shell resolution the
+# watcher re-resolves on a jinn.toml change.
+jinn-preferences-config = { workspace = true }
+jinn-common = { workspace = true }
+# The file watcher (canvas precedent) and the content hasher that makes
+# jinn's own no-op writes publish nothing.
+notify = "8.2"
+sha2 = { workspace = true }
+trouper = { workspace = true }
+marked-path = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+jinn-core-types = { workspace = true }
+wherror = { workspace = true }
+error-stack = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+jinn-testutil = { workspace = true }
+jinn-app-state = { workspace = true }
+jinn-provider-config = { workspace = true }
+
+rstest = { workspace = true }
+
+[lints]
+workspace = true

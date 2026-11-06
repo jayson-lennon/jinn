@@ -114,6 +114,27 @@ impl DictationMachine {
         self.step(action)
     }
 
+    /// Applies new `[dictation]` settings while Offline, returning the
+    /// init step under them.
+    ///
+    /// The live-reload path's only entry: called between sessions
+    /// (Offline), never mid-recording, so a running capture never sees
+    /// its device or model change underneath it. Validation runs the
+    /// same `init` gate — an unsupported model in a reload lands in
+    /// Error with the same refusal an activation-time typo gets.
+    pub fn reconfigure(
+        &mut self,
+        enabled: bool,
+        model_name: &str,
+        supported: &[String],
+        cached: bool,
+    ) -> Step {
+        self.enabled = enabled;
+        model_name.clone_into(&mut self.state.model_name);
+        self.state.error = None;
+        self.init(supported, cached)
+    }
+
     /// Fetch progress arrived: update the percent in place.
     pub fn fetch_progress(&mut self, progress: FetchProgress) {
         if self.state.phase == DictationPhase::Fetching {

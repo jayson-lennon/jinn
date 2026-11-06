@@ -163,7 +163,7 @@ impl ActorSystemBuilder {
             session_store: session_store.clone(),
             config,
             app_state_storage: app_state_storage.clone(),
-            shells: shells.clone(),
+            shells: jinn_common::shell::ShellsService::new(shells.clone()),
             tempdir: None,
             bus,
             bridge: bridge.clone(),

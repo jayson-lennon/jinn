@@ -19,6 +19,7 @@ pub mod theme_picker_render;
 pub mod theme_picker_routes;
 #[cfg(test)]
 mod theme_picker_tests;
+pub mod theme_rescan_actor;
 
 pub use jinn_theme_msg::theme_entries_slot;
 pub use jinn_theme_msg::theme_picker_scope;
@@ -56,6 +57,32 @@ pub fn activate(
         .reader::<ThemeEntries>(&theme_entries_slot())
         .expect("the cell catalog registers the theme-entries slot before any slice activates");
     cell.update(|slot| *slot = entries);
+}
+
+/// Re-runs the directory scan and re-seeds the theme-entries cell.
+///
+/// The live-reload path calls this on `ResourcesChanged`: a theme file
+/// added, edited, or removed while jinn runs is reflected in the picker
+/// on the next open. The cell is resolved, not minted, so the shared
+/// catalog keeps a single entry set; a catalog that never ran is a
+/// wiring bug, and here it degrades to a logged no-op rather than a
+/// panic (this runs long after launch).
+#[must_use]
+pub fn rescan(
+    slices: &jinn_slices::Slices,
+    themes_dir: &MarkedPath<Absolute>,
+) -> Option<ThemeEntries> {
+    let entries = scan(themes_dir);
+    match slices.reader::<ThemeEntries>(&theme_entries_slot()) {
+        Some(cell) => {
+            cell.update(|slot| *slot = entries.clone());
+            Some(entries)
+        }
+        None => {
+            tracing::warn!("theme rescan found no catalog cell; the picker keeps its old entries");
+            None
+        }
+    }
 }
 
 /// Registers the theme picker: its overlay, its keys, and its

@@ -85,9 +85,13 @@ impl jinn_slices::BusMessage for EnsureServingOutcome {}
 
 /// The applets server actor: dormant until the first `EnsureServing`.
 pub struct AppletsServerActor {
-    /// The bind from `[applets] bind` at activation. Port `0` binds an
-    /// OS-assigned port at the first ensure.
+    /// The bind from `[applets] bind`. Port `0` binds an OS-assigned
+    /// port at the first ensure. Re-read from the config layer on every
+    /// `JinnTomlReloaded` while dormant; a live listener is stable for
+    /// its life (the resolved URL is already in the picker).
     bind: SocketAddr,
+    /// The live config layer the bind re-reads from on a reload.
+    config: jinn_config::ConfigLayer,
     /// The serving phase once the first ensure has established it;
     /// `None` is the dormant phase (no listener has ever bound).
     serving: Option<ServingState>,
@@ -120,6 +124,9 @@ pub struct AppletsServerActorDeps {
     /// loopback by `activate`. A bind that cannot parse or names an
     /// exposed interface never gets here: activation aborts launch.
     pub bind: SocketAddr,
+    /// The live config layer: a `JinnTomlReloaded` re-reads the bind
+    /// while the actor is dormant.
+    pub config: jinn_config::ConfigLayer,
 }
 
 impl AppletsServerActor {
@@ -131,16 +138,21 @@ impl AppletsServerActor {
             .at(path)
             .init_with({
                 let bind = deps.bind;
+                let config = deps.config.clone();
                 move || {
                     Box::pin(async move {
                         Ok(Self {
                             bind,
+                            config,
                             serving: None,
                         })
                     })
                 }
             })
             .handles::<EnsureServing>()
+            // Live config: a jinn.toml reload re-reads [applets] bind
+            // while the actor is dormant.
+            .handles::<jinn_boot_msg::JinnTomlReloaded>()
             .emits::<EnsureServingOutcome>()
             .start()
     }
@@ -149,6 +161,33 @@ impl AppletsServerActor {
 impl MsgHandler<EnsureServing> for AppletsServerActor {
     async fn handle(&mut self, msg: &EnsureServing, ctx: &mut MsgCtx<'_>) {
         handlers::handle_ensure_serving(self, msg, ctx).await;
+    }
+}
+
+// A reload re-reads the bind while dormant; a live listener is stable
+// for its documented life, so a changed bind is a log note, not a swap.
+impl MsgHandler<jinn_boot_msg::JinnTomlReloaded> for AppletsServerActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "async signature symmetry; the re-read is synchronous"
+    )]
+    async fn handle(&mut self, _msg: &jinn_boot_msg::JinnTomlReloaded, _ctx: &mut MsgCtx<'_>) {
+        let parsed = self
+            .config
+            .get::<jinn_preferences_config::schemas::AppletsConfig>()
+            .ok()
+            .and_then(|config| config.parse_bind().ok());
+        let serving_bind = self.serving.as_ref().map(|server| server.bind);
+        match parsed {
+            Some(bind) if self.serving.is_none() && bind != self.bind => {
+                self.bind = bind;
+            }
+            Some(bind) if serving_bind.is_some_and(|live| bind != live) => {
+                tracing::info!("applets bind changed to {bind} — applies on the next jinn start");
+            }
+            Some(_) => {}
+            None => tracing::warn!("applets bind re-read refused; the previous bind stays live"),
+        }
     }
 }
 

@@ -241,3 +241,38 @@ async fn rescan_into_empty_dir_clears_stale_discovered_skills() {
         "empty tree must clear previously discovered skills"
     );
 }
+
+#[rstest::rstest]
+#[tokio::test]
+async fn resources_changed_re_runs_discovery_for_every_live_session() {
+    // Given a wired supervisor with a second live session, and a home
+    // that initially contains no skills.
+    let wired = Wired::wire().await;
+    let other = SessionId::new();
+    {
+        let mut guard = wired.state.write();
+        guard.session.get_or_create(&other);
+    }
+
+    // When a skill file lands in the resource tree and the config-watch
+    // slice's ResourcesChanged crosses the fabric.
+    write_skill(&wired.home, "live-skill");
+    wired
+        .fabric
+        .send_to_topic(jinn_boot_msg::ResourcesChanged)
+        .await;
+
+    // Then both live sessions re-ran discovery against their cwd.
+    jinn_testutil::wait::wait_for(Duration::from_secs(2), || {
+        let guard = wired.state.read();
+        guard
+            .session
+            .get(&wired.session_id)
+            .is_some_and(|s| !s.discovered_skills().is_empty())
+            && guard
+                .session
+                .get(&other)
+                .is_some_and(|s| !s.discovered_skills().is_empty())
+    })
+    .await;
+}
