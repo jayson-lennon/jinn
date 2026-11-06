@@ -627,6 +627,16 @@ pub struct ChatInputBoxState {
 }
 ```
 
+### jinn-usage Skill Staleness Check
+
+Before merging, check `res/skills/jinn-usage` for staleness **only if the
+change resulted in a new or changed or removed user-facing behavior** — a
+stale keybind or UI description in the skill misleads every future session,
+which costs the user more than an honest "I don't know". Update `SKILL.md`
+and/or the affected reference when a keybind, screen surface, config
+section, resource family, or workflow the skill documents changed. Rust-internal
+refactors with no user-visible surface skip the check.
+
 ## 6. Modification Guide
 
 When implementing features, locate each concern by convention rather than hardcoded paths — the crate layout shifts as the domain grows. Use `grep` to find the current location if unsure.
