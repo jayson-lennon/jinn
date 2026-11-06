@@ -291,11 +291,6 @@ mod tests {
     #[case("themes/default.toml", Kind::Theme, "default.toml")]
     #[case("personas/general.md", Kind::Persona, "general.md")]
     #[case("prompts/plan.md", Kind::Prompt, "plan.md")]
-    #[case(
-        "skills/simple-task-loop/SKILL.md",
-        Kind::Skill,
-        "simple-task-loop/SKILL.md"
-    )]
     fn top_level_directory_selects_the_kind_and_relative_path(
         #[case] embedded: &str,
         #[case] kind: Kind,

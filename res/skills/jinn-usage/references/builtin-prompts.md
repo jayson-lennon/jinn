@@ -19,12 +19,12 @@ answers. The subagents never see the conversation — that's what keeps the
 answers independent. Nothing changes: these are read-and-report turns, and
 each report leads with the answer in one sentence.
 
-| Prompt     | Question it answers     | Subagents                             | Look at                                      |
-| ---------- | ----------------------- | ------------------------------------- | -------------------------------------------- |
-| `#diverge` | What else could we do?  | 2, each given a different constraint  | The new ideas                                |
-| `#rank`    | Which option is best?   | 2, given the same brief               | Ties — pairs with no consistent winner       |
-| `#judge`   | Is this good?           | 3, given the same brief               | Reviewer disagreement                        |
-| `#falsify` | How does this fail?     | 3, given the same brief               | Failures nothing would catch                 |
+| Prompt     | Question it answers    | Subagents                            | Look at                                |
+| ---------- | ---------------------- | ------------------------------------ | -------------------------------------- |
+| `#diverge` | What else could we do? | 2, each given a different constraint | The new ideas                          |
+| `#rank`    | Which option is best?  | 2, given the same brief              | Ties — pairs with no consistent winner |
+| `#judge`   | Is this good?          | 3, given the same brief              | Reviewer disagreement                  |
+| `#falsify` | How does this fail?    | 3, given the same brief              | Failures nothing would catch           |
 
 Each ends with a "when this approach is the wrong one" section pointing to a
 sibling — `#judge` hands you to `#falsify` when you want failure modes
@@ -227,9 +227,7 @@ The README compares the coding workflows in a full table. The short version:
   rounds, then the agent works autonomously inside the contract.
 - `#plan` + `#approve-plan` — you know how it should be built. More question
   rounds, but the implementation follows your decisions. Implement with the
-  `simple-task-loop` skill (verifies and commits each phase) or
-  `micro-task-loop` (one commit at the end); name the skill in the same
-  message.
+  `micro-task-loop`; name the skill in the same message.
 - `#gap-analysis` — optional last step for either workflow: an
   acceptance-criteria audit report.
 

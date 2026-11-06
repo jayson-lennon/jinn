@@ -166,9 +166,7 @@ the VCS root (`.git`, `.hg`, `.fslckout`, `.fossil`, `.jj`) or `$HOME`.
 Closer files win.
 
 Bundled skills ship inside the binary, reconciled into
-`~/.agents/skills/` on every launch. The six: `jinn-usage` (this skill),
-`simple-task-loop`, `micro-task-loop`, `workflows`, `canvas` (backs the
-`canvas` tool), `applets`. An edited bundled skill is left alone;
+`~/.agents/skills/` on every launch. An edited bundled skill is left alone;
 `jinn install --builtins` restores the shipped copies.
 
 ### Installing one

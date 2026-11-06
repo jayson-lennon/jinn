@@ -4,6 +4,8 @@
 
 - Update `RECORD.md` templates to now contain a `BECAUSE:` clause to explain _why_ a fact exists.
 - Add anti-hedging instructions to `#lookup` and `#research` prompts.
+- Remove `simple-task-loop` skill.
+- `micro-task-loop` skill now defers check/test/commit cadence to plan if available.
 
 ## 2026-11-04 v0.20.0
 

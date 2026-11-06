@@ -224,10 +224,7 @@ Use this when you want a `plan` -> `implement` -> `verify` workflow with control
 2. Type `#plan` (to load the planning prompt) followed by what you want to do. The agent will ask questions to clarify things that are ambiguous, and then eventually propose a plan in the chat.
 3. You can continue to refine the plan or push back on certain elements of the plan until it looks good. Once ready, send an `#approve-plan` message to approve the plan.
    - Using the `#approve-plan` prompt causes the agent to write a detailed plan that includes code samples and the reasoning behind particular choices. This helps the implementer avoid taking a shortcut like "Oh, we can just do `foo` instead" because the plan will specifically mention why `foo` was _not_ chosen.
-4. Tell the agent to use `micro-task-loop` or `simple-task-loop` skill to implement the plan. Also tell the agent to use whatever other project or language-specific skills you like using in the same prompt.
-   - `micro-task-loop` runs all phases back to back with no builds, tests, or commits mid-loop; tests, lints, and a single commit happen once at the end. Use it for simple, low-risk plans where per-phase verification would just burn wall-clock time (e.g. slow builds).
-   - `simple-task-loop` verifies and commits after each phase. _It's recommended to use this for most features_.
-   - You don't _have_ to use one of these skills to begin the coding loop, but it's recommended because they include instructions about periodically getting the latest code to reduce merge conflicts, and also how to properly manage the task list. The skills are SCM and language-agnostic and have been tested on `git`, `Fossil`, `Rust`, `Kotlin`, `Android`, and Shell scripts.
+4. Tell the agent to use `micro-task-loop` skill to implement the plan. Also tell the agent to use whatever other project or language-specific skills you like using in the same prompt.
 5. After implementation is complete, you can optionally submit a `#gap-analysis` message.
    - Using the `#gap-analysis` prompt tells the agent to confirm that the implementation meets the acceptance criteria. It will produce a report explaining the acceptance criteria, if it was met, and potential resolutions for gaps.
 6. Merge your branch back into main/trunk using `X`.
