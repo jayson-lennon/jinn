@@ -236,6 +236,9 @@ pub(super) mod tests {
             dispatched_at: jiff::Timestamp::now(),
             turn: live.turn,
             stream: live.stream.expect("a looped stream is in flight"),
+            // The loop completion is the reasoning-loop watchdog's, never
+            // the provider-error watchdog's.
+            retryable: false,
         }
     }
 

@@ -739,6 +739,10 @@ async fn apply_loop_interrupt(
         dispatched_at,
         turn,
         stream,
+        // The loop retry is the reasoning-loop watchdog's domain, not this
+        // one: a `true` here would schedule a provider-error retry on top
+        // of the silent loop retry racing the same turn.
+        retryable: false,
     })
     .await;
 

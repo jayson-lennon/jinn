@@ -19,8 +19,6 @@ use crate::schemas::{
     McpServersConfig, MinimapConfig, ProviderErrorWatchdogConfig, ReasoningLoopWatchdogConfig,
     RemoteConfig, RequestRetryConfig, ShellConfig, SkillsConfig, StallWatchdogConfig,
     StreamRuleWatchdogConfig, ToolCallWatchdogConfig, ToolsConfig, WebSearchConfig,
-    ShellConfig, SkillsConfig, StallWatchdogConfig, StreamRuleWatchdogConfig,
-    ToolCallWatchdogConfig, ToolsConfig, WebSearchConfig,
 };
 
 /// Registers every `jinn.toml` section that can be validated at launch.

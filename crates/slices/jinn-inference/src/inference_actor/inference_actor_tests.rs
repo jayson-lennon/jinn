@@ -2225,6 +2225,7 @@ async fn a_legitimate_stream_is_not_interrupted_as_a_loop() {
             .any(|c| c.reason == StreamCompletedReason::Finished),
         "an ordinary stream must complete normally"
     );
+}
 
 // Provider-error retryability stamp
 // ------------------------------------------------------------------
