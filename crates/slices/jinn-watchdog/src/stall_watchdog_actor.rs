@@ -412,7 +412,7 @@ impl StallWatchdogActor {
             // A repetition loop lands in the same arm: the loop completion
             // ends this generation, and the session actor's silent retry
             // re-dispatches immediately. The budget is retained — a loop is
-            // not a stall, and the reasoning-loop watchdog counts it.
+            // not a stall, and the stuck-loop watchdog counts it.
             StreamCompletedReason::Canceled
             | StreamCompletedReason::Error
             | StreamCompletedReason::RuleIntercept
@@ -1191,10 +1191,10 @@ mod tests {
         actor.on_stream_start(&session, 0);
         let _ = actor.on_tick(2_000);
 
-        // When the reasoning-loop detector ends the stream.
+        // When the stuck-loop detector ends the stream.
         actor.on_stream_end(&session, StreamCompletedReason::RepetitionLoop);
 
-        // Then the budget survives: a loop is the reasoning-loop watchdog's
+        // Then the budget survives: a loop is the stuck-loop watchdog's
         // fault, not a stall — and a later silence of the same turn still
         // restarts with attempt 2, not from a reset budget.
         actor.on_stream_start(&session, 3_000);

@@ -21,7 +21,7 @@
 //!   `RuleIntercept`), trips at the configured count (trip marker +
 //!   `CancelTurn`), and repays one interrupt per response that completes
 //!   without an interrupt (`Finished` or `ToolUse`).
-//! - [`reasoning_loop_watchdog_actor::ReasoningLoopWatchdogActor`]
+//! - [`stuck_loop_watchdog_actor::StuckLoopWatchdogActor`]
 //!   accumulates repetition-loop detections (`StreamCompleted` with
 //!   `RepetitionLoop`, published by the inference actor's detector),
 //!   retries under the configured budget (visible retry marker per
@@ -41,20 +41,20 @@
 //! Cargo.toml) and write no shared state.
 
 pub mod provider_error_watchdog_actor;
-pub mod reasoning_loop_watchdog_actor;
 pub mod stall_watchdog_actor;
 pub mod stream_rule_watchdog_actor;
+pub mod stuck_loop_watchdog_actor;
 pub mod tool_call_watchdog_actor;
 
 use jinn_kernel::Services;
 use jinn_kernel::common::state::State;
 use jinn_preferences_config::schemas::LegacyStreamRulesBudget;
 use jinn_preferences_config::schemas::ProviderErrorWatchdogConfig;
-use jinn_preferences_config::schemas::ReasoningLoopWatchdogConfig;
 use jinn_preferences_config::schemas::STREAM_RULE_WATCHDOG_KEY;
 use jinn_preferences_config::schemas::STREAM_RULES_BUDGET_KEY;
 use jinn_preferences_config::schemas::StallWatchdogConfig;
 use jinn_preferences_config::schemas::StreamRuleWatchdogConfig;
+use jinn_preferences_config::schemas::StuckLoopWatchdogConfig;
 use jinn_preferences_config::schemas::ToolCallWatchdogConfig;
 use jinn_slices::RenderFacts;
 use jinn_slices::SliceHost;
@@ -149,11 +149,11 @@ pub fn activate(host: &mut SliceHost<'_, RenderFacts>, _state: &State, services:
 
     let loop_cfg = services
         .config
-        .get::<ReasoningLoopWatchdogConfig>()
+        .get::<StuckLoopWatchdogConfig>()
         .unwrap_or_default();
-    reasoning_loop_watchdog_actor::ReasoningLoopWatchdogActor::spawn(
+    stuck_loop_watchdog_actor::StuckLoopWatchdogActor::spawn(
         host.system(),
-        reasoning_loop_watchdog_actor::ReasoningLoopWatchdogActorDeps {
+        stuck_loop_watchdog_actor::StuckLoopWatchdogActorDeps {
             services: services.clone(),
             max_failures: loop_cfg.effective_max_failures(),
         },

@@ -37,7 +37,6 @@ pub mod minimap;
 pub mod project;
 pub mod provider;
 pub mod provider_error_watchdog;
-pub mod reasoning_loop_watchdog;
 pub mod remote;
 pub mod request_retry;
 pub mod session_lifecycle;
@@ -46,6 +45,7 @@ pub mod skills;
 pub mod stall_watchdog;
 pub mod stream_rule_watchdog;
 pub mod stream_rules;
+pub mod stuck_loop_watchdog;
 pub mod term;
 pub mod tool_call_watchdog;
 pub mod tools;
@@ -76,7 +76,6 @@ pub use minimap::MinimapConfig;
 pub use project::ProjectConfig;
 pub use provider::WebSearchConfig;
 pub use provider_error_watchdog::ProviderErrorWatchdogConfig;
-pub use reasoning_loop_watchdog::ReasoningLoopWatchdogConfig;
 pub use remote::{DEFAULT_REMOTE_BIND, RemoteBindError, RemoteConfig};
 pub use request_retry::RequestRetryConfig;
 pub use session_lifecycle::{BuiltinId, LifecycleCommand, SessionLifecycle};
@@ -88,6 +87,7 @@ pub use stream_rules::{
     LegacyStreamRulesBudget, STREAM_RULES_BUDGET_KEY, STREAM_RULES_KEY, StreamRuleConfig,
     StreamRuleFileEntry, StreamRulesConfig, StreamRulesFile, parse_stream_rules_file,
 };
+pub use stuck_loop_watchdog::StuckLoopWatchdogConfig;
 pub use term::{
     DEFAULT_CONTROL_TOGGLE_KEY, DEFAULT_SETTLE_MAX_WAIT_MS, DEFAULT_SETTLE_QUIET_MS,
     InteractiveTermPrefs,

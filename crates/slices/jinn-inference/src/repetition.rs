@@ -23,7 +23,7 @@
 //!
 //! The thresholds are code constants, deliberately not configuration:
 //! detector tuning is not a user-facing concern (the watchdog's budget
-//! knob, `[watchdog.reasoning_loop]`, is the only user surface). The
+//! knob, `[watchdog.stuck_loop]`, is the only user surface). The
 //! signal reports counts for logging; it never carries text, because a
 //! computed byte offset is not a `str` boundary and must never be sliced
 //! as one.

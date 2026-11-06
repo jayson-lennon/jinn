@@ -11,7 +11,7 @@
 //! ([`PushChatEntry`]) followed by [`CancelTurn`], then zeroes the counter
 //! so the same session is not re-killed immediately. `Canceled`, `Error`,
 //! and `RuleIntercept` are deliberately ignored: they are endpoints that
-//! say nothing about repetition, and the reasoning-loop budget is spent
+//! say nothing about repetition, and the stuck-loop budget is spent
 //! across the turn's retry lineage, not per response.
 //!
 //! A turn ended by a `LoopRetried` outcome does **not** clear the counter —
@@ -42,11 +42,11 @@ use jinn_session_history_msg::PushChatEntry;
 use jinn_session_msg::TurnCompleted;
 use jinn_session_msg::TurnOutcome;
 
-/// The reasoning-loop watchdog actor's static trouper path.
-pub const REASONING_LOOP_WATCHDOG_PATH: &str = "reasoning-loop-watchdog";
+/// The stuck-loop watchdog actor's static trouper path.
+pub const STUCK_LOOP_WATCHDOG_PATH: &str = "stuck-loop-watchdog";
 
 /// One watchdog output: the marker (text) or a cancel. Returned by
-/// [`ReasoningLoopWatchdogActor::on_stream_end`] in publish order so tests
+/// [`StuckLoopWatchdogActor::on_stream_end`] in publish order so tests
 /// can assert the pair sequencing without a bus.
 #[derive(Debug)]
 pub enum LoopWatchdogAction {
@@ -54,26 +54,26 @@ pub enum LoopWatchdogAction {
     CancelTurn(SessionId),
 }
 
-/// Dependencies for [`ReasoningLoopWatchdogActor`].
+/// Dependencies for [`StuckLoopWatchdogActor`].
 #[derive(Clone)]
-pub struct ReasoningLoopWatchdogActorDeps {
+pub struct StuckLoopWatchdogActorDeps {
     /// Application-wide runtime services (bus publish).
     pub services: Services,
     /// Detected loops tolerated before the watchdog surrenders the turn.
     pub max_failures: u8,
 }
 
-/// The reasoning-loop watchdog actor.
+/// The stuck-loop watchdog actor.
 ///
 /// Per-session loop counter; trip = surrender marker entry + cancel.
-pub struct ReasoningLoopWatchdogActor {
+pub struct StuckLoopWatchdogActor {
     services: Services,
     max_failures: u8,
     /// Loop counters keyed by session id.
     accumulators: HashMap<SessionId, u32>,
 }
 
-impl ServiceActor for ReasoningLoopWatchdogActor {
+impl ServiceActor for StuckLoopWatchdogActor {
     #[expect(
         clippy::unused_async_trait_impl,
         reason = "trait contract: init is never called (spawn uses init_with)"
@@ -83,19 +83,19 @@ impl ServiceActor for ReasoningLoopWatchdogActor {
         // (Services carries typed handles that cannot ride JSON args).
         Err(
             error_stack::IntoReport::into_report(RegistryError::InvalidSpec)
-                .attach("ReasoningLoopWatchdogActor is spawned via init_with"),
+                .attach("StuckLoopWatchdogActor is spawned via init_with"),
         )
     }
 }
 
-impl ReasoningLoopWatchdogActor {
+impl StuckLoopWatchdogActor {
     /// Spawns the actor at its static trouper path and returns the path.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "port convention: spawn takes owned deps and clones into init_with"
     )]
-    pub fn spawn(system: &ActorSystem, deps: ReasoningLoopWatchdogActorDeps) -> ActorPath {
-        let path = ActorPath::new(REASONING_LOOP_WATCHDOG_PATH);
+    pub fn spawn(system: &ActorSystem, deps: StuckLoopWatchdogActorDeps) -> ActorPath {
+        let path = ActorPath::new(STUCK_LOOP_WATCHDOG_PATH);
         trouper::builder::spawn_service_builder::<Self>(system)
             .at(path.clone())
             .init_with({
@@ -151,20 +151,20 @@ impl ReasoningLoopWatchdogActor {
     }
 }
 
-impl MsgHandler<StreamCompleted> for ReasoningLoopWatchdogActor {
+impl MsgHandler<StreamCompleted> for StuckLoopWatchdogActor {
     async fn handle(&mut self, msg: &StreamCompleted, _ctx: &mut MsgCtx<'_>) {
         let actions = self.on_stream_end(&msg.session_id, msg.reason);
         self.publish_actions(actions).await;
     }
 }
 
-impl MsgHandler<TurnCompleted> for ReasoningLoopWatchdogActor {
+impl MsgHandler<TurnCompleted> for StuckLoopWatchdogActor {
     async fn handle(&mut self, msg: &TurnCompleted, _ctx: &mut MsgCtx<'_>) {
         self.on_turn_end(&msg.session_id, msg.outcome);
     }
 }
 
-impl ReasoningLoopWatchdogActor {
+impl StuckLoopWatchdogActor {
     /// Builds an actor with an explicit maximum (test seam).
     #[must_use]
     pub fn with_max_failures(services: Services, max_failures: u8) -> Self {
@@ -249,7 +249,7 @@ fn retry_text(attempt: u32, max: u8) -> String {
 /// The surrender system-entry text after exhausting `max` detections.
 fn surrender_text(max: u8) -> String {
     format!(
-        "\u{23f8} reasoning-loop-watchdog: the response repeated itself {max} times without recovery; giving up — cancelling the turn."
+        "\u{23f8} stuck-loop-watchdog: the response repeated itself {max} times without recovery; giving up — cancelling the turn."
     )
 }
 
@@ -266,8 +266,8 @@ mod tests {
 
     /// A fresh actor with the given maximum over a private fake
     /// `Services` (struct-direct tests assert on the returned actions).
-    async fn watchdog(max_failures: u8) -> ReasoningLoopWatchdogActor {
-        ReasoningLoopWatchdogActor::with_max_failures(Services::new_fake().await, max_failures)
+    async fn watchdog(max_failures: u8) -> StuckLoopWatchdogActor {
+        StuckLoopWatchdogActor::with_max_failures(Services::new_fake().await, max_failures)
     }
 
     #[rstest::rstest]

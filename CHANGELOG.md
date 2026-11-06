@@ -10,7 +10,7 @@
 
 ```toml
 # jinn.toml
-[watchdog.reasoning_loop]
+[watchdog.stuck_loop]
 # Abort the stream after this many failures accumulate. Successful responses
 # decrement the counter.
 max_failures = 3

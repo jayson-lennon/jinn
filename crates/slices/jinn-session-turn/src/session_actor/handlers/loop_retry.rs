@@ -23,7 +23,7 @@
 //! model should not read its own looped arguments, and the fresh request
 //! must not re-seed the loop.
 //!
-//! The user still sees what happened: the reasoning-loop watchdog publishes
+//! The user still sees what happened: the stuck-loop watchdog publishes
 //! a visible system marker per detection (system entries are excluded from
 //! LLM context by default), so this handler publishes no chat entry of its
 //! own.
@@ -55,7 +55,7 @@ impl SessionPersistenceActor {
     /// intercept paths use, so a loop completion that lands after the
     /// session has moved on is a no-op rather than a rewind from `Idle`.
     ///
-    /// The watchdog's marker is *not* pushed here: the reasoning-loop
+    /// The watchdog's marker is *not* pushed here: the stuck-loop
     /// watchdog actor publishes it, keyed on the same completion this
     /// handler consumes. This handler stays silent toward both the model
     /// and the log.
@@ -124,7 +124,7 @@ impl SessionPersistenceActor {
         // stream still the live one. A cancelled turn refuses here — the
         // cancel and this completion race by construction (the completion
         // is published from inside the stream task the cancel tears down,
-        // and the reasoning-loop watchdog's surrender cancel races the
+        // and the stuck-loop watchdog's surrender cancel races the
         // retry the same way) — and a retried dispatch for a dead turn is
         // what re-armed a session nobody was streaming to. The excluded
         // entries stay excluded either way.
@@ -236,7 +236,7 @@ pub(super) mod tests {
             dispatched_at: jiff::Timestamp::now(),
             turn: live.turn,
             stream: live.stream.expect("a looped stream is in flight"),
-            // The loop completion is the reasoning-loop watchdog's, never
+            // The loop completion is the stuck-loop watchdog's, never
             // the provider-error watchdog's.
             retryable: false,
         }

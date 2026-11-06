@@ -253,7 +253,7 @@ impl StreamRuleWatchdogActor {
     ///   completing anything. Retained deliberately: debiting on those would
     ///   repay the debt on exactly the path the budget exists to bound, and
     ///   the count could never be spent.
-    /// - `RepetitionLoop` — the reasoning-loop watchdog's fault, not this
+    /// - `RepetitionLoop` — the stuck-loop watchdog's fault, not this
     ///   rule budget's: the count neither rises (no rule fired) nor is
     ///   repaid (nothing was completed), and the turn ended at most
     ///   non-terminally, so the clear comes from `on_turn_end`.
