@@ -27,6 +27,8 @@ max_failures = 3
 waits_secs = [10, 30, 60]
 ```
 
+- `#gap-analysis` report should be much shorter
+
 ## 2026-11-04 v0.20.0
 
 - Update `#research` prompt to generate a more comprehensive report.
