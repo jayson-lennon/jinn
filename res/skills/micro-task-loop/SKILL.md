@@ -1,11 +1,13 @@
 ---
 name: micro-task-loop
-description: Straight-through phased execution for simple, low-risk plans with few moving parts. Runs every phase back to back with no per-phase verification, builds, or commits; tests, lints, and a single commit happen once at the end. Agents MUST continue through all phases autonomously without stopping between phases. Only load if explicitly asked.
+description: Straight-through phased execution for simple, low-risk plans with few moving parts. Runs every phase back to back with no per-phase verification, builds, or commits — unless an existing plan or task list names its own check/test/commit cadence, which is then followed as written; tests, lints, and a single commit happen once at the end. Agents MUST continue through all phases autonomously without stopping between phases. Only load if explicitly asked.
 ---
 
 # Micro Task Loop
 
 A fast path for implementing simple phased plans. Trades per-phase safety checkpoints for wall-clock time: no builds, tests, or commits until every phase is done, then one verification pass and one commit. The task list tracks progress in real time.
+
+This deferred cadence is the **default**, not an override. When a plan or task list already exists and names its own checks, tests, or commits, those run where the plan puts them (see **Cadence**).
 
 **Project commands are referenced by role** (`check`, `test`, `lint`, `format`, `commit`, `sync-trunk`, `vcs`). The project's `AGENTS.md` resolves each role to its actual command (e.g. for jinn: `test` → `just test`, `commit` → `just commit '<message>'`, `sync-trunk` → `git rebase main`). When this skill says "run the project's `test` command," look up `test` in `AGENTS.md` and run that. If the project does not define a role, skip it.
 
@@ -13,7 +15,7 @@ A fast path for implementing simple phased plans. Trades per-phase safety checkp
 
 1.  **Stay on your branch.** Never commit to the project's main line (e.g. `trunk`/`main`/`master`). Your environment is on the correct branch.
 2.  **No reverse merge.** Never merge your branch onto the main line.
-3.  **Continuous execution.** Proceed from one phase to the next without stopping. Only stop when all phases are complete or an unrecoverable error blocks progress.
+3.  **Continuous execution.** Proceed from one phase to the next without stopping. Only stop when all phases are complete or an unrecoverable error blocks progress. Running checks, tests, or commits that the plan or task list names (see **Cadence**) is part of executing the plan, not stopping.
 4.  **Stay in `.plans/<task>/`.** All execution plans go here. Do not create new directories.
 5.  **Never rewrite the spec.** The spec (`plan.md`) is annotate only (strikethrough, divergence notes). The task list tracks status, not checkboxes in the spec.
 6.  **Todo list management.** Update the todo list as you work on the overall task. This helps to keep track of what still needs to be done.
@@ -29,6 +31,20 @@ A fast path for implementing simple phased plans. Trades per-phase safety checkp
 **Task list ≠ acceptance criteria.** The task list tracks _what's done_. Acceptance criteria verify _correctness_. They are separate.
 
 **NEXT block** — Every `todo_*` tool call returns a `→ NEXT` block at the top of its result. It names the next task you should work on (or tells you the phase is complete / all phases are complete).
+
+---
+
+## Cadence
+
+The check/test/commit cadence is resolved once, when the loop starts:
+
+**Planned cadence.** If a plan (`plan.md`) or a task list already exists and names checks, tests, or commits — a task that says "run `check`", a phase ending in a verify/commit step, or spec text that says when to verify — follow **that** cadence as written. Those items are executed like any other task, in the order the plan gives. Do not defer them to the end, and do not add verification the plan does not name.
+
+**Default cadence.** If there is no plan and no task list — or they exist but are silent about checks, tests, and commits — run straight-through: no builds, tests, or commits until every phase is done, then one verification pass and one commit (Final verification, below).
+
+Either way, Final verification still runs once at the end; under the planned cadence its commit step only fires if changes are left uncommitted.
+
+A planned cadence is not an exception to Constraint 3: running the checks the plan names *is* the continuous execution of that plan. Stop only when all phases are complete or an unrecoverable error blocks progress — never to ask whether to run a planned check.
 
 ---
 
@@ -57,7 +73,7 @@ Update the todo list **at the moment a decision is made**, never retroactively:
 
     a. **Restate** the current task in one sentence before touching the keyboard.
 
-    b. **Do the work**. Make the edits the task calls for. Do not run builds, checks, or tests — verification is deferred to the end by design (see Constraint 3).
+    b. **Do the work**. Make the edits the task calls for. Under the default cadence, do not run builds, checks, or tests — verification is deferred to the end (see Constraint 3). Under the planned cadence, run exactly what the plan or task list names, at the point it names it — and nothing beyond it.
 
     c. **Update the todo list.**
 
@@ -86,7 +102,7 @@ All phases are done and the task list is clean. Now verify everything in one pas
 
     _All reported errors and warnings must be fixed_, **even if they are from other files that you didn't touch**. **DO NOT SIGNAL COMPLETION UNLESS THERE ARE ZERO WARNINGS**. If the project defines no `lint`/`format` commands, skip this step.
 
-3.  **Commit once.** Refer to the commands table in AGENTS.md for how to properly commit code.
+3.  **Commit once.** Refer to the commands table in AGENTS.md for how to properly commit code. Under the planned cadence, earlier phases may have committed already per the plan; commit here only if changes are still uncommitted.
 
     ```
     <commit command> "<TASK>: <one sentence description>"
