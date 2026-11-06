@@ -6,6 +6,7 @@
 - Add anti-hedging instructions to `#lookup` and `#research` prompts.
 - Remove `simple-task-loop` skill.
 - `micro-task-loop` skill now defers check/test/commit cadence to plan if available.
+- Minimap context usage display is now only shown when in Normal mode.
 
 ## 2026-11-04 v0.20.0
 
