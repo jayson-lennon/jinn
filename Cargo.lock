@@ -3270,6 +3270,7 @@ dependencies = [
  "jinn-kernel",
  "jinn-mcp-msg",
  "jinn-preferences-config",
+ "jinn-provider",
  "jinn-provider-config",
  "jinn-provider-selection-msg",
  "jinn-session-history-msg",
@@ -3598,6 +3599,7 @@ dependencies = [
  "parking_lot",
  "rstest",
  "serde",
+ "tempfile",
  "toml 0.8.23",
  "toml_edit 0.22.27",
  "tracing",
@@ -3720,6 +3722,7 @@ dependencies = [
  "jinn-session-state",
  "jinn-slices",
  "jinn-token-count-msg",
+ "marked-path",
  "parking_lot",
  "regex",
  "rstest",
@@ -5381,6 +5384,7 @@ dependencies = [
  "jinn-slices",
  "jinn-theme",
  "serde",
+ "trouper",
 ]
 
 [[package]]
@@ -5405,6 +5409,7 @@ dependencies = [
  "marked-path",
  "ratatui",
  "rstest",
+ "serde",
  "tokio",
  "tracing",
  "trouper",

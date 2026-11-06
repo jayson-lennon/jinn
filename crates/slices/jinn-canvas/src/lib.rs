@@ -55,8 +55,9 @@ use crate::canvas_actor::CanvasActorDeps;
 /// the first `canvas` tool call asks it to serve an artifact.
 ///
 /// `config` is the same `jinn.toml` layer every slice receives — the
-/// bind is read here, at activation; a changed bind takes effect on the
-/// next jinn start. `set_handle` receives the tool-facing
+/// bind is read here, at activation, and re-read on every config
+/// reload: dormant the new bind is adopted, serving it applies when
+/// the last browser closes the page. `set_handle` receives the tool-facing
 /// [`jinn_canvas_msg::CanvasServerHandle`]: the kernel owns the slot it
 /// lands in, the slice owns the actor behind it, and neither names the
 /// other's internals.

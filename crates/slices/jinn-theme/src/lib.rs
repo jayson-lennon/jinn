@@ -20,6 +20,8 @@ pub mod theme_picker_routes;
 #[cfg(test)]
 mod theme_picker_tests;
 pub mod theme_rescan_actor;
+#[cfg(test)]
+mod theme_rescan_actor_tests;
 
 pub use jinn_theme_msg::theme_entries_slot;
 pub use jinn_theme_msg::theme_picker_scope;

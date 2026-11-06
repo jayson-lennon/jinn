@@ -408,24 +408,113 @@ async fn an_unparseable_providers_toml_is_refused() {
     assert_eq!(pushed.len(), 1, "the providers refusal reached the chat");
 }
 
-// W9: deleting jinn.toml settles like any content change.
+// W9: deleting jinn.toml is a refusal — the running snapshot stays live.
 #[rstest::rstest]
 #[tokio::test]
-async fn deleting_jinn_toml_is_a_content_change() {
+async fn deleting_jinn_toml_is_a_refusal_and_surfaced() {
     // Given a watched config directory whose file holds content.
     let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 7\n").await;
     let reloads = fixture.recorder_of::<JinnTomlReloaded>().await;
+    let entries = fixture.recorder_of::<PushChatEntry>().await;
     fixture.spawn_actor().await;
 
-    // When the file is deleted (missing hashes as empty — a change).
+    // When the file is deleted (missing hashes as empty — a settle
+    // still fires, and the reload path now refuses).
     std::fs::remove_file(fixture.jinn_toml()).expect("delete");
 
-    // Then the settle fires (an empty candidate is valid TOML, so this
-    // reloads to defaults deliberately — the reset-to-defaults hazard is
-    // the *refusal* path's, covered by W6/W7; deletion itself is honest
-    // content change, and the layer contract keeps it consistent).
+    // Then no reload event publishes — a deletion must not reset the
+    // running config to defaults — and the refusal is surfaced.
+    fixture.assert_absent(&reloads, 0).await;
+    let pushed = fixture.wait_for(&entries, 1).await;
+    assert_eq!(pushed.len(), 1, "the deletion refusal reached the chat");
+
+    // And the layer still holds the pre-deletion values.
+    let value = fixture
+        .layer
+        .get::<jinn_preferences_config::schemas::StallWatchdogConfig>()
+        .expect("section reads");
+    assert_eq!(
+        value.effective_timeout_secs(),
+        7,
+        "the deleted file's absence must not blank the snapshot"
+    );
+
+    // And when the file comes back (a sync client finishing), the
+    // reload proceeds again.
+    fixture.atomic_write("jinn.toml", "[watchdog.stall]\ntimeout_secs = 9\n");
     let events = fixture.wait_for(&reloads, 1).await;
-    assert_eq!(events.len(), 1, "a deletion settles like a change");
+    assert_eq!(events.len(), 1, "the restored file settles as a change");
+}
+
+// W9-companion: deleting providers.toml refuses rather than resetting
+// to the default provider set (the storage load() would materialize a
+// fresh default file on a miss).
+#[rstest::rstest]
+#[tokio::test]
+async fn deleting_providers_toml_is_a_refusal() {
+    // Given a watched config directory whose providers.toml exists and
+    // has already settled (so the ledger holds its content signature).
+    let fixture = WatchFixture::new("").await;
+    let reloads = fixture.recorder_of::<ProvidersTomlReloaded>().await;
+    let entries = fixture.recorder_of::<PushChatEntry>().await;
+    fixture.spawn_actor().await;
+    fixture.write(
+        "providers.toml",
+        "[providers.sample]\nbackend = \"sample\"\nmodels = [\"m\"]\n",
+    );
+    let settled = fixture.wait_for(&reloads, 1).await;
+    assert_eq!(settled.len(), 1, "the write settled first");
+
+    // When the file is deleted.
+    std::fs::remove_file(
+        fixture
+            .config_dir
+            .join("providers.toml")
+            .expect("name join keeps the base absolute")
+            .as_path(),
+    )
+    .expect("delete providers.toml");
+
+    // Then no ProvidersTomlReloaded publishes and the refusal reaches
+    // the chat.
+    fixture.assert_absent(&reloads, 0).await;
+    let pushed = fixture.wait_for(&entries, 1).await;
+    assert!(
+        pushed
+            .iter()
+            .any(|entry| entry.entry.text().contains("providers.toml")),
+        "the providers deletion refusal reached the chat"
+    );
+}
+
+// W9-companion: deleting stream_rules.toml is a legitimate reload —
+// absence means "no rules file", which the matcher handles by keeping
+// only the jinn.toml-sourced rules.
+#[rstest::rstest]
+#[tokio::test]
+async fn deleting_stream_rules_toml_publishes_the_matcher_reload() {
+    // Given a watched config directory whose rules file exists.
+    let fixture = WatchFixture::new("").await;
+    let reloads = fixture.recorder_of::<StreamRulesReloaded>().await;
+    fixture.spawn_actor().await;
+    fixture.write("stream_rules.toml", "[entry]\nname = \"a\"\n");
+    fixture.wait_for(&reloads, 1).await;
+
+    // When the file is deleted.
+    std::fs::remove_file(
+        fixture
+            .config_dir
+            .join("stream_rules.toml")
+            .expect("name join keeps the base absolute")
+            .as_path(),
+    )
+    .expect("delete stream_rules.toml");
+
+    // Then the matcher-reload event still publishes: absent-as-empty is
+    // a meaningful state for rules, and the matcher actor owns the
+    // refuse-and-keep-old contract for anything bad in what remains.
+    let events = fixture.wait_for_extra(&reloads, 1).await;
+    assert_eq!(events.len(), 1, "the rules deletion settled as a change");
 }
 
 // W10: writes outside the watched set publish nothing.

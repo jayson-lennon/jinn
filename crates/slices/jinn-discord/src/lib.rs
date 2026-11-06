@@ -12,6 +12,8 @@ pub mod backend;
 pub mod bridge_subscriber;
 pub mod channels;
 pub mod gateway_supervisor;
+#[cfg(test)]
+mod gateway_supervisor_tests;
 pub mod key_routes;
 pub mod message_split;
 pub mod reload_actor;

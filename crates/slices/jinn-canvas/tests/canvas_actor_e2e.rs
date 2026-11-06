@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use jinn_canvas::canvas_actor::{CanvasActor, CanvasActorDeps, canvas_server_handle};
+use jinn_canvas_msg::CanvasServeOutcome;
 use jinn_canvas_msg::CanvasServerHandle;
 use jinn_testutil::bus_harness::{TestHarness, await_recorded};
 use marked_path::{Absolute, MarkedPathAccess as _, MarkedPathBuf};
@@ -32,12 +33,23 @@ struct ActorFixture {
     /// the harness's declarant recorder.
     statuses: jinn_testutil::bus_harness::Recorder<jinn_slices::ServiceStatusUpdate>,
     dir: jinn_testutil::JinnTempDir,
-    /// Keeps the recorder's tap actor alive.
-    _harness: TestHarness,
+    /// The artifact path the serve helpers re-serve; set by each test
+    /// after seeding.
+    serve_path: String,
+    /// The recorder's tap actor — the reload tests publish through its
+    /// bus.
+    harness: TestHarness,
 }
 
 /// Spawns the actor at a port-0 bind, the shipped default.
 async fn spawn_actor() -> ActorFixture {
+    spawn_actor_with(jinn_config::testutil::config_layer("")).await
+}
+
+/// Spawns the actor at a port-0 bind over `config` — the reload tests
+/// point the layer at a `[canvas]` section and edit it behind the
+/// actor's back, the way the config-watch slice's validated swap does.
+async fn spawn_actor_with(config: jinn_config::ConfigLayer) -> ActorFixture {
     let harness = TestHarness::new().await;
     let statuses = harness
         .spawn_recorder::<jinn_slices::ServiceStatusUpdate>()
@@ -46,7 +58,7 @@ async fn spawn_actor() -> ActorFixture {
         harness.system(),
         &CanvasActorDeps {
             bind: "127.0.0.1:0".parse::<SocketAddr>().expect("bind parses"),
-            config: jinn_config::testutil::config_layer(""),
+            config,
             bus: harness.bus(),
         },
     );
@@ -54,7 +66,8 @@ async fn spawn_actor() -> ActorFixture {
         handle: canvas_server_handle(harness.system().clone(), handle),
         statuses,
         dir: jinn_testutil::retained_tempdir(),
-        _harness: harness,
+        serve_path: String::new(),
+        harness,
     }
 }
 
@@ -513,4 +526,254 @@ async fn ws_read_frame(stream: &std::net::TcpStream) -> String {
     })
     .await;
     String::from_utf8(payload_bytes).expect("text frame")
+}
+
+/// Polls until `serve` answers at `port`, driving the actor's heartbeat
+/// (the drain tick applies a pending bind when quiet).
+async fn wait_for_serve_port(fixture: &ActorFixture, port: u16) -> CanvasServeOutcome {
+    let deadline = tokio::time::Instant::now() + STATUS_TIMEOUT;
+    loop {
+        let outcome = fixture
+            .handle
+            .serve(fixture.serve_path.clone())
+            .await
+            .expect("the round trip completes");
+        if outcome.ok && bind_of_url(&outcome.url).port() == port {
+            return outcome;
+        }
+        fixture
+            .handle
+            .drain_metrics()
+            .await
+            .expect("drain completes");
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "pending bind never applied; serve still at {}",
+            outcome.url
+        );
+    }
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn bind_change_while_serving_names_it_pending_and_applies_when_the_last_client_leaves() {
+    // Given a serving canvas actor over a layer whose [canvas] bind
+    // names a second (held, then released) port, and a browser holding
+    // the served page.
+    let probe = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("probe binds");
+    let port_b = probe.local_addr().expect("probe addr").port();
+    let config = jinn_config::testutil::config_layer("");
+    let layer = config.clone();
+    let mut fixture = spawn_actor_with(config).await;
+    let artifact = fixture.seed("chart.html", "<html><body>a</body></html>");
+    fixture.serve_path = artifact.to_string_lossy().into_owned();
+    let first = fixture
+        .handle
+        .serve(fixture.serve_path.clone())
+        .await
+        .expect("the round trip completes");
+    assert!(first.ok, "serve refused: {}", first.error);
+    let url_a = first.url.clone();
+    let port_a = bind_of_url(&url_a).port();
+    let ws = ws_connect(bind_of_url(&url_a)).await;
+
+    // When the bind changes behind the actor's back and a reload
+    // re-reads the layer (the config-watch slice's own write path).
+    layer
+        .put(&jinn_preferences_config::schemas::CanvasConfig {
+            bind: format!("127.0.0.1:{port_b}"),
+        })
+        .expect("layer put lands");
+    fixture
+        .harness
+        .bus()
+        .publish(jinn_boot_msg::JinnTomlReloaded)
+        .await;
+
+    // Then the live listener is unchanged — the same URL still serves —
+    // and the row names the change pending with a warning tone.
+    let again = fixture
+        .handle
+        .serve(fixture.serve_path.clone())
+        .await
+        .expect("the round trip completes");
+    assert_eq!(
+        bind_of_url(&again.url).port(),
+        port_a,
+        "live listener stays while a client holds the page"
+    );
+    let deadline = tokio::time::Instant::now() + STATUS_TIMEOUT;
+    let pending = loop {
+        if let Some(found) = fixture.statuses.drain().into_iter().find(|u| {
+            u.name == "canvas"
+                && u.status_message
+                    .as_deref()
+                    .is_some_and(|m| m.contains("pending"))
+        }) {
+            break found;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "pending-bind status never arrived; got {:?}",
+            fixture.statuses.drain()
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert!(
+        pending
+            .status_message
+            .as_deref()
+            .is_some_and(|m| m.contains(&format!("127.0.0.1:{port_b}"))),
+        "note must name the new bind: {:?}",
+        pending.status_message
+    );
+    assert_eq!(pending.note_tone, Some(jinn_slices::NoteTone::Warning));
+
+    // When the last client leaves, the heartbeat applies the pending
+    // bind: the fresh URL serves at port_b.
+    drop(probe);
+    drop(ws);
+    let rebound = wait_for_serve_port(&fixture, port_b).await;
+
+    // Then the new listener answers end to end, and the old one closed.
+    let new_bind = bind_of_url(&rebound.url);
+    let body = body_of(&http_get(new_bind, "/").await);
+    assert!(body.contains("a</body>"), "new bind serves: {body}");
+    let old_closed = off_runtime(move || {
+        std::net::TcpStream::connect_timeout(
+            &format!("127.0.0.1:{port_a}").parse().expect("bind parses"),
+            Duration::from_secs(1),
+        )
+        .is_err()
+    })
+    .await;
+    assert!(
+        old_closed,
+        "old listener must stop once the pending bind applied"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn bind_change_while_dormant_adopts_the_new_bind_at_the_next_serve() {
+    // Given a dormant actor over a layer with a second bind.
+    let probe = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("probe binds");
+    let port_b = probe.local_addr().expect("probe addr").port();
+    let config = jinn_config::testutil::config_layer("");
+    let layer = config.clone();
+    let mut fixture = spawn_actor_with(config).await;
+    let artifact = fixture.seed("chart.html", "<html><body>b</body></html>");
+    fixture.serve_path = artifact.to_string_lossy().into_owned();
+    layer
+        .put(&jinn_preferences_config::schemas::CanvasConfig {
+            bind: format!("127.0.0.1:{port_b}"),
+        })
+        .expect("layer put lands");
+
+    // When a reload re-reads the bind while nothing is serving.
+    fixture
+        .harness
+        .bus()
+        .publish(jinn_boot_msg::JinnTomlReloaded)
+        .await;
+
+    // Then the next serve answers at the new bind, not the default.
+    drop(probe);
+    let outcome = fixture
+        .handle
+        .serve(fixture.serve_path.clone())
+        .await
+        .expect("the round trip completes");
+    assert!(outcome.ok, "serve refused: {}", outcome.error);
+    let bind = bind_of_url(&outcome.url);
+    assert_eq!(bind.port(), port_b, "dormant reload adopts the new bind");
+    let body = body_of(&http_get(bind, "/").await);
+    assert!(body.contains("b</body>"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_failed_rebind_while_quiet_goes_dormant_and_surfaces_the_refusal() {
+    // Given a serving actor whose pageholder has left, and a layer
+    // whose bind names a port that is already taken by another
+    // listener.
+    let squatter = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("squatter binds");
+    let port_taken = squatter.local_addr().expect("squatter addr").port();
+    let config = jinn_config::testutil::config_layer("");
+    let layer = config.clone();
+    let mut fixture = spawn_actor_with(config).await;
+    let artifact = fixture.seed("chart.html", "<html><body>x</body></html>");
+    fixture.serve_path = artifact.to_string_lossy().into_owned();
+    let first = fixture
+        .handle
+        .serve(fixture.serve_path.clone())
+        .await
+        .expect("the round trip completes");
+    let url_a = first.url.clone();
+    let ws = ws_connect(bind_of_url(&url_a)).await;
+    ws_send_handshake_done(&ws).await;
+    drop(ws);
+    layer
+        .put(&jinn_preferences_config::schemas::CanvasConfig {
+            bind: format!("127.0.0.1:{port_taken}"),
+        })
+        .expect("layer put lands");
+
+    // When a reload parks the pending bind and the quiet heartbeat
+    // tries to apply it.
+    fixture
+        .harness
+        .bus()
+        .publish(jinn_boot_msg::JinnTomlReloaded)
+        .await;
+    let deadline = tokio::time::Instant::now() + STATUS_TIMEOUT;
+    let refused = loop {
+        if let Some(found) = fixture
+            .statuses
+            .drain()
+            .into_iter()
+            .find(|u| u.name == "canvas" && u.note_tone == Some(jinn_slices::NoteTone::Error))
+        {
+            break found;
+        }
+        fixture
+            .handle
+            .drain_metrics()
+            .await
+            .expect("drain completes");
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the rebind refusal never surfaced"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+
+    // Then the row carries the refusal, and the next serve fails too —
+    // the actor went dormant AT the pending bind (the taken port), so
+    // serving stays refused until the port frees or the bind changes
+    // again.
+    assert!(
+        refused
+            .status_message
+            .as_deref()
+            .is_some_and(|m| m.contains("serve failed") && m.contains("in use")),
+        "refusal must name the failure: {:?}",
+        refused.status_message
+    );
+    let _ = squatter;
+    let next = fixture
+        .handle
+        .serve(fixture.serve_path.clone())
+        .await
+        .expect("the round trip completes");
+    assert!(
+        !next.ok,
+        "the actor is dormant at the taken bind: the next serve refuses rather than silently serving elsewhere"
+    );
 }

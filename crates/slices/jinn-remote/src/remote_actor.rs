@@ -33,12 +33,24 @@ pub const REMOTE_ACTOR_NAME: &str = "remote";
 pub struct RemoteListenerActor {
     /// The resolved port, for the registry entry and shutdown removal.
     port: u16,
-    /// The registry path, for best-effort shutdown removal.
-    _registry_path: MarkedPathBuf<Absolute>,
+    /// The axum serve task. Held so a rebind aborts it — aborting
+    /// closes the old listener and frees the old port.
+    serve_task: Option<tokio::task::JoinHandle<()>>,
+    /// The registry file this instance advertises itself in — a rebind
+    /// rewrites the entry so `jinn remote` discovery stays truthful.
+    registry_path: MarkedPathBuf<Absolute>,
+    /// This process's pid — the registry entry's key.
+    pid: u32,
+    /// The live session state the HTTP handlers read; the rebind
+    /// rebuilds the server state with it.
+    state: State,
+    /// The message fabric, for delivery publications and row notes.
+    bus: BusService,
+    /// The serving binary's version (reported by `/health`).
+    version: String,
     /// The live config layer: a `JinnTomlReloaded` re-reads `[remote]
-    /// bind` from here and names a changed bind on the log — the
-    /// listener itself is stable for its life, and the registry entry
-    /// (`jinn remote` discovery) resolves it.
+    /// bind` and hot-rebinds (the control surface is plain stateless
+    /// HTTP — no held connections a rebind would break).
     config: jinn_config::ConfigLayer,
 }
 
@@ -135,7 +147,7 @@ impl RemoteListenerActor {
             resolved,
             deps.version.clone(),
         ));
-        tokio::spawn(async move {
+        let serve_task = tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, crate::server::router((*shared).clone())).await {
                 tracing::warn!("remote control surface serve task ended: {e}");
             }
@@ -144,6 +156,10 @@ impl RemoteListenerActor {
         let path = ActorPath::new(REMOTE_ACTOR_NAME);
         let registry_path = deps.registry_path.clone();
         let config_layer = deps.config.clone();
+        let pid = deps.pid;
+        let state = deps.state.clone();
+        let bus = deps.bus.clone();
+        let version = deps.version.clone();
 
         trouper::builder::spawn_service_builder::<Self>(system)
             .at(path.clone())
@@ -151,15 +167,24 @@ impl RemoteListenerActor {
                 let port = resolved;
                 let registry_path = registry_path.clone();
                 let config_layer = config_layer;
+                let state = state.clone();
+                let bus = bus.clone();
+                let version = version.clone();
                 Box::pin(async move {
                     Ok(Self {
                         port,
-                        _registry_path: registry_path,
+                        serve_task: Some(serve_task),
+                        registry_path,
+                        pid,
+                        state,
+                        bus,
+                        version,
                         config: config_layer,
                     })
                 })
             })
             .handles::<JinnTomlReloaded>()
+            .emits::<jinn_slices::ServiceStatusUpdate>()
             .start();
         Ok(path)
     }
@@ -167,11 +192,15 @@ impl RemoteListenerActor {
 
 // The actor consumes no other messages: delivery publishes existing
 // schemas from the HTTP handlers directly.
+//
+// A reload re-reads the bind and hot-rebinds: the control surface is
+// plain stateless HTTP, so a rebind between requests breaks nobody.
+// The registry entry is rewritten first-if-listener-succeeds so `jinn
+// remote` discovery never names a dead port; a failed rebind keeps the
+// old entry and the old listener (the serve task dies with its
+// listener only when the new bind succeeded, so the failure path here
+// never touches the old one).
 impl MsgHandler<JinnTomlReloaded> for RemoteListenerActor {
-    #[expect(
-        clippy::unused_async_trait_impl,
-        reason = "async signature symmetry; the re-read is synchronous"
-    )]
     async fn handle(&mut self, _msg: &JinnTomlReloaded, _ctx: &mut trouper::context::MsgCtx<'_>) {
         // Given a jinn.toml whose [remote] bind just changed.
         let parsed = self
@@ -179,19 +208,110 @@ impl MsgHandler<JinnTomlReloaded> for RemoteListenerActor {
             .get::<jinn_preferences_config::schemas::RemoteConfig>()
             .ok()
             .and_then(|config| config.parse_bind().ok());
-        match parsed {
-            Some(bind) if bind.port() != self.port => {
-                // The live listener is stable for its life: the port is
-                // already in the instance registry a `jinn remote`
-                // client resolves, and every surface URL a user holds
-                // names it. The new bind is a pending note, not a swap.
-                tracing::info!("remote bind changed to {bind} — applies on the next jinn start");
-            }
-            Some(_) => {}
-            None => {
-                tracing::warn!("remote bind re-read refused; the previous bind stays live");
-            }
+        let Some(bind) = parsed else {
+            self.note(
+                "remote bind re-read refused; the previous bind stays live",
+                Some(jinn_slices::NoteTone::Error),
+            )
+            .await;
+            return;
+        };
+        if bind.port() == self.port {
+            return;
         }
+        // Bind the new listener BEFORE touching anything live: if this
+        // fails (port taken), the old listener and its registry entry
+        // stay untouched — the refusal is the whole story. The old task
+        // is aborted only after the new bind succeeded (below).
+        let listener = match tokio::net::TcpListener::bind(bind).await {
+            Ok(listener) => listener,
+            Err(e) => {
+                self.note(
+                    &format!("remote rebind to {bind} failed ({e}); the previous bind stays live"),
+                    Some(jinn_slices::NoteTone::Error),
+                )
+                .await;
+                return;
+            }
+        };
+        let resolved = match listener.local_addr() {
+            Ok(addr) => addr.port(),
+            Err(e) => {
+                self.note(
+                    &format!(
+                        "remote rebind to {bind} lost its port ({e}); the previous bind stays live"
+                    ),
+                    Some(jinn_slices::NoteTone::Error),
+                )
+                .await;
+                return;
+            }
+        };
+        // Registry write while BOTH listeners are up: the entry names
+        // the new port and the old one still serves, so discovery can
+        // never land on a dead port at any instant.
+        let cwd = std::env::current_dir()
+            .map(|cwd| cwd.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let entry = registry::InstanceEntry::new(
+            self.pid,
+            resolved,
+            cwd,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| u64::try_from(d.as_millis()).unwrap_or_default())
+                .unwrap_or_default(),
+        );
+        if let Err(e) = registry::register(self.registry_path.as_path(), entry) {
+            self.note(
+                &format!(
+                    "remote rebind reached {resolved} but the registry write failed ({e}); \
+                     the previous bind stays live"
+                ),
+                Some(jinn_slices::NoteTone::Error),
+            )
+            .await;
+            return;
+        }
+        // Swap: end the old serve task (aborting it closes the old
+        // listener and frees the old port), then hold the new one.
+        if let Some(old) = self.serve_task.take() {
+            old.abort();
+        }
+        let shared = crate::server::ServerShared::new(
+            self.state.clone(),
+            self.bus.clone(),
+            self.pid,
+            resolved,
+            self.version.clone(),
+        );
+        self.serve_task = Some(tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, crate::server::router(shared)).await {
+                tracing::warn!("remote control surface serve task ended: {e}");
+            }
+        }));
+        let old = self.port;
+        self.port = resolved;
+        self.note(
+            &format!("remote rebound to {resolved} (was {old}) — the bind change applied"),
+            None,
+        )
+        .await;
+    }
+}
+
+impl RemoteListenerActor {
+    /// Publishes a row note on the remote dashboard row. Best-effort:
+    /// a failed note must not fail the rebind.
+    async fn note(&self, message: &str, tone: Option<jinn_slices::NoteTone>) {
+        self.bus
+            .publish(jinn_slices::ServiceStatusUpdate {
+                name: REMOTE_ACTOR_NAME.to_owned(),
+                description: None,
+                status_message: Some(message.to_owned()),
+                note_tone: tone,
+            })
+            .await;
     }
 }
 

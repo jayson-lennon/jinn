@@ -81,7 +81,7 @@ impl GatewayConfigHandle {
 
 /// What the supervisor believes about the running gateway.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GatewayState {
+pub enum GatewayState {
     /// Nothing spawned; the slice activated disabled.
     Dormant,
     /// A gateway task is live under the applied config.
@@ -302,6 +302,20 @@ impl GatewaySupervisor {
             .reader::<ConnectionState>(&discord_connection_slot())
             .map(|cell| cell.read().clone())
             .unwrap_or_default()
+    }
+
+    /// The state machine's current position — what the dashboard row
+    /// and any "pending change" surface reads.
+    #[must_use]
+    pub fn gateway_state(&self) -> &GatewayState {
+        &self.gateway
+    }
+
+    /// The `discord` slice flag: whether the rest of jinn currently
+    /// sees the bridge as live.
+    #[must_use]
+    pub fn flag(&self) -> bool {
+        self.slices.flag("discord")
     }
 
     async fn publish_row_note(&self, note: &str) {

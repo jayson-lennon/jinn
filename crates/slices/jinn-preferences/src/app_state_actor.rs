@@ -66,22 +66,24 @@ impl AppStateActor {
                 }
             })
             .handles::<UpdateAppState>()
-            // Live resources: a theme file added, edited, or removed
-            // while jinn runs re-runs the sync path — the persisted name
-            // is re-resolved against the re-scanned entries cell, so an
-            // edited theme repaints and a removed one falls back.
-            .handles::<jinn_boot_msg::ResourcesChanged>()
+            // Live theme resources: the theme rescan actor publishes
+            // this AFTER re-seeding the entries cell, so handling it
+            // re-resolves the persisted name against the fresh scan —
+            // an edited theme repaints and a removed one falls back —
+            // with no race against the rescan itself.
+            .handles::<jinn_theme_msg::ThemeEntriesReloaded>()
             .start()
     }
 
     /// Re-syncs the frontend from the persisted state without a save.
     ///
-    /// A `ResourcesChanged` event lands after the config-watch slice has
-    /// already re-seeded the theme-entries cell, so re-running the sync
-    /// path re-resolves the persisted theme name against the fresh scan:
-    /// an edited theme repaints, a removed one falls back to the
-    /// embedded default through the same resolver a preference save uses.
-    /// Nothing persists — `state.toml` is unchanged by a file edit.
+    /// A `ThemeEntriesReloaded` event lands only after the theme rescan
+    /// actor has re-seeded the theme-entries cell, so re-running the
+    /// sync path re-resolves the persisted theme name against the fresh
+    /// scan: an edited theme repaints, a removed one falls back to the
+    /// embedded default through the same resolver a preference save
+    /// uses. Nothing persists — `state.toml` is unchanged by a file
+    /// edit.
     pub(crate) fn handle_resource_rescan(&self) {
         let state = self.services.app_state_storage.read();
         self.sync_state(&state);
@@ -173,13 +175,13 @@ impl MsgHandler<UpdateAppState> for AppStateActor {
     }
 }
 
-impl MsgHandler<jinn_boot_msg::ResourcesChanged> for AppStateActor {
-    async fn handle(&mut self, _msg: &jinn_boot_msg::ResourcesChanged, _ctx: &mut MsgCtx<'_>) {
-        // The event carries no payload (the watcher cannot know which
-        // slice cares about which directory), so this re-syncs on every
-        // resource change. The sync is a pure re-resolve of unchanged
-        // persisted state against the re-scanned cell — idempotent when
-        // the themes dir is not the one that changed.
+impl MsgHandler<jinn_theme_msg::ThemeEntriesReloaded> for AppStateActor {
+    async fn handle(&mut self, _msg: &jinn_theme_msg::ThemeEntriesReloaded, _ctx: &mut MsgCtx<'_>) {
+        // The event carries no payload: declarants read the freshly
+        // re-seeded entries cell under the well-known slot. The sync is
+        // a pure re-resolve of unchanged persisted state against that
+        // cell — idempotent when the persisted name still resolves to
+        // the same colors.
         self.handle_resource_rescan();
     }
 }
@@ -467,8 +469,9 @@ mod tests {
             ratatui::style::Color::Red
         );
 
-        // When the theme file is rewritten on disk (the config-watch
-        // slice re-seeded the cell) and ResourcesChanged lands.
+        // When the theme file is rewritten on disk and the rescan
+        // actor's ThemeEntriesReloaded lands (the cell is re-seeded
+        // before the event, so handling it sees the fresh palette).
         let mut rewritten = jinn_theme::default_theme();
         rewritten.focus_accent = ratatui::style::Color::Cyan;
         entries_cell.update(|entries| {
@@ -510,7 +513,8 @@ mod tests {
             });
         actor.handle_resource_rescan();
 
-        // When the file is removed — the re-scan no longer holds the name.
+        // When the file is removed and the next ThemeEntriesReloaded
+        // lands — the re-scan no longer holds the name.
         actor
             .services
             .slices

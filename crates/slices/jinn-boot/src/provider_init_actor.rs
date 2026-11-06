@@ -526,4 +526,101 @@ mod tests {
         let switches: Vec<ProviderSwitch> = audit.of_type::<ProviderSwitch>();
         assert!(switches.is_empty());
     }
+
+    // P8-add: a provider that appears only via a reload lands in the
+    // registry — availability and lookup flip without a restart.
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_provider_added_by_a_reload_resolves_in_the_registry() {
+        // Given a provider-init actor whose registry holds `sample` only.
+        let (actor, _audit, services, _state) = create_actor().await;
+        actor.on_environment_loaded(&sample_config()).await;
+
+        // When a reload lands whose config adds `extra` (and keeps
+        // `sample`).
+        let mut config = sample_config();
+        config.providers.insert(
+            "extra".to_owned(),
+            ProviderEntry {
+                model_info: Vec::new(),
+                backend: "sample".to_owned(),
+                models: vec!["extra-model".to_owned()],
+                base_url: None,
+                api_key_env: None,
+                requires_key: false,
+                extra_body: None,
+                context_length: None,
+            },
+        );
+        let storage = jinn_provider_config::InMemoryConfigStorage::new();
+        storage.save(&config).expect("two-provider config saves");
+        services
+            .config_storage
+            .swap(std::sync::Arc::new(storage)
+                as std::sync::Arc<dyn jinn_provider_config::ConfigStorage>);
+        actor.handle_reload().await;
+
+        // Then the registry resolves both providers (expanded ids are
+        // `provider/model`).
+        for id in ["sample/sample", "extra/extra-model"] {
+            let id = jinn_provider_config::ProviderId::new(id.to_owned());
+            assert!(
+                services.provider_registry.get(&id).is_some(),
+                "{id} resolves after the reload added it"
+            );
+        }
+    }
+
+    // P11: an in-flight stream is untouched by a providers reload. The
+    // factory a stream was built from is held by the stream, not re-read
+    // from the registry, so a reload that removes its provider cannot
+    // break a dispatch already in flight.
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_factory_created_before_a_reload_keeps_working_after_it() {
+        // Given a registry whose provider resolves through the sample
+        // factory (the `--fake-llm` one), with the factory created BEFORE
+        // any reload.
+        let (actor, _audit, services, _state) = create_actor().await;
+        let registry = jinn_provider_config::ProviderRegistry::from_config(sample_config())
+            .expect("config expands")
+            .with_factory_override(std::sync::Arc::new(jinn_provider::SampleLlmServiceFactory));
+        services.provider_registry.replace(registry);
+        let keys = jinn_provider_config::ApiKeys::default();
+        let id = jinn_provider_config::ProviderId::new("sample/sample".to_owned());
+        let pre_reload_factory = services
+            .provider_registry
+            .create_factory(&id, &keys, None, None)
+            .expect("the pre-reload factory resolves");
+
+        // When a reload replaces the registry with one that no longer
+        // knows the provider.
+        let storage = jinn_provider_config::InMemoryConfigStorage::new();
+        storage
+            .save(&jinn_provider_config::ProvidersConfig {
+                providers: std::collections::BTreeMap::new(),
+                aliases: vec![],
+                default_provider: None,
+                endpoint_defaults: vec![],
+            })
+            .expect("empty config saves");
+        services
+            .config_storage
+            .swap(std::sync::Arc::new(storage)
+                as std::sync::Arc<dyn jinn_provider_config::ConfigStorage>);
+        actor.handle_reload().await;
+
+        // Then the registry no longer resolves the provider, but the
+        // held factory still answers `create` — the in-flight stream
+        // never re-reads the registry, so it keeps its own factory.
+        assert!(
+            services.provider_registry.get(&id).is_none(),
+            "the removed provider is gone from the registry"
+        );
+        // `create` succeeding is the observable: the FactoryOverride path
+        // is still the sample factory, not a registry miss.
+        pre_reload_factory
+            .create()
+            .expect("the pre-reload factory still builds a service");
+    }
 }

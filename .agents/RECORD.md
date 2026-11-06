@@ -567,6 +567,7 @@ Entries are added or amended **only with human approval**.
 - (windows) Canonicalized paths are stripped of Windows verbatim \?\ prefixes by one shared helper before they are stored, compared, or displayed.
 - (windows) Shell resolution on Windows prefers Git Bash and never falls back to the WSL `bash.exe` launcher, so every command jinn runs stays native to the user's platform.
 - (shell) The `[shell]` section in `jinn.toml` configures the POSIX shell and the PowerShell executable, each as an absolute path; an unset key is auto-detected and a configured path that does not resolve to an existing file on the running machine stops the launch, with no cross-platform exception.
+- (shell) A live `[shell]` edit re-resolves the shells and swaps them without a restart; a resolution that fails keeps the previous shell live and reports the refusal. BECAUSE: a running jinn must not lose a working shell because of one bad edit.
 - (tools) A `powershell` built-in tool runs commands through PowerShell on Windows; it is not registered on Linux or macOS.
 - (arch) `marked-path` is a production dependency of `jinn-common`, so path separator normalization has one implementation in the workspace.
 - (term) PTY liveness on Windows is driven by observed child exit, not read-EOF: ConPTY's master read never returns EOF while the master handle is alive, so the ExitWatcher publishes child death and the screen task drains one quiet tick before finishing; Unix still settles on EOF first.

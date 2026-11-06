@@ -33,6 +33,8 @@ tokio = { workspace = true }
 
 [dev-dependencies]
 jinn-testutil = { workspace = true }
+# The sample factory backs the P11 pre-reload-held-factory test.
+jinn-provider = { workspace = true }
 
 rstest = { workspace = true }
 toml = { workspace = true }

@@ -332,12 +332,22 @@ impl ConfigWatchActor {
             // Parse now, not at handler time: the event must mean "the
             // file is at least readable", so a broken file is a refusal
             // here rather than a broadcast every handler must fend off.
-            match self.services.config_storage.load() {
-                Ok(_) => {
-                    ctx.publish(ProvidersTomlReloaded);
-                    reloaded.push("providers.toml");
+            // A deleted providers.toml is also a refusal — the storage
+            // `load()` materializes a default file on a miss, which
+            // would turn a deletion into a silent reset to the default
+            // provider set. Absence is only legitimate before launch.
+            if self.files.providers_toml.as_path().exists() {
+                match self.services.config_storage.load() {
+                    Ok(_) => {
+                        ctx.publish(ProvidersTomlReloaded);
+                        reloaded.push("providers.toml");
+                    }
+                    Err(report) => refusals.push(format!("providers.toml: {report:?}")),
                 }
-                Err(report) => refusals.push(format!("providers.toml: {report:?}")),
+            } else {
+                refusals.push(
+                    "providers.toml: file is gone; refusing to reload to defaults".to_owned(),
+                );
             }
         }
         if changed_rules {

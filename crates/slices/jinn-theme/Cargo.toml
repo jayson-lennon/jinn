@@ -33,7 +33,11 @@ jinn-cell-catalog = { workspace = true }
 jinn-chat-log-view = { workspace = true }
 jinn-core-types = { workspace = true }
 rstest = { workspace = true }
+serde = { workspace = true }
 tokio = { workspace = true }
+# The rescan tests publish through the real harness bus, whose recorder
+# bounds need the schema traits.
+trouper = { workspace = true }
 
 [lints]
 workspace = true

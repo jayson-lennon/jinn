@@ -51,8 +51,10 @@ pub enum RemoteActivationError {
 /// instead of starting an instance nothing can reach.
 ///
 /// `config` is the same `jinn.toml` layer every slice receives — the
-/// bind is read here, at activation; a changed bind takes effect on the
-/// next jinn start. The function is async because the bind and the
+/// bind is read here, at activation, and re-read on every config
+/// reload: a changed bind hot-rebinds (the control surface is
+/// stateless HTTP) and rewrites the instance registry so `jinn remote`
+/// discovery stays truthful. The function is async because the bind and the
 /// registry write are; composition's `activate_all` already runs on
 /// the actor runtime.
 ///

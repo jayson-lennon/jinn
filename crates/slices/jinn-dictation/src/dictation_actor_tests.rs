@@ -114,10 +114,7 @@ impl KickoffFixture {
 
     /// Points the actor's layer at a fresh document, the way a watched
     /// file edit swaps the backing storage under the same layer.
-    async fn replace_layer_storage(
-        &self,
-        storage: std::sync::Arc<jinn_config::InMemoryConfigStorage>,
-    ) {
+    fn replace_layer_storage(&self, storage: std::sync::Arc<jinn_config::InMemoryConfigStorage>) {
         self.config
             .use_storage(storage)
             .expect("the actor's layer re-reads the edited document");
@@ -416,11 +413,9 @@ async fn reload_while_busy_names_the_pending_change_and_the_next_arm_picks_it_up
         "[dictation]\nenabled = true\ndevice = \"usb-mic-reload-probe\"\n",
     )
     .expect("edit document parses");
-    fixture
-        .replace_layer_storage(std::sync::Arc::new(
-            jinn_config::InMemoryConfigStorage::new(doc),
-        ))
-        .await;
+    fixture.replace_layer_storage(std::sync::Arc::new(
+        jinn_config::InMemoryConfigStorage::new(doc),
+    ));
     let seen = fixture
         .harness
         .spawn_recorder::<ServiceStatusUpdate>()

@@ -54,7 +54,6 @@ use jinn_preferences_config::schemas::STREAM_RULE_WATCHDOG_KEY;
 use jinn_preferences_config::schemas::STREAM_RULES_BUDGET_KEY;
 use jinn_preferences_config::schemas::StreamRuleWatchdogConfig;
 use jinn_preferences_config::schemas::StuckLoopWatchdogConfig;
-use jinn_preferences_config::schemas::ToolCallWatchdogConfig;
 use jinn_slices::RenderFacts;
 use jinn_slices::SliceHost;
 

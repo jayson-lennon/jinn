@@ -33,13 +33,12 @@ parking_lot = { workspace = true }
 regex = { workspace = true }
 futures = { workspace = true }
 async-trait = { workspace = true }
-
 jinn-provider-config = { workspace = true }
 
 [dev-dependencies]
+marked-path = { workspace = true }
 rstest = { workspace = true }
 toml = { workspace = true }
-tokio = { workspace = true }
 
 [lints]
 workspace = true
