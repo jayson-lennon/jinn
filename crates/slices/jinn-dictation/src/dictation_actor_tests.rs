@@ -51,6 +51,10 @@ struct KickoffFixture {
     /// handle from the deps. Held so the registry entry's writer stays
     /// alive for the whole test.
     _state_cell: TypedCell<DictationState>,
+    /// The actor's config layer, held for the reload tests to re-point
+    /// at an edited document — the in-memory storage a jinn.toml edit
+    /// would replace.
+    config: ConfigLayer,
 }
 
 impl KickoffFixture {
@@ -95,7 +99,7 @@ impl KickoffFixture {
                 level_cell,
                 bus: services.bus.clone(),
                 runtime: tokio::runtime::Handle::current(),
-                config,
+                config: config.clone(),
                 applied,
                 backend: Box::new(backend),
                 state: State::new(AppState::default()),
@@ -104,7 +108,19 @@ impl KickoffFixture {
         Self {
             harness,
             _state_cell: state_cell.clone(),
+            config,
         }
+    }
+
+    /// Points the actor's layer at a fresh document, the way a watched
+    /// file edit swaps the backing storage under the same layer.
+    async fn replace_layer_storage(
+        &self,
+        storage: std::sync::Arc<jinn_config::InMemoryConfigStorage>,
+    ) {
+        self.config
+            .use_storage(storage)
+            .expect("the actor's layer re-reads the edited document");
     }
 }
 
@@ -388,10 +404,23 @@ async fn reload_while_busy_names_the_pending_change_and_the_next_arm_picks_it_up
             cached: true,
             ..StubBackend::default()
         },
-        layer_with("[dictation]\nenabled = true\ndevice = \"usb-mic-reload-probe\"\n"),
+        layer_with("[dictation]\nenabled = true\n"),
         applied,
     )
     .await;
+    // The edit lands in the actor's OWN layer (an external write would
+    // not be seen by this in-memory layer): the same layer, a device
+    // now named. The arm at kickoff resolved no device; the reload
+    // diff therefore sees one.
+    let doc = toml_edit::DocumentMut::from_str(
+        "[dictation]\nenabled = true\ndevice = \"usb-mic-reload-probe\"\n",
+    )
+    .expect("edit document parses");
+    fixture
+        .replace_layer_storage(std::sync::Arc::new(
+            jinn_config::InMemoryConfigStorage::new(doc),
+        ))
+        .await;
     let seen = fixture
         .harness
         .spawn_recorder::<ServiceStatusUpdate>()
