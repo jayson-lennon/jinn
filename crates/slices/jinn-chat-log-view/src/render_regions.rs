@@ -72,8 +72,11 @@ pub fn register(slices: &jinn_slices::Slices) {
 ///
 /// The arrow is a second draw anchored to the chat log's rect rather
 /// than to the minimap's own column, which is why the layout carries
-/// the log rect alongside it. Its colour follows the focus scope: the
-/// chrome's focused accent in `Normal`, unfocused everywhere else.
+/// the log rect alongside it. The indicator renders only in the
+/// `Normal` focus scope: its counts overlay the log's right-edge text,
+/// and drawing them while the input or an overlay holds focus would
+/// obscure the text the user is looking at. The strip itself draws in
+/// every scope.
 pub fn minimap_region(
     frame: &mut Frame<'_>,
     minimap_area: Rect,
@@ -81,26 +84,20 @@ pub fn minimap_region(
     ctx: &dyn DrawContext<AppState>,
 ) {
     let state = ctx.state();
-    let focus_scope = state.frontend.scope();
     let theme = &state.frontend.theme;
 
-    let arrow_color = if matches!(focus_scope, jinn_slices::FocusScope::Normal) {
-        theme.focus_accent
-    } else {
-        theme.border_unfocused
-    };
-    let muted_text_color = theme.muted_text;
+    let indicator_visible = matches!(state.frontend.scope(), jinn_slices::FocusScope::Normal);
 
     let arrow = crate::vertical_minimap::render_vertical_minimap(
         frame,
         minimap_area,
         state,
-        muted_text_color,
+        theme.muted_text,
         ctx.config(),
     );
 
-    if let Some(ref arrow) = arrow {
-        crate::minimap_arrow::render_minimap_arrow(frame, chat_log_area, arrow, arrow_color);
+    if indicator_visible && let Some(ref arrow) = arrow {
+        crate::minimap_arrow::render_minimap_arrow(frame, chat_log_area, arrow, theme.focus_accent);
     }
 }
 
