@@ -3,7 +3,7 @@
 //! The serve flow is the actor's whole job:
 //!
 //! 1. Validate the artifact (exists, canonicalize) and the bind
-//!    (loopback) — the same refusals the detached path enforced.
+//!    (parses as a host:port).
 //! 2. First serve: bind the tokio listener (port `0` resolved here),
 //!    arm the directory watcher, start the axum task.
 //! 3. Every serve: swap the artifact and the watcher on the live
@@ -130,7 +130,8 @@ pub(crate) async fn handle_drain_metrics(actor: &mut CanvasActor, ctx: &mut MsgC
 
 /// A validated serve request.
 struct ServeRequest {
-    /// The configured bind (pre-refused when not loopback).
+    /// The configured bind, taken as configured — the operator chooses
+    /// the interface and owns the endpoint's security.
     bind: SocketAddr,
     /// The canonical artifact path — absolute, symlink-resolved, spelled
     /// with the platform's classic separators.
@@ -138,7 +139,7 @@ struct ServeRequest {
 }
 
 /// Validates the artifact (exists, canonicalizes) and the bind
-/// (loopback). Pure checks — no actor state touched, no server started.
+/// (parses). Pure checks — no actor state touched, no server started.
 fn validate(bind: SocketAddr, path: &std::path::Path) -> Result<ServeRequest, ServeRefusal> {
     // Artifact: must be an existing file, canonicalized before storing —
     // the watcher re-arm, the injection, and the status line all read the
@@ -170,17 +171,6 @@ fn validate(bind: SocketAddr, path: &std::path::Path) -> Result<ServeRequest, Se
         }
     };
 
-    // Bind: loopback only, no exceptions — the server has no
-    // authentication, so it must not listen on an exposed interface.
-    if !bind.ip().is_loopback() {
-        return Err(ServeRefusal::new(
-            CanvasServeError::BindNotLoopback,
-            format!(
-                "the configured bind {bind} is not a loopback address; \
-                 the canvas server has no authentication"
-            ),
-        ));
-    }
     Ok(ServeRequest { bind, artifact })
 }
 

@@ -2,7 +2,7 @@
 name = "jinn-applets"
 version.workspace = true
 edition.workspace = true
-description = "The applets slice: saves agent-built HTML artifacts under the data dir and serves them back verbatim over loopback HTTP, with the <leader>sa picker."
+description = "The applets slice: saves agent-built HTML artifacts under the data dir and serves them back verbatim over HTTP (loopback by default), with the <leader>sa picker."
 
 [dependencies]
 # The applets slice is a leaf: jinn-preferences-config ([applets] schema),

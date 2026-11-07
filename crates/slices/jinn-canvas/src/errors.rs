@@ -14,10 +14,6 @@ use wherror::Error;
 pub enum CanvasServeError {
     /// The configured `[canvas] bind` is not a host:port socket address.
     InvalidBind,
-    /// The configured bind is not a loopback address. The canvas server
-    /// has no authentication, so it must not listen on an exposed
-    /// interface.
-    BindNotLoopback,
     /// The requested artifact file does not exist or is a directory.
     ArtifactMissing,
     /// The artifact could not be read from disk (canonicalize failed).
@@ -37,9 +33,6 @@ impl CanvasServeError {
         match self {
             Self::InvalidBind => {
                 "set [canvas] bind to a host:port socket address, e.g. bind = \"127.0.0.1:8899\""
-            }
-            Self::BindNotLoopback => {
-                "set [canvas] bind to a loopback address, e.g. bind = \"127.0.0.1:8899\""
             }
             Self::ArtifactMissing => "pass the path of an existing HTML file to serve",
             Self::ArtifactRead => "check the file's permissions and try again",

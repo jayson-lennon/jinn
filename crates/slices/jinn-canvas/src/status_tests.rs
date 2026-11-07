@@ -57,22 +57,6 @@ fn artifact_missing_sentence_names_the_path_and_the_fix() {
 
 #[rstest::rstest]
 #[test]
-fn bind_not_loopback_sentence_carries_the_loopback_remedy() {
-    // Given the non-loopback refusal.
-    // When rendering it.
-    let sentence = format!(
-        "{}: {} — fix: {}",
-        "BindNotLoopback",
-        "the bind must be loopback",
-        CanvasServeError::BindNotLoopback.fix()
-    );
-
-    // Then the remedy points at a loopback bind value.
-    assert!(sentence.contains("127.0.0.1:8899"));
-}
-
-#[rstest::rstest]
-#[test]
 fn temp_dir_rendering_is_absolute_for_the_status_path() {
     // Given a testutil temp dir artifact, on disk.
     let dir = jinn_testutil::tempdir();

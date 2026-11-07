@@ -1,6 +1,7 @@
 //! The canvas actor — the one serving host.
 //!
-//! Serves one HTML artifact per process over loopback HTTP with
+//! Serves one HTML artifact per process over HTTP (on whatever interface
+//! the `[canvas] bind` config names; loopback by default) with
 //! WebSocket live reload. Dormant until the `canvas` tool's first serve
 //! ask: no listener, no watcher, no filesystem work at activation. The
 //! first [`CanvasCommand`] establishes the axum listener and the

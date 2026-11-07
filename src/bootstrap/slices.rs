@@ -531,8 +531,8 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
     );
 
     // The applets slice: saved agent-built artifacts. Reads `[applets] bind`
-    // (fatal on malformed or non-loopback — the server has no
-    // authentication), spawns the dormant server actor and the store
+    // (fatal when malformed — the bind itself is taken as configured),
+    // spawns the dormant server actor and the store
     // actor, and wires the `<leader>sa` picker. Dormant like canvas: no
     // listener, no disk IO at activation — the store reads the catalog
     // on the picker's first open, and the server binds on the first
@@ -595,8 +595,8 @@ pub enum ActivateError {
     /// report rides as rendered text.
     #[error(debug)]
     Remote(String),
-    /// The `[applets]` section failed to read or its bind was malformed or
-    /// not loopback. Fatal with the same severity as canvas: every
+    /// The `[applets]` section failed to read or its bind was malformed.
+    /// Fatal with the same severity as canvas: every
     /// later picker open would refuse with the same sentence, so launch
     /// stops where the cause is visible. The report rides as rendered
     /// text.

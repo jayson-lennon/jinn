@@ -87,8 +87,8 @@ impl BusMessage for CanvasServeOutcome {}
 
 /// Why a serve ask never produced an outcome.
 ///
-/// Transport-level only: every domain refusal (missing file, non-loopback
-/// bind, bind failure) arrives as `ok: false` on a real outcome, because
+/// Transport-level only: every domain refusal (missing file,
+/// bind failure) arrives as `ok: false` on a real outcome, because
 /// the actor answers every command it receives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CanvasServeTransportError {

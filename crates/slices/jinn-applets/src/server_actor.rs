@@ -128,9 +128,10 @@ impl ServiceActor for AppletsServerActor {
 /// Dependencies for [`AppletsServerActor`].
 #[derive(Clone)]
 pub struct AppletsServerActorDeps {
-    /// The bind from `[applets] bind`, pre-parsed and pre-validated
-    /// loopback by `activate`. A bind that cannot parse or names an
-    /// exposed interface never gets here: activation aborts launch.
+    /// The bind from `[applets] bind`, pre-parsed by `activate` and
+    /// taken as configured — the operator chooses the interface and owns
+    /// the endpoint's security. A bind that cannot parse never gets
+    /// here: activation aborts launch.
     pub bind: SocketAddr,
     /// The live config layer: a `JinnTomlReloaded` re-reads the bind.
     pub config: jinn_config::ConfigLayer,

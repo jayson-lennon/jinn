@@ -105,8 +105,9 @@ async fn serve_vendor(axum::extract::Path(path): axum::extract::Path<String>) ->
             ),
             // Vendored libraries are plain scripts and fonts, but ES
             // module imports and font loads from a foreign origin need
-            // the CORS blessing; `*` is safe on a loopback server with
-            // no credentials. Same header canvas sends.
+            // the CORS blessing; `*` is safe here because the assets
+            // carry no credentials and the server has no session state
+            // to expose. Same header canvas sends.
             (
                 header::ACCESS_CONTROL_ALLOW_ORIGIN,
                 header::HeaderValue::from_static("*"),
