@@ -688,6 +688,8 @@ Entries are added or amended **only with human approval**.
 - (config) The [dictation] section carries enabled (default false), device, model, and noise_reduction (default true); disabled keeps the actor Offline and the meter hidden.
 - (app) Quit runs a bounded runtime shutdown: in-flight blocking tasks such as a model download are abandoned after ~2s and die with the process, and the fetch backend resumes on the next launch.
 - (dictation) The dictation model cache lives in a jinn-managed AppPaths directory; hf-hub's default cache location is overridden.
+- (dictation) The capture arm's device open is injected through the CaptureOpener trait carried in DictationActorDeps beside the boxed DictationBackend. BECAUSE: the device open was the dictation integration's only un-seamed external dependency.
+- (dictation) No workspace test opens a real capture device; dictation actor tests inject a scripted CaptureOpener fake. BECAUSE: a test-suite run on a mic-equipped host opened the user's input device.
 - (cli) jinn fetch downloads the configured dictation model into the jinn-managed cache and exits non-zero on platforms without a real backend.
 - (cli) jinn dictation list-devices prints the capture input devices one per line, marking the system default; the printed names are exactly what a [dictation] device value must equal, and the command exits non-zero on platforms without a real backend or with no devices.
 - (build) Native dictation dependencies compile only inside the parakeet backend crate and the slice's linux+windows target tables; exactly one cfg module pair in jinn-dictation holds the platform split.
