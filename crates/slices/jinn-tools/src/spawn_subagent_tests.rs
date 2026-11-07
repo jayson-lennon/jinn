@@ -1492,3 +1492,26 @@ async fn listener_stops_on_channel_close() {
     }
     assert!(stopped, "listener must notice the closed channel and stop");
 }
+
+#[rstest::rstest]
+#[test]
+fn spawn_subagent_description_cross_references_load_bot() {
+    // Given the tool description.
+    let def = crate::spawn_subagent::definition();
+
+    // When reading it for the background-worker alternative.
+    // Then it names load_bot as the path for background or persistent
+    // work, with tell_session as the dispatch step.
+    assert!(
+        def.description.contains("load_bot"),
+        "the background alternative must be named"
+    );
+    assert!(
+        def.description.contains("tell_session"),
+        "the dispatch step must be named"
+    );
+    assert!(
+        def.description.contains("background"),
+        "the background model must be named"
+    );
+}

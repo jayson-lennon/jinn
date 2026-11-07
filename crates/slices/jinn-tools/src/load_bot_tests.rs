@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use jinn_bot_msg::{BotBehavior, BotTrigger};
 use jinn_common::app_paths::AppPaths;
 use jinn_core_types::BotSourcePath;
 use jinn_core_types::SessionId;
@@ -695,4 +696,128 @@ fn load_attendant_is_no_longer_a_registered_tool() {
     );
     // And the new name is registered.
     assert!(names.contains(&"load_bot"), "load_bot must be present");
+}
+
+/// Extracts the ready-to-go worker TOML the description advertises: the
+/// `[[bot.entry]]` block through the end of the pins array.
+fn advertised_worker_seed(description: &str) -> String {
+    let start = description
+        .find("[[bot.entry]]\nname = \"worker\"")
+        .expect("description carries the ready-to-go worker seed");
+    let pins_start = description[start..]
+        .find("pins = [")
+        .expect("seed carries pins")
+        + start;
+    let close = description[pins_start..]
+        .find("]\n")
+        .map(|i| pins_start + i + 1)
+        .expect("pins array closes");
+    description[start..close].to_owned()
+}
+
+#[rstest::rstest]
+#[test]
+fn advertised_seed_parses_as_a_valid_bot_entry() {
+    // Given the ready-to-go worker TOML the description embeds.
+    let description = definition().description;
+    let seed = advertised_worker_seed(&description);
+
+    // When parsing it as a bot entry.
+    let entry = parse_bot_entry(&seed).expect("the advertised seed must parse");
+
+    // Then the worker comes across ready to run: preserve behavior,
+    // manual trigger, prep mode off, and a seed template carrying both
+    // dispatch inlets.
+    assert_eq!(entry.name, "worker");
+    assert_eq!(entry.behavior, BotBehavior::Preserve);
+    assert_eq!(entry.trigger, BotTrigger::Manual);
+    assert!(!entry.prep_mode, "a prep-mode seed refuses every dispatch");
+    assert!(entry.seed_template.contains("<parent_id>"));
+    assert!(entry.seed_template.contains("<prior_report>"));
+}
+
+#[rstest::rstest]
+#[test]
+fn advertised_seed_pin_carries_the_report_protocol() {
+    // Given the pin the advertised worker seed carries.
+    let description = definition().description;
+    let seed = advertised_worker_seed(&description);
+    let entry = parse_bot_entry(&seed).expect("the advertised seed must parse");
+    let pin = entry.pins.first().expect("the seed carries one pin");
+
+    // When reading the pin's rules in order.
+    // Then the report protocol appears in dispatch order: conclude
+    // first, then notify_parent with DONE or BLOCKED, then stop.
+    let conclude = pin
+        .text
+        .find("Call `conclude`")
+        .expect("pin names conclude");
+    let notify = pin
+        .text
+        .find("notify_parent")
+        .expect("pin names notify_parent");
+    let stop = pin.text.find("STOP and wait").expect("pin stops the run");
+    assert!(
+        conclude < notify && notify < stop,
+        "report order: {}",
+        pin.text
+    );
+    // And DONE/BLOCKED are the named outcomes.
+    assert!(pin.text.contains("DONE or BLOCKED"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn bot_from_advertised_seed_accepts_dispatch() {
+    // Given a user session and the advertised seed handed to the call.
+    let harness = TestHarness::new().await;
+    let (state, user_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    let seed = advertised_worker_seed(&definition().description);
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+    let result = execute(
+        call(&serde_json::json!({ "toml": seed }).to_string()),
+        tool_ctx,
+    )
+    .await;
+
+    // When the tool loads it.
+    // Then the load succeeds and the bot is dispatch-capable: not in
+    // prep mode, so a tell_session dispatch would run rather than refuse.
+    assert!(result.success, "load must succeed: {}", result.content);
+    let guard = state.read();
+    let bot = guard
+        .session
+        .iter()
+        .map(|(_, s)| s)
+        .find(|s| s.is_bot())
+        .expect("a loaded bot must exist");
+    assert!(!bot.bot_is_prepping(), "dispatch would be refused");
+}
+
+#[rstest::rstest]
+#[test]
+fn load_bot_description_teaches_the_dispatch_step() {
+    // Given the tool description.
+    let description = definition().description;
+
+    // When reading it as an orchestrator would.
+    // Then it names tell_session as how work starts, forbids bash-sleep
+    // waiting, and offers session_fetch for progress checks.
+    assert!(
+        description.contains("tell_session"),
+        "the dispatch step must be named"
+    );
+    assert!(
+        description.contains("NEVER wait") && description.contains("bash sleep"),
+        "the no-sleep rule must be stated"
+    );
+    assert!(
+        description.contains("session_fetch"),
+        "the progress-check path must be named"
+    );
+    assert!(
+        description.contains("BACKGROUND"),
+        "the background model must be named"
+    );
 }

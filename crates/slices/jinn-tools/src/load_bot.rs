@@ -32,15 +32,69 @@ use marked_path::{Absolute, MarkedPathBuf};
 pub fn definition() -> ToolDefinition {
     ToolDefinition {
         name: "load_bot".to_owned(),
-        description: "Attach a bot as a child of this session. The bot comes from a \
-             workflow-local TOML file (path) or from the call's toml argument — \
-             give exactly one of the two. Either form uses the same shape as an \
-             [[bot.entry]] block in jinn.toml. The loaded bot belongs to its \
-             source (that file, or this call): it cannot be saved to jinn.toml."
-            .to_owned(),
+        description: r#"
+Attach a bot as a child of this session, and start acting as its ORCHESTRATOR.
+The bot comes from a workflow-local TOML file (path) or from the call's toml
+argument — give exactly one of the two. Either form uses the same shape as an
+[[bot.entry]] block in jinn.toml. The loaded bot belongs to its source (that
+file, or this call): it cannot be saved to jinn.toml.
+
+HOW BOTS DIFFER FROM SUBAGENTS: spawn_subagent blocks you until the child
+finishes. A bot is a BACKGROUND worker — load_bot returns immediately with the
+bot's session id, the bot runs while you continue your turn, and its report
+arrives later as a message that starts your next turn.
+
+HOW A BOT DOES WORK: load_bot only CREATES the bot — it runs nothing. You
+dispatch an assignment by sending the bot's session id to tell_session; an
+idle bot starts on the message immediately, a busy bot queues it. Dispatch
+messages must be self-contained: a run sees its pinned instructions plus the
+message, never your conversation.
+
+YOUR ORCHESTRATOR DUTIES once a bot is attached:
+ - Track every bot you spawned: its session id and, for instances of one
+   shared seed, the set_name label you gave it (e.g. worker-2).
+ - Proceed with other work, or end your turn, while bots run. NEVER wait for
+   a bot's report with a bash sleep or a poll loop — the bot is instructed to
+   report back via notify_parent, and that report wakes you.
+ - session_fetch on a bot's session id is how you check progress or read what
+   a bot did; do this when you feel the need, not on a schedule.
+ - A completed bot keeps its conversation (preserve behavior): send follow-up
+   queries to it with tell_session and it answers from context it already
+   holds — fast and cheap.
+
+READY-TO-GO BACKGROUND WORKER — paste this as the toml argument, then
+dispatch with tell_session. set_name renames instances (worker-1, worker-2):
+
+[[bot.entry]]
+name = "worker"
+behavior = "preserve"
+trigger = "manual"
+prep_mode = false
+seed_template = "The parent session's id is <parent_id>. The previous run of this bot reported: <prior_report>."
+pins = [
+  { role = "user", text = """
+You are a background worker session. The parent dispatches tasks as
+messages; each message is a complete, self-contained assignment.
+
+Rules:
+- Complete the assignment using your tools.
+- If the assignment is ambiguous or impossible, report BLOCKED instead of improvising.
+- After you are done:
+   - Call `conclude` using a line 1 summary of 10 words or fewer.
+   - THEN call `notify_parent` with: DONE or BLOCKED, a 1-3 sentence result, and any file paths or ids the parent needs.
+   - Then STOP and wait for the next dispatch.
+""" },
+]
+
+prep_mode = false is required: a bot left in prep mode is still being
+composed and refuses every dispatch. Bot-only gates apply here too: a bot
+cannot load another bot, and only a non-bot session can call this tool.
+        "#
+        .to_owned(),
         prompt_snippet: Some(
-            "Attach a bot: `load_bot` with the bot file's path, or with the bot \
-             entry's toml text itself."
+            "Attach a background bot: `load_bot` with the bot file's path, or with the bot \
+             entry's toml text itself. You become the bot's orchestrator — dispatch work \
+             with `tell_session` and its report arrives as a message."
                 .to_owned(),
         ),
         prompt_guidelines: vec![
@@ -49,6 +103,19 @@ pub fn definition() -> ToolDefinition {
              handing the entry's toml text to the call directly. Give exactly one \
              of `path` or `toml`. The result names the created bot's session id — \
              that is the id its messages are addressed to."
+                .to_owned(),
+            "Loading a bot makes you its orchestrator: `load_bot` creates the bot \
+             but dispatches nothing — send assignments to the bot's session id \
+             with `tell_session`, keep tracking the bots you spawned, and keep \
+             working while they run. Never wait on a bot with a bash sleep; its \
+             `notify_parent` report starts your next turn. Check a bot's progress \
+             with `session_fetch` when needed, and send follow-up queries to a \
+             completed bot with `tell_session` — it answers from the context it \
+             already holds."
+                .to_owned(),
+            "For an ad-hoc background worker with no file, paste the ready-to-go \
+             worker TOML from the tool description as `toml` and label instances \
+             with `set_name` (worker-1, worker-2)."
                 .to_owned(),
         ],
         parameters: serde_json::json!({
