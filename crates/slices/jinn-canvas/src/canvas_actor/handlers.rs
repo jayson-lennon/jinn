@@ -360,13 +360,7 @@ async fn apply_pending_bind_when_quiet(actor: &mut CanvasActor) {
             actor.pending_bind = None;
             actor.server = Some(new_state);
             actor
-                .publish_status(
-                    Some(format!(
-                        "canvas rebound to {} — the pending bind change applied",
-                        actor.bind
-                    )),
-                    None,
-                )
+                .publish_status(Some(format!("canvas rebound to {}", actor.bind)), None)
                 .await;
         }
         Err(refusal) => {

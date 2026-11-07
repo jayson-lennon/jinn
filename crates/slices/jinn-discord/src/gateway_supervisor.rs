@@ -290,8 +290,7 @@ impl GatewaySupervisor {
         }
         if !any_session_busy(&self.state_handle) {
             self.apply_disable();
-            self.publish_row_note("discord stopped (config change applied)")
-                .await;
+            self.publish_row_note("discord stopped").await;
         }
     }
 

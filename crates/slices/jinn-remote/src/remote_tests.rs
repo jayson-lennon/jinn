@@ -752,11 +752,10 @@ mod reload {
         let drained = notes.drain();
         assert_eq!(drained.len(), 1, "exactly one rebind note; got {drained:?}");
         assert!(
-            drained
-                .first()
-                .is_some_and(|note| note.status_message.as_deref().is_some_and(|m| {
-                    m.contains("rebound") && m.contains("the bind change applied")
-                })),
+            drained.first().is_some_and(|note| note
+                .status_message
+                .as_deref()
+                .is_some_and(|m| m.contains("rebound"))),
             "the row names the applied rebind; got {drained:?}"
         );
     }

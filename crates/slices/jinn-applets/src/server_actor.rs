@@ -225,11 +225,8 @@ impl MsgHandler<jinn_boot_msg::JinnTomlReloaded> for AppletsServerActor {
                     Ok((listener, resolved)) => {
                         self.serving = Some(handlers::serve(listener, &self.apps_root, resolved));
                         self.bind = resolved;
-                        self.note(
-                            &format!("applets rebound to {resolved} — the bind change applied"),
-                            None,
-                        )
-                        .await;
+                        self.note(&format!("applets rebound to {resolved}"), None)
+                            .await;
                     }
                     Err(error) => {
                         // Keep-old is impossible (the old listener is

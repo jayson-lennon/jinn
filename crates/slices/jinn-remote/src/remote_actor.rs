@@ -292,11 +292,8 @@ impl MsgHandler<JinnTomlReloaded> for RemoteListenerActor {
         }));
         let old = self.port;
         self.port = resolved;
-        self.note(
-            &format!("remote rebound to {resolved} (was {old}) — the bind change applied"),
-            None,
-        )
-        .await;
+        self.note(&format!("remote rebound to {resolved} (was {old})"), None)
+            .await;
     }
 }
 
