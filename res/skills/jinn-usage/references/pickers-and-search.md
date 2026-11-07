@@ -31,7 +31,7 @@ Shared controls:
 
 | Key                                  | Action                                                       |
 | ------------------------------------ | ------------------------------------------------------------ |
-| type letters                         | Filter the list — every bare letter lands in the filter      |
+| type letters                         | Filter the list (every bare letter lands in the filter)      |
 | `<up>` / `<down>`                    | Move selection                                               |
 | `<pgup>` / `<pgdn>`                  | Page the list                                                |
 | `<left>` / `<right>` / `<backspace>` | Edit the filter                                              |
@@ -70,19 +70,19 @@ highlights:
 
 ### Context-cost footers
 
-The tool, skill, and MCP pickers show a context-cost figure in the footer —
+The tool, skill, and MCP pickers show a context-cost figure in the footer,
 counted with the same builders the prompt assembler uses:
 
-- **Tool** — the enabled toolset's context block (names, schemas,
+- **Tool**: the enabled toolset's context block (names, schemas,
   descriptions, guidelines), including MCP tools.
-- **Skill** — a *list* term (names + descriptions of enabled skills) plus a
+- **Skill**: a *list* term (names + descriptions of enabled skills) plus a
   *loaded* term (pinned skill bodies). A disabled skill that is still loaded
   keeps its body cost until you unload it.
-- **MCP** — the registered **tool definitions of enabled servers only**. The
+- **MCP**: the registered **tool definitions of enabled servers only**. The
   other MCP cost is advertising the server itself. MCP tools also count
-  inside the tool picker's figure, so the two figures overlap — read them as
+  inside the tool picker's figure, so the two figures overlap; read them as
   two views of one shared set.
-- **A disabled entry costs zero** — it's marked with an `x` — except a skill
+- **A disabled entry costs zero** (it's marked with an `x`), except a skill
   that is still loaded.
 
 ### Filter ranking
@@ -99,8 +99,8 @@ live. `<enter>` confirms from the sidebar just like a picker.
 
 ## Search across sessions
 
-jinn keeps a full-text (FTS5) index over persisted chat prose — user,
-assistant, tool call/result, system, error, and compaction entries — in
+jinn keeps a full-text (FTS5) index over persisted chat prose (user,
+assistant, tool call/result, system, error, and compaction entries) in
 every session.
 
 - **`session_search` runs over it.** Ask the agent "search my sessions for
@@ -113,5 +113,5 @@ every session.
 - **Indexing trails saves by up to ~one heartbeat (5s)**; a dashboard row
   shows live reindex progress.
 
-Every cross-session fact arrives through this index — you (or the agent)
+Every cross-session fact arrives through this index: you (or the agent)
 search for it explicitly.

@@ -29,7 +29,7 @@ The overlay has two modes:
   (`y`, `I`, `<M-t>`, `T`, `?`). The agent can read the screen and send
   input freely.
 - **Control**. *Your* keys go straight to the program; the agent's typing
-  pauses while you hold it. jinn keeps one key for itself — the toggle —
+  pauses while you hold it. jinn keeps one key for itself, the toggle,
   and forwards every other keypress to the PTY.
 
 | Key | Context | Action |
@@ -37,12 +37,12 @@ The overlay has two modes:
 | toggle (default `<c-g>`) | view | **Take control** |
 | toggle (default `<c-g>`) | control | **Hand back** to the agent |
 
-The toggle key is configurable per user — set `[term] control_toggle_key` in
+The toggle key is configurable per user: set `[term] control_toggle_key` in
 `jinn.toml` (see `configuration.md`). `<c-g>` is the shipped default; just
 try it.
 
 **Handback semantics.** Agent input arriving while *you* hold control comes
-back as a "user holds control" notice — the tool call returns it and the
+back as a "user holds control" notice; the tool call returns it and the
 agent waits. When you hand back, the agent's next call sees the screen as
 *you* left it.
 
@@ -54,7 +54,7 @@ agent waits. When you hand back, the agent's next call sees the screen as
 | `I` | view mode | Yank the screen **and** push it to the model ("Here is the current terminal screen:") |
 
 `I` is the fastest way to ask about what you're looking at. Open the overlay
-on a failing test run, press `I`, ask "why is this failing?" — the screen
+on a failing test run, press `I`, ask "why is this failing?" The screen
 arrives with your question.
 
 ## Typical workflows

@@ -3,7 +3,7 @@
 jinn runs a Discord bot beside the TUI. Each Discord forum thread becomes a
 jinn session: messages posted in the thread are forwarded to the session,
 and the session's replies are posted back into the thread. The TUI and the
-bot operate on the same sessions — you can start work in the terminal and
+bot operate on the same sessions: you can start work in the terminal and
 continue it from your phone.
 
 ## Setup
@@ -21,21 +21,21 @@ authorized_users = ["<numeric user id>"]
 ```
 
 Token resolution prefers the `DISCORD_BOT_TOKEN` environment variable and
-falls back to `bot_token` — the env var is the better home for it, since
+falls back to `bot_token`. The env var is the better home for it, since
 the config file sits readable on disk.
 
 Requirements:
 
 - A Discord bot set up on your server
 - A forum channel for the bot to create session threads in
-- Projects pre-configured in jinn (`<leader>sp`) — `/new` presents them as
+- Projects pre-configured in jinn (`<leader>sp`), which `/new` presents as
   the choices for a new thread's session
 
 ## Who can use the bot
 
 `authorized_users` is a list of numeric Discord user IDs and is
 **deny-by-default**: an empty list authorizes nobody, and everyone outside
-the list gets one generic ephemeral refusal — identical for every command,
+the list gets one generic ephemeral refusal, identical for every command,
 so bot state stays private. Plain messages are gated the same way as slash
 commands.
 
@@ -48,7 +48,7 @@ Run these in a thread the bot has bound to a session:
 
 | Command     | Action                                                                  |
 | ----------- | ----------------------------------------------------------------------- |
-| `/new`      | Create a session for this thread — runs the lifecycle wizard (the `[[session_lifecycle]]` entries plus a blank option), then a project picker for the session's working directory |
+| `/new`      | Create a session for this thread: runs the lifecycle wizard (the `[[session_lifecycle]]` entries plus a blank option), then a project picker for the session's working directory |
 | `/prompts`  | List the prompt templates (`#name`) available to the thread's session   |
 | `/teardown` | Run the bound session's lifecycle teardown script                       |
 | `/archive`  | Archive the thread's session                                            |
@@ -60,12 +60,12 @@ messages (split across replies when the text is long); users outside
 ## Continuing a TUI session in Discord
 
 Press `gdc` in normal mode to lift the active session into a Discord forum
-thread — same session, new surface; history stays in place. The reverse is
+thread. Same session, new surface; history stays in place. The reverse is
 implicit: the TUI already shows everything the bot writes.
 
 ## Enabling and disabling live
 
-`[discord]` edits apply when the bot next goes idle — set `enabled = true`
+`[discord]` edits apply when the bot next goes idle. Set `enabled = true`
 and the dormant bot connects; set it false and the gateway parks until
 sessions go idle, then disconnects. The dashboard's `discord` row reports
 the state. See `configuration.md` for the reload categories.

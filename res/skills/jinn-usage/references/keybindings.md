@@ -1,7 +1,7 @@
 # Default Keybindings
 
 > **Default** bindings for the built-in keymap. Press `?` (normal-like scopes)
-> or `<f1>` (input mode) for the which-key popup — it shows the bindings live
+> or `<f1>` (input mode) for the which-key popup: it shows the bindings live
 > in the current scope and is the source of truth if this file and your build
 > disagree.
 
@@ -16,7 +16,7 @@
 | `gci`                                | A sequence: press `g`, then `c`, then `i` |
 | `<leader>sm`                         | Space, then `s`, then `m`                 |
 
-jinn is modal — keys mean different things depending on where focus is:
+jinn is modal. Keys mean different things depending on where focus is:
 normal mode, input mode, a sidebar section, a picker, the terminal overlay.
 The which-key popup shows the bindings for the scope you're in.
 
@@ -33,8 +33,8 @@ General / app:
 | `n`          | New session                          |
 | `<Tab>`      | Cycle tabs (Dashboard ↔ Normal)      |
 
-`gci` and `gcp` are prefixes — press `g`, then `c`, then the final key.
-Sequences compose — `gcip` is isolate-and-pin: `gci`, then `p`. `<c-j>` enters
+`gci` and `gcp` are prefixes: press `g`, then `c`, then the final key.
+Sequences compose; `gcip` is isolate-and-pin: `gci`, then `p`. `<c-j>` enters
 input mode from normal mode. The newline keys live in input mode.
 
 Navigation:
@@ -88,7 +88,7 @@ Misc:
 | `<c-l>` | Focus the sidebar                                        |
 | `<M-s>` | Focus the sidebar's Sessions section                     |
 
-### `<leader>s` — pickers
+### `<leader>s` pickers
 
 | Key          | Opens                            |
 | ------------ | -------------------------------- |
@@ -131,12 +131,12 @@ Misc:
 | `<M-c>` / `<M-d>`                        | Change cwd (session root / home)       |
 | `<M-t>`                                  | Toggle the terminal overlay            |
 
-Type `#`, `@`, or `/` to open autocomplete popups — `/` only works as the
+Type `#`, `@`, or `/` to open autocomplete popups; `/` only works as the
 buffer's very first character. See `chat-input-tokens.md`.
 
 ## Sidebar
 
-Enter it from normal mode with `<c-l>` — or `<M-s>` to land straight on
+Enter it from normal mode with `<c-l>`, or `<M-s>` to land straight on
 Sessions. Common to every section:
 
 | Key               | Action                                                         |
@@ -154,7 +154,7 @@ Sessions. Common to every section:
 | --- | ------------------------- |
 | `c` | Edit the selected persona |
 
-### Pins section (pin management — see `context-management.md`)
+### Pins section (pin management; see `context-management.md`)
 
 | Key       | Action                                             |
 | --------- | -------------------------------------------------- |
@@ -188,12 +188,12 @@ Sessions. Common to every section:
 | `P`       | Open the selected bot's properties popup                                 |
 | `T`       | Toggle the terminal overlay for the selected session                     |
 
-- **`b`, `B`, `G`, `R`, and `P` are bot keys** — they act when the selected session is a bot.
+- **`b`, `B`, `G`, `R`, and `P` are bot keys**: they act when the selected session is a bot.
 - **`L` moves every session into the Library, with one exception: a bot that has a parent.**
 
-The properties popup and the pickers have their own keys — see `bots.md`.
+The properties popup and the pickers have their own keys (see `bots.md`).
 
-Section navigation stops at the ends — `J` on the last section (Sessions) and
+Section navigation stops at the ends: `J` on the last section (Sessions) and
 `K` on the first (Persona) keep the cursor in place. Empty sections are skipped
 over, so every stop lands on content, and a section is reachable the moment it
 has an entry.
@@ -214,13 +214,13 @@ properties popup's and the pickers' own keys.
 | `P`       | Open the bot's properties popup                     |
 | `s`       | Browse the highlighted bot's report history         |
 
-`b` (new bot) and `B` (standalone bot) live in **Sessions** —
+`b` (new bot) and `B` (standalone bot) live in **Sessions**;
 they act on the session selected there.
 
 ### Library section
 
 A flat list of sessions bookmarked with `L` in Sessions. Archived members
-render dimmed — `<enter>` loads one and unarchives it. Members hide from the
+render dimmed; `<enter>` loads one and unarchives it. Members hide from the
 Sessions list while they're here, and a bot that has a parent keeps its place
 in the main tree.
 
@@ -246,8 +246,8 @@ in the main tree.
 
 ### MCP servers section
 
-Read-only navigation (status view). Manage servers via the MCP picker — see
-`mcp-servers.md`.
+Read-only navigation (status view). Manage servers via the MCP picker (see
+`mcp-servers.md`).
 
 ## Pickers (shared)
 
@@ -275,7 +275,7 @@ Read-only navigation (status view). Manage servers via the MCP picker — see
 | Skill      | `<c-u>` / `<c-d>` | Scroll the preview pane                                 |
 | Skill      | `<c-r>`           | Re-scan skills                                          |
 | Endpoint   | `<c-r>`           | Refresh endpoint listings                               |
-| MCP server | `<Tab>`           | Stage enable/disable — `<enter>` applies it, `<esc>` reverts to how the picker opened |
+| MCP server | `<Tab>`           | Stage enable/disable (`<enter>` applies it, `<esc>` reverts to how the picker opened) |
 | MCP server | `<c-r>`           | Restart the selected server                             |
 | MCP server | `<c-t>`           | Toggle preview pane (status/log ↔ tool list)            |
 | Project    | `<c-n>`           | Start a new session (leaves the picker)              |
@@ -313,7 +313,7 @@ See `terminal-overlay.md` for the full workflow. Scope-specific keys:
 
 ## Slice-provided keys (feature bindings)
 
-Some keys come from feature slices — each binds while its feature is active:
+Some keys come from feature slices; each binds while its feature is active:
 
 | Key      | Feature        | Action                                           |
 | -------- | -------------- | ------------------------------------------------ |

@@ -1,4 +1,4 @@
-# UI Map — what is on screen
+# UI Map: what is on screen
 
 Identifies every surface jinn draws. When the user asks "what is the thing on
 the right / at the bottom / above the input", find it here by position or
@@ -11,7 +11,7 @@ live screen is the truth if this file and your build disagree.
 
 ## Layout
 
-Chat layout, top to bottom — main column (left), then the minimap column,
+Chat layout, top to bottom: main column (left), then the minimap column,
 the border column, and the full-height sidebar:
 
 ```text
@@ -38,7 +38,7 @@ the border column, and the full-height sidebar:
 The minimap column and the dictation meter strip share the same column: the
 minimap runs the height of the chat log, and the meter strip occupies the
 same column from the streaming-indicator row down to the terminal bottom
-(displayed only while recording; idle it paints dotted cells — see
+(displayed only while recording; idle it paints dotted cells; see
 `dictation.md`).
 
 A dashboard tab replaces the whole main column (below); full-width tabs take
@@ -50,8 +50,8 @@ The 1-row strip at the very top. One label per registered tab slice plus the
 always-present **Chat** tab (first). Tab `<Tab>` cycles between them; the
 active tab highlights.
 
-- **Chat** — the conversation layout described above.
-- **Dashboard** — one row per actor with a per-row lifecycle status note
+- **Chat**: the conversation layout described above.
+- **Dashboard**: one row per actor with a per-row lifecycle status note
   (e.g. the canvas server's URL, the session pruner's progress, the
   dictation model's phase). Navigate rows with `j`/`k`, jump with `g`/`G`.
   Rows publish their own status; several references mention "the dashboard
@@ -65,8 +65,8 @@ The label is derived from the slice's scope id (e.g. `dashboard` →
 
 ### Chat log
 The scrolling conversation history, center of the content area. Selection,
-pinning, exclusion, and the audit popup all operate here — see
-`context-management.md` for the keys. The audit popup overlays this area;
+pinning, exclusion, and the audit popup all operate here (see
+`context-management.md` for the keys). The audit popup overlays this area;
 see Popups below.
 
 ### Streaming indicator
@@ -74,20 +74,20 @@ The 1-row line between the chat log and the input box. A spinner plus
 "Working..." while the active session is sending/streaming/compacting; idle
 rows are blank. Shows a queued-message count when messages are waiting.
 The right edge names the session kind (subagent / bot) in its own color at
-all times — busy or idle alike.
+all times, busy or idle alike.
 
 ### Input box
 The message composer, above the status bar. Height grows with the message
 (grows to a cap, ~half the terminal) and collapses to one row. Typing here
-is input mode; `#`/`@`/`/` open the autocomplete popup — see
-`chat-input-tokens.md`. The autocomplete popup hangs off this box.
+is input mode; `#`/`@`/`/` open the autocomplete popup (see
+`chat-input-tokens.md`). The autocomplete popup hangs off this box.
 
 ### Status bar
 The bottom 2 rows of the main column.
 
 - **Line 1**: the session's working directory (shortened).
 - **Line 2**: token stats (context used / budget), turn count, working time,
-  and the model — `({provider})/{model}`, or "no model selected". The right
+  and the model: `({provider})/{model}`, or "no model selected". The right
   side swaps to a transient hint when one is showing (e.g. "yanked 42
   terminal lines to the clipboard"); during a hint the model name yields
   its spot and returns after.
@@ -95,8 +95,8 @@ The bottom 2 rows of the main column.
 ## Minimap column
 The 1-column strip between the chat log and the border: a token-density map
 of the chat log (lighter = fewer tokens, a `>` arrow pointing at the current
-selection). Tuned by `[ui.minimap] max_tokens` in `jinn.toml` — see
-`configuration.md`. The dictation meter replaces this column's lower part
+selection). Tuned by `[ui.minimap] max_tokens` in `jinn.toml` (see
+`configuration.md`). The dictation meter replaces this column's lower part
 while recording.
 
 ## Border column
@@ -124,7 +124,7 @@ sidebar, `<M-s>` jumps straight to Sessions, `<c-h>`/`<esc>` leaves.
 Sidebar overlays: the rename-session input, close/archive confirmation
 prompts (anchored to the sessions cursor row), and popups that hang off the
 sidebar but may reach left across the chat column (e.g. the bots properties
-popup, `P` in the Bots section — see `bots.md`). The wide-reaching popups
+popup, `P` in the Bots section; see `bots.md`). The wide-reaching popups
 paint on a top layer (the code's "floating surfaces" region), so they draw
 over everything on screen.
 
@@ -147,7 +147,7 @@ sidebar's task-list section), which replaces the main column content.
 
 ## Pickers
 
-The `<leader>s` family opens centered filtered lists — models, sessions,
+The `<leader>s` family opens centered filtered lists: models, sessions,
 personas, tools, skills, MCP servers, themes, reasoning effort, endpoints,
 projects, lifecycles, bots, workflows, applets, the OpenRouter model market,
 stream rules. One popup each; keys and the full table live in

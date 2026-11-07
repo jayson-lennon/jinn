@@ -10,6 +10,8 @@
 - `#gap-analysis` report should be much shorter
 - Applet and canvas bind address is no longer limited to loopback.
 - Add additional documentation to `jinn-usage` skill specifically about where things are in the UI and what they mean.
+- Add additional `jinn-usage` docs for personas.
+- `README.md` tweaks.
 - Live reload: `jinn.toml`, `providers.toml`, `stream_rules.toml` all reload when edited.
   - Not all configuration values take effect instantly.
   - Reloaded values fall into three categories
