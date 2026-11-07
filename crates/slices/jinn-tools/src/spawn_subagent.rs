@@ -88,6 +88,10 @@ WHEN TO USE:
  - broad reviews, comparisons, investigations, or implementation work that contains multiple independent concerns
  - work that can be divided into separate, bounded workstreams
 
+WHEN NOT TO USE: the work can run in the background while you continue (a bot
+reports back as a message and never blocks you), or the same worker should
+handle several dispatches over time — use load_bot + tell_session instead.
+
 **AVOID SPAWNING INDIVIDUAL SUBAGENTS. PREFER SPAWNING 2+ SUBAGENTS WITH EXPLICIT BOUNDED TASKS**
 
 PARALLEL DELEGATION DEFAULT:

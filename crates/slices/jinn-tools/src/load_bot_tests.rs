@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use jinn_bot_msg::{BotBehavior, BotTrigger};
 use jinn_common::app_paths::AppPaths;
 use jinn_core_types::BotSourcePath;
 use jinn_core_types::SessionId;
@@ -695,4 +696,82 @@ fn load_attendant_is_no_longer_a_registered_tool() {
     );
     // And the new name is registered.
     assert!(names.contains(&"load_bot"), "load_bot must be present");
+}
+
+#[rstest::rstest]
+#[test]
+fn advertised_seed_parses_as_a_valid_bot_entry() {
+    // Given the ready-to-go worker seed the tool advertises.
+    let seed = crate::load_bot::WORKER_SEED_TOML;
+
+    // When parsing it as a bot entry.
+    let entry = parse_bot_entry(seed).expect("the advertised seed must parse");
+
+    // Then the worker comes across ready to run: preserve behavior,
+    // manual trigger, prep mode off, and a seed template carrying both
+    // dispatch inlets.
+    assert_eq!(entry.name, "worker");
+    assert_eq!(entry.behavior, BotBehavior::Preserve);
+    assert_eq!(entry.trigger, BotTrigger::Manual);
+    assert!(!entry.prep_mode, "a prep-mode seed refuses every dispatch");
+    assert!(entry.seed_template.contains("<parent_id>"));
+    assert!(entry.seed_template.contains("<prior_report>"));
+}
+
+#[rstest::rstest]
+#[test]
+fn advertised_seed_pin_carries_the_report_protocol() {
+    // Given the pin the advertised worker seed carries.
+    let seed = crate::load_bot::WORKER_SEED_TOML;
+    let entry = parse_bot_entry(seed).expect("the advertised seed must parse");
+    let pin = entry.pins.first().expect("the seed carries one pin");
+
+    // When reading the pin's rules in order.
+    // Then the report protocol appears in dispatch order: conclude
+    // first, then notify_parent with DONE or BLOCKED, then stop.
+    let conclude = pin
+        .text
+        .find("Call `conclude`")
+        .expect("pin names conclude");
+    let notify = pin
+        .text
+        .find("notify_parent")
+        .expect("pin names notify_parent");
+    let stop = pin.text.find("STOP and wait").expect("pin stops the run");
+    assert!(
+        conclude < notify && notify < stop,
+        "report order: {}",
+        pin.text
+    );
+    // And DONE/BLOCKED are the named outcomes.
+    assert!(pin.text.contains("DONE or BLOCKED"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn bot_from_advertised_seed_accepts_dispatch() {
+    // Given a user session and the advertised seed handed to the call.
+    let harness = TestHarness::new().await;
+    let (state, user_id) = fixture();
+    let dir = jinn_testutil::tempdir();
+    let seed = crate::load_bot::WORKER_SEED_TOML;
+    let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
+    let result = execute(
+        call(&serde_json::json!({ "toml": seed }).to_string()),
+        tool_ctx,
+    )
+    .await;
+
+    // When the tool loads it.
+    // Then the load succeeds and the bot is dispatch-capable: not in
+    // prep mode, so a tell_session dispatch would run rather than refuse.
+    assert!(result.success, "load must succeed: {}", result.content);
+    let guard = state.read();
+    let bot = guard
+        .session
+        .iter()
+        .map(|(_, s)| s)
+        .find(|s| s.is_bot())
+        .expect("a loaded bot must exist");
+    assert!(!bot.bot_is_prepping(), "dispatch would be refused");
 }
