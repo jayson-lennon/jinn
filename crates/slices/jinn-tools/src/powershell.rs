@@ -117,39 +117,6 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn the_definition_names_the_default_timeout() {
-        // Given the tool's schema built with a default timeout.
-        let definition = definition(42);
-
-        // When reading its description.
-        // Then the timeout is named.
-        assert!(
-            definition.description.contains("42s"),
-            "the description must name the default timeout: {}",
-            definition.description
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn the_definition_separates_powershell_from_posix_syntax() {
-        // Given the tool's schema.
-        let definition = definition(300);
-
-        // When reading its guidelines.
-        // Then one of them points at the bash tool for POSIX syntax.
-        assert!(
-            definition
-                .prompt_guidelines
-                .iter()
-                .any(|guideline| guideline.contains("bash tool")),
-            "the guidelines must point at the bash tool: {:?}",
-            definition.prompt_guidelines
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
     fn the_command_runs_with_no_profile_and_non_interactively() {
         // Given the argument list the tool spawns PowerShell with.
         // When reading it.

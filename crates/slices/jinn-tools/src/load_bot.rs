@@ -28,16 +28,66 @@ use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
 use jinn_preferences_config::schemas::BotEntryConfig;
 use marked_path::{Absolute, MarkedPathBuf};
 
-/// The `load_bot` tool definition.
-pub fn definition() -> ToolDefinition {
-    ToolDefinition {
-        name: "load_bot".to_owned(),
-        description: r#"
-Attach a bot as a child of this session, and start acting as its ORCHESTRATOR.
-The bot comes from a workflow-local TOML file (path) or from the call's toml
-argument — give exactly one of the two. Either form uses the same shape as an
-[[bot.entry]] block in jinn.toml. The loaded bot belongs to its source (that
-file, or this call): it cannot be saved to jinn.toml.
+/// The ready-to-go background-worker seed the description advertises:
+/// paste it as the `toml` argument and the bot is dispatch-ready.
+pub(crate) const WORKER_SEED_TOML: &str = r#"
+[[bot.entry]]
+name = "worker"
+behavior = "preserve"
+trigger = "manual"
+prep_mode = false
+seed_template = "The parent session's id is <parent_id>. The previous run of this bot reported: <prior_report>."
+pins = [
+  { role = "user", text = """
+You are a background worker session. The parent dispatches tasks as
+messages; each message is a complete, self-contained assignment.
+
+Rules:
+- Complete the assignment using your tools.
+- If the assignment is ambiguous or impossible, report BLOCKED instead of improvising.
+- After you are done:
+   - Call `conclude` using a line 1 summary of 10 words or fewer.
+   - THEN call `notify_parent` with: DONE or BLOCKED, a 1-3 sentence result, and any file paths or ids the parent needs.
+   - Then STOP and wait for the next dispatch.
+""" },
+]
+"#;
+
+/// The description's teaching half, ahead of the embedded seed.
+const DESCRIPTION_HEAD: &str = r#"
+Attach a bot as a child of this session: a background worker that runs as its
+own session, keeps running while you continue your turn, and reports back when
+done. The report arrives as a message that starts your next turn — you never
+block on it. Once a bot is attached you are its ORCHESTRATOR: you assign work,
+the bot does it, and you go on with your own.
+
+A bot is a real session — it appears in the sidebar, persists across
+dispatches, and can be steered. It inherits the environment from this session
+(model, cwd, tools, skills, MCP servers) and holds its own conversation:
+whatever it learns stays with it across dispatches, so it is the place for
+specialists a session builds context in.
+
+Each call attaches one bot. The bot comes from a workflow-local TOML file
+(path) or from the call's toml argument — give exactly one of the two. Either
+form uses the same shape as an [[bot.entry]] block in jinn.toml. The loaded
+bot belongs to its source (that file, or this call): it cannot be saved to
+jinn.toml.
+
+WHEN TO USE:
+ - long-running independent task that needs to be done while you do other work
+ - several independent tasks at once: attach one bot per task and dispatch all
+   of them in the same turn — the reports come back as messages
+ - a recurring specialist you will consult repeatedly (research, review, a
+   domain expert): preserve behavior keeps its conversation, so follow-up
+   queries are fast and cheap
+ - a standing watcher that should re-run on its own: a bot with
+   trigger = "parent-completed" fires after each of your turns
+ - work whose result you can absorb when the report arrives — not work whose
+   answer gates your very next step
+
+WHEN NOT TO USE: you need the child's result before you can continue — use
+spawn_subagent instead; it blocks and returns the final message directly,
+with no orchestration on your side.
 
 HOW BOTS DIFFER FROM SUBAGENTS: spawn_subagent blocks you until the child
 finishes. A bot is a BACKGROUND worker — load_bot returns immediately with the
@@ -64,33 +114,20 @@ YOUR ORCHESTRATOR DUTIES once a bot is attached:
 
 READY-TO-GO BACKGROUND WORKER — paste this as the toml argument, then
 dispatch with tell_session. set_name renames instances (worker-1, worker-2):
+"#;
 
-[[bot.entry]]
-name = "worker"
-behavior = "preserve"
-trigger = "manual"
-prep_mode = false
-seed_template = "The parent session's id is <parent_id>. The previous run of this bot reported: <prior_report>."
-pins = [
-  { role = "user", text = """
-You are a background worker session. The parent dispatches tasks as
-messages; each message is a complete, self-contained assignment.
-
-Rules:
-- Complete the assignment using your tools.
-- If the assignment is ambiguous or impossible, report BLOCKED instead of improvising.
-- After you are done:
-   - Call `conclude` using a line 1 summary of 10 words or fewer.
-   - THEN call `notify_parent` with: DONE or BLOCKED, a 1-3 sentence result, and any file paths or ids the parent needs.
-   - Then STOP and wait for the next dispatch.
-""" },
-]
-
+/// The description's closing half, after the embedded seed.
+const DESCRIPTION_TAIL: &str = r#"
 prep_mode = false is required: a bot left in prep mode is still being
 composed and refuses every dispatch. Bot-only gates apply here too: a bot
 cannot load another bot, and only a non-bot session can call this tool.
-        "#
-        .to_owned(),
+        "#;
+
+/// The `load_bot` tool definition.
+pub fn definition() -> ToolDefinition {
+    ToolDefinition {
+        name: "load_bot".to_owned(),
+        description: format!("{DESCRIPTION_HEAD}{WORKER_SEED_TOML}{DESCRIPTION_TAIL}"),
         prompt_snippet: Some(
             "Attach a background bot: `load_bot` with the bot file's path, or with the bot \
              entry's toml text itself. You become the bot's orchestrator — dispatch work \

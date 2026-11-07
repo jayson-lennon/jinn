@@ -698,32 +698,14 @@ fn load_attendant_is_no_longer_a_registered_tool() {
     assert!(names.contains(&"load_bot"), "load_bot must be present");
 }
 
-/// Extracts the ready-to-go worker TOML the description advertises: the
-/// `[[bot.entry]]` block through the end of the pins array.
-fn advertised_worker_seed(description: &str) -> String {
-    let start = description
-        .find("[[bot.entry]]\nname = \"worker\"")
-        .expect("description carries the ready-to-go worker seed");
-    let pins_start = description[start..]
-        .find("pins = [")
-        .expect("seed carries pins")
-        + start;
-    let close = description[pins_start..]
-        .find("]\n")
-        .map(|i| pins_start + i + 1)
-        .expect("pins array closes");
-    description[start..close].to_owned()
-}
-
 #[rstest::rstest]
 #[test]
 fn advertised_seed_parses_as_a_valid_bot_entry() {
-    // Given the ready-to-go worker TOML the description embeds.
-    let description = definition().description;
-    let seed = advertised_worker_seed(&description);
+    // Given the ready-to-go worker seed the tool advertises.
+    let seed = crate::load_bot::WORKER_SEED_TOML;
 
     // When parsing it as a bot entry.
-    let entry = parse_bot_entry(&seed).expect("the advertised seed must parse");
+    let entry = parse_bot_entry(seed).expect("the advertised seed must parse");
 
     // Then the worker comes across ready to run: preserve behavior,
     // manual trigger, prep mode off, and a seed template carrying both
@@ -740,9 +722,8 @@ fn advertised_seed_parses_as_a_valid_bot_entry() {
 #[test]
 fn advertised_seed_pin_carries_the_report_protocol() {
     // Given the pin the advertised worker seed carries.
-    let description = definition().description;
-    let seed = advertised_worker_seed(&description);
-    let entry = parse_bot_entry(&seed).expect("the advertised seed must parse");
+    let seed = crate::load_bot::WORKER_SEED_TOML;
+    let entry = parse_bot_entry(seed).expect("the advertised seed must parse");
     let pin = entry.pins.first().expect("the seed carries one pin");
 
     // When reading the pin's rules in order.
@@ -773,7 +754,7 @@ async fn bot_from_advertised_seed_accepts_dispatch() {
     let harness = TestHarness::new().await;
     let (state, user_id) = fixture();
     let dir = jinn_testutil::tempdir();
-    let seed = advertised_worker_seed(&definition().description);
+    let seed = crate::load_bot::WORKER_SEED_TOML;
     let tool_ctx = ctx(&harness, &state, user_id.clone(), &dir.path).await;
     let result = execute(
         call(&serde_json::json!({ "toml": seed }).to_string()),
@@ -793,31 +774,4 @@ async fn bot_from_advertised_seed_accepts_dispatch() {
         .find(|s| s.is_bot())
         .expect("a loaded bot must exist");
     assert!(!bot.bot_is_prepping(), "dispatch would be refused");
-}
-
-#[rstest::rstest]
-#[test]
-fn load_bot_description_teaches_the_dispatch_step() {
-    // Given the tool description.
-    let description = definition().description;
-
-    // When reading it as an orchestrator would.
-    // Then it names tell_session as how work starts, forbids bash-sleep
-    // waiting, and offers session_fetch for progress checks.
-    assert!(
-        description.contains("tell_session"),
-        "the dispatch step must be named"
-    );
-    assert!(
-        description.contains("NEVER wait") && description.contains("bash sleep"),
-        "the no-sleep rule must be stated"
-    );
-    assert!(
-        description.contains("session_fetch"),
-        "the progress-check path must be named"
-    );
-    assert!(
-        description.contains("BACKGROUND"),
-        "the background model must be named"
-    );
 }

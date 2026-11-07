@@ -75,9 +75,6 @@ pub fn definition() -> ToolDefinition {
         description: r#"
 Delegate a self-contained task to a fresh subagent session.
 
-When the work can run in the background while you continue, or the same worker
-must persist across dispatches, use load_bot + tell_session instead.
-
 Each call creates one subagent. To use multiple subagents, make multiple spawn_subagent
 calls in the same assistant turn. Subagents inherit the model, cwd, tools,
 skills, and MCP servers, but not the parent conversation history or the parent
@@ -90,6 +87,10 @@ WHEN TO USE:
  - multi-step work whose intermediate output you do not need
  - broad reviews, comparisons, investigations, or implementation work that contains multiple independent concerns
  - work that can be divided into separate, bounded workstreams
+
+WHEN NOT TO USE: the work can run in the background while you continue (a bot
+reports back as a message and never blocks you), or the same worker should
+handle several dispatches over time — use load_bot + tell_session instead.
 
 **AVOID SPAWNING INDIVIDUAL SUBAGENTS. PREFER SPAWNING 2+ SUBAGENTS WITH EXPLICIT BOUNDED TASKS**
 

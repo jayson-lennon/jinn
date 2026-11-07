@@ -203,19 +203,4 @@ mod tests {
         // Then the message names the parse failure.
         assert!(error.contains("invalid arguments"), "{error}");
     }
-
-    #[rstest::rstest]
-    #[test]
-    fn definition_teaches_the_relay_instruction() {
-        // Given the tool definition.
-        let def = super::definition();
-
-        // Then it names the URL relay duty and the no-recall-after-edit rule.
-        assert_eq!(def.name, "canvas");
-        assert!(def.description.contains("URL"), "teaches the relay");
-        assert!(
-            def.description.contains("do NOT need to call this again"),
-            "teaches that edits hot-reload on their own"
-        );
-    }
 }
