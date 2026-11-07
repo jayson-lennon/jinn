@@ -554,20 +554,29 @@ mod tests {
     /// configuration cache stopped working.
     const WARM_HIGHLIGHT_BUDGET: Duration = Duration::from_millis(1);
 
-    #[test]
+    #[rstest::rstest]
+    #[timeout(std::time::Duration::from_secs(30))]
     fn repeat_highlight_reuses_the_compiled_configuration() {
         // Given a highlighter that has already compiled the rust configuration.
         let hl = TreeSitterHighlighter::new();
         let code = "fn main() { println!(\"hi\"); }";
         assert!(!hl.highlight("rust", code).is_empty());
 
-        // When highlighting the same language again.
-        let started = Instant::now();
-        let segments = hl.highlight("rust", code);
-        let elapsed = started.elapsed();
+        // When highlighting the same language again, with the timing measured
+        // as the best of several samples — under a parallel test run the OS
+        // can preempt this thread mid-highlight, and a single wall-clock
+        // sample measures the scheduler as much as the code.
+        let mut elapsed = Duration::MAX;
+        for _ in 0..5 {
+            let started = Instant::now();
+            let segments = hl.highlight("rust", code);
+            assert!(!segments.is_empty(), "rust should still highlight");
+            elapsed = elapsed.min(started.elapsed());
+        }
 
-        // Then the segments are still produced, and no query compilation was paid.
-        assert!(!segments.is_empty(), "rust should still highlight");
+        // Then no query compilation was paid: a recompiled configuration
+        // costs tens of milliseconds on every call, so even the best of
+        // five samples separates the two regimes.
         assert!(
             elapsed < WARM_HIGHLIGHT_BUDGET,
             "a cached configuration must make a repeat highlight cheap, took {elapsed:?}"
