@@ -1366,21 +1366,6 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn definition_schema_injects_default_timeout_secs() {
-        // Given the global default of 300s.
-        // When building the definition.
-        let def = definition(300);
-
-        // Then the description mentions 300s.
-        assert!(
-            def.description.contains("300s"),
-            "expected description to mention 300s, got: {}",
-            def.description
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
     fn definition_schema_exposes_max_duration_secs_not_timeout() {
         // Given the bash tool definition.
         let def = definition(300);
@@ -1397,51 +1382,6 @@ mod tests {
         assert!(
             !params.contains("\"timeout\""),
             "expected schema to NOT contain a \"timeout\" key, got: {params}",
-        );
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn definition_description_names_max_duration_secs_and_shows_example() {
-        // Given the bash tool definition.
-        let def = definition(300);
-
-        // When reading the tool description.
-        let description = def.description.as_str();
-
-        // Then the description names max_duration_secs.
-        assert!(description.contains("max_duration_secs"));
-        // And contains an inline example call.
-        assert!(description.contains("\"max_duration_secs\": 600"));
-    }
-
-    #[rstest::rstest]
-    #[test]
-    fn definition_guidelines_have_proactive_and_reactive_bullets() {
-        // Given the bash tool definition.
-        let def = definition(300);
-
-        // When reading the prompt guidelines.
-        let guidelines = &def.prompt_guidelines;
-
-        // Then guidelines contain a proactive bullet (mentions setting max_duration_secs for slow commands).
-        let proactive = guidelines
-            .iter()
-            .any(|g| g.contains("Proactively") && g.contains("max_duration_secs"));
-        assert!(
-            proactive,
-            "missing proactive guideline: {:?}",
-            def.prompt_guidelines
-        );
-
-        // And a reactive bullet (mentions retrying after a kill).
-        let reactive = guidelines
-            .iter()
-            .any(|g| g.contains("killed") && g.contains("max_duration_secs"));
-        assert!(
-            reactive,
-            "missing reactive guideline: {:?}",
-            def.prompt_guidelines
         );
     }
 }

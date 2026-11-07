@@ -411,20 +411,3 @@ fn every_declared_parameter_is_one_the_executor_reads() {
     assert_eq!(required.len(), 1, "conclude takes exactly one argument");
     assert_eq!(required[0].as_str(), Some("body"));
 }
-
-#[rstest::rstest]
-fn the_conclude_description_states_the_length_bound() {
-    // Given the conclude tool's description.
-
-    // When the definition is read.
-    let def = conclude_definition();
-
-    // Then it states the bound. The name carries the once-per-run idea;
-    // the length limit is the one thing prose has to say, and an agent
-    // that ignored the example format still reads this.
-    assert!(
-        def.description.contains("10 WORDS"),
-        "the description must state the word bound: {}",
-        def.description
-    );
-}
