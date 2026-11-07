@@ -23,6 +23,7 @@
 //! ```
 
 use jinn_core_types::ToolResultStatus;
+use jinn_core_types::tool_types::TruncatedBy;
 use jinn_core_types::tool_types::TruncationMeta;
 use jinn_skills_msg::loaded_skill_summary_label;
 use jinn_tools_msg::SPAWN_SUBAGENT_TOOL_NAME;
@@ -284,16 +285,28 @@ fn content_truncation_style(ctx: &RenderContext) -> Style {
 
 /// Format a human-readable label for content-level truncation.
 ///
-/// Shows how much of the original output is visible, e.g.:
-/// `⚠ Output truncated (500 of 2000 lines, 25.0KB of 100.0KB)`
+/// A limit truncation shows how much of the original is visible:
+/// `⚠ Output truncated (500 of 2000 lines, 25.0KB of 100.0KB)`.
+///
+/// A dump replaced the whole output with a pointer stub, so lines are not
+/// a ratio story (the stub's line count says nothing about the original's);
+/// the label compares bytes and points at the file named in the stub:
+/// `⚠ Output dumped to disk — 2.1KB of 56.5KB shown in context`.
 fn format_content_truncation_label(meta: &TruncationMeta) -> String {
-    format!(
-        "⚠ Output truncated ({} of {} lines, {} of {})",
-        meta.output_lines,
-        meta.total_lines,
-        format_size(meta.output_bytes),
-        format_size(meta.total_bytes),
-    )
+    match meta.truncated_by {
+        TruncatedBy::DumpedToDisk => format!(
+            "⚠ Output dumped to disk — {} of {} shown in context",
+            format_size(meta.output_bytes),
+            format_size(meta.total_bytes),
+        ),
+        TruncatedBy::Lines | TruncatedBy::Bytes => format!(
+            "⚠ Output truncated ({} of {} lines, {} of {})",
+            meta.output_lines,
+            meta.total_lines,
+            format_size(meta.output_bytes),
+            format_size(meta.total_bytes),
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -540,6 +553,54 @@ mod tests {
             output_lines: 500,
             output_bytes: 20_000,
         }
+    }
+
+    fn sample_dump_meta() -> TruncationMeta {
+        TruncationMeta {
+            truncated_by: jinn_core_types::tool_types::TruncatedBy::DumpedToDisk,
+            total_lines: 1,
+            total_bytes: 57_900,
+            output_lines: 3,
+            output_bytes: 2_150,
+        }
+    }
+
+    #[rstest::rstest]
+    fn dump_label_compares_bytes_without_a_line_ratio() {
+        // Given dump metadata whose stub is 3 lines against a 1-line original.
+        // When formatting the label.
+        let label = format_content_truncation_label(&sample_dump_meta());
+
+        // Then it reports bytes shown versus original, never lines — the
+        // stub's line count says nothing about a JSONL original.
+        assert!(label.contains("Output dumped to disk"), "{label}");
+        assert!(label.contains("2.1KB of 56.5KB"), "{label}");
+        assert!(!label.contains("lines"), "{label}");
+    }
+
+    #[rstest::rstest]
+    fn dumped_tool_result_shows_the_dump_indicator() {
+        // Given a dumped tool result carrying dump metadata, not expanded.
+        let ctx = render_context(5, false);
+        let content = "[Tool result written to /tmp/page.md (56.5KB). First 2048 bytes]";
+
+        // When converting to lines.
+        let lines = to_lines(
+            "webReader",
+            content,
+            ToolResultStatus::Success,
+            Some(&sample_dump_meta()),
+            false,
+            None,
+            &ctx,
+        );
+
+        // Then the dump indicator is present with the byte comparison.
+        assert!(lines.iter().any(|line| {
+            line.spans
+                .iter()
+                .any(|s| s.content.contains("Output dumped to disk"))
+        }));
     }
 
     #[rstest::rstest]
