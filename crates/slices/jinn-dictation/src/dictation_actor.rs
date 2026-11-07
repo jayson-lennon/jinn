@@ -43,8 +43,10 @@ pub const DICTATION_PATH: &str = "dictation";
 
 /// The shared backend slot: the actor and its blocking closures pass
 /// the backend through this mutex, because `DictationBackend` methods
-/// take `&mut self` and the calls run off the actor's context.
-pub type SharedBackend = std::sync::Arc<parking_lot::Mutex<Box<dyn DictationBackend>>>;
+/// take `&mut self` and the calls run off the actor's context. The
+/// one definition lives in [`crate::capture`], beside the opener
+/// trait that names it.
+pub use crate::capture::SharedBackend;
 
 /// Dependencies for [`DictationActor`].
 pub struct DictationActorDeps {
@@ -67,6 +69,10 @@ pub struct DictationActorDeps {
     pub applied: crate::config::DictationSettings,
     /// The platform's backend, built once at activation.
     pub backend: Box<dyn DictationBackend>,
+    /// The capture device seam: how the arm opens. Composition passes
+    /// the native opener; tests inject a scripted fake, so no workspace
+    /// test ever reaches a real input device.
+    pub opener: std::sync::Arc<dyn crate::capture::CaptureOpener>,
     /// The shared application state handle, for the utterance commits.
     /// The commit appends to the focused session's input buffer — the
     /// same routing rule a bracketed paste follows.
@@ -79,6 +85,9 @@ pub struct DictationActor {
     machine: DictationMachine,
     /// The platform backend, shared with the blocking closures.
     backend: SharedBackend,
+    /// The capture device seam — the actor calls it on the blocking
+    /// context at every arm.
+    opener: std::sync::Arc<dyn crate::capture::CaptureOpener>,
     /// The dictation state cell — the one write handle.
     state_cell: TypedCell<DictationState>,
     /// The meter-level cell — the one write handle. The capture arm's
@@ -173,6 +182,7 @@ impl DictationActor {
         let actor = Self {
             machine,
             backend,
+            opener: deps.opener,
             state_cell: deps.state_cell,
             level_cell: deps.level_cell,
             bus: deps.bus,

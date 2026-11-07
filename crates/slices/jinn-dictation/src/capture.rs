@@ -38,6 +38,62 @@ pub fn arm_refusal_note(configured: Option<&str>, available: &[String]) -> Strin
     note
 }
 
+/// The shared backend slot: the capture arm's audio callback and the
+/// actor's blocking closures pass the backend through this mutex,
+/// because `DictationBackend` methods take `&mut self` and the calls
+/// run off their callers' contexts.
+pub type SharedBackend =
+    std::sync::Arc<parking_lot::Mutex<Box<dyn jinn_dictation_backend::DictationBackend>>>;
+
+/// Opens the capture arm — the device seam the actor holds.
+///
+/// The production opener is [`NativeCaptureOpener`], which delegates
+/// to the cfg-swapped `device` module below; tests inject a scripted
+/// fake, so no workspace test reaches a real input device. `open` is
+/// deliberately synchronous: the actor runs it on the blocking
+/// context (a hung driver must not stall the actor's async context),
+/// so the trait is not async.
+pub trait CaptureOpener: Send + Sync {
+    /// Opens the configured (or system-default) input device, feeding
+    /// the audio pipeline through the shared backend.
+    ///
+    /// # Errors
+    ///
+    /// Returns the rendered refusal note when the device cannot be
+    /// found or the stream cannot be built.
+    fn open(
+        &self,
+        configured: Option<&str>,
+        noise_reduction: bool,
+        backend: &SharedBackend,
+    ) -> Result<CaptureArm, String>;
+
+    /// Returns the opener's name, for debugging.
+    fn name(&self) -> &'static str;
+}
+
+/// The production opener: the cfg-swapped `device::open`.
+///
+/// Platform-blind by construction — on linux and windows `device` is
+/// the native module, elsewhere the null module whose `open` always
+/// refuses; this impl names neither platform.
+pub struct NativeCaptureOpener;
+
+impl CaptureOpener for NativeCaptureOpener {
+    fn open(
+        &self,
+        configured: Option<&str>,
+        noise_reduction: bool,
+        backend: &SharedBackend,
+    ) -> Result<CaptureArm, String> {
+        device::open(configured, noise_reduction, backend)
+    }
+
+    fn name(&self) -> &'static str {
+        "native"
+    }
+}
+
 /// What the audio callback writes and the actor's tick drains.
 ///
 /// Platform-blind: every platform carries the same slot; only the
@@ -81,6 +137,19 @@ impl CaptureArm {
     #[must_use]
     pub fn shared(&self) -> &std::sync::Arc<parking_lot::Mutex<CaptureShared>> {
         &self.shared
+    }
+
+    /// Builds an arm over a caller-owned shared slot, for tests.
+    ///
+    /// No closer: the fake arm has no device to close. Production arms
+    /// are always built by `device::open`, which sets the real closer.
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) fn for_tests(shared: std::sync::Arc<parking_lot::Mutex<CaptureShared>>) -> Self {
+        Self {
+            closer: None,
+            shared,
+        }
     }
 }
 
@@ -137,11 +206,25 @@ pub use device::open;
 
 #[cfg(test)]
 mod tests {
+    use super::CaptureOpener;
     use super::arm_refusal_note;
     use super::push_utterances;
     use super::take_utterances;
     use jinn_dictation_backend::Utterance;
     use parking_lot::Mutex;
+
+    #[rstest::rstest]
+    #[test]
+    fn native_opener_reports_its_name() {
+        // Given the production opener.
+        let opener = super::NativeCaptureOpener;
+
+        // When asking for its debug name.
+        let name = opener.name();
+
+        // Then it is the native opener.
+        assert_eq!(name, "native");
+    }
 
     #[rstest::rstest]
     #[test]

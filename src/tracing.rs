@@ -363,6 +363,12 @@ impl CompactSpans {
 /// * `mode` - The [`TracingMode`] controlling where traces are written. The
 ///   contained `log_path` is opened in append mode; its parent directory is
 ///   created if it does not exist.
+/// * `trace_color` - Whether trace output written to the log file is ANSI
+///   colorized.
+/// * `log_tail_lines` - The startup log-tail bound from
+///   `--log-tail-lines`. `Some(0)` disables the trim entirely (the file
+///   grows unbounded); `None` applies the historical default of
+///   [`LOG_TAIL_LINES`] lines.
 ///
 /// # Errors
 ///
@@ -376,6 +382,7 @@ pub fn init(
     verbosity: Verbosity<WarnLevel>,
     mode: TracingMode,
     trace_color: bool,
+    log_tail_lines: Option<usize>,
 ) -> Result<(), Report<TracingInitError>> {
     let rust_log = env::var("RUST_LOG").ok();
     let filter = build_filter(rust_log.as_deref(), &verbosity);
@@ -384,10 +391,11 @@ pub fn init(
         TracingMode::Tui { log_path } | TracingMode::Headless { log_path } => log_path.clone(),
     };
 
-    // Bound the log to its last few thousand lines before the append handle
-    // opens. Non-fatal by contract: a failed trim is logged and startup
-    // proceeds with the oversized file.
-    let logfile = prepare_log_file(&log_path)?;
+    // Bound the log to its tail before the append handle opens. `0` means
+    // keep everything (skip the trim); the flag default falls back to
+    // [`LOG_TAIL_LINES`]. Non-fatal by contract: a failed trim is logged and
+    // startup proceeds with the oversized file.
+    let logfile = prepare_log_file(&log_path, log_tail_lines)?;
 
     // In TUI mode the terminal enters raw mode shortly after init, so traces
     // (including RUST_LOG output) go to the file only — never the screen. If the
@@ -447,16 +455,27 @@ pub fn init(
 /// Bounds the log to its tail, then opens the append handle.
 ///
 /// The single startup path for the log file: the trim runs first so a
-/// crash-produced giant log is bounded before anything appends. A failed
-/// trim is non-fatal by contract — it is warned about and startup proceeds
+/// crash-produced giant log is bounded before anything appends. A
+/// `log_tail_lines` of `Some(0)` skips the trim entirely — the contract
+/// behind `--log-tail-lines 0` is that the file is never trimmed, so an
+/// investigation window spanning restarts keeps every line. A failed trim
+/// is non-fatal by contract — it is warned about and startup proceeds
 /// against the oversized file; only an `open` failure propagates.
 ///
 /// # Errors
 ///
 /// Returns a [`TracingInitError`] if the log file cannot be opened or its
 /// parent directory cannot be created (the trim never blocks startup).
-fn prepare_log_file(path: &MarkedPathBuf<Absolute>) -> Result<File, Report<TracingInitError>> {
-    if let Err(error) = truncate_log_to_tail_lines(path, LOG_TAIL_LINES) {
+fn prepare_log_file(
+    path: &MarkedPathBuf<Absolute>,
+    log_tail_lines: Option<usize>,
+) -> Result<File, Report<TracingInitError>> {
+    if log_tail_lines == Some(0) {
+        // --log-tail-lines 0: keep everything, ever.
+        return open_log_file(path);
+    }
+    let keep = log_tail_lines.unwrap_or(LOG_TAIL_LINES);
+    if let Err(error) = truncate_log_to_tail_lines(path, keep) {
         tracing::warn!(%error, "failed to trim log tail; leaving the file as-is");
     }
     open_log_file(path)
@@ -1253,7 +1272,7 @@ mod tests {
             .expect("file path joins a bare name");
 
         // When preparing the log file (trim + open).
-        let result = prepare_log_file(&log_path);
+        let result = prepare_log_file(&log_path, None);
 
         // Then the failure comes from `open_log_file`, not the trim — the
         // trim error was swallowed as non-fatal (a `NotFound`-shaped error
@@ -1270,5 +1289,96 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn prepare_without_flag_trims_like_before() {
+        // Given a log one line over the historical default bound.
+        let dir = jinn_testutil::tempdir();
+        let log_path = dir
+            .path
+            .join("jinn.log")
+            .expect("temp root joins a bare name");
+        let total = LOG_TAIL_LINES + 1;
+        let lines: Vec<String> = (0..total).map(|i| format!("{i}\n")).collect();
+        std::fs::write(&log_path, lines.join("")).expect("seed log file");
+
+        // When preparing the log file with the flag absent.
+        let file = prepare_log_file(&log_path, None).expect("prepare succeeds");
+        drop(file);
+
+        // Then exactly the default bound of complete lines survived — the
+        // absent flag behaves byte-identically to the pre-flag behavior.
+        let content = std::fs::read_to_string(&log_path).expect("read trimmed log");
+        let kept: Vec<&str> = content.lines().collect();
+        assert_eq!(kept.len(), LOG_TAIL_LINES, "default bound kept the tail");
+        // And the dropped line is the oldest one.
+        assert_eq!(
+            kept.first()
+                .expect("non-empty")
+                .parse::<usize>()
+                .expect("index line"),
+            1,
+            "the oldest line (0) was dropped, the tail starts at 1"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn prepare_with_zero_keeps_every_line() {
+        // Given a modest log and the keep-everything value.
+        let dir = jinn_testutil::tempdir();
+        let log_path = dir
+            .path
+            .join("jinn.log")
+            .expect("temp root joins a bare name");
+        let total = 25usize;
+        let lines: Vec<String> = (0..total).map(|i| format!("{i}\n")).collect();
+        let seeded = lines.join("");
+        std::fs::write(&log_path, &seeded).expect("seed log file");
+
+        // When preparing the log file with --log-tail-lines 0.
+        let file = prepare_log_file(&log_path, Some(0)).expect("prepare succeeds");
+        drop(file);
+
+        // Then every seeded line survived the startup untouched: the file is
+        // byte-identical to what was on disk, and nothing is ever trimmed.
+        let content = std::fs::read_to_string(&log_path).expect("read log");
+        assert_eq!(content, seeded, "zero keeps everything");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn prepare_with_explicit_bound_uses_it_over_the_default() {
+        // Given a modest log and an explicit bound above the file's size.
+        let dir = jinn_testutil::tempdir();
+        let log_path = dir
+            .path
+            .join("jinn.log")
+            .expect("temp root joins a bare name");
+        let total = 25usize;
+        let lines: Vec<String> = (0..total).map(|i| format!("{i}\n")).collect();
+        let seeded = lines.join("");
+        std::fs::write(&log_path, &seeded).expect("seed log file");
+
+        // When preparing the log file with an explicit bound of 20 lines.
+        let file = prepare_log_file(&log_path, Some(20)).expect("prepare succeeds");
+        drop(file);
+
+        // Then the explicit bound wins: exactly the last 20 lines survive,
+        // not the default 10,000 and not the full 25.
+        let content = std::fs::read_to_string(&log_path).expect("read trimmed log");
+        let kept: Vec<&str> = content.lines().collect();
+        assert_eq!(kept.len(), 20, "the explicit bound was applied");
+        // And the kept tail starts where the trim left off.
+        assert_eq!(
+            kept.first()
+                .expect("non-empty")
+                .parse::<usize>()
+                .expect("index line"),
+            5,
+            "the last 20 lines are lines 5..25"
+        );
     }
 }

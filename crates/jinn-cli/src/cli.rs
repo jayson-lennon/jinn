@@ -37,6 +37,14 @@ pub struct Cli {
     #[arg(long, value_hint = clap::ValueHint::FilePath)]
     pub log_file: Option<PathBuf>,
 
+    /// Trim the log file to its last N complete lines at startup.
+    ///
+    /// `0` keeps everything: the file is never trimmed and grows unbounded
+    /// across restarts. When the flag is omitted, the historical default
+    /// (10,000 lines) applies.
+    #[arg(long, value_name = "N")]
+    pub log_tail_lines: Option<usize>,
+
     /// Path to the `jinn.toml` configuration file. Defaults to the platform's
     /// config directory (e.g. `~/.config/jinn/jinn.toml` on Linux).
     ///
@@ -370,6 +378,73 @@ mod tests {
 
         // Then Cli.log_file captures the override.
         assert_eq!(cli.log_file.as_deref(), Some(expected.as_path()));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn log_tail_lines_defaults_to_none() {
+        // Given a temp-rooted --db-path and no --log-tail-lines argument.
+        let dir = jinn_testutil::tempdir();
+        let db_path = dir
+            .path
+            .join("test.db")
+            .expect("temp root joins a bare name")
+            .to_string();
+
+        // When parsing.
+        let cli = Cli::parse_from(["jinn", "--db-path", db_path.as_str()]);
+
+        // Then Cli.log_tail_lines is None (the historical default applies).
+        assert!(cli.log_tail_lines.is_none());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn log_tail_lines_zero_parses_as_keep_everything() {
+        // Given a temp-rooted --db-path and --log-tail-lines 0.
+        let dir = jinn_testutil::tempdir();
+        let db_path = dir
+            .path
+            .join("test.db")
+            .expect("temp root joins a bare name")
+            .to_string();
+
+        // When parsing.
+        let cli = Cli::parse_from([
+            "jinn",
+            "--db-path",
+            db_path.as_str(),
+            "--log-tail-lines",
+            "0",
+        ]);
+
+        // Then the zero survives as Some(0) — absent and 0 are distinct
+        // values, and 0 means keep everything.
+        assert_eq!(cli.log_tail_lines, Some(0));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn log_tail_lines_rejects_non_numeric_values() {
+        // Given a temp-rooted --db-path and a non-numeric --log-tail-lines.
+        let dir = jinn_testutil::tempdir();
+        let db_path = dir
+            .path
+            .join("test.db")
+            .expect("temp root joins a bare name")
+            .to_string();
+
+        // When parsing.
+        let result = Cli::try_parse_from([
+            "jinn",
+            "--db-path",
+            db_path.as_str(),
+            "--log-tail-lines",
+            "many",
+        ]);
+
+        // Then clap rejects it (usize value parsing).
+        assert!(result.is_err());
     }
 
     #[rstest::rstest]
