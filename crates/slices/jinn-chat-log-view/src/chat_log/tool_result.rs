@@ -291,11 +291,11 @@ fn content_truncation_style(ctx: &RenderContext) -> Style {
 /// A dump replaced the whole output with a pointer stub, so lines are not
 /// a ratio story (the stub's line count says nothing about the original's);
 /// the label compares bytes and points at the file named in the stub:
-/// `⚠ Output dumped to disk — 2.1KB of 56.5KB shown in context`.
+/// `⚠ Output dumped to disk: 2.1KB of 56.5KB shown in context`.
 fn format_content_truncation_label(meta: &TruncationMeta) -> String {
     match meta.truncated_by {
         TruncatedBy::DumpedToDisk => format!(
-            "⚠ Output dumped to disk — {} of {} shown in context",
+            "⚠ Output dumped to disk: {} of {} shown in context",
             format_size(meta.output_bytes),
             format_size(meta.total_bytes),
         ),
