@@ -1,5 +1,9 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- Massive overhaul of `load_bot` tool description. Agents should now sometimes spawn bots instead of subagents.
+
 ## 2026-11-06 v1.21.0
 
 - Update `RECORD.md` templates to now contain a `BECAUSE:` clause to explain _why_ a fact exists.
