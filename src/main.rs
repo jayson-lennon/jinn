@@ -49,7 +49,7 @@ fn main() {
         Some(jinn_cli::cli::Commands::Headless { .. }) => TracingMode::Headless { log_path },
     };
 
-    if let Err(e) = init_tracing(cli.verbosity, mode, cli.trace_color) {
+    if let Err(e) = init_tracing(cli.verbosity, mode, cli.trace_color, cli.log_tail_lines) {
         eprintln!("error: {e:?}");
         std::process::exit(1);
     }
