@@ -10,11 +10,45 @@ use std::collections::BTreeMap;
 
 use jinn_core_types::ToolDefinition;
 
+/// The one-line `dump_to_disk` schema property injected into every mirrored
+/// tool definition. Jinn cannot edit an MCP server's schema text, so the
+/// reserved argument is added where jinn mirrors every definition — the one
+/// chokepoint all schemas pass through.
+const DUMP_TO_DISK_PROPERTY: &str = "Optional file path to write this tool's full \
+result to; the in-context response becomes a short pointer + preview.";
+
+/// Adds the reserved `dump_to_disk` property to a definition's schema.
+///
+/// Applied to *copies* at the mirror points (builtin announce, actor-provided
+/// registration) — the stored definitions are the dispatch source of truth
+/// and are never mutated in place. Definitions whose `parameters` is not a
+/// JSON object pass through unchanged.
+#[must_use]
+pub fn with_reserved_arguments(mut definition: ToolDefinition) -> ToolDefinition {
+    let Some(properties) = definition
+        .parameters
+        .get_mut("properties")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return definition;
+    };
+    properties.insert(
+        jinn_core_types::tool_types::DUMP_TO_DISK_ARG.to_owned(),
+        serde_json::json!({ "type": "string", "description": DUMP_TO_DISK_PROPERTY }),
+    );
+    definition
+}
+
 /// Builds the tool context block for the system prompt.
 ///
 /// Iterates over all registered tool definitions and collects:
 /// - `prompt_snippet` → listed in the "Available tools" section
 /// - `prompt_guidelines` → listed as bullet points in the "Tool guidelines" section
+///
+/// The block closes with the "Reserved tool-call arguments" section: the
+/// convention the reserved arguments share (path semantics, preview behavior,
+/// timeout sentinel) is stated once here instead of being duplicated into
+/// every tool's schema.
 ///
 /// Returns `None` if no tools have snippets or guidelines.
 #[must_use]
@@ -57,7 +91,26 @@ pub fn build_tool_context_block(tools: &BTreeMap<String, ToolDefinition>) -> Opt
         }
     }
 
+    if !block.is_empty() {
+        block.push('\n');
+    }
+    block.push_str("Reserved tool-call arguments:\n");
+    for line in reserved_argument_lines() {
+        let _ = std::fmt::Write::write_fmt(&mut block, format_args!("- {line}\n"));
+    }
+
     Some(block)
+}
+
+/// The reserved-argument conventions, one bullet per argument.
+fn reserved_argument_lines() -> [&'static str; 2] {
+    [
+        "max_duration_secs: per-call timeout override in seconds; 0 disables the timeout.",
+        "dump_to_disk: write the full tool result to this path (relative paths resolve against \
+         the working directory; parent directories are created automatically). The tool response \
+         becomes a pointer to the file plus a short preview — use it for large results (web page \
+         fetches, bulk output) you want to read or grep from disk rather than carry in context.",
+    ]
 }
 
 #[cfg(test)]
@@ -259,5 +312,95 @@ mod tests {
             // Then it's the same as the initial block
             assert_eq!(block, initial_block);
         }
+    }
+
+    #[rstest::rstest]
+    fn block_carries_the_reserved_arguments_section() {
+        // Given a tool with a snippet.
+        let tools = catalog_tools();
+
+        // When building the block.
+        let block = build_tool_context_block(&tools).expect("should produce a block");
+
+        // Then the reserved-arguments section names both reserved arguments
+        // and their conventions.
+        assert!(block.contains("Reserved tool-call arguments:"));
+        assert!(block.contains("max_duration_secs"));
+        assert!(block.contains("dump_to_disk"));
+        assert!(block.contains("parent directories are created automatically"));
+    }
+
+    #[rstest::rstest]
+    fn with_reserved_arguments_adds_the_property() {
+        // Given a definition whose schema carries a properties object (the
+        // shape every real tool schema has).
+        let mut definition = test_tool("bash", Some("Run commands"), vec![]);
+        definition.parameters = serde_json::json!({
+            "type": "object",
+            "properties": { "command": { "type": "string" } }
+        });
+
+        // When applying the reserved-argument mapper.
+        let mapped = super::with_reserved_arguments(definition);
+
+        // Then the schema carries the dump_to_disk property alongside the
+        // tool's own.
+        let properties = mapped.parameters.get("properties").expect("properties");
+        let property = properties
+            .get("dump_to_disk")
+            .expect("dump_to_disk property present");
+        assert_eq!(
+            property.get("type").and_then(|t| t.as_str()),
+            Some("string")
+        );
+        assert!(properties.get("command").is_some(), "own property kept");
+    }
+
+    #[rstest::rstest]
+    fn with_reserved_arguments_leaves_the_stored_definition_untouched() {
+        // Given a definition with an object schema.
+        let definition = test_tool("bash", Some("Run commands"), vec![]);
+
+        // When applying the mapper to a clone (the mirror points pass copies).
+        let _ = super::with_reserved_arguments(definition.clone());
+
+        // Then the original schema is unchanged — the mapper is a copy
+        // transform, never an in-place mutation.
+        assert!(
+            definition
+                .parameters
+                .get("properties")
+                .and_then(|p| p.get("dump_to_disk"))
+                .is_none()
+        );
+    }
+
+    #[rstest::rstest]
+    fn with_reserved_arguments_tolerates_non_object_schemas() {
+        // Given definitions whose parameters are not objects with properties.
+        let mut array_schema = test_tool("odd", None, vec![]);
+        array_schema.parameters = serde_json::json!({"type": "array"});
+        let mut bare_schema = test_tool("bare", None, vec![]);
+        bare_schema.parameters = serde_json::json!({});
+
+        // When applying the mapper to each.
+        let mapped_array = super::with_reserved_arguments(array_schema);
+        let mapped_bare = super::with_reserved_arguments(bare_schema);
+
+        // Then both pass through without a panic and without a property.
+        assert!(
+            mapped_array
+                .parameters
+                .get("properties")
+                .and_then(|p| p.get("dump_to_disk"))
+                .is_none()
+        );
+        assert!(
+            mapped_bare
+                .parameters
+                .get("properties")
+                .and_then(|p| p.get("dump_to_disk"))
+                .is_none()
+        );
     }
 }

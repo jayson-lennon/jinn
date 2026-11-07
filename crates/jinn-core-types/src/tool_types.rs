@@ -27,7 +27,19 @@ pub enum TruncatedBy {
     Lines,
     /// The byte limit was exceeded.
     Bytes,
+    /// The output was written to a file requested by the caller
+    /// (`dump_to_disk`) and replaced in-context by a pointer stub.
+    DumpedToDisk,
 }
+
+/// The reserved tool-call argument that opts a single call into having its
+/// result written to disk and replaced in-context by a pointer stub.
+///
+/// Lives in the layer-0 vocabulary because three layers name it: the tools
+/// family peeks it from call arguments, the provider-facing vocabulary
+/// injects it into every mirrored tool schema, and the dump helper applies
+/// it on both producer paths.
+pub const DUMP_TO_DISK_ARG: &str = "dump_to_disk";
 
 /// Metadata about a truncation operation on tool output.
 ///

@@ -8,7 +8,7 @@
 
 use crate::token_estimator::{
     CharRatioEstimator, TiktokenCounter, TokenCounter, TokenEstimator, estimate_entry_tokens,
-    estimate_tool_schema_tokens,
+    estimate_tool_schema_tokens, toolset_context_tokens,
 };
 use jinn_core_types::tool_types::ToolDefinition;
 use jinn_core_types::{ChatEntry, PinPosition};
@@ -369,4 +369,44 @@ fn estimate_entry_tokens_for_forced_include_error_uses_actionable_framing() {
         format!("The user has shared the following output for you to address:\n\n{text}");
     assert_eq!(tokens, estimator.estimate(&rendered));
     assert_ne!(tokens, estimator.estimate(&format!("[Error] {text}")));
+}
+
+#[rstest::rstest]
+fn toolset_context_tokens_counts_the_reserved_arguments_section() {
+    // Given one snippet-carrying tool, so the tool context block renders.
+    let counter = ByteLenCounter;
+    let defs = [ToolDefinition {
+        name: "bash".to_owned(),
+        description: "Run commands".to_owned(),
+        parameters: serde_json::json!({"type": "object"}),
+        prompt_snippet: Some("Execute shell commands".to_owned()),
+        prompt_guidelines: vec![],
+        server_tool_type: None,
+    }];
+
+    // When estimating the toolset's context cost.
+    let tokens = toolset_context_tokens(&defs, &counter);
+
+    // Then the count includes the tool context block — which now carries the
+    // reserved-arguments section — so the picker's figures stay honest.
+    assert!(tokens > 0);
+    let block_text = counter.count("Reserved tool-call arguments:");
+    assert!(
+        tokens > block_text,
+        "block cost must include the reserved-arguments section"
+    );
+}
+
+/// A counter that returns the byte length — the deterministic stand-in the
+/// byte-length assertions above rely on.
+struct ByteLenCounter;
+
+impl TokenCounter for ByteLenCounter {
+    fn count(&self, text: &str) -> usize {
+        text.len()
+    }
+
+    fn name(&self) -> &'static str {
+        "byte-len"
+    }
 }

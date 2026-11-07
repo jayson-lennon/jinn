@@ -21,6 +21,7 @@
 // End-to-end dispatch roundtrip tests live in a separate module so the
 // stub-server fixtures (gated behind jinn-mcp's `server-testkit` feature)
 // stay isolated from the pure unit tests above.
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -42,6 +43,7 @@ use jinn_core_types::tool_types::{ToolCall, ToolDefinition, ToolResult};
 use jinn_kernel::common::actor_deps::{ActorDeps, BusPublish};
 use jinn_mcp_msg::{McpConnectionStatus, McpServerLog, McpServerStatus};
 use jinn_preferences_config::schemas::mcp::{McpServerConfig, TransportKind};
+use jinn_tools_msg::dump::{DUMP_PREVIEW_BYTES, apply_dump, extract_dump_path};
 use jinn_tools_msg::truncation::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_tail};
 use jinn_tools_msg::{ExecuteTool, RegisterTools};
 use jinn_tools_msg::{ToolExecutionCompleted, ToolsUnregistered};
@@ -795,6 +797,7 @@ impl MsgHandler<ExecuteTool> for McpActor {
         let tool_call = msg.tool_call.clone();
         let max_output_lines = msg.max_output_lines;
         let max_output_bytes = msg.max_output_bytes;
+        let dump_path = extract_dump_path(&msg.tool_call.arguments);
 
         let arguments = match parse_arguments(&tool_call.arguments) {
             Ok(args) => args,
@@ -829,7 +832,7 @@ impl MsgHandler<ExecuteTool> for McpActor {
             .unwrap_or_default()
             .default_timeout_secs;
         let call = client.call_tool(&tool_name, arguments);
-        let result = if timeout_secs == 0 {
+        let mut result = if timeout_secs == 0 {
             let call_result = call.await;
             build_call_result(&tool_call, call_result, max_output_lines, max_output_bytes)
         } else {
@@ -854,6 +857,16 @@ impl MsgHandler<ExecuteTool> for McpActor {
                 }
             }
         };
+
+        // The reserved `dump_to_disk` intercept runs before the publish: a
+        // successful call carrying the argument has its original text written
+        // to the agent-chosen path and the in-context result stubbed. The
+        // cwd rides on the command from the orchestrator; without it the dump
+        // is skipped — degrade, never guess. A relative path resolves against
+        // the carried cwd, exactly as a builtin tool path would.
+        if let (Some(dump_path), Some(cwd)) = (&dump_path, msg.cwd.as_deref()) {
+            apply_dump(&mut result, dump_path, Path::new(cwd), DUMP_PREVIEW_BYTES);
+        }
 
         self.deps
             .publish(ToolExecutionCompleted {

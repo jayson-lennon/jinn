@@ -149,7 +149,10 @@ impl CitationsActor {
             .pending
             .remove(&result.tool_call_id)
             .unwrap_or_default();
-        citations.extend(detect::citations_from_result_content(&result.content));
+        // A dumped result carries only a pointer stub in `content`; the
+        // original — with the URLs — survives in `full_content`.
+        let source = result.full_content.as_ref().unwrap_or(&result.content);
+        citations.extend(detect::citations_from_result_content(source));
         self.record(session_id, citations);
     }
 
@@ -331,6 +334,32 @@ mod tests {
         assert_eq!(citation.url, "https://doc.rust-lang.org");
         assert_eq!(citation.title, "The Rust Book");
         assert_eq!(citation.content.as_deref(), Some("Learn Rust."));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn dumped_result_yields_citations_from_full_content() {
+        // Given a dumped web_search result: a pointer stub in content, the
+        // original JSON in full_content.
+        let session = SessionId::new();
+        let harness = TestHarness::new().await;
+        let recorder = harness.spawn_recorder::<CitationsReceived>().await;
+        let mut state = actor(&harness).await;
+        let mut dumped = result("c1", "[Tool result written to page.md (210B).]", true);
+        dumped.full_content = Some(
+            r#"{"search_id":"x","results":[{"url":"https://doc.rust-lang.org","title":"The Rust Book","publish_date":null,"excerpts":["Learn Rust."]}]}"#.to_owned(),
+        );
+
+        // When handling the dumped result and finishing the turn.
+        state.on_tool_result(&session, &dumped);
+        state
+            .on_turn_end(&session, StreamCompletedReason::Finished)
+            .await;
+
+        // Then the citation is extracted from the original, not the stub.
+        let flushed = await_recorded(&recorder, 1, Duration::from_secs(5)).await;
+        assert_eq!(flushed.len(), 1);
+        assert_eq!(flushed[0].citations[0].url, "https://doc.rust-lang.org");
     }
 
     #[rstest::rstest]
