@@ -26,6 +26,10 @@ pub struct SessionProfile {
     pub persona_name: String,
     /// Which tools this session may use.
     ///
+    /// **Frozen**: copied from `jinn.toml` at session creation and never
+    /// re-read — a live config edit does not move this filter, and the
+    /// tools picker is the live-session control.
+    ///
     /// Absent means no filter: a new session starts unrestricted and an
     /// older session's missing key leaves it so. A session saved before this
     /// key existed deserializes to `None` — and so an older session's
@@ -38,6 +42,10 @@ pub struct SessionProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_filter: Option<NameFilter>,
     /// Which skills this session may load.
+    ///
+    /// **Frozen**: copied from `jinn.toml` at session creation and never
+    /// re-read — a live config edit does not move this filter, and the
+    /// skills picker is the live-session control.
     ///
     /// Replaces the former `disabled_skills` set, with the same migration
     /// story as [`Self::tool_filter`].

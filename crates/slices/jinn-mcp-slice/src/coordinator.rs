@@ -41,6 +41,7 @@ use trouper::context::MsgCtx;
 use trouper::registry::RegistryError;
 
 use crate::connection::{McpActor, McpActorDeps, McpConnectionStateProbe, McpConnectionStateReply};
+use jinn_boot_msg::JinnTomlReloaded;
 use jinn_core_types::SessionId;
 use jinn_kernel::Services;
 use jinn_kernel::common::actor_deps::{ActorDeps, BusPublish};
@@ -54,6 +55,8 @@ use jinn_session_lifecycle_msg::SessionTeardownFinished;
 use jinn_session_msg::SessionArchived;
 use jinn_session_msg::SessionClosed;
 use jinn_session_store_msg::SessionLoadCompleted;
+use jinn_slices::NoteTone;
+use jinn_slices::ServiceStatusUpdate;
 use jinn_slices::TypedCell;
 
 /// Key into the spawned-actor map: one `McpActor` per (session × server).
@@ -86,6 +89,17 @@ pub struct McpCoordinatorActor {
     /// would put it in the path every teardown handler sweeps — exactly the
     /// coupling the flag exists to break.
     singleton_spawned: Mutex<HashMap<String, ActorPath>>,
+    /// The entry hash each running server was spawned under, keyed by
+    /// server name.
+    ///
+    /// Seeded when a spawn lands; compared on a
+    /// [`JinnTomlReloaded`]. A changed hash is an edited entry and
+    /// triggers that server's auto-restart. The row describes *what the
+    /// running process was started with*, so it outlives the entry
+    /// vanishing from the config (a deleted entry leaves the connection,
+    /// and an identical re-add is not an edit) and dies with the last
+    /// actor for that server (dropped in [`Self::kill_one`]).
+    entry_hashes: Mutex<HashMap<String, u64>>,
 }
 
 /// Dependencies for [`McpCoordinatorActor`].
@@ -134,6 +148,7 @@ impl McpCoordinatorActor {
                             runtime: deps.runtime,
                             spawned: Mutex::new(HashMap::new()),
                             singleton_spawned: Mutex::new(HashMap::new()),
+                            entry_hashes: Mutex::new(HashMap::new()),
                         })
                     })
                 }
@@ -146,6 +161,9 @@ impl McpCoordinatorActor {
             .handles::<SessionTeardownFinished>()
             .handles::<RestartMcpServer>()
             .handles::<McpServerStatus>()
+            // Live config: a jinn.toml reload reconciles every session
+            // against the re-read `[mcp.server.<name>]` entries.
+            .handles::<JinnTomlReloaded>()
             .handles::<McpServerLog>()
             // Restart-ask replies leave the handler through ctx.reply; the
             // flush gate drops any outbound type not declared here.
@@ -169,6 +187,36 @@ impl McpCoordinatorActor {
 impl BusPublish for McpCoordinatorActor {
     fn bus(&self) -> &BusService {
         &self.deps.services.bus
+    }
+}
+
+impl McpCoordinatorActor {
+    /// The content hash of one server's configured entry.
+    fn entry_hash(config: &McpServerConfig) -> u64 {
+        use std::hash::Hasher;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(config, &mut hasher);
+        hasher.finish()
+    }
+
+    /// Records the entry hash a spawn ran under.
+    fn record_entry_hash(&self, name: &str, config: &McpServerConfig) {
+        self.entry_hashes
+            .lock()
+            .insert(name.to_owned(), Self::entry_hash(config));
+    }
+
+    /// Drops the entry hash of a server whose last actor just stopped —
+    /// the row describes what the process ran under, so with no process
+    /// there is nothing to compare.
+    fn forget_entry_hash(&self, name: &str) {
+        self.entry_hashes.lock().remove(name);
+    }
+
+    /// Whether any actor for `server` is still tracked.
+    fn has_running_actor(&self, server: &str) -> bool {
+        self.spawned.lock().keys().any(|(_, name)| name == server)
+            || self.singleton_spawned.lock().contains_key(server)
     }
 }
 
@@ -306,6 +354,7 @@ impl McpCoordinatorActor {
         self.singleton_spawned
             .lock()
             .insert(name.to_owned(), path.clone());
+        self.record_entry_hash(name, config);
         tracing::info!(server = %name, "MCP lifecycle: spawned singleton McpActor");
         Some(path)
     }
@@ -341,6 +390,7 @@ impl McpCoordinatorActor {
         .await;
 
         self.spawned.lock().insert(key, path.clone());
+        self.record_entry_hash(name, config);
         tracing::info!(
             server = %name,
             %session_id,
@@ -356,6 +406,12 @@ impl McpCoordinatorActor {
     async fn kill_one(&self, key: &SpawnKey) {
         let path = self.spawned.lock().remove(key);
         if let Some(path) = path {
+            // With this actor gone, maybe no actor for the server is left:
+            // the entry-hash row describes what the (now possibly absent)
+            // process ran under, so it goes with the last one.
+            if !self.has_running_actor(&key.1) {
+                self.forget_entry_hash(&key.1);
+            }
             self.system.stop(&path).await;
             tracing::info!(
                 server = %key.1,
@@ -510,6 +566,134 @@ impl MsgHandler<McpEnablementChanged> for McpCoordinatorActor {
     }
 }
 
+// A jinn.toml reload re-reads `[mcp.server.<name>]` at the point of use
+// (reconcile's first line), so every live session reconciles against the
+// new entries: added servers spawn on the next reconcile pass, removed
+// servers are killed. Enablement per session is untouched — a reload
+// changes what *can* run, not what the user chose to run. No config
+// write happens here: writing would re-trigger the config watcher.
+//
+// An *edited* entry (command, url, transport — anything the entry hash
+// covers) does more: the running server restarts so the change applies
+// without a session cycle. A *deleted* entry never kills a working
+// connection — it runs until session end, and new sessions simply don't
+// have it. A failed restart logs once and leaves the respawned process
+// (which may be unconnected) in place; nothing retries.
+impl MsgHandler<JinnTomlReloaded> for McpCoordinatorActor {
+    async fn handle(&mut self, _msg: &JinnTomlReloaded, _ctx: &mut MsgCtx<'_>) {
+        // Given a live config file whose MCP section just changed.
+        let desired_by_session: Vec<(SessionId, BTreeSet<String>)> = self
+            .state
+            .read()
+            .session
+            .iter()
+            .map(|(id, session)| (id.clone(), session.enabled_mcp_servers().clone()))
+            .collect();
+
+        // When reconciling every live session (diff-based, so a session
+        // whose enablement is unchanged under the new config is a no-op).
+        for (session_id, enabled) in &desired_by_session {
+            self.reconcile(session_id, enabled).await;
+        }
+
+        // Then restart the running servers whose entry changed, and
+        // summarize on the dashboard row.
+        let configs = configured_servers(&self.deps.services);
+        let stale: Vec<(String, SessionId)> = {
+            let hashes = self.entry_hashes.lock();
+            let per_session = self.spawned.lock();
+            let singleton = self.singleton_spawned.lock();
+            let mut stale = Vec::new();
+            for (session_id, server) in per_session.keys() {
+                let Some(config) = configs.iter().find(|(n, _)| n == server) else {
+                    // Deleted entry: the connection stays until session
+                    // end. The hash row stays too — it describes what the
+                    // running process was started with, so an identical
+                    // re-add later is still not an edit.
+                    continue;
+                };
+                let recorded = hashes.get(server);
+                let fresh = Self::entry_hash(&config.1);
+                if recorded != Some(&fresh) {
+                    stale.push((server.clone(), session_id.clone()));
+                }
+            }
+            for server in singleton.keys() {
+                let Some(config) = configs.iter().find(|(n, _)| n == server) else {
+                    // Deleted singleton entry: same stance as per-session.
+                    continue;
+                };
+                let recorded = hashes.get(server);
+                let fresh = Self::entry_hash(&config.1);
+                if recorded != Some(&fresh) && !stale.iter().any(|(s, _)| s == server) {
+                    // One synthetic row stands in for the shared actor's
+                    // single restart (the session id is never used for a
+                    // singleton — the restart routes to the singleton
+                    // namespace).
+                    stale.push((server.clone(), SessionId::new()));
+                }
+            }
+            stale
+        };
+        if stale.is_empty() {
+            return;
+        }
+
+        let mut restarted: Vec<String> = Vec::new();
+        let mut failed: Vec<String> = Vec::new();
+        for (server, session_id) in &stale {
+            match self.restart_one(session_id, server).await {
+                Ok(()) => {
+                    restarted.push(server.clone());
+                    // `restart_one` respawned through `spawn_one`/
+                    // `spawn_singleton_if_absent`, which re-recorded the
+                    // fresh hash. Drop a stale row only if the respawn's
+                    // own record missed (defensive; the guards make it
+                    // unreachable in practice).
+                    let configs_now = configured_servers(&self.deps.services);
+                    if let Some((_, config)) = configs_now.iter().find(|(n, _)| n == server) {
+                        self.record_entry_hash(server, config);
+                    } else {
+                        self.forget_entry_hash(server);
+                    }
+                }
+                Err(error) => {
+                    failed.push(server.clone());
+                    tracing::warn!(
+                        server = %server,
+                        error = ?error,
+                        "MCP lifecycle: auto-restart after a config edit failed; \
+                         leaving the respawned process in place, no retry"
+                    );
+                }
+            }
+        }
+
+        let (note, tone) = if !failed.is_empty() {
+            (
+                format!(
+                    "config reload: restarted {}; restart failed for {} (kept running)",
+                    restarted.join(", "),
+                    failed.join(", ")
+                ),
+                NoteTone::Error,
+            )
+        } else {
+            (
+                format!("config reload: restarted {}", restarted.join(", ")),
+                NoteTone::Muted,
+            )
+        };
+        self.publish(ServiceStatusUpdate {
+            name: MCP_COORDINATOR_PATH.to_owned(),
+            description: None,
+            status_message: Some(note),
+            note_tone: Some(tone),
+        })
+        .await;
+    }
+}
+
 impl MsgHandler<SessionClosed> for McpCoordinatorActor {
     async fn handle(&mut self, msg: &SessionClosed, _ctx: &mut MsgCtx<'_>) {
         self.kill_all_for_session(&msg.session_id).await;
@@ -643,6 +827,8 @@ mod lifecycle_tests {
         reason = "test code"
     )]
 
+    use super::JinnTomlReloaded;
+    use super::ServiceStatusUpdate;
     use std::collections::BTreeSet;
 
     use jinn_core_types::SessionId;
@@ -1174,6 +1360,275 @@ mod lifecycle_tests {
             starting_count >= 2,
             "shrink-to-empty must kill the leftover actor so re-enable respawns; \
              expected >=2 Starting events, got {starting_count}: {events:?}"
+        );
+    }
+
+    // ── The reload auto-restart (entry-hash diff) ────────────────────────
+
+    /// Spawns the coordinator and enables `server` for a fresh session so
+    /// its entry hash is seeded by the spawn. Returns the harness, the
+    /// services (for config writes and inbox drains), the state, the
+    /// session id, the actor path, and the two pre-spawned recorders —
+    /// a `McpServerStatus` tap and a `ServiceStatusUpdate` tap, both live
+    /// before any publish so the baseline spawn and any reload note land
+    /// in them.
+    #[allow(clippy::type_complexity, reason = "test fixture tuple")]
+    async fn spawned_server_fixture(
+        servers: &[(&str, McpServerConfig)],
+        server: &str,
+    ) -> (
+        TestHarness,
+        jinn_kernel::Services,
+        jinn_kernel::common::state::State,
+        SessionId,
+        trouper::actor::ActorPath,
+        jinn_testutil::bus_harness::Recorder<McpServerStatus>,
+        jinn_testutil::bus_harness::Recorder<ServiceStatusUpdate>,
+    ) {
+        let harness = TestHarness::new().await;
+        let recorder = harness.spawn_recorder::<McpServerStatus>().await;
+        let notes = harness.spawn_recorder::<ServiceStatusUpdate>().await;
+        let (actor, services, state) = spawn_lifecycle(&harness, servers).await;
+        let session_id = insert_session_with_enablement(&state, &single_enabled(server));
+        harness
+            .publish(McpEnablementChanged {
+                session_id: session_id.clone(),
+                enabled: single_enabled(server),
+            })
+            .await;
+        // The status stream quiescing proves the baseline spawn landed (its
+        // hash seeded) before the reload under test arrives.
+        jinn_testutil::wait::await_settled(
+            &recorder,
+            std::time::Duration::from_millis(150),
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+        (harness, services, state, session_id, actor, recorder, notes)
+    }
+
+    /// An unrunnable server whose entry differs from
+    /// [`unrunnable_server`] only in its args — an entry *edit* by hash.
+    fn edited_unrunnable_server() -> McpServerConfig {
+        McpServerConfig {
+            command: Some("/this/command/does/not/exist".to_owned()),
+            args: vec!["--changed".to_owned()],
+            ..Default::default()
+        }
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_reload_restarts_a_running_server_whose_entry_changed() {
+        // Given a running actor for an enabled server, its entry hash seeded
+        // (a first Starting status from the baseline spawn, in the recorder).
+        let (harness, services, _state, _session_id, actor, recorder, _notes) =
+            spawned_server_fixture(&[("unrunnable", unrunnable_server())], "unrunnable").await;
+        let baseline = recorder.drain();
+        let baseline_starts = baseline
+            .iter()
+            .filter(|event| event.status == McpConnectionStatus::Starting)
+            .count();
+        assert!(
+            baseline_starts >= 1,
+            "the baseline spawn must have published a Starting status, got {baseline:?}"
+        );
+
+        // When the config edit changes that server's entry and the reload lands.
+        services
+            .config
+            .put::<McpServersConfig>(&McpServersConfig(
+                [("unrunnable".to_owned(), edited_unrunnable_server())].into(),
+            ))
+            .expect("write the edited entry");
+        harness.publish(JinnTomlReloaded).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &services.trouper_system,
+            &actor,
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+
+        // Then a second spawn happened: the hash diff caught the edit and
+        // restart_one ran — the respawned actor publishes its own Starting.
+        // The baseline was drained above, so any Starting in this batch
+        // arrived after the reload.
+        let all = jinn_testutil::wait::await_settled_messages(
+            &recorder,
+            std::time::Duration::from_millis(150),
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+        let starts = all
+            .iter()
+            .filter(|event| event.status == McpConnectionStatus::Starting)
+            .count();
+        assert!(
+            starts >= 1,
+            "the reload must have respawned the edited server; \
+             expected a fresh Starting after the baseline drain, got {all:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_failed_auto_restart_notes_once_with_the_error_tone() {
+        // Given a running actor for the unrunnable server: the restart's
+        // connect probe fails fast (the command does not exist), so the
+        // auto-restart below takes the failure path.
+        let (harness, services, _state, _session_id, actor, _recorder, notes) =
+            spawned_server_fixture(&[("unrunnable", unrunnable_server())], "unrunnable").await;
+
+        // When the entry is edited and the reload lands.
+        services
+            .config
+            .put::<McpServersConfig>(&McpServersConfig(
+                [("unrunnable".to_owned(), edited_unrunnable_server())].into(),
+            ))
+            .expect("write the edited entry");
+        harness.publish(JinnTomlReloaded).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &services.trouper_system,
+            &actor,
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+
+        // Then the failure surfaced exactly once, Error-toned, naming the
+        // server and saying the process was kept running.
+        jinn_testutil::wait::await_settled(
+            &notes,
+            std::time::Duration::from_millis(150),
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+        let all = notes.drain();
+        let failures: Vec<&ServiceStatusUpdate> = all
+            .iter()
+            .filter(|note| {
+                note.status_message
+                    .as_deref()
+                    .is_some_and(|m| m.contains("restart failed"))
+            })
+            .collect();
+        assert_eq!(
+            failures.len(),
+            1,
+            "a failed auto-restart notes exactly once; got {all:?}"
+        );
+        let note = failures[0];
+        assert_eq!(
+            note.note_tone,
+            Some(jinn_slices::NoteTone::Error),
+            "the failure note is Error-toned"
+        );
+        assert!(
+            note.status_message
+                .as_deref()
+                .is_some_and(|m| m.contains("unrunnable") && m.contains("kept running")),
+            "the note names the server and says it kept running: {:?}",
+            note.status_message
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_reload_does_not_restart_an_unchanged_server() {
+        // Given a running actor for an enabled server, its entry hash seeded.
+        let (harness, services, _state, _session_id, actor, _recorder, notes) =
+            spawned_server_fixture(&[("unrunnable", unrunnable_server())], "unrunnable").await;
+
+        // When a reload lands with the config byte-identical for that entry.
+        services
+            .config
+            .put::<McpServersConfig>(&McpServersConfig(
+                [("unrunnable".to_owned(), unrunnable_server())].into(),
+            ))
+            .expect("rewrite the same entry");
+        harness.publish(JinnTomlReloaded).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &services.trouper_system,
+            &actor,
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+
+        // Then nothing is noted: the hash short-circuit held, and the
+        // absence is observed over a settled window, not a race.
+        jinn_testutil::wait::await_settled(
+            &notes,
+            std::time::Duration::from_millis(150),
+            std::time::Duration::from_secs(2),
+        )
+        .await;
+        assert!(
+            notes.is_empty(),
+            "an unchanged entry must not restart or note, got {:?}",
+            notes.drain()
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_reload_leaves_a_running_server_whose_entry_was_deleted() {
+        // Given a running actor for an enabled server, its entry hash seeded.
+        let (harness, services, _state, _session_id, actor, _recorder, notes) =
+            spawned_server_fixture(&[("unrunnable", unrunnable_server())], "unrunnable").await;
+
+        // When the entry is deleted from the config and the reload lands.
+        services
+            .config
+            .put::<McpServersConfig>(&McpServersConfig(Default::default()))
+            .expect("delete the entry");
+        harness.publish(JinnTomlReloaded).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &services.trouper_system,
+            &actor,
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+
+        // Then the connection is untouched: no restart note over a settled
+        // window.
+        jinn_testutil::wait::await_settled(
+            &notes,
+            std::time::Duration::from_millis(150),
+            std::time::Duration::from_secs(2),
+        )
+        .await;
+        assert!(
+            notes.is_empty(),
+            "a deleted entry must not kill the running connection, got {:?}",
+            notes.drain()
+        );
+
+        // And the deleted-entry hash row was kept: re-adding the identical
+        // entry and reloading must not count it as an edit (the row
+        // describes what the running process was started with, and that
+        // process never stopped).
+        services
+            .config
+            .put::<McpServersConfig>(&McpServersConfig(
+                [("unrunnable".to_owned(), unrunnable_server())].into(),
+            ))
+            .expect("re-add the entry");
+        harness.publish(JinnTomlReloaded).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &services.trouper_system,
+            &actor,
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+        jinn_testutil::wait::await_settled(
+            &notes,
+            std::time::Duration::from_millis(150),
+            std::time::Duration::from_secs(2),
+        )
+        .await;
+        assert!(
+            notes.is_empty(),
+            "a re-added identical entry must not count as an edit, got {:?}",
+            notes.drain()
         );
     }
 }

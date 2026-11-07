@@ -22,7 +22,7 @@
 //! the writes loop through the preferences-config storage boundary on a
 //! blocking worker (a key handler must not stat a disk), and only when
 //! every write landed does the actor publish
-//! [`jinn_stream_rules_msg::RefreshStreamRuleMatcher`] — the stream-rules
+//! [`jinn_stream_rules_msg::StreamRulesReloaded`] — the stream-rules
 //! slice's matcher actor answers it by recompiling the rules and
 //! reinstalling the live matcher, so the confirmed set reaches the next
 //! stream without a restart. A failed write pushes an `Error` chat entry

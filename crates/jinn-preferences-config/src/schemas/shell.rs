@@ -15,6 +15,13 @@ use serde::{Deserialize, Serialize};
 
 /// The `[shell]` section of `jinn.toml`.
 ///
+/// # Behavior: Event-Dependent.
+///
+/// The resolved shells are an artifact: resolved at launch, and a bus
+/// handler re-resolves and swaps them whole when the reload event lands.
+/// A resolution that fails keeps the previous one — a running jinn never
+/// loses a working shell to one bad edit.
+///
 /// Serialized as `[shell]`. Both fields are optional: an absent section
 /// reads as both-absent, which leaves every executable to jinn's
 /// detection.

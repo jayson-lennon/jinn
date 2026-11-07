@@ -25,6 +25,12 @@ impl SessionSeed {
     /// Derives a new-session seed by reading three sections from the
     /// configuration layer.
     ///
+    /// The three reads stamp **Frozen** values: tool filter, skill
+    /// filter, and MCP enablement are copied into the session profile
+    /// here, at creation, and no reload event re-seeds a live session —
+    /// the corresponding pickers are those controls. A session created
+    /// after an edit carries the new values.
+    ///
     /// Three reads rather than one aggregate read: the seed's inputs are
     /// owned by three different slices, and a kernel-side struct
     /// collecting them is what this work is removing.

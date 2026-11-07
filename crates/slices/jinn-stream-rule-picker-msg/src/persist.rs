@@ -30,8 +30,8 @@ pub struct StreamRuleDisabledChange {
 /// Published by the picker's confirm. Handled by the picker slice's
 /// persist actor, which loops the changes through the config layer's
 /// comment-preserving storage boundary on a blocking worker and, on
-/// success, publishes `RefreshStreamRuleMatcher` (the stream-rules
-/// contract's command) — the matcher rebuild follows the write, never
+/// success, publishes `StreamRulesReloaded` (the stream-rules
+/// contract's event) — the matcher rebuild follows the write, never
 /// races it.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, trouper::schema::Command)]
 #[schema(description = "Persist the stream-rule picker's disabled set, then refresh the matcher.")]

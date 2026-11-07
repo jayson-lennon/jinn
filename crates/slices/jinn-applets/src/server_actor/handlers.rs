@@ -28,8 +28,9 @@ pub(crate) async fn handle_ensure_serving(
 ) {
     if let Some(state) = actor.serving.as_ref() {
         // Already serving: the resolved bind is the answer. The
-        // apps_root argument is advisory — the server never re-targets,
-        // by contract (one bind per process).
+        // apps_root argument is advisory — the server never re-targets
+        // through this path (a bind change goes through the reload
+        // handler's rebind instead).
         ctx.reply(EnsureServingOutcome::serving(state.bind));
         return;
     }
@@ -49,8 +50,8 @@ pub(crate) async fn handle_ensure_serving(
 
     // Port 0 asks the OS here, at the first open, so the URL an opener
     // builds is the truth.
-    let listener = match tokio::net::TcpListener::bind(actor.bind).await {
-        Ok(listener) => listener,
+    let (listener, resolved) = match bind_listener(actor.bind).await {
+        Ok(established) => established,
         Err(e) => {
             ctx.reply(EnsureServingOutcome::refused(format!(
                 "failed to bind {}: {e}",
@@ -59,30 +60,49 @@ pub(crate) async fn handle_ensure_serving(
             return;
         }
     };
-    let resolved: SocketAddr = match listener.local_addr() {
-        Ok(resolved) => resolved,
-        Err(e) => {
-            ctx.reply(EnsureServingOutcome::refused(format!(
-                "bound {} but the OS-assigned port was unreadable: {e}",
-                actor.bind
-            )));
-            return;
-        }
-    };
 
-    let shared = crate::server_actor::shared_for(root);
+    actor.serving = Some(serve(listener, &root, resolved));
+    ctx.reply(EnsureServingOutcome::serving(resolved));
+}
 
-    // The task is detached deliberately: it lives as long as the
-    // process, which is the server-lifetime contract (jinn exits →
-    // listener closes). Dropping the JoinHandle detaches, not aborts.
-    tokio::spawn(async move {
+/// Binds a listener at `bind`, resolving the OS-assigned port.
+///
+/// # Errors
+///
+/// Returns the bind or local-address failure sentence.
+pub(crate) async fn bind_listener(
+    bind: SocketAddr,
+) -> Result<(tokio::net::TcpListener, SocketAddr), String> {
+    let listener = tokio::net::TcpListener::bind(bind)
+        .await
+        .map_err(|e| format!("{e}"))?;
+    let resolved: SocketAddr = listener
+        .local_addr()
+        .map_err(|e| format!("bound {bind} but the OS-assigned port was unreadable: {e}"))?;
+    Ok((listener, resolved))
+}
+
+/// Starts the serve task for `listener` over `root`, held on the
+/// returned state.
+///
+/// The task lives until the state is dropped (jinn exits → listener
+/// closes); a rebind aborts it explicitly so the old port frees — a
+/// dropped listener alone does not end an axum serve task.
+pub(crate) fn serve(
+    listener: tokio::net::TcpListener,
+    root: &MarkedPathBuf<Absolute>,
+    resolved: SocketAddr,
+) -> ServingState {
+    let shared = crate::server_actor::shared_for(root.clone());
+    let serve_task = tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, crate::server::router_arc(shared)).await {
             tracing::error!("applets server task failed: {e}");
         }
     });
-
-    actor.serving = Some(ServingState { bind: resolved });
-    ctx.reply(EnsureServingOutcome::serving(resolved));
+    ServingState {
+        bind: resolved,
+        serve_task,
+    }
 }
 
 /// Canonicalizes `path` into the typed, classic-spelled form every

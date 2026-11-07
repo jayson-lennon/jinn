@@ -6,6 +6,7 @@ edition.workspace = true
 jinn-core-types = { workspace = true }
 jinn-slices = { workspace = true }
 serde = { workspace = true }
+trouper = { workspace = true }
 jinn-theme = { workspace = true, features = ["entry"] }
 jinn-selection-widget = { workspace = true }
 jinn-picker = { workspace = true }

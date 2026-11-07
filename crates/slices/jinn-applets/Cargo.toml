@@ -15,6 +15,8 @@ jinn-preferences-config = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-applets-msg = { workspace = true }
 jinn-config = { workspace = true }
+# The live-reload trigger: a jinn.toml change re-reads [applets] bind.
+jinn-boot-msg = { workspace = true }
 jinn-picker = { workspace = true }
 jinn-selection-widget = { workspace = true }
 jinn-theme = { workspace = true }

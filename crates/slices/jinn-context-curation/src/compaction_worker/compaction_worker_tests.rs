@@ -1914,3 +1914,112 @@ fn clearing_session_b_does_not_clear_session_a() {
         "session A pending ID NOT cleared by session B"
     );
 }
+
+// P16: the compaction prompt loads at the point of use — an edited
+// `_compaction.md` applies to the next compaction, and a deleted one
+// falls back to the last good prompt instead of compacting empty.
+#[rstest::rstest]
+#[test]
+fn an_edited_compaction_prompt_file_applies_to_the_next_compaction() {
+    use marked_path::MarkedPathAccess as _;
+
+    // Given a worker over a prompts dir holding `_compaction.md`, with a
+    // launch-time prompt of "launch".
+    let factory = FakeLlmServiceFactory::new(vec![FAKE_SUMMARY.to_owned()]);
+    let services = TestServices::builder()
+        .llm_service(LlmServiceFactoryService::new(Arc::new(factory.clone())))
+        .build();
+    let prompts_dir = services.paths.prompts_dir();
+    std::fs::create_dir_all(prompts_dir.as_path()).expect("prompts dir materializes");
+    std::fs::write(
+        prompts_dir
+            .as_marked_path()
+            .join("_compaction.md")
+            .expect("name join keeps the base absolute")
+            .as_path(),
+        "EDITED-PROMPT",
+    )
+    .expect("prompt file written");
+    let handle = services.handle.clone();
+    let worker = CompactionWorker::new(
+        services,
+        handle,
+        State::new(AppState::default_with_scope_focus()),
+        "LAUNCH-PROMPT".to_owned(),
+    );
+    let history = alternating_history(20);
+    let config = small_reserve_config();
+
+    // When a compaction runs (the evaluate path takes the prompt at the
+    // point of use).
+    let rt = tokio::runtime::Runtime::new().expect("test runtime");
+    rt.block_on(async {
+        worker
+            .evaluate_with_config(
+                &history,
+                &config,
+                "test-model",
+                &worker.current_prompt(),
+                &RetryConfig::default(),
+                false,
+                ChatEntryId::new(),
+            )
+            .await
+            .expect("evaluate_with_config should succeed");
+    });
+
+    // Then the LLM saw the edited file's content, not the launch prompt.
+    let prompts = factory.received_system_prompts();
+    assert_eq!(prompts.len(), 1, "one LLM call expected");
+    assert_eq!(prompts[0].as_deref(), Some("EDITED-PROMPT"));
+}
+
+#[rstest::rstest]
+#[test]
+fn a_deleted_compaction_prompt_file_falls_back_to_the_last_good_prompt() {
+    use marked_path::MarkedPathAccess as _;
+
+    // Given a worker over a prompts dir with NO `_compaction.md`, whose
+    // launch-time prompt is the last good one.
+    let factory = FakeLlmServiceFactory::new(vec![FAKE_SUMMARY.to_owned()]);
+    let services = TestServices::builder()
+        .llm_service(LlmServiceFactoryService::new(Arc::new(factory.clone())))
+        .build();
+    let prompts_dir = services.paths.prompts_dir();
+    std::fs::create_dir_all(prompts_dir.as_path()).expect("prompts dir materializes");
+    let handle = services.handle.clone();
+    let worker = CompactionWorker::new(
+        services,
+        handle,
+        State::new(AppState::default_with_scope_focus()),
+        "LAST-GOOD-PROMPT".to_owned(),
+    );
+    let history = alternating_history(20);
+    let config = small_reserve_config();
+
+    // When a compaction runs against the missing file.
+    let rt = tokio::runtime::Runtime::new().expect("test runtime");
+    rt.block_on(async {
+        worker
+            .evaluate_with_config(
+                &history,
+                &config,
+                "test-model",
+                &worker.current_prompt(),
+                &RetryConfig::default(),
+                false,
+                ChatEntryId::new(),
+            )
+            .await
+            .expect("evaluate_with_config should succeed");
+    });
+
+    // Then the LLM saw the last good prompt, not an empty one.
+    let prompts = factory.received_system_prompts();
+    assert_eq!(prompts.len(), 1, "one LLM call expected");
+    assert_eq!(
+        prompts[0].as_deref(),
+        Some("LAST-GOOD-PROMPT"),
+        "the missing file must not silently compact with an empty prompt"
+    );
+}

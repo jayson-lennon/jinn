@@ -11,6 +11,10 @@ const DEFAULT_WAITS_SECS: &[u64] = &[10, 30, 60];
 
 /// Provider-error-watchdog configuration.
 ///
+/// # Behavior: Snapshot Read.
+///
+/// Re-read at each retry decision, so an edit applies at the next retry.
+///
 /// Serialized as `[provider_error_watchdog]` in `jinn.toml`. When a
 /// provider stream fails with a retryable error, the watchdog waits
 /// `waits_secs[attempt]` seconds and re-dispatches; a failure past the

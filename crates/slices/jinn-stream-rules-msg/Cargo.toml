@@ -2,7 +2,7 @@
 name = "jinn-stream-rules-msg"
 version.workspace = true
 edition.workspace = true
-description = "Stream-rules crossing contracts: the matcher-refresh command the picker publishes."
+description = "Stream-rules crossing contracts: the matcher-reload event the picker and the config-watch slice publish."
 
 [dependencies]
 jinn-slices = { workspace = true }

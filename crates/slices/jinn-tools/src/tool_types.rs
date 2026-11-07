@@ -118,13 +118,14 @@ pub struct ToolContext {
     /// The live configuration layer, so a tool reads `jinn.toml` at the
     /// point of use rather than through a value baked at registration.
     pub config: jinn_config::ConfigLayer,
-    /// The shells jinn runs commands through, resolved once at launch.
+    /// The shells jinn runs commands through.
     ///
-    /// A tool that spawns a shell reads it from here rather than
-    /// resolving one itself: the environment is probed at startup, and a
-    /// tool that re-probed it would consult the environment outside
-    /// program initialization.
-    pub shells: jinn_common::shell::Shells,
+    /// A tool that spawns a shell reads the current resolution from
+    /// here rather than resolving one itself: the environment is probed
+    /// at startup, and a tool that re-probed it would consult the
+    /// environment outside program initialization. A live `jinn.toml`
+    /// reload swaps the value under this handle.
+    pub shells: jinn_common::shell::ShellsService,
     /// Session ID (only available for tools that need it).
     pub session_id: Option<SessionId>,
     /// Application filesystem paths (for tools that need filesystem access).

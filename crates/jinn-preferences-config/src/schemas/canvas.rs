@@ -28,6 +28,11 @@ fn default_bind() -> String {
 
 /// `[canvas]` preferences.
 ///
+/// # Behavior: Event-Dependent.
+///
+/// The canvas server owns the bound socket; a bus handler rebinds it
+/// when the reload event lands.
+///
 /// Serialized as `[canvas]` in `jinn.toml`. The single field is the
 /// socket the canvas server binds; there is deliberately no separate
 /// port key — the address carries the port.

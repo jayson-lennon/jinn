@@ -437,6 +437,85 @@ async fn start_stream_emits_stream_completed_with_tokens() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn an_in_flight_stream_finishes_on_its_own_factory_through_a_registry_reload() {
+    // Given an actor whose registry resolves "sample" to a streaming
+    // provider, with a stream already in flight for that provider.
+    let harness = TestHarness::new().await;
+    let mut services = crate::inference_actor::test_services_with_bus(harness.bus()).await;
+    let config = jinn_provider_config::ProvidersConfig {
+        providers: std::collections::BTreeMap::from([(
+            "sample".to_owned(),
+            jinn_provider_config::ProviderEntry {
+                backend: "sample".to_owned(),
+                models: vec!["m".to_owned()],
+                base_url: None,
+                api_key_env: None,
+                requires_key: false,
+                extra_body: None,
+                context_length: None,
+                model_info: Vec::new(),
+            },
+        )]),
+        aliases: vec![],
+        default_provider: None,
+        endpoint_defaults: vec![],
+    };
+    services.provider_registry = jinn_provider_config::ProviderRegistryService::new(
+        jinn_provider_config::ProviderRegistry::from_config(config.clone())
+            .expect("sample config builds"),
+    );
+    let mut actor = test_llm_actor_with_services(services);
+
+    let recorder_completed = harness.spawn_recorder::<StreamCompleted>().await;
+    let session_id = SessionId::new();
+    let payload = SendToLlmProvider {
+        model_used: None,
+        reasoning_effort: None,
+        endpoint_tag: None,
+        session_id: session_id.clone(),
+        messages: vec![],
+        system_prompt: SystemPrompt::default(),
+        tool_definitions: vec![],
+        provider_id: Some("sample/m".to_owned()),
+        estimated_tokens: 0,
+        origin: StreamOrigin::User,
+        dispatched_at: jiff::Timestamp::now(),
+        turn: jinn_core_types::turn_identity::TurnToken::from_counter(107),
+        stream: jinn_core_types::turn_identity::StreamId::from_counter(107),
+    };
+    actor.start_stream(&payload).await;
+    // Let the spawned stream task reach its service build first: the
+    // claim under test is "a *started* stream survives the reload", so
+    // the swap must land after the task created its service.
+    tokio::task::yield_now().await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // When the registry is replaced mid-flight (the reload path) with one
+    // that no longer lists the provider.
+    let empty = jinn_provider_config::ProvidersConfig {
+        providers: std::collections::BTreeMap::new(),
+        aliases: vec![],
+        default_provider: None,
+        endpoint_defaults: vec![],
+    };
+    actor.services.provider_registry.replace(
+        jinn_provider_config::ProviderRegistry::from_config(empty).expect("empty config builds"),
+    );
+
+    // Then the in-flight stream still completes on the factory it
+    // already holds.
+    let completed = await_recorded(&recorder_completed, 1, std::time::Duration::from_secs(5)).await;
+    let reasons: Vec<_> = completed.iter().map(|sc| sc.reason).collect();
+    assert!(
+        completed
+            .iter()
+            .any(|sc| sc.reason == StreamCompletedReason::Finished),
+        "the stream running on its own factory finishes despite the reload; got {reasons:?}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn start_stream_aborts_existing_stream_for_same_session() {
     // Given an LLM actor with an existing stream for a session.
     let mut actor = test_llm_actor_standalone().await;

@@ -14,6 +14,7 @@
 //! comments, key order, sibling sections, and any table this layer does
 //! not model.
 
+use marked_path::MarkedPathAccess as _;
 use marked_path::{Absolute, MarkedPathBuf};
 use std::sync::Arc;
 
@@ -127,6 +128,28 @@ pub trait ConfigDocumentStorage: Send + Sync + 'static {
     /// [`ConfigError::Malformed`] when the bytes are not valid TOML.
     fn read(&self) -> Result<DocumentMut, Report<ConfigError>>;
 
+    /// Reads the document, requiring it to exist.
+    ///
+    /// The live-reload path uses this: a document that vanished since
+    /// launch is a refusal, not a reset to defaults. [`Self::read`]
+    /// treats a missing file as a fresh install, which is the right
+    /// contract at launch — there is nothing to preserve — and the
+    /// wrong one at reload, where dropping the snapshot would silently
+    /// revert the running program's configuration.
+    ///
+    /// The default delegates to [`Self::read`], which suits the
+    /// in-memory backends whose document is always present; the
+    /// filesystem backend overrides it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError::Storage`] when the document does not
+    /// exist or cannot be read, and [`ConfigError::Malformed`] when
+    /// the bytes are not valid TOML.
+    fn read_existing(&self) -> Result<DocumentMut, Report<ConfigError>> {
+        self.read()
+    }
+
     /// Persists the document.
     ///
     /// # Errors
@@ -193,6 +216,19 @@ impl ConfigDocumentStorage for FilesystemConfigStorage {
             .change_context(ConfigError::Malformed {
                 detail: format!("{} is not valid TOML", self.path),
             })
+    }
+
+    fn read_existing(&self) -> Result<DocumentMut, Report<ConfigError>> {
+        // Missing at reload time is a refusal: whatever removed the file
+        // (a sync client mid-flight, an rm) must not cost the running
+        // program its configuration. The empty-document default belongs
+        // to the launch path only.
+        if !self.path.as_path().exists() {
+            return Err(Report::new(ConfigError::Storage {
+                detail: format!("{} is gone; refusing to reload to defaults", self.path),
+            }));
+        }
+        self.read()
     }
 
     fn write(&self, doc: &DocumentMut) -> Result<(), Report<ConfigError>> {
@@ -595,11 +631,40 @@ impl ConfigLayer {
     pub fn validate(&self) -> Result<(), ConfigSectionError> {
         let doc = self.inner.doc.read().clone();
         let registry = self.inner.registry.read().clone();
-        for section in &registry {
-            if let Some(table) = section_table(&doc, section.key)? {
-                (section.check)(&table)?;
-            }
-        }
+        validate_document(&doc, &registry)
+    }
+
+    /// Re-reads the document, validates the candidate, and only then
+    /// atomically replaces the in-memory snapshot.
+    ///
+    /// This is the reload a live config-watch uses. [`Self::reload`]
+    /// swaps unconditionally — fine for tests, wrong for a watcher: a
+    /// malformed or shape-invalid edit must not blank the running
+    /// program's configuration. Here the registered section checks run
+    /// against the *candidate* document before the swap, so on any
+    /// failure the old snapshot stays live and the error is returned.
+    ///
+    /// The section registry is *not* re-run or rebuilt: registration
+    /// persists across reloads, and the checks are the same ones
+    /// [`Self::validate`] applies at launch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError::Storage`] or [`ConfigError::Malformed`]
+    /// when the document cannot be re-read or parsed — including the
+    /// case where the document has been deleted, which refuses rather
+    /// than reloading to defaults — and the first
+    /// [`ConfigSectionError`] a registered section reports against the
+    /// candidate.
+    pub fn reload_validated(&self) -> Result<(), Report<ConfigError>> {
+        let candidate = self.inner.storage.read().read_existing()?;
+        let registry = self.inner.registry.read().clone();
+        validate_document(&candidate, &registry).map_err(|section| {
+            Report::new(ConfigError::Malformed {
+                detail: format!("candidate document failed validation: {section}"),
+            })
+        })?;
+        *self.inner.doc.write() = candidate;
         Ok(())
     }
 
@@ -641,6 +706,24 @@ impl ConfigLayer {
         *self.inner.doc.write() = doc;
         Ok(())
     }
+}
+
+/// Runs every registered section's check against `doc`.
+///
+/// Shared by [`ConfigLayer::validate`] (the launch snapshot) and
+/// [`ConfigLayer::reload_validated`] (a live-reload candidate): an
+/// absent section is fine, a present-but-malformed one fails with the
+/// first error in registration order.
+fn validate_document(
+    doc: &DocumentMut,
+    registry: &[RegisteredSection],
+) -> Result<(), ConfigSectionError> {
+    for section in registry {
+        if let Some(table) = section_table(doc, section.key)? {
+            (section.check)(&table)?;
+        }
+    }
+    Ok(())
 }
 
 /// Resolves a section's table by its dotted key.
@@ -1770,6 +1853,110 @@ mod tests {
         assert!(
             values.iter().all(|timeout| *timeout == 1),
             "a reader observed a mixed snapshot: {values:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn reload_validated_picks_up_a_valid_edit() {
+        // Given a layer with a registered section whose backing document
+        // is edited behind its back to a still-valid value.
+        let (layer, storage) = layer("[watchdog.stall]\ntimeout_secs = 1\n");
+        layer.register::<WatchdogCfg>();
+        storage
+            .write(&doc("[watchdog.stall]\ntimeout_secs = 321\n"))
+            .expect("external write");
+
+        // When reloading through the validated path.
+        layer.reload_validated().expect("candidate validates");
+
+        // Then the next read sees the edit.
+        let value = layer.get::<WatchdogCfg>().expect("section reads");
+        assert_eq!(
+            value.timeout_secs, 321,
+            "validated reload observed the edit"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn reload_validated_leaves_the_snapshot_intact_when_a_section_fails_validation() {
+        // Given a layer with a registered section whose backing document
+        // is edited to a shape the section rejects.
+        let (layer, storage) = layer("[watchdog.stall]\ntimeout_secs = 1\n");
+        layer.register::<WatchdogCfg>();
+        storage
+            .write(&doc("[watchdog.stall]\ntimeout_secs = \"soon\"\n"))
+            .expect("external write");
+
+        // When reloading through the validated path.
+        let result = layer.reload_validated();
+
+        // Then the reload reports failure.
+        assert!(
+            result.is_err(),
+            "a validation-refused edit fails the reload"
+        );
+
+        // And the layer still holds the last good snapshot.
+        let value = layer.get::<WatchdogCfg>().expect("section still reads");
+        assert_eq!(
+            value.timeout_secs, 1,
+            "a refused candidate must not blank the running snapshot"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn reload_validated_ignores_an_unregistered_section() {
+        // Given a layer whose registry does not cover the section the
+        // candidate adds.
+        let (layer, storage) = layer("[watchdog.stall]\ntimeout_secs = 1\n");
+        layer.register::<WatchdogCfg>();
+        storage
+            .write(&doc("[other]\nkey = \"arbitrary\"\n"))
+            .expect("external write");
+
+        // When reloading through the validated path.
+        let result = layer.reload_validated();
+
+        // Then the swap lands — registration is what opts a section in.
+        assert!(result.is_ok(), "an unregistered section is not a refusal");
+        // And the candidate dropped the registered section, so it now
+        // reads its default: absence is a default, not a refusal.
+        let value = layer.get::<WatchdogCfg>().expect("section still reads");
+        assert_eq!(value.timeout_secs, 0);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn reload_validated_refuses_when_the_document_is_deleted() {
+        // Given a layer whose filesystem-backed document exists, holding
+        // a live value.
+        let temp = tempfile::tempdir().expect("temp dir");
+        let path = temp.path().join("jinn.toml");
+        std::fs::write(&path, "[watchdog.stall]\ntimeout_secs = 7\n").expect("seed the document");
+        let storage: Arc<dyn ConfigDocumentStorage> = Arc::new(FilesystemConfigStorage::new(
+            MarkedPathBuf::<Absolute>::new(&path).expect("absolute path"),
+        ));
+        let layer = ConfigLayer::load(storage).expect("layer loads");
+        layer.register::<WatchdogCfg>();
+
+        // When the document is deleted and a reload is attempted.
+        std::fs::remove_file(&path).expect("delete");
+        let result = layer.reload_validated();
+
+        // Then the reload is refused, not swapped to an empty document.
+        assert!(
+            result.is_err(),
+            "a deleted document must refuse, not reload to defaults"
+        );
+
+        // And the layer still holds the last good snapshot.
+        let value = layer.get::<WatchdogCfg>().expect("section still reads");
+        assert_eq!(
+            value.timeout_secs, 7,
+            "the deleted file's absence must not blank the running snapshot"
         );
     }
 

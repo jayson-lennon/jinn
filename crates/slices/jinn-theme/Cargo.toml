@@ -17,6 +17,10 @@ jinn-preferences-config = { workspace = true }
 ratatui = { workspace = true }
 error-stack = { workspace = true }
 wherror = { workspace = true }
+tracing = { workspace = true }
+trouper = { workspace = true }
+jinn-boot-msg = { workspace = true }
+jinn-kernel = { workspace = true }
 
 [dev-dependencies]
 jinn-testutil = { workspace = true }
@@ -26,11 +30,14 @@ jinn-cell-catalog = { workspace = true }
 # The picker tests wire the slice the way composition does, which needs the
 # kernel's Services. Production code reaches the state through jinn-app-state
 # and never touches the kernel, which is what keeps this slice kernel-free.
-jinn-kernel = { workspace = true }
 jinn-chat-log-view = { workspace = true }
 jinn-core-types = { workspace = true }
 rstest = { workspace = true }
+serde = { workspace = true }
 tokio = { workspace = true }
+# The rescan tests publish through the real harness bus, whose recorder
+# bounds need the schema traits.
+trouper = { workspace = true }
 
 [lints]
 workspace = true

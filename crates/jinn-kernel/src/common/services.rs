@@ -24,6 +24,7 @@ use jinn_provider_config::{
     ProviderRegistry, ProviderRegistryService, ProvidersConfig,
 };
 use jinn_session_state::SessionStoreService;
+use marked_path::{Absolute, MarkedPathBuf};
 use tokio::runtime::Handle;
 
 use crate::common::request_dump::RequestDumpService;
@@ -72,12 +73,19 @@ pub struct Services {
     /// The configuration layer: every `jinn.toml` value is read and
     /// written through this handle, and none is cached anywhere else.
     pub config: jinn_config::ConfigLayer,
-    /// The shells jinn runs commands through, resolved once at launch.
+    /// The absolute path of the `jinn.toml` document this run reads and
+    /// writes: the resolved `--config` override, or the default preferences
+    /// path when the flag is absent. The config-watch slice watches this
+    /// file; the layer already reads and writes it.
+    pub resolved_config_path: MarkedPathBuf<Absolute>,
+    /// The shells jinn runs commands through: resolved at launch,
+    /// re-resolved whole on a live `jinn.toml` reload.
     ///
-    /// The environment is probed here and nowhere else: a tool, the PTY,
-    /// and the lifecycle runner all read the resolved value rather than
-    /// re-probing `PATH` for themselves.
-    pub shells: jinn_common::shell::Shells,
+    /// `read()` gives the current snapshot (an owned value, so no lock
+    /// crosses an await or a process spawn); a failed re-read keeps the
+    /// old resolution — a running jinn never loses a working shell to
+    /// one bad edit.
+    pub shells: jinn_common::shell::ShellsService,
     /// App state storage for persisting `state.toml`.
     pub app_state_storage: AppStateStorageService,
     /// Test-only owned temp directory. `None` in production.
@@ -208,8 +216,10 @@ impl Services {
         };
         let bridge = crate::common::bridge::Bridge::new(bus.clone());
 
+        let paths = crate::common::app_paths::AppPaths::new_in(&tempdir.path.as_marked_path());
+        let resolved_config_path = paths.preferences_path();
         Self {
-            paths: crate::common::app_paths::AppPaths::new_in(&tempdir.path.as_marked_path()),
+            paths,
             handle,
             llm_service: LlmServiceFactoryService::new(Arc::new(
                 jinn_provider_config::FakeLlmServiceFactory::new(vec![]),
@@ -230,12 +240,13 @@ impl Services {
                 jinn_config::InMemoryConfigStorage::default(),
             ))
             .expect("test config layer initial load"),
+            resolved_config_path,
             app_state_storage: {
                 let svc = AppStateStorageService::new(Arc::new(InMemoryAppStateStorage::new()));
                 svc.reload().expect("test app state storage initial reload");
                 svc
             },
-            shells: jinn_common::shell::Shells::default(),
+            shells: jinn_common::shell::ShellsService::new(jinn_common::shell::Shells::default()),
             tempdir: Some(tempdir),
             bus,
             bridge,
@@ -278,8 +289,10 @@ impl Services {
         let trouper_system =
             trouper::system::ActorSystem::new(trouper::system::SystemConfig::production());
 
+        let paths = crate::common::app_paths::AppPaths::new_in(&tempdir.path.as_marked_path());
+        let resolved_config_path = paths.preferences_path();
         Self {
-            paths: crate::common::app_paths::AppPaths::new_in(&tempdir.path.as_marked_path()),
+            paths,
             handle,
             llm_service: LlmServiceFactoryService::new(Arc::new(
                 jinn_provider_config::FakeLlmServiceFactory::new(vec![]),
@@ -300,12 +313,13 @@ impl Services {
                 jinn_config::InMemoryConfigStorage::default(),
             ))
             .expect("test config layer initial load"),
+            resolved_config_path,
             app_state_storage: {
                 let svc = AppStateStorageService::new(Arc::new(InMemoryAppStateStorage::new()));
                 svc.reload().expect("test app state storage initial reload");
                 svc
             },
-            shells: jinn_common::shell::Shells::default(),
+            shells: jinn_common::shell::ShellsService::new(jinn_common::shell::Shells::default()),
             tempdir: Some(tempdir),
             bus,
             bridge,

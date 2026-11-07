@@ -66,7 +66,27 @@ impl AppStateActor {
                 }
             })
             .handles::<UpdateAppState>()
+            // Live theme resources: the theme rescan actor publishes
+            // this AFTER re-seeding the entries cell, so handling it
+            // re-resolves the persisted name against the fresh scan —
+            // an edited theme repaints and a removed one falls back —
+            // with no race against the rescan itself.
+            .handles::<jinn_theme_msg::ThemeEntriesReloaded>()
             .start()
+    }
+
+    /// Re-syncs the frontend from the persisted state without a save.
+    ///
+    /// A `ThemeEntriesReloaded` event lands only after the theme rescan
+    /// actor has re-seeded the theme-entries cell, so re-running the
+    /// sync path re-resolves the persisted theme name against the fresh
+    /// scan: an edited theme repaints, a removed one falls back to the
+    /// embedded default through the same resolver a preference save
+    /// uses. Nothing persists — `state.toml` is unchanged by a file
+    /// edit.
+    pub(crate) fn handle_resource_rescan(&self) {
+        let state = self.services.app_state_storage.read();
+        self.sync_state(&state);
     }
 
     /// Apply state updates, persist, and sync the frontend fields.
@@ -152,6 +172,17 @@ impl AppStateActor {
 impl MsgHandler<UpdateAppState> for AppStateActor {
     async fn handle(&mut self, msg: &UpdateAppState, _ctx: &mut MsgCtx<'_>) {
         self.handle_update(msg);
+    }
+}
+
+impl MsgHandler<jinn_theme_msg::ThemeEntriesReloaded> for AppStateActor {
+    async fn handle(&mut self, _msg: &jinn_theme_msg::ThemeEntriesReloaded, _ctx: &mut MsgCtx<'_>) {
+        // The event carries no payload: declarants read the freshly
+        // re-seeded entries cell under the well-known slot. The sync is
+        // a pure re-resolve of unchanged persisted state against that
+        // cell — idempotent when the persisted name still resolves to
+        // the same colors.
+        self.handle_resource_rescan();
     }
 }
 
@@ -407,5 +438,98 @@ mod tests {
         // Then the frontend keeps the embedded default theme.
         let applied = actor.state.read().frontend.theme.focus_accent;
         assert_eq!(applied, jinn_theme::default_theme().focus_accent);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn resource_rescan_re_resolves_a_rewritten_theme() {
+        // Given an app-state actor whose persisted theme is "dracula",
+        // applied with its original accent — the user picked it from a
+        // scan that contained it, then edited the file on disk.
+        let (mut actor, _services) = create_actor().await;
+        actor.handle_update(&UpdateAppState {
+            updates: vec![AppStateUpdate::SetTheme(Some("dracula".to_owned()))],
+        });
+        let mut original = jinn_theme::default_theme();
+        original.focus_accent = ratatui::style::Color::Red;
+        let entries_cell = actor
+            .services
+            .slices
+            .reader::<jinn_theme_msg::ThemeEntries>(&jinn_theme_msg::theme_entries_slot())
+            .expect("the catalog registers the theme entries cell");
+        entries_cell.update(|entries| {
+            entries.entries = vec![jinn_theme_msg::NamedTheme {
+                name: "dracula".to_owned(),
+                theme: original,
+            }];
+        });
+        actor.handle_resource_rescan();
+        assert_eq!(
+            actor.state.read().frontend.theme.focus_accent,
+            ratatui::style::Color::Red
+        );
+
+        // When the theme file is rewritten on disk and the rescan
+        // actor's ThemeEntriesReloaded lands (the cell is re-seeded
+        // before the event, so handling it sees the fresh palette).
+        let mut rewritten = jinn_theme::default_theme();
+        rewritten.focus_accent = ratatui::style::Color::Cyan;
+        entries_cell.update(|entries| {
+            entries.entries = vec![jinn_theme_msg::NamedTheme {
+                name: "dracula".to_owned(),
+                theme: rewritten,
+            }];
+        });
+        actor.handle_resource_rescan();
+
+        // Then the frontend theme is the rewritten palette.
+        assert_eq!(
+            actor.state.read().frontend.theme.focus_accent,
+            ratatui::style::Color::Cyan
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn resource_rescan_falls_back_when_the_theme_file_is_removed() {
+        // Given an app-state actor whose persisted theme is "dracula",
+        // applied from a scan that contained it.
+        let (mut actor, _services) = create_actor().await;
+        actor.handle_update(&UpdateAppState {
+            updates: vec![AppStateUpdate::SetTheme(Some("dracula".to_owned()))],
+        });
+        let mut scanned = jinn_theme::default_theme();
+        scanned.focus_accent = ratatui::style::Color::Red;
+        actor
+            .services
+            .slices
+            .reader::<jinn_theme_msg::ThemeEntries>(&jinn_theme_msg::theme_entries_slot())
+            .expect("the catalog registers the theme entries cell")
+            .update(|entries| {
+                entries.entries = vec![jinn_theme_msg::NamedTheme {
+                    name: "dracula".to_owned(),
+                    theme: scanned,
+                }];
+            });
+        actor.handle_resource_rescan();
+
+        // When the file is removed and the next ThemeEntriesReloaded
+        // lands — the re-scan no longer holds the name.
+        actor
+            .services
+            .slices
+            .reader::<jinn_theme_msg::ThemeEntries>(&jinn_theme_msg::theme_entries_slot())
+            .expect("the catalog registers the theme entries cell")
+            .update(|entries| {
+                entries.entries.clear();
+            });
+        actor.handle_resource_rescan();
+
+        // Then the frontend falls back to the embedded default, the same
+        // resolver a preference save uses — no panic, no stale palette.
+        assert_eq!(
+            actor.state.read().frontend.theme.focus_accent,
+            jinn_theme::default_theme().focus_accent
+        );
     }
 }

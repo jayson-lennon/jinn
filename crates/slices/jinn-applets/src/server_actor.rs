@@ -85,9 +85,18 @@ impl jinn_slices::BusMessage for EnsureServingOutcome {}
 
 /// The applets server actor: dormant until the first `EnsureServing`.
 pub struct AppletsServerActor {
-    /// The bind from `[applets] bind` at activation. Port `0` binds an
-    /// OS-assigned port at the first ensure.
+    /// The bind from `[applets] bind`. Port `0` binds an OS-assigned
+    /// port at the first ensure. Re-read from the config layer on every
+    /// `JinnTomlReloaded`; a changed bind hot-rebinds (the HTTP surface
+    /// is stateless — no held connections a rebind would break).
     bind: SocketAddr,
+    /// The live config layer the bind re-reads from on a reload.
+    config: jinn_config::ConfigLayer,
+    /// The applets root the server serves from — the rebind path
+    /// re-establishes against it.
+    apps_root: MarkedPathBuf<Absolute>,
+    /// The bus, for the dashboard row's bind-change notes.
+    bus: jinn_slices::bus::BusService,
     /// The serving phase once the first ensure has established it;
     /// `None` is the dormant phase (no listener has ever bound).
     serving: Option<ServingState>,
@@ -98,6 +107,9 @@ struct ServingState {
     /// The resolved bind the listener accepted (port `0` already
     /// resolved at the first ensure; stable for the server's life).
     bind: SocketAddr,
+    /// The axum serve task. Held (not detached) so a rebind aborts it —
+    /// aborting closes the old listener and frees the old port.
+    serve_task: tokio::task::JoinHandle<()>,
 }
 
 impl ServiceActor for AppletsServerActor {
@@ -121,6 +133,13 @@ pub struct AppletsServerActorDeps {
     /// the endpoint's security. A bind that cannot parse never gets
     /// here: activation aborts launch.
     pub bind: SocketAddr,
+    /// The live config layer: a `JinnTomlReloaded` re-reads the bind.
+    pub config: jinn_config::ConfigLayer,
+    /// The applets root the server serves from — the rebind path
+    /// re-establishes against it.
+    pub apps_root: MarkedPathBuf<Absolute>,
+    /// The bus, for the dashboard row's bind-change notes.
+    pub bus: jinn_slices::bus::BusService,
 }
 
 impl AppletsServerActor {
@@ -132,17 +151,28 @@ impl AppletsServerActor {
             .at(path)
             .init_with({
                 let bind = deps.bind;
+                let config = deps.config.clone();
+                let apps_root = deps.apps_root.clone();
+                let bus = deps.bus.clone();
                 move || {
                     Box::pin(async move {
                         Ok(Self {
                             bind,
+                            config,
+                            apps_root,
+                            bus,
                             serving: None,
                         })
                     })
                 }
             })
             .handles::<EnsureServing>()
+            // Live config: a jinn.toml reload re-reads [applets] bind
+            // and hot-rebinds (the HTTP surface is stateless — no held
+            // connections to break).
+            .handles::<jinn_boot_msg::JinnTomlReloaded>()
             .emits::<EnsureServingOutcome>()
+            .emits::<jinn_slices::ServiceStatusUpdate>()
             .start()
     }
 }
@@ -150,6 +180,85 @@ impl AppletsServerActor {
 impl MsgHandler<EnsureServing> for AppletsServerActor {
     async fn handle(&mut self, msg: &EnsureServing, ctx: &mut MsgCtx<'_>) {
         handlers::handle_ensure_serving(self, msg, ctx).await;
+    }
+}
+
+// A reload re-reads the bind and hot-rebinds: the applets surface is
+// plain stateless HTTP (no held connections, no websocket), so a
+// rebind between requests breaks nobody, and the picker's URL base
+// stays correct without a restart. A failed rebind keeps the old
+// listener via keep-dormant: the next ensure tries the new bind fresh.
+impl MsgHandler<jinn_boot_msg::JinnTomlReloaded> for AppletsServerActor {
+    async fn handle(&mut self, _msg: &jinn_boot_msg::JinnTomlReloaded, _ctx: &mut MsgCtx<'_>) {
+        let parsed = self
+            .config
+            .get::<jinn_preferences_config::schemas::AppletsConfig>()
+            .ok()
+            .and_then(|config| config.parse_bind().ok());
+        let Some(bind) = parsed else {
+            self.note(
+                "applets bind re-read refused; the previous bind stays live",
+                Some(jinn_slices::NoteTone::Error),
+            )
+            .await;
+            return;
+        };
+        let live = self.serving.as_ref().map(|server| server.bind);
+        if live.is_some_and(|serving| serving == bind) || self.bind == bind {
+            return;
+        }
+        match live {
+            // Dormant: adopt the new bind; the next ensure uses it.
+            None => {
+                self.bind = bind;
+                self.note(&format!("applets bind changed to {bind}"), None)
+                    .await;
+            }
+            // Serving: hot-rebind. The old serve task is aborted
+            // first (closing the old listener and freeing the old
+            // port); the new one serves the same root.
+            Some(_) => {
+                if let Some(old) = self.serving.take() {
+                    old.serve_task.abort();
+                }
+                match handlers::bind_listener(bind).await {
+                    Ok((listener, resolved)) => {
+                        self.serving = Some(handlers::serve(listener, &self.apps_root, resolved));
+                        self.bind = resolved;
+                        self.note(&format!("applets rebound to {resolved}"), None)
+                            .await;
+                    }
+                    Err(error) => {
+                        // Keep-old is impossible (the old listener is
+                        // gone with the serving state), so go dormant;
+                        // the next ensure tries the new bind fresh.
+                        self.serving = None;
+                        self.bind = bind;
+                        self.note(
+                            &format!(
+                                "applets rebind to {bind} failed ({error}); the next open retries it"
+                            ),
+                            Some(jinn_slices::NoteTone::Error),
+                        )
+                        .await;
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl AppletsServerActor {
+    /// Publishes a row note on the applets dashboard row.
+    async fn note(&self, message: &str, tone: Option<jinn_slices::NoteTone>) {
+        self.bus
+            .publish(jinn_slices::ServiceStatusUpdate {
+                name: APPLETS_ACTOR_NAME.to_owned(),
+                description: None,
+                status_message: Some(message.to_owned()),
+                note_tone: tone,
+            })
+            .await;
     }
 }
 

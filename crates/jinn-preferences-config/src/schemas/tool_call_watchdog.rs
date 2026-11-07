@@ -11,6 +11,10 @@ const DEFAULT_MAX_FAILURES: u8 = 4;
 
 /// Tool-call-watchdog configuration.
 ///
+/// # Behavior: Snapshot Read.
+///
+/// Re-read at each watchdog check, so an edit applies at the next check.
+///
 /// Serialized as `[tool_call_watchdog]` in `jinn.toml`. The watchdog is
 /// always on; the knob only tunes when it intervenes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

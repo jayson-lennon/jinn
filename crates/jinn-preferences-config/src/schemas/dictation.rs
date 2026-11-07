@@ -21,11 +21,17 @@ use jinn_dictation_backend::BackendOptions;
 use serde::{Deserialize, Serialize};
 
 /// The `[dictation]` section as configured in `jinn.toml`.
+///
+/// # Behavior: Event-Dependent.
+///
+/// The dictation backend is an artifact; a bus handler rebuilds it when
+/// the reload event lands.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DictationConfig {
     /// Whether dictation loads its backend at startup. The shipped
     /// default is `false`: enabling fetches a ~650 MB model on first
-    /// launch and takes effect on the next jinn start.
+    /// launch, and a live change lands on the next dictation arm (an
+    /// already-loaded backend is reused, not re-fetched).
     #[serde(default)]
     pub enabled: bool,
     /// The capture device's exact name (from `pw-record --list-targets`

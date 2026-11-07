@@ -74,6 +74,7 @@ use jinn_inference_msg::StreamActivity;
 use jinn_inference_msg::StreamCompleted;
 use jinn_inference_msg::StreamCompletedReason;
 use jinn_kernel::Services;
+use jinn_preferences_config::schemas::StallWatchdogConfig;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_session_msg::RetryStalledSession;
 use jinn_session_msg::TurnCompleted;
@@ -100,14 +101,14 @@ struct SessionStall {
 }
 
 /// Dependencies for [`StallWatchdogActor`].
+///
+/// The stall window and restart budget are read from the live config
+/// layer at each tick — a `jinn.toml` reload applies to the next check
+/// without a restart.
 #[derive(Clone)]
 pub struct StallWatchdogActorDeps {
-    /// Application-wide runtime services (bus publish).
+    /// Application-wide runtime services (bus publish, live config).
     pub services: Services,
-    /// Silence window before a restart, in milliseconds.
-    pub timeout_ms: u64,
-    /// Consecutive restarts allowed before giving up.
-    pub max_restarts: u32,
     /// Tick cadence. Production uses [`STALL_TICK_INTERVAL`]; tests
     /// inject a small value.
     pub tick_interval: Duration,
@@ -122,11 +123,22 @@ pub struct StallWatchdogActor {
     /// elapsed time against a wall clock would mis-fire on an NTP step or a
     /// machine suspend; `Instant` counts real elapsed time through both.
     started_at: Instant,
-    timeout_ms: u64,
-    max_restarts: u32,
     tick_interval: Duration,
     /// Timers keyed by session id.
     sessions: HashMap<SessionId, SessionStall>,
+}
+
+/// The stall window and restart budget, read from the live layer with
+/// the same clamps the launch-time values carried (≥ 1 on both).
+fn effective_budget(services: &Services) -> (u64, u32) {
+    let config = services
+        .config
+        .get::<StallWatchdogConfig>()
+        .unwrap_or_default();
+    (
+        config.effective_timeout_secs().saturating_mul(1_000),
+        config.effective_max_restarts(),
+    )
 }
 
 impl ServiceActor for StallWatchdogActor {
@@ -180,8 +192,6 @@ impl StallWatchdogActor {
                         Ok(Self {
                             services: deps.services,
                             started_at: Instant::now(),
-                            timeout_ms: deps.timeout_ms,
-                            max_restarts: deps.max_restarts,
                             tick_interval: deps.tick_interval,
                             sessions: HashMap::new(),
                         })
@@ -433,8 +443,7 @@ impl StallWatchdogActor {
     /// again until the next dispatch.
     #[must_use]
     pub fn on_tick(&mut self, now_ms: u64) -> Vec<StallAction> {
-        let timeout_ms = self.timeout_ms;
-        let max_restarts = self.max_restarts;
+        let (timeout_ms, max_restarts) = effective_budget(&self.services);
         self.sessions
             .iter_mut()
             .filter(|(_, stall)| {
@@ -552,11 +561,18 @@ mod tests {
     /// real fabric — they assert on `on_tick`'s returned actions).
     async fn watchdog(timeout_secs: u64, max_restarts: u32) -> StallWatchdogActor {
         let services = Services::new_fake().await;
+        // The budget lives in the config layer now; the tests seed it the
+        // same way a jinn.toml edit would land.
+        services
+            .config
+            .put(&StallWatchdogConfig {
+                timeout_secs,
+                max_restarts,
+            })
+            .expect("the fake layer accepts the seed");
         StallWatchdogActor {
             services,
             started_at: Instant::now(),
-            timeout_ms: timeout_secs * 1_000,
-            max_restarts,
             tick_interval: STALL_TICK_INTERVAL,
             sessions: HashMap::new(),
         }
@@ -707,6 +723,32 @@ mod tests {
         // Then the watchdog surrenders: the system entry first, then the
         // cancel.
         assert_give_up(&actions, &session);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_budget_edit_lands_on_the_next_stall_window() {
+        // Given a watchdog armed with a 60-second window whose stream went
+        // silent well past it.
+        let session = SessionId::new();
+        let mut actor = watchdog(60, 2).await;
+        actor.on_stream_start(&session, 0);
+
+        // When a jinn.toml edit shrinks the window to 1 second and the
+        // next tick runs at the 2-second mark.
+        actor
+            .services
+            .config
+            .put(&StallWatchdogConfig {
+                timeout_secs: 1,
+                max_restarts: 2,
+            })
+            .expect("the fake layer accepts the seed");
+        let actions = actor.on_tick(2_000);
+
+        // Then the edit governs the *next* window: the session trips on
+        // the new budget without any restart.
+        assert_restart(&actions, &session, 1);
     }
 
     #[rstest::rstest]

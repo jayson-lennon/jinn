@@ -31,6 +31,11 @@ fn default_bind() -> String {
 
 /// `[remote]` preferences.
 ///
+/// # Behavior: Event-Dependent.
+///
+/// The external control surface owns the bound socket; a bus handler
+/// rebinds it when the reload event lands.
+///
 /// Serialized as `[remote]` in `jinn.toml`. The single field is the
 /// socket the external control surface binds; there is deliberately no
 /// separate port key — the address carries the port.

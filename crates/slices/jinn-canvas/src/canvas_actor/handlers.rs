@@ -106,7 +106,11 @@ pub(crate) async fn handle_serve(
 /// outcome — "no activity" is a normal answer, never an error, so the
 /// asking message goes out unmodified rather than being treated as a
 /// failure.
-pub(crate) fn handle_drain_metrics(actor: &mut CanvasActor, ctx: &mut MsgCtx<'_>) {
+///
+/// Also the actor's heartbeat (the drain rides every user message), so
+/// this is where a pending bind whose pageholders have all gone
+/// applies.
+pub(crate) async fn handle_drain_metrics(actor: &mut CanvasActor, ctx: &mut MsgCtx<'_>) {
     let events = match actor.server.as_ref() {
         Some(state) => state
             .shared
@@ -121,6 +125,7 @@ pub(crate) fn handle_drain_metrics(actor: &mut CanvasActor, ctx: &mut MsgCtx<'_>
         None => Vec::new(),
     };
     ctx.reply(CanvasMetricsDrainOutcome { events });
+    apply_pending_bind_when_quiet(actor).await;
 }
 
 /// A validated serve request.
@@ -206,10 +211,11 @@ async fn establish(
     arm_watcher(&shared, artifact);
 
     let shared_for_task = shared.clone();
-    // The task is detached deliberately: it lives as long as the
-    // process, which is the page-lifetime contract (jinn exits →
-    // listener closes). Dropping the JoinHandle detaches, not aborts.
-    tokio::spawn(async move {
+    // The task is held on the state so a pending-bind rebind can end it
+    // precisely: aborting the task closes the listener. Detached, the
+    // old listener would keep the old port open forever and a rebind
+    // could never reclaim a fixed port.
+    let serve_task = tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, server::router(shared_for_task)).await {
             tracing::error!("canvas server task failed: {e}");
         }
@@ -219,6 +225,7 @@ async fn establish(
     let state = ServingState {
         bind: resolved,
         shared,
+        serve_task,
     };
     Ok((
         CanvasServeOutcome::served(url, resolved, artifact.as_path()),
@@ -259,6 +266,110 @@ fn arm_watcher(shared: &server::ServerShared, artifact: &MarkedPathBuf<Absolute>
         }
         Err(report) => {
             tracing::warn!("canvas watcher establishment failed: {report}");
+        }
+    }
+}
+
+/// Live-config landing: re-read `[canvas] bind` from the layer the
+/// actor carries.
+///
+/// Dormant (no listener yet): the new bind is adopted and the next
+/// serve uses it. A re-read that fails to parse keeps the current bind
+/// and notes the refusal on the row — the same keep-old behavior a
+/// refused config reload gives every other reader.
+/// Serving: the listener keeps running — a browser holds the page — and
+/// a changed bind parks as pending. The actor's drain tick applies it
+/// once no browser holds a page (zero ws clients), so no served URL a
+/// user holds ever breaks.
+pub(crate) async fn handle_reload(actor: &mut CanvasActor) {
+    let parsed = actor
+        .config
+        .get::<jinn_preferences_config::schemas::CanvasConfig>()
+        .ok()
+        .and_then(|config| config.parse_bind().ok());
+    let Some(bind) = parsed else {
+        actor
+            .publish_status(
+                Some("canvas bind re-read refused; the previous bind stays live".to_owned()),
+                Some(jinn_slices::NoteTone::Error),
+            )
+            .await;
+        return;
+    };
+    if actor.server.is_some() {
+        // Live listener: keep serving; park a changed bind for the
+        // quiet boundary. A pending bind is superseded wholesale — the
+        // newest edit wins.
+        if bind != actor.bind && actor.pending_bind.as_ref() != Some(&bind) {
+            actor.pending_bind = Some(bind);
+            actor
+                .publish_status(
+                    Some(format!(
+                        "canvas bind changed to {bind} — pending; applies when the current page closes"
+                    )),
+                    Some(jinn_slices::NoteTone::Warning),
+                )
+                .await;
+        }
+        return;
+    }
+    if bind != actor.bind {
+        actor.bind = bind;
+        actor.publish_offline().await;
+    }
+}
+
+/// Applies a pending bind once nothing holds the old URL.
+///
+/// The drain tick calls this: zero ws clients means no browser has the
+/// old page open, so rebinding breaks nobody. A rebind that fails to
+/// bind (port taken) refuses keep-old — the old listener dies with the
+/// server it was attached to, so this tears the whole serving phase
+/// down to dormant with an error note rather than half-applying.
+async fn apply_pending_bind_when_quiet(actor: &mut CanvasActor) {
+    let Some(pending) = actor.pending_bind else {
+        return;
+    };
+    // Snapshot what the rebind needs before mutating the actor: the
+    // artifact path outlives the serving state it came from.
+    let artifact = match actor.server.as_ref() {
+        Some(state) => {
+            if state.shared.client_count() > 0 {
+                return;
+            }
+            state.shared.artifact()
+        }
+        // The serving phase ended some other way; the pending bind is
+        // simply the next bind.
+        None => {
+            actor.bind = pending;
+            actor.pending_bind = None;
+            return;
+        }
+    };
+    // Quiet: end the old serve task — aborting it closes the old
+    // listener and frees the old port — then bind the new one.
+    let old_task = actor.server.take().map(|state| {
+        state.serve_task.abort();
+        state.shared
+    });
+    drop(old_task);
+    match establish(pending, &artifact).await {
+        Ok((_outcome, new_state)) => {
+            actor.bind = new_state.bind;
+            actor.pending_bind = None;
+            actor.server = Some(new_state);
+            actor
+                .publish_status(Some(format!("canvas rebound to {}", actor.bind)), None)
+                .await;
+        }
+        Err(refusal) => {
+            // Keep-old is impossible (the old listener is gone), so
+            // surface the failure and go dormant; the next serve tries
+            // the new bind fresh.
+            actor.bind = pending;
+            actor.pending_bind = None;
+            actor.publish_serve_failed(&refusal.message).await;
         }
     }
 }

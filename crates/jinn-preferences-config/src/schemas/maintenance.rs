@@ -14,6 +14,10 @@ use std::time::Duration;
 
 /// Database-maintenance configuration.
 ///
+/// # Behavior: Snapshot Read.
+///
+/// Re-read at each maintenance pass, so an edit applies at the next pass.
+///
 /// Serialized as `[maintenance]` in `jinn.toml`. Every knob defaults to a
 /// no-op, so merely adding the section changes nothing until a value is
 /// filled in.

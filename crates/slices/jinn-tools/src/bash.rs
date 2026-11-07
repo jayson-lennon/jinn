@@ -467,10 +467,11 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             return failed(call.id, call.name, "command is empty".to_owned());
         }
 
-        // The shell jinn runs commands through, resolved at launch. A
-        // machine with no POSIX shell is a real state, and the model reads
-        // why it cannot run the command.
-        let shell = match ctx.shells.bash() {
+        // The shell jinn runs commands through — the current resolution
+        // (a live `jinn.toml` reload may have swapped it). A machine with
+        // no POSIX shell is a real state, and the model reads why it
+        // cannot run the command.
+        let shell = match ctx.shells.read().bash() {
             Ok(shell) => shell.program().to_owned(),
             Err(error) => {
                 return failed(call.id, call.name, error.to_string());

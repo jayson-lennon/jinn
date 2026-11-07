@@ -743,3 +743,113 @@ async fn reenabling_a_singleton_restores_its_provider_visibility() {
         "re-enabling a singleton must restore its provider; got {events:?}"
     );
 }
+
+// P4: a JinnTomlReloaded re-reads the config and reconciles every live
+// session against the session's persisted enablement — a server the
+// session desired but the config lacked spawns once it appears; a
+// spawned server the config dropped is killed.
+#[rstest::rstest]
+#[tokio::test]
+async fn a_config_reload_reconciles_added_and_removed_servers_for_live_sessions() {
+    // Given a coordinator with `bundled-example` configured, and a live
+    // session that desires BOTH names (a reload will supply the second
+    // and drop the first).
+    let (harness, recorder, actor, services, state, session_id) = {
+        let harness = TestHarness::new().await;
+        let recorder = harness.spawn_recorder::<McpServerStatus>().await;
+        let (actor, services, state) =
+            spawn_lifecycle(&harness, &[("bundled-example", unrunnable_per_session())]).await;
+        let mut both = single_enabled("bundled-example");
+        both.insert("bundled-second".to_owned());
+        let session_id = insert_session_with_enablement(&state, &both);
+        (harness, recorder, actor, services, state, session_id)
+    };
+    harness
+        .publish(jinn_mcp_msg::McpEnablementChanged {
+            session_id: session_id.clone(),
+            enabled: {
+                let mut both = single_enabled("bundled-example");
+                both.insert("bundled-second".to_owned());
+                both
+            },
+        })
+        .await;
+    jinn_testutil::wait::await_inbox_drained(
+        harness.system(),
+        &actor,
+        std::time::Duration::from_secs(10),
+    )
+    .await;
+    jinn_testutil::wait::await_settled(
+        &recorder,
+        std::time::Duration::from_millis(200),
+        std::time::Duration::from_secs(10),
+    )
+    .await;
+    // The pre-reload phase drained wholesale: the unrunnable server's own
+    // lifecycle (Starting then its connect-failure Dead) landed here.
+    let _ = await_recorded(&recorder, 1, std::time::Duration::from_secs(2)).await;
+
+    // When the config swaps — the old server removed, the desired-but-
+    // missing one added — and a reload lands.
+    services
+        .config
+        .put::<McpServersConfig>(&McpServersConfig(
+            [("bundled-second", unrunnable_per_session())]
+                .iter()
+                .map(|(n, c)| ((*n).to_owned(), c.clone()))
+                .collect(),
+        ))
+        .expect("swap the mcp section");
+    let now_configured = services
+        .config
+        .get::<McpServersConfig>()
+        .expect("the section reads");
+    assert!(
+        !now_configured.0.contains_key("bundled-example")
+            && now_configured.0.contains_key("bundled-second"),
+        "the put must replace the section; got {:?}",
+        now_configured.0.keys().collect::<Vec<_>>()
+    );
+    harness.publish(jinn_boot_msg::JinnTomlReloaded).await;
+    jinn_testutil::wait::await_inbox_drained(
+        harness.system(),
+        &actor,
+        std::time::Duration::from_secs(10),
+    )
+    .await;
+
+    // Then the reconcile ran: the session still desires `bundled-second`,
+    // which the config now supplies — its spawn's `Starting` is the
+    // observable. Poll for it by count (the spawn is a separate task),
+    // then settle and count.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    while recorder.len() < 2 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the added server never spawned on the reload; count {}",
+            recorder.len()
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let events = jinn_testutil::wait::await_settled_messages(
+        &recorder,
+        std::time::Duration::from_millis(200),
+        std::time::Duration::from_secs(10),
+    )
+    .await;
+    assert_eq!(
+        spawns_in(&events),
+        1,
+        "the added server spawned on the reload; got {events:?}"
+    );
+    let deaths = events
+        .iter()
+        .filter(|e| e.status == McpConnectionStatus::Dead)
+        .count();
+    assert_eq!(
+        deaths, 1,
+        "the removed server was killed exactly once on the reload; got {events:?}"
+    );
+    let _unused = &state;
+}

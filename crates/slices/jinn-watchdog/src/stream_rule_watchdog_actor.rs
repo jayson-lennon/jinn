@@ -74,6 +74,7 @@ use jinn_inference_msg::CancelTurn;
 use jinn_inference_msg::StreamCompleted;
 use jinn_inference_msg::StreamCompletedReason;
 use jinn_kernel::Services;
+use jinn_preferences_config::schemas::StreamRuleWatchdogConfig;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_session_msg::TurnCompleted;
 use jinn_session_msg::TurnOutcome;
@@ -96,13 +97,21 @@ pub enum StreamRuleWatchdogAction {
     CancelTurn(SessionId),
 }
 
+/// The interrupt budget, read from the live layer with the schema's
+/// clamp (zero budgets are nonsense; ≥ 1), honouring a file written
+/// before the budget moved (`jinn_watchdog::stream_rule_max_failures`).
+fn effective_max_failures(services: &Services) -> u8 {
+    crate::stream_rule_max_failures(&services.config)
+}
+
 /// Dependencies for [`StreamRuleWatchdogActor`].
+///
+/// The interrupt budget is read from the live config layer at each
+/// failure — a `jinn.toml` reload applies to the next check.
 #[derive(Clone)]
 pub struct StreamRuleWatchdogActorDeps {
-    /// Application-wide runtime services (bus publish).
+    /// Application-wide runtime services (bus publish, live config).
     pub services: Services,
-    /// Consecutive interrupts tolerated before tripping.
-    pub max_failures: u8,
 }
 
 /// The stream-rule watchdog actor.
@@ -110,7 +119,6 @@ pub struct StreamRuleWatchdogActorDeps {
 /// Per-session interrupt accumulator; trip = marker entry + cancel.
 pub struct StreamRuleWatchdogActor {
     services: Services,
-    max_failures: u8,
     /// Interrupt counters keyed by session id.
     ///
     /// Actor-internal by design: nothing outside the watchdog family needs to
@@ -151,7 +159,6 @@ impl StreamRuleWatchdogActor {
                     Box::pin(async move {
                         Ok(Self {
                             services: deps.services,
-                            max_failures: deps.max_failures,
                             accumulators: HashMap::new(),
                         })
                     })
@@ -228,12 +235,26 @@ impl MsgHandler<TurnCompleted> for StreamRuleWatchdogActor {
 }
 
 impl StreamRuleWatchdogActor {
-    /// Builds an actor with an explicit maximum (test seam).
+    /// Builds an actor whose budget lives in the given services' config
+    /// layer, seeded here (test seam) the same way a jinn.toml edit
+    /// would land.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the config layer rejects the seed — unreachable with
+    /// the test layer this seam exists for.
     #[must_use]
+    #[expect(
+        clippy::expect_used,
+        reason = "the test layer this seam exists for accepts every seed"
+    )]
     pub fn with_max_failures(services: Services, max_failures: u8) -> Self {
+        services
+            .config
+            .put(&StreamRuleWatchdogConfig { max_failures })
+            .expect("the fake layer accepts the seed");
         Self {
             services,
-            max_failures,
             accumulators: HashMap::new(),
         }
     }
@@ -304,8 +325,9 @@ impl StreamRuleWatchdogActor {
     /// right.
     #[must_use]
     fn record_interrupt(&mut self, session_id: &SessionId) -> Vec<StreamRuleWatchdogAction> {
+        let max_failures = effective_max_failures(&self.services);
         let count = self.accumulators.get(session_id).copied().unwrap_or(0) + 1;
-        if count <= u32::from(self.max_failures) {
+        if count <= u32::from(max_failures) {
             self.accumulators.insert(session_id.clone(), count);
             return Vec::new();
         }
@@ -314,10 +336,7 @@ impl StreamRuleWatchdogActor {
         // being cancelled before it produces anything.
         self.accumulators.insert(session_id.clone(), 0);
         vec![
-            StreamRuleWatchdogAction::Marker(
-                session_id.clone(),
-                trip_text(self.max_failures, count),
-            ),
+            StreamRuleWatchdogAction::Marker(session_id.clone(), trip_text(max_failures, count)),
             StreamRuleWatchdogAction::CancelTurn(session_id.clone()),
         ]
     }

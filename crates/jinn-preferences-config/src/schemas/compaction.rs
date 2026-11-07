@@ -16,6 +16,10 @@ const DEFAULT_FALLBACK_CONTEXT_WINDOW: usize = 150_000;
 
 /// Compaction configuration.
 ///
+/// # Behavior: Snapshot Read.
+///
+/// Re-read at each compaction, so an edit applies at the next compaction.
+///
 /// Serialized as `[compaction]` in `jinn.toml`.
 /// Controls when and how context compaction summarizes conversation history.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

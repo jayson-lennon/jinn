@@ -53,6 +53,10 @@ impl ChatSessionState {
 
     /// Read-only access to this session's enabled MCP server names.
     ///
+    /// **Frozen**: stamped at session creation and never re-seeded — a
+    /// live config edit does not move this set, and the MCP picker is
+    /// the live-session control.
+    ///
     /// Opt-in model: only servers in this set are active for the session.
     #[must_use]
     pub fn enabled_mcp_servers(&self) -> &std::collections::BTreeSet<String> {

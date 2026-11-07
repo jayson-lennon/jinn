@@ -30,6 +30,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use jinn_boot_msg::JinnTomlReloaded;
 use jinn_canvas_msg::CanvasCommand;
 use jinn_canvas_msg::DrainCanvasMetrics;
 use jinn_slices::bus::BusService;
@@ -53,12 +54,23 @@ pub(crate) const SERVE_ASK_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// The canvas actor: dormant until the first serve command.
 pub struct CanvasActor {
-    /// The bind to listen on, from `[canvas] bind` at activation. Port
-    /// `0` binds an OS-assigned port at the first serve.
+    /// The bind to listen on, from `[canvas] bind`. Port `0` binds an
+    /// OS-assigned port at the first serve. Re-read from the config
+    /// layer on every `JinnTomlReloaded`; while a listener is live a
+    /// changed bind parks here until the last browser disconnects (see
+    /// `pending_bind`), then applies.
     bind: std::net::SocketAddr,
+    /// The config layer the bind re-reads from on a reload.
+    config: jinn_config::ConfigLayer,
     /// The server state once the first serve has established it; `None`
     /// is the dormant phase (no listener has ever bound).
     server: Option<ServingState>,
+    /// A bind change observed while a listener was live. `None` until
+    /// such a change lands; cleared when it applies. The apply point is
+    /// the actor's drain tick: once no browser holds a page (zero ws
+    /// clients), the old URL has nobody holding it and the next serve
+    /// uses the new bind.
+    pending_bind: Option<std::net::SocketAddr>,
     /// The message fabric, for the dashboard status publications.
     bus: BusService,
 }
@@ -71,6 +83,10 @@ struct ServingState {
     /// Shared request-handler state: artifact path, reload broadcast,
     /// watcher slot.
     shared: ServerShared,
+    /// The axum serve task. Held (not detached) so a pending-bind
+    /// rebind aborts it — aborting closes the old listener and frees
+    /// the old port; a detached task would pin the port forever.
+    serve_task: tokio::task::JoinHandle<()>,
 }
 
 impl ServiceActor for CanvasActor {
@@ -94,6 +110,9 @@ pub struct CanvasActorDeps {
     /// every ask with the same sentence, so the failure is surfaced
     /// where it can abort launch instead.
     pub bind: std::net::SocketAddr,
+    /// The live config layer: a `JinnTomlReloaded` re-reads the bind
+    /// from here while the actor is dormant.
+    pub config: jinn_config::ConfigLayer,
     /// The message fabric, for the dashboard status publications.
     pub bus: BusService,
 }
@@ -114,7 +133,9 @@ impl CanvasActor {
                     Box::pin(async move {
                         let actor = Self {
                             bind: deps.bind,
+                            config: deps.config,
                             server: None,
+                            pending_bind: None,
                             bus: deps.bus.clone(),
                         };
                         // The offline publication is the row's baseline:
@@ -127,6 +148,8 @@ impl CanvasActor {
             })
             .handles::<CanvasCommand>()
             .handles::<DrainCanvasMetrics>()
+            // Live config: a jinn.toml reload re-reads `[canvas] bind`.
+            .handles::<jinn_boot_msg::JinnTomlReloaded>()
             .emits::<jinn_canvas_msg::CanvasServeOutcome>()
             .emits::<jinn_canvas_msg::CanvasMetricsDrainOutcome>()
             .emits::<jinn_slices::ServiceStatusUpdate>()
@@ -179,7 +202,13 @@ impl MsgHandler<CanvasCommand> for CanvasActor {
 
 impl MsgHandler<DrainCanvasMetrics> for CanvasActor {
     async fn handle(&mut self, _msg: &DrainCanvasMetrics, ctx: &mut MsgCtx<'_>) {
-        handlers::handle_drain_metrics(self, ctx);
+        handlers::handle_drain_metrics(self, ctx).await;
+    }
+}
+
+impl MsgHandler<JinnTomlReloaded> for CanvasActor {
+    async fn handle(&mut self, _msg: &JinnTomlReloaded, _ctx: &mut MsgCtx<'_>) {
+        handlers::handle_reload(self).await;
     }
 }
 

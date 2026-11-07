@@ -98,6 +98,10 @@ pub fn install_actors(
     system.register_schema::<crate::commands::RescanPrompts>();
     system.register_schema::<crate::commands::RescanContext>();
     system.register_schema::<crate::commands::RescanWorkflows>();
+    // The supervisor also handles this event (live resource edits re-run
+    // every live session's discovery), so the schema must exist before
+    // the supervisor's spawn resolves its subscription.
+    system.register_schema::<jinn_boot_msg::ResourcesChanged>();
 
     // Partition set before any send: the supervisor addresses its
     // public path, and install validates the shard-key contract.

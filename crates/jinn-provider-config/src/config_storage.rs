@@ -161,15 +161,19 @@ impl ConfigStorage for InMemoryConfigStorage {
 /// Follows the service wrapper pattern from the project style guide.
 #[derive(Debug, Clone)]
 pub struct ConfigStorageService {
-    /// The underlying config storage implementation.
-    svc: Arc<dyn ConfigStorage>,
+    /// The underlying config storage implementation. In an
+    /// `Arc<RwLock<..>>` so the reload-path tests can swap the backend
+    /// on a shared clone while `Clone` stays cheap.
+    svc: std::sync::Arc<std::sync::RwLock<Arc<dyn ConfigStorage>>>,
 }
 
 impl ConfigStorageService {
     /// Creates a new config storage service.
     #[must_use]
     pub fn new(storage: Arc<dyn ConfigStorage>) -> Self {
-        Self { svc: storage }
+        Self {
+            svc: std::sync::Arc::new(std::sync::RwLock::new(storage)),
+        }
     }
 
     /// Loads the provider config.
@@ -177,8 +181,32 @@ impl ConfigStorageService {
     /// # Errors
     ///
     /// Returns [`ConfigError::Parse`] if the stored content is malformed.
+    /// The backend guard is never poisoned: no writer panics while
+    /// holding it, so the unreachable-poison arm reads as a config
+    /// error rather than a panic.
     pub fn load(&self) -> Result<ProvidersConfig, Report<ConfigError>> {
-        self.svc.load()
+        let storage = self.storage_guard();
+        storage.load()
+    }
+
+    /// Points the service at a different storage backend.
+    ///
+    /// A test seam: reload-path tests seed a fresh backend instead of
+    /// rebuilding the whole `Services`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the backend lock is poisoned — no writer can panic
+    /// while holding it, so this arm is unreachable.
+    #[expect(
+        clippy::expect_used,
+        reason = "a poisoned backend lock is unreachable: no writer panics while holding it"
+    )]
+    pub fn swap(&self, storage: Arc<dyn ConfigStorage>) {
+        *self
+            .svc
+            .write()
+            .expect("storage lock is never poisoned: no writer panics while holding it") = storage;
     }
 
     /// Saves the provider config.
@@ -187,7 +215,16 @@ impl ConfigStorageService {
     ///
     /// Returns [`ConfigError::Parse`] if serialization fails.
     pub fn save(&self, config: &ProvidersConfig) -> Result<(), Report<ConfigError>> {
-        self.svc.save(config)
+        let storage = self.storage_guard();
+        storage.save(config)
+    }
+
+    /// Reads the current backend, treating the unreachable poison as a
+    /// configuration error so fallible callers stay fallible.
+    fn storage_guard(&self) -> std::sync::RwLockReadGuard<'_, Arc<dyn ConfigStorage>> {
+        self.svc
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 

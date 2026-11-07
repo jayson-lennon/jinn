@@ -57,9 +57,14 @@ pub struct DictationActorDeps {
     pub bus: jinn_slices::bus::BusService,
     /// The blocking runtime handle the backend calls hop through.
     pub runtime: tokio::runtime::Handle,
-    /// The `[dictation]` config, read at activation. Config changes take
-    /// effect on the next jinn start, like every other slice.
-    pub config: crate::config::DictationSettings,
+    /// The live configuration layer. `[dictation]` is resolved from it
+    /// at each arm (the heavy tier's deferred application: a config
+    /// edit applies at the next dictation, never mid-recording), not
+    /// snapshotted at activation.
+    pub config: jinn_config::ConfigLayer,
+    /// The settings the activation resolution produced — the baseline
+    /// the reload handler diffs the fresh resolution against.
+    pub applied: crate::config::DictationSettings,
     /// The platform's backend, built once at activation.
     pub backend: Box<dyn DictationBackend>,
     /// The shared application state handle, for the utterance commits.
@@ -86,8 +91,15 @@ pub struct DictationActor {
     runtime: tokio::runtime::Handle,
     /// The shared application state, for utterance commits.
     state: jinn_kernel::common::state::State,
-    /// The resolved `[dictation]` settings.
-    config: crate::config::DictationSettings,
+    /// The live configuration layer — `[dictation]` resolves from it at
+    /// each arm, so a reload lands at the next dictation without any
+    /// rebuild here.
+    config: jinn_config::ConfigLayer,
+    /// The settings the currently running lifecycle was configured
+    /// under: the diff baseline the reload handler compares the fresh
+    /// resolution against, and the fallback when a reload's own
+    /// resolution fails.
+    applied: crate::config::DictationSettings,
     /// The lifecycle move currently running, if any. The actor never
     /// queues a second while one is in flight: a toggle mid-fetch is an
     /// idempotent acknowledgement (the hint re-pushed synchronously by
@@ -148,7 +160,7 @@ impl DictationActor {
         let backend: SharedBackend = std::sync::Arc::new(parking_lot::Mutex::new(deps.backend));
         let (machine, init_action) = {
             let cached = backend.lock().is_cached();
-            let mut machine = DictationMachine::new(&deps.config.model, deps.config.enabled);
+            let mut machine = DictationMachine::new(&deps.applied.model, deps.applied.enabled);
             let step = machine.init(&supported, cached);
             deps.state_cell.update(|state| *state = step.state.clone());
             // The row publish for the init state rides the kickoff fold
@@ -166,7 +178,8 @@ impl DictationActor {
             bus: deps.bus,
             runtime: deps.runtime,
             state: deps.state,
-            config: deps.config,
+            config: deps.config.clone(),
+            applied: deps.applied,
             in_flight: InFlight::None,
             capture: None,
         };
@@ -183,6 +196,11 @@ impl DictationActor {
             })
             .handles::<DictationToggle>()
             .handles::<DictationLifecycleTick>()
+            // The reload handler diffs `[dictation]` against the applied
+            // settings and, when the machine is between sessions,
+            // applies them; mid-recording it only names the pending
+            // change on the row.
+            .handles::<jinn_boot_msg::JinnTomlReloaded>()
             .emits::<ServiceStatusUpdate>()
             .emits::<DictationLifecycleTick>()
             .kickoff(DictationToggle, std::time::Duration::from_millis(1))
@@ -219,5 +237,11 @@ impl MsgHandler<DictationToggle> for DictationActor {
 impl MsgHandler<DictationLifecycleTick> for DictationActor {
     async fn handle(&mut self, msg: &DictationLifecycleTick, ctx: &mut MsgCtx<'_>) {
         self::handlers::handle_tick(self, msg, ctx).await;
+    }
+}
+
+impl MsgHandler<jinn_boot_msg::JinnTomlReloaded> for DictationActor {
+    async fn handle(&mut self, _msg: &jinn_boot_msg::JinnTomlReloaded, _ctx: &mut MsgCtx<'_>) {
+        self::handlers::handle_reload(self).await;
     }
 }

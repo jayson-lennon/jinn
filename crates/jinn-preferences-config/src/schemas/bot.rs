@@ -42,6 +42,12 @@ impl jinn_config::ConfigList for BotEntryConfig {
 
 /// One saved bot, defined in `jinn.toml` under `[[bot.entry]]`.
 ///
+/// # Behavior: Snapshot Read.
+///
+/// The file is read when a bot is created (and by bot-management
+/// actions), so an edit applies at the next bot creation; a running bot
+/// is not reconfigured mid-flight.
+///
 /// The `name` field is the array key the patcher matches entries by, so
 /// saving over an existing name replaces that entry in place — comments on
 /// its siblings survive.

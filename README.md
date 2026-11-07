@@ -73,13 +73,35 @@ Included workflows:
 
 ### Canvas
 
-`jinn` hosts a web server which includes several JavaScript libraries so an agent can make interactive illustrations, guides, charts, presentations, etc.
+`jinn` hosts a web server which includes embedded JavaScript libraries so an agent can make interactive illustrations, guides, charts, presentations, etc.
 
-Ask to "show me" something, and it will create a web page with an appropriate visual.
+Ask to "show me" something, and it will create a web page with an appropriate visual. Examples:
 
-### Applets
+- "chart these benchmark numbers"
+- "diagram the request lifecycle"
+- "show me a 3D surface of this equation"
+- "make an interactive quiz to test me on this chapter"
+- "animate how this sorting algorithm works".
 
-If you have a canvas page you want to reuse, have `jinn` turn it into an applet so you can open it again later anytime from a picker.
+Embedded libraries include:
+
+- [Chart.js](https://www.chartjs.org)
+- [uPlot](https://github.com/leeoniya/uPlot)
+- [Vega](https://vega.github.io/vega) / [Vega-Lite](https://vega.github.io/vega-lite) / [vega-embed](https://github.com/vega/vega-embed)
+- [Observable Plot](https://observablehq.com/plot)
+- [D3](https://d3js.org)
+- [Mermaid](https://mermaid.js.org)
+- [KaTeX](https://katex.org)
+- [p5.js](https://p5js.org)
+- [three.js](https://threejs.org)
+- [matter.js](https://brm.io/matter-js/)
+- [Vue](https://vuejs.org)
+- [Preact + htm](https://preactjs.com)
+- [highlight.js](https://highlightjs.org)
+
+#### Applets
+
+If you have a [canvas](#canvas) page you want to reuse, ask `jinn` turn it into an applet so you can open it again later anytime from a picker.
 
 ### Task/todo list
 
@@ -89,7 +111,7 @@ Agent-managed task list with task search.
 
 ### Dictation
 
-Speech-to-text capability activated with `<alt-i>`. Analysis performed locally by `parakeet-tdt-0.6b-v2`.
+Speech-to-text capability activated with `<alt-i>` with live audio meter. Analysis performed locally by `parakeet-tdt-0.6b-v2` (file an issue if you want more model support).
 
 ### Interactive term
 
@@ -110,16 +132,27 @@ Run TUI apps in a separate task that an agent can interact with.
 - Auto compaction exists as an emergency backstop and should _almost never_ fire when doing anything even remotely related to building software. If your sessions get compacted _at all_ while coding, please **open an issue** describing your workflow and provide your `[auto_prune*]` and `[compaction]` sections from your `jinn.toml` file along with the model you used.
 - Cache hit rate indicator should floor at 98% _during agentic coding loops_ (usually 99%). Anything lower than 98% means your configuration should be adjusted.
 
-### System prompt configuration
-
-Almost all of the "system prompt" / prefix can be configured, with the main driving being customizable personas. See [System Prompt](#system-prompt) for details.
-
-![Personas](doc/screenshots/personas.png)
-
 ### etc
 
-- Standard agent harness-y things like `AGENTS.md`, `~/.agents` skill discovery, custom prompts, MCP server support, subagents/tasks, concurrent execution, intersession messaging, usage display.
-- Subagents/tasks are regular sessions that are linked together in a tree, so you can steer an in-progress subagent or fork a new session from it.
+`jinn` support many standard agent harness-y things, including:
+
+- `AGENTS.md` and `~/.agents` skill discovery
+- Live configuration reload
+- Custom prompts inlined with `#prompt-name`
+- [System prompt](#system-prompt) configuration
+- MCP server support (`stdout`, local HTTP, and remote HTTP transports)
+- Concurrent session execution
+- Intersession messaging
+- Usage display (individual session usage and aggregated tree usage)
+- Session search
+- Agent-powered user guide
+  - Ask `jinn` anything about a `jinn` feature, or how to do something, or have it update a config, or build a custom workflow
+- Subagents/tasks as first-class citizens
+  - They are regular sessions linked to a parent. So they can be steered in realtime, searched, viewed, canceled, forked from, etc.
+- Image input
+- Deterministic stream abort via regex
+- Automatic continuation on intermittent errors
+- SCM-aware (`git` worktrees) via [lifecycle scripts](#lifecycle-scripts)
 
 ## Usage
 
@@ -369,6 +402,32 @@ The current date (`YYYY-MM-DD`), injected at assembly time.
 The session's working directory.
 
 **Change it:** `<leader>cd`, or `<M-c>`/`<M-d>` to pick a new directory starting from the session's project or your home directory.
+
+## Builtin Personas
+
+As indicated in the [persona](#persona) section, personas describe how the agent should behave in general for a given task (where "task" is broad like "write code" or "classify the inputs").
+
+### coding-assistant
+
+The default persona tuned for coding or step-by-step tasks. It will explore codebases to gather information, provides needed context when asked about features, and is critical of ideas (it will recommend _against_ an implementation if it has obvious issues or doesn't follow the existing codebase style).
+
+You should still follow the [agentic coding](#agentic-coding) guidelines while using this persona.
+
+### general
+
+The general persona is "You are a helpful assistant." with a few extra lines instructing it to be efficient with tool calls. Use this for general chat or as a base to hand-write your own persona.
+
+### learning-tutor
+
+`learning-tutor` teaches you a topic. It spawns a [bot](#bots) in the background to research the topic in order to reduce hallucinations and to stay grounded in accurate and updated information. It will also generate visual guides and examples, and pick different teaching methodologies to help maximize learning.
+
+You can ask for different teaching styles or tell it where you struggle and it will tune the curriculum as needed.
+
+To get the most out of this persona, include your thoughts while answering. You can "think out loud" using [dictation](#dictation), and/or provide long answers in your response. The agent will use this additional information to determine if you need more help in a specific area and to gauge your understanding for dynamically updating the curriculum.
+
+### brainstorm
+
+This persona helps you discover, validate, or refine ideas. Tell it that you want to do `foo`, and it will tell you everything wrong with it, forcing you to look at other perspectives or to defend it. It will never ultimately tell you what to pick or what to do. The purpose is to help you help yourself decide what thing is best for your particular situation.
 
 ## Security
 

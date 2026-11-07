@@ -133,6 +133,14 @@ impl ServerShared {
         metrics.push_back(entry);
     }
 
+    /// How many browsers currently hold the page: live `/ws` reload
+    /// subscriptions. Zero means no served URL has a holder, which is
+    /// the pending-bind apply boundary.
+    #[must_use]
+    pub fn client_count(&self) -> usize {
+        self.reload_tx.receiver_count()
+    }
+
     /// Takes every accumulated event, oldest first. A consumed buffer
     /// is empty: each event reaches the agent exactly once.
     #[must_use = "draining is the point; discarding the events loses them"]

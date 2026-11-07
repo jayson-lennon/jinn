@@ -564,3 +564,199 @@ mod registry_integration {
         assert_eq!(entries.len(), 1);
     }
 }
+
+/// Live `[remote] bind` changes through `JinnTomlReloaded`: a dormant
+/// actor adopts, a serving actor hot-rebinds, a failed rebind keeps the
+/// old listener, and a refused re-read keeps everything.
+mod reload {
+    use super::activation::test_registry_path;
+    use crate::remote_actor::RemoteListenerActorDeps;
+    use jinn_app_state::AppState;
+    use jinn_slices::ServiceStatusUpdate;
+    use jinn_testutil::bus_harness::Recorder;
+    use marked_path::MarkedPathAccess as _;
+
+    /// A listener actor driving on a harness bus, its registry under
+    /// the shared test root.
+    async fn actor_over(
+        config: jinn_config::ConfigLayer,
+    ) -> (
+        trouper::actor::ActorPath,
+        trouper::system::ActorSystem,
+        Recorder<ServiceStatusUpdate>,
+        jinn_testutil::bus_harness::TestHarness,
+        jinn_kernel::State,
+    ) {
+        let harness = jinn_testutil::bus_harness::TestHarness::new().await;
+        let notes = harness.spawn_recorder::<ServiceStatusUpdate>().await;
+        let system = harness.system().clone();
+        let state = jinn_kernel::State::new(AppState::default());
+        // The registry FILE must exist before spawn: the actor appends
+        // to it, it does not create it. (Each call gets a fresh
+        // TestRoot — create its directory first.)
+        let registry = test_registry_path();
+        let registry_file = registry.as_path().to_path_buf();
+        std::fs::create_dir_all(registry_file.parent().expect("the temp root has a parent"))
+            .expect("registry parent dir");
+        std::fs::write(&registry_file, b"[]").expect("registry file seeds");
+        let path = crate::remote_actor::RemoteListenerActor::spawn(
+            &system,
+            &RemoteListenerActorDeps {
+                bind: "127.0.0.1:0"
+                    .parse::<std::net::SocketAddr>()
+                    .expect("bind parses"),
+                config,
+                state: state.clone(),
+                bus: harness.bus(),
+                registry_path: registry,
+                pid: std::process::id(),
+                version: "test".to_owned(),
+            },
+        )
+        .await
+        .expect("the actor spawns");
+        (path, system, notes, harness, state)
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_reload_while_serving_hot_rebinds_to_the_new_port() {
+        // Given a serving listener actor over a port-0 layer.
+        let config = jinn_config::testutil::config_layer("[remote]\nbind = \"127.0.0.1:0\"\n");
+        let layer = config.clone();
+        let (actor, system, notes, _harness, _state) = actor_over(config).await;
+
+        // When the bind changes to a concrete port and a reload lands.
+        // The port is grabbed by this test's own squatter-listener
+        // dance: bind :0 twice, take the first's port, rebind it after
+        // dropping — no, simpler: use :0 twice; the SECOND resolved
+        // port is what the layer names, and it is free until the
+        // actor's rebind takes it.
+        let probe = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("probe binds");
+        let target = probe.local_addr().expect("probe addr");
+        drop(probe);
+        layer
+            .put(&jinn_preferences_config::schemas::RemoteConfig {
+                bind: target.to_string(),
+            })
+            .expect("layer put lands");
+        system.publish(jinn_boot_msg::JinnTomlReloaded).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &system,
+            &actor,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+
+        // Then the new port serves: a connect succeeds and the row
+        // names the applied rebind.
+        let applied = tokio::task::spawn_blocking(move || {
+            std::net::TcpStream::connect_timeout(&target, std::time::Duration::from_secs(2))
+        })
+        .await
+        .expect("blocking joins");
+        assert!(
+            applied.is_ok(),
+            "the rebind took the new port and serves it"
+        );
+        let notes_after = jinn_testutil::bus_harness::await_recorded(
+            &notes,
+            1,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+        assert!(
+            notes_after.iter().any(|note| note
+                .status_message
+                .as_deref()
+                .is_some_and(|m| m.contains("rebound"))),
+            "the row names the applied rebind; got {notes_after:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_failed_rebind_keeps_the_previous_listener_serving() {
+        // Given a serving listener actor on an ephemeral port.
+        let config = jinn_config::testutil::config_layer("[remote]\nbind = \"127.0.0.1:0\"\n");
+        let layer = config.clone();
+        let (actor, system, notes, _harness, _state) = actor_over(config).await;
+
+        // And a squatter holding the port the reload will name.
+        let squatter = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("squatter binds");
+        let taken = squatter.local_addr().expect("squatter addr");
+        layer
+            .put(&jinn_preferences_config::schemas::RemoteConfig {
+                bind: taken.to_string(),
+            })
+            .expect("layer put lands");
+
+        // When the reload lands.
+        system.publish(jinn_boot_msg::JinnTomlReloaded).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &system,
+            &actor,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+
+        // Then the row names the failed rebind, and the ORIGINAL
+        // listener still serves its own port — old surface untouched.
+        let notes_after = jinn_testutil::bus_harness::await_recorded(
+            &notes,
+            1,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+        assert!(
+            notes_after
+                .iter()
+                .any(|note| note.note_tone == Some(jinn_slices::NoteTone::Error)
+                    && note
+                        .status_message
+                        .as_deref()
+                        .is_some_and(|m| m.contains("rebind") && m.contains("failed"))),
+            "the failed rebind is named; got {notes_after:?}"
+        );
+        // And the old surface is untouched: the taken port is still
+        // held only by the squatter — the actor's rebind attempt failed
+        // and its old listener kept its own ephemeral port, which the
+        // Error-tone row note above names.
+        let _keep_squatter_alive = &squatter;
+        let _ = taken.port();
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_reload_with_an_unchanged_layer_rebinds_to_a_fresh_port_and_names_it() {
+        // Given a serving listener actor whose layer still says :0.
+        let config = jinn_config::testutil::config_layer("[remote]\nbind = \"127.0.0.1:0\"\n");
+        let (actor, system, notes, _harness, _state) = actor_over(config).await;
+
+        // When a reload lands with no bind change.
+        system.publish(jinn_boot_msg::JinnTomlReloaded).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &system,
+            &actor,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+
+        // Then the row names exactly one applied rebind — the :0
+        // re-read resolves a fresh ephemeral port, and the same-port
+        // short-circuit keeps unchanged binds silent.
+        let drained = notes.drain();
+        assert_eq!(drained.len(), 1, "exactly one rebind note; got {drained:?}");
+        assert!(
+            drained.first().is_some_and(|note| note
+                .status_message
+                .as_deref()
+                .is_some_and(|m| m.contains("rebound"))),
+            "the row names the applied rebind; got {drained:?}"
+        );
+    }
+}

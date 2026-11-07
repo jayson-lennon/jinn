@@ -50,6 +50,10 @@ pub struct ActorSystemBuilderArgs {
     pub app_state_storage: jinn_preferences_config::AppStateStorageService,
     /// The shells jinn runs commands through, resolved at launch.
     pub shells: jinn_common::shell::Shells,
+    /// The absolute path of the `jinn.toml` this run reads and writes:
+    /// the resolved `--config` override, or the default preferences path.
+    /// The config-watch slice watches this file.
+    pub resolved_config_path: MarkedPathBuf<Absolute>,
     /// Application paths.
     pub paths: jinn_kernel::AppPaths,
     /// Dump directory for provider request debugging. `None` disables.
@@ -102,6 +106,7 @@ impl ActorSystemBuilder {
             config,
             app_state_storage,
             shells,
+            resolved_config_path,
             paths,
             dump_requests,
             compaction_prompt,
@@ -162,8 +167,9 @@ impl ActorSystemBuilder {
             config_storage: config_storage.clone(),
             session_store: session_store.clone(),
             config,
+            resolved_config_path,
             app_state_storage: app_state_storage.clone(),
-            shells: shells.clone(),
+            shells: jinn_common::shell::ShellsService::new(shells.clone()),
             tempdir: None,
             bus,
             bridge: bridge.clone(),

@@ -11,19 +11,26 @@ pub mod authorize;
 pub mod backend;
 pub mod bridge_subscriber;
 pub mod channels;
+pub mod gateway_supervisor;
+#[cfg(test)]
+mod gateway_supervisor_tests;
 pub mod key_routes;
 pub mod message_split;
+pub mod reload_actor;
 pub mod reply;
 pub mod route;
 pub mod status_actor;
 pub mod thread_map;
 pub mod to_thread_intent;
 
-pub use backend::spawn_gateway;
+pub use backend::spawn::gateway_spawner;
 pub use bridge_subscriber::DiscordBridgeSubscriber;
 pub use bridge_subscriber::DiscordBridgeSubscriberDeps;
 pub use channels::DiscordGatewayChannels;
 pub use channels::MintedChannels;
+pub use gateway_supervisor::GatewayConfigHandle;
+pub use gateway_supervisor::GatewaySpawnHook;
+pub use gateway_supervisor::GatewaySupervisor;
 pub use jinn_discord_msg::BridgeEvent;
 pub use jinn_discord_msg::CreateThreadForSession;
 pub use jinn_discord_msg::CreateThreadReason;
@@ -37,6 +44,7 @@ pub use jinn_preferences_config::schemas::discord::DiscordConfig;
 pub use key_routes::attach_discord_rows;
 pub use key_routes::discord_scope;
 pub use message_split::split_message;
+pub use reload_actor::SharedSupervisor;
 pub use reply::FinalReply;
 pub use reply::read_final_reply;
 pub use route::RouteDecision;
@@ -58,6 +66,10 @@ pub struct ActivatedDiscord {
     pub parked: DiscordGatewayChannels,
     /// The validated `[discord]` section (activation resolved it).
     pub config: DiscordConfig,
+    /// The live-reload supervisor: the parked machinery behind the
+    /// shared mutex the reload actor folds events into and the
+    /// frontend's spawn hook attaches to.
+    pub supervisor: std::sync::Arc<tokio::sync::Mutex<gateway_supervisor::GatewaySupervisor>>,
 }
 
 /// Activates the discord slice through the host verbs.
@@ -149,7 +161,7 @@ pub async fn activate(
             bridge_subscriber::DiscordBridgeSubscriberDeps {
                 tx: bridge_tx,
                 gateway_tx,
-                state,
+                state: state.clone(),
             },
         );
     }
@@ -157,7 +169,30 @@ pub async fn activate(
     // Route rows: the `gdc` sequence in the Normal scope.
     attach_discord_rows(host.key_routes());
 
-    Ok(ActivatedDiscord { parked, config })
+    // The live-reload supervisor: parks the machinery, wraps in the
+    // shared mutex both the reload actor and the frontend spawn hook
+    // hold. Always spawned (even disabled — that is what lets a live
+    // `[discord] enabled = true` edit connect without a restart), and
+    // a single declarant per schema: this actor owns `JinnTomlReloaded`
+    // and `SessionPhaseChanged` for this slice; the bridge subscriber
+    // never declares them.
+    let supervisor = std::sync::Arc::new(tokio::sync::Mutex::new(
+        gateway_supervisor::GatewaySupervisor::new(
+            parked.clone(),
+            config.clone(),
+            host.slices().clone(),
+            state.clone(),
+            services.bus.clone(),
+            services.config.clone(),
+        ),
+    ));
+    reload_actor::DiscordReloadActor::spawn(&services.trouper_system, supervisor.clone());
+
+    Ok(ActivatedDiscord {
+        parked,
+        config,
+        supervisor,
+    })
 }
 
 #[cfg(test)]

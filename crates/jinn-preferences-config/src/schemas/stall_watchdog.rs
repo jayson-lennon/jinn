@@ -14,6 +14,10 @@ const DEFAULT_STALL_MAX_RESTARTS: u32 = 3;
 
 /// Stall-watchdog configuration.
 ///
+/// # Behavior: Snapshot Read.
+///
+/// Re-read at each watchdog check, so an edit applies at the next check.
+///
 /// Serialized as `[stall_watchdog]` in `jinn.toml`. The watchdog is
 /// always on; these knobs only tune when it intervenes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 
 /// CWD selector configuration.
 ///
+/// # Behavior: Snapshot Read.
+///
+/// Re-read at each directory pick, so an edit applies at the next pick.
+///
 /// Serialized as `[cwd_selector]` in `jinn.toml`.
 /// Controls the shell command used to select a new working directory.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

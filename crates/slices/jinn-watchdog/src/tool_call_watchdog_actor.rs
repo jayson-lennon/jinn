@@ -26,6 +26,7 @@ use trouper::system::ActorSystem;
 use jinn_core_types::SessionId;
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::Services;
+use jinn_preferences_config::schemas::ToolCallWatchdogConfig;
 use jinn_session_history_msg::PushChatEntry;
 use jinn_session_msg::TurnCompleted;
 use jinn_session_msg::TurnOutcome;
@@ -43,13 +44,24 @@ pub enum ToolWatchdogAction {
     CancelTurn(SessionId),
 }
 
+/// The failure budget, read from the live layer with the schema's
+/// clamp (≥ 1).
+fn services_max_failures(services: &Services) -> u8 {
+    services
+        .config
+        .get::<ToolCallWatchdogConfig>()
+        .unwrap_or_default()
+        .effective_max_failures()
+}
+
 /// Dependencies for [`ToolCallWatchdogActor`].
+///
+/// The failure budget is read from the live config layer at each
+/// failure — a `jinn.toml` reload applies to the next check.
 #[derive(Clone)]
 pub struct ToolCallWatchdogActorDeps {
-    /// Application-wide runtime services (bus publish).
+    /// Application-wide runtime services (bus publish, live config).
     pub services: Services,
-    /// Consecutive failures tolerated before tripping.
-    pub max_failures: u8,
 }
 
 /// The tool-call watchdog actor.
@@ -57,7 +69,6 @@ pub struct ToolCallWatchdogActorDeps {
 /// Per-session failure accumulator; trip = marker entry + cancel.
 pub struct ToolCallWatchdogActor {
     services: Services,
-    max_failures: u8,
     /// Failure counters keyed by session id.
     accumulators: HashMap<SessionId, u32>,
 }
@@ -94,7 +105,6 @@ impl ToolCallWatchdogActor {
                     Box::pin(async move {
                         Ok(Self {
                             services: deps.services,
-                            max_failures: deps.max_failures,
                             accumulators: HashMap::new(),
                         })
                     })
@@ -154,12 +164,26 @@ impl MsgHandler<TurnCompleted> for ToolCallWatchdogActor {
 }
 
 impl ToolCallWatchdogActor {
-    /// Builds an actor with an explicit maximum (test seam).
+    /// Builds an actor whose budget lives in the given services' config
+    /// layer, seeded here (test seam) the same way a jinn.toml edit
+    /// would land.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the config layer rejects the seed — unreachable with
+    /// the fake layer this seam exists for.
     #[must_use]
+    #[expect(
+        clippy::expect_used,
+        reason = "the test layer this seam exists for accepts every seed"
+    )]
     pub fn with_max_failures(services: Services, max_failures: u8) -> Self {
+        services
+            .config
+            .put(&ToolCallWatchdogConfig { max_failures })
+            .expect("the fake layer accepts the seed");
         Self {
             services,
-            max_failures,
             accumulators: HashMap::new(),
         }
     }
@@ -184,7 +208,8 @@ impl ToolCallWatchdogActor {
             return Vec::new();
         }
         let count = self.accumulators.get(&session).copied().unwrap_or(0) + 1;
-        if count < u32::from(self.max_failures) {
+        let max_failures = services_max_failures(&self.services);
+        if count < u32::from(max_failures) {
             self.accumulators.insert(session, count);
             return Vec::new();
         }
@@ -192,7 +217,7 @@ impl ToolCallWatchdogActor {
         // immediately.
         self.accumulators.insert(session.clone(), 0);
         vec![
-            ToolWatchdogAction::Marker(session.clone(), trip_text(self.max_failures, count)),
+            ToolWatchdogAction::Marker(session.clone(), trip_text(max_failures, count)),
             ToolWatchdogAction::CancelTurn(session),
         ]
     }
@@ -273,6 +298,34 @@ mod tests {
         // And the accumulator was zeroed: the next lone failure produces
         // nothing (the latch prevents an immediate re-kill).
         assert!(actor.on_tool_result(&session, false).is_empty());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_budget_edit_lands_on_the_next_check() {
+        // Given a watchdog with the default maximum of 4 that has seen
+        // three failures.
+        let session = SessionId::new();
+        let mut actor = watchdog(4).await;
+        let _: Vec<_> = (0..3)
+            .flat_map(|_| actor.on_tool_result(&session, false))
+            .collect();
+
+        // When a jinn.toml edit tightens the budget to 2 and one more
+        // failure arrives.
+        actor
+            .services
+            .config
+            .put(&ToolCallWatchdogConfig { max_failures: 2 })
+            .expect("the fake layer accepts the seed");
+        let actions: Vec<_> = actor.on_tool_result(&session, false).into_iter().collect();
+
+        // Then the edit governs the *next* check: the tightened budget
+        // trips, not the old one.
+        assert!(
+            !actions.is_empty(),
+            "the tightened budget must trip on the next failure"
+        );
     }
 
     #[rstest::rstest]

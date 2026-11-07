@@ -282,6 +282,7 @@ impl TestServices {
         };
 
         Services {
+            resolved_config_path: paths.preferences_path(),
             paths,
             handle,
             llm_service: self.llm_service.unwrap_or_else(|| {
@@ -304,7 +305,7 @@ impl TestServices {
                 svc.reload().expect("test app state storage initial reload");
                 svc
             },
-            shells: jinn_common::shell::Shells::default(),
+            shells: jinn_common::shell::ShellsService::new(jinn_common::shell::Shells::default()),
             tempdir,
             bus,
             bridge,

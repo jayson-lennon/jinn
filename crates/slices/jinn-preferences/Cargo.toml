@@ -13,6 +13,7 @@ jinn-config = { workspace = true }
 # actor": these are the authoritative writers for those fields.
 jinn-kernel = { workspace = true }
 jinn-preferences-config = { workspace = true }
+jinn-boot-msg = { workspace = true }
 jinn-preferences-msg = { workspace = true }
 jinn-project = { workspace = true }
 jinn-project-msg = { workspace = true }

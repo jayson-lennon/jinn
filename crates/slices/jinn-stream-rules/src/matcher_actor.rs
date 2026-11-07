@@ -1,7 +1,7 @@
 //! The stream-rule matcher actor — keeps the installed matcher current.
 //!
 //! Activation compiles the configured rules and installs the matcher once.
-//! This actor owns the same install after that: a [`RefreshStreamRuleMatcher`]
+//! This actor owns the same install after that: a [`StreamRulesReloaded`]
 //! command (published by a configuration writer, today the stream-rule
 //! picker's confirm) re-runs the identical read + compile + install path, so
 //! the matcher a fresh stream resolves is built from what the configuration
@@ -11,9 +11,14 @@
 //! the single-writer story intact: activation writes it before any stream
 //! runs, and this actor writes it after every confirmed configuration change.
 
+use jinn_boot_msg::JinnTomlReloaded;
+use jinn_kernel::Services;
+use jinn_kernel::common::actor_deps::BusPublish as _;
+use jinn_kernel::common::state::State;
+use jinn_session_history_msg::PushChatEntry;
 use jinn_slices::StreamRules;
 use jinn_slices::cell::TypedCell;
-use jinn_stream_rules_msg::RefreshStreamRuleMatcher;
+use jinn_stream_rules_msg::StreamRulesReloaded;
 use marked_path::{Absolute, MarkedPathBuf};
 use trouper::actor::ActorPath;
 use trouper::actor::{MsgHandler, ServiceActor};
@@ -27,11 +32,18 @@ pub const STREAM_RULE_MATCHER_PATH: &str = "stream-rule-matcher";
 /// The stream-rule matcher actor.
 ///
 /// Rebuilds the compiled set from the live configuration layer and
-/// reinstalls it into the matcher cell on every refresh command.
+/// reinstalls it into the matcher cell on every reload event — the
+/// picker's confirm (`StreamRulesReloaded`) and the config watcher's
+/// file triggers (`StreamRulesReloaded` from `stream_rules.toml`,
+/// `JinnTomlReloaded` from rules declared in `jinn.toml` itself).
 pub struct StreamRuleMatcherActor {
     cell: TypedCell<StreamRules>,
     config: jinn_config::ConfigLayer,
     preferences_path: MarkedPathBuf<Absolute>,
+    /// Publishes the refusal chat entry when a refresh is refused.
+    bus: jinn_slices::bus::BusService,
+    /// Names the refusal's recipient: the active session at refusal time.
+    state: State,
 }
 
 impl ServiceActor for StreamRuleMatcherActor {
@@ -60,7 +72,10 @@ impl StreamRuleMatcherActor {
         cell: TypedCell<StreamRules>,
         config: jinn_config::ConfigLayer,
         preferences_path: MarkedPathBuf<Absolute>,
+        services: &Services,
+        state: State,
     ) -> ActorPath {
+        let bus = services.bus.clone();
         trouper::builder::spawn_service_builder::<Self>(system)
             .at(ActorPath::new(STREAM_RULE_MATCHER_PATH))
             .init_with(move || {
@@ -69,14 +84,18 @@ impl StreamRuleMatcherActor {
                         cell,
                         config,
                         preferences_path,
+                        bus,
+                        state,
                     })
                 })
             })
-            .handles::<RefreshStreamRuleMatcher>()
+            .handles::<StreamRulesReloaded>()
+            .handles::<JinnTomlReloaded>()
+            .emits::<PushChatEntry>()
             .start()
     }
 
-    /// Handles a [`RefreshStreamRuleMatcher`] by rebuilding the matcher
+    /// Handles a [`StreamRulesReloaded`] by rebuilding the matcher
     /// from the current configuration and reinstalling it.
     ///
     /// The read is the same point-of-use read activation made, so the
@@ -85,29 +104,50 @@ impl StreamRuleMatcherActor {
     /// why the confirm publishes only after its writes succeed.
     ///
     /// A rebuild whose `project` globs cannot all anchor or compile is
-    /// **refused**: the error is logged and the previously installed matcher
-    /// stays live. A refresh must never leave the cell empty — that would
-    /// disarm every rule mid-session for one bad glob — and the bad file
-    /// will stop the next start anyway.
-    pub fn handle_refresh(&self) {
+    /// **refused**: the error is logged, the previously installed matcher
+    /// stays live, and the refusal reaches the chat as a transient entry
+    /// (the config-watch convention — a silently ignored edit reads like
+    /// a bug from the user's chair). A refresh must never leave the cell
+    /// empty — that would disarm every rule mid-session for one bad glob
+    /// — and the bad file will stop the next start anyway.
+    pub async fn handle_refresh(&self) {
         let rules = crate::rules::read_rules(&self.config, &self.preferences_path);
-        match crate::install_compiled_matcher(&self.cell, &rules) {
-            Ok(()) => {}
-            Err(report) => {
-                tracing::error!(
-                    error = ?report,
-                    "stream-rule matcher refresh refused; the previously installed matcher \
+        if let Err(report) = crate::install_compiled_matcher(&self.cell, &rules) {
+            tracing::error!(
+                error = ?report,
+                "stream-rule matcher refresh refused; the previously installed matcher \
                      stays live. Fix the project glob in the rules file; it will fail at the \
                      next start"
-                );
-            }
+            );
+            let session_id = self.state.read().session.active_session_id().clone();
+            let entry = jinn_core_types::ChatEntry::transient(format!(
+                "**Stream-rules refresh refused**\n\n{report:?}\n\nThe previously \
+                 installed matcher stays live."
+            ));
+            let publish = self.publish(PushChatEntry::unpinned(session_id, entry));
+            publish.await;
         }
     }
 }
 
-impl MsgHandler<RefreshStreamRuleMatcher> for StreamRuleMatcherActor {
-    async fn handle(&mut self, _msg: &RefreshStreamRuleMatcher, _ctx: &mut MsgCtx<'_>) {
-        self.handle_refresh();
+impl jinn_kernel::common::actor_deps::BusPublish for StreamRuleMatcherActor {
+    fn bus(&self) -> &jinn_slices::bus::BusService {
+        &self.bus
+    }
+}
+
+impl MsgHandler<StreamRulesReloaded> for StreamRuleMatcherActor {
+    async fn handle(&mut self, _msg: &StreamRulesReloaded, _ctx: &mut MsgCtx<'_>) {
+        self.handle_refresh().await;
+    }
+}
+
+// Rules may also live in jinn.toml itself (`[[stream_rules.entry]]` is a
+// registered section of that document), so a jinn.toml reload is a
+// trigger here too — the same rebuild, from the same layer.
+impl MsgHandler<JinnTomlReloaded> for StreamRuleMatcherActor {
+    async fn handle(&mut self, _msg: &JinnTomlReloaded, _ctx: &mut MsgCtx<'_>) {
+        self.handle_refresh().await;
     }
 }
 
@@ -119,6 +159,8 @@ mod tests {
         reason = "test module, panics are acceptable"
     )]
     use super::*;
+    use jinn_app_state::AppState;
+    use jinn_kernel::common::state::State;
     use jinn_preferences_config::StreamRulesStorage;
     use jinn_slices::StreamContext;
 
@@ -160,10 +202,13 @@ mod tests {
             .register(jinn_slices::stream_rules_slot(), StreamRules::empty())
             .expect("a fresh registry never has the stream-rules slot taken");
         let (prefs_dir, prefs) = temp_prefs();
+        let (bus, _audit) = jinn_slices::bus::BusService::new_recording();
         let actor = StreamRuleMatcherActor {
             cell: cell.clone(),
             config: layer_with_rule("rebuildable"),
             preferences_path: prefs,
+            bus,
+            state: State::new(AppState::default()),
         };
         (actor, cell, prefs_dir)
     }
@@ -185,13 +230,14 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn a_refresh_installs_the_configured_rules() {
+    #[tokio::test]
+    async fn a_refresh_installs_the_configured_rules() {
         // Given an actor whose cell holds no matcher.
         let (actor, cell, _prefs_dir) = actor();
         assert!(cell.read().installed().is_none());
 
-        // When a refresh command is handled.
-        actor.handle_refresh();
+        // When a reload event is handled.
+        actor.handle_refresh().await;
 
         // Then the configured rule is live in the cell.
         assert_eq!(
@@ -201,10 +247,11 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn a_disabled_rule_is_gone_after_a_refresh() {
+    #[tokio::test]
+    async fn a_disabled_rule_is_gone_after_a_refresh() {
         // Given a cell whose matcher was refreshed with the rule armed.
         let (actor, cell, _prefs_dir) = actor();
-        actor.handle_refresh();
+        actor.handle_refresh().await;
         assert!(fires(&cell, "REBUILD-MARKER-rebuildable").is_some());
 
         // When the rule is disabled underneath the actor and a refresh
@@ -213,21 +260,22 @@ mod tests {
             .config
             .set_stream_rule_disabled(&actor.preferences_path, "rebuildable", true)
             .expect("the write lands");
-        actor.handle_refresh();
+        actor.handle_refresh().await;
 
         // Then the rule no longer fires: the rebuilt set left it out.
         assert_eq!(fires(&cell, "REBUILD-MARKER-rebuildable"), None);
     }
 
     #[rstest::rstest]
-    fn a_re_enabled_rule_is_back_after_a_refresh() {
+    #[tokio::test]
+    async fn a_re_enabled_rule_is_back_after_a_refresh() {
         // Given a cell whose matcher was refreshed with the rule disabled.
         let (actor, cell, _prefs_dir) = actor();
         actor
             .config
             .set_stream_rule_disabled(&actor.preferences_path, "rebuildable", true)
             .expect("the write lands");
-        actor.handle_refresh();
+        actor.handle_refresh().await;
         assert!(fires(&cell, "REBUILD-MARKER-rebuildable").is_none());
 
         // When the rule is re-armed and a refresh runs.
@@ -235,7 +283,7 @@ mod tests {
             .config
             .set_stream_rule_disabled(&actor.preferences_path, "rebuildable", false)
             .expect("the write lands");
-        actor.handle_refresh();
+        actor.handle_refresh().await;
 
         // Then the rule fires again — a refresh re-arms as well as disarms.
         assert_eq!(
@@ -245,10 +293,11 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn a_failing_refresh_keeps_the_previously_installed_matcher() {
+    #[tokio::test]
+    async fn a_failing_refresh_keeps_the_previously_installed_matcher() {
         // Given a cell whose matcher holds a working set.
         let (actor, cell, _prefs_dir) = actor();
-        actor.handle_refresh();
+        actor.handle_refresh().await;
         assert_eq!(
             fires(&cell, "REBUILD-MARKER-rebuildable"),
             Some("rebuildable".to_owned())
@@ -267,12 +316,15 @@ mod tests {
             project = 'broken-proj'
             "#,
         );
+        let (poison_bus, _poison_audit) = jinn_slices::bus::BusService::new_recording();
         let actor = StreamRuleMatcherActor {
             cell: cell.clone(),
             config: poisoned,
             preferences_path: actor.preferences_path,
+            bus: poison_bus,
+            state: actor.state,
         };
-        actor.handle_refresh();
+        actor.handle_refresh().await;
 
         // Then the refresh is refused: the old set still fires, and the
         // broken config never reached the live matcher. The failure will
@@ -281,6 +333,47 @@ mod tests {
             fires(&cell, "REBUILD-MARKER-rebuildable"),
             Some("rebuildable".to_owned()),
             "a refused refresh must leave the previous matcher live"
+        );
+    }
+
+    // The config-watch convention: a refused reload is surfaced, not
+    // logged only — a silently ignored edit reads like a bug from the
+    // user's chair.
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_refused_refresh_publishes_a_chat_entry() {
+        // Given an actor whose refresh will fail (an unanchorable project
+        // glob) and a recording bus.
+        let (actor, cell, _prefs_dir) = actor();
+        let (bus, audit) = jinn_slices::bus::BusService::new_recording();
+        let poisoned = jinn_config::testutil::config_layer(
+            r#"
+            [[stream_rules.entry]]
+            name = "rebuildable"
+            conditions = ['REBUILD-MARKER-rebuildable']
+            scopes = ['text']
+            body = 'Finish it.'
+            project = 'broken-proj'
+            "#,
+        );
+        let refusing = StreamRuleMatcherActor {
+            cell,
+            config: poisoned,
+            preferences_path: actor.preferences_path,
+            bus,
+            state: actor.state,
+        };
+
+        // When the refresh runs.
+        refusing.handle_refresh().await;
+
+        // Then a PushChatEntry rode the bus: the refusal is visible in
+        // the chat, not just the log.
+        let pushed = audit.of_type::<PushChatEntry>();
+        assert_eq!(
+            pushed.len(),
+            1,
+            "a refused refresh must surface a chat entry"
         );
     }
 }

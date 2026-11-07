@@ -6,6 +6,8 @@ edition.workspace = true
 [dependencies]
 marked-path = { workspace = true }
 jinn-mcp-msg = { workspace = true }
+# The live-reload trigger: a jinn.toml change reconciles every session.
+jinn-boot-msg = { workspace = true }
 # Kernel dep: the coordinator consumes shared application state and session
 # lifecycle events through the asynchronous actor path.
 jinn-kernel = { workspace = true }

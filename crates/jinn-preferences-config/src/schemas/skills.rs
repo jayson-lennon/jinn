@@ -5,15 +5,29 @@ use serde::{Deserialize, Serialize};
 
 /// The `[skills]` section.
 ///
+/// # Behavior: Frozen.
+///
+/// `skill_filter` is stamped into the session profile at session
+/// creation; the live session never sees an edit to it, and the skills
+/// picker is its live-session control. A session created after the edit
+/// carries the new filter.
+///
 /// The filter has the same mode-plus-glob shape as `[tools]`, and covers the
 /// same breaking rename: a file still carrying `disabled` parses without it
 /// and every skill comes back. See [`jinn_core_types::NameFilter`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SkillsConfig {
-    /// Which skills a NEW session may load.
+    /// Which skills a session may load, stamped at its creation.
+    ///
+    /// Frozen: copied into the session profile at creation and never
+    /// re-read — a live config edit does not move a session's filter,
+    /// and the skills picker is its live-session control. A session
+    /// created after the edit carries the new filter.
     ///
     /// Absent means a new session starts unrestricted. Present over no names
     /// is not absent: an allow list naming nothing starts it with no skills.
+    /// The value a session carries is the file's value at that session's
+    /// creation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_filter: Option<NameFilter>,
 }

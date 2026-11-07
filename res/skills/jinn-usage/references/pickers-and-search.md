@@ -10,7 +10,7 @@ also listed under the `<leader>s` group in the which-key popup (`?`).
 | ------------ | ---------------- | ----------------------------------------------------- |
 | `<leader>sm` | Model/provider   | Active model (and provider) for the session           |
 | `<leader>ss` | Session          | Switch / resume any session (incl. archived); `<c-enter>` opens the highlighted session's **whole tree** |
-| `<leader>se` | Persona          | Session persona                                       |
+| `<leader>se` | Persona          | Session persona (builtin personas: `personas.md`)     |
 | `<leader>st` | Tool             | Enable/disable tools for this session                 |
 | `<leader>sk` | Skill            | Enable/disable skills; load skill bodies into context |
 | `<leader>sM` | MCP server       | Enable/disable/restart MCP servers (inspector)        |
@@ -21,7 +21,7 @@ also listed under the `<leader>s` group in the which-key popup (`?`).
 | `<leader>sl` | Lifecycle        | Lifecycle recipes for new sessions                    |
 | `<leader>sb` | Bot              | Saved bots from `jinn.toml` (`[[bot.entry]]`)         |
 | `<leader>sw` | Workflow         | Discovered workflows; enter loads one into the current session, ctrl+enter starts a new session |
-| `<leader>sa` | Applets          | Saved applet artifacts; opens one in the browser      |
+| `<leader>sa` | Applets          | Saved applet artifacts; opens one in the browser (see `canvas-and-applets.md`) |
 | `<leader>so` | OpenRouter model market | Browse/search OpenRouter's model catalog        |
 | `<leader>sx` | Stream rules     | The enforced stream-rule set (`stream_rules.toml` + `jinn.toml`) |
 
@@ -31,7 +31,7 @@ Shared controls:
 
 | Key                                  | Action                                                       |
 | ------------------------------------ | ------------------------------------------------------------ |
-| type letters                         | Filter the list (bare letters go to the filter, not actions) |
+| type letters                         | Filter the list (every bare letter lands in the filter)      |
 | `<up>` / `<down>`                    | Move selection                                               |
 | `<pgup>` / `<pgdn>`                  | Page the list                                                |
 | `<left>` / `<right>` / `<backspace>` | Edit the filter                                              |
@@ -46,8 +46,8 @@ highlights:
 - **Model**: `<Tab>` multi-selects models into an **alloy**, `<c-a>` toggles
   alloy mode, `<c-r>` refreshes the model list from the provider.
 - **Tool / Skill**: `<Tab>` toggles the highlighted entry on/off for this
-  session. Toggles are per-session and persist — they never write back to the
-  `tool_filter` / `skill_filter` defaults in `jinn.toml`.
+  session. Toggles are per-session and persist for the session; the
+  `tool_filter` / `skill_filter` defaults in `jinn.toml` stay as written.
 - **Skill**: `<c-l>` loads the highlighted skill's body into context as a
   pinned tool-result pair. The picker stays open so you can load several, and
   loading auto-enables a disabled skill. `<c-u>`/`<c-d>` scroll the markdown
@@ -61,8 +61,8 @@ highlights:
   `models-and-providers.md`).
 - **Bot**: `<enter>` attaches the highlighted saved bot to the active
   session. `<c-a>` attaches and keeps the picker open. `<c-enter>` spawns it
-  as a **standalone** bot (no parent) in its own session and switches to it
-  (see `bots.md`).
+  as a **standalone** bot (roots its own tree) in its own session and
+  switches to it (see `bots.md`).
 - **Project**: `<c-n>` starts a new session, `<c-d>` removes the highlighted
   one, `<c-enter>` starts a session there with a lifecycle recipe.
 - **Workflow**: `<c-r>` re-scans the workflows directory.
@@ -70,19 +70,19 @@ highlights:
 
 ### Context-cost footers
 
-The tool, skill, and MCP pickers show a context-cost figure in the footer —
+The tool, skill, and MCP pickers show a context-cost figure in the footer,
 counted with the same builders the prompt assembler uses:
 
-- **Tool** — the enabled toolset's context block (names, schemas,
+- **Tool**: the enabled toolset's context block (names, schemas,
   descriptions, guidelines), including MCP tools.
-- **Skill** — a *list* term (names + descriptions of enabled skills) plus a
+- **Skill**: a *list* term (names + descriptions of enabled skills) plus a
   *loaded* term (pinned skill bodies). A disabled skill that is still loaded
   keeps its body cost until you unload it.
-- **MCP** — the registered **tool definitions of enabled servers only**. The
+- **MCP**: the registered **tool definitions of enabled servers only**. The
   other MCP cost is advertising the server itself. MCP tools also count
-  inside the tool picker's figure, so the two figures overlap — don't add
-  them.
-- **A disabled entry costs zero** — it's marked with an `x` — except a skill
+  inside the tool picker's figure, so the two figures overlap; read them as
+  two views of one shared set.
+- **A disabled entry costs zero** (it's marked with an `x`), except a skill
   that is still loaded.
 
 ### Filter ranking
@@ -99,8 +99,8 @@ live. `<enter>` confirms from the sidebar just like a picker.
 
 ## Search across sessions
 
-jinn keeps a full-text (FTS5) index over persisted chat prose — user,
-assistant, tool call/result, system, error, and compaction entries — in
+jinn keeps a full-text (FTS5) index over persisted chat prose (user,
+assistant, tool call/result, system, error, and compaction entries) in
 every session.
 
 - **`session_search` runs over it.** Ask the agent "search my sessions for
@@ -113,5 +113,5 @@ every session.
 - **Indexing trails saves by up to ~one heartbeat (5s)**; a dashboard row
   shows live reindex progress.
 
-Nothing is recalled automatically. This index is how anything crosses
-sessions — you (or the agent) search for it explicitly.
+Every cross-session fact arrives through this index: you (or the agent)
+search for it explicitly.

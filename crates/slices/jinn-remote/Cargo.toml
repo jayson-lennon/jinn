@@ -15,6 +15,8 @@ jinn-slices = { workspace = true }
 jinn-remote-msg = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
 jinn-config = { workspace = true }
+# The live-reload trigger: a jinn.toml change re-reads [remote] bind.
+jinn-boot-msg = { workspace = true }
 jinn-kernel = { workspace = true }
 jinn-core-types = { workspace = true }
 axum = { version = "0.8" }

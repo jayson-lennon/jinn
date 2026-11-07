@@ -31,6 +31,11 @@ fn default_bind() -> String {
 
 /// `[applets]` preferences.
 ///
+/// # Behavior: Event-Dependent.
+///
+/// The saved-applet server owns the bound socket; a bus handler rebinds
+/// it when the reload event lands.
+///
 /// Serialized as `[applets]` in `jinn.toml`. The single field is the
 /// socket the saved-applet server binds; there is deliberately no separate
 /// port key — the address carries the port.

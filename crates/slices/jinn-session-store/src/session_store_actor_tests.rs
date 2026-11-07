@@ -3922,3 +3922,241 @@ async fn the_repair_publishes_enablement_only_when_the_seed_auto_enables_servers
     let enabled: std::collections::BTreeSet<_> = ["alpha".to_owned()].into();
     assert_eq!(repaired.enabled, enabled);
 }
+
+// ---------------------------------------------------------------------------
+// The Frozen policy, pinned: picker-backed config (tool filter, skill
+// filter, MCP enablement) is stamped into a session at creation and no
+// reload event re-seeds a live session. These tests run through the real
+// bus — `JinnTomlReloaded` is published on the harness fabric and the
+// store actor processes it like production — so the assertion is on the
+// session state after the event lands, not on the seed helper in
+// isolation.
+// ---------------------------------------------------------------------------
+
+/// Spawns the store actor with the config sections the seed reads already
+/// written, publishes `EnvironmentLoaded` so the welcome session is
+/// seeded, and returns the fixture.
+async fn frozen_fixture_with_sections(
+    seed_tools: &jinn_preferences_config::schemas::ToolsConfig,
+    seed_skills: &jinn_preferences_config::schemas::SkillsConfig,
+    seed_mcp: &jinn_preferences_config::schemas::mcp::McpServersConfig,
+) -> ActorFixture {
+    let fixture = actor_fixture().await;
+    fixture
+        .services_config()
+        .put(seed_tools)
+        .expect("write tools config");
+    fixture
+        .services_config()
+        .put(seed_skills)
+        .expect("write skills config");
+    fixture
+        .services_config()
+        .put(seed_mcp)
+        .expect("write mcp config");
+    fixture
+        .harness
+        .publish(EnvironmentLoaded {
+            config: empty_providers_config(),
+        })
+        .await;
+    jinn_testutil::wait::await_inbox_drained(
+        fixture.harness.system(),
+        &fixture.actor_path,
+        Duration::from_secs(10),
+    )
+    .await;
+    fixture
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_jinn_toml_reload_leaves_the_live_sessions_skill_filter_untouched() {
+    // Given a live store actor whose welcome session was seeded with a
+    // `[skills]` deny on `that-voice`.
+    let tools = jinn_preferences_config::schemas::ToolsConfig::default();
+    let skills = jinn_preferences_config::schemas::SkillsConfig {
+        skill_filter: Some(jinn_core_types::NameFilter::deny(["that-voice"])),
+    };
+    let mcp = jinn_preferences_config::schemas::mcp::McpServersConfig::default();
+    let fixture = frozen_fixture_with_sections(&tools, &skills, &mcp).await;
+    let seeded = fixture
+        .state
+        .read()
+        .session
+        .active_session()
+        .skill_filter()
+        .cloned();
+    assert_eq!(
+        seeded.map(|f| f.mode),
+        Some(jinn_core_types::FilterMode::Deny),
+        "the welcome session must have been seeded from the file first"
+    );
+
+    // When a reload event lands after the config flipped to no filter —
+    // the edit that, if any subscriber re-seeded, would move the session.
+    let empty = jinn_preferences_config::schemas::SkillsConfig::default();
+    fixture.services_config().put(&empty).expect("flip skills");
+    fixture
+        .harness
+        .publish(jinn_boot_msg::JinnTomlReloaded)
+        .await;
+    jinn_testutil::wait::await_inbox_drained(
+        fixture.harness.system(),
+        &fixture.actor_path,
+        Duration::from_secs(10),
+    )
+    .await;
+
+    // Then the live session still carries the deny it was created under:
+    // no reload re-seeds a live session — the picker is its control.
+    let after = fixture
+        .state
+        .read()
+        .session
+        .active_session()
+        .skill_filter()
+        .cloned();
+    assert_eq!(
+        after.map(|f| f.mode),
+        Some(jinn_core_types::FilterMode::Deny),
+        "the live session's skill_filter must not move on a reload"
+    );
+    // And a session created after the reload carries the new value: the
+    // seed reads the layer afresh at creation.
+    let fresh = jinn_session_msg::SessionSeed::from_config(&fixture.config.clone());
+    assert!(
+        fresh.skill_filter.is_none(),
+        "a session created after the reload carries the flipped file's value"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_jinn_toml_reload_leaves_the_live_sessions_tool_filter_untouched() {
+    // Given a live store actor whose welcome session was seeded with a
+    // `[tools]` deny on `bash`.
+    let tools = jinn_preferences_config::schemas::ToolsConfig {
+        tool_filter: Some(jinn_core_types::NameFilter::deny(["bash"])),
+        ..Default::default()
+    };
+    let skills = jinn_preferences_config::schemas::SkillsConfig::default();
+    let mcp = jinn_preferences_config::schemas::mcp::McpServersConfig::default();
+    let fixture = frozen_fixture_with_sections(&tools, &skills, &mcp).await;
+    let seeded = fixture
+        .state
+        .read()
+        .session
+        .active_session()
+        .tool_filter()
+        .cloned();
+    assert_eq!(
+        seeded.map(|f| f.mode),
+        Some(jinn_core_types::FilterMode::Deny),
+        "the welcome session must have been seeded from the file first"
+    );
+
+    // When a reload event lands after the config flipped to no filter.
+    let empty = jinn_preferences_config::schemas::ToolsConfig::default();
+    fixture.services_config().put(&empty).expect("flip tools");
+    fixture
+        .harness
+        .publish(jinn_boot_msg::JinnTomlReloaded)
+        .await;
+    jinn_testutil::wait::await_inbox_drained(
+        fixture.harness.system(),
+        &fixture.actor_path,
+        Duration::from_secs(10),
+    )
+    .await;
+
+    // Then the live session still carries the deny it was created under.
+    let after = fixture
+        .state
+        .read()
+        .session
+        .active_session()
+        .tool_filter()
+        .cloned();
+    assert_eq!(
+        after.map(|f| f.mode),
+        Some(jinn_core_types::FilterMode::Deny),
+        "the live session's tool_filter must not move on a reload"
+    );
+    // And the post-reload seed reads the flipped file.
+    let fresh = jinn_session_msg::SessionSeed::from_config(&fixture.config.clone());
+    assert!(
+        fresh.tool_filter.is_none(),
+        "a session created after the reload carries the flipped file's value"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_jinn_toml_reload_leaves_the_live_sessions_enabled_mcp_untouched() {
+    // Given a live store actor whose welcome session was seeded with an
+    // auto-enabled `alpha` server.
+    let tools = jinn_preferences_config::schemas::ToolsConfig::default();
+    let skills = jinn_preferences_config::schemas::SkillsConfig::default();
+    let mcp = jinn_preferences_config::schemas::mcp::McpServersConfig(
+        [(
+            "alpha".to_owned(),
+            jinn_preferences_config::schemas::mcp::McpServerConfig {
+                auto_enable: true,
+                ..Default::default()
+            },
+        )]
+        .into(),
+    );
+    let fixture = frozen_fixture_with_sections(&tools, &skills, &mcp).await;
+    let seeded = fixture
+        .state
+        .read()
+        .session
+        .active_session()
+        .enabled_mcp_servers()
+        .clone();
+    assert_eq!(
+        seeded.len(),
+        1,
+        "the welcome session must have been seeded with the auto-enabled server first"
+    );
+
+    // When a reload event lands after the file dropped `auto_enable`.
+    let cleared = jinn_preferences_config::schemas::mcp::McpServersConfig(
+        [(
+            "alpha".to_owned(),
+            jinn_preferences_config::schemas::mcp::McpServerConfig::default(),
+        )]
+        .into(),
+    );
+    fixture
+        .services_config()
+        .put(&cleared)
+        .expect("clear auto_enable");
+    fixture
+        .harness
+        .publish(jinn_boot_msg::JinnTomlReloaded)
+        .await;
+    jinn_testutil::wait::await_inbox_drained(
+        fixture.harness.system(),
+        &fixture.actor_path,
+        Duration::from_secs(10),
+    )
+    .await;
+
+    // Then the live session's enabled set is exactly what it was created
+    // with: no reload re-seeds a live session — the MCP picker is its
+    // control.
+    let after = fixture
+        .state
+        .read()
+        .session
+        .active_session()
+        .enabled_mcp_servers()
+        .clone();
+    assert_eq!(
+        after, seeded,
+        "the live session's enabled_mcp_servers must not move on a reload"
+    );
+}
