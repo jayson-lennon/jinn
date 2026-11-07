@@ -32,6 +32,13 @@ pub enum ConfigError {
 }
 
 /// Root of `providers.toml`.
+///
+/// # Behavior: Event-Dependent.
+///
+/// The provider registry and the LLM factories built from it are
+/// artifacts; a bus handler re-reads and rebuilds them when the reload
+/// event lands (in-flight streams hold their own factories and are not
+/// disturbed).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProvidersConfig {
     /// User-defined provider entries, keyed by provider name.

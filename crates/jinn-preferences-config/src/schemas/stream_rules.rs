@@ -76,6 +76,12 @@ impl jinn_config::Configurable for LegacyStreamRulesBudget {
 
 /// One rule, as written in `jinn.toml`.
 ///
+/// # Behavior: Event-Dependent.
+///
+/// The compiled matcher is an artifact; a bus handler recompiles it when
+/// the reload event lands (a bad file is refused there and the old
+/// matcher stays live).
+///
 /// An absent or empty `scopes` admits every stream — assistant prose,
 /// reasoning, and serialized tool-call arguments alike. Naming scopes
 /// narrows that to where the rule is meaningful: a rule about TypeScript
@@ -164,6 +170,12 @@ impl jinn_config::ConfigList for StreamRuleConfig {
 /// from a standalone `stream_rules.toml`, or one converted from a removed
 /// legacy section has no entry here to carry a flag, but every rule has a
 /// name.
+///
+/// # Behavior: Event-Dependent.
+///
+/// The compiled matcher is an artifact; a bus handler recompiles it when
+/// the reload event lands (a bad file is refused there and the old
+/// matcher stays live).
 ///
 /// An absent or empty array means every rule is armed, and an emptied array
 /// is removed from the file rather than written as `[]` — an armed rule

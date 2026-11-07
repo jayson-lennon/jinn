@@ -20,6 +20,30 @@
 //! Consumers read a section through the configuration layer
 //! (`config.get::<T>()` / `get_list::<T>()`), so a section type is pure
 //! data with no dependency back on the code that reads it.
+//!
+//! # Behavior vocabulary
+//!
+//! Every section struct declares exactly one behavior in its docs:
+//!
+//! - **Snapshot Read** — the consumer owns nothing; it re-reads the value
+//!   from the layer's current snapshot each time it does its job. An edit
+//!   applies at the next natural use (next check, next compaction, next
+//!   render).
+//! - **Event-Dependent** — the consumer owns an artifact (a bound socket,
+//!   a running process, a resolved binary, a registry) and declares a bus
+//!   handler that rebuilds it when the config-watch slice publishes its
+//!   reload event. Applies immediately or at the artifact's natural
+//!   boundary.
+//! - **Frozen** — a copy captured into the session profile at session
+//!   creation; the live session never sees config edits to it, and the
+//!   corresponding picker is its live-session control. A new session
+//!   picks up the new value.
+//!
+//! Live reload itself is the config-watch slice's pipeline: a notify
+//! event → a 250 ms debounce → a content-hash dedupe → a validate-gated
+//! snapshot swap → the reload event. Snapshot Read sections ride the
+//! swap alone; Event-Dependent sections add a bus handler; Frozen
+//! sections ignore the pipeline entirely.
 
 pub mod applets;
 pub mod auto_prune;

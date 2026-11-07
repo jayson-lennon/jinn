@@ -528,6 +528,10 @@ impl Default for AnchoredAssistantAutoPruneConfig {
 
 /// Auto-prune configuration.
 ///
+/// # Behavior: Snapshot Read.
+///
+/// Re-read at each prune decision, so an edit applies at the next prune.
+///
 /// Serialized as `[auto_prune]` in `jinn.toml`.
 /// Groups all auto-prune strategy configurations.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

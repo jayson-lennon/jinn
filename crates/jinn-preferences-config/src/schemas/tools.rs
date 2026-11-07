@@ -7,9 +7,22 @@ use jinn_core_types::NameFilter;
 use serde::{Deserialize, Serialize};
 
 /// The `[tools]` section.
+///
+/// # Behavior: Frozen (the `tool_filter` key) + Snapshot Read (the rest).
+///
+/// `tool_filter` is stamped into the session profile at session
+/// creation; the live session never sees an edit to it, and the tools
+/// picker is its live-session control. The timeout and output caps are
+/// re-read from the layer's snapshot at each tool call, so an edit
+/// applies at the next natural use.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolsConfig {
-    /// Which tools a NEW session starts permitted or withheld.
+    /// Which tools a session starts permitted or withheld.
+    ///
+    /// Frozen: stamped into the session profile at creation and never
+    /// re-read — a live config edit does not move a session's filter,
+    /// and the tools picker is its live-session control. A session
+    /// created after the edit carries the new filter.
     ///
     /// ```toml
     /// # The former blocklist: withhold these two.
@@ -30,6 +43,8 @@ pub struct ToolsConfig {
     ///
     /// Absent means a new session starts unrestricted. Present over no names
     /// is not absent: an allow list naming nothing starts it with no tools.
+    /// The value a session carries is the file's value at that session's
+    /// creation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_filter: Option<NameFilter>,
 

@@ -231,6 +231,7 @@ impl App {
                     config,
                     app_state_storage,
                     shells,
+                    resolved_config_path,
                 } = services;
                 #[cfg(debug_assertions)]
                 let _db_path = cli.db_path_opt().cloned();
@@ -269,6 +270,7 @@ impl App {
                                         config: config.clone(),
                                         app_state_storage: app_state_storage.clone(),
                                         shells: shells.clone(),
+                                        resolved_config_path: resolved_config_path.clone(),
                                         paths: jinn_kernel::AppPaths::default(),
                                         dump_requests: dump_requests.clone(),
                                         compaction_prompt,
@@ -327,6 +329,7 @@ impl App {
                                         config: config.clone(),
                                         app_state_storage,
                                         shells,
+                                        resolved_config_path,
                                         paths: jinn_kernel::AppPaths::default(),
                                         dump_requests,
                                         compaction_prompt,

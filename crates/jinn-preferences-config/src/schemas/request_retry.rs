@@ -14,6 +14,10 @@ const DEFAULT_RETRY_MAX_DELAY_SECS: u64 = 60;
 
 /// Retry configuration for LLM provider requests.
 ///
+/// # Behavior: Snapshot Read.
+///
+/// Re-read at each dispatch, so an edit applies at the next request.
+///
 /// Serialized as `[request_retry]` in `jinn.toml`.
 /// Controls exponential backoff behavior for transient errors.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

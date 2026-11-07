@@ -1,10 +1,11 @@
 //! The config-watch actor — the loop that turns an edit into events.
 //!
-//! Notify events (config dir + each resource dir) land on a dedicated
-//! channel; a spawned loop debounces bursts and hands one settle per
-//! window to the actor. The settle diffs content signatures against the
-//! last-seen ledger: only content that actually changed is handled, which
-//! is what makes jinn's own no-op writes publish nothing.
+//! Notify events (the config dir, the `--config` override's dir when it
+//! differs, and each resource dir) land on a dedicated channel; a spawned
+//! loop debounces bursts and hands one settle per window to the actor. The
+//! settle diffs content signatures against the last-seen ledger: only
+//! content that actually changed is handled, which is what makes jinn's
+//! own no-op writes publish nothing.
 //!
 //! The settle's handling order is the correctness story:
 //!
@@ -72,34 +73,33 @@ pub const CONFIG_WATCH_PATH: &str = "config-watch";
 const ROW_NAME: &str = CONFIG_WATCH_PATH;
 
 /// The files whose content is hashed per settle.
+///
+/// `jinn.toml` is wherever the run's `--config` resolved to (the default
+/// preferences path when the flag is absent); `providers.toml` and
+/// `stream_rules.toml` always sit in the standard app-config dir. When the
+/// override lives elsewhere, its parent dir is watched in addition — the
+/// hash ledger keyed by path makes the double coverage harmless.
 #[derive(Debug, Clone)]
 struct WatchedFiles {
     config_dir: MarkedPathBuf<Absolute>,
     jinn_toml: MarkedPathBuf<Absolute>,
+    /// The override file's parent, watched only when it differs from
+    /// `config_dir` — otherwise one save would arm two watch dirs.
+    override_dir: Option<MarkedPathBuf<Absolute>>,
     providers_toml: MarkedPathBuf<Absolute>,
     stream_rules_toml: MarkedPathBuf<Absolute>,
 }
 
 impl WatchedFiles {
-    /// Resolves the three config files from the services' paths.
+    /// Resolves the config files from the services.
     ///
-    /// All three are siblings under `~/.config/jinn`: `jinn.toml` and
-    /// `stream_rules.toml` by convention, `providers.toml` by
-    /// [`AppPaths::config_path`]. The watch is over the directory, so one
-    /// watch covers all three.
+    /// `jinn.toml` follows the layer: it is the run's resolved
+    /// `--config` path carried on [`Services`], not a hardcoded
+    /// `jinn.toml` under the app-config dir. The other two files stay
+    /// standard — `--config` names a jinn.toml, nothing else.
     fn from_services(services: &Services) -> Self {
         let config_dir = services.paths.app_config_dir();
-        // The constant names cannot fail a name-join on an absolute base;
-        // the expects are unreachable in practice.
-        let jinn_toml = {
-            #[expect(
-                clippy::expect_used,
-                reason = "a constant name join on an absolute base cannot fail"
-            )]
-            config_dir
-                .join("jinn.toml")
-                .expect("name join keeps the base absolute")
-        };
+        let jinn_toml = services.resolved_config_path.clone();
         let stream_rules_toml = {
             #[expect(
                 clippy::expect_used,
@@ -109,9 +109,25 @@ impl WatchedFiles {
                 .join("stream_rules.toml")
                 .expect("name join keeps the base absolute")
         };
+        // The override dir matters only when it is not the standard dir:
+        // inside it, one watch already covers the file and a second dir
+        // watcher would deliver duplicate events for one save.
+        let override_dir = jinn_toml
+            .as_path()
+            .parent()
+            .map(|parent| {
+                #[expect(
+                    clippy::expect_used,
+                    reason = "the parent of an absolute path is absolute"
+                )]
+                MarkedPathBuf::<Absolute>::new(parent)
+                    .expect("the parent of an absolute path is absolute")
+            })
+            .filter(|parent| parent != &config_dir);
         Self {
             config_dir,
             jinn_toml,
+            override_dir,
             providers_toml: services.paths.config_path(),
             stream_rules_toml,
         }
@@ -120,6 +136,12 @@ impl WatchedFiles {
     /// The watched parent directory (the three files are siblings).
     fn config_dir(&self) -> &MarkedPathBuf<Absolute> {
         &self.config_dir
+    }
+
+    /// The `--config` override's parent dir, when it is not the standard
+    /// config dir.
+    fn override_dir(&self) -> Option<&MarkedPathBuf<Absolute>> {
+        self.override_dir.as_ref()
     }
 
     /// All three as one array, for ledger capture and the settle diff.
@@ -518,10 +540,18 @@ fn watch_result(
             Ok(())
         };
 
-    // The config directory covers all three files (they are siblings) —
+    // The config directory covers providers.toml and stream_rules.toml —
     // non-recursive: nothing beneath it is ours to care about.
     let config_dir = files.config_dir();
     watch_dir(config_dir.as_path(), notify::RecursiveMode::NonRecursive)?;
+    // When the `--config` override lives outside the standard config dir,
+    // its parent needs its own watch or edits to the override file would
+    // never be seen. The same-file case is filtered out at resolution
+    // (no duplicate events for one save); the hash ledger is keyed by
+    // path, so even overlapping coverage re-hashes each file once.
+    if let Some(dir) = files.override_dir() {
+        watch_dir(dir.as_path(), notify::RecursiveMode::NonRecursive)?;
+    }
     // Resource dirs are recursive: subdirectories are part of the
     // resource (a theme pack, a skill folder). Each is created first —
     // jinn owns these directories, an absent one cannot be watched, and

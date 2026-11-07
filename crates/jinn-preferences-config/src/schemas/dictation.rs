@@ -21,6 +21,11 @@ use jinn_dictation_backend::BackendOptions;
 use serde::{Deserialize, Serialize};
 
 /// The `[dictation]` section as configured in `jinn.toml`.
+///
+/// # Behavior: Event-Dependent.
+///
+/// The dictation backend is an artifact; a bus handler rebuilds it when
+/// the reload event lands.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DictationConfig {
     /// Whether dictation loads its backend at startup. The shipped

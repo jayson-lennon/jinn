@@ -11,6 +11,12 @@ use serde::{Deserialize, Serialize};
 
 /// Discord bot configuration.
 ///
+/// # Behavior: Event-Dependent.
+///
+/// The gateway connection is an artifact; a bus handler applies an
+/// enablement or token edit at the bot's idle boundary when the reload
+/// event lands.
+///
 /// Serialized as the `[discord]` table in `jinn.toml`. All fields are optional
 /// and default to a disabled bot — the bot only starts when `enabled = true`
 /// AND a token is available (config field or `DISCORD_BOT_TOKEN` env var).

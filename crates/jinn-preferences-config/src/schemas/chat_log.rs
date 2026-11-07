@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 
 /// The `[chat_log]` section.
 ///
+/// # Behavior: Snapshot Read.
+///
+/// Re-read at each render, so an edit applies at the next render.
+///
 /// Both fields are optional so an absent key falls through to the
 /// reader's own built-in default — which is not the same number in
 /// every reader, and is deliberately left that way.

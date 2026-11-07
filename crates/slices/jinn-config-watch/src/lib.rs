@@ -1,11 +1,12 @@
 //! The config-watch slice — `jinn.toml` live, without a restart.
 //!
-//! Watches the three config files (`jinn.toml`, `providers.toml`,
-//! `stream_rules.toml`) and the resource directories (themes, personas,
-//! prompts, skills, workflows). An external edit — or jinn's own write —
-//! settles through a 250 ms debounce and a content-hash diff, so a no-op
-//! write publishes nothing. What actually changed is then handled in
-//! order:
+//! Watches the run's `jinn.toml` (the resolved `--config` path, which may
+//! live outside the standard config dir), the standard config dir's
+//! `providers.toml` and `stream_rules.toml`, and the resource directories
+//! (themes, personas, prompts, skills, workflows). An external edit — or
+//! jinn's own write — settles through a 250 ms debounce and a
+//! content-hash diff, so a no-op write publishes nothing. What actually
+//! changed is then handled in order:
 //!
 //! - `jinn.toml` re-enters the system through the configuration layer's
 //!   validate-gated reload ([`jinn_config::ConfigLayer::reload_validated`]):
@@ -25,6 +26,15 @@
 //! - A resource fingerprint change publishes
 //!   [`jinn_boot_msg::ResourcesChanged`], which theme, persona, and
 //!   session-init re-scan on.
+//!
+//! The pipeline feeds the three behaviors every configuration section
+//! declares (see the schemas module's glossary): **Snapshot Read**
+//! sections need nothing from this slice — the validate-gated swap is
+//! all they ride. **Event-Dependent** sections exist for the event
+//! stage: their owning actor's handler rebuilds the artifact a socket,
+//! a process, or a registry stands for. **Frozen** sections ignore the
+//! pipeline entirely: their session-profile copies change only at
+//! session creation.
 //!
 //! The slice contributes one actor ([`watch_actor::ConfigWatchActor`]),
 //! no cell, no routes, no view — the watchdog precedent. Point-of-use

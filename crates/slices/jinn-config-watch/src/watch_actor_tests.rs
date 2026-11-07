@@ -1,4 +1,6 @@
-//! Watcher behavior tests (W1–W12 from the spec).
+//! Watcher behavior tests (W1–W12 from the spec) plus the `--config`
+//! override tests (C1–C3): the run's jinn.toml may live outside the
+//! standard config dir, and the watcher must follow it.
 //!
 //! Every test drives the real path: real notify watches over a real temp
 //! config directory, the real debounce, the real signature diff. A test
@@ -44,7 +46,10 @@ struct WatchFixture {
     state: State,
     /// `<temp>/jinn` — the watched app-config dir.
     config_dir: marked_path::MarkedPathBuf<marked_path::Absolute>,
-    /// The layer over the watched `jinn.toml`, for post-settle reads.
+    /// The run's resolved jinn.toml: the `--config` override file when an
+    /// override was requested, else the default under the config dir.
+    jinn_toml: marked_path::MarkedPathBuf<marked_path::Absolute>,
+    /// The layer over `jinn_toml`, for post-settle reads.
     layer: jinn_config::ConfigLayer,
     temp: jinn_testutil::temp::JinnTempDir,
 }
@@ -53,7 +58,12 @@ impl WatchFixture {
     /// Builds the fixture: temp config dir, services rooted there, the
     /// config layer and provider storage over the watched files, watches
     /// live.
-    async fn new(seed: &str) -> Self {
+    ///
+    /// With `override_subdir: Some(name)`, the run's jinn.toml is
+    /// `<temp>/<name>/jinn.toml` — the `--config` shape — and `services`
+    /// carries that resolved path; without it, the default preferences
+    /// path under the app-config dir is the watched file.
+    async fn new(seed: &str, override_subdir: Option<&str>) -> Self {
         let temp = tempdir();
         let harness = TestHarness::new().await;
         let state = State::new(AppState::default());
@@ -70,22 +80,29 @@ impl WatchFixture {
         // fixture and the actor can never disagree about the tree.
         let config_dir = services.paths.app_config_dir();
         std::fs::create_dir_all(&config_dir).expect("config dir creates");
-        std::fs::write(
-            config_dir
+        let jinn_toml = match override_subdir {
+            Some(name) => {
+                let dir = temp
+                    .path
+                    .as_marked_path()
+                    .join_relative(&rel(name).as_marked_path());
+                std::fs::create_dir_all(dir.as_path()).expect("override dir creates");
+                dir.join("jinn.toml")
+                    .expect("name join keeps the base absolute")
+            }
+            None => config_dir
                 .join("jinn.toml")
-                .expect("name join keeps the base absolute")
-                .as_path(),
-            seed,
-        )
-        .expect("seed jinn.toml");
+                .expect("name join keeps the base absolute"),
+        };
+        std::fs::write(jinn_toml.as_path(), seed).expect("seed jinn.toml");
 
         // Point the layer and the provider storage at the watched files:
         // a settle's `reload_validated` re-reads exactly what the test
         // writes, and the providers parse gate reads the same bytes.
+        // The layer rides the same resolved path the watcher watches —
+        // the production `--config` shape.
         let layer_storage: std::sync::Arc<dyn jinn_config::ConfigDocumentStorage> =
-            std::sync::Arc::new(jinn_config::FilesystemConfigStorage::new(abs_path(
-                &config_dir.as_path().join("jinn.toml"),
-            )));
+            std::sync::Arc::new(jinn_config::FilesystemConfigStorage::new(jinn_toml.clone()));
         let layer = jinn_config::ConfigLayer::load(layer_storage).expect("layer loads");
         // A registered section gives the validation gate something to
         // enforce on candidate documents.
@@ -96,6 +113,7 @@ impl WatchFixture {
                 abs_path(&config_dir.as_path().join("providers.toml")),
             )),
         );
+        services.resolved_config_path = jinn_toml.clone();
         let services: Services = services;
 
         Self {
@@ -103,6 +121,7 @@ impl WatchFixture {
             services,
             state,
             config_dir,
+            jinn_toml,
             layer,
             temp,
         }
@@ -215,11 +234,31 @@ impl WatchFixture {
         .expect("write");
     }
 
-    /// The watched jinn.toml's path.
+    /// The watched jinn.toml's default path (under the config dir).
     fn jinn_toml(&self) -> marked_path::MarkedPathBuf<marked_path::Absolute> {
         self.config_dir
             .join("jinn.toml")
             .expect("name join keeps the base absolute")
+    }
+
+    /// Atomic save into an arbitrary directory (the editor pattern for
+    /// the `--config` file, which may live outside the config dir).
+    fn atomic_write_at(
+        dir: &marked_path::MarkedPathBuf<marked_path::Absolute>,
+        name: &str,
+        contents: &str,
+    ) {
+        let tmp = dir
+            .join(format!("{name}.tmp"))
+            .expect("name join keeps the base absolute");
+        std::fs::write(tmp.as_path(), contents).expect("write temp");
+        std::fs::rename(
+            tmp.as_path(),
+            dir.join(name)
+                .expect("name join keeps the base absolute")
+                .as_path(),
+        )
+        .expect("rename into place");
     }
 }
 
@@ -236,7 +275,7 @@ fn abs_path(path: &std::path::Path) -> MarkedPathBuf<marked_path::Absolute> {
 #[tokio::test]
 async fn an_external_jinn_toml_edit_publishes_the_reload_event() {
     // Given a watched config directory.
-    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 1\n").await;
+    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 1\n", None).await;
     let recorder = fixture.recorder_of::<JinnTomlReloaded>().await;
     fixture.spawn_actor().await;
 
@@ -253,7 +292,7 @@ async fn an_external_jinn_toml_edit_publishes_the_reload_event() {
 #[tokio::test]
 async fn an_atomic_rename_save_is_observed() {
     // Given a watched config directory.
-    let fixture = WatchFixture::new("").await;
+    let fixture = WatchFixture::new("", None).await;
     let recorder = fixture.recorder_of::<JinnTomlReloaded>().await;
     fixture.spawn_actor().await;
 
@@ -270,7 +309,7 @@ async fn an_atomic_rename_save_is_observed() {
 #[tokio::test]
 async fn rapid_writes_collapse_into_one_settle() {
     // Given a watched config directory.
-    let fixture = WatchFixture::new("[a]\nx = 1\n").await;
+    let fixture = WatchFixture::new("[a]\nx = 1\n", None).await;
     let recorder = fixture.recorder_of::<JinnTomlReloaded>().await;
     fixture.spawn_actor().await;
 
@@ -291,7 +330,7 @@ async fn rapid_writes_collapse_into_one_settle() {
 #[tokio::test]
 async fn a_same_content_rewrite_publishes_nothing() {
     // Given a watched config directory and a first real edit.
-    let fixture = WatchFixture::new("[a]\nx = 1\n").await;
+    let fixture = WatchFixture::new("[a]\nx = 1\n", None).await;
     let recorder = fixture.recorder_of::<JinnTomlReloaded>().await;
     fixture.spawn_actor().await;
     fixture.atomic_write("jinn.toml", "[a]\nx = 2\n");
@@ -310,7 +349,7 @@ async fn a_same_content_rewrite_publishes_nothing() {
 #[tokio::test]
 async fn jinn_s_own_write_publishes_the_reload() {
     // Given a watched config directory.
-    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 1\n").await;
+    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 1\n", None).await;
     let recorder = fixture.recorder_of::<JinnTomlReloaded>().await;
     fixture.spawn_actor().await;
 
@@ -333,7 +372,7 @@ async fn jinn_s_own_write_publishes_the_reload() {
 #[tokio::test]
 async fn a_malformed_jinn_toml_is_refused_and_surfaced() {
     // Given a watched config directory with a registered section.
-    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 1\n").await;
+    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 1\n", None).await;
     let reloads = fixture.recorder_of::<JinnTomlReloaded>().await;
     let entries = fixture.recorder_of::<PushChatEntry>().await;
     let notes = fixture.recorder_of::<ServiceStatusUpdate>().await;
@@ -362,7 +401,7 @@ async fn a_malformed_jinn_toml_is_refused_and_surfaced() {
 #[tokio::test]
 async fn a_validation_failure_is_refused_and_surfaced() {
     // Given a watched config directory.
-    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 1\n").await;
+    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 1\n", None).await;
     let reloads = fixture.recorder_of::<JinnTomlReloaded>().await;
     let entries = fixture.recorder_of::<PushChatEntry>().await;
     fixture.spawn_actor().await;
@@ -393,7 +432,7 @@ async fn a_validation_failure_is_refused_and_surfaced() {
 #[tokio::test]
 async fn an_unparseable_providers_toml_is_refused() {
     // Given a watched config directory.
-    let fixture = WatchFixture::new("").await;
+    let fixture = WatchFixture::new("", None).await;
     let reloads = fixture.recorder_of::<ProvidersTomlReloaded>().await;
     let entries = fixture.recorder_of::<PushChatEntry>().await;
     fixture.spawn_actor().await;
@@ -413,7 +452,7 @@ async fn an_unparseable_providers_toml_is_refused() {
 #[tokio::test]
 async fn deleting_jinn_toml_is_a_refusal_and_surfaced() {
     // Given a watched config directory whose file holds content.
-    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 7\n").await;
+    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 7\n", None).await;
     let reloads = fixture.recorder_of::<JinnTomlReloaded>().await;
     let entries = fixture.recorder_of::<PushChatEntry>().await;
     fixture.spawn_actor().await;
@@ -454,7 +493,7 @@ async fn deleting_jinn_toml_is_a_refusal_and_surfaced() {
 async fn deleting_providers_toml_is_a_refusal() {
     // Given a watched config directory whose providers.toml exists and
     // has already settled (so the ledger holds its content signature).
-    let fixture = WatchFixture::new("").await;
+    let fixture = WatchFixture::new("", None).await;
     let reloads = fixture.recorder_of::<ProvidersTomlReloaded>().await;
     let entries = fixture.recorder_of::<PushChatEntry>().await;
     fixture.spawn_actor().await;
@@ -494,7 +533,7 @@ async fn deleting_providers_toml_is_a_refusal() {
 #[tokio::test]
 async fn deleting_stream_rules_toml_publishes_the_matcher_reload() {
     // Given a watched config directory whose rules file exists.
-    let fixture = WatchFixture::new("").await;
+    let fixture = WatchFixture::new("", None).await;
     let reloads = fixture.recorder_of::<StreamRulesReloaded>().await;
     fixture.spawn_actor().await;
     fixture.write("stream_rules.toml", "[entry]\nname = \"a\"\n");
@@ -522,7 +561,7 @@ async fn deleting_stream_rules_toml_publishes_the_matcher_reload() {
 #[tokio::test]
 async fn an_unrelated_dir_write_publishes_nothing() {
     // Given a watched config directory and an unrelated sibling dir.
-    let fixture = WatchFixture::new("[a]\nx = 1\n").await;
+    let fixture = WatchFixture::new("[a]\nx = 1\n", None).await;
     let reloads = fixture.recorder_of::<JinnTomlReloaded>().await;
     let providers = fixture.recorder_of::<ProvidersTomlReloaded>().await;
     let resources = fixture.recorder_of::<ResourcesChanged>().await;
@@ -550,7 +589,7 @@ async fn an_unrelated_dir_write_publishes_nothing() {
 #[tokio::test]
 async fn a_resource_dir_change_publishes_resources_changed() {
     // Given a watched config directory whose themes dir exists.
-    let fixture = WatchFixture::new("").await;
+    let fixture = WatchFixture::new("", None).await;
     let resources = fixture.recorder_of::<ResourcesChanged>().await;
     fixture.spawn_actor().await;
     // The actor's establishment creates every resource dir under the
@@ -577,7 +616,7 @@ async fn a_resource_dir_change_publishes_resources_changed() {
 #[tokio::test]
 async fn the_reload_lands_before_subscribers_read() {
     // Given a watched config directory whose layer the settle reloaded.
-    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 1\n").await;
+    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 1\n", None).await;
     let reloads = fixture.recorder_of::<JinnTomlReloaded>().await;
     fixture.spawn_actor().await;
 
@@ -607,7 +646,7 @@ async fn the_reload_lands_before_subscribers_read() {
 async fn a_shell_edit_swaps_the_service_and_a_bad_path_is_refused() {
     // Given a watched config directory and the shells service resolved
     // from an empty [shell] section.
-    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 1\n").await;
+    let fixture = WatchFixture::new("[watchdog.stall]\ntimeout_secs = 1\n", None).await;
     let reloads = fixture.recorder_of::<JinnTomlReloaded>().await;
     let entries = fixture.recorder_of::<PushChatEntry>().await;
     fixture.spawn_actor().await;
@@ -661,7 +700,7 @@ async fn a_shell_edit_swaps_the_service_and_a_bad_path_is_refused() {
 #[tokio::test]
 async fn a_stream_rules_toml_change_publishes_the_matcher_reload() {
     // Given a watched config directory.
-    let fixture = WatchFixture::new("").await;
+    let fixture = WatchFixture::new("", None).await;
     let reloads = fixture.recorder_of::<StreamRulesReloaded>().await;
     fixture.spawn_actor().await;
 
@@ -672,4 +711,118 @@ async fn a_stream_rules_toml_change_publishes_the_matcher_reload() {
     // restart, the same event the picker's confirm path publishes.
     let events = fixture.wait_for(&reloads, 1).await;
     assert_eq!(events.len(), 1);
+}
+
+// C1: an edit to the `--config` override file — which lives outside the
+// app-config dir — publishes JinnTomlReloaded, hashing the override's
+// bytes (the layer over the override file swaps too).
+#[rstest::rstest]
+#[tokio::test]
+async fn an_override_file_edit_publishes_the_reload_event() {
+    // Given a `--config`-shaped run: the jinn.toml under an override dir
+    // outside the app-config dir, watched, with the layer over it.
+    let fixture =
+        WatchFixture::new("[watchdog.stall]\ntimeout_secs = 1\n", Some("override-cwd")).await;
+    let reloads = fixture.recorder_of::<JinnTomlReloaded>().await;
+    fixture.spawn_actor().await;
+
+    // When the override file is edited externally.
+    let override_dir = fixture.jinn_toml.as_path().parent().expect("has parent");
+    let override_dir = marked_path::MarkedPathBuf::<marked_path::Absolute>::new(override_dir)
+        .expect("the parent of an absolute path is absolute");
+    WatchFixture::atomic_write_at(
+        &override_dir,
+        "jinn.toml",
+        "[watchdog.stall]\ntimeout_secs = 2\n",
+    );
+
+    // Then the reload event arrives — the watcher watched the override's
+    // dir, not only the standard config dir.
+    let events = fixture.wait_for(&reloads, 1).await;
+    assert_eq!(events.len(), 1, "the override edit published one reload");
+
+    // And the layer over the override file swapped to the new value: the
+    // settle hashed the override's bytes, not some other file's.
+    let value = fixture
+        .layer
+        .get::<jinn_preferences_config::schemas::StallWatchdogConfig>()
+        .expect("section reads");
+    assert_eq!(
+        value.effective_timeout_secs(),
+        2,
+        "the override file's bytes are what the settle reloaded"
+    );
+}
+
+// C2: a malformed edit to the override file refuses — the refusal chat
+// entry and dashboard row publish, and the previously installed values
+// stay live.
+#[rstest::rstest]
+#[tokio::test]
+async fn a_malformed_override_edit_is_refused_and_surfaced() {
+    // Given an override jinn.toml outside the config dir, watched.
+    let fixture =
+        WatchFixture::new("[watchdog.stall]\ntimeout_secs = 3\n", Some("override-cwd")).await;
+    let reloads = fixture.recorder_of::<JinnTomlReloaded>().await;
+    let entries = fixture.recorder_of::<PushChatEntry>().await;
+    let notes = fixture.recorder_of::<ServiceStatusUpdate>().await;
+    fixture.spawn_actor().await;
+
+    // When the override file is overwritten with unparseable bytes.
+    let override_dir = fixture.jinn_toml.as_path().parent().expect("has parent");
+    let override_dir = marked_path::MarkedPathBuf::<marked_path::Absolute>::new(override_dir)
+        .expect("the parent of an absolute path is absolute");
+    WatchFixture::atomic_write_at(
+        &override_dir,
+        "jinn.toml",
+        "[watchdog.stall]\ntimeout_secs = \n",
+    );
+
+    // Then no reload publishes and the refusal is surfaced on both
+    // surfaces, exactly as for a default-path edit.
+    fixture.assert_absent(&reloads, 0).await;
+    let pushed = fixture.wait_for(&entries, 1).await;
+    assert_eq!(pushed.len(), 1, "the refusal reached the chat");
+    let rows = fixture.wait_for(&notes, 1).await;
+    assert!(
+        rows.iter().any(|note| note
+            .status_message
+            .as_deref()
+            .is_some_and(|m| m.contains("refused"))),
+        "the refusal reached the dashboard row"
+    );
+
+    // And the layer still holds the pre-edit value: the old snapshot
+    // stayed live.
+    let value = fixture
+        .layer
+        .get::<jinn_preferences_config::schemas::StallWatchdogConfig>()
+        .expect("section reads");
+    assert_eq!(
+        value.effective_timeout_secs(),
+        3,
+        "the refused candidate never blanked the snapshot"
+    );
+}
+
+// C3: an override file inside the app-config dir establishes exactly one
+// config-dir watcher — no duplicate events for one save.
+#[rstest::rstest]
+#[tokio::test]
+async fn a_same_dir_override_publishes_one_event_per_save() {
+    // Given the default layout — the resolved jinn.toml inside the
+    // app-config dir (no override dir watch must exist).
+    let fixture = WatchFixture::new("[a]\nx = 1\n", None).await;
+    let reloads = fixture.recorder_of::<JinnTomlReloaded>().await;
+    fixture.spawn_actor().await;
+
+    // When the file is edited once, inside the config dir.
+    fixture.atomic_write("jinn.toml", "[a]\nx = 2\n");
+
+    // Then exactly one reload arrives, and no duplicate follows: a
+    // second dir watcher over the same directory would have delivered
+    // two settles for this save.
+    let events = fixture.wait_for(&reloads, 1).await;
+    assert_eq!(events.len(), 1, "one save must settle once");
+    fixture.assert_absent(&reloads, 1).await;
 }

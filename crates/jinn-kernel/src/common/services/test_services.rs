@@ -282,6 +282,7 @@ impl TestServices {
         };
 
         Services {
+            resolved_config_path: paths.preferences_path(),
             paths,
             handle,
             llm_service: self.llm_service.unwrap_or_else(|| {

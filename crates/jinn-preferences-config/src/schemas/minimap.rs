@@ -9,6 +9,10 @@ const DEFAULT_MINIMAP_MAX_TOKENS: u32 = 2000;
 
 /// Minimap configuration.
 ///
+/// # Behavior: Snapshot Read.
+///
+/// Re-read at each render, so an edit applies at the next render.
+///
 /// Serialized as `[minimap]` in `jinn.toml`.
 /// Controls the token-count range used for the vertical minimap color gradient.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

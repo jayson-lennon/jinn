@@ -57,6 +57,11 @@ pub struct LaunchServices {
     pub app_state_storage: AppStateStorageService,
     /// The shells jinn runs commands through, resolved at launch.
     pub shells: jinn_common::shell::Shells,
+    /// The absolute path of the `jinn.toml` document this run reads and
+    /// writes: the resolved `--config` override, or the default preferences
+    /// path when the flag is absent. The config-watch slice watches this
+    /// file; the layer already reads and writes it.
+    pub resolved_config_path: MarkedPathBuf<Absolute>,
 }
 
 /// Outcome of the pre-wiring phase.
@@ -110,7 +115,7 @@ pub fn prepare(
 
     reconcile_bundled_resources();
 
-    let (config_storage, config, app_state_storage) = read_config(cli)?;
+    let (config_storage, config, app_state_storage, resolved_config_path) = read_config(cli)?;
     let shells = resolve_shells(&config);
     let (session_store, session_pool) = open_session_store(cli, runtime)?;
 
@@ -132,6 +137,7 @@ pub fn prepare(
         config,
         app_state_storage,
         shells,
+        resolved_config_path,
     }))
 }
 
@@ -489,6 +495,7 @@ type ConfigTriple = (
     ConfigStorageService,
     jinn_config::ConfigLayer,
     AppStateStorageService,
+    MarkedPathBuf<Absolute>,
 );
 
 fn read_config(cli: &jinn_cli::cli::Cli) -> Result<ConfigTriple, Report<AppError>> {
@@ -572,7 +579,7 @@ fn read_config(cli: &jinn_cli::cli::Cli) -> Result<ConfigTriple, Report<AppError
         svc
     };
 
-    Ok((config_storage, config, app_state_storage))
+    Ok((config_storage, config, app_state_storage, config_path))
 }
 
 /// Resolves a `--db-path` CLI value into a typed absolute path.

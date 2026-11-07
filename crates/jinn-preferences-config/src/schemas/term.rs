@@ -36,6 +36,13 @@ fn default_settle_max_wait_ms() -> u64 {
 }
 
 /// `[term]` preferences.
+///
+/// # Behavior: Snapshot Read (the settle keys) + read-once (the toggle
+/// key).
+///
+/// `settle_quiet_ms` and `settle_max_wait_ms` are re-read at each
+/// blocking settle, so an edit applies at the next call. The
+/// `control_toggle_key` is bound once when the term slice activates.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InteractiveTermPrefs {
     /// Key that toggles terminal control mode in both directions: enters

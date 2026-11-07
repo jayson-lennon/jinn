@@ -36,7 +36,7 @@ use wherror::Error;
 ///   already-running HTTP server at the `url`; it owns no process.
 ///
 /// See [`McpServerConfig`] for the `url` and `command` fields.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransportKind {
     /// JSON-RPC over the child process's stdin/stdout.
@@ -63,6 +63,16 @@ pub enum TransportKind {
 /// drift out of sync with the key), which is also why this section
 /// declares no entry key: a map's key already matches entries by
 /// identity.
+///
+/// # Behavior: Event-Dependent (the per-server entries) + Frozen (the
+/// session's enabled set).
+///
+/// An edit to a running server's entry (command, url, transport) restarts
+/// that server for its live sessions when the reload event lands; a
+/// deleted entry leaves an already-running connection alone until session
+/// end. Which servers a session enables is stamped at session creation
+/// and never re-seeded — the MCP picker is that set's live-session
+/// control.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct McpServersConfig(
@@ -84,12 +94,23 @@ impl std::ops::Deref for McpServersConfig {
 
 /// One configured MCP server.
 ///
+/// # Behavior: Event-Dependent.
+///
+/// An edit to this entry (command, url, transport) restarts the running
+/// server when the reload event lands; a deleted entry leaves an
+/// already-running connection alone until session end.
+///
 /// Declared in `jinn.toml` under `[mcp.server.<name>]` — the table name IS
 /// the server's identity (the per-session enablement identifier stored in
 /// `SessionCore::enabled_mcp_servers` and the tool-namespace segment
 /// `mcp__<name>__<tool>`); there is no `name` field to drift out of sync
 /// with the key.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The derived `Hash` is the entry-change detector: the MCP coordinator
+/// hashes each running server's entry and compares on a reload, so a
+/// changed hash is what triggers the auto-restart. A field added here
+/// participates automatically.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct McpServerConfig {
     /// Executable command to launch the server (e.g. `"npx"`).
     ///
@@ -127,9 +148,10 @@ pub struct McpServerConfig {
     /// Off by default (jinn's historical behavior): servers spawn only after
     /// the user enables them in the MCP picker. `true` seeds the server's
     /// name into each new session's enabled set at creation, so its
-    /// connection comes up without a picker visit. Toggle state is owned by
-    /// the session afterwards and persists per-session; this flag never
-    /// re-enables itself on existing sessions.
+    /// connection comes up without a picker visit. The enabled set is
+    /// Frozen — stamped at creation, never re-seeded by a config reload;
+    /// the MCP picker owns a session's toggle state and it persists
+    /// per-session.
     #[serde(default)]
     pub auto_enable: bool,
     /// Serve every session through one shared connection instead of one

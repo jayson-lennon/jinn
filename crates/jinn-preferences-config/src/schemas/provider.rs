@@ -7,6 +7,11 @@ use serde::{Deserialize, Serialize};
 
 /// The `[provider.web_search]` section — how the OpenRouter web-search
 /// tool is offered to the model.
+///
+/// # Behavior: Snapshot Read.
+///
+/// Re-read at each turn's tool offering, so an edit applies at the next
+/// turn.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebSearchConfig {
     /// Search engine: "auto", "native", "exa", "firecrawl", or
