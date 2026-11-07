@@ -28,6 +28,8 @@ waits_secs = [10, 30, 60]
 ```
 
 - `#gap-analysis` report should be much shorter
+- Applet and canvas bind address is no longer limited to loopback.
+- Add additional documentation to `jinn-usage` skill specifically about where things are in the UI and what they mean.
 
 ## 2026-11-04 v0.20.0
 
