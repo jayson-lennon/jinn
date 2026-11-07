@@ -758,11 +758,18 @@ async fn a_failed_rebind_while_quiet_goes_dormant_and_surfaces_the_refusal() {
     // the actor went dormant AT the pending bind (the taken port), so
     // serving stays refused until the port frees or the bind changes
     // again.
+    // Anchor on strings jinn itself renders — the taken bind and the
+    // fix hint — never on OS error text, which differs per platform
+    // ("Address already in use" vs "Only one usage of each socket
+    // address …" on Windows).
+    let taken_bind = format!("failed to bind 127.0.0.1:{port_taken}");
     assert!(
         refused
             .status_message
             .as_deref()
-            .is_some_and(|m| m.contains("serve failed") && m.contains("in use")),
+            .is_some_and(|m| m.contains("serve failed")
+                && m.contains(&taken_bind)
+                && m.contains("fix: choose another [canvas] bind port")),
         "refusal must name the failure: {:?}",
         refused.status_message
     );

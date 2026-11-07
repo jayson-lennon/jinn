@@ -688,21 +688,47 @@ async fn a_shell_edit_swaps_the_service_and_a_bad_path_is_refused() {
         "the refusal names the bad path"
     );
 
-    // When a second edit names a path that does exist.
-    let real_bash = "/bin/bash";
+    // When a second edit names a file that does exist on this machine —
+    // a probe written into its own temp dir, so "exists" is a fact this
+    // machine guarantees rather than a platform literal, and the probe
+    // is provably not the baseline resolution the swap must move off of.
+    let probe_dir = tempdir();
+    let probe = probe_dir
+        .path
+        .join("bash-probe")
+        .expect("a bare-name join on a temp root stays absolute");
+    std::fs::write(probe.as_path(), b"probe").expect("probe file writes");
+    // The resolver keeps an accepted configured path verbatim in its
+    // native separators, so the probe's own spelling is the expected
+    // program. The config spelling uses forward slashes: a backslash in
+    // a TOML basic string is an escape character.
+    let probe_spelling = probe.to_string_lossy().into_owned();
+    let configured = if cfg!(windows) {
+        probe_spelling.replace('\\', "/")
+    } else {
+        probe_spelling.clone()
+    };
     fixture.atomic_write(
         "jinn.toml",
-        &format!("[shell]\nbash_path = \"{real_bash}\"\n"),
+        &format!("[shell]\nbash_path = \"{configured}\"\n"),
     );
     let reloads_again = fixture.wait_for_extra(&reloads, 1).await;
     assert_eq!(reloads_again.len(), 1, "the second edit settled");
 
-    // Then the service carries the new resolution.
+    // Then the service carries the new resolution — the probe's path,
+    // not the baseline's.
     let swapped = fixture.services.shells.read();
     assert_eq!(
         swapped.bash().expect("an existing path resolves").program(),
-        real_bash,
+        probe_spelling,
         "the swap landed"
+    );
+    // And the resolution is genuinely new: the probe is not the baseline
+    // program, so the equality above can only have come from the edit.
+    assert_ne!(
+        swapped.bash().expect("an existing path resolves").program(),
+        before.bash().expect("baseline bash resolves").program(),
+        "the swap must land on a different program than the baseline kept"
     );
 }
 

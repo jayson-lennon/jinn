@@ -449,9 +449,28 @@ async fn reload_while_busy_names_the_pending_change_and_the_next_arm_picks_it_up
 
     // And the next lifecycle move resolves the fresh settings: the arm
     // opens under the new device name, so the refusal (this host has no
-    // such input) names it — the applied settings moved.
+    // such input) names it — the applied settings moved. The fold
+    // publishes the pre-toggle row and the arming row synchronously,
+    // and the device-naming refusal lands only after the blocking
+    // device open, so a count-based wait can return before the note
+    // exists (the race that failed the Windows host); the wait polls
+    // until a note actually names the reloaded device, within the same
+    // budget.
     fixture.harness.publish(DictationToggle).await;
-    let events = await_recorded::<ServiceStatusUpdate>(&seen, 1, WAIT).await;
+    let deadline = std::time::Instant::now() + WAIT;
+    let mut events: Vec<ServiceStatusUpdate> = Vec::new();
+    while !events.iter().any(|update| {
+        update
+            .status_message
+            .as_deref()
+            .is_some_and(|note| note.contains("usb-mic-reload-probe"))
+    }) {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        events.extend(await_recorded::<ServiceStatusUpdate>(&seen, 1, remaining).await);
+    }
     assert!(
         events.iter().any(|update| update
             .status_message
