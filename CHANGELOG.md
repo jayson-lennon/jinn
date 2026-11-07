@@ -3,6 +3,7 @@
 ## (development)
 
 - Massive overhaul of `load_bot` tool description. Agents should now sometimes spawn bots instead of subagents.
+- Add `dump_to_disk` parameter globally to all tools so agents can inspect large tool results or save entire web pages without blowing up context.
 
 ## 2026-11-06 v1.21.0
 
