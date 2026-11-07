@@ -11,8 +11,13 @@ symbol; forks get the fork origin even when forked from a subagent).
 | ------------ | ---------------------------------------------------------------- |
 | `n`          | New session (immediately active)                                 |
 | `<c-n>`      | New session from most scopes (also inside pickers)               |
+| `/new`       | Type it in the chat input                                        |
 | `<leader>sp` | Project picker — create a session in a curated project directory |
 | `<leader>sl` | Session lifecycle recipe picker                                  |
+
+Three more slash commands work the same way in the input box: `/compact`
+(summarize history), `/compact-all` (ignore the token reserve), and
+`/export` (write the session to a self-contained file).
 
 A **lifecycle recipe** is a named pair of setup/teardown commands configured
 in `jinn.toml` (`[[session_lifecycle.script]]` — e.g. open a fossil branch
@@ -110,7 +115,10 @@ tool, which creates a **regular session** linked as a child:
   result.
 - **You can steer it mid-run.** Switch to the child session in the
   sidebar (it's marked with the subagent symbol) and send messages —
-  mid-turn steering queues into the child like any session.
+  with the input in **Steer** mode (the default, `<M-q>` toggles) the
+  message reaches the child between tool calls. This is the only way to
+  steer a live subagent: its turn end disconnects it from the parent, so
+  a queued message arrives too late. See `chat-input-tokens.md`.
 - **The call shows in your history as a purple block.** Press `<enter>`
   on it to jump into that child session (archived children are
   unarchived automatically).

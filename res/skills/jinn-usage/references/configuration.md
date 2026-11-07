@@ -1,9 +1,9 @@
 # Configuration
 
 When the user asks for behavior jinn controls via config, your job is:
-**explain the mechanism → show a snippet → offer to apply it → note the
-restart.** Don't edit a config file unless they accept the offer — every
-change needs a restart, so the choice is theirs.
+**explain the mechanism → show a snippet → offer to apply it → say when
+it applies (the categories below).** Don't edit a config file unless
+they accept the offer — that choice is theirs.
 
 ## File map
 
@@ -22,23 +22,31 @@ Your comments survive every save — jinn patches documents instead of
 rewriting them. Unknown keys survive upgrades too: an older jinn ignores
 newer keys instead of failing.
 
-## The restart rule
+## What reloads, and when
 
-**Every `jinn.toml` / `providers.toml` change takes effect on the next jinn
-launch.** There is no live reload — say "restart jinn", never "it should
-take effect". After an edit, tell the user to quit (`q`) and relaunch.
+**jinn watches its config.** Edits to `jinn.toml`, `providers.toml`, and
+`stream_rules.toml` reload when saved. Not all configuration values take
+effect instantly — reloaded values fall into three categories:
+
+| Category | What it covers | When the edit takes effect |
+| --- | --- | --- |
+| **Re-read at next use** | `[tools]` timeouts & output caps, `[chat_log]`, `[context_curation.compaction]`, `[context_curation.auto_prune]`, `[provider.request_retry]`, `[provider.web_search]`, `[ui.cwd_selector]`, `[ui.minimap]`, every `[watchdog.*]` section, `[term]` settle keys, `[maintenance]`, `[[bot.entry]]` (next picker open or bot creation), `[[session_lifecycle.script]]`, `[[project.entry]]` | immediately — these items read the config on demand, so the next tool call, compaction, or picker open uses the new value |
+| **Deferred update** | `[canvas]`, `[applets]`, `[remote]` binds; `[discord]`; `[dictation]`; `[shell]`; `[mcp.<name>]` entries; `providers.toml` (registry, keys, models, `[[endpoint_defaults]]`); `stream_rules.toml` | when the affected piece next reconnects or rebuilds — sockets rebind, Discord applies when the bot next goes idle, dictation at the next arm, an edited MCP server entry reconnects it, provider settings apply when the next stream opens |
+| **New session only** | `[tools].tool_filter`, `[skills].skill_filter`, the session's enabled-MCP set (`auto_enable = true`) | in sessions created after the edit — existing sessions keep their picker/session configuration, which is the point. A session's pickers (`<leader>st` / `<leader>sk` / `<leader>sM`) are that session's control |
+
+A malformed or invalid edit is refused: the previous values stay in
+effect, and the refusal appears in the chat log and on the config
+dashboard row. A clean reload shows `reloaded …` on that row. A launch
+with `--config <path>` watches that file instead of the default
+`jinn.toml`. `[term].control_toggle_key` is the one value read only at
+launch.
+
 Per-session choices made in the UI (enabled tools/skills/MCP servers,
-model, persona) live in the session database — no restart, no config edit.
-
-One choice is a config write, not session state: pinning an endpoint in the
-endpoint picker writes a `[[endpoint_defaults]]` row to `providers.toml`.
-Live immediately — no restart — but keyed by model, so it hits every
-session using that model. Hand-editing that row: restart.
-
-One exception inside `jinn.toml` itself: the `[[bot.entry]]` list is
-re-read on every saved-bots picker (`<leader>sb`) open, so a saved-bot edit
-is live at once. The shipped default ships one (`auto-nudge`). Everything
-else follows the restart rule.
+model, persona) live in the session database — config state never
+overwrites them, and the new-session-only category exists to keep it
+that way. A deleted `[mcp.<name>]` entry leaves an already-running
+connection up until session end; sessions created after the edit simply
+lack the server.
 
 ## Offer-to-edit protocol
 
@@ -48,12 +56,13 @@ When the user's ask maps to a config change:
    sentences.
 2. Show a minimal snippet for their ask — values they'd actually want, not
    the doc example verbatim.
-3. Ask: _"Want me to update `~/.config/jinn/jinn.toml` for you? You'll need
-   to restart jinn for it to take effect."_
+3. Ask: _"Want me to update `~/.config/jinn/jinn.toml` for you?"_ Say
+   when the change takes effect, using the categories above.
 4. On acceptance, read the file first. Apply the change surgically —
    preserve comments, ordering, and unknown keys. Confirm what you changed
    and where.
-5. Remind them of the restart.
+5. Point at the config dashboard row: it shows the reload land, or the
+   refusal if the file broke.
 
 If a jinn **config subcommand** exists for the ask (e.g. `jinn install`),
 prefer the command over hand-editing — it's the supported path.
@@ -86,7 +95,8 @@ keeps its namespace (`openrouter:web_search`), and an MCP tool is its full
 namespaced name (`mcp__<server>__<tool>`). A name that matches nothing does
 nothing.
 
-New sessions start with these filters applied. Per-session toggles
+These filters are new-session-only: sessions created after the edit start
+with them applied, existing sessions keep theirs. Per-session toggles
 (`<leader>st`, `<leader>sk`) override and persist in the session — they
 never write back here. Saved bots carry the same two keys (see `bots.md`).
 
@@ -148,9 +158,9 @@ bot is created under. **`prep_mode` defaults to `true`** — an entry that
 omits it doesn't run until you set `prep_mode = false`. A pin must carry a
 `role` (`"user"` or `"assistant"`); a pin without one fails to parse.
 
-This list is the one `jinn.toml` surface read **live** — the saved-bots
-picker (`<leader>sb`) re-reads the document on every open, so a hand edit
-needs no restart. `name` is the match key: same name, replaced in place.
+This list is re-read on every saved-bots picker (`<leader>sb`) open, so
+a hand edit shows up at the next picker open or bot creation. `name` is
+the match key: same name, replaced in place.
 
 **Blocking a command before it runs** is a stream rule (see **Stream rules**
 below) with a tool scope:
@@ -324,7 +334,8 @@ min_collapse_count = 3       # smallest collapsed run of excluded entries
 
 These are the code defaults and the shipped values.
 
-**Discord bot** (slice-owned section; see also `sessions-and-subagents.md`):
+**Discord bot** (slice-owned section; full operation guide in
+`discord.md`):
 
 ```toml
 [discord]
@@ -497,6 +508,7 @@ bind = "127.0.0.1:0"   # host:port the saved-applet server binds
 
 The resolved URL/port comes back in the `canvas` tool result / the applets
 picker's opened URL. The shipped default file ships both sections active.
+The feature guide is `canvas-and-applets.md`.
 
 **Shell executables** (optional; both keys are absolute paths):
 

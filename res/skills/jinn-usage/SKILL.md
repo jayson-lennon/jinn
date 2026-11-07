@@ -1,6 +1,6 @@
 ---
 name: jinn-usage
-description: Explain and configure jinn, the terminal agent harness — keybindings, workflows (pinning, forking, subagents, MCP, terminal overlay, dictation, providers), adding new capability (MCP servers, skills, prompts, personas, themes), and jinn.toml/providers.toml configuration. Answers "what is this on screen / where is feature X" UI-identification questions via the ui-map reference. Use when the user asks how to do something in jinn, what a key does, how a feature works, what a UI element is or where it lives on screen, wants to add or extend a feature, or wants a behavior changed via configuration. Offer to edit the user's config when an ask maps to a TOML setting; config changes require a jinn restart.
+description: Explain and configure jinn, the terminal agent harness — keybindings, workflows (pinning, forking, subagents, MCP, terminal overlay, dictation, Discord, canvas/applets, providers), adding new capability (MCP servers, skills, prompts, personas, themes), system prompt assembly, and jinn.toml/providers.toml configuration. Answers "what is this on screen / where is feature X" UI-identification questions via the ui-map reference. Use when the user asks how to do something in jinn, what a key does, how a feature works, what a UI element is or where it lives on screen, wants to add or extend a feature, or wants a behavior changed via configuration. Offer to edit the user's config when an ask maps to a TOML setting; config edits reload when saved, and the skill says when each change takes effect.
 ---
 
 # jinn Usage Guide
@@ -29,8 +29,9 @@ running it right now.
    leaves context, what gets persisted.
 5. **Configuration asks → read `references/configuration.md` first.** Follow
    its protocol: explain the mechanism, show a snippet, offer to apply it to
-   the user's config file. Config changes need a jinn restart — say so every
-   time.
+   the user's config file. Config edits reload when saved — say when the
+   change takes effect per its category table (re-read at next use,
+   deferred update, new session only).
 6. **If it isn't covered, say so.** Don't invent a binding — a wrong bind
    costs the user more than an "I don't know" does.
 
@@ -71,11 +72,14 @@ the current truth — and echo that.
 | `references/pickers-and-search.md`     | The `<leader>s*` pickers, session search                                                   |
 | `references/terminal-overlay.md`       | Interactive terminal overlay, control mode                                                 |
 | `references/mcp-servers.md`            | MCP server config, enabling, the inspector                                                 |
+| `references/discord.md`                | The Discord bot: forum threads as sessions, the commands, authorization, `gdc`             |
 | `references/chat-input-tokens.md`      | `#prompt`, `@attachment`, `/command` autocomplete tokens                                    |
 | `references/dictation.md`              | Local voice input: `<M-i>` toggle, the meter, `[dictation]` config, the CLI utilities      |
 | `references/builtin-prompts.md`        | The builtin `#prompts`: what each is for, how they work, choosing between them             |
+| `references/workflows.md`              | Workflows: running them, building one by asking, the bundled `autodev` loop                 |
 | `references/models-and-providers.md`   | Model/provider pickers, alloys, endpoint pinning, reasoning effort                         |
 | `references/remote.md`                  | `jinn remote`: messaging a running instance from outside (CLI + curl HTTP surface)         |
+| `references/canvas-and-applets.md`     | The canvas "show me" surface (live reload, click metrics) and saved applets (`<leader>sa`) |
 | `references/configuration.md`          | Config file map, snippets, apply-to-user-config protocol                                   |
 | `references/extending-jinn.md`         | Adding capabilities or extending jinn: MCP servers, skills, prompts, personas, themes, etc |
 | `references/graph-database.md`         | The bundled overgraph graph+vector DB: usage patterns, batch ingestion, gotchas             |

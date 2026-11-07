@@ -14,7 +14,8 @@ when a name exists in both, the most-local file wins.
 
 - `#plan` might expand into your standard planning instructions.
 - Browse the available templates in the popup as you type after `#`.
-- **Added a file? Re-scan with `gcr` in normal mode** — no restart needed.
+- **Added a file? Re-scan with `gcr` in normal mode** — it's re-read at
+  next use.
 - **Expansion runs in a first pass** before the message dispatches; `@path`
   attachment resolution is the second pass. The model sees the template body,
   never the `#token`.
@@ -53,10 +54,11 @@ three trigger characters share the confirm key (`<tab>`) and list navigation.
 
 Input mode has two behaviors, toggled with `<M-q>`:
 
-- **Queue** (the default): a message typed while the agent is working queues
-  as a normal follow-up turn — delivered after the current turn ends.
-- **Steer**: a message typed while the agent is working enters the steering
-  buffer and reaches the model at the next safe point (drained before the
-  next dispatch), becoming a normal user message in history. Correct mid-turn
-  instead of canceling. On an idle session, a Steer-mode submission behaves
+- **Steer** (the default): a message typed while the agent is working enters
+  the steering buffer, which is flushed as one concatenated message between
+  tool calls — reaching the model mid-turn. This is the only way to steer a
+  live subagent: the end of a subagent turn disconnects it from the parent,
+  so queue-mode messages would arrive too late. It becomes a normal user
+  message in history. Correct mid-turn instead of canceling. On an idle
+  session, a Steer-mode submission behaves
   like a normal turn.

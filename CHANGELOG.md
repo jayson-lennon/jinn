@@ -6,6 +6,18 @@
 - Add anti-hedging instructions to `#lookup` and `#research` prompts.
 - Remove `simple-task-loop` skill.
 - `micro-task-loop` skill now defers check/test/commit cadence to plan if available.
+- Minimap context usage display is now only shown when in Normal mode.
+- `#gap-analysis` report should be much shorter
+- Applet and canvas bind address is no longer limited to loopback.
+- Add additional documentation to `jinn-usage` skill specifically about where things are in the UI and what they mean.
+- Live reload: `jinn.toml`, `providers.toml`, `stream_rules.toml` all reload when edited.
+  - Not all configuration values take effect instantly.
+  - Reloaded values fall into three categories
+    - New session only: new sessions get updated, but existing sessions don't get the update at all. This is to protect existing picker/session configurations. Impacts tool and skills configuration.
+    - Re-read at next use: some items read the config on-demand, so the change takes effect immediately.
+    - Deferred update: items that require internally rebuilding some object or rely on a network connection will update on their next rebuild/connect. For example, an MCP server needs to reconnect, so it will only update the next time the connection gets accessed. For provider updates, the configuration will update the next time a stream opens.
+  - Ask `jinn` about a specific configuration item if you want more details.
+
 - Add new watchdog to abort + retry streams where the LLM is stuck in a loop.
 
 ```toml
@@ -16,7 +28,6 @@
 max_failures = 3
 ```
 
-- Minimap context usage display is now only shown when in Normal mode.
 - Add new watchdog to restart streams if an error occurs _during streaming_.
   - The existing `provider.request_retry` is similar, but only handles failed _connection attempts_.
 
@@ -26,10 +37,6 @@ max_failures = 3
 # Retry 3 times, waiting this many seconds between the attempts.
 waits_secs = [10, 30, 60]
 ```
-
-- `#gap-analysis` report should be much shorter
-- Applet and canvas bind address is no longer limited to loopback.
-- Add additional documentation to `jinn-usage` skill specifically about where things are in the UI and what they mean.
 
 ## 2026-11-04 v0.20.0
 

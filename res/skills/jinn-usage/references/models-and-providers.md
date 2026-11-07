@@ -40,10 +40,11 @@ prefix-cache hits:
 
 A pin is a **per-model default**, not per-session state. Confirming writes a
 `[[endpoint_defaults]]` row into `providers.toml`, so the choice applies to
-that model in every session — including sessions you create later — and
-survives a restart. The block is hand-editable; no row for a model means that
-model auto-routes. jinn reads the file once at launch, so a hand-edit needs a
-restart to take effect. A pin made in the picker is live immediately.
+that model in every session — including sessions you create later. The block
+is hand-editable; no row for a model means that model auto-routes.
+`providers.toml` edits apply when the next stream opens, so a hand-edit of
+this row reaches every session using that model from its next request. A
+pin made in the picker takes effect on the session's next request too.
 
 Scope rules: a pin applies only to a **single (non-alloy) model served via
 OpenRouter**. It's ignored for alloys and every other backend.
@@ -78,9 +79,10 @@ cache > models.dev.
 `providers.toml` is hand-authored — jinn never writes discovered models into
 it. One exception: the endpoint picker writes your `[[endpoint_defaults]]`
 row when you confirm a pin, and deletes it when you choose auto-route.
-Everything else in the file is left alone, comments included. **Edits
-require a restart.** A whole-file syntax error aborts launch (fail-fast,
-with a legible error).
+Everything else in the file is left alone, comments included. **Edits apply
+when the next stream opens.** A whole-file syntax error aborts launch
+(fail-fast, with a legible error); an edit made while running is refused
+and the previous registry stays in effect.
 
 See `configuration.md` for the full config-file map and the offer-to-edit
 protocol.

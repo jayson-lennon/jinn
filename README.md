@@ -118,8 +118,24 @@ Almost all of the "system prompt" / prefix can be configured, with the main driv
 
 ### etc
 
-- Standard agent harness-y things like `AGENTS.md`, `~/.agents` skill discovery, custom prompts, MCP server support, subagents/tasks, concurrent execution, intersession messaging, usage display.
-- Subagents/tasks are regular sessions that are linked together in a tree, so you can steer an in-progress subagent or fork a new session from it.
+`jinn` support many standard agent harness-y things, including:
+
+- `AGENTS.md` and `~/.agents` skill discovery
+- Live configuration reload
+- Custom prompts inlined with `#prompt-name`
+- MCP server support (`stdout`, local HTTP, and remote HTTP transports)
+- Concurrent session execution
+- Intersession messaging
+- Usage display (individual session usage and aggregated tree usage)
+- Session search
+- Agent-powered user guide
+  - Ask `jinn` anything about a `jinn` feature, or how to do something, or have it update a config, or build a custom workflow
+- Subagents/tasks as first-class citizens
+  - They are regular sessions linked to a parent. So they can be steered in realtime, searched, viewed, canceled, forked from, etc.
+- Image input
+- Deterministic stream abort via regex
+- Automatic continuation on intermittent errors
+- SCM-aware (`git` worktrees) via [lifecycle scripts](#lifecycle-scripts)
 
 ## Usage
 

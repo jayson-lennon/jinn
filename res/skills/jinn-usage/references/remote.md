@@ -91,7 +91,7 @@ The send body is `{"session_id": …, "text": …, "mode": "queue"|"steer"}`;
 ## Configuration
 
 The bind lives in `jinn.toml` (see `configuration.md` for the path and
-the restart rule):
+the reload categories — a bind edit takes effect at once):
 
 ```toml
 [remote]
@@ -101,8 +101,8 @@ the restart rule):
 Port `0` means the OS picks a free port at launch, so concurrent instances
 never collide — the resolved port is what `jinn remote instances` reports.
 A bind that is not a loopback address refuses the launch — the surface has
-no authentication. Config changes take effect on the next jinn start, like
-everything else in `jinn.toml`.
+no authentication. A bind edit rebinds the running surface at once; the
+dashboard row names the new port.
 
 ## Gotchas
 

@@ -21,7 +21,7 @@ also listed under the `<leader>s` group in the which-key popup (`?`).
 | `<leader>sl` | Lifecycle        | Lifecycle recipes for new sessions                    |
 | `<leader>sb` | Bot              | Saved bots from `jinn.toml` (`[[bot.entry]]`)         |
 | `<leader>sw` | Workflow         | Discovered workflows; enter loads one into the current session, ctrl+enter starts a new session |
-| `<leader>sa` | Applets          | Saved applet artifacts; opens one in the browser      |
+| `<leader>sa` | Applets          | Saved applet artifacts; opens one in the browser (see `canvas-and-applets.md`) |
 | `<leader>so` | OpenRouter model market | Browse/search OpenRouter's model catalog        |
 | `<leader>sx` | Stream rules     | The enforced stream-rule set (`stream_rules.toml` + `jinn.toml`) |
 

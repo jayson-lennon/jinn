@@ -62,10 +62,10 @@ command = "npx"
 args = ["video-editor-mcp", "--stdio"]
 ```
 
-A restart is required. The server is **off by default per session** —
-enabled tools occupy context even when unused, and most sessions need none
-of them. After restarting, open the MCP picker (`<leader>sM`) and enable
-it.
+The server is **off by default per session** — enabled tools occupy
+context even when unused, and most sessions need none of them. Open the
+MCP picker (`<leader>sM`) and enable it in the sessions that want it;
+`auto_enable = true` in the block stamps sessions created from then on.
 
 **Case 2 — a server exists but needs a wrapper.** Some servers need an env
 var that shouldn't be hardcoded, or a working directory. Add a local
@@ -186,10 +186,10 @@ A skill directory may contain anything else it needs: `references/*.md`,
 `scripts/*.sh`, `assets/`. jinn only reads `SKILL.md`; the agent reads the
 rest on demand.
 
-**Picking up a new skill without restarting.** The skill picker
+**Picking up a new skill.** The skill picker
 (`<leader>sk`, `<c-r>` to rescan) enables/disables per session. `<c-r>`
-forces a rescan, so a freshly copied directory is picked up without a
-restart — unlike MCP, which needs one.
+forces a rescan, so a freshly copied directory is picked up at once —
+the same is true of MCP, whose config watcher picks up entry edits.
 
 **Writing one from scratch.** Create the directory and a `SKILL.md`:
 
@@ -276,6 +276,40 @@ A persona is always in context, so keep it short. A skill's description is
 always in context but the body isn't. A prompt's text only enters context
 when you send it.
 
+### System prompt assembly
+
+Every session's system prompt is built from six blocks, in order:
+
+```
+<persona>       # the active persona — every session has one
+<AGENTS.md>     # discovered project-context files, under # Project Context
+<tool context>  # available tools + tool guidelines
+<skills>        # every discovered skill's name, description, path
+<date>          # current date, injected at assembly time
+<cwd>           # the session's working directory
+```
+
+AGENTS.md discovery: each directory from the session's working directory
+up to the project root may contribute one file — the first of `AGENTS.md`
+or `CLAUDE.md` found (case-insensitive) wins per directory, and the walk
+stops at the VCS root (`.git`, `.fslckout`, …) or `$HOME`. Closer files
+override ancestors. Rescans happen on session create/load and on cwd
+change (`<c-r>` in the skill picker forces one).
+
+The tool-context block is generated from the tools registered in the
+session: a one-line summary and behavioral guideline per tool, filtered to
+the tools actually available (disabled tools and server tools that don't
+match the provider are excluded from both the prompt and the API call).
+The `<skills>` block lists name/description/path only — bodies load on
+demand.
+
+**Minimizing the prompt:** the persona, date, and cwd blocks are fixed.
+Everything else shrinks by disabling it — tools off (`<leader>st`),
+skills off (`<leader>sk`), MCP servers off (`<leader>sM`, or `auto_enable
+= false` for new sessions), and no `AGENTS.md`/`CLAUDE.md` files in the
+walk. A session with everything disabled carries just persona + date +
+cwd.
+
 ---
 
 ## 5. Themes — colors
@@ -290,13 +324,13 @@ default theme for the format.
 
 ## Installation summary
 
-| Surface | Location                       | Install        | Live reload?         |
-| ------- | ------------------------------ | -------------- | -------------------- |
-| MCP     | `~/.config/jinn/jinn.toml`     | config edit    | no — jinn restart    |
-| Skill   | `~/.agents/skills/<n>/`        | copy directory | yes — `<c-r>` rescan |
-| Prompt  | `~/.config/jinn/prompts/*.md`  | write file     | no — jinn restart    |
-| Persona | `~/.config/jinn/personas/*.md` | write file     | no — jinn restart    |
-| Theme   | `~/.config/jinn/themes/*.toml` | write file     | no — jinn restart    |
+| Surface | Location                       | Install        | An edit takes effect        |
+| ------- | ------------------------------ | -------------- | ---------------------------- |
+| MCP     | `~/.config/jinn/jinn.toml`     | config edit    | at once — an edited entry reconnects that server; `auto_enable` stamps new sessions |
+| Skill   | `~/.agents/skills/<n>/`        | copy directory | at once — `<c-r>` rescan |
+| Prompt  | `~/.config/jinn/prompts/*.md`  | write file     | at once — re-read at next use |
+| Persona | `~/.config/jinn/personas/*.md` | write file     | at once — re-read at next use |
+| Theme   | `~/.config/jinn/themes/*.toml` | write file     | at once — re-read at next use |
 
 ---
 
@@ -332,15 +366,16 @@ Follow `configuration.md` for anything touching `jinn.toml`. Summary:
 1. Name the file and section. Say what the setting does in one or two
    sentences.
 2. Show a snippet with values the user would actually want.
-3. Ask: _"Want me to add this to `~/.config/jinn/jinn.toml`? You'll need to
-   restart jinn for it to take effect."_
+3. Ask: _"Want me to add this to `~/.config/jinn/jinn.toml`?"_ Say when it
+   takes effect, per the categories in `configuration.md`.
 4. On acceptance, read the file. Apply surgically — preserve comments,
    ordering, unknown keys. Confirm what changed.
-5. Remind them of the restart.
+5. Point at the config dashboard row: it shows the reload land, or the
+   refusal if the file broke.
 
-Skills need no protocol — copy the directory, no restart, `<c-r>` to
-rescan. Prefer a project-local skill (`.agents/skills/`) when the skill is
-about this project, an MCP config edit when the capability is a tool.
+Skills need no protocol — copy the directory, `<c-r>` to rescan. Prefer a
+project-local skill (`.agents/skills/`) when the skill is about this
+project, an MCP config edit when the capability is a tool.
 
 ---
 

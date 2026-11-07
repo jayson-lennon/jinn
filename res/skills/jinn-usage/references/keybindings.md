@@ -316,7 +316,7 @@ bound while the feature is active:
 
 | Key      | Feature        | Action                                           |
 | -------- | -------------- | ------------------------------------------------ |
-| `gdc`    | Discord bridge | Continue the current session in a Discord thread |
+| `gdc`    | Discord bridge | Continue the current session in a Discord thread (see `discord.md`) |
 | `<M-i>`  | Dictation      | Toggle voice recording (see `dictation.md`)      |
 | ``<M-`>`` | Quake bar     | Toggle the drop-down command console (inside it: ``<M-`>`` or `<esc>` closes, `<enter>` submits a command, `<pgup>`/`<pgdn>` scroll the log, `<c-c>` clears the input) |
 

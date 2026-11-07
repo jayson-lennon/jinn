@@ -7,7 +7,7 @@ toggle them per session.
 ## Declaring servers
 
 Servers live in `jinn.toml` under `[mcp.<name>]` blocks (see
-`configuration.md` for the exact file path and the restart caveat):
+`configuration.md` for the exact file path and the reload categories):
 
 ```toml
 # stdio — jinn spawns the server (default transport)
@@ -44,10 +44,14 @@ singleton = true
 Three transports. `stdio` — spawn + pipes. `local_http` — spawn, then
 connect over HTTP. jinn allocates a free port and expands `<ip>`/`<port>`
 tokens in `args` and `url`. `remote_http` — externally managed, `command`
-unused. Adding, removing, or editing a server requires a **jinn restart**.
+unused. Server entries are a deferred-update section: an edited entry
+reconnects that server, a removed entry leaves an already-running
+connection up until session end, and new sessions pick up the entry as
+configured.
 
 - `auto_enable = true` in a server block makes new sessions start with that
-  server already enabled.
+  server already enabled — new sessions only; a session's enabled set is
+  its own, managed in the picker.
 - Header values support `${VAR}` expansion. An unset variable blocks that
   connection with an error naming the variable. Header values are never
   logged or rendered.

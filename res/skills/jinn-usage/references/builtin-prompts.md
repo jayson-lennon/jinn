@@ -221,14 +221,16 @@ newly needed. It does not edit code.
 
 ## Choose between them
 
-The README compares the coding workflows in a full table. The short version:
+The short version:
 
 - `#goal` — you can describe the end state but not the route. Fewer question
   rounds, then the agent works autonomously inside the contract.
 - `#plan` + `#approve-plan` — you know how it should be built. More question
   rounds, but the implementation follows your decisions. Implement with the
   `micro-task-loop`; name the skill in the same message.
-- `#gap-analysis` — optional last step for either workflow: an
+- `autodev` — fully hands-off orchestration of many issues at once (see
+  `workflows.md`).
+- `#gap-analysis` — optional last step for any of them: an
   acceptance-criteria audit report.
 
 The analysis prompts work at any point: `#diverge` before planning, `#rank`

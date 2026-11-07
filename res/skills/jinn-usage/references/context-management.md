@@ -96,7 +96,8 @@ and should almost never fire during coding. The tuning lives in `jinn.toml`:
   triggers compaction), `reserve_tokens`, `fallback_context_window`, and an
   optional compaction `model`.
 
-See `configuration.md` for how to edit these and the restart caveat.
+See `configuration.md` for how to edit these — they are re-read at next
+use, so an edit applies by the next compaction.
 
 ## Related bindings
 

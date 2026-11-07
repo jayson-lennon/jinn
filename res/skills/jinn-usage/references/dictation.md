@@ -15,8 +15,8 @@ Dictation is **off by default**. Until it is enabled, `<M-i>` only hints
 
 1. **Enable it.** Set `enabled = true` under `[dictation]` in
    `~/.config/jinn/jinn.toml` (see `configuration.md` for the edit
-   protocol), then quit (`q`) and relaunch — config changes take effect on
-   the next jinn start.
+   protocol) — the reload is picked up and the backend builds the next
+   time you arm `<M-i>`.
 2. **Prefetch the model if you want.** Run `jinn fetch dictation-model`
    outside the TUI. Skipping it is fine — the first arm downloads the model
    itself, with progress on the dashboard row. The model lands in a
@@ -77,8 +77,9 @@ list-devices` prints are precisely what `device` accepts. Every other key
 `blank_penalty`, `num_threads`, `hotwords_file`, `hotwords_score`,
 `rule_fsts`) defaults to the shipped behavior and is documented with
 comments in the auto-created `jinn.toml`. Hotwords need
-`decoding_method = "modified_beam_search"` (the default). Per the restart
-rule (see `configuration.md`), any `[dictation]` change needs a relaunch.
+`decoding_method = "modified_beam_search"` (the default). `[dictation]`
+edits apply at the next arm — the backend rebuilds from the reloaded
+config then (see `configuration.md`).
 
 ## CLI utilities
 

@@ -240,8 +240,8 @@ bots can all enter.
 
 A bot saved from the properties popup becomes one `[[bot.entry]]` block
 in `jinn.toml`, restorable by name. The saved-bots picker (`<leader>sb`)
-re-reads the document on every open, so a hand edit shows up **without a
-restart**. This is the one `jinn.toml` surface that is live.
+re-reads the document on every open, so a hand edit shows up at the next
+picker open or bot creation (see `configuration.md`).
 
 Creating from an entry reproduces its **configured** fields verbatim and
 inherits the rest of the environment from the creating session — the same
