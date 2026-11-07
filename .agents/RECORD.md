@@ -2,38 +2,41 @@
 
 A curated list of factual, scoped statements asserting the application's **current** state. Authoritative for the present, never the future.
 
-The planner consults this file before proposing a plan. If a feature **contradicts** an entry here, the contradiction is surfaced before the plan proceeds. If a feature **establishes a new high-level fact**, a verbatim entry is proposed for human approval as part of the plan.
+This file is consulted before proposing work on a task. If a task **contradicts** an entry here, the contradiction is surfaced before work proceeds. If a task **establishes** a new high-level fact, a verbatim entry is proposed for human approval as part of that proposal. You may edit the RECORD, but only after presenting the changes to a human and getting human approval.
 
 ## Why This File Exists
 
-A planner reads this file _instead of_ reading the code, so an entry earns its place only by being **expensive to re-derive** — a decision, a boundary, a user-visible behavior, or a fact whose only copy is scattered across several files.
+**IMPORTANT**:
+
+- Its common for behaviors in code to span multiple lines or modules. For example, emitting a message in module `Foo` may be listened to by module `Bar` which then performs side-effect `Baz`. This behavior requires 3 hops to discover, so is _expensive to derive_. The RECORD.md file encodes this entire behavior in a **single line**, providing the context needed for the agent to easily learn how the application works.
 
 If a reader could recover the fact from one grep or one file read, it does not belong here. Most things do not belong here. The list is expected to be short, and adding an entry is a claim that the fact is not already obvious from the code.
 
-Deleting an entry is always safe; a planner that needs it will find it. A record that grows to mirror the codebase costs every future planner and goes stale within weeks.
+Deleting an entry is always safe; a reader that needs it will find it. A record that grows to mirror the codebase costs every future reader and goes stale within weeks.
 
 ## Format Rules
 
-- **Factual.** Assert how things are _now_. Never future intent ("we will...", "should..."). Each entry is the current state of the application.
+- **Factual.** Assert how things are _now_. Never future intent ("we will...", "should..."). Each entry is the _current state_ of the application.
 - **Durable.** Every entry must survive a routine change. Apply the **rename test**: if the codebase renamed this thing tomorrow — a config key, a crate, a type, an actor, an event, a schema version — would the entry be false? If yes, it is not a fact about the application; it is a fact about today's source tree. Delete it.
 - **Scoped.** Name what each entry applies to — repo, app, frontend, or a named subsystem. An unscoped fact (e.g. "uses Fossil") is ambiguous: is that the repo, or the app's supported VCS list? Always disambiguate.
-- **High-level.** One-liners (a few sentences at most). Capture decisions and facts a planner needs, not implementation minutiae.
+- **High-level.** One-liners (a few sentences at most). Capture decisions and facts a reader needs, not implementation minutiae.
 - **Single tag.** Each entry carries exactly one subsystem tag as a `(tag)` prefix: `- (tools) The bash tool runs...`. One entry, one tag — this keeps tag usage a meaningful coverage metric (a tag growing large signals over-specification or a tag that should split). If you cannot decide between two tags for an entry, that is a signal to **re-evaluate the entry itself**, not to assign both. Use `(tag)` rather than `[tag]` to avoid colliding with markdown task-list (checkbox) syntax.
 - **Tag subsystem scope.** It's not always obvious what tag to use for a given record entry. Pick based on existing tags or somewhat related subsystem. As particular tags start to become numerous, evaluate whether a new tag (subsystem) should be created based on the content of the tags. It's normal for subsystems to form after-the-fact so feel free to propose re-tagging of existing records.
 - **Singular concept.** Each entry should be a single sentence and only concerned with a single concept. Prefer multiple entries versus combining many things into one.
+- **Because.** Every entry ends with `BECAUSE: <one sentence>` — why the fact holds, from the dialogue that established it. Not history. The clause is exempt from the singular-concept budget; the fact before it is not.
 
 ## Templates
 
-| Pattern     | Form                                                             | Example                                                                                             |
-| ----------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| State       | `[Scope] currently [does X / is Y].`                             | "(TUI) The TUI's first screen at startup is the chat screen."                                       |
-| Persistence | `[Scope] persists [what] to [where].`                            | "(sessions) Sessions persist to SQLite."                                                            |
-| Flow        | `[Input/event] is handled by [actor/subsystem], which [action].` | "(tools) File edits route through the `edit` tool, which requires a unique match or `replace_all`." |
-| Boundary    | `[Scope] is bounded by [constraint].`                            | "(projects) Project discovery walks ancestors until a VCS root or `$HOME`, whichever comes first."  |
+| Pattern     | Form                                                                             | Example                                                                                                                                                                              |
+| ----------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| State       | `[Scope] currently [does X / is Y]. BECAUSE: <why>.`                             | "(TUI) The TUI's first screen at startup is the chat screen. BECAUSE: startup always resumes or creates a session, so no landing screen is needed."                                  |
+| Persistence | `[Scope] persists [what] to [where]. BECAUSE: <why>.`                            | "(sessions) Sessions persist to SQLite. BECAUSE: one embedded file, no server, transactional."                                                                                       |
+| Flow        | `[Input/event] is handled by [actor/subsystem], which [action]. BECAUSE: <why>.` | "(tools) File edits route through the `edit` tool, which requires a unique match or `replace_all`. BECAUSE: a non-unique match must fail loudly, not edit an arbitrary occurrence."  |
+| Boundary    | `[Scope] is bounded by [constraint]. BECAUSE: <why>.`                            | "(projects) Project discovery walks ancestors until a VCS root or `$HOME`, whichever comes first. BECAUSE: a repo under `$HOME` must not swallow the home directory as one project." |
 
 ## Absence
 
-A missing record, or an un-recorded area, simply means the list has no entry there yet. Absence is not a constraint — it is an open question, and a feature that fills a gap may establish the first entry for that area (proposed for human approval as part of the plan).
+A missing record, or an un-recorded area, simply means the list has no entry there yet. Absence is not a constraint — it is an open question, and a task that fills a gap may establish the first entry for that area (proposed for human approval as part of the proposal).
 
 ## Editing
 
@@ -474,7 +477,7 @@ Entries are added or amended **only with human approval**.
 - (rules) A stream-rule intercept sends the inference actor its own abort command rather than a cancel. A stream task cannot abort itself, so it returns a verdict and the actor performs the teardown — and reusing the cancel path would have the actor emit a second, cancelling completion that races the intercept's own, pushing a `Cancelled` entry into an interrupted turn's history. The abort carries the generation it stopped, because the resume arms a new dispatch before the bus delivers it and an unstamped abort would tear down the replacement instead of the attempt it ended. It is published last, since the abort cancels the very task that issued it.
 - (rules) An interrupted turn excludes its partial output from the resumed request rather than removing it, so the interrupted text stays visible in the chat log where the user watched it appear. The exception is a tool call the rule caught, which is retained alongside its synthetic result. The resume dispatches as a user-originated send so the inference actor treats it as a genuine turn rather than a tool-loop continuation.
 - (rules) A stream rule that fails to compile, names no reachable stream, or carries an empty `body` is dropped with a warning rather than failing the turn. A session may be interrupted up to the watchdog's configured maximum before the stream is cancelled, which bounds a rule whose condition matches the guidance it injects without disarming a rule the model ignored once.
-- (rules) A stream rule is matched against the *accumulated* buffer of one stream, never against a single delta, so whether a rule fires is a function of the output and not of how the provider chunked it. Proven by tests that drive identical content as one delta, as many, and one character at a time, and assert the same rule fires each time.
+- (rules) A stream rule is matched against the _accumulated_ buffer of one stream, never against a single delta, so whether a rule fires is a function of the output and not of how the provider chunked it. Proven by tests that drive identical content as one delta, as many, and one character at a time, and assert the same rule fires each time.
 - (rules) The stream_rules `project` key is a glob matched against the session's whole working directory, read live at dispatch; the project association is not consulted for rule scoping.
 - (rules) An unreadable session cwd runs global stream rules only.
 - (rules) A stream rule's project candidates are the normalized cwd and the cwd with a trailing slash, so a `/**` suffix matches the project directory itself and everything below it.
@@ -563,7 +566,7 @@ Entries are added or amended **only with human approval**.
 - (lifecycle) A session's lifecycle arguments persist as ordered name–value pairs, and a legacy bare-string array loads as positional `$n` pairs rendered positionally.
 - (lifecycle) Placeholder substitution shell-quotes in one pass, so a lifecycle template must not place a placeholder inside a quoted region of its own command.
 - (sidebar) A per-section navigate fn's contract is to report `SectionNavResult::Exhausted` at its list edges without mutating its cursor; `navigate_sidebar` (`sections/sidebar.rs`) owns all section-crossing, walking `prev_section`/`next_section` past empty sections via `section_has_content`.
-- (arch) All application filesystem paths derive from AppPaths, whose default constructor is the only configuration-source reader of dirs::* and honors a JINN_PATHS_ROOT env override read once at startup; the remaining dirs readers are display-layer home lookups (path tilde compression) that take an injected home.
+- (arch) All application filesystem paths derive from AppPaths, whose default constructor is the only configuration-source reader of dirs::\* and honors a JINN_PATHS_ROOT env override read once at startup; the remaining dirs readers are display-layer home lookups (path tilde compression) that take an injected home.
 - (windows) Canonicalized paths are stripped of Windows verbatim \?\ prefixes by one shared helper before they are stored, compared, or displayed.
 - (windows) Shell resolution on Windows prefers Git Bash and never falls back to the WSL `bash.exe` launcher, so every command jinn runs stays native to the user's platform.
 - (shell) The `[shell]` section in `jinn.toml` configures the POSIX shell and the PowerShell executable, each as an absolute path; an unset key is auto-detected and a configured path that does not resolve to an existing file on the running machine stops the launch, with no cross-platform exception.
@@ -644,9 +647,9 @@ Entries are added or amended **only with human approval**.
 - (config) The `[canvas]` config section ships active in `default_jinn.toml` with bind defaulting to `127.0.0.1:0` (OS-assigned per instance); an explicit value wins.
 - (skills) The canvas skill teaches the write-serve-edit workflow (file tools, then the `canvas` tool, then free editing) and which vendored library fits a given visual.
 - (tools) The `canvas` tool is a built-in that reaches the canvas actor through a handle stored in `Services.canvas_server`; the actor answers the serve ask with the resolved URL, and a missing path resolves against the session's working directory.
-- (arch) A slice is an integration unit with an activate or actor-install invoked by composition, and every slice implementation crate lives under crates/slices/*.
-- (arch) jinn-cli, jinn-install, jinn-mcp-overgraph, and jinn-tui are entrypoint infrastructure at the crates/* level, not slices: composition never integrates them.
-- (arch) jinn-session-history is shared library code at the crates/* level: HistoryEditor has no actor, cell, or activate, and jinn-session-state imports it directly.
+- (arch) A slice is an integration unit with an activate or actor-install invoked by composition, and every slice implementation crate lives under crates/slices/\*.
+- (arch) jinn-cli, jinn-install, jinn-mcp-overgraph, and jinn-tui are entrypoint infrastructure at the crates/\* level, not slices: composition never integrates them.
+- (arch) jinn-session-history is shared library code at the crates/\* level: HistoryEditor has no actor, cell, or activate, and jinn-session-state imports it directly.
 - (arch) Every production lock is a parking_lot primitive; std::sync::{RwLock, Mutex} survive only in test code.
 - (canvas) Canvas artifact paths are canonicalized through `server::canonical_artifact` (marked-path's `CanonicalPath`), so the canvas tool result and dashboard row never carry a Windows verbatim prefix and always agree.
 - (testing) Timing-sensitive tests wait by polling jinn_testutil::wait with an explicit budget; a single read after an action is a latency race, not an assertion.
