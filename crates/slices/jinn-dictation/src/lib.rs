@@ -43,6 +43,7 @@ pub use platform::platform_default_model;
 pub use platform::platform_supports_real_backend;
 pub use row::row_note;
 
+use crate::capture::NativeCaptureOpener;
 use jinn_slices::SliceHost;
 
 /// Activates the slice: registers the meter's draw slot and attaches
@@ -131,6 +132,9 @@ pub fn activate(
             config: config.clone(),
             applied: settings,
             backend,
+            // The device seam: the native opener, so production still
+            // opens the real input device. Tests inject fakes instead.
+            opener: std::sync::Arc::new(NativeCaptureOpener),
             state: state.clone(),
         },
     );

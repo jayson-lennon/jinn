@@ -310,6 +310,7 @@ pub(super) fn run_load(actor: &mut DictationActor) {
 /// device.
 pub(super) async fn open_capture(actor: &mut DictationActor) {
     let backend = std::sync::Arc::clone(&actor.backend);
+    let opener = std::sync::Arc::clone(&actor.opener);
     // Arm-time resolution: the settings the arm opens under are read
     // from the live layer now, not carried from activation — the heavy
     // tier's deferred application, so a `[dictation]` edit lands at the
@@ -342,7 +343,7 @@ pub(super) async fn open_capture(actor: &mut DictationActor) {
                 // before the stream opens, so no audio callback can
                 // interleave with it.
                 backend.lock().reset();
-                crate::capture::open(configured.as_deref(), noise_reduction, &backend)
+                opener.open(configured.as_deref(), noise_reduction, &backend)
             })
             .await
     };
