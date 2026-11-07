@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 jinn-config = { workspace = true }
+marked-path = { workspace = true }
 jinn-core-types = { workspace = true }
 jinn-picker = { workspace = true }
 jinn-preferences-config = { workspace = true }
@@ -23,6 +24,7 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+jinn-testutil = { workspace = true }
 
 [lints]
 workspace = true

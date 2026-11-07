@@ -9,6 +9,7 @@
 //! this crate.
 
 pub mod command;
+pub mod dump;
 pub mod event;
 pub mod notices;
 pub mod task_list_entry;
@@ -23,6 +24,7 @@ pub mod tool_registry;
 pub mod truncation;
 
 pub use command::*;
+pub use dump::*;
 pub use event::*;
 pub use notices::*;
 pub use task_list_entry::{RowStatus, TaskListTreeEntry, render_task_list_row};
