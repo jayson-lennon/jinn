@@ -392,16 +392,17 @@ impl ConfigWatchActor {
         }
     }
 
-    /// Surfaces a refused reload: a transient chat entry (excluded from
-    /// LLM context) plus an error-toned dashboard note. The old values
-    /// stay live — that is the point of refusing, and the entry says so.
+    /// Surfaces a refused reload: an error chat entry (excluded from
+    /// LLM context, rendered in the error style) plus an error-toned
+    /// dashboard note. The old values stay live — that is the point of
+    /// refusing, and the entry says so.
     async fn surface_refusal(&self, refusal: &str, ctx: &mut MsgCtx<'_>) {
         tracing::warn!(
             refusal,
             "config reload refused; the previously installed values stay live"
         );
         let session_id = self.state.read().session.active_session_id().clone();
-        let entry = jinn_core_types::ChatEntry::transient(format!(
+        let entry = jinn_core_types::ChatEntry::error(format!(
             "**Config reload refused**\n\n{refusal}\n\nThe previously installed values stay live."
         ));
         ctx.publish(PushChatEntry {

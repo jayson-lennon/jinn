@@ -386,6 +386,17 @@ async fn a_malformed_jinn_toml_is_refused_and_surfaced() {
     fixture.assert_absent(&reloads, 0).await;
     let pushed = fixture.wait_for(&entries, 1).await;
     assert_eq!(pushed.len(), 1, "the refusal reached the chat");
+    // And it is the error entry kind, not a plain transient note.
+    let entry = pushed
+        .first()
+        .expect("the wait guarantees one entry")
+        .entry
+        .clone();
+    assert!(
+        matches!(&entry.kind, jinn_core_types::ChatEntryKind::Error(_)),
+        "the refusal must render as an error entry, got {:?}",
+        entry.kind
+    );
     let rows = fixture.wait_for(&notes, 1).await;
     assert!(
         rows.iter().any(|note| note
