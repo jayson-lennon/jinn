@@ -18,18 +18,19 @@ terminal.
 | `T` | sidebar Sessions section | Toggle the overlay for the **selected** session |
 | `<M-t>` | overlay view mode | Close the overlay (program keeps running) |
 
-Closing the overlay never stops the program. It keeps running in the
-background, and the agent's tool calls keep working against it.
+Closing the overlay leaves the program running in the background, and the
+agent's tool calls keep working against it.
 
 ## Watch vs. control
 
 The overlay has two modes:
 
 - **View** (default). Passive. You watch the screen; keys do jinn things
-  (`y`, `I`, `<M-t>`, `T`, `?`). The agent can read the screen and send input
-  freely.
-- **Control**. *Your* keys go straight to the program; the agent's input is
-  locked out. Every key except the toggle is forwarded to the PTY.
+  (`y`, `I`, `<M-t>`, `T`, `?`). The agent can read the screen and send
+  input freely.
+- **Control**. *Your* keys go straight to the program; the agent's typing
+  pauses while you hold it. jinn keeps one key for itself — the toggle —
+  and forwards every other keypress to the PTY.
 
 | Key | Context | Action |
 | --- | --- | --- |
@@ -40,10 +41,10 @@ The toggle key is configurable per user — set `[term] control_toggle_key` in
 `jinn.toml` (see `configuration.md`). `<c-g>` is the shipped default; just
 try it.
 
-**Handback semantics.** If the agent's input lands while *you* hold control,
-it does not type into your program. The tool call returns a "user holds
-control" notice and the agent waits. When you hand back, the agent's next
-call sees the screen as *you* left it.
+**Handback semantics.** Agent input arriving while *you* hold control comes
+back as a "user holds control" notice — the tool call returns it and the
+agent waits. When you hand back, the agent's next call sees the screen as
+*you* left it.
 
 ## Get the screen into the conversation
 
@@ -53,7 +54,8 @@ call sees the screen as *you* left it.
 | `I` | view mode | Yank the screen **and** push it to the model ("Here is the current terminal screen:") |
 
 `I` is the fastest way to ask about what you're looking at. Open the overlay
-on a failing test run, press `I`, ask "why is this failing?" — no copy-paste.
+on a failing test run, press `I`, ask "why is this failing?" — the screen
+arrives with your question.
 
 ## Typical workflows
 

@@ -76,6 +76,7 @@ the current truth — and echo that.
 | `references/chat-input-tokens.md`      | `#prompt`, `@attachment`, `/command` autocomplete tokens                                    |
 | `references/dictation.md`              | Local voice input: `<M-i>` toggle, the meter, `[dictation]` config, the CLI utilities      |
 | `references/builtin-prompts.md`        | The builtin `#prompts`: what each is for, how they work, choosing between them             |
+| `references/personas.md`               | The builtin personas, choosing one, and guidance for writing your own                      |
 | `references/workflows.md`              | Workflows: running them, building one by asking, the bundled `autodev` loop                 |
 | `references/models-and-providers.md`   | Model/provider pickers, alloys, endpoint pinning, reasoning effort                         |
 | `references/remote.md`                  | `jinn remote`: messaging a running instance from outside (CLI + curl HTTP surface)         |

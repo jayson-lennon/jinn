@@ -11,7 +11,7 @@ markdown file, editable to tune exactly what that step does.
 - **Workflow picker:** `<leader>sw` — `<enter>` loads the workflow into
   the current session; `<c-enter>` starts a new session for it.
 - **Or just ask:** "run the autodev workflow and <what you want>" in a
-  single message — no need to open the picker first.
+  single message — jinn picks the workflow up straight from your request.
 
 A loaded workflow drives the session: the session's task list tracks the
 steps, and the session walks them, spawning bot sessions where the
@@ -41,7 +41,7 @@ rest — decomposes the goal into a file-based issue tracker, a planner bot
 plans each issue (splitting big ones into children), implementor bots are
 attached on demand and land their work onto your branch through scripted
 teardown, and agent-created issues recurse through the same loop. The
-human reappears only to QA the result, then lands the branch.
+human reappears to QA the result, then lands the branch.
 
 Run it via the picker or a single message ("run the autodev workflow and
 add dark mode to the settings panel"). See `builtin-prompts.md` for how

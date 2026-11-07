@@ -2,8 +2,8 @@
 
 When the user asks for behavior jinn controls via config, your job is:
 **explain the mechanism → show a snippet → offer to apply it → say when
-it applies (the categories below).** Don't edit a config file unless
-they accept the offer — that choice is theirs.
+it applies (the categories below).** Edit a config file only after they
+accept the offer — that choice is theirs.
 
 ## File map
 
@@ -15,18 +15,18 @@ they accept the offer — that choice is theirs.
 | personas         | `~/.config/jinn/personas/*.md`    | Persona templates (markdown + TOML frontmatter)                                                                                                                                    |
 | prompts          | `~/.config/jinn/prompts/*.md`     | Prompt templates (`#name` tokens in input)                                                                                                                                         |
 | skills           | `~/.agents/skills/*/SKILL.md`     | Agent skills (project `.agents/skills/` override same-named globals)                                                                                                               |
-| sessions         | `~/.local/share/jinn/sessions.db` | SQLite — sessions, history, search index (do not hand-edit)                                                                                                                        |
+| sessions         | `~/.local/share/jinn/sessions.db` | SQLite — sessions, history, search index (leave it to jinn)                                                                                                                        |
 
 `jinn.toml` is auto-created with a fully commented default on first run.
-Your comments survive every save — jinn patches documents instead of
-rewriting them. Unknown keys survive upgrades too: an older jinn ignores
-newer keys instead of failing.
+Your comments survive every save — jinn patches documents in place.
+Unknown keys survive upgrades too: an older jinn accepts newer keys and
+reads the rest of the file.
 
 ## What reloads, and when
 
 **jinn watches its config.** Edits to `jinn.toml`, `providers.toml`, and
-`stream_rules.toml` reload when saved. Not all configuration values take
-effect instantly — reloaded values fall into three categories:
+`stream_rules.toml` reload when saved. A reloaded value takes effect on
+one of three schedules:
 
 | Category | What it covers | When the edit takes effect |
 | --- | --- | --- |
@@ -37,16 +37,15 @@ effect instantly — reloaded values fall into three categories:
 A malformed or invalid edit is refused: the previous values stay in
 effect, and the refusal appears in the chat log and on the config
 dashboard row. A clean reload shows `reloaded …` on that row. A launch
-with `--config <path>` watches that file instead of the default
-`jinn.toml`. `[term].control_toggle_key` is the one value read only at
-launch.
+with `--config <path>` makes that file the watched config.
+`[term].control_toggle_key` is the one value read only at launch.
 
 Per-session choices made in the UI (enabled tools/skills/MCP servers,
-model, persona) live in the session database — config state never
-overwrites them, and the new-session-only category exists to keep it
-that way. A deleted `[mcp.<name>]` entry leaves an already-running
-connection up until session end; sessions created after the edit simply
-lack the server.
+model, persona) live in the session database, and the database owns
+them — the new-session-only category keeps it that way. A deleted
+`[mcp.<name>]` entry leaves an already-running connection up until
+session end; sessions created after the edit start with the remaining
+servers.
 
 ## Offer-to-edit protocol
 
@@ -54,15 +53,15 @@ When the user's ask maps to a config change:
 
 1. Name the file and section. Say what the setting does in one or two
    sentences.
-2. Show a minimal snippet for their ask — values they'd actually want, not
-   the doc example verbatim.
+2. Show a minimal snippet for their ask — values they'd actually want,
+   tailored to the request.
 3. Ask: _"Want me to update `~/.config/jinn/jinn.toml` for you?"_ Say
    when the change takes effect, using the categories above.
 4. On acceptance, read the file first. Apply the change surgically —
    preserve comments, ordering, and unknown keys. Confirm what you changed
    and where.
-5. Point at the config dashboard row: it shows the reload land, or the
-   refusal if the file broke.
+5. Point at the config dashboard row: the reload lands there, or the
+   refusal shows if the file broke.
 
 If a jinn **config subcommand** exists for the ask (e.g. `jinn install`),
 prefer the command over hand-editing — it's the supported path.
@@ -79,26 +78,27 @@ tool_filter = { mode = "deny", names = ["grep", "openrouter:web_search", "mcp__c
 skill_filter = { mode = "deny", names = ["svg-creator"] }
 ```
 
-`mode = "deny"` withholds every name that matches and permits everything
+`mode = "deny"` blocks every name that matches and permits everything
 else. `mode = "allow"` permits **only** the names that match. Patterns are
 **globs** over the namespaced name — one entry covers a whole MCP server
-(`mcp__github__*`) without naming each of its tools. An empty `names` list
-in an `allow` filter means "this session may use nothing". That's different
-from omitting the filter entirely.
+(`mcp__github__*`). An empty `names` list in an `allow` filter authorizes
+zero names; omitting the filter entirely is a different state where
+everything passes.
 
 Both shipped tables are in `deny` mode — `[tools]` denies `grep`, and the
 shipped `[skills]` filter denies the same way.
 
-Entries are **tool names**, not display labels. A builtin is its bare name
+Entries are **tool names**. A builtin is its bare name
 (`bash`, `grep`, `write`, `spawn_subagent`, `skill`, …), a provider-side tool
 keeps its namespace (`openrouter:web_search`), and an MCP tool is its full
-namespaced name (`mcp__<server>__<tool>`). A name that matches nothing does
-nothing.
+namespaced name (`mcp__<server>__<tool>`). An entry matching zero tools is
+inert.
 
 These filters are new-session-only: sessions created after the edit start
 with them applied, existing sessions keep theirs. Per-session toggles
-(`<leader>st`, `<leader>sk`) override and persist in the session — they
-never write back here. Saved bots carry the same two keys (see `bots.md`).
+(`<leader>st`, `<leader>sk`) override and persist in the session — config
+is the starting point, the session the running state. Saved bots carry
+the same two keys (see `bots.md`).
 
 **Timeouts / output caps**
 
@@ -112,9 +112,9 @@ max_output_bytes = 51200
 tool_entry_max_lines = 6         # how much of a tool call renders in the TUI
 ```
 
-`max_output_lines` / `max_output_bytes` are optional. Leave them out and
-tools get uncapped output — the shipped default file sets 2000/51200 so it
-doesn't.
+`max_output_lines` / `max_output_bytes` are optional: unset, tools get
+uncapped output. The shipped default file sets 2000/51200, so shipped
+installs run capped.
 
 **Session lifecycles** (branch/worktree bootstrap; see
 `sessions-and-subagents.md`)
@@ -135,8 +135,8 @@ path = "~/code/myapp"
 ```
 
 A project's own rules are stream rules (see **Stream rules** below) with
-the project's path in their `project` field. Configure them with every
-other rule, not on the project entry.
+the project's path in their `project` field. Configure them alongside
+every other rule, in `jinn.toml`.
 
 **Saved bots** (`[[bot.entry]]` — see `bots.md` for the
 full field reference and the feature itself):
@@ -154,9 +154,9 @@ pins = [{ role = "user", text = "Review the parent's last turn and report one li
 ```
 
 `name` is required. Every field you omit is inherited from the session the
-bot is created under. **`prep_mode` defaults to `true`** — an entry that
-omits it doesn't run until you set `prep_mode = false`. A pin must carry a
-`role` (`"user"` or `"assistant"`); a pin without one fails to parse.
+bot is created under. **`prep_mode` defaults to `true`** — set
+`prep_mode = false` to let the entry run. A pin must carry a `role`
+(`"user"` or `"assistant"`); a roleless pin fails to parse.
 
 This list is re-read on every saved-bots picker (`<leader>sb`) open, so
 a hand edit shows up at the next picker open or bot creation. `name` is
@@ -174,18 +174,18 @@ scopes = ['tool:bash']
 body = 'Force-pushing main rewrites published history — open a PR instead.'
 ```
 
-A match interrupts the response as the arguments stream — the call is never
-dispatched, so the command never runs. `body` comes back as guidance, and
-the resumed request shows the agent its abandoned call, explained. Works
-for any tool you name a scope for, not bash alone. `jinn.toml` rules append
-after the base set (see **Stream rules** below for the shipped file and its
-replace/append semantics).
+A match interrupts the response as the arguments stream — jinn stops the
+call at the dispatch gate, and the command stays blocked. `body` comes
+back as guidance, and the resumed request shows the agent its abandoned
+call, explained. Works for any tool you name a scope for — bash included.
+`jinn.toml` rules append after the base set (see **Stream rules** below
+for the shipped file and its replace/append semantics).
 
 > The older `[[tools.bash_command_policy]]` section is read at load time and
 > converted to exactly this form — pattern and message carried across — so
 > an existing file keeps working. `[[project.entry]].command_policy` becomes
 > a rule scoped with `project`. A file still carrying the old `on_trigger`
-> key reads fine: the key is ignored and the rule interrupts as normal.
+> key reads fine: jinn skips the key and the rule interrupts as normal.
 
 A fresh install ships a set of command guards in an embedded
 `stream_rules.toml`, compiled into the binary. That file is the base rule
@@ -200,8 +200,8 @@ set:
   `gh repo delete`, `gcloud`/`aws`/`terraform destroy`/`pulumi`/`kubectl`
   broad deletes, Heroku/Vercel/fly destroys, docker volume removal and
   `compose down -v`.
-- **Database wipes** — `DROP DATABASE/TABLE`, `TRUNCATE`, `DELETE FROM`
-  with no `WHERE`, `FLUSHALL`/`FLUSHDB`, `dropdb`/`dropuser`.
+- **Database wipes** — `DROP DATABASE/TABLE`, `TRUNCATE`, a bare
+  `DELETE FROM`, `FLUSHALL`/`FLUSHDB`, `dropdb`/`dropuser`.
 - **Machine state** — `shutdown`, `reboot`, crontab replacement.
 - **Credential and privacy reads** — macOS keychain reads/dumps, shell
   history files.
@@ -209,13 +209,13 @@ set:
   anything that would block the tool call until timeout.
 - **Pipe-to-shell.**
 
-**The shipped guards catch accidents, not judgment calls** — commands an
-agent emits by accident during ordinary work, where one run destroys data,
+**The shipped guards catch accidents.** They aim at commands an agent
+emits by accident during ordinary work, where one run destroys data,
 leaks private material, or hangs the machine. Deliberate-but-destructive
 operations a competent agent runs legitimately — `git reset --hard`,
 `git branch -D`, `chmod -R`, `docker system prune`, `make`, a plain
-`rm -rf` of a named build directory — are deliberately absent. Interrupting
-those routinely would make jinn annoying to use.
+`rm -rf` of a named build directory — stay off the list on purpose;
+interrupting those routinely would make jinn annoying to use.
 
 `jinn install` and `jinn config init` each write that file, once, as
 **`stream_rules.toml` beside `jinn.toml`** — a plain file, so you can edit
@@ -223,21 +223,21 @@ it:
 
 - **Your file replaces the embedded set entirely.** An empty file disables
   every shipped guard — that's the intended off switch. `jinn install`
-  never modifies an existing one, even with `--force`. `jinn config init
+  leaves an existing file alone, even with `--force`. `jinn config init
   --force` overwrites yours with the current shipped set — that's the
   supported path for pulling in updated guards.
-- **A malformed file falls back to the embedded set**, with a warning. A
-  typo never leaves jinn unguarded.
+- **A malformed file falls back to the embedded set**, with a warning.
+  Guards stay up through a typo.
 - **`[[stream_rules.entry]]` rules in `jinn.toml` append after the base
-  set.** Your rules layer on top of whichever base won.
+  set.** Your rules layer on top of the winning base.
 
 The shipped entries also carry `positive` and `negative` fixture lists —
-bare command strings that must / must not trip the declaring rule — plus a
-source/license comment each. jinn ignores those fields at runtime; they
-drive the test suite. Each entry names its upstream source: the shipped
-defaults this file grew out of, dylancaponi/claude-code-permissions,
-openai/codex (Apache-2.0), SWE-agent/SWE-agent (MIT), and the command-line
-folklore canon.
+bare command strings that must trip (`positive`) and must stay quiet
+(`negative`) — plus a source/license comment each. Those fields drive the
+test suite; jinn skips them at runtime. Each entry names its upstream
+source: the shipped defaults this file grew out of,
+dylancaponi/claude-code-permissions, openai/codex (Apache-2.0),
+SWE-agent/SWE-agent (MIT), and the command-line folklore canon.
 
 **MCP servers** — see `mcp-servers.md` for the full transport matrix:
 
@@ -282,7 +282,8 @@ Each is a `[context_curation.auto_prune.<name>]` table taking `enabled`
 and `min_age`; the ones with extra tuning are under "Auto-prune
 per-strategy knobs" below. `[context_curation.auto_prune.broken_edit]`,
 `[context_curation.auto_prune.edit_read]`, and
-`[context_curation.auto_prune.tool_age_window]` have no further settings.
+`[context_curation.auto_prune.tool_age_window]` are complete with those
+two keys.
 
 **Web search tuning** (the provider-side `openrouter:web_search` tool):
 
@@ -296,9 +297,10 @@ engine = "exa"          # "exa" | "firecrawl" | "parallel" | "native" | "auto"
 # excluded_domains = ["pinterest.com"]
 ```
 
-jinn passes these values straight through to the provider and validates
-none of them — a typo'd `engine` or an out-of-range `max_results` is
-forwarded as written, and the provider decides what to do with it.
+jinn passes these values straight through to the provider, and the
+provider owns validation — a typo'd `engine` or an out-of-range
+`max_results` is forwarded as written, and the provider decides what to
+do with it.
 
 **Interactive terminal** (see `terminal-overlay.md`):
 
@@ -389,8 +391,9 @@ and curl examples — `jinn remote send|instances`):
 # bind = "127.0.0.1:0"   # default: loopback, OS-assigned ephemeral port
 ```
 
-A non-loopback bind refuses the launch outright — the surface has no
-authentication. The resolved port is what `jinn remote instances` reports.
+A non-loopback bind aborts the launch outright — the surface ships with
+loopback as its only protection, so jinn accepts loopback binds alone.
+The resolved port is what `jinn remote instances` reports.
 
 **Watchdogs** (turn health — these cancel a turn that has gone bad):
 
@@ -403,8 +406,8 @@ max_restarts = 3      # consecutive silent-stall retries before the turn cancels
 max_failures = 6      # tool failures before the turn cancels
 ```
 
-`max_failures` is a simple accumulator: up on failure, down on success. The
-failures need not be consecutive.
+`max_failures` is a simple accumulator: up on failure, down on success.
+Consecutive failures count too — any failure in the turn adds.
 
 **Stream rules** (regex over the assistant's output as it is produced — the
 only rule kind that can act mid-response):
@@ -423,9 +426,9 @@ Never widen a type to `any` to silence an error.
 
 When a `conditions` regex matches the output so far, jinn stops the turn
 _before_ that text reaches the chat log and resumes it with `body` injected
-as guidance — the model corrects itself instead of the user typing at it.
-The interrupted text stays visible in the log but is excluded from the
-resumed request — the model never sees its own violation as context.
+as guidance — the model corrects itself on the spot.
+The interrupted text stays visible in the log while the resumed request
+drops it — the model resumes with a clean context.
 
 `scopes` decides which streams the rule is tested against:
 
@@ -445,7 +448,7 @@ A `tool:<name>(<glob>)` token matches when the tool name is equal and any
 path-like argument matches the glob. The glob decides **which files** the
 rule applies to. `conditions` then tests the whole argument buffer, content
 included. So `tool:edit(*.ts)` with `conditions = [': any']` fires on an
-edit writing `any` into a `.ts` file and stays quiet for a `.py` file.
+edit writing `any` into a `.ts` file and stays silent for a `.py` file.
 
 Which arguments count as paths: values under a key ending in `path`,
 `file`, `dir`, or `pattern` — `edit` uses `file_path`, `read`/`write` use
@@ -453,14 +456,13 @@ Which arguments count as paths: values under a key ending in `path`,
 `*.ts` matches `src/deep/nested/x.ts`.
 
 A match does one thing: interrupt the turn and resume it with `body` as
-guidance. There is no second behavior to configure. A `tool:<name>` rule
-matches the call's arguments as they arrive, and the interrupt is what
-stops the call — blocking a command before it executes is the same
-mechanism as catching the model mid-sentence.
+guidance. A `tool:<name>` rule matches the call's arguments as they arrive,
+and the interrupt is what stops the call — blocking a command before it
+executes is the same mechanism as catching the model mid-sentence.
 
-A caught tool call is paired with a result saying it did not run, quoting
-the arguments the model had produced. The model reads its own failed
-attempt instead of resuming and re-emitting it.
+A caught tool call is paired with a result recording the call as stopped
+before execution, quoting the arguments the model had produced. The model
+reads its own failed attempt and resumes clean.
 
 **`[watchdog.stream_rules]`** tunes how many interrupts a session may take
 in a row:
@@ -471,28 +473,28 @@ max_failures = 4
 ```
 
 Consecutive, per session, default 4. A clean response refunds one, floored
-at zero. An interrupted one refunds nothing, so repeats accumulate across a
+at zero. An interrupted one refunds zero, so repeats accumulate across a
 turn. A value of 4 allows four interrupts — the **fifth** consecutive one
-cancels the stream — otherwise a rule whose condition also matches its own
-injected guidance loops forever. Below 1 counts as 1.
+cancels the stream, which is what stops a rule whose condition also
+matches its own injected guidance. Below 1 counts as 1.
 
-The stream-rule watchdog owns the budget, not the matcher — the trip
-happens after the interrupting response resumes. An old
+The stream-rule watchdog owns the budget; the matcher stays outside it —
+the trip happens after the interrupting response resumes. An old
 `[stream_rules] max_interrupts` keeps its value for that launch, logs a
-warning naming the move, and is never rewritten.
+warning naming the move, and stays untouched on disk.
 
-A rule that fails to compile, names no reachable stream, or has an empty
-`body` is logged and skipped — it never breaks a turn. Write `conditions`
-as single-quoted strings, so regex metacharacters survive without escape
-processing.
+A rule that fails to compile, reaches zero streams, or has an empty
+`body` is logged and skipped — a bad rule costs one log line, and the turn
+carries on. Write `conditions` as single-quoted strings: TOML passes their
+content through raw, so regex metacharacters arrive intact.
 
-Don't confuse this with `[[context_curation.auto_prune.regex.rules]]` —
-that prunes completed history. A stream rule is the only rule that sees
-output while it's being produced.
+Stream rules and `[[context_curation.auto_prune.regex.rules]]` are
+different tools: the regex rules prune completed history; a stream rule is
+the only rule that sees output while it's being produced.
 
 `project` is optional: a path glob picking the sessions a rule applies in.
-Absent means every project. A project-scoped rule can add to a global rule
-but never remove one.
+Absent means every project. A project-scoped rule can add to a global
+rule; removal stays a global-rule job.
 
 **Canvas and applets binds** (local servers; the bind is taken as
 configured — securing the interface you point them at is your
@@ -518,9 +520,9 @@ bash_path = "..."        # POSIX shell commands run through; unset = auto-detect
 powershell_path = "..."  # the powershell tool's executable
 ```
 
-**A set path that names no file is a launch-time error.** Write Windows
-paths with forward slashes — a backslash is a TOML escape, and it fails the
-whole file.
+**A set path must point at an existing file; anything else fails the
+launch.** Write Windows paths with forward slashes — a backslash is a
+TOML escape, and it fails the whole file.
 
 **Session retention** (database maintenance; every knob defaults to a
 no-op):
@@ -540,27 +542,27 @@ Every section in the shipped default `jinn.toml` is represented above or in
 a linked reference (`mcp-servers.md`, `terminal-overlay.md`,
 `context-management.md`, `sessions-and-subagents.md`, `bots.md`,
 `remote.md`, and the canvas/applets/shell/maintenance blocks above).
-Section names are exact — `[term]`, not `[interactive_term]`;
-`[mcp.<name>]`, not `[[mcp_server]]`; `[context_curation.compaction]`, not
-`[compaction]`. **A misspelled section is silently ignored** — it reads as
-absent, not as an error, so a typo'd key never announces itself.
+Section names are exact: the interactive terminal section is `[term]`;
+each MCP server is `[mcp.<name>]`; compaction nests as
+`[context_curation.compaction]`. **A misspelled section reads as absent** —
+the file parses cleanly and the section silently sits at its defaults.
 
-An ask touching a key not shown here? The full commented reference ships
-inside the auto-created `~/.config/jinn/jinn.toml` itself.
+An ask touching a key beyond this reference? The full commented reference
+ships inside the auto-created `~/.config/jinn/jinn.toml` itself.
 
 ## Upgrades
 
-Config keys moved under slice-owned umbrellas, and an older `jinn.toml` is
-not translated — jinn does not convert, warn about, or migrate old keys.
-A file using the pre-umbrella spellings still parses, and every such
-section falls back to its default — **a silent revert to defaults is the
-symptom, not an error**. Check the user's file for the umbrellas above
+Config keys moved under slice-owned umbrellas. An older `jinn.toml`
+still parses: every section using a pre-umbrella spelling falls back to
+its default — **the symptom is a silent revert to defaults, and jinn
+stays quiet about it**. Check the user's file for the umbrellas above
 before recommending an edit.
 
 jinn reconciles the bundled themes, personas, prompts, workflows, and
 skills on every launch. A jinn-written file a binary update made stale is
-refreshed automatically. A file matching no jinn record is user-owned and
-never touched. `jinn install --builtins` is the one command that overwrites
-user-edited bundled files with the shipped copies. `jinn install` without
-flags seeds only `jinn.toml`, `providers.toml`, and `stream_rules.toml`,
-each only when missing — it never modifies an existing file.
+refreshed automatically. A file outside jinn's records is user-owned and
+stays hands-off — `jinn install --builtins` is the one command that
+overwrites user-edited bundled files with the shipped copies. Bare
+`jinn install` seeds `jinn.toml`, `providers.toml`, and
+`stream_rules.toml`, each only when missing — an existing file stays
+exactly as it is.

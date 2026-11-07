@@ -21,8 +21,8 @@ authorized_users = ["<numeric user id>"]
 ```
 
 Token resolution prefers the `DISCORD_BOT_TOKEN` environment variable and
-falls back to `bot_token` — prefer the env var; the config file is a
-readable file on disk.
+falls back to `bot_token` — the env var is the better home for it, since
+the config file sits readable on disk.
 
 Requirements:
 
@@ -34,10 +34,10 @@ Requirements:
 ## Who can use the bot
 
 `authorized_users` is a list of numeric Discord user IDs and is
-**deny-by-default**: an empty list authorizes nobody, and any user not in
-the list is refused with one generic ephemeral message — identical for
-every command, so a denial reveals nothing about bot state. Plain messages
-are gated the same way as slash commands.
+**deny-by-default**: an empty list authorizes nobody, and everyone outside
+the list gets one generic ephemeral refusal — identical for every command,
+so bot state stays private. Plain messages are gated the same way as slash
+commands.
 
 Find a user's numeric ID in Discord: enable Developer Settings
 (Appearance → Advanced), then right-click a user → Copy User ID.
@@ -54,8 +54,8 @@ Run these in a thread the bot has bound to a session:
 | `/archive`  | Archive the thread's session                                            |
 
 Plain messages in a bound thread are forwarded to the session as user
-messages (split across replies when the text is long). Messages from
-unauthorized users are refused.
+messages (split across replies when the text is long); users outside
+`authorized_users` get the same generic refusal.
 
 ## Continuing a TUI session in Discord
 

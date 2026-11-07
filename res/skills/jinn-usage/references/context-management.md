@@ -11,7 +11,7 @@ All bindings below are normal mode unless stated.
 - **Jumps land on kinds of entries**: `]u`/`[u` user messages, `]p`/`[p`
   pinned, `]c`/`[c` compaction summaries, `]s`/`[s` Sources annotations,
   `gg`/`G` top/bottom. Each `]` jumps forward and its `[` partner backward.
-  Jumps clamp at the ends of history — they never wrap.
+  Jumps clamp at the ends of history.
 
 ## Pin an entry
 
@@ -22,8 +22,8 @@ correction you want enforced for the rest of the session.
 1. Select the entry with `j`/`k` (or a `]`/`[` jump).
 2. Press `p`. Pressing `p` on a pinned entry unpins it.
 
-**A pin takes the whole tool loop.** Pinning a tool call also pins its
-matching result, so the pair never desyncs in context.
+**A pin takes the whole tool loop.** Pinning a tool call pins its matching
+result too, so the pair stays intact in context.
 
 ### Choose where the pin sits
 
@@ -36,7 +36,7 @@ messages after it. To reposition:
 2. Select a pin with `j`/`k`, then:
    - `t` — **top** of context. Strongest "always in view" signal.
    - `b` — **bottom** of context. High recency weight, and it splices in
-     before the trailing tool run / final turn, so a loop is never split.
+     before the trailing tool run / final turn, which keeps the loop whole.
    - `r` — **relative** position, near where the entry sits in history.
    - `m` — **cycle** through positions.
    - `u` — unpin the selected entry.
@@ -47,22 +47,22 @@ messages after it. To reposition:
 - *Top* — reads like a standing rule. Best for project-wide constraints; far
   from the current turn.
 - *Bottom* — among the newest messages, spliced in ahead of the trailing
-  tool run / final assistant turn so a loop is never split. That keeps it in
-  the highest-weight material of the next reply. Best for "do X now".
+  tool run / final assistant turn, so the loop stays whole and the pin sits
+  in the highest-weight material of the next reply. Best for "do X now".
 - *Relative* — stays beside the history it explains. Best for comments on a
   specific block.
 
 ### Jump among pins
 
-`]p` / `[p` snap the selection to the next / previous pinned entry — no
-sidebar needed.
+`]p` / `[p` snap the selection to the next / previous pinned entry, straight
+from the chat view.
 
 ## Exclude an entry
 
 - **`x` toggles an entry out of context and back in** (`ForcedExclude` ↔
   `ForcedInclude`), advancing the cursor each press. Use it on a message you
-  don't want the model to see: the text stays visible in the TUI and never
-  enters context. Hold `x` and the captured state sweeps across successive
+  want hidden from the model: the text stays visible in the TUI and stays
+  out of context. Hold `x` and the captured state sweeps across successive
   entries (presses within 100ms), skipping pinned and collapsed entries.
 - `r` resets the entry to default handling — the auto-prune workers decide
   again.
@@ -75,16 +75,17 @@ sidebar needed.
 
 Act on only one entry — a plan, a correction: select it and press `gci`
 (`g`, `c`, `i`). jinn force-includes that entry's tool loop and
-force-excludes every other non-pinned entry. Pins are untouched, so the
-context is the isolated exchange plus your pins. Pressing `p` right after
-(`gcip`) also pins the isolated entry. Undo per-entry with `x`/`r`, or start
-a new session (`n`).
+force-excludes every other entry, with pins exempt. The context is the
+isolated exchange plus your pins. Pressing `p` right after (`gcip`) also
+pins the isolated entry. Undo per-entry with `x`/`r`, or start a new session
+(`n`).
 
 ## Tune pruning and compaction
 
 jinn prunes stale detail automatically, keeping context small and
-prefix-cache friendly. Compaction — summarizing the history — is a backstop
-and should almost never fire during coding. The tuning lives in `jinn.toml`:
+prefix-cache friendly. Compaction — summarizing the history — is the
+backstop; during coding, pruning keeps usage below the threshold, so
+compaction rarely fires. The tuning lives in `jinn.toml`:
 
 - `[context_curation.auto_prune.*]` — per-strategy rules (stale reads,
   repeated edits, old tool output, trivial assistant chatter, regex
@@ -114,12 +115,12 @@ use, so an edit applies by the next compaction.
 produced. When its model stamps resolve, a `Model:` line names the concrete
 model that generated it. If that model differs from the model the session
 requested at dispatch time — OpenRouter's `auto` routing strategy is the
-usual cause — an indented `via <requested>` line renders beneath it. No
-resolved stamps (unpaired or unstamped) means no model line.
+usual cause — an indented `via <requested>` line renders beneath it. With
+unresolved stamps (unpaired or unstamped), the popup omits the model line.
 
 ## Pins in the sidebar
 
 The **Pins** section shows one row per standalone pinned entry, one row per
 completed tool **result** of a pinned loop, and one row per tool call still
-missing its result. Pin a saved plan or a skill load and you get one row,
-not one per entry — pin state still applies to the whole loop.
+missing its result. Pin a saved plan or a skill load and the loop
+contributes one row; pin state still applies to the whole loop.

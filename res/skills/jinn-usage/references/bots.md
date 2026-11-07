@@ -1,13 +1,13 @@
 # Bots
 
-A bot is a **session that references a parent without inheriting its
-conversation**. The parent is an ordinary jinn session. The bot is a second
-session that watches it. What crosses over is the _environment_ — the
-creating session's cwd, project, profile (model, persona, tool/skill filters,
-reasoning effort), and enabled MCP servers. The bot starts with an empty
-history and builds its own.
+A bot is a **session that watches another session — its parent — and
+re-runs on a trigger**. The parent is an ordinary jinn session. The bot
+starts an empty conversation and builds its own; what crosses over from
+the creating session is the _environment_ — its cwd, project, profile
+(model, persona, tool/skill filters, reasoning effort), and enabled MCP
+servers.
 
-Subagents are different (see `sessions-and-subagents.md`). A
+Subagents are a different shape (see `sessions-and-subagents.md`). A
 `spawn_subagent` subagent is a session you ask for once to run one
 assignment — empty history and task list, but the same model, cwd,
 persona, tools, skills, and MCP servers as the parent. A bot runs on a
@@ -15,41 +15,40 @@ condition, re-reads the parent each time, and reports back.
 
 Reach for a bot when work should re-run whenever a session finishes a turn —
 a reviewer, a test-watcher, an agent that prompts the parent to continue
-when it has stalled. Two bot-only tools make the loop possible. `conclude`
-records a verdict the user reads. `notify_parent` starts a turn in the
-parent. Both are filtered out of every **non-bot** session's tool list — an
-ordinary session is never offered them.
+when it has stalled. Two bot-only tools make the loop possible:
+`conclude` records a verdict the user reads, and `notify_parent` starts
+a turn in the parent. Both are filtered out of every **non-bot**
+session's tool list.
 
 ## Creating a bot
 
 | Key          | Where                    | Action                                                       |
 | ------------ | ------------------------ | ------------------------------------------------------------ |
 | `b`          | Sessions sidebar section | New bot of the highlighted session, immediately active       |
-| `B`          | Sessions sidebar section | New **standalone** bot (no parent) from the highlighted session's environment |
+| `B`          | Sessions sidebar section | New **standalone** bot, built from the highlighted session's environment |
 | `<leader>sb` | Normal mode              | Saved-bots picker — create one from `jinn.toml`              |
 
-`b` puts the new bot in **prep mode**: nothing it holds can dispatch yet,
-and anything you type is pinned into its context rather than sent. Compose
-its standing instructions as pins, then turn prep mode off (see below) to
-let it run.
+`b` puts the new bot in **prep mode**: everything you type is pinned
+into its context, and dispatch waits until you turn prep mode off (see
+below). Compose its standing instructions as pins, then let it run.
 
 `b` refuses when the highlighted session is busy, and works only from the
 Sessions section.
 
-`B` creates the same kind of session with **no parent**. The highlighted
-session supplies only the environment (profile, working directory, MCP
-enablement). The standalone bot's trigger is locked to `manual`, its
-`notify_parent` tool is withheld — it keeps `conclude`, so its report
-history still works — and its seed template starts empty. Use it when the
-bot is a self-contained job rather than something that watches a
-conversation.
+`B` creates a **standalone** bot — one that answers to itself, with no
+parent behind it. The highlighted session supplies only the environment
+(profile, working directory, MCP enablement). The standalone bot's
+trigger is locked to `manual`, its seed template starts empty, and its
+`notify_parent` tool is withheld; it keeps `conclude`, so its report
+history still works. Reach for it when the bot is a self-contained job;
+watching a conversation is the job of a bot with a parent.
 
 In the saved-bots picker, `<enter>` attaches the entry's bot to the
 active session (you stay where you are) and `<c-enter>` spawns it
-standalone (no parent, same rules as `B`) and switches you to the new
-bot's session. The entry's saved `prep_mode` is honored on either path.
-The picker refuses an entry when the active session is itself a bot — a
-bot of a bot is a lineage the trigger actor has no rules for.
+standalone (same rules as `B`) and switches you to the new bot's
+session. The entry's saved `prep_mode` is honored on either path.
+The picker refuses an entry when the active session is itself a bot —
+a bot of a bot sits outside the lineages the trigger actor defines.
 
 ## The properties popup
 
@@ -61,8 +60,8 @@ order:
 | Field             | Values                       | What it governs                                                       |
 | ----------------- | ---------------------------- | --------------------------------------------------------------------- |
 | **Trigger**       | `manual`, `parent-completed` | When the bot re-runs on its own                                 |
-| **Behavior**      | `reset`, `preserve`          | What a run _sees_ of the conversation (never whether it happens)      |
-| **Prep mode**     | on / off                     | Whether the bot is still being composed — a gate, not a setting |
+| **Behavior**      | `reset`, `preserve`          | What a run _sees_ of the conversation      |
+| **Prep mode**     | on / off                     | Whether the bot is still being composed — a gate |
 | **Tool set**      | `live`, `frozen`             | Whether new tools are admitted automatically or refused               |
 | **Skill set**     | `live`, `frozen`             | Same, over skills                                                     |
 | **Model**         | `inherit`, `fixed`           | Whether the model the session already holds belongs to this bot |
@@ -70,13 +69,12 @@ order:
 
 `frozen` sets act as an allowlist, `live` sets act as a blocklist.
 
-The **Model** row declares ownership, not model choice. Every bot holds a
-concrete model — it needs one to run. This row only says whether that
-model is the bot's own or the copy it inherited when it was created.
-`inherit` (the default) writes no `model` key when the bot is saved.
-`fixed` writes the model it holds, so recreating the bot from its entry
-keeps it. Change the model itself from the status bar's model picker, not
-here.
+The **Model** row declares ownership. Every bot holds a concrete model —
+it needs one to run — and this row says whether that model is the bot's
+own or the copy it inherited at creation. `inherit` (the default) saves
+with the `model` key omitted; `fixed` writes the model it holds, so
+recreating the bot from its entry keeps it. Change the model itself from
+the status bar's model picker.
 
 ### Popup keys
 
@@ -90,10 +88,11 @@ here.
 | `<enter>`         | Apply all fields and close                                             |
 | `<esc>` / `<c-c>` | Restore the values the popup opened with, and close                    |
 
-The properties scope is **navigation-only**: it captures no typed input. A
-letter typed while the cursor is on a form field does nothing. Editing text
-happens only in the seed-template editor. `<c-c>` is bound and behaves
-identically to `<esc>`, though the popup's footer lists only `<esc>`.
+The properties scope is **navigation-only**: every key acts as a
+command, and a letter typed while the cursor is on a form field is
+dropped. Editing text happens only in the seed-template editor. `<c-c>`
+is bound and behaves identically to `<esc>`, though the popup's footer
+lists only `<esc>`.
 
 ### Seed-template editor keys
 
@@ -113,7 +112,7 @@ ordering on sibling entries are preserved. A save applies the popup's
 pending values first, so what it writes is what the panel showed. The
 session's **name** is the entry's key. Saving under a name that already
 exists **replaces that entry in place** — a second `<c-s>` confirms the
-overwrite. A bot with no name cannot be saved.
+overwrite. Saving requires a name.
 
 ## What a run does
 
@@ -125,11 +124,12 @@ fresh turn:
   a first run it becomes the sentence
   "this is the first run, so there is no prior report".
 - **The `<parent_id>` placeholder becomes the parent session's id.** That
-  is how the bot reads the transcript it reports on. A standalone bot (no
-  parent) gets "unavailable" there.
-- **The seed renderer only substitutes** — it appends and removes nothing.
-  An empty template is valid: the run dispatches whatever the composition
-  produces (the message alone, for a message run).
+  is how the bot reads the transcript it reports on. A standalone bot
+  gets "unavailable" there.
+- **The seed renderer substitutes placeholders and leaves the rest of
+  the template alone.** An empty template is valid: the run dispatches
+  whatever the composition produces (the message alone, for a message
+  run).
 - **The default seed template for a parent bot** is
   `"The parent session's id is <parent_id>. The previous run of this bot
 reported: <prior_report>."` A standalone bot's default is empty.
@@ -137,16 +137,15 @@ reported: <prior_report>."` A standalone bot's default is empty.
 ### Trigger
 
 - `manual` — runs only when you re-run it (`G` in the Sessions,
-  Bots, or Library sidebar sections). Setting the trigger to `manual`
-  just means it never fires on its own.
+  Bots, or Library sidebar sections).
 - `parent_completed` — runs after a **parent turn completes successfully**.
   An errored or cancelled parent turn does not fire it.
 
-A trigger fires **at most once per completed parent turn**. Nothing caps
-how often a bot runs overall, and **no guard stops a loop** — two bots
-whose triggers wake each other's parents can keep each other running
-forever. Keep mutually-triggering bots supervised: prep mode, a `manual`
-trigger, or an attentive user is what stops a loop.
+A trigger fires **at most once per completed parent turn** — a busy
+parent can set off a run after every one of its turns. Bots whose
+triggers wake each other's parents can keep each other running — prep
+mode, a `manual` trigger, or an attentive user is what stops a loop.
+Keep mutually-triggering bots supervised.
 
 A "turn" is one complete tool loop — on a long implementation task with
 thousands of tool calls, it ends when the LLM produces its final
@@ -154,10 +153,10 @@ assistant response.
 
 ### Behavior
 
-The behavior decides what a run _sees_, not whether it runs:
+The behavior decides what a run _sees_:
 
 - `reset` (default) — force-excludes every non-pinned entry, so the run
-  sees only the pins. The conversation is **not deleted**: the human still
+  sees only the pins. The conversation stays in place: the human still
   sees the full transcript, and the excluded entries can be un-excluded
   from context.
 - `preserve` — leaves the conversation as it stands. A prior report is
@@ -173,17 +172,17 @@ While it is on:
 
 - manual re-run is refused (`G` surfaces "Cannot re-run: bot is in prep
   mode" as a system line),
-- the trigger does not fire,
-- a typed submission is **pinned into context instead of sent**.
+- the trigger holds its fire,
+- a typed submission **lands in context as a pin**.
 
 A hand-written `[[bot.entry]]` that omits `prep_mode` gets the same
-default — it does not run until prep mode is explicitly turned off
+default — the bot waits until prep mode is explicitly turned off
 (`prep_mode = false`). The rows above prep mode (trigger, behavior) are
-shown dimmed while it is on — they do not apply.
+shown dimmed while it is on, with prep mode in charge.
 
 ## Bot-only tools
 
-`conclude` and `notify_parent` exist only inside a bot. Every other
+`conclude` and `notify_parent` exist only inside a bot — every other
 session's tool list omits both:
 
 - `conclude` records a 1-line verdict in the bot's report log. It carries
@@ -203,7 +202,7 @@ session by id. On bots it is the dispatch mechanism:
 - An **idle** bot starts a run immediately, seeded from its template
   plus the message.
 - A **busy** bot queues the message and runs it when its current turn
-  finishes. Nothing is cancelled.
+  finishes; the in-flight turn runs to completion.
 - Any other session receives it as a new user turn.
 
 ## The Bots sidebar section
@@ -214,10 +213,11 @@ the most recent report, or "no reports yet" if none has been filed. `s` on
 a bot in the sidebar shows its historical reports. `G` re-runs the
 highlighted bot, cancelling its in-flight turn and the turns of its
 bot/subagent descendants. `R` resets its context in place — every
-non-pinned entry is force-excluded and nothing is dispatched.
+non-pinned entry is force-excluded, and dispatch waits for the next run.
 
-An `⇉` icon next to an attend means it activates automatically on
-assistant turn end. `⏸` means prep mode — the bot will not execute.
+An `⇉` icon marks a bot with the `parent_completed` trigger — it
+activates automatically on assistant turn end. `⏸` marks prep mode — the
+bot waits.
 
 ## The Library sidebar section
 
@@ -229,12 +229,12 @@ the Sessions list while they are in the Library. Removing one (`L` again,
 from inside the Library) puts it back.
 
 The same bot keys work over library members: `G` re-runs, `R` resets the
-bot's context without dispatching, `P` opens a member bot's properties,
-`y` yanks the member's session id, `i` switches and enters input mode, and
-`c` resumes a loaded member. Only a bot **with a parent** is refused at
-the `L` move — a shelved parent-completed bot would never fire, and parent
-links cannot be changed. Plain sessions, forks, subagents, and standalone
-bots can all enter.
+bot's context (dispatch waits for the next run), `P` opens a member bot's
+properties, `y` yanks the member's session id, `i` switches and enters
+input mode, and `c` resumes a loaded member. The `L` move takes plain
+sessions, forks, subagents, and standalone bots; a bot **with a parent**
+stays where it is — a shelved parent-completed bot parks its trigger,
+and a parent link is permanent once made.
 
 ## Saved bots (`[[bot.entry]]`)
 
@@ -253,7 +253,7 @@ environment a fresh `b` bot gets. The inheritance rule for every field:
 For every field, "present" means the literal key is there. An **empty
 allow-list is meaningful** — `{ mode = "allow", names = [] }` means "this
 bot may use no skills" and is different from omitting the field (inherit
-the parent's). Do not strip empty arrays.
+the parent's). Preserve empty arrays when editing.
 
 | Field              | Type                                                                     | When absent                                                      |
 | ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------- |
@@ -267,35 +267,35 @@ the parent's). Do not strip empty arrays.
 | `tool_filter`      | `{ mode = "deny"\|"allow", names = [...] }`                              | Inherit the parent's tool filter                                 |
 | `skill_filter`     | `{ mode = "deny"\|"allow", names = [...] }`                              | Inherit the parent's skill filter                                |
 | `reasoning_effort` | `"max"`\|`"xhigh"`\|`"high"`\|`"medium"`\|`"low"`\|`"minimal"`\|`"none"` | Inherit the parent's effort                                      |
-| `endpoint`         | `{ tag = "...", provider_name = "..." }`                                 | No OpenRouter endpoint pinned for this bot; never written by a save |
-| `pins`             | `[{ role = "user"\|"assistant", text = "..." }]`                         | No standing instructions                                         |
+| `endpoint`         | `{ tag = "...", provider_name = "..." }`                                 | The endpoint is unpinned for this bot; saves omit the key        |
+| `pins`             | `[{ role = "user"\|"assistant", text = "..." }]`                         | An empty pin set                                                 |
 
 Notes on the less obvious fields:
 
 - `pins` are the bot's standing instructions, saved in history order.
   With `reset`, the pinned sequence is what the run sees as prior
-  context. A pin **requires** a `role` — a pin without one fails to
-  parse, so an agent result is never restored as a user instruction.
-  Only `user` and `assistant` entries are saved; a pinned tool result
-  is not.
+  context. A pin **requires** a `role`; the parser rejects a role-less
+  pin, so every entry restores under the role it was saved with.
+  Only `user` and `assistant` entries are saved; the save skips pinned
+  tool results.
 - `endpoint` records the OpenRouter routing slug a run was pinned to.
   Routing itself is resolved per model from `[[endpoint_defaults]]` in
-  `providers.toml` at dispatch time, not from the entry (see
-  `models-and-providers.md`). Saving never writes this field — it exists
+  `providers.toml` at dispatch time (see
+  `models-and-providers.md`). Saves omit this field; it exists
   as documentation in hand-written entries.
 - Model selection matters for bots. If you are making one on behalf of
   the user, ask: specific model, or inherit the session model?
 - `model` corresponds to the panel's **Model** row. A `fixed` bot writes
-  this key, an `inherit`ing bot writes nothing, and an entry that carries
-  the key recreates as `fixed`. A hand-written entry without a `model`
-  key survives being saved from the popup unchanged. Inheriting has one
-  consequence — the bot keeps whatever model it was created with and does
-  not re-read the creating session's model on a later run.
+  this key, an `inherit`ing bot omits it, and an entry that carries
+  the key recreates as `fixed`. A hand-written entry that omits the key
+  stays unchanged through a popup save. Inheriting has one
+  consequence — the bot holds its creation-time model for every later
+  run.
 
 ### A complete example
 
 The shipped default `jinn.toml` includes a worked entry you can copy. It
-ships as `auto-nudge` and might not be present if the user deleted it.
+ships as `auto-nudge`; user edits may have removed it.
 
 ```toml
 # ###########################################################################
@@ -339,15 +339,15 @@ What the example demonstrates, field by field:
   parent after every successful turn, seeing only its own pins. The
   `session_fetch` tool in `tool_filter` is what reads the parent
   transcript.
-- `prep_mode = false` — a hand-written entry must state this, or the bot
-  will not run.
+- `prep_mode = false` — a hand-written entry must state this for the bot
+  to run.
 - `pins` — a single `user` pin holding the whole standing instruction.
   With `reset`, this pin is the only prior context the run sees.
 - `tool_filter` / `skill_filter` are both `allow` and both narrow. The
   bot may use exactly the two tools it exists to call plus the two it
-  needs to read the parent, and **no skills** (`names = []` is the
-  meaningful empty allow-list — "may use no skills", not an absent
-  filter).
+  needs to read the parent, and **zero skills** (`names = []` is the
+  meaningful empty allow-list — "may use no skills", distinct from
+  omitting the field).
 - `reasoning_effort = "high"` — the `model` key is absent. A bot usually
   runs on a cheaper model than the parent's, and this one takes whatever
   the user had selected.
@@ -357,9 +357,9 @@ explicitly. Both tools are always *registered* for a bot, but the filter
 applies to the assembled prompt's tool list like any other tool — an
 allow filter that omits a name withholds it. Keep both in the list.
 
-The entry also has no `model` field. The bot takes whatever model the
+The entry also omits the `model` field. The bot takes whatever model the
 user has selected when it is created, and its Model row reads `inherit` —
-so saving it back adds no `model` key.
+so a later save omits the `model` key.
 
 ## Picker and sidebar keys
 
@@ -383,7 +383,7 @@ highlighted bot on the active session):
 | `<enter>`                           | Attach this bot to the active session   |
 | `<c-a>`                             | Attach and keep the picker open         |
 | `<c-enter>`                         | Spawn this bot standalone, switch to it, and close |
-| `<esc>`                             | Close without attaching                       |
+| `<esc>`                             | Close, leaving the active session untouched |
 | `<c-c>`                             | Clear the filter, or close when already empty |
 | `<up>`/`<down>`/`<pgup>`/`<pgdn>`   | Move / page the list                          |
 | any letter / `<backspace>` / arrows | Edit the filter                               |
@@ -392,7 +392,7 @@ highlighted bot on the active session):
 
 Cancelling a session recursively cancels its bot and subagent
 descendants. The cascade **stops at forks** — a fork is an independent
-thread, so a cancel does not reach a fork's own descendants.
+thread, and its own descendants keep running.
 
 The double-`Esc` prompt appears whenever the session, or anything a cancel
 would reach beneath it, is still running — including when the session's

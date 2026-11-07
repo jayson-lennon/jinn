@@ -41,8 +41,8 @@ same column from the streaming-indicator row down to the terminal bottom
 (displayed only while recording; idle it paints dotted cells — see
 `dictation.md`).
 
-A dashboard tab replaces the whole main column (below); full-width tabs draw
-no sidebar, minimap, or meter.
+A dashboard tab replaces the whole main column (below); full-width tabs take
+the entire window, edge to edge.
 
 ## Tab bar (top strip)
 
@@ -71,10 +71,10 @@ see Popups below.
 
 ### Streaming indicator
 The 1-row line between the chat log and the input box. A spinner plus
-"Working..." while the active session is sending/streaming/compacting;
-nothing when idle. Shows a queued-message count when messages are waiting.
+"Working..." while the active session is sending/streaming/compacting; idle
+rows are blank. Shows a queued-message count when messages are waiting.
 The right edge names the session kind (subagent / bot) in its own color at
-all times — busy or not.
+all times — busy or idle alike.
 
 ### Input box
 The message composer, above the status bar. Height grows with the message
@@ -89,8 +89,8 @@ The bottom 2 rows of the main column.
 - **Line 2**: token stats (context used / budget), turn count, working time,
   and the model — `({provider})/{model}`, or "no model selected". The right
   side swaps to a transient hint when one is showing (e.g. "yanked 42
-  terminal lines to the clipboard"); a hint never shares the line with the
-  model name.
+  terminal lines to the clipboard"); during a hint the model name yields
+  its spot and returns after.
 
 ## Minimap column
 The 1-column strip between the chat log and the border: a token-density map
@@ -106,13 +106,14 @@ elsewhere.
 
 ## Sidebar (right column, full height)
 
-Sections render top-down in this order; a section with nothing to show is
-skipped. `<c-l>` focuses the sidebar, `<M-s>` jumps straight to Sessions,
-`<c-h>`/`<esc>` leaves. `<c-w>` enters resize mode (`h`/`l`).
+Sections render top-down in this order; empty sections are skipped, so the
+visible stack is always the full set of populated ones. `<c-l>` focuses the
+sidebar, `<M-s>` jumps straight to Sessions, `<c-h>`/`<esc>` leaves.
+`<c-w>` enters resize mode (`h`/`l`).
 
 | Section | Shows | See |
 | --- | --- | --- |
-| Persona | The session's active persona | `extending-jinn.md` (personas) |
+| Persona | The session's active persona | `personas.md` |
 | Bots | Child bot sessions and their latest reports | `bots.md` |
 | Pins | Pinned context entries | `context-management.md` |
 | Task list | The session's phases/tasks, with a preview pane | `sessions-and-subagents.md` |
@@ -124,8 +125,8 @@ Sidebar overlays: the rename-session input, close/archive confirmation
 prompts (anchored to the sessions cursor row), and popups that hang off the
 sidebar but may reach left across the chat column (e.g. the bots properties
 popup, `P` in the Bots section — see `bots.md`). The wide-reaching popups
-paint on a top layer (the code's "floating surfaces" region) so nothing
-drawn later can cover them.
+paint on a top layer (the code's "floating surfaces" region), so they draw
+over everything on screen.
 
 ## Popups and overlays
 
@@ -140,9 +141,9 @@ drawn later can cover them.
 | CWD input | `<M-c>` / `<M-d>` | Type-a-path input for changing the session working directory | `keybindings.md` |
 | Lifecycle arg input | launching a workflow with args | Input overlay collecting the recipe's arguments | `extending-jinn.md` |
 
-Full-screen surfaces that are not overlays: the **dashboard tab** (see Tab
-bar) and the **task-list browser** (`s` in the sidebar's task-list section),
-which replaces the main column content.
+Two full-screen surfaces complete the set alongside the overlays: the
+**dashboard tab** (see Tab bar) and the **task-list browser** (`s` in the
+sidebar's task-list section), which replaces the main column content.
 
 ## Pickers
 

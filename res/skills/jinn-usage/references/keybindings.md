@@ -69,7 +69,7 @@ Chat content:
 | --- | ------------------------------------------------------------------ |
 | `y` | Yank (copy) the selected entry to the clipboard                    |
 | `f` | Fork a new session from the selected entry (history kept up to it) |
-| `F` | New session seeded with the selected entry (no inherited history)  |
+| `F` | New session seeded with the selected entry (history starts at the seed) |
 
 Model / provider (see `models-and-providers.md`):
 
@@ -178,24 +178,25 @@ Sessions. Common to every section:
 | `x`       | Close the selected session (press again to confirm)                      |
 | `t`       | Tear down the session: run its teardown command (leaves it open)         |
 | `X`       | Tear down the session **and its whole subtree** (press again to confirm) |
-| `c`       | Resume the session: re-send its context to the provider (no new message, no switch) |
-| `s`       | Run the session's lifecycle setup command (only when it has not run yet) |
+| `c`       | Resume the session: re-send its context to the provider unchanged, staying in the current session |
+| `s`       | Run the session's lifecycle setup command (when it has already run, the key moves on) |
 | `b`       | Create a bot of the selected session (prep mode)                         |
-| `B`       | Create a standalone bot (no parent) from the session's environment       |
+| `B`       | Create a standalone bot (roots its own tree) from the session's environment |
 | `G`       | Re-run the selected bot (cancels its in-flight turn)                     |
-| `R`       | Reset the selected bot's context without dispatching                     |
+| `R`       | Reset the selected bot's context in place                                |
 | `L`       | Move the session into the **Library** sidebar section                    |
 | `P`       | Open the selected bot's properties popup                                 |
 | `T`       | Toggle the terminal overlay for the selected session                     |
 
-- **`b`, `B`, `G`, `R`, and `P` only act when the selected session is a bot** — on a plain session, nothing.
-- **`L` has one refusal — a bot that has a parent.** Everything else moves into the Library.
+- **`b`, `B`, `G`, `R`, and `P` are bot keys** — they act when the selected session is a bot.
+- **`L` moves every session into the Library, with one exception: a bot that has a parent.**
 
 The properties popup and the pickers have their own keys — see `bots.md`.
 
-Section navigation doesn't wrap — `J` on the last section (Sessions) and `K`
-on the first (Persona) do nothing. Sections with nothing in them are skipped
-over, so a section you never see is still reachable.
+Section navigation stops at the ends — `J` on the last section (Sessions) and
+`K` on the first (Persona) keep the cursor in place. Empty sections are skipped
+over, so every stop lands on content, and a section is reachable the moment it
+has an entry.
 
 ### Bots section
 
@@ -208,19 +209,20 @@ properties popup's and the pickers' own keys.
 | `i`       | Switch to it and enter input mode                   |
 | `y`       | Yank (copy) the bot's session ID to the clipboard   |
 | `G`       | Re-run the highlighted bot (cancels a busy turn)    |
-| `R`       | Reset the bot's context without dispatching         |
+| `R`       | Reset the bot's context in place                    |
 | `c`       | Resume the bot: re-send its context to the provider |
 | `P`       | Open the bot's properties popup                     |
 | `s`       | Browse the highlighted bot's report history         |
 
-`b` (new bot) and `B` (standalone bot) don't work here — only in **Sessions**,
-on the session selected there.
+`b` (new bot) and `B` (standalone bot) live in **Sessions** —
+they act on the session selected there.
 
 ### Library section
 
 A flat list of sessions bookmarked with `L` in Sessions. Archived members
 render dimmed — `<enter>` loads one and unarchives it. Members hide from the
-Sessions list while they're here, and a bot that has a parent can't be moved in.
+Sessions list while they're here, and a bot that has a parent keeps its place
+in the main tree.
 
 | Key       | Action                                             |
 | --------- | --------------------------------------------------- |
@@ -228,7 +230,7 @@ Sessions list while they're here, and a bot that has a parent can't be moved in.
 | `i`       | Switch to the member and enter input mode           |
 | `y`       | Yank (copy) the member's session ID to the clipboard |
 | `G`       | Re-run the member bot (cancels a busy turn)         |
-| `R`       | Reset the member bot's context without dispatching  |
+| `R`       | Reset the member bot's context in place             |
 | `c`       | Resume the member (loaded members only)             |
 | `L`       | Remove the member from the Library                  |
 | `a`       | Archive the member                                  |
@@ -311,8 +313,7 @@ See `terminal-overlay.md` for the full workflow. Scope-specific keys:
 
 ## Slice-provided keys (feature bindings)
 
-Some keys come from feature slices, not the static keymap — they're only
-bound while the feature is active:
+Some keys come from feature slices — each binds while its feature is active:
 
 | Key      | Feature        | Action                                           |
 | -------- | -------------- | ------------------------------------------------ |
