@@ -34,6 +34,7 @@ use jinn_testutil::bus_harness::{TestHarness, await_recorded};
 use jinn_tools_msg::ExecuteTool;
 use jinn_tools_msg::ToolExecutionCompleted;
 use jinn_tools_msg::ToolsUnregistered;
+use marked_path::MarkedPathAccess as _;
 use trouper::actor::ActorPath;
 
 /// The server name injected into the actor — becomes the tool namespace segment
@@ -134,6 +135,7 @@ async fn execute_tool_for_namespaced_echo_returns_server_response() {
             dispatched_at: jiff::Timestamp::now(),
             max_output_lines: None,
             max_output_bytes: None,
+            cwd: None,
         })
         .await;
 
@@ -202,6 +204,7 @@ async fn execute_tool_when_client_disconnected_yields_failed_result() {
             dispatched_at: jiff::Timestamp::now(),
             max_output_lines: None,
             max_output_bytes: None,
+            cwd: None,
         })
         .await;
 
@@ -258,6 +261,7 @@ async fn execute_tool_truncates_large_response_to_orchestrator_limits() {
             dispatched_at: jiff::Timestamp::now(),
             max_output_lines: Some(100),
             max_output_bytes: Some(100),
+            cwd: None,
         })
         .await;
 
@@ -574,6 +578,7 @@ async fn live_disable_cycle_call_succeeds_before_teardown() {
             dispatched_at: jiff::Timestamp::now(),
             max_output_lines: None,
             max_output_bytes: None,
+            cwd: None,
         })
         .await;
 
@@ -640,6 +645,7 @@ async fn disable_cycle_calls_fail_fast_after_teardown() {
             dispatched_at: jiff::Timestamp::now(),
             max_output_lines: None,
             max_output_bytes: None,
+            cwd: None,
         })
         .await;
 
@@ -782,6 +788,7 @@ async fn execute_tool_exceeding_timeout_yields_failed_result() {
             dispatched_at: jiff::Timestamp::now(),
             max_output_lines: None,
             max_output_bytes: None,
+            cwd: None,
         })
         .await;
 
@@ -857,6 +864,7 @@ async fn execute_tool_with_disabled_timeout_completes() {
             dispatched_at: jiff::Timestamp::now(),
             max_output_lines: None,
             max_output_bytes: None,
+            cwd: None,
         })
         .await;
 
@@ -874,4 +882,92 @@ fn fixture_turn() -> jinn_core_types::turn_identity::TurnToken {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
     jinn_core_types::turn_identity::TurnToken::from_counter(SEQ.fetch_add(1, Ordering::Relaxed) + 1)
+}
+
+/// An `ExecuteTool` carrying both `dump_to_disk` and a cwd writes the server
+/// response to the resolved path and publishes a stubbed result.
+#[rstest::rstest]
+#[tokio::test]
+async fn dump_to_disk_call_writes_file_and_publishes_stub() {
+    // Given an McpActor wired to the stub server and a test-owned dump dir.
+    let harness = TestHarness::new().await;
+    let recorder = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+    let session_id = SessionId::new();
+    let dir = jinn_testutil::tempdir();
+    let cwd = dir.path.as_path().to_string_lossy().into_owned();
+    let (_services, _actor_path) = spawn_actor_against_stub(&harness, &session_id).await;
+
+    // When calling echo with dump_to_disk naming a file in fresh subdirectories.
+    let tool_call = ToolCall {
+        id: "tc_dump".into(),
+        name: "mcp__stub__echo".into(),
+        arguments: r#"{"message": "dump me", "dump_to_disk": "research/page.md"}"#.to_owned(),
+    };
+    harness
+        .publish(ExecuteTool {
+            turn: fixture_turn(),
+            session_id: session_id.clone(),
+            tool_call,
+            dispatched_at: jiff::Timestamp::now(),
+            max_output_lines: None,
+            max_output_bytes: None,
+            cwd: Some(cwd),
+        })
+        .await;
+
+    // Then the published result is a stub naming the file, and the file
+    // holds the server's original response.
+    let messages = await_recorded(&recorder, 1, Duration::from_secs(3)).await;
+    assert_eq!(messages.len(), 1, "got: {messages:?}");
+    let result = &messages[0].result;
+    assert!(result.success, "{result:?}");
+    assert!(
+        result.content.contains("research/page.md"),
+        "stub names the dump path: {}",
+        result.content
+    );
+    assert_eq!(result.full_content.as_deref(), Some("dump me"));
+    let written =
+        std::fs::read_to_string(dir.path.as_path().join("research/page.md")).expect("dump file");
+    assert_eq!(written, "dump me");
+}
+
+/// An `ExecuteTool` carrying `dump_to_disk` without a cwd skips the dump —
+/// the published result is the plain server response, never a wrong path.
+#[rstest::rstest]
+#[tokio::test]
+async fn dump_to_disk_without_cwd_is_skipped() {
+    // Given an McpActor wired to the stub server and no cwd on the command.
+    let harness = TestHarness::new().await;
+    let recorder = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+    let session_id = SessionId::new();
+    let (_services, _actor_path) = spawn_actor_against_stub(&harness, &session_id).await;
+
+    // When calling echo with dump_to_disk set.
+    let tool_call = ToolCall {
+        id: "tc_nodump".into(),
+        name: "mcp__stub__echo".into(),
+        arguments: r#"{"message": "kept in context", "dump_to_disk": "page.md"}"#.to_owned(),
+    };
+    harness
+        .publish(ExecuteTool {
+            turn: fixture_turn(),
+            session_id: session_id.clone(),
+            tool_call,
+            dispatched_at: jiff::Timestamp::now(),
+            max_output_lines: None,
+            max_output_bytes: None,
+            cwd: None,
+        })
+        .await;
+
+    // Then the result passes through untouched: plain content, no stub, and
+    // no file anywhere (the relative path was never resolved against a guess).
+    let messages = await_recorded(&recorder, 1, Duration::from_secs(3)).await;
+    assert_eq!(messages.len(), 1, "got: {messages:?}");
+    let result = &messages[0].result;
+    assert!(result.success, "{result:?}");
+    assert_eq!(result.content, "kept in context");
+    assert!(result.full_content.is_none());
+    assert!(result.truncation.is_none());
 }

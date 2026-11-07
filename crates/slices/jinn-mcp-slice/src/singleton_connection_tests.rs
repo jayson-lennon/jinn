@@ -122,6 +122,7 @@ async fn singleton_actor_serves_a_session_that_never_spawned_it() {
             dispatched_at: jiff::Timestamp::now(),
             max_output_lines: None,
             max_output_bytes: None,
+            cwd: None,
         })
         .await;
 
