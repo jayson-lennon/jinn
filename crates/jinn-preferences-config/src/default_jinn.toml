@@ -381,6 +381,32 @@ teardown_command = """[ -z "$(git status --porcelain)" ] || { echo "TEARDOWN-DIR
 # Authorization = "Bearer ${MY_API_KEY}"
 # X-Api-Key = "${OTHER_KEY}"
 
+# > Environment variables set on the spawned server process (stdio and
+# > local_http only; ignored on remote_http). Applied additively over jinn's
+# > own environment: a configured key overrides the inherited variable of
+# > the same name, and everything else (PATH, HOME, ...) passes through.
+# > Values may embed ${ENV_VAR} tokens — expanded once at startup exactly
+# > like header values (an unset variable blocks the connection and names
+# > the variable; values are never logged). This is the same `env` block
+# > other MCP clients use, so existing server configs paste in unchanged.
+#
+# [mcp.foo.env]
+# GDA_PROJECT = "/home/dev/my-game"
+# GODOT_TOKEN = "${GODOT_TOKEN}"
+
+# > Replacement tokens usable in `args` (and, unless noted, env values):
+# >
+# >   <port> / <ip>   local_http only — the jinn-allocated port and the
+# >                   bind address parsed from `url`
+# >   <jinn>          the running jinn executable's path
+# >   <session_cwd>   the enabling session's working directory, expanded at
+# >                   each per-session spawn — one static entry (e.g.
+# >                   GDA_PROJECT = "<session_cwd>") serves every worktree
+# >                   with no per-project config edits. A `singleton = true`
+# >                   entry referencing the token refuses to connect: one
+# >                   shared process cannot answer "which session's
+# >                   directory"; pin an absolute path instead.
+
 # > Singleton servers. A server marked `singleton = true` spawns one instance
 # > that has a shared connection across all sessions. Use this for servers that
 # > consume a lot of resources, or are already designed to support multiple clients.
