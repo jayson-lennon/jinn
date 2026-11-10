@@ -9,11 +9,13 @@
 //!
 //! - `<leader>sa` opens (a `StaticScopes` row in `Normal` — a key that
 //!   opens a scope cannot live inside it). The opener publishes
-//!   [`RescanApplets`](jinn_applets_msg::RescanApplets) *and* pushes the scope:
-//!   the async rescan is the discovery model, so the first frame shows
-//!   the previous cell contents and the store actor's republish
-//!   repaints in place a few ms later (the accepted one-frame-stale
-//!   open).
+//!   [`RescanApplets`](jinn_applets_msg::RescanApplets) and
+//!   [`WakeAppletsServer`](jinn_applets_msg::WakeAppletsServer) *and*
+//!   pushes the scope: the async rescan is the discovery model, so the
+//!   first frame shows the previous cell contents and the store actor's
+//!   republish repaints in place a few ms later (the accepted
+//!   one-frame-stale open), and the wake binds the server so the
+//!   footer's status line can show the resolved address on a fresh run.
 //! - `ENTER` publishes [`OpenApplet`](jinn_applets_msg::OpenApplet): the store
 //!   actor ensures the server is bound (lazy bind on the first open),
 //!   builds the URL, and launches the OS browser. Route actions are
@@ -37,7 +39,8 @@
 use std::sync::Arc;
 
 use jinn_applets_msg::{
-    AppletsPickerState, DeleteApplet, OpenApplet, RescanApplets, applets_picker_scope,
+    AppletsPickerState, DeleteApplet, OpenApplet, RescanApplets, WakeAppletsServer,
+    applets_picker_scope,
 };
 use jinn_slices::KeyRoutes;
 use jinn_slices::RouteId;
@@ -123,11 +126,16 @@ pub fn attach_applets_picker_rows(routes: &KeyRoutes, picker: &AppletsPickerCell
             action: "open-applets-picker",
             display: "search applets",
             run: ActionFn::new(move |_ctx| {
-                // Publish the rescan and push the scope in one action:
-                // the scope signal is applied before the messages
-                // publish, so the enter hook's reset from the cell has
-                // already run when the store's republish lands.
+                // Publish the rescan, the server wake, and the scope
+                // push in one action: the scope signal is applied
+                // before the messages publish, so the enter hook's
+                // reset from the cell has already run when the store's
+                // republish lands. The wake binds the server on the
+                // first open, so the footer's status line shows the
+                // resolved address without opening an applet first;
+                // its fact comes back through the republisher's fold.
                 IntentResult::new_message(RescanApplets)
+                    .with_message(WakeAppletsServer)
                     .with_scope_signal(ScopeSignal::Push(applets_picker_scope()))
             }),
         },
@@ -384,4 +392,169 @@ pub fn activate_picker(
         std::sync::Arc::new(crate::rename_popup::render_rename_overlay),
     );
     crate::rename_popup::attach_rename_rows(host.key_routes(), picker);
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
+
+    use jinn_app_state::AppState;
+    use jinn_applets_msg::{AppletEntry, AppletsPickerState, applets_picker_slot};
+    use jinn_slices::ScopeSignal;
+    use jinn_slices::cell::TypedCell;
+
+    use super::applets_picker_scope;
+
+    /// The picker wired exactly as composition wires it: `activate_picker`
+    /// over a catalog-seeded registry, so a test cannot pass against
+    /// wiring production never runs.
+    fn wired() -> (
+        jinn_slices::Slices,
+        jinn_slices::KeyRoutes,
+        TypedCell<AppletsPickerState>,
+    ) {
+        let slices = jinn_slices::Slices::new();
+        jinn_cell_catalog::register_all_cells(&slices);
+        let cell = slices
+            .reader::<AppletsPickerState>(&applets_picker_slot())
+            .expect("the catalog registers the picker cell the activation wires");
+        let mut viewport = jinn_slices::view::Viewport::new();
+        let overlay_views = jinn_slices::OverlayViews::new();
+        let routes = jinn_slices::KeyRoutes::new();
+        let system = trouper::system::ActorSystem::test().0;
+        let mut host =
+            jinn_slices::SliceHost::new(&slices, &mut viewport, &overlay_views, &routes, &system);
+        super::activate_picker(&mut host, &cell);
+        (slices, routes, cell)
+    }
+
+    /// Fires the opener action the `<leader>sa` row binds.
+    fn fire_opener(
+        slices: &jinn_slices::Slices,
+        routes: &jinn_slices::KeyRoutes,
+        config: &jinn_config::ConfigLayer,
+    ) -> jinn_slices::RouteResult {
+        let mut state = AppState::default();
+        routes
+            .action_for(
+                &jinn_slices::DynamicIntent::new(
+                    applets_picker_scope(),
+                    "open-applets-picker",
+                    "open-applets-picker",
+                ),
+                jinn_slices::ActionCtx {
+                    state: &mut state,
+                    slices,
+                    config,
+                    key_bytes: Vec::new(),
+                },
+            )
+            .expect("the opener row attaches an action named open-applets-picker")
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn opening_the_picker_publishes_the_rescan_and_the_wake() {
+        // Given the picker wired the way activation wires it.
+        let (slices, routes, _cell) = wired();
+        let config = jinn_config::empty_config_layer().clone();
+
+        // When firing the opener.
+        let result = fire_opener(&slices, &routes, &config);
+
+        // Then the result carries both messages — the rescan for fresh
+        // rows and the wake that binds the server on a fresh run.
+        assert_eq!(result.message_names, ["RescanApplets", "WakeAppletsServer"]);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn opening_the_picker_pushes_its_scope() {
+        // Given the picker wired the way activation wires it.
+        let (slices, routes, _cell) = wired();
+        let config = jinn_config::empty_config_layer().clone();
+
+        // When firing the opener.
+        let result = fire_opener(&slices, &routes, &config);
+
+        // Then the result pushes the picker's scope — applied by the
+        // handler before the messages publish.
+        assert_eq!(
+            result.scope_signal,
+            Some(ScopeSignal::Push(applets_picker_scope()))
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_enter_hook_resets_the_menu_but_keeps_the_serving_phase() {
+        // Given the wired picker whose cell already carries a serving
+        // phase and a filter the user typed.
+        let (slices, routes, cell) = wired();
+        let config = jinn_config::empty_config_layer().clone();
+        cell.update(|state| {
+            state.apply_serving(true, "127.0.0.1:1");
+            state.selection.insert_char('x');
+        });
+
+        // When the opener's scope push lands (the enter hook runs).
+        let hook = routes
+            .scope_enter_hook(&applets_picker_scope())
+            .expect("activation registers the picker's enter hook");
+        let mut state = AppState::default();
+        hook(jinn_slices::ActionCtx {
+            state: &mut state,
+            slices: &slices,
+            config: &config,
+            key_bytes: Vec::new(),
+        });
+
+        // Then the menu is reset but the serving phase survived — no
+        // offline flash between the open and the wake event's fold.
+        let guard = cell.read();
+        assert_eq!(guard.selection.filter(), "");
+        assert!(
+            guard.serving.is_some(),
+            "the reset preserved the serving phase"
+        );
+    }
+
+    /// One catalog row, for the repaint test.
+    fn alpha_entry() -> AppletEntry {
+        AppletEntry {
+            id: "a".to_owned(),
+            title: "Alpha".to_owned(),
+            created_at: "2026-01-01T00:00:00Z".to_owned(),
+        }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn republish_rebuilds_rows_without_touching_the_serving_phase() {
+        // Given the wired picker serving at a resolved bind, empty rows.
+        let (_slices, _routes, cell) = wired();
+        cell.update(|state| {
+            state.apply_serving(true, "127.0.0.1:41234");
+        });
+
+        // When a catalog change republishes the rows.
+        let catalog = jinn_applets_msg::AppletsCatalog {
+            entries: vec![alpha_entry()],
+        };
+        super::republish_from_catalog(&cell, &catalog);
+
+        // Then the row landed and the serving phase is untouched — a
+        // catalog repaint owns rows, never the footer's phase.
+        let guard = cell.read();
+        assert_eq!(guard.selection.items().len(), 1);
+        assert_eq!(
+            guard
+                .selection
+                .items()
+                .first()
+                .map(|item| item.entry().id.as_str()),
+            Some("a")
+        );
+        assert!(guard.serving.is_some());
+    }
 }

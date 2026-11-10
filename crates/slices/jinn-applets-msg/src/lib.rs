@@ -10,10 +10,12 @@
 //!   on-disk `applets.json` at the applets root.
 //! - [`AppletsPickerState`] — the picker cell's payload, with its slot and
 //!   scope.
-//! - [`RescanApplets`], [`RenameApplet`], [`DeleteApplet`] — the commands the
-//!   picker's route actions publish.
-//! - [`AppletsRescanned`], [`AppletRenamed`], [`AppletDeleted`] — the events the
-//!   store actor answers with.
+//! - [`RescanApplets`], [`RenameApplet`], [`DeleteApplet`],
+//!   [`WakeAppletsServer`] — the commands the picker's route actions
+//!   publish.
+//! - [`AppletsRescanned`], [`AppletRenamed`], [`AppletDeleted`],
+//!   [`AppletsServingChanged`] — the events the store and server actors
+//!   answer with.
 //!
 //! Pure data + pure functions — no actors, no server, no I/O. The
 //! promotion path (canvas artifact → saved applet) is skill text, not a
@@ -28,11 +30,12 @@ pub use catalog::{
     AppletEntry, AppletsCatalog, CATALOG_FILE_NAME, is_valid_app_id, sanitize_app_id,
 };
 pub use messages::{
-    AppletDeleted, AppletRenamed, AppletsRescanned, DeleteApplet, OpenApplet, RenameApplet,
-    RescanApplets,
+    AppletDeleted, AppletRenamed, AppletsRescanned, AppletsServingChanged, DeleteApplet,
+    OpenApplet, RenameApplet, RescanApplets, WakeAppletsServer,
 };
 pub use picker_state::{
-    AppletPickerEntry, AppletsPickerState, applet_row, applet_search_text, build_applet_entries,
+    AppletPickerEntry, AppletsPickerState, ServingAddress, applet_row, applet_search_text,
+    applets_server_status_line, build_applet_entries,
 };
 pub use scope::{
     RESULTS_VIEWPORT_FALLBACK, applets_catalog_slot, applets_picker_scope, applets_picker_slot,
@@ -41,7 +44,7 @@ pub use scope::{
 
 #[cfg(test)]
 mod tests {
-    use super::{AppletsRescanned, RescanApplets};
+    use super::{AppletsRescanned, AppletsServingChanged, RescanApplets, WakeAppletsServer};
     use trouper::schema::{Schema, SchemaKind};
 
     #[rstest::rstest]
@@ -57,6 +60,14 @@ mod tests {
         assert_eq!(
             <AppletsRescanned as Schema>::schema_id().name(),
             "AppletsRescanned"
+        );
+        assert_eq!(
+            <WakeAppletsServer as Schema>::schema_id().name(),
+            "WakeAppletsServer"
+        );
+        assert_eq!(
+            <AppletsServingChanged as Schema>::schema_id().name(),
+            "AppletsServingChanged"
         );
         assert!(matches!(
             <RescanApplets as Schema>::schema_def().kind,

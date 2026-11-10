@@ -10,6 +10,7 @@ use jinn_picker::RowCtx;
 use jinn_picker::picker_style::{active_marker, selected_style};
 use jinn_selection_widget::highlight_text_with_bg;
 use jinn_theme::Theme;
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
 use crate::catalog::AppletEntry;
@@ -87,7 +88,8 @@ impl jinn_selection_widget::TreeItem for AppletPickerEntry {
 }
 
 /// The applets picker's complete state: the rows, the filter, the
-/// highlight, and the in-progress rename input.
+/// highlight, the in-progress rename input, and the server's serving
+/// phase for the footer.
 #[derive(Debug)]
 pub struct AppletsPickerState {
     /// The selection/filter state backing the picker's rows.
@@ -101,6 +103,21 @@ pub struct AppletsPickerState {
     /// The in-progress rename (`<c-r>` popup), owned here so the popup
     /// renders from the same cell the picker does.
     pub rename_input: jinn_slices::LineInput,
+    /// The saved-applet server's serving phase, folded in from the
+    /// server actor's [`AppletsServingChanged`](crate::AppletsServingChanged)
+    /// events by the republisher. `None` is the offline phase — the
+    /// footer says so. Not cleared by [`AppletsPickerState::reset`]: the
+    /// reset runs on every picker open, and the phase outlives the menu.
+    pub serving: Option<ServingAddress>,
+}
+
+/// The server's serving phase as the picker cell holds it: the resolved
+/// bind while online.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServingAddress {
+    /// The resolved `host:port` the listener accepted (a configured
+    /// port `0` already resolved by the OS).
+    pub bind: String,
 }
 
 impl Default for AppletsPickerState {
@@ -112,6 +129,7 @@ impl Default for AppletsPickerState {
             results_viewport: RESULTS_VIEWPORT_FALLBACK,
             theme: jinn_theme::default_theme(),
             rename_input: jinn_slices::LineInput::new(),
+            serving: None,
         }
     }
 }
@@ -119,9 +137,22 @@ impl Default for AppletsPickerState {
 impl AppletsPickerState {
     /// Clears the filter and moves the highlight back to the top, ready
     /// for a fresh open.
+    ///
+    /// The serving phase is deliberately untouched: the reset is the
+    /// picker's scope-enter hook, and the server's phase outlives the
+    /// menu — clearing it here would flash `<server offline>` between
+    /// the reset and the wake event's fold on every open.
     pub fn reset(&mut self) {
         self.selection.clear_filter();
         self.selection.move_up(usize::MAX);
+    }
+
+    /// Folds a serving fact into the phase: online carries `bind`,
+    /// offline clears it.
+    pub fn apply_serving(&mut self, serving: bool, bind: &str) {
+        self.serving = serving.then(|| ServingAddress {
+            bind: bind.to_owned(),
+        });
     }
 
     /// The highlighted app's id, when a row is highlighted.
@@ -138,6 +169,30 @@ impl AppletsPickerState {
         self.selection
             .selected_item()
             .map(|item| item.entry().title.clone())
+    }
+}
+
+/// The picker footer's status line: where the saved-applet server is.
+///
+/// Online: the serving URL, in the theme's success color. Offline: the
+/// `<server offline>` sentence, muted. Pure — takes the state and the
+/// theme, returns the line; the render pass and the tests build through
+/// it so a test's second construction is identical to what the frame
+/// drew.
+#[must_use]
+pub fn applets_server_status_line(
+    serving: Option<&ServingAddress>,
+    theme: &Theme,
+) -> Line<'static> {
+    match serving {
+        Some(address) => Line::from(Span::styled(
+            format!("serving http://{}", address.bind),
+            Style::default().fg(theme.success),
+        )),
+        None => Line::from(Span::styled(
+            "<server offline>",
+            Style::default().fg(theme.muted_text),
+        )),
     }
 }
 
@@ -177,7 +232,8 @@ mod tests {
         reason = "test code"
     )]
     use super::{
-        AppletPickerEntry, AppletsPickerState, applet_row, applet_search_text, build_applet_entries,
+        AppletPickerEntry, AppletsPickerState, ServingAddress, applet_row, applet_search_text,
+        applets_server_status_line, build_applet_entries,
     };
     use crate::catalog::AppletEntry;
     use jinn_picker::RowCtx;
@@ -280,5 +336,82 @@ mod tests {
         let empty = AppletsPickerState::default();
         assert!(empty.highlighted_id().is_none());
         assert!(empty.highlighted_title().is_none());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn reset_preserves_the_serving_phase() {
+        // Given a picker whose server is serving at a resolved bind.
+        let mut state = AppletsPickerState::default();
+        state.apply_serving(true, "127.0.0.1:41234");
+
+        // When resetting for a fresh open.
+        state.reset();
+
+        // Then the serving phase survived — the reset clears the menu,
+        // not the server.
+        assert_eq!(
+            state.serving,
+            Some(ServingAddress {
+                bind: "127.0.0.1:41234".to_owned(),
+            })
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn apply_serving_folds_online_and_offline_facts() {
+        // Given a default picker state.
+        let mut state = AppletsPickerState::default();
+
+        // When folding an online serving fact.
+        state.apply_serving(true, "127.0.0.1:4321");
+
+        // Then the phase carries the resolved bind.
+        assert_eq!(
+            state.serving,
+            Some(ServingAddress {
+                bind: "127.0.0.1:4321".to_owned(),
+            })
+        );
+
+        // When folding an offline fact.
+        state.apply_serving(false, "");
+
+        // Then the phase is cleared — no dead address survives.
+        assert_eq!(state.serving, None);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn status_line_reads_offline_while_dormant() {
+        // Given a dormant server.
+        let theme = default_theme();
+
+        // When building the footer's status line.
+        let line = applets_server_status_line(None, &theme);
+
+        // Then it says the server is offline, muted.
+        assert_eq!(line.to_string(), "<server offline>");
+        let span = line.spans.first().expect("one styled span");
+        assert_eq!(span.style.fg, Some(theme.muted_text));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn status_line_names_the_serving_url_when_bound() {
+        // Given a serving server at a resolved bind.
+        let theme = default_theme();
+        let address = ServingAddress {
+            bind: "127.0.0.1:41234".to_owned(),
+        };
+
+        // When building the footer's status line.
+        let line = applets_server_status_line(Some(&address), &theme);
+
+        // Then it reads `serving http://<bind>`, in the success color.
+        assert_eq!(line.to_string(), "serving http://127.0.0.1:41234");
+        let span = line.spans.first().expect("one styled span");
+        assert_eq!(span.style.fg, Some(theme.success));
     }
 }

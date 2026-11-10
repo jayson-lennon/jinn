@@ -1,13 +1,16 @@
 //! The applets slice's crossing messages.
 //!
 //! All discovery and mutation ride the bus as data: the picker's opener
-//! publishes [`RescanApplets`], the rename and delete actions publish
-//! [`RenameApplet`] and [`DeleteApplet`], and the store actor answers with the
-//! [`AppletsRescanned`], [`AppletRenamed`], and [`AppletDeleted`] events — which
-//! the picker's republisher folds into the catalog cell so an open
-//! picker re-renders in place. No request/reply handle exists: the
-//! picker is the only consumer of the events, and one-way publication
-//! keeps the sync route actions off any await.
+//! publishes [`RescanApplets`] and [`WakeAppletsServer`], the rename and
+//! delete actions publish [`RenameApplet`] and [`DeleteApplet`], and the
+//! store actor answers with the [`AppletsRescanned`], [`AppletRenamed`],
+//! and [`AppletDeleted`] events — which the picker's republisher folds
+//! into the catalog cell so an open picker re-renders in place. The
+//! server actor answers a wake with the [`AppletsServingChanged`] fact,
+//! folded into the picker cell by the same republisher. No request/reply
+//! handle exists on the picker path: the picker is the only consumer of
+//! the events, and one-way publication keeps the sync route actions off
+//! any await.
 
 use jinn_slices::BusMessage;
 use serde::{Deserialize, Serialize};
@@ -109,13 +112,49 @@ pub struct OpenApplet {
 
 impl BusMessage for OpenApplet {}
 
+/// Wakes the applets server: bind its listener if it is dormant.
+///
+/// The picker's `<leader>sa` opener publishes this alongside
+/// [`RescanApplets`], so the server binds on the first picker open and
+/// the picker's status line can show the resolved address without the
+/// user opening an applet first. The server actor owns the applets root,
+/// so the command carries nothing. Launch itself stays dormant: no
+/// listener binds at activation, only at the first wake or open.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Command, PartialEq)]
+#[schema(description = "Wake the saved-applet server: bind its listener if dormant.")]
+pub struct WakeAppletsServer;
+
+impl BusMessage for WakeAppletsServer {}
+
+/// Announces the applets server's serving phase.
+///
+/// Published by the server actor on every serving transition — first
+/// bind, hot rebind to a changed `[applets] bind`, and a failed rebind
+/// going back dormant — and on every wake. A wake against an
+/// already-bound server republishes the current fact unchanged, so a
+/// fresh picker open always sees the live address. `bind` is the
+/// resolved `host:port` (a configured port `0` already resolved by the
+/// OS) and is empty while offline. The picker's republisher folds this
+/// into the picker cell, whose footer renders it; a dead address can
+/// therefore never outlive the transition that ended it.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Event, PartialEq)]
+#[schema(description = "The applets server's serving phase changed.")]
+pub struct AppletsServingChanged {
+    /// Whether the server is bound and serving.
+    pub serving: bool,
+    /// The resolved bind the listener accepted. Empty while offline.
+    pub bind: String,
+}
+
+impl BusMessage for AppletsServingChanged {}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used, reason = "test assertions need expect")]
 
     use super::{
-        AppletDeleted, AppletRenamed, AppletsRescanned, DeleteApplet, OpenApplet, RenameApplet,
-        RescanApplets,
+        AppletDeleted, AppletRenamed, AppletsRescanned, AppletsServingChanged, DeleteApplet,
+        OpenApplet, RenameApplet, RescanApplets, WakeAppletsServer,
     };
     use crate::catalog::AppletsCatalog;
     use trouper::schema::{Schema, SchemaKind};
@@ -145,6 +184,10 @@ mod tests {
             SchemaKind::Command
         ));
         assert!(matches!(
+            <WakeAppletsServer as Schema>::schema_def().kind,
+            SchemaKind::Command
+        ));
+        assert!(matches!(
             <AppletsRescanned as Schema>::schema_def().kind,
             SchemaKind::Event
         ));
@@ -156,6 +199,50 @@ mod tests {
             <AppletDeleted as Schema>::schema_def().kind,
             SchemaKind::Event
         ));
+        assert!(matches!(
+            <AppletsServingChanged as Schema>::schema_def().kind,
+            SchemaKind::Event
+        ));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_wake_command_round_trips_through_json() {
+        // Given the parameterless wake command.
+        let command = WakeAppletsServer;
+
+        // When serializing then re-parsing.
+        let json = serde_json::to_string(&command).expect("serialize");
+        let back: WakeAppletsServer = serde_json::from_str(&json).expect("reparse");
+
+        // Then the parse succeeds.
+        let _ = back;
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_serving_fact_round_trips_through_json_both_ways() {
+        // Given the serving fact, online and offline.
+        let serving = AppletsServingChanged {
+            serving: true,
+            bind: "127.0.0.1:41234".to_owned(),
+        };
+        let offline = AppletsServingChanged {
+            serving: false,
+            bind: String::new(),
+        };
+
+        // When serializing then re-parsing each.
+        let serving_json = serde_json::to_string(&serving).expect("serialize serving");
+        let serving_back: AppletsServingChanged =
+            serde_json::from_str(&serving_json).expect("reparse serving");
+        let offline_json = serde_json::to_string(&offline).expect("serialize offline");
+        let offline_back: AppletsServingChanged =
+            serde_json::from_str(&offline_json).expect("reparse offline");
+
+        // Then the fields survive.
+        assert_eq!(serving_back, serving);
+        assert_eq!(offline_back, offline);
     }
 
     #[rstest::rstest]
