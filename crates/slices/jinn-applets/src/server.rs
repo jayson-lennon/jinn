@@ -2,6 +2,10 @@
 //!
 //! Surfaces, and nothing else:
 //!
+//! - `/` serves the barebones `Index of /` listing: one plain link per
+//!   saved applet, built from a fresh on-disk catalog scan on every
+//!   request, so opening just the raw address lists every applet to
+//!   click. No styling, no script, nothing injected.
 //! - `/applets/<id>/` serves the applet's entry HTML, read fresh from disk on
 //!   every request, **byte for byte** — no reload snippet, no telemetry
 //!   snippet, no injection of any kind.
@@ -12,17 +16,20 @@
 //! - `/healthz` is the liveness marker.
 //!
 //! There is no `/ws`, no `/metrics`, no watcher, no broadcast: the applets
-//! server is static-only by contract.
+//! server is static-only by contract (the index page is static HTML
+//! built per request, not a live surface).
 //!
 //! Traversal is impossible: the applet id is validated
 //! ([`jinn_applets_msg::is_valid_app_id`]) and the requested sub-path is
 //! resolved against the applet directory and rejected when it escapes the
 //! applets root — a crafted id or path answers 404, never a directory
-//! listing or a redirect.
+//! listing or a redirect (the only listing the server produces is the
+//! deliberate `/` index of validated applets).
 //!
 //! The module has no serve orchestration (that is
 //! [`super::server_actor`]) and no catalog logic (that is
-//! [`super::store_actor`]); it is the request/response half plus the
+//! [`super::store_actor`] plus [`super::catalog_fs`], which the index
+//! handler reads through); it is the request/response half plus the
 //! [`ServerShared`] the spawned task holds.
 
 use std::path::Path;
@@ -69,10 +76,24 @@ pub fn router(shared: ServerShared) -> Router {
 /// The `Arc`-state form of [`router`], for the actor's spawned task.
 pub fn router_arc(shared: Arc<ServerShared>) -> Router {
     Router::new()
+        .route("/", get(serve_index))
         .route("/healthz", get(health_handler))
         .route("/vendor/{*path}", get(serve_vendor))
         .fallback(serve_apps_path)
         .with_state(shared)
+}
+
+/// `GET /` — the barebones `Index of /` page: one plain link per saved
+/// applet, from a fresh on-disk scan. A browser pointed at the raw
+/// address gets the click-through list without the picker.
+async fn serve_index(State(shared): State<Arc<ServerShared>>) -> Response {
+    let catalog = crate::catalog_fs::scan_catalog(&shared.apps_root);
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        crate::catalog_fs::index_html(&catalog),
+    )
+        .into_response()
 }
 
 /// `GET /healthz` — the applets-specific liveness marker. Any 200 whose
@@ -435,5 +456,164 @@ mod tests {
                 .and_then(|v| v.to_str().ok()),
             Some("text/html; charset=utf-8")
         );
+    }
+
+    /// Builds the full router over `shared` and issues a GET through
+    /// axum's own tower stack — the index route rides the real
+    /// dispatch, not a hand call.
+    async fn router_get(shared: &Arc<ServerShared>, path: &str) -> Response {
+        use tower::ServiceExt as _;
+
+        super::router_arc(shared.clone())
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri(path)
+                    .body(axum::body::Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("the router answers")
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_root_url_lists_saved_applets_as_links() {
+        // Given an applets root with one cataloged, live applet.
+        let (shared, dir_guard) = shared_with_app("sales", "<html></html>", None);
+        let root = dir_guard.path.join("applets").expect("join");
+        let typed = marked_path::MarkedPathBuf::<marked_path::Absolute>::new(root.as_path())
+            .expect("absolute");
+        crate::catalog_fs::persist_catalog(
+            &typed,
+            &jinn_applets_msg::AppletsCatalog {
+                entries: vec![jinn_applets_msg::AppletEntry {
+                    id: "sales".to_owned(),
+                    title: "Q4 Sales".to_owned(),
+                    created_at: "2026-01-01T00:00:00Z".to_owned(),
+                }],
+            },
+        );
+
+        // When requesting the raw root address through the full router.
+        let response = router_get(&shared, "/").await;
+
+        // Then the answer is the barebones index: the heading, the
+        // applet's title linked to its URL, served as HTML.
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("text/html; charset=utf-8")
+        );
+        let page = String::from_utf8(body(response).await).expect("utf8 page");
+        assert!(page.contains("<h1>Index of /</h1>"), "got: {page}");
+        assert!(
+            page.contains("<a href=\"/applets/sales/\">Q4 Sales</a>"),
+            "got: {page}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_root_url_lists_only_applets_whose_directory_is_live() {
+        // Given a catalog file carrying a live applet and a ghost whose
+        // directory was deleted.
+        let (shared, dir_guard) = shared_with_app("live", "<html></html>", None);
+        let root = dir_guard.path.join("applets").expect("join");
+        let typed = marked_path::MarkedPathBuf::<marked_path::Absolute>::new(root.as_path())
+            .expect("absolute");
+        crate::catalog_fs::persist_catalog(
+            &typed,
+            &jinn_applets_msg::AppletsCatalog {
+                entries: vec![
+                    jinn_applets_msg::AppletEntry {
+                        id: "live".to_owned(),
+                        title: "Live".to_owned(),
+                        created_at: "2026-01-02T00:00:00Z".to_owned(),
+                    },
+                    jinn_applets_msg::AppletEntry {
+                        id: "ghost".to_owned(),
+                        title: "Ghost".to_owned(),
+                        created_at: "2026-01-01T00:00:00Z".to_owned(),
+                    },
+                ],
+            },
+        );
+
+        // When requesting the root.
+        let response = router_get(&shared, "/").await;
+
+        // Then only the live applet is listed — a dead row never
+        // renders a dead link.
+        let page = String::from_utf8(body(response).await).expect("utf8 page");
+        assert!(page.contains("/applets/live/"), "got: {page}");
+        assert!(!page.contains("ghost"), "got: {page}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_root_url_on_an_empty_root_lists_nothing() {
+        // Given an applets root with no catalog and no applets.
+        let (shared, _dir) = shared_with_app("unused-never-listed", "<html></html>", None);
+
+        // When requesting the root.
+        let response = router_get(&shared, "/").await;
+
+        // Then the heading renders with no links under it.
+        assert_eq!(response.status(), StatusCode::OK);
+        let page = String::from_utf8(body(response).await).expect("utf8 page");
+        assert!(page.contains("<h1>Index of /</h1>"), "got: {page}");
+        assert!(!page.contains("<a "), "got: {page}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_index_reflects_a_later_save_without_a_rescan() {
+        // Given a served root whose index was already rendered.
+        let (shared, dir_guard) = shared_with_app("first", "<html></html>", None);
+        let root = dir_guard.path.join("applets").expect("join");
+        let typed = marked_path::MarkedPathBuf::<marked_path::Absolute>::new(root.as_path())
+            .expect("absolute");
+        let before = router_get(&shared, "/").await;
+        assert!(!page_of(before).await.contains("/applets/second/"));
+
+        // When a second applet is saved directly on disk (the catalog
+        // row added the way the skill's save does).
+        let app_dir = root.join_all(["second"]).expect("join");
+        std::fs::create_dir_all(app_dir.as_path()).expect("mkdir");
+        std::fs::write(
+            app_dir.join("index.html").expect("join").as_path(),
+            "<html></html>",
+        )
+        .expect("seed entry");
+        crate::catalog_fs::persist_catalog(
+            &typed,
+            &jinn_applets_msg::AppletsCatalog {
+                entries: vec![
+                    jinn_applets_msg::AppletEntry {
+                        id: "second".to_owned(),
+                        title: "Second".to_owned(),
+                        created_at: "2026-06-01T00:00:00Z".to_owned(),
+                    },
+                    jinn_applets_msg::AppletEntry {
+                        id: "first".to_owned(),
+                        title: "First".to_owned(),
+                        created_at: "2026-01-01T00:00:00Z".to_owned(),
+                    },
+                ],
+            },
+        );
+
+        // Then the next root request lists the new applet — the index
+        // scans fresh on every request.
+        let after = router_get(&shared, "/").await;
+        assert!(page_of(after).await.contains("/applets/second/"));
+    }
+
+    /// The response body as UTF-8, for page assertions.
+    async fn page_of(response: Response) -> String {
+        String::from_utf8(body(response).await).expect("utf8 page")
     }
 }

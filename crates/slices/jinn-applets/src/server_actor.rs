@@ -1,25 +1,32 @@
 //! The applets server actor — the one serving host, dormant until the
-//! first open.
+//! first wake or open.
 //!
 //! Nothing binds at activation: no listener, no filesystem work. The
 //! store actor sends the actor an [`EnsureServing`] internal command the
 //! first time an applet is opened (and on every open after — the bound
-//! listener is reused, never restarted). The first `EnsureServing`
-//! establishes the axum listener (port `0` resolved there, so the URL an
-//! opener builds is the truth); every later one is a no-op that reads
-//! back the resolved bind. The server lives as long as the process:
-//! when jinn exits, the listener closes.
+//! listener is reused, never restarted); the picker's opener publishes a
+//! [`WakeAppletsServer`](jinn_applets_msg::WakeAppletsServer) on every
+//! open of the picker, so the server binds on the first `<leader>sa`
+//! too. The first bind establishes the axum listener (port `0` resolved
+//! there, so the URL an opener builds is the truth); every later one is
+//! a no-op that reads back the resolved bind. The server lives as long
+//! as the process: when jinn exits, the listener closes.
 //!
 //! The actor owns the serving state exclusively and answers every
 //! `EnsureServing` with the resolved bind, so the URL the picker's
 //! browser-launch builds and the listener a browser connects to can
-//! never disagree.
+//! never disagree. It announces every serving transition — first bind,
+//! hot rebind, failed rebind going dormant, a refused wake — as an
+//! [`AppletsServingChanged`](jinn_applets_msg::AppletsServingChanged)
+//! event; the picker's republisher folds the fact into the picker cell,
+//! whose footer renders it.
 
 mod handlers;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use marked_path::MarkedPathAccess as _;
 use marked_path::{Absolute, MarkedPathBuf};
 use trouper::actor::ActorPath;
 use trouper::actor::{MsgHandler, ServiceActor};
@@ -167,11 +174,19 @@ impl AppletsServerActor {
                 }
             })
             .handles::<EnsureServing>()
+            // The picker's opener wakes the server on every open, so the
+            // first <leader>sa binds the listener and the picker's
+            // status line can show the resolved address.
+            .handles::<jinn_applets_msg::WakeAppletsServer>()
             // Live config: a jinn.toml reload re-reads [applets] bind
             // and hot-rebinds (the HTTP surface is stateless — no held
             // connections to break).
             .handles::<jinn_boot_msg::JinnTomlReloaded>()
             .emits::<EnsureServingOutcome>()
+            // Every serving transition — first bind, hot rebind, failed
+            // rebind going dormant, refused wake — announces the fact so
+            // the picker's footer can never strand on a dead address.
+            .emits::<jinn_applets_msg::AppletsServingChanged>()
             .emits::<jinn_slices::ServiceStatusUpdate>()
             .start()
     }
@@ -183,11 +198,41 @@ impl MsgHandler<EnsureServing> for AppletsServerActor {
     }
 }
 
+// A picker wake: bind if dormant, re-announce the fact if already
+// serving. Idempotent by design — the picker publishes one on every
+// open, and a wake against a bound server just republishes the current
+// address, so a fresh picker always sees the live truth.
+impl MsgHandler<jinn_applets_msg::WakeAppletsServer> for AppletsServerActor {
+    async fn handle(&mut self, _msg: &jinn_applets_msg::WakeAppletsServer, _ctx: &mut MsgCtx<'_>) {
+        if let Some(state) = self.serving.as_ref() {
+            self.publish_serving(Some(state.bind)).await;
+            return;
+        }
+        match handlers::establish(self.bind, self.apps_root.as_path()).await {
+            Ok((state, resolved)) => {
+                self.serving = Some(state);
+                self.bind = resolved;
+                self.publish_serving(Some(resolved)).await;
+            }
+            Err(error) => {
+                self.publish_serving(None).await;
+                self.note(
+                    &format!("applets server wake refused: {error}"),
+                    Some(jinn_slices::NoteTone::Error),
+                )
+                .await;
+            }
+        }
+    }
+}
+
 // A reload re-reads the bind and hot-rebinds: the applets surface is
 // plain stateless HTTP (no held connections, no websocket), so a
 // rebind between requests breaks nobody, and the picker's URL base
 // stays correct without a restart. A failed rebind keeps the old
 // listener via keep-dormant: the next ensure tries the new bind fresh.
+// Every arm that changes the serving phase announces the fact, so the
+// picker's footer tracks the live address (and drops a dead one).
 impl MsgHandler<jinn_boot_msg::JinnTomlReloaded> for AppletsServerActor {
     async fn handle(&mut self, _msg: &jinn_boot_msg::JinnTomlReloaded, _ctx: &mut MsgCtx<'_>) {
         let parsed = self
@@ -225,6 +270,7 @@ impl MsgHandler<jinn_boot_msg::JinnTomlReloaded> for AppletsServerActor {
                     Ok((listener, resolved)) => {
                         self.serving = Some(handlers::serve(listener, &self.apps_root, resolved));
                         self.bind = resolved;
+                        self.publish_serving(Some(resolved)).await;
                         self.note(&format!("applets rebound to {resolved}"), None)
                             .await;
                     }
@@ -234,6 +280,10 @@ impl MsgHandler<jinn_boot_msg::JinnTomlReloaded> for AppletsServerActor {
                         // the next ensure tries the new bind fresh.
                         self.serving = None;
                         self.bind = bind;
+                        // The dead address must leave the picker's
+                        // footer the moment the rebind fails — the
+                        // offline fact travels with the transition.
+                        self.publish_serving(None).await;
                         self.note(
                             &format!(
                                 "applets rebind to {bind} failed ({error}); the next open retries it"
@@ -258,6 +308,22 @@ impl AppletsServerActor {
                 status_message: Some(message.to_owned()),
                 note_tone: tone,
             })
+            .await;
+    }
+
+    /// Announces the serving phase on the bus: the resolved bind while
+    /// serving, the offline fact otherwise.
+    ///
+    /// Every serving transition publishes through here, so the picker
+    /// cell's phase can never disagree with the actor's — including the
+    /// failure arms, where a dead address would otherwise survive.
+    async fn publish_serving(&self, bound: Option<SocketAddr>) {
+        let (serving, bind) = match bound {
+            Some(addr) => (true, addr.to_string()),
+            None => (false, String::new()),
+        };
+        self.bus
+            .publish(jinn_applets_msg::AppletsServingChanged { serving, bind })
             .await;
     }
 }

@@ -38,9 +38,13 @@ into a snapshot under `~/.local/share/jinn/applets/`. The agent can also
 build an applet from scratch. Either way:
 
 - Open the picker with `<leader>sa`; it shows every saved applet with a
-  live filter. `<enter>` opens it in your browser (this also wakes the
-  applets server; it binds lazily on first use), `<c-r>` renames,
-  `<c-d>` deletes (removes the saved copy for good), `<esc>` closes.
+  live filter, and a status line in its footer: `<server offline>` until
+  the applets server has bound, then `serving http://127.0.0.1:<port>`
+  in green. Opening the picker wakes the server (it binds on the first
+  picker open, or on the first `<enter>`), so the address is visible
+  without opening an applet first. `<enter>` opens it in your browser,
+  `<c-r>` renames, `<c-d>` deletes (removes the saved copy for good),
+  `<esc>` closes.
 - An applet is a **snapshot**: later improvements to the canvas page it
   came from never change it, and it does not live-reload. Ask the agent
   to re-promote (a fresh copy) when you want the improvements.

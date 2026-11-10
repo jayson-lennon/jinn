@@ -14,9 +14,13 @@
 //!   same manifest-defined file tree canvas's build verifies, so served
 //!   vendor bytes are byte-identical without a dependency on the canvas
 //!   implementation crate.
-//! - [`server`] — the axum listener: `/applets/<id>/…` read fresh from disk
+//! - [`server`] — the axum listener: `/` is the barebones `Index of /`
+//!   listing of saved applets, `/applets/<id>/…` is read fresh from disk
 //!   on every request, `/vendor/`, `/healthz`. No `/ws`, no `/metrics`,
 //!   no watcher.
+//! - [`catalog_fs`] — the on-disk catalog's reader/writer (`applets.json`
+//!   scan and write-through) and the index page builder, shared by the
+//!   store actor and the server.
 //! - [`server_actor`] — the dormant-until-first-open actor that owns the
 //!   listener; the store actor asks it to bind on the first open.
 //! - [`store_actor`] — owns the on-disk catalog (`applets.json`) and the
@@ -39,6 +43,7 @@
 //! not a marketplace of manifests (an applet is a directory of files).
 
 pub mod browser;
+pub mod catalog_fs;
 pub mod picker_actions;
 pub mod picker_render;
 pub mod picker_republisher_actor;
@@ -156,29 +161,16 @@ pub fn activate(
     picker_routes::activate_picker(host, &picker_cell);
 
     // The republisher: repaints the open picker (and mirrors the catalog
-    // cell) when a store event lands — the in-place refresh of pattern B.
-    trouper::builder::spawn_service_builder::<
-        picker_republisher_actor::AppletsPickerRepublisherActor,
-    >(&system)
-    .at(trouper::actor::ActorPath::new(
-        picker_republisher_actor::AppletsPickerRepublisherActor::PATH.to_owned(),
-    ))
-    .init_with({
-        move || {
-            Box::pin(async move {
-                Ok(
-                    picker_republisher_actor::AppletsPickerRepublisherActor::new(
-                        picker_cell,
-                        catalog_cell,
-                    ),
-                )
-            })
-        }
-    })
-    .handles::<jinn_applets_msg::AppletsRescanned>()
-    .handles::<jinn_applets_msg::AppletRenamed>()
-    .handles::<jinn_applets_msg::AppletDeleted>()
-    .start();
+    // cell) when a store event lands, and folds the server actor's
+    // serving facts into the picker cell — the in-place refresh of
+    // pattern B. Subscriptions live on the actor's own spawn builder.
+    picker_republisher_actor::AppletsPickerRepublisherActor::spawn(
+        &system,
+        &picker_republisher_actor::AppletsPickerRepublisherActorDeps {
+            picker_cell,
+            catalog_cell,
+        },
+    );
 
     Ok(())
 }
@@ -302,19 +294,23 @@ mod tests {
     // one; a second probe listener reserves the next port.
 
     /// Spawns the applets server actor over `config` on a harness bus
-    /// that records `ServiceStatusUpdate`s.
+    /// that records `ServiceStatusUpdate`s and serving facts.
     async fn spawn_actor(
         config: jinn_config::ConfigLayer,
     ) -> (
         trouper::actor::ActorPath,
         trouper::system::ActorSystem,
         jinn_testutil::bus_harness::Recorder<jinn_slices::ServiceStatusUpdate>,
+        jinn_testutil::bus_harness::Recorder<jinn_applets_msg::AppletsServingChanged>,
         jinn_testutil::bus_harness::TestHarness,
         marked_path::MarkedPathBuf<marked_path::Absolute>,
     ) {
         let harness = jinn_testutil::bus_harness::TestHarness::new().await;
         let notes = harness
             .spawn_recorder::<jinn_slices::ServiceStatusUpdate>()
+            .await;
+        let serving_facts = harness
+            .spawn_recorder::<jinn_applets_msg::AppletsServingChanged>()
             .await;
         let system = harness.system().clone();
         let apps_root = apps_dir_for_test();
@@ -329,7 +325,7 @@ mod tests {
                 bus: harness.bus(),
             },
         );
-        (path, system, notes, harness, apps_root)
+        (path, system, notes, serving_facts, harness, apps_root)
     }
 
     #[rstest::rstest]
@@ -338,7 +334,7 @@ mod tests {
         // Given a dormant actor over an empty layer.
         let config = layer_with(None);
         let layer = config.clone();
-        let (actor, system, _notes, _harness, _apps_root) = spawn_actor(config).await;
+        let (actor, system, _notes, _facts, _harness, _apps_root) = spawn_actor(config).await;
 
         // When the bind changes behind the actor's back and a reload
         // lands.
@@ -369,7 +365,7 @@ mod tests {
         // Given a serving actor (one ensure has bound a listener).
         let config = layer_with(None);
         let layer = config.clone();
-        let (actor, system, notes, _harness, apps_root) = spawn_actor(config).await;
+        let (actor, system, notes, facts, _harness, apps_root) = spawn_actor(config).await;
         let reply = system
             .ask(
                 actor.clone(),
@@ -389,6 +385,21 @@ mod tests {
         assert!(
             first_bind.port() > 0,
             "port 0 resolved to an ephemeral port at the first ensure"
+        );
+
+        // And the first bind announced the serving fact with the
+        // resolved port — the ensure path is a serving transition too.
+        let facts_after = jinn_testutil::bus_harness::await_recorded(
+            &facts,
+            1,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+        assert!(
+            facts_after
+                .iter()
+                .any(|fact| { fact.serving && fact.bind == first_bind.to_string() }),
+            "the first bind publishes the online fact; got {facts_after:?}"
         );
 
         // When the bind changes to a squatted port and a reload lands —
@@ -446,6 +457,110 @@ mod tests {
         assert!(
             !retried.ok && retried.error.contains("127.0.0.1"),
             "the retry still targets the taken bind and refuses: {retried:?}"
+        );
+
+        // And the failed rebind published the offline fact — a dead
+        // address can never stay in the picker cell.
+        let facts_final = jinn_testutil::bus_harness::await_recorded(
+            &facts,
+            2,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+        assert!(
+            facts_final
+                .iter()
+                .any(|fact| !fact.serving && fact.bind.is_empty()),
+            "the failed rebind publishes the offline fact; got {facts_final:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_wake_binds_the_dormant_server_and_publishes_the_fact() {
+        // Given a dormant actor — no ensure has ever run.
+        let config = layer_with(None);
+        let (actor, system, _notes, facts, _harness, _apps_root) = spawn_actor(config).await;
+        assert!(facts.is_empty(), "a dormant actor has published nothing");
+
+        // When a picker wake lands.
+        system.publish(jinn_applets_msg::WakeAppletsServer).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &system,
+            &actor,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+
+        // Then the serving fact names a resolved port — port 0 asked
+        // the OS at the wake, not at launch.
+        let facts_after = jinn_testutil::bus_harness::await_recorded(
+            &facts,
+            1,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+        let bound = facts_after
+            .iter()
+            .find(|fact| fact.serving)
+            .expect("the wake binds and publishes the online fact");
+        let port = bound
+            .bind
+            .parse::<std::net::SocketAddr>()
+            .expect("the fact carries the resolved bind")
+            .port();
+        assert!(port > 0, "the OS-assigned port is nonzero");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_wake_while_serving_republishes_the_same_address() {
+        // Given a serving actor (one wake has bound it).
+        let config = layer_with(None);
+        let (actor, system, _notes, facts, _harness, _apps_root) = spawn_actor(config).await;
+        system.publish(jinn_applets_msg::WakeAppletsServer).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &system,
+            &actor,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+        let first = jinn_testutil::bus_harness::await_recorded(
+            &facts,
+            1,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+        let address = first
+            .iter()
+            .find(|fact| fact.serving)
+            .expect("the first wake binds")
+            .bind
+            .clone();
+
+        // When a second picker wake lands.
+        system.publish(jinn_applets_msg::WakeAppletsServer).await;
+        jinn_testutil::wait::await_inbox_drained(
+            &system,
+            &actor,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+
+        // Then the wake republishes the same address — idempotent, so a
+        // fresh picker always sees the live truth and the listener is
+        // never restarted.
+        let second = jinn_testutil::bus_harness::await_recorded(
+            &facts,
+            2,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+        assert!(
+            second
+                .iter()
+                .any(|fact| fact.serving && fact.bind == address),
+            "the second wake republishes the live address; got {second:?}"
         );
     }
 }

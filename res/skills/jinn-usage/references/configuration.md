@@ -508,9 +508,10 @@ bind = "127.0.0.1:0"   # host:port the canvas server binds; 0 = OS-assigned port
 bind = "127.0.0.1:0"   # host:port the saved-applet server binds
 ```
 
-The resolved URL/port comes back in the `canvas` tool result / the applets
-picker's opened URL. The shipped default file ships both sections active.
-The feature guide is `canvas-and-applets.md`.
+The resolved URL/port comes back in the `canvas` tool result / the
+applets picker's footer status line (shown once the server has bound;
+opening the picker wakes it). The shipped default file ships both
+sections active. The feature guide is `canvas-and-applets.md`.
 
 **Shell executables** (optional; both keys are absolute paths):
 

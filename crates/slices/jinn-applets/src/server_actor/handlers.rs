@@ -7,6 +7,11 @@
 //! 2. Live phase: read back the resolved bind — the listener is never
 //!    restarted, so every open of any app lands on the same URL base.
 //!
+//! Both the store actor's ensure ask and the picker's wake command land
+//! on the same [`establish`] — the only two paths that may create the
+//! listener — and every transition out of dormant announces the
+//! serving fact, so the picker's footer tracks the live address.
+//!
 //! A bind failure travels as a refused outcome, not an actor crash: the
 //! malformed-bind case already aborted launch at activation, so reaching
 //! a runtime bind failure means a taken port or an OS refusal — worth
@@ -21,6 +26,10 @@ use trouper::context::MsgCtx;
 use crate::server_actor::{EnsureServing, EnsureServingOutcome, ServingState};
 
 /// Handles an ensure ask: bind on the first ask, read back on the rest.
+///
+/// The first bind is a serving transition and announces the fact on the
+/// bus — an applet opened before any picker open must still leave the
+/// picker's footer correct when it next opens.
 pub(crate) async fn handle_ensure_serving(
     actor: &mut crate::server_actor::AppletsServerActor,
     msg: &EnsureServing,
@@ -30,39 +39,51 @@ pub(crate) async fn handle_ensure_serving(
         // Already serving: the resolved bind is the answer. The
         // apps_root argument is advisory — the server never re-targets
         // through this path (a bind change goes through the reload
-        // handler's rebind instead).
+        // handler's rebind instead). No fact is published: the phase
+        // did not change.
         ctx.reply(EnsureServingOutcome::serving(state.bind));
         return;
     }
 
+    match establish(actor.bind, Path::new(msg.apps_root.as_str())).await {
+        Ok((state, resolved)) => {
+            actor.serving = Some(state);
+            actor.publish_serving(Some(resolved)).await;
+            ctx.reply(EnsureServingOutcome::serving(resolved));
+        }
+        Err(error) => {
+            actor.publish_serving(None).await;
+            ctx.reply(EnsureServingOutcome::refused(error));
+        }
+    }
+}
+
+/// Establishes the serving state at `bind` over `root`: canonicalize the
+/// root, bind the listener, start the serve task.
+///
+/// Port 0 asks the OS here, at the first bind, so the URL an opener
+/// builds is the truth. The refusal sentences are the open path's
+/// observable failure text — keep them stable.
+///
+/// # Errors
+///
+/// Returns the failure sentence on an unresolvable root, a bind
+/// failure, or an unreadable OS-assigned port.
+pub(crate) async fn establish(
+    bind: SocketAddr,
+    root: &Path,
+) -> Result<(ServingState, SocketAddr), String> {
     // Canonicalize the root before serving from it: every handler read
     // resolves under this path, and the canonical, classic-spelled form
     // is the one the containment check anchors to.
-    let root = match canonical_root(Path::new(msg.apps_root.as_str())) {
-        Ok(root) => root,
-        Err(error) => {
-            ctx.reply(EnsureServingOutcome::refused(format!(
-                "failed to resolve the applets directory: {error}"
-            )));
-            return;
-        }
-    };
+    let root = canonical_root(root)
+        .map_err(|error| format!("failed to resolve the applets directory: {error}"))?;
 
-    // Port 0 asks the OS here, at the first open, so the URL an opener
-    // builds is the truth.
-    let (listener, resolved) = match bind_listener(actor.bind).await {
-        Ok(established) => established,
-        Err(e) => {
-            ctx.reply(EnsureServingOutcome::refused(format!(
-                "failed to bind {}: {e}",
-                actor.bind
-            )));
-            return;
-        }
-    };
+    let (listener, resolved) = bind_listener(bind)
+        .await
+        .map_err(|e| format!("failed to bind {bind}: {e}"))?;
 
-    actor.serving = Some(serve(listener, &root, resolved));
-    ctx.reply(EnsureServingOutcome::serving(resolved));
+    Ok((serve(listener, &root, resolved), resolved))
 }
 
 /// Binds a listener at `bind`, resolving the OS-assigned port.
