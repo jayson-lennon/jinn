@@ -177,7 +177,7 @@ async fn stdio_arm_ignores_configured_headers_entirely() {
     };
 
     // When connecting through the transport dispatcher.
-    let result = crate::connection::connect_for_transport(&services, &server).await;
+    let result = crate::connection::connect_for_transport(&services, &server, None).await;
 
     // Then the attempt fails because the binary cannot spawn.
     let Err(err) = result else {

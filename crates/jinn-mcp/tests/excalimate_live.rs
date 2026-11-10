@@ -59,6 +59,7 @@ fn excalimate_command() -> Option<ServerCommand> {
     Some(ServerCommand {
         program: "node".into(),
         args: vec![path, "--stdio".into()],
+        env: Vec::new(),
     })
 }
 

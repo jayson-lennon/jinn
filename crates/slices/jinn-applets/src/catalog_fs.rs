@@ -110,11 +110,9 @@ pub fn index_html(catalog: &jinn_applets_msg::AppletsCatalog) -> String {
         // `write!` into the page: the id is a validated directory name
         // and the title is display text, so the plain-link shape needs
         // no escaping layer of its own.
-        let _ = write!(
-            page,
-            "<li><a href=\"/applets/{}/\">{}</a></li>\n",
-            entry.id, entry.title
-        );
+        let id = &entry.id;
+        let title = &entry.title;
+        let _ = writeln!(page, "<li><a href=\"/applets/{id}/\">{title}</a></li>");
     }
     page.push_str("</ul>\n<hr>\n</body>\n</html>\n");
     page

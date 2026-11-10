@@ -339,6 +339,11 @@ impl McpCoordinatorActor {
         let (_, config) = configs.iter().find(|(n, _)| n == name)?;
         let path = McpActor::spawn(
             &self.system,
+            // No session cwd: a singleton serves every session through one
+            // shared process, so there is no directory to expand the
+            // <session_cwd> token to. An entry referencing the token is
+            // refused at connect (see `connect_for_transport`), naming the
+            // conflict.
             McpActorDeps::new(
                 self.deps.clone(),
                 // The owning-session id only feeds status/log addressing and
@@ -378,6 +383,17 @@ impl McpCoordinatorActor {
             return None;
         }
 
+        // The enabling session's working directory: the <session_cwd> token
+        // in args and env values expands to this at spawn, so one static
+        // entry serves every session regardless of which tree it was started
+        // in. Read from shared state at spawn time; the block drops the read
+        // guard before the spawn await (the guard is not Send).
+        let session_cwd = self
+            .state
+            .read()
+            .session
+            .get(session_id)
+            .map(|session| session.cwd().clone());
         let path = McpActor::spawn(
             &self.system,
             McpActorDeps::new(
@@ -385,7 +401,8 @@ impl McpCoordinatorActor {
                 session_id.clone(),
                 name.to_owned(),
                 config.clone(),
-            ),
+            )
+            .with_session_cwd(session_cwd),
         )
         .await;
 
@@ -1415,6 +1432,44 @@ mod lifecycle_tests {
             args: vec!["--changed".to_owned()],
             ..Default::default()
         }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn editing_only_the_env_map_changes_the_entry_hash() {
+        // Given a baseline entry and the same entry with a different env map.
+        let baseline = unrunnable_server();
+        let edited = McpServerConfig {
+            env: std::collections::BTreeMap::from([(
+                "GDA_PROJECT".to_owned(),
+                "/other".to_owned(),
+            )]),
+            ..unrunnable_server()
+        };
+
+        // When hashing both.
+        let (before, after) = (
+            McpCoordinatorActor::entry_hash(&baseline),
+            McpCoordinatorActor::entry_hash(&edited),
+        );
+
+        // Then the hashes differ — an env-only edit triggers the auto-restart.
+        assert_ne!(before, after);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn identical_entries_hash_identically() {
+        // Given two independently-built identical entries.
+        let a = unrunnable_server();
+        let b = unrunnable_server();
+
+        // When hashing both.
+        // Then the hashes match — only content, not construction, matters.
+        assert_eq!(
+            McpCoordinatorActor::entry_hash(&a),
+            McpCoordinatorActor::entry_hash(&b)
+        );
     }
 
     #[rstest::rstest]
