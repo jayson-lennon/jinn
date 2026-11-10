@@ -5,6 +5,8 @@
 - Applet picker now shows the bind address for the applet server.
 - Applet server now has an index page at `/`.
 - Add experimental "task restatement" and "failure escalation" sections to `coding-assistant` persona.
+- Add `env` support for MCP server configuration.
+- Add `<session_cwd>` token to MCP server configuration.
 
 ## 2026-11-07 v1.22.0
 
