@@ -42,6 +42,7 @@ async fn remote_http_to_unreachable_url_loops_instead_of_failing() {
         args: vec![],
         transport: TransportKind::RemoteHttp,
         url: Some("http://127.0.0.1:1/mcp".to_owned()),
+        env: std::collections::BTreeMap::default(),
         headers: std::collections::BTreeMap::default(),
         auto_enable: false,
         singleton: false,
@@ -51,7 +52,7 @@ async fn remote_http_to_unreachable_url_loops_instead_of_failing() {
     let services = jinn_kernel::Services::new_fake().await;
     let result = tokio::time::timeout(
         Duration::from_millis(500),
-        connect_for_transport(&services, &config),
+        connect_for_transport(&services, &config, None),
     )
     .await;
 

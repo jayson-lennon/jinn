@@ -139,13 +139,14 @@ impl BusPublish for EnvInitActor {
 }
 
 impl EnvInitActor {
-    /// Loads config, resolves API keys and MCP header variables.
+    /// Loads config, resolves API keys and MCP header/env variables.
     ///
     /// Returns config on success. Providers contribute their configured env
     /// vars; configured MCP servers contribute every `${VAR}` referenced by
-    /// their `headers` values. Missing or empty variables are skipped
-    /// silently here — a server whose headers cannot expand fails loudly at
-    /// connect time instead, where the user can see which server is dead.
+    /// their `headers` or `env` values. Missing or empty variables are
+    /// skipped silently here — a server whose headers cannot expand fails
+    /// loudly at connect time instead, where the user can see which server
+    /// is dead.
     fn load_config_and_resolve_keys(&self) -> Option<ProvidersConfig> {
         let config = match self.deps.services.config_storage.load() {
             Ok(config) => config,
@@ -176,9 +177,9 @@ impl EnvInitActor {
         Some(config)
     }
 
-    /// Scans configured MCP server header values for `${VAR}` references and
-    /// seeds each one found into `ApiKeysService` from the process
-    /// environment (present non-empty values only).
+    /// Scans configured MCP server header and env values for `${VAR}`
+    /// references and seeds each one found into `ApiKeysService` from the
+    /// process environment (present non-empty values only).
     fn resolve_mcp_header_variables(&self) {
         let servers = self
             .deps
@@ -188,7 +189,13 @@ impl EnvInitActor {
             .unwrap_or_default();
         let values: Vec<&str> = servers
             .values()
-            .flat_map(|server| server.headers.values().map(String::as_str))
+            .flat_map(|server| {
+                server
+                    .headers
+                    .values()
+                    .chain(server.env.values())
+                    .map(String::as_str)
+            })
             .collect();
         for name in jinn_preferences_config::schemas::mcp::referenced_header_variables(&values) {
             if let Ok(value) = std::env::var(&name)
@@ -228,6 +235,22 @@ mod tests {
     const RELOAD_VAR: &str = "JINN_TEST_PROVIDERS_RELOAD_KEY";
     const RELOAD_VAR_SECOND: &str = "JINN_TEST_PROVIDERS_RELOAD_KEY_2";
     const MISSING_VAR: &str = "JINN_TEST_MCP_HEADER_NEVER_SET";
+    const ENV_SET_VAR: &str = "JINN_TEST_MCP_ENV_RESOLVED";
+    const ENV_MISSING_VAR: &str = "JINN_TEST_MCP_ENV_NEVER_SET";
+
+    /// Serializes one server entry as the body of a `[mcp.<name>]` table.
+    fn server_body(server: McpServerConfig) -> String {
+        let table = toml::Value::try_from(server)
+            .expect("server serializes")
+            .as_table()
+            .expect("server is a table")
+            .clone();
+        table.iter().fold(String::new(), |mut acc, (key, value)| {
+            use std::fmt::Write as _;
+            let _ = writeln!(acc, "{key} = {value}");
+            acc
+        })
+    }
 
     /// A document declaring one MCP server whose headers reference the
     /// given env-var names, under the section's umbrella.
@@ -242,19 +265,25 @@ mod tests {
             headers,
             ..McpServerConfig::default()
         };
-        let table = toml::Value::try_from(server)
-            .expect("server serializes")
-            .as_table()
-            .expect("server is a table")
-            .clone();
-        let body = table.iter().fold(String::new(), |mut acc, (key, value)| {
-            use std::fmt::Write as _;
-            let _ = writeln!(acc, "{key} = {value}");
-            acc
-        });
         // The section is the map: one sub-table per server, directly
         // under the `mcp` umbrella.
-        format!("[mcp.header-probe]\n{body}")
+        format!("[mcp.header-probe]\n{}", server_body(server))
+    }
+
+    /// A document declaring one MCP server whose `env` values reference the
+    /// given env-var names, under the section's umbrella.
+    fn config_referencing_via_env(vars: &[&str]) -> String {
+        let env = vars
+            .iter()
+            .map(|v| (format!("{v}_KEY"), format!("${{{v}}}")))
+            .collect();
+        let server = McpServerConfig {
+            transport: jinn_preferences_config::schemas::mcp::TransportKind::RemoteHttp,
+            url: Some("http://localhost:3001/mcp".to_owned()),
+            env,
+            ..McpServerConfig::default()
+        };
+        format!("[mcp.env-probe]\n{}", server_body(server))
     }
 
     /// Points the services' config layer at a document seeded with
@@ -347,6 +376,70 @@ mod tests {
         assert!(loaded.config.is_some(), "config should load");
         // And nothing was seeded for the missing variable.
         assert!(keys.get(MISSING_VAR).is_none());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn referenced_env_variables_seed_api_keys_store() {
+        // Given preferences declaring an MCP server env value referencing a
+        // variable that IS set in the process environment.
+        // SAFETY: single-threaded test setup; unique var name avoids races.
+        unsafe { std::env::set_var(ENV_SET_VAR, "env-live-value") };
+        let harness = TestHarness::new().await;
+        let deps = harness.actor_deps().await;
+        layer_with(&deps.services, &config_referencing_via_env(&[ENV_SET_VAR]));
+        let keys = deps.services.api_keys.clone();
+
+        // When the env init actor resolves keys for a config request.
+        let services = deps.services.clone();
+        let path = EnvInitActor::spawn(&services.trouper_system, EnvInitActorDeps { deps });
+        let reply = services
+            .trouper_system
+            .ask(path, GetEnvironmentConfig, Duration::from_secs(5))
+            .await
+            .expect("ask succeeds");
+        let loaded: EnvironmentConfigReply = reply.decode().expect("decode reply");
+
+        // Then startup succeeded and the env-referenced key landed in the
+        // store under the referenced variable's name — the same key the
+        // connect-time resolver looks up.
+        assert!(loaded.config.is_some(), "config should load");
+        assert_eq!(keys.get(ENV_SET_VAR), Some("env-live-value".to_owned()));
+        // SAFETY: removing the test-only var set above; no concurrent readers.
+        unsafe {
+            std::env::remove_var(ENV_SET_VAR);
+        };
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn unset_env_variable_skips_store_and_startup_still_succeeds() {
+        // Given preferences declaring an env value referencing a variable
+        // that is NOT present in the environment.
+        // SAFETY: ensures the name is truly absent despite prior test runs.
+        unsafe { std::env::remove_var(ENV_MISSING_VAR) };
+        let harness = TestHarness::new().await;
+        let deps = harness.actor_deps().await;
+        layer_with(
+            &deps.services,
+            &config_referencing_via_env(&[ENV_MISSING_VAR]),
+        );
+        let keys = deps.services.api_keys.clone();
+
+        // When the env init actor resolves keys for a config request.
+        let services = deps.services.clone();
+        let path = EnvInitActor::spawn(&services.trouper_system, EnvInitActorDeps { deps });
+        let reply = services
+            .trouper_system
+            .ask(path, GetEnvironmentConfig, Duration::from_secs(5))
+            .await
+            .expect("ask succeeds");
+        let loaded: EnvironmentConfigReply = reply.decode().expect("decode reply");
+
+        // Then startup still succeeds (silent skip).
+        assert!(loaded.config.is_some(), "config should load");
+        // And nothing was seeded for the missing variable.
+        assert!(keys.get(ENV_MISSING_VAR).is_none());
     }
 
     #[rstest::rstest]

@@ -61,6 +61,25 @@ pub fn expand_jinn_token(value: &str, jinn_exe: &MarkedPathBuf<Absolute>) -> Str
     value.replace("<jinn>", &jinn_exe.to_string())
 }
 
+/// Expand the `<session_cwd>` replacement token in one command component (an
+/// argument or an env value): each `<session_cwd>` substring becomes the
+/// enabling session's working directory.
+///
+/// Lets one static `[mcp.<name>]` entry serve every session regardless of
+/// which directory it was started in — each per-session spawn expands the
+/// token to that session's cwd, so a cwd-sensitive server (one locating a
+/// project via an env var, say) pins to the right tree with zero per-project
+/// config edits. Mirrors `<jinn>`.
+///
+/// The caller decides what an unresolvable cwd means: jinn carries the
+/// token only on per-session spawns, and a singleton server referencing the
+/// token is refused at connect instead of silently binding to whichever
+/// session enabled it first. Pure and allocation-only.
+#[must_use]
+pub fn expand_session_cwd_token(value: &str, session_cwd: &MarkedPathBuf<Absolute>) -> String {
+    value.replace("<session_cwd>", &session_cwd.to_string())
+}
+
 /// Extracts the host portion from a URL template like `http://127.0.0.1:<port>/mcp`.
 ///
 /// Strips the scheme prefix and takes everything up to the first `:` (port
@@ -248,5 +267,51 @@ mod tests {
 
         // Then both occurrences are replaced.
         assert_eq!(out, format!("{exe_str} --jinn {exe_str}"));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn expand_session_cwd_token_replaces_args_and_env_values() {
+        // Given an absolute session cwd and a value carrying the token.
+        let root = jinn_testutil::paths::TestRoot::new();
+        let cwd = root.join_str("worktrees/game-a").expect("session cwd");
+
+        // When expanding an arg and an env value.
+        let arg = expand_session_cwd_token("--project=<session_cwd>", &cwd);
+        let env_value = expand_session_cwd_token("<session_cwd>/addons", &cwd);
+
+        // Then every occurrence becomes the session cwd.
+        let cwd_str = cwd.to_string();
+        assert_eq!(arg, format!("--project={cwd_str}"));
+        assert_eq!(env_value, format!("{cwd_str}/addons"));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn expand_session_cwd_token_passes_through_without_token() {
+        // Given a value with no token.
+        // When expanding.
+        let root = jinn_testutil::paths::TestRoot::new();
+        let cwd = root.join_str("somewhere").expect("session cwd");
+        let out = expand_session_cwd_token("/absolute/path", &cwd);
+
+        // Then the value passes through unchanged.
+        assert_eq!(out, "/absolute/path");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn expand_session_cwd_token_is_independent_of_the_jinn_token() {
+        // Given one value carrying both tokens.
+        let root = jinn_testutil::paths::TestRoot::new();
+        let exe = root.join_str("bin/jinn").expect("executable path");
+        let cwd = root.join_str("worktrees/game-b").expect("session cwd");
+
+        // When expanding the jinn token and then the cwd token.
+        let out = expand_session_cwd_token(&expand_jinn_token("<jinn>:<session_cwd>", &exe), &cwd);
+
+        // Then both expand — the two token texts are disjoint, so order is
+        // unobservable.
+        assert_eq!(out, format!("{exe}:{cwd}"));
     }
 }

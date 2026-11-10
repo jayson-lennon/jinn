@@ -43,6 +43,7 @@ async fn connect_http_rejects_nonexistent_command() {
         "definitely-not-a-real-binary-xyzzy",
         &[],
         "127.0.0.1",
+        &[],
         Vec::new(),
     );
 
@@ -57,7 +58,7 @@ async fn connect_http_rejects_nonexistent_command() {
 async fn connect_with_retry_returns_err_when_child_exits_immediately() {
     // Given a half-open HTTP server whose process exits at once.
     let (program, args) = jinn_testutil::platform::exit_command(1);
-    let half = McpClient::connect_http(program, &args, "127.0.0.1", Vec::new())
+    let half = McpClient::connect_http(program, &args, "127.0.0.1", &[], Vec::new())
         .expect("spawn should succeed even though the process exits immediately");
 
     // When retrying the connect.
@@ -85,7 +86,7 @@ async fn connect_with_retry_keeps_trying_when_server_never_listens() {
     // Given a half-open HTTP server whose process stays alive but never speaks
     // HTTP.
     let (program, args) = jinn_testutil::platform::idle_command(60);
-    let half = McpClient::connect_http(program, &args, "127.0.0.1", Vec::new())
+    let half = McpClient::connect_http(program, &args, "127.0.0.1", &[], Vec::new())
         .expect("spawn should succeed");
 
     // When retrying the connect, bounded by a short timeout.

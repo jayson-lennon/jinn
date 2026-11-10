@@ -21,8 +21,12 @@
 //!   managed URL with no child process.
 //!
 //! Both HTTP transports accept resolved `(name, value)` header pairs that are
-//! applied as default headers on every request. jinn-kernel expands `${VAR}`
-//! tokens before calling in; this module never reads the environment.
+//! applied as default headers on every request. Spawned transports
+//! (stdio and managed HTTP) accept resolved `(name, value)` environment
+//! pairs applied **additively** over jinn's inherited environment at child
+//! spawn (a configured key overrides the inherited variable of the same
+//! name; nothing is cleared). `${VAR}` tokens are expanded before calling
+//! in; this module never reads the environment.
 //!
 //! [`McpClient::shutdown`] closes the transport and waits (with a timeout) for
 //! the child to exit if one was spawned.
@@ -59,6 +63,12 @@ pub struct ServerCommand {
     pub program: String,
     /// Arguments passed to the executable.
     pub args: Vec<String>,
+    /// Resolved `(name, value)` environment pairs applied to the spawned
+    /// child additively over jinn's inherited environment — a configured
+    /// key overrides the inherited variable of the same name, every other
+    /// inherited variable passes through, nothing is cleared. Already
+    /// expanded (`${VAR}` / tokens) by the caller.
+    pub env: Vec<(String, String)>,
 }
 
 /// A live connection to one MCP server.
@@ -175,7 +185,36 @@ fn http_client_with(
         .attach("failed to build HTTP client with configured MCP headers")
 }
 
+/// Applies resolved `(name, value)` env pairs to a child `Command`
+/// **additively** over the inherited environment: each configured key adds or
+/// overrides the variable of the same name, and every inherited variable not
+/// named in `env` (`PATH`, `HOME`, …) passes through untouched — the child's
+/// environment is never cleared. Values are taken verbatim (already expanded
+/// by the caller); a literal empty string sets an empty variable.
+fn apply_env(command: &mut std::process::Command, env: &[(String, String)]) {
+    for (name, value) in env {
+        command.env(name, value);
+    }
+}
+
 impl McpClient {
+    /// Assembles the child `Command` for a stdio server: program + args,
+    /// terminal isolation, configured env applied additively, and
+    /// `kill_on_drop`. The one assembly path for the stdio transport —
+    /// [`McpClient::connect`] consumes it, and tests exercise it directly
+    /// to observe what the spawned child actually receives.
+    fn build_spawn_command(cmd: &ServerCommand) -> tokio::process::Command {
+        let mut std_cmd = std::process::Command::new(&cmd.program);
+        std_cmd.args(&cmd.args);
+        // Terminal isolation: setsid on Unix / CREATE_NO_WINDOW on Windows —
+        // the server process must never write over jinn's terminal.
+        jinn_common::process_isolation::isolate(&mut std_cmd);
+        apply_env(&mut std_cmd, &cmd.env);
+        let mut command = tokio::process::Command::from(std_cmd);
+        command.kill_on_drop(true);
+        command
+    }
+
     /// Spawns the server process and completes the MCP initialize handshake.
     ///
     /// The child's stderr is piped and drained into an internal ring buffer
@@ -185,15 +224,7 @@ impl McpClient {
     ///
     /// Returns an error if the process cannot be spawned or the handshake fails.
     pub async fn connect(cmd: &ServerCommand) -> Result<Self, Report<McpClientError>> {
-        let mut std_cmd = std::process::Command::new(&cmd.program);
-        std_cmd.args(&cmd.args);
-        // Terminal isolation: setsid on Unix / CREATE_NO_WINDOW on Windows —
-        // the server process must never write over jinn's terminal.
-        jinn_common::process_isolation::isolate(&mut std_cmd);
-        let mut command = tokio::process::Command::from(std_cmd);
-        command.kill_on_drop(true);
-
-        let (transport, stderr) = TokioChildProcess::builder(command)
+        let (transport, stderr) = TokioChildProcess::builder(Self::build_spawn_command(cmd))
             .stderr(Stdio::piped())
             .spawn()
             .change_context(McpClientError)
@@ -251,11 +282,12 @@ impl McpClient {
     ///
     /// Parses the bind address from the host portion of `url_template`,
     /// allocates a free port (bind-and-release), expands `<ip>`/`<port>` tokens
-    /// in the supplied args **and** in the url template, spawns the server with
-    /// `kill_on_drop`, and drains **both stdout and stderr** into one shared log
-    /// buffer. Returns the [`HalfOpenHttp`] handle; the caller completes the
-    /// connection in [`Self::connect_with_retry`] once the HTTP endpoint is
-    /// reachable.
+    /// in the supplied args **and** in the url template, applies the resolved
+    /// `env` pairs additively to the child (as the stdio transport does),
+    /// spawns the server with `kill_on_drop`, and drains **both stdout and
+    /// stderr** into one shared log buffer. Returns the [`HalfOpenHttp`]
+    /// handle; the caller completes the connection in
+    /// [`Self::connect_with_retry`] once the HTTP endpoint is reachable.
     ///
     /// jinn owns the port allocation and never parses server output for the
     /// bind address — the URL is known the instant the port is allocated.
@@ -277,6 +309,7 @@ impl McpClient {
         program: &str,
         args: &[String],
         url_template: &str,
+        env: &[(String, String)],
         headers: Vec<(String, String)>,
     ) -> Result<HalfOpenHttp, Report<McpClientError>> {
         let bind_addr = parse_host(url_template);
@@ -297,6 +330,7 @@ impl McpClient {
             .stderr(Stdio::piped());
         // Terminal isolation, same as the stdio transport above.
         jinn_common::process_isolation::isolate(&mut std_cmd);
+        apply_env(&mut std_cmd, env);
         let mut command = tokio::process::Command::from(std_cmd);
         command.kill_on_drop(true);
 
@@ -697,9 +731,14 @@ mod tests {
         ];
 
         // When connecting over HTTP.
-        let mut half =
-            McpClient::connect_http(&shell, &args, "http://127.0.0.1:<port>/mcp", Vec::new())
-                .expect("spawn");
+        let mut half = McpClient::connect_http(
+            &shell,
+            &args,
+            "http://127.0.0.1:<port>/mcp",
+            &[],
+            Vec::new(),
+        )
+        .expect("spawn");
 
         // Then the URL is a localhost URL on a real port.
         assert!(half.url.starts_with("http://127.0.0.1:"));
@@ -846,5 +885,104 @@ mod tests {
 
         // And the sender completes once the canned response arrives.
         let _ = request_handle.await;
+    }
+
+    /// Builds the stdio spawn command the connect path assembles: a shell
+    /// one-liner printing the three variables an assertion cares about,
+    /// labeled, so a real spawned child reports what it actually saw.
+    fn echo_command(env: Vec<(String, String)>) -> ServerCommand {
+        let shell = jinn_testutil::shell_required();
+        let script = "printf 'A=%s\\nB=%s\\nPATH=%s\\n' \"$JINN_TEST_MCP_ENV_A\" \"$JINN_TEST_MCP_ENV_B\" \"$PATH\"";
+        ServerCommand {
+            program: shell,
+            args: vec!["-c".to_owned(), script.to_owned()],
+            env,
+        }
+    }
+
+    /// The process environment always carries PATH on a spawnable host; use
+    /// it as the stand-in "inherited variable" in additive-merge assertions.
+    fn path_value() -> String {
+        std::env::var("PATH").unwrap_or_default()
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn spawned_child_sees_configured_env_additively() {
+        // Given the stdio spawn command carrying one configured env pair,
+        // with the inherited PATH deliberately left unconfigured.
+        let cmd = echo_command(vec![(
+            "JINN_TEST_MCP_ENV_A".to_owned(),
+            "configured-a".to_owned(),
+        )]);
+
+        // When spawning through the real assembly path.
+        let output = McpClient::build_spawn_command(&cmd)
+            .output()
+            .await
+            .expect("child runs");
+
+        // Then the child saw the configured variable AND the inherited PATH —
+        // additive merge, nothing cleared.
+        let seen = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            seen.contains("A=configured-a"),
+            "configured var visible: {seen}"
+        );
+        assert!(
+            seen.contains(&format!("PATH={}", path_value())),
+            "inherited PATH visible: {seen}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn configured_env_overrides_an_inherited_variable() {
+        // Given the test process itself carries the variable the child would
+        // otherwise inherit, and the spawn configures the same name.
+        // SAFETY: single-threaded test setup; unique var name avoids races.
+        unsafe { std::env::set_var("JINN_TEST_MCP_ENV_B", "inherited-b") };
+        let cmd = echo_command(vec![(
+            "JINN_TEST_MCP_ENV_B".to_owned(),
+            "configured-b".to_owned(),
+        )]);
+
+        // When spawning through the real assembly path.
+        let mut command = McpClient::build_spawn_command(&cmd);
+        let output = command.output().await.expect("child runs");
+
+        // Then the child saw the configured value, not the inherited one —
+        // a configured key overrides the inherited variable of the same name.
+        let seen = String::from_utf8_lossy(&output.stdout);
+        assert!(seen.contains("B=configured-b"), "override applied: {seen}");
+        assert!(
+            !seen.contains("inherited-b"),
+            "inherited value must lose: {seen}"
+        );
+        // SAFETY: removing the test-only var set above; no concurrent readers.
+        unsafe { std::env::remove_var("JINN_TEST_MCP_ENV_B") };
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn inherited_variable_not_in_config_stays_visible_to_child() {
+        // Given the test process carries a variable the spawn does not name,
+        // and the spawn configures nothing.
+        // SAFETY: single-threaded test setup; unique var name avoids races.
+        unsafe { std::env::set_var("JINN_TEST_MCP_ENV_A", "inherited-a") };
+        let cmd = echo_command(Vec::new());
+
+        // When spawning through the real assembly path.
+        let output = McpClient::build_spawn_command(&cmd)
+            .output()
+            .await
+            .expect("child runs");
+
+        // Then the child still saw the inherited variable — an empty env
+        // config clears nothing.
+        let seen = String::from_utf8_lossy(&output.stdout);
+        assert!(seen.contains("A=inherited-a"), "inherited visible: {seen}");
+        // SAFETY: removing the test-only var set above; no concurrent readers.
+        unsafe { std::env::remove_var("JINN_TEST_MCP_ENV_A") };
     }
 }

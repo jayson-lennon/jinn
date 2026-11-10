@@ -37,6 +37,7 @@ async fn connect(bin: &std::path::Path, db: &MarkedPathBuf<Absolute>) -> McpClie
             "--db".to_owned(),
             db.to_string_lossy().into_owned(),
         ],
+        env: Vec::new(),
     };
     McpClient::connect(&command)
         .await

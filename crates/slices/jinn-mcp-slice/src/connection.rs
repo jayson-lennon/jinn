@@ -21,6 +21,7 @@
 // End-to-end dispatch roundtrip tests live in a separate module so the
 // stub-server fixtures (gated behind jinn-mcp's `server-testkit` feature)
 // stay isolated from the pure unit tests above.
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -116,6 +117,13 @@ pub struct McpActorDeps {
     /// `singleton` field). `false` from `new`; singleton spawners flip it
     /// with [`as_singleton`](Self::as_singleton).
     singleton: bool,
+    /// The enabling session's working directory, for `<session_cwd>` token
+    /// expansion in args and env values. `None` from `new` — a singleton
+    /// spawn keeps it `None`, which arms the connect-time refusal for
+    /// entries referencing the token (see
+    /// [`references_session_cwd`]); per-session spawners attach it with
+    /// [`with_session_cwd`](Self::with_session_cwd).
+    session_cwd: Option<MarkedPathBuf<Absolute>>,
 }
 
 impl McpActorDeps {
@@ -134,6 +142,7 @@ impl McpActorDeps {
             server,
             client_override: Arc::new(Mutex::new(None)),
             singleton: false,
+            session_cwd: None,
         }
     }
 
@@ -141,6 +150,16 @@ impl McpActorDeps {
     #[must_use]
     pub fn as_singleton(mut self) -> Self {
         self.singleton = true;
+        self
+    }
+
+    /// Attaches the enabling session's working directory for `<session_cwd>`
+    /// expansion. Only per-session spawns carry one; a singleton keeps
+    /// `None`, which arms the connect-time refusal for entries referencing
+    /// the token.
+    #[must_use]
+    pub fn with_session_cwd(mut self, session_cwd: Option<MarkedPathBuf<Absolute>>) -> Self {
+        self.session_cwd = session_cwd;
         self
     }
 
@@ -162,6 +181,7 @@ impl McpActorDeps {
             server,
             client_override: Arc::new(Mutex::new(Some(client))),
             singleton: false,
+            session_cwd: None,
         }
     }
 
@@ -184,6 +204,7 @@ impl McpActorDeps {
             server,
             client_override: Arc::new(Mutex::new(Some(client))),
             singleton: true,
+            session_cwd: None,
         }
     }
 }
@@ -192,7 +213,10 @@ impl McpActorDeps {
 ///
 /// The `<jinn>` token in the program name or any argument expands to the
 /// running jinn executable's path (see [`expand_jinn_token`]) — how the
-/// shipped builtin-server entries name jinn itself. `<ip>`/`<port>` stay
+/// shipped builtin-server entries name jinn itself. The `<session_cwd>`
+/// token expands to `session_cwd` when one is attached (per-session
+/// spawns); with `None` the token is left literal and the connect path
+/// refuses first (see [`references_session_cwd`]). `<ip>`/`<port>` stay
 /// local_http-only (see `connect_for_transport`).
 ///
 /// # Panics
@@ -203,20 +227,33 @@ impl McpActorDeps {
     clippy::expect_used,
     reason = "invariant: documented, only called for Stdio/LocalHttp"
 )]
-fn server_command(config: &McpServerConfig) -> ServerCommand {
+pub(crate) fn server_command(
+    config: &McpServerConfig,
+    session_cwd: Option<&MarkedPathBuf<Absolute>>,
+) -> ServerCommand {
     // current_exe failure (exotic sandbox) leaves the token unexpanded; the
     // spawn then fails naming the literal `<jinn>`, which is legible.
     let jinn_exe = std::env::current_exe()
         .ok()
         .and_then(|raw| MarkedPathBuf::<Absolute>::new(raw).ok());
-    let expand = |value: String| match &jinn_exe {
-        Some(path) => jinn_mcp::transport::expand_jinn_token(&value, path),
-        None => {
-            tracing::warn!(
-                value = %value,
-                "could not resolve the jinn executable; leaving <jinn> unexpanded"
-            );
-            value
+    let expand = |value: String| -> String {
+        // Expand <jinn> first, then <session_cwd>. The two token texts are
+        // disjoint, so order is unobservable; a missing cwd leaves the cwd
+        // token literal (the connect-time refusal names the conflict before
+        // any spawn attempt).
+        let value = match &jinn_exe {
+            Some(path) => jinn_mcp::transport::expand_jinn_token(&value, path),
+            None => {
+                tracing::warn!(
+                    value = %value,
+                    "could not resolve the jinn executable; leaving <jinn> unexpanded"
+                );
+                value
+            }
+        };
+        match session_cwd {
+            Some(cwd) => jinn_mcp::transport::expand_session_cwd_token(&value, cwd),
+            None => value,
         }
     };
     ServerCommand {
@@ -227,23 +264,34 @@ fn server_command(config: &McpServerConfig) -> ServerCommand {
                 .expect("command required for Stdio/LocalHttp servers"),
         ),
         args: config.args.iter().map(|a| expand(a.clone())).collect(),
+        env: Vec::new(),
     }
 }
 
 /// Connects a fresh [`McpClient`] according to the server's configured transport.
 ///
 /// - [`TransportKind::Stdio`]: spawn the child and handshake over stdin/stdout.
-///   Configured `headers` are ignored entirely.
+///   Configured `headers` are ignored entirely; configured `env` pairs are
+///   resolved (tokens + `${VAR}`) and applied additively to the child.
 /// - [`TransportKind::LocalHttp`]: spawn the child (managed port via `<port>`
 ///   token, bind address parsed from `url`), then poll the HTTP endpoint on a
 ///   backoff until the handshake succeeds or the child exits (no wall-clock timeout).
+///   Env pairs resolved and applied as stdio.
 /// - [`TransportKind::RemoteHttp`]: connect to the configured `url` with no child.
+///   Env pairs are accepted but unused — jinn never spawns a process.
 ///
 /// For both HTTP transports, configured header values are expanded from
 /// [`ApiKeysService`](jinn_kernel::common::services::api_keys_service::ApiKeysService)
 /// (`${VAR}` tokens resolved against variables seeded at startup) *before* any
 /// connect attempt; an unresolvable variable aborts the connect, which the
 /// caller surfaces as a dead server.
+///
+/// # Errors
+///
+/// Fails with [`McpSingletonTokenError`] when a singleton entry references
+/// `<session_cwd>` (command, args, or env values) and no session cwd is
+/// available — one shared process cannot answer "which session's directory".
+/// Env/header token-resolution failures propagate as [`McpClientError`].
 #[expect(
     clippy::expect_used,
     reason = "invariants: url/command documented per transport kind"
@@ -251,9 +299,35 @@ fn server_command(config: &McpServerConfig) -> ServerCommand {
 pub(crate) async fn connect_for_transport(
     services: &Services,
     server: &McpServerConfig,
+    session_cwd: Option<&MarkedPathBuf<Absolute>>,
 ) -> Result<McpClient, Report<McpClientError>> {
+    // A singleton has no session cwd; an entry that references the token in
+    // that shape cannot answer "which session's directory" — refuse before
+    // any spawn attempt. The message names the conflict and the fix.
+    if server.singleton && session_cwd.is_none() && references_session_cwd(server) {
+        return Err(Report::new(McpClientError)
+            .attach("singleton server refuses <session_cwd>")
+            .attach(format!(
+                "singleton server '{}' references <session_cwd>, but a singleton serves every \
+                 session through one shared process — pin an absolute path instead",
+                server
+                    .command
+                    .clone()
+                    .unwrap_or_else(|| "<remote server>".to_owned())
+            )));
+    }
+
+    // Resolve env pairs once per connect: expand <session_cwd> in each value
+    // (per-session spawn), then expand ${VAR} tokens against the key store.
+    // Fails fast naming the variable; values never leak.
+    let env = expand_server_env(services, server, session_cwd)?;
+
     match server.transport {
-        TransportKind::Stdio => McpClient::connect(&server_command(server)).await,
+        TransportKind::Stdio => {
+            let mut cmd = server_command(server, session_cwd);
+            cmd.env = env;
+            McpClient::connect(&cmd).await
+        }
         TransportKind::LocalHttp => {
             let url = server
                 .url
@@ -267,6 +341,7 @@ pub(crate) async fn connect_for_transport(
                     .expect("command required for LocalHttp servers"),
                 &server.args,
                 url,
+                &env,
                 headers,
             )?;
             McpClient::connect_with_retry(half).await
@@ -280,6 +355,64 @@ pub(crate) async fn connect_for_transport(
             McpClient::connect_remote(url, headers).await
         }
     }
+}
+
+/// True when any of the entry's spawned-process inputs — command, args, or
+/// env values — carries the literal `<session_cwd>` token.
+///
+/// Checks the *configured* strings before expansion; used to arm the
+/// singleton refusal. The command is included for completeness: a singleton
+/// stdio entry could name its program via the token, which is the same
+/// "one shared process, whose directory?" conflict.
+#[must_use]
+fn references_session_cwd(server: &McpServerConfig) -> bool {
+    let command_hit = server
+        .command
+        .as_deref()
+        .is_some_and(|c| c.contains(SESSION_CWD_TOKEN));
+    command_hit
+        || server.args.iter().any(|a| a.contains(SESSION_CWD_TOKEN))
+        || server.env.values().any(|v| v.contains(SESSION_CWD_TOKEN))
+}
+
+/// The literal `<session_cwd>` replacement token.
+const SESSION_CWD_TOKEN: &str = "<session_cwd>";
+
+/// Expands one server's configured env map into resolved `(name, value)`
+/// pairs for the child spawn.
+///
+/// Env **names** pass through literally; only values expand. Each value is
+/// first expanded for the `<session_cwd>` token (when a session cwd is
+/// attached), then for `${VAR}` tokens against the startup-seeded key store.
+/// Failure means some referenced variable is missing/empty — propagated so
+/// the error names the variable and nothing else.
+///
+/// # Errors
+///
+/// Returns [`HeaderExpandError::UnresolvedVariable`] (via [`McpClientError`]
+/// context) when expansion fails.
+pub(crate) fn expand_server_env(
+    services: &Services,
+    server: &McpServerConfig,
+    session_cwd: Option<&MarkedPathBuf<Absolute>>,
+) -> Result<Vec<(String, String)>, Report<McpClientError>> {
+    let expanded_values = server
+        .env
+        .values()
+        .map(|value| match session_cwd {
+            Some(cwd) => jinn_mcp::transport::expand_session_cwd_token(value, cwd),
+            None => value.clone(),
+        })
+        .collect::<Vec<String>>();
+    let template = server
+        .env
+        .keys()
+        .cloned()
+        .zip(expanded_values)
+        .collect::<BTreeMap<String, String>>();
+    let resolve = |name: &str| services.api_keys.get(name);
+    jinn_preferences_config::schemas::mcp::expand_mcp_headers(&template, &resolve)
+        .change_context(McpClientError)
 }
 
 /// Expands `${VAR}` tokens in one server's configured headers against the
@@ -320,11 +453,12 @@ async fn acquire_client(
     services: &Services,
     name: &str,
     server: &McpServerConfig,
+    session_cwd: Option<&MarkedPathBuf<Absolute>>,
     client_override: Option<McpClient>,
 ) -> Result<(McpClient, Vec<ToolDefinition>), Option<McpClient>> {
     let client = match client_override {
         Some(injected) => injected,
-        None => match connect_for_transport(services, server).await {
+        None => match connect_for_transport(services, server, session_cwd).await {
             Ok(client) => client,
             Err(report) => {
                 tracing::warn!(
@@ -452,6 +586,7 @@ async fn start_mcp(args: McpActorDeps) -> Result<McpActor, std::convert::Infalli
         server,
         client_override,
         singleton,
+        session_cwd,
     } = args;
 
     publish_status(&deps, &session_id, &name, McpConnectionStatus::Starting).await;
@@ -465,26 +600,33 @@ async fn start_mcp(args: McpActorDeps) -> Result<McpActor, std::convert::Infalli
     // list) is non-fatal to the process: the actor runs idle, the lifecycle
     // actor / dashboard surfaces the dead status, and a later enable/disable
     // cycle can respawn.
-    let (mut client, definitions) =
-        match acquire_client(&deps.services, &name, &server, injected_client).await {
-            Ok(ready) => ready,
-            Err(half_open) => {
-                if let Some(mut half_open) = half_open {
-                    half_open.shutdown().await;
-                }
-                publish_status(&deps, &session_id, &name, McpConnectionStatus::Dead).await;
-                return Ok(McpActor {
-                    deps,
-                    session_id,
-                    name,
-                    client: None,
-                    stderr_task_shutdown: Arc::new(AtomicBool::new(false)),
-                    liveness_task_shutdown: Arc::new(AtomicBool::new(false)),
-                    child_task_shutdown: None,
-                    singleton,
-                });
+    let (mut client, definitions) = match acquire_client(
+        &deps.services,
+        &name,
+        &server,
+        session_cwd.as_ref(),
+        injected_client,
+    )
+    .await
+    {
+        Ok(ready) => ready,
+        Err(half_open) => {
+            if let Some(mut half_open) = half_open {
+                half_open.shutdown().await;
             }
-        };
+            publish_status(&deps, &session_id, &name, McpConnectionStatus::Dead).await;
+            return Ok(McpActor {
+                deps,
+                session_id,
+                name,
+                client: None,
+                stderr_task_shutdown: Arc::new(AtomicBool::new(false)),
+                liveness_task_shutdown: Arc::new(AtomicBool::new(false)),
+                child_task_shutdown: None,
+                singleton,
+            });
+        }
+    };
 
     let provider = provider_name(&name);
     tracing::info!(
@@ -1111,7 +1253,7 @@ mod tests {
         };
 
         // When building the command.
-        let cmd = server_command(&config);
+        let cmd = server_command(&config, None);
 
         // Then the program and args are copied.
         assert_eq!(cmd.program, "npx");
@@ -1134,7 +1276,7 @@ mod tests {
         };
 
         // When building the command.
-        let cmd = server_command(&config);
+        let cmd = server_command(&config, None);
 
         // Then every <jinn> occurrence is the running executable's path.
         let exe = std::env::current_exe().expect("test binary has an exe path");
@@ -1156,7 +1298,7 @@ mod tests {
         };
 
         // When building the command.
-        let cmd = server_command(&config);
+        let cmd = server_command(&config, None);
 
         // Then nothing changes and no token remains anywhere.
         assert_eq!(cmd.program, "npx");

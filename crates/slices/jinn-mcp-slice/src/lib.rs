@@ -36,6 +36,8 @@ mod mcp_picker_tests;
 #[cfg(test)]
 mod restart_mcp_tests;
 #[cfg(test)]
+mod session_cwd_tests;
+#[cfg(test)]
 mod singleton_connection_tests;
 #[cfg(test)]
 mod singleton_lifecycle_tests;

@@ -232,6 +232,7 @@ fn server_command_carries_program_and_args() {
     let cmd = ServerCommand {
         program: "npx".to_owned(),
         args: vec!["@excalimate/mcp-server".to_owned(), "--stdio".to_owned()],
+        env: Vec::new(),
     };
 
     // When reading the command back (sanity check for the owned value the
