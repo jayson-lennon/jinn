@@ -51,8 +51,6 @@ Attach "bots" to sessions that fire when their parent session turn ends (or manu
 
 They can be created entirely in-app by typing in the instructions in the bot session and then turning it on. Bots can be optionally saved to your `jinn.toml` via keybind so you can attach them to any session.
 
-![Bots](doc/screenshots/bot.png)
-
 ### Workflows
 
 `jinn` can create repeatable task execution contexts using workflows. These can range from simple step-by-step processes, to orchestrated concurrent processes with inter-session communication. To build a workflow, ask `jinn`:
