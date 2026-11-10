@@ -4,6 +4,7 @@
 
 - Applet picker now shows the bind address for the applet server.
 - Applet server now has an index page at `/`.
+- Add experimental "task restatement" and "failure escalation" sections to `coding-assistant` persona.
 
 ## 2026-11-07 v1.22.0
 
