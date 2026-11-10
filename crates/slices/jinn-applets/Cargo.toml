@@ -52,6 +52,8 @@ jinn-cell-catalog = { workspace = true }
 serde_json = { workspace = true }
 trouper = { workspace = true }
 toml_edit = { workspace = true }
+# The index-route tests dispatch through the real router via oneshot.
+tower = { version = "0.5", features = ["util"] }
 
 [lints]
 workspace = true

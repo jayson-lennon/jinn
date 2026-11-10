@@ -14,9 +14,13 @@
 //!   same manifest-defined file tree canvas's build verifies, so served
 //!   vendor bytes are byte-identical without a dependency on the canvas
 //!   implementation crate.
-//! - [`server`] — the axum listener: `/applets/<id>/…` read fresh from disk
+//! - [`server`] — the axum listener: `/` is the barebones `Index of /`
+//!   listing of saved applets, `/applets/<id>/…` is read fresh from disk
 //!   on every request, `/vendor/`, `/healthz`. No `/ws`, no `/metrics`,
 //!   no watcher.
+//! - [`catalog_fs`] — the on-disk catalog's reader/writer (`applets.json`
+//!   scan and write-through) and the index page builder, shared by the
+//!   store actor and the server.
 //! - [`server_actor`] — the dormant-until-first-open actor that owns the
 //!   listener; the store actor asks it to bind on the first open.
 //! - [`store_actor`] — owns the on-disk catalog (`applets.json`) and the
@@ -39,6 +43,7 @@
 //! not a marketplace of manifests (an applet is a directory of files).
 
 pub mod browser;
+pub mod catalog_fs;
 pub mod picker_actions;
 pub mod picker_render;
 pub mod picker_republisher_actor;
