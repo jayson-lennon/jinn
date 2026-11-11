@@ -171,11 +171,16 @@ impl LlmService for RetryingLlmService {
         system_prompt: Option<&str>,
         messages: Vec<LlmMessage>,
         tools: Vec<ToolDefinition>,
+        tool_choice: crate::ToolChoice,
     ) -> Result<ToolStream, Report<LlmServiceError>> {
         let system = system_prompt.map(std::borrow::ToOwned::to_owned);
         self.retry_loop(|| {
-            self.inner
-                .chat_stream_with_tools(system.as_deref(), messages.clone(), tools.clone())
+            self.inner.chat_stream_with_tools(
+                system.as_deref(),
+                messages.clone(),
+                tools.clone(),
+                tool_choice,
+            )
         })
         .await
     }

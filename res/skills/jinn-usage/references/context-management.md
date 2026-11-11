@@ -96,6 +96,18 @@ compaction rarely fires. The tuning lives in `jinn.toml`:
 - `[context_curation.compaction]`: `threshold` (usage fraction that
   triggers compaction), `reserve_tokens`, `fallback_context_window`, and an
   optional compaction `model`.
+- `[context_curation.handoff_compaction]`: paper-style "handoff"
+  compaction (opt-in via `enabled = true`). When enabled, background
+  compaction is skipped for that session; instead, at the next
+  model-request boundary after usage crosses `threshold` (of
+  `context_limit` if set, else the model's context length), jinn asks the
+  same session model to write a handoff recap of the work so far — no
+  tools are callable during that turn — then drops everything except your
+  messages, pins, and the recap from context and continues. The recap
+  turn is visible in the transcript and jumpable with `]c`/`[c` like any
+  compaction summary. Keep `threshold` below background compaction's so
+  the handoff fires first; a handoff cancelled mid-turn applies nothing
+  and the gate re-fires on the next request.
 
 See `configuration.md` for how to edit these; they are re-read at next
 use, so an edit applies by the next compaction.

@@ -45,6 +45,12 @@ pub struct AssemblyInputs {
     pub loaded_skills: HashSet<String>,
     /// Discovered context files (rendered into the env block).
     pub context_files: Vec<ContextFile>,
+    /// Whether handoff compaction is enabled for this session. `true`
+    /// appends the resume-instructions section to the system prompt —
+    /// the paper's `{recap_section}` analog: how to continue from a
+    /// handoff recap and what a recap must carry.
+    #[serde(default)]
+    pub handoff_enabled: bool,
 }
 
 /// Ask message: assemble a prompt from these inputs.

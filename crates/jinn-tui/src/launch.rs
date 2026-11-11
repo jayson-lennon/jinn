@@ -107,6 +107,23 @@ pub fn load_compaction_prompt(
     Ok(prompt)
 }
 
+/// Loads the handoff-compaction system prompt from the user prompts directory.
+///
+/// The handoff recap prompt (arXiv 2611.05306, Appendix G) is fatal at launch
+/// the same way `_compaction.md` is: the fallback path re-reads it at point of
+/// use from the last launch-time copy, so the launch load must succeed for
+/// there to be a last good copy to fall back to.
+///
+/// # Errors
+///
+/// Returns an error if the handoff prompt is missing from the user prompts
+/// directory or cannot be read.
+pub fn load_handoff_prompt(user_dir: &MarkedPath<Absolute>) -> Result<String, Report<LaunchError>> {
+    let prompt = load_system_resource("_handoff.md", user_dir).change_context(LaunchError)?;
+    tracing::info!("loaded handoff prompt");
+    Ok(prompt)
+}
+
 /// Loads the theme from user preferences into application state.
 ///
 /// Resolves the theme from the user themes directory. If the preferred theme

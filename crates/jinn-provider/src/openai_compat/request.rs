@@ -41,9 +41,11 @@ pub struct StreamOptions {
 #[serde(rename_all = "lowercase")]
 pub enum ToolChoiceValue {
     Auto,
-    #[allow(dead_code)]
     None,
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "wire vocabulary: part of the OpenAI tool_choice surface"
+    )]
     Required,
 }
 
@@ -58,6 +60,7 @@ pub fn build_request(
     messages: &[LlmMessage],
     tools: &[ToolDefinition],
     extra_body: &serde_json::Map<String, serde_json::Value>,
+    tool_choice: crate::ToolChoice,
 ) -> ChatCompletionRequest {
     // Coalesce consecutive same-role messages (user, assistant without tool_calls)
     // into single messages. Many OpenAI-compatible providers (e.g. ZAI) reject
@@ -86,7 +89,10 @@ pub fn build_request(
     };
 
     let tool_choice = if openai_tools.is_some() {
-        Some(ToolChoiceValue::Auto)
+        Some(match tool_choice {
+            crate::ToolChoice::Auto => ToolChoiceValue::Auto,
+            crate::ToolChoice::None => ToolChoiceValue::None,
+        })
     } else {
         None
     };
@@ -299,7 +305,14 @@ mod tests {
         }];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then model and stream are correct.
         assert_eq!(req.model, "gpt-4");
@@ -324,11 +337,52 @@ mod tests {
         }];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &tools, &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &tools,
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then tools are included and tool_choice is auto.
         assert!(req.tools.is_some());
         assert!(matches!(req.tool_choice, Some(ToolChoiceValue::Auto)));
+    }
+
+    #[rstest::rstest]
+    fn build_request_none_choice_keeps_tools_and_serializes_lowercase_none() {
+        // Given messages and tool definitions, with a None (forbid) choice.
+        let messages = vec![LlmMessage::User {
+            content: "write the recap".into(),
+            attachments: Vec::new(),
+        }];
+        let tools = vec![ToolDefinition {
+            name: "get_weather".into(),
+            description: "Get weather".into(),
+            prompt_snippet: None,
+            prompt_guidelines: vec![],
+            parameters: serde_json::json!({"type": "object"}),
+            server_tool_type: None,
+        }];
+
+        // When building the request with the forbidding choice.
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &tools,
+            &serde_json::Map::new(),
+            crate::ToolChoice::None,
+        );
+
+        // Then the tools stay defined (prefix continuity) and the choice
+        // serializes as the wire form "none".
+        assert!(req.tools.is_some());
+        let choice = req.tool_choice.as_ref().expect("choice present");
+        let json = serde_json::to_value(choice).expect("serialize");
+        assert_eq!(json, serde_json::json!("none"));
     }
 
     #[rstest::rstest]
@@ -338,7 +392,7 @@ mod tests {
         extra.insert("enable_thinking".into(), serde_json::json!(true));
 
         // When building request.
-        let req = build_request("gpt-4", None, &[], &[], &extra);
+        let req = build_request("gpt-4", None, &[], &[], &extra, crate::ToolChoice::Auto);
 
         // Then extra_body is merged.
         assert_eq!(req.extra.get("enable_thinking").unwrap(), true);
@@ -365,6 +419,7 @@ mod tests {
             &messages,
             &[],
             &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
         );
 
         // Then exactly one system message leads and user messages stay coalesced after it.
@@ -387,7 +442,14 @@ mod tests {
         }];
 
         // When building request with None.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then no system-role message appears.
         assert_eq!(req.messages.len(), 1);
@@ -422,7 +484,14 @@ mod tests {
         }];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then stream_options requests usage data.
         assert!(req.stream_options.include_usage);
@@ -465,7 +534,14 @@ mod tests {
         ];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then they are merged into one user message.
         assert_eq!(req.messages.len(), 1);
@@ -491,7 +567,14 @@ mod tests {
         ];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then they are merged into one assistant message.
         assert_eq!(req.messages.len(), 1);
@@ -521,7 +604,14 @@ mod tests {
         ];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then both messages are kept separate.
         assert_eq!(req.messages.len(), 2);
@@ -548,7 +638,14 @@ mod tests {
         ];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then they are kept as separate messages.
         assert_eq!(req.messages.len(), 2);
@@ -575,7 +672,14 @@ mod tests {
         ];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then all messages are kept separate.
         assert_eq!(req.messages.len(), 3);
@@ -603,7 +707,14 @@ mod tests {
         ];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then all three are merged into a single user message.
         assert_eq!(req.messages.len(), 1);
@@ -635,7 +746,14 @@ mod tests {
         ];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then the two user messages are kept separate.
         assert_eq!(req.messages.len(), 3);
@@ -669,7 +787,14 @@ mod tests {
         ];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then the two user messages are kept separate.
         assert_eq!(req.messages.len(), 3);
@@ -699,6 +824,7 @@ mod tests {
             &messages,
             &[],
             &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
         );
 
         // Then the system message leads and user messages are coalesced after it.
@@ -748,7 +874,14 @@ mod tests {
         ];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then all messages are preserved in order with no coalescing.
         assert_eq!(req.messages.len(), 5);
@@ -768,7 +901,14 @@ mod tests {
         }];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then it is unchanged.
         assert_eq!(req.messages.len(), 1);
@@ -782,7 +922,14 @@ mod tests {
         let messages: Vec<LlmMessage> = vec![];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then request messages is empty.
         assert_eq!(req.messages, [] as [serde_json::Value; 0]);
@@ -803,7 +950,14 @@ mod tests {
         ];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then they are coalesced with a separator.
         assert_eq!(req.messages.len(), 1);
@@ -833,7 +987,14 @@ mod tests {
         ];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then they are merged into one user message.
         assert_eq!(req.messages.len(), 1);
@@ -978,7 +1139,14 @@ mod tests {
         ];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then the two user messages are NOT coalesced (array content can't merge).
         assert_eq!(req.messages.len(), 2);
@@ -999,7 +1167,14 @@ mod tests {
         }];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then two wire messages are produced: the tool message unchanged, then
         // a synthesized user message.
@@ -1045,7 +1220,14 @@ mod tests {
         ];
 
         // When building request.
-        let req = build_request("gpt-4", None, &messages, &[], &serde_json::Map::new());
+        let req = build_request(
+            "gpt-4",
+            None,
+            &messages,
+            &[],
+            &serde_json::Map::new(),
+            crate::ToolChoice::Auto,
+        );
 
         // Then the synthesized user message and the real user message stay
         // separate (array content never absorbs string content).

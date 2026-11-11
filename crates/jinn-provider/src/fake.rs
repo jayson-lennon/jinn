@@ -387,6 +387,7 @@ impl LlmService for FakeLlmService {
         system_prompt: Option<&str>,
         messages: Vec<LlmMessage>,
         _tools: Vec<jinn_core_types::tool_types::ToolDefinition>,
+        _tool_choice: crate::ToolChoice,
     ) -> Result<ToolStream, Report<LlmServiceError>> {
         // Record the messages and system prompt for test observability.
         self.received_calls.lock().push(messages.clone());
@@ -518,6 +519,7 @@ impl LlmService for HungStreamService {
         _system_prompt: Option<&str>,
         _messages: Vec<LlmMessage>,
         _tools: Vec<jinn_core_types::tool_types::ToolDefinition>,
+        _tool_choice: crate::ToolChoice,
     ) -> Result<ToolStream, Report<LlmServiceError>> {
         Ok(Box::pin(Self::hung_stream()))
     }

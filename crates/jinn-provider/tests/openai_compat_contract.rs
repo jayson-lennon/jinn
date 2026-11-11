@@ -69,6 +69,7 @@ async fn text_streaming_yields_text_events() {
                 attachments: Vec::new(),
             }],
             vec![],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -117,6 +118,7 @@ async fn text_streaming_yields_done_event() {
                 attachments: Vec::new(),
             }],
             vec![],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -170,6 +172,7 @@ async fn tool_call_streaming_yields_tool_use_start() {
                 parameters: serde_json::json!({"type": "object"}),
                 server_tool_type: None,
             }],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -223,6 +226,7 @@ async fn tool_call_streaming_yields_input_delta() {
                 parameters: serde_json::json!({"type": "object"}),
                 server_tool_type: None,
             }],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -276,6 +280,7 @@ async fn tool_call_streaming_yields_tool_use_complete() {
                 parameters: serde_json::json!({"type": "object"}),
                 server_tool_type: None,
             }],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -329,6 +334,7 @@ async fn tool_call_streaming_yields_done_event() {
                 parameters: serde_json::json!({"type": "object"}),
                 server_tool_type: None,
             }],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -485,6 +491,7 @@ async fn extra_body_fields_included_in_request() {
                 attachments: Vec::new(),
             }],
             vec![],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -525,6 +532,7 @@ async fn error_response_401_mapped_to_provider_error() {
                 attachments: Vec::new(),
             }],
             vec![],
+            jinn_provider::ToolChoice::Auto,
         )
         .await;
 
@@ -562,6 +570,7 @@ async fn reasoning_content_produces_reasoning_event() {
                 attachments: Vec::new(),
             }],
             vec![],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -614,6 +623,7 @@ async fn base_url_override_routes_to_correct_host() {
                 attachments: Vec::new(),
             }],
             vec![],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -738,6 +748,7 @@ async fn custom_headers_from_config_are_sent() {
                 attachments: Vec::new(),
             }],
             vec![],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -785,6 +796,7 @@ async fn openrouter_attribution_headers_are_sent_on_chat_requests() {
                 attachments: Vec::new(),
             }],
             vec![],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -835,6 +847,7 @@ async fn openrouter_emits_nested_reasoning_effort_in_request() {
                 attachments: Vec::new(),
             }],
             vec![],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -880,6 +893,7 @@ async fn non_openrouter_emits_flat_reasoning_effort_in_request() {
                 attachments: Vec::new(),
             }],
             vec![],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();

@@ -17,6 +17,7 @@ pub struct Ctx<'a> {
     state: &'a State,
     services: &'a mut Services,
     compaction_prompt: String,
+    handoff_prompt: String,
     token_counter: jinn_llm_support::token_estimator::TiktokenCounter,
     image_converter: jinn_llm_support::image_convert::ImageConverterService,
 }
@@ -24,16 +25,23 @@ pub struct Ctx<'a> {
 impl<'a> Ctx<'a> {
     /// Assembles the context for one boot.
     ///
-    /// `compaction_prompt` is read here, at startup, and carried on the
-    /// struct. The shell is not carried here: it was resolved at launch
-    /// and rides on the services container, so every consumer reads the
-    /// same resolved value.
+    /// `compaction_prompt` and `handoff_prompt` are read here, at startup,
+    /// and carried on the struct as the last-good fallbacks their
+    /// point-of-use reloads fall back to. The shell is not carried here: it
+    /// was resolved at launch and rides on the services container, so every
+    /// consumer reads the same resolved value.
     #[must_use]
-    pub fn new(state: &'a State, services: &'a mut Services, compaction_prompt: String) -> Self {
+    pub fn new(
+        state: &'a State,
+        services: &'a mut Services,
+        compaction_prompt: String,
+        handoff_prompt: String,
+    ) -> Self {
         Self {
             state,
             services,
             compaction_prompt,
+            handoff_prompt,
             token_counter: jinn_llm_support::token_estimator::TiktokenCounter::o200k_base(),
             image_converter: jinn_llm_support::image_convert::ImageConverterService::system(),
         }
@@ -194,6 +202,7 @@ impl<'a> Ctx<'a> {
                 .map(|cell| cell.read().clone())
                 .unwrap_or_default(),
             image_converter: self.image_converter.clone(),
+            handoff_prompt: self.handoff_prompt.clone(),
         }
     }
 }

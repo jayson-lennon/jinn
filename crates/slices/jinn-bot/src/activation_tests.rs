@@ -995,6 +995,7 @@ async fn harness_with_session_actor() -> (jinn_testutil::bus_harness::TestHarnes
             counter: jinn_llm_support::token_estimator::TiktokenCounter::o200k_base(),
             token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
             image_converter: jinn_llm_support::image_convert::ImageConverterService::system(),
+            handoff_prompt: String::new(),
         },
     );
     (harness, state)

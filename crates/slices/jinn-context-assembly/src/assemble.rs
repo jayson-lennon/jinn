@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 
 use jinn_context::env_context::{
-    context_files_section, cwd_section, date_section, persona_section,
+    context_files_section, cwd_section, date_section, handoff_resume_section, persona_section,
 };
 use jinn_context_assembly_msg::AssemblyInputs;
 use jinn_core_types::LlmMessage;
@@ -59,6 +59,7 @@ pub fn assemble(inputs: &AssemblyInputs, counter: &dyn TokenCounter) -> Assemble
         skill_filter,
         loaded_skills,
         context_files,
+        handoff_enabled,
     } = inputs;
 
     let persona = persona.as_ref();
@@ -126,6 +127,13 @@ pub fn assemble(inputs: &AssemblyInputs, counter: &dyn TokenCounter) -> Assemble
         }
         if !skills_block.is_empty() {
             system_parts.push(skills_block);
+        }
+        // The handoff-resume section rides with the other tail sections;
+        // the builder returns empty (omitted) when handoff is disabled,
+        // so a disabled feature leaves the prompt byte-identical.
+        let handoff_section = handoff_resume_section(*handoff_enabled);
+        if !handoff_section.is_empty() {
+            system_parts.push(handoff_section);
         }
         system_parts.push(date_section());
         system_parts.push(cwd_section(cwd));
@@ -326,7 +334,11 @@ mod tests {
         session_id: &SessionId,
         counter: &TiktokenCounter,
     ) -> jinn_slices::AssembledPrompt {
-        let inputs = crate::inputs::build_assembly_inputs(state, session_id);
+        let inputs = crate::inputs::build_assembly_inputs(
+            state,
+            jinn_config::empty_config_layer(),
+            session_id,
+        );
         assemble(&inputs, counter)
     }
 

@@ -30,12 +30,22 @@ fn bot_sees_tool(
 /// Session-owned values are captured together through
 /// [`AssemblySessionProjection`]; persona and tool definitions are resolved
 /// from their attached cells while the same guard is still held.
+/// `handoff_enabled` comes from the configuration layer, read live — a
+/// jinn.toml edit applies at the next assembly.
 ///
 /// Missing persona or tool cells degrade to empty assembly values rather than
 /// failing turn dispatch.
 #[must_use]
-pub fn build_assembly_inputs(state: &AppState, session_id: &SessionId) -> AssemblyInputs {
+pub fn build_assembly_inputs(
+    state: &AppState,
+    config: &jinn_config::ConfigLayer,
+    session_id: &SessionId,
+) -> AssemblyInputs {
     let session = AssemblySessionProjection::capture(session_id, state.session(session_id));
+    let handoff_enabled = config
+        .get::<jinn_preferences_config::schemas::HandoffCompactionConfig>()
+        .map(|config| config.enabled)
+        .unwrap_or(false);
 
     let persona = state.persona_selection().and_then(|cell| {
         cell.read()
@@ -69,6 +79,7 @@ pub fn build_assembly_inputs(state: &AppState, session_id: &SessionId) -> Assemb
         skill_filter: session.skill_filter,
         loaded_skills: session.loaded_skills,
         context_files: session.context_files,
+        handoff_enabled,
     }
 }
 
@@ -212,7 +223,11 @@ mod bot_tool_visibility_tests {
         let (state, session_id) = state_with_session(bot);
 
         // When its assembly inputs are built.
-        let inputs = build_assembly_inputs(&state.read(), &session_id);
+        let inputs = build_assembly_inputs(
+            &state.read(),
+            jinn_config::empty_config_layer(),
+            &session_id,
+        );
 
         // Then `read` is permitted and the other ordinary tools are not.
         let filter = inputs.tool_filter.expect("bot carries a filter");
@@ -246,7 +261,7 @@ mod bot_tool_visibility_tests {
     /// The tool names a session's assembly inputs carry.
     fn tool_names(state: &State, session_id: &SessionId) -> Vec<String> {
         let guard = state.read();
-        build_assembly_inputs(&guard, session_id)
+        build_assembly_inputs(&guard, jinn_config::empty_config_layer(), session_id)
             .tools
             .iter()
             .map(|t| t.name.clone())

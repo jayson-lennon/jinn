@@ -61,6 +61,10 @@ pub struct ActorSystemBuilderArgs {
     /// The compaction system prompt loaded from the prompts directory at
     /// startup (the compaction worker consumes it on each compaction).
     pub compaction_prompt: String,
+    /// The handoff-compaction recap prompt loaded from the prompts
+    /// directory at startup (the handoff gate consumes it on each
+    /// handoff; the launch copy is the last-good fallback).
+    pub handoff_prompt: String,
 }
 
 /// Builds the actor system: spawns all actors on trouper.
@@ -110,6 +114,7 @@ impl ActorSystemBuilder {
             paths,
             dump_requests,
             compaction_prompt,
+            handoff_prompt,
         } = self.args;
 
         // Shared State FIRST — injected into multiple actors.
@@ -192,7 +197,8 @@ impl ActorSystemBuilder {
         // global namespace and is not consulted outside of program
         // startup. Lifecycle scripts promise bash semantics, not the
         // user's login shell — see `jinn_common::shell`.
-        let mut ctx = crate::bootstrap::Ctx::new(&state, &mut services, compaction_prompt);
+        let mut ctx =
+            crate::bootstrap::Ctx::new(&state, &mut services, compaction_prompt, handoff_prompt);
         let Activated { boot, discord } = crate::bootstrap::slices::activate_all(&mut ctx).await?;
 
         // The frontend facade resolves the scope-focus and session-map

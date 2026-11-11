@@ -77,6 +77,7 @@ async fn composed_app_with_fast_stall_watchdog() -> (TuiApp, SessionId) {
             counter: TiktokenCounter::o200k_base(),
             token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
             image_converter: jinn_llm_support::image_convert::ImageConverterService::system(),
+            handoff_prompt: String::new(),
         },
     );
 

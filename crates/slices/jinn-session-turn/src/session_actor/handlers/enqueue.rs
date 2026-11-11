@@ -190,6 +190,21 @@ impl SessionPersistenceActor {
 
         match action {
             EnqueueAction::DispatchDirectly => {
+                // Handoff gate: every model-request boundary passes
+                // through here. A fire swaps this entry for the nudge —
+                // the user entry waits at the queue front and
+                // re-dispatches through the ordinary idle drain after
+                // the fold. The nudge dispatches as an ordinary fresh
+                // turn below.
+                let handoff_entry = self
+                    .handoff_nudge_if_gated(
+                        &payload.session_id,
+                        Some(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+                            entry.clone(),
+                        ))),
+                    )
+                    .await;
+                let entry = handoff_entry.unwrap_or(entry);
                 // Admission before the entry lands: a user message mints a
                 // fresh turn (`FreshTurn`), so the only refusal is a cancel
                 // drain in progress — in which case history stays untouched
@@ -235,7 +250,7 @@ impl SessionPersistenceActor {
 
                 self.publish(ChatEntrySubmitted {
                     session_id: payload.session_id.clone(),
-                    entry: payload.entry.clone(),
+                    entry: entry.clone(),
                 })
                 .await;
 
@@ -486,6 +501,21 @@ impl SessionPersistenceActor {
             return;
         }
 
+        // Handoff gate: a resume's dispatch is a model-request boundary
+        // like any other. The marker entry is constructed up front so a
+        // fire can hold it at the queue front (its UI role survives the
+        // fold) and dispatch the nudge as an ordinary fresh turn instead.
+        let marker = ChatEntry::system("\u{21bb} session resumed");
+        let handoff_entry = self
+            .handoff_nudge_if_gated(
+                &payload.session_id,
+                Some(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+                    marker.clone(),
+                ))),
+            )
+            .await;
+        let marker = handoff_entry.unwrap_or(marker);
+
         // Admission first: a resume is a fresh turn (a turn the cancel
         // killed stays dead), so `FreshTurn`. Refused → the marker never
         // lands and nothing dispatches.
@@ -506,8 +536,7 @@ impl SessionPersistenceActor {
             return;
         }
 
-        // Push UI-only resume marker.
-        let marker = ChatEntry::system("\u{21bb} session resumed");
+        // Push the resume marker (or the handoff nudge that replaced it).
         self.state.with_session(|view| {
             view.session
                 .map()

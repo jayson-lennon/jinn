@@ -5010,6 +5010,7 @@ async fn seed_mode_submission_leaves_the_entry_pinned_in_the_session() {
                 counter: jinn_llm_support::token_estimator::TiktokenCounter::o200k_base(),
                 token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
                 image_converter: jinn_llm_support::image_convert::ImageConverterService::system(),
+                handoff_prompt: String::new(),
             },
         );
         state

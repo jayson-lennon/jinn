@@ -53,6 +53,27 @@ pub struct SessionCoreEphemeral {
     pub message_queue: TurnQueue,
     /// Most recently assembled prompt size, in tokens.
     pub cached_context_size: Option<u32>,
+    /// A handoff-compaction turn is in flight for this session: the gate
+    /// fired, the recap request was dispatched, and the fold has not yet
+    /// run. Set when the handoff dispatch replaces the pending request;
+    /// cleared when the turn reaches a terminal outcome (success runs the
+    /// fold first) or the cancel sweep retires the turn's work. Process-
+    /// local: never persisted, so a restart mid-handoff resumes with the
+    /// gate simply re-firing at the next boundary.
+    #[serde(skip)]
+    pub handoff_pending: bool,
+    /// Total context-token cost of entries this session's fold or prune
+    /// excluded since the last assembly. The handoff gate adds this to the
+    /// cached assembled size — the excluded entries' cost is real to the
+    /// *next* request only insofar as they will not ride it, so the gate
+    /// reads the last assembled estimate plus what this session has
+    /// excluded-beyond-that-assembly. Reset at each fold.
+    #[serde(skip)]
+    pub handoff_excluded_cost: u32,
+    /// The fold found the replaced request to be a mid-loop continuation:
+    /// the fresh context owes it a dispatch (re-minted as a fresh turn).
+    #[serde(skip)]
+    pub handoff_continuation_owed: bool,
     /// Generation marker for the currently active inference stream.
     #[serde(skip)]
     pub stream_dispatched_at: Option<Timestamp>,

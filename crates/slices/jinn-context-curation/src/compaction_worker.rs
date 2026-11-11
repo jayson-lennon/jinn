@@ -24,6 +24,7 @@ use crate::compaction_serializer::serialize_entries_for_compaction;
 use jinn_kernel::common::services::Services;
 use jinn_kernel::common::state::State;
 use jinn_llm_support::token_estimator::{CharRatioEstimator, TokenEstimator};
+use jinn_preferences_config::schemas::HandoffCompactionConfig;
 
 use crate::worker::HistoryWorker;
 use jinn_core_types::HistoryMutation;
@@ -196,6 +197,28 @@ impl CompactionWorker {
         &self,
         trigger: &CompactionTrigger,
     ) -> Result<Vec<HistoryMutation>, error_stack::Report<CompactionError>> {
+        // Handoff interplay: a session running handoff compaction is not
+        // background-compacted — the two strategies would fight over the
+        // same history (the handoff gate's threshold is documented to sit
+        // below the background one, so the handoff fires first, and its
+        // fold is the context reduction the background pass would
+        // duplicate). Read outside the write pass below.
+        let handoff_enabled = self
+            .services
+            .config
+            .get::<HandoffCompactionConfig>()
+            .unwrap_or_default()
+            .enabled;
+        let handoff_pending = self.state.with_session(|view| {
+            view.session
+                .map()
+                .get_unchecked(&trigger.session_id)
+                .is_handoff_pending()
+        });
+        if handoff_enabled || handoff_pending {
+            return Ok(vec![]);
+        }
+
         // Read the compaction + retry policy from the configuration layer
         // at the point of use, outside the state lock.
         let (config, retry_config) = self.compaction_policy();

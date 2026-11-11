@@ -145,6 +145,7 @@ const OWNED_KEYS: &[&str] = &[
     "chat_log",
     "skills",
     "context_curation.compaction",
+    "context_curation.handoff_compaction",
     "provider.request_retry",
     "provider.web_search",
     "ui.cwd_selector",

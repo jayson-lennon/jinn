@@ -17,6 +17,10 @@ use jinn_kernel::common::app_state::AppState;
 /// is cloned out of it. Cell-backed state (persona selection, tool
 /// registry) resolves through `state.frontend.slices()`; a missing cell
 /// degrades to empty inputs rather than failing dispatch.
+/// `handoff_enabled` is not resolved here: kernel-side callers pass the
+/// config layer to [`crate::inputs::build_assembly_inputs`]; this
+/// snapshot builder defaults the flag off and callers that need the
+/// live value set it on the returned inputs.
 #[must_use]
 pub fn build_assembly_inputs(state: &AppState, session_id: &SessionId) -> AssemblyInputs {
     let session = state.session(session_id);
@@ -44,6 +48,7 @@ pub fn build_assembly_inputs(state: &AppState, session_id: &SessionId) -> Assemb
         skill_filter: session.skill_filter().cloned(),
         loaded_skills: session.loaded_skills(),
         context_files: session.discovered_context_files().to_vec(),
+        handoff_enabled: false,
     }
 }
 

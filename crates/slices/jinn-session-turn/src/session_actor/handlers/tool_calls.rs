@@ -210,7 +210,7 @@ impl SessionPersistenceActor {
         let assembled = {
             let inputs = {
                 let guard = self.state.read();
-                build_assembly_inputs(&guard, session_id)
+                build_assembly_inputs(&guard, &self.services.config, session_id)
             };
             match assemble_via_service(&self.services, inputs).await {
                 Ok(prompt) => prompt,
@@ -296,6 +296,7 @@ impl SessionPersistenceActor {
             dispatched_at: stamp,
             turn: grant.turn,
             stream: grant.stream,
+            tool_choice: None,
         })
         .await;
     }
@@ -378,6 +379,29 @@ impl SessionPersistenceActor {
 
         self.apply_pending_mutations_and_steering(session_id).await;
 
+        // Handoff gate: a tool-loop continuation is a model-request
+        // boundary like any other. A fire converts this continuation into
+        // the recap turn — same continuation machinery (ledger join via
+        // `assemble_and_send_continuation`), nudge entry pushed ahead of
+        // it so the recap is authored with the just-completed call+result
+        // pair in-frame. The fold (on the recap's success) pops the owed
+        // marker this leaves and re-mints a fresh turn for the loop's
+        // continuation on the fresh context.
+        let owed_marker = self.state.with_session(|view| {
+            let session = view.session.map().get_or_create(session_id);
+            (session.phase() == jinn_slices::PhaseView::Working)
+                .then_some(jinn_turn_dispatch_msg::QueueItem::ToolContinuation)
+        });
+        if let Some(nudge) = self.handoff_nudge_if_gated(session_id, owed_marker).await {
+            self.state.with_session(|view| {
+                view.session
+                    .map()
+                    .get_or_create(session_id)
+                    .push_entry(nudge);
+            });
+            super::super::helpers::emit_history_appended(self.bus(), session_id).await;
+        }
+
         self.assemble_and_send_continuation(session_id).await;
     }
 }
@@ -436,6 +460,7 @@ mod tests {
                     token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
                     image_converter:
                         jinn_llm_support::image_convert::ImageConverterService::unavailable(),
+                    handoff_prompt: String::new(),
                 },
             );
             Self { harness, services }

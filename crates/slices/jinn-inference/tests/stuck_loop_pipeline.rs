@@ -106,6 +106,7 @@ async fn pipeline(scripted: Vec<ScriptedResponse>) -> Pipeline {
             counter: TiktokenCounter::o200k_base(),
             token_cache: HistoryWorkerChatEntryTokenCache::default(),
             image_converter: jinn_llm_support::image_convert::ImageConverterService::unavailable(),
+            handoff_prompt: String::new(),
         },
     );
     StuckLoopWatchdogActor::spawn(

@@ -54,6 +54,7 @@ pub mod compaction;
 pub mod cwd_selector;
 pub mod dictation;
 pub mod discord;
+pub mod handoff_compaction;
 pub mod legacy_command_policy;
 pub mod maintenance;
 pub mod mcp;
@@ -88,6 +89,7 @@ pub use compaction::CompactionConfig;
 pub use cwd_selector::CwdSelectorConfig;
 pub use dictation::DictationConfig;
 pub use discord::DiscordConfig;
+pub use handoff_compaction::HandoffCompactionConfig;
 pub use legacy_command_policy::{
     LEGACY_COMMAND_POLICY_KEY, LegacyCommandPolicyRule, LegacyProjectConfig,
 };

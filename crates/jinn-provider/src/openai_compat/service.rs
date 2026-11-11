@@ -111,6 +111,7 @@ impl OpenAiCompatibleService {
         system_prompt: Option<&str>,
         messages: &[LlmMessage],
         tools: &[ToolDefinition],
+        tool_choice: crate::ToolChoice,
     ) -> Result<reqwest::Response, Report<LlmServiceError>> {
         if self.api_key.is_empty() {
             return Err(Report::new(LlmServiceError::ApiKey)
@@ -123,6 +124,7 @@ impl OpenAiCompatibleService {
             messages,
             tools,
             &self.extra_body,
+            tool_choice,
         );
 
         let url = format!(
@@ -263,7 +265,7 @@ impl LlmService for OpenAiCompatibleService {
         messages: Vec<LlmMessage>,
     ) -> Result<ChatStream, Report<LlmServiceError>> {
         let response = self
-            .send_streaming_request(system_prompt, &messages, &[])
+            .send_streaming_request(system_prompt, &messages, &[], crate::ToolChoice::Auto)
             .await?;
         let parser = StreamResponseParser::new();
         let sse = SseParser::new();
@@ -311,9 +313,10 @@ impl LlmService for OpenAiCompatibleService {
         system_prompt: Option<&str>,
         messages: Vec<LlmMessage>,
         tools: Vec<ToolDefinition>,
+        tool_choice: crate::ToolChoice,
     ) -> Result<ToolStream, Report<LlmServiceError>> {
         let response = self
-            .send_streaming_request(system_prompt, &messages, &tools)
+            .send_streaming_request(system_prompt, &messages, &tools, tool_choice)
             .await?;
         Ok(create_tool_stream(response, self.config.name))
     }

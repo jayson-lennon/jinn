@@ -431,6 +431,21 @@ impl SessionPersistenceActor {
                         .cloned()
                 });
                 let outcome = outcome_from_history(last_entry);
+                // The handoff fold: a terminal success on a handoff turn
+                // owes the fresh context — exclude everything the paper
+                // drops, insert the recap, and the queued request
+                // re-dispatches through the ordinary idle drain below.
+                // Cancel and error clear the flag without a fold: the
+                // gate simply re-fires at the next boundary. There is no
+                // handoff-specific resume branch — the queue already
+                // holds the held request.
+                let fold = self.state.with_session(|view| {
+                    let session = view.session.map().get_or_create(session_id);
+                    session.end_handoff(matches!(outcome, TurnOutcome::Succeeded))
+                });
+                if fold {
+                    self.run_handoff_fold(session_id).await;
+                }
                 self.bus()
                     .publish(TurnCompleted {
                         session_id: session_id.clone(),
@@ -467,6 +482,11 @@ impl SessionPersistenceActor {
                 let (old, new) = self.state.with_session(|view| {
                     let session = view.session.map().get_or_create(session_id);
                     session.sweep_pending_tool_results_to_failure();
+                    // A cancelled handoff turn is a cancelled turn: the
+                    // flag clears with the rest of the turn's state, no
+                    // fold applies, and the gate re-fires at the next
+                    // boundary. No handoff-specific branch.
+                    session.abandon_handoff();
                     let old = session.phase();
                     session.settle_to_idle();
                     // The cancelled turn owns the in-flight guard; killing it

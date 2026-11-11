@@ -13,8 +13,8 @@ use trouper::context::MsgCtx;
 use trouper::registry::RegistryError;
 use trouper::system::ActorSystem;
 
-use crate::inputs::build_assembly_inputs;
 use crate::inputs_snapshot::assemble_via_service;
+use crate::inputs_snapshot::build_assembly_inputs as build_assembly_inputs_snapshot;
 use jinn_context_assembly_msg::ContextOverrideChanged;
 use jinn_kernel::common::state::State;
 use jinn_kernel::protocol::system::ActiveSessionChanged;
@@ -22,6 +22,16 @@ use jinn_session_history_msg::ChatEntryPinChanged;
 use jinn_session_history_msg::HistoryAppended;
 use jinn_session_store_msg::SessionLoadCompleted;
 use tracing::error;
+
+/// The live `handoff_compaction.enabled` flag, for callers building
+/// assembly inputs without the config layer in hand.
+fn handoff_enabled(services: &jinn_kernel::Services) -> bool {
+    services
+        .config
+        .get::<jinn_preferences_config::schemas::HandoffCompactionConfig>()
+        .map(|config| config.enabled)
+        .unwrap_or(false)
+}
 
 /// The context size actor's static trouper path.
 pub const CONTEXT_SIZE_PATH: &str = "context-size";
@@ -92,11 +102,14 @@ impl ContextSizeActor {
         };
 
         let state_clone = self.state.clone();
+        let services_clone = self.services.clone();
         let id_for_blocking = session_id.clone();
         let result = async {
             let inputs = {
                 let guard = state_clone.read();
-                build_assembly_inputs(&guard, &id_for_blocking)
+                let mut inputs = build_assembly_inputs_snapshot(&guard, &id_for_blocking);
+                inputs.handoff_enabled = handoff_enabled(&services_clone);
+                inputs
             };
             assemble_via_service(&self.services, inputs)
                 .await

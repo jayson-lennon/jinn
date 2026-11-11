@@ -488,6 +488,30 @@ reserve_tokens = 20000
 # > manually in `providers.toml` (highly recommended)
 fallback_context_window = 150000
 
+# > Handoff compaction (EoCC, arXiv 2611.05306): at each model-request boundary,
+# > the active session model writes a handoff recap in-conversation and the
+# > context folds down to the task turns, pins, and the recap. Replaces history
+# > accumulation with a bounded working context; the session model is always the
+# > author. Off by default; while enabled the background compaction above is
+# > disabled for that session. Keep `threshold` below the background threshold
+# > (0.7) and below the auto-prune accumulation point so prune does not delete
+# > tool evidence the recap needs to read.
+[context_curation.handoff_compaction]
+# > Master switch. false = the feature is entirely inert: no gate check, no
+# > prompt section, no fold.
+enabled = false
+
+# > Fraction of the effective context limit at which the handoff fires
+# > (0.5-1.0; values below 0.5 are clamped to 0.5 — the gate runs at every
+# > model-request boundary, so a near-zero threshold would handoff every
+# > request).
+threshold = 0.6
+
+# > Explicit total context limit in tokens, overriding the model's reported
+# > context_length (the paper's "total context limit" W, e.g. 32000 for a
+# > 16K-style regime). Uncomment to pin the regime regardless of model.
+# context_limit = 32000
+
 # > Policy for retrying failed provider requests.
 [provider.request_retry]
 # > Retry the request this amount of times before aborting.

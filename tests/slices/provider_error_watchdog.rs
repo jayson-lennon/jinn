@@ -89,6 +89,7 @@ impl LlmService for DyingStreamService {
         _system_prompt: Option<&str>,
         _messages: Vec<LlmMessage>,
         _tools: Vec<jinn_core_types::tool_types::ToolDefinition>,
+        _tool_choice: jinn_provider::ToolChoice,
     ) -> Result<ToolStream, Report<LlmServiceError>> {
         Ok(Box::pin(futures::stream::iter(vec![
             Ok(StreamEvent::Text("partial".to_owned())),
@@ -205,6 +206,7 @@ async fn composed_app<M: ExtraRecorders>(
             counter: TiktokenCounter::o200k_base(),
             token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
             image_converter: jinn_llm_support::image_convert::ImageConverterService::system(),
+            handoff_prompt: String::new(),
         },
     );
 

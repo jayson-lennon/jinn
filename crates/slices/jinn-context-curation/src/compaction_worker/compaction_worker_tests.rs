@@ -1791,6 +1791,7 @@ impl jinn_provider::LlmService for FailingLlmService {
         _system_prompt: Option<&str>,
         _messages: Vec<jinn_provider::LlmMessage>,
         _tools: Vec<jinn_core_types::ToolDefinition>,
+        _tool_choice: jinn_provider::ToolChoice,
     ) -> Result<jinn_provider::ToolStream, error_stack::Report<jinn_provider::LlmServiceError>>
     {
         Err(

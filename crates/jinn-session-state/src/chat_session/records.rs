@@ -72,6 +72,78 @@ impl ChatSessionState {
         self.core.ephemeral.cached_context_size = Some(size);
     }
 
+    // ----- Handoff compaction (per-session, process-local) -----
+
+    /// Whether a handoff-compaction turn is in flight.
+    pub fn is_handoff_pending(&self) -> bool {
+        self.core.ephemeral.handoff_pending
+    }
+
+    /// Marks the handoff turn as in flight: the gate fired and the recap
+    /// request replaced the pending dispatch.
+    pub fn begin_handoff(&mut self) {
+        self.core.ephemeral.handoff_pending = true;
+    }
+
+    /// Ends the handoff turn. Returns whether the caller owes the fold
+    /// (`true` only when the turn was pending and reached its terminal
+    /// success; `false` for a cancel, an error, or a turn that was never
+    /// pending).
+    ///
+    /// A non-terminal outcome (stream-rule intercept, loop retry) leaves
+    /// the flag untouched: the turn is still live and the fold still
+    /// fires at its eventual terminal completion. A terminal non-success
+    /// clears the flag — the gate simply re-fires at the next boundary.
+    pub fn end_handoff(&mut self, turn_is_over: bool) -> bool {
+        if !self.core.ephemeral.handoff_pending {
+            return false;
+        }
+        if turn_is_over {
+            self.core.ephemeral.handoff_pending = false;
+            return true;
+        }
+        // Terminal failure: the turn is over, the fold is not owed, the
+        // flag must not orphan.
+        self.core.ephemeral.handoff_pending = false;
+        false
+    }
+
+    /// Clears the handoff flag outright — the cancel sweep's cleanup: the
+    /// turn is gone, so nothing owes the fold.
+    pub fn abandon_handoff(&mut self) {
+        self.core.ephemeral.handoff_pending = false;
+    }
+
+    /// Records excluded-entry token cost toward the gate's estimate.
+    pub fn add_handoff_excluded_cost(&mut self, tokens: u32) {
+        self.core.ephemeral.handoff_excluded_cost = self
+            .core
+            .ephemeral
+            .handoff_excluded_cost
+            .saturating_add(tokens);
+    }
+
+    /// The excluded-entry cost the gate adds to the assembled estimate,
+    /// resetting it — consumed once per gate evaluation.
+    pub fn take_handoff_excluded_cost(&mut self) -> u32 {
+        std::mem::take(&mut self.core.ephemeral.handoff_excluded_cost)
+    }
+
+    /// Pops a front-of-queue `ToolContinuation` marker, recording that
+    /// the fresh context owes its dispatch. Returns whether a marker was
+    /// found (the fold consults this to decide the re-mint).
+    pub fn pop_if_front_continuation(&mut self) -> bool {
+        let is_continuation = matches!(
+            self.core.ephemeral.message_queue.peek(),
+            Some(jinn_turn_dispatch_msg::QueueItem::ToolContinuation)
+        );
+        if is_continuation {
+            let _ = self.dequeue();
+            self.core.ephemeral.handoff_continuation_owed = true;
+        }
+        is_continuation
+    }
+
     // ----- Discovered resources (per-session, cwd-scoped) -----
     //
     // These are populated by the scan actors and read by prompt assembly and

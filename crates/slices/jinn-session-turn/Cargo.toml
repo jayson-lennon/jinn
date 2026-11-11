@@ -6,6 +6,8 @@ description = "The session-turn slice: one coordinated reducer for session histo
 
 [dependencies]
 marked-path.workspace = true
+jinn-common = { workspace = true }
+jinn-config = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-preferences-config = { workspace = true }
 jinn-chat-input-msg = { workspace = true }

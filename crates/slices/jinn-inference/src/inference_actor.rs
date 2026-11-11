@@ -9,7 +9,7 @@ use jinn_core_types::SessionId;
 use jinn_core_types::tool_types::ToolCall;
 use jinn_inference_msg::{
     AbortStream, CancelTurn, SendToLlmProvider, StreamActivity, StreamCompleted,
-    StreamCompletedReason, StreamToken,
+    StreamCompletedReason, StreamToken, ToolChoiceKind,
 };
 use jinn_kernel::common::actor_deps::BusPublish;
 use jinn_kernel::common::services::Services;
@@ -1138,6 +1138,7 @@ impl InferenceActor {
             .unwrap_or_default();
 
         let tools = payload.tool_definitions.clone();
+        let tool_choice = payload.tool_choice.unwrap_or_default();
         let system_prompt = payload.system_prompt.clone();
         let messages = payload.messages.clone();
         let session_id = payload.session_id.clone();
@@ -1203,6 +1204,7 @@ impl InferenceActor {
             system_prompt,
             messages,
             tools,
+            tool_choice,
             dispatched_at,
             payload.turn,
             payload.stream,
@@ -1377,6 +1379,7 @@ async fn run_stream(
     system_prompt: SystemPrompt,
     messages: Vec<LlmMessage>,
     tools: Vec<ToolDefinition>,
+    tool_choice: ToolChoiceKind,
     dispatched_at: jiff::Timestamp,
     turn: jinn_core_types::turn_identity::TurnToken,
     stream_id: jinn_core_types::turn_identity::StreamId,
@@ -1401,7 +1404,15 @@ async fn run_stream(
     };
 
     let stream = match service
-        .chat_stream_with_tools(system_prompt.as_deref(), messages, tools)
+        .chat_stream_with_tools(
+            system_prompt.as_deref(),
+            messages,
+            tools,
+            match tool_choice {
+                ToolChoiceKind::Auto => jinn_provider::ToolChoice::Auto,
+                ToolChoiceKind::None => jinn_provider::ToolChoice::None,
+            },
+        )
         .await
     {
         Ok(s) => s,

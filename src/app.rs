@@ -256,6 +256,10 @@ impl App {
                             &app_paths.prompts_dir().as_marked_path(),
                         )
                         .change_context(AppError)?;
+                        let handoff_prompt = jinn_tui::load_handoff_prompt(
+                            &app_paths.prompts_dir().as_marked_path(),
+                        )
+                        .change_context(AppError)?;
                         let (core, services, discord_activated) = self
                             .runtime()
                             .block_on(async {
@@ -274,6 +278,7 @@ impl App {
                                         paths: jinn_kernel::AppPaths::default(),
                                         dump_requests: dump_requests.clone(),
                                         compaction_prompt,
+                                        handoff_prompt,
                                     },
                                 )
                                 .build()
@@ -315,6 +320,10 @@ impl App {
                             &app_paths.prompts_dir().as_marked_path(),
                         )
                         .change_context(AppError)?;
+                        let handoff_prompt = jinn_tui::load_handoff_prompt(
+                            &app_paths.prompts_dir().as_marked_path(),
+                        )
+                        .change_context(AppError)?;
                         let (core, services, _discord_activated) = self
                             .runtime()
                             .block_on(async {
@@ -333,6 +342,7 @@ impl App {
                                         paths: jinn_kernel::AppPaths::default(),
                                         dump_requests,
                                         compaction_prompt,
+                                        handoff_prompt,
                                     },
                                 )
                                 .build()

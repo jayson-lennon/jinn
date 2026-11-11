@@ -34,6 +34,7 @@ mod test_fakes {
             _system_prompt: Option<&str>,
             _messages: Vec<jinn_provider::LlmMessage>,
             _tools: Vec<jinn_core_types::ToolDefinition>,
+            _tool_choice: jinn_provider::ToolChoice,
         ) -> Result<ToolStream, Report<LlmServiceError>> {
             Ok(Box::pin(futures::stream::pending()))
         }
@@ -87,6 +88,7 @@ mod test_fakes {
             _system_prompt: Option<&str>,
             _messages: Vec<jinn_provider::LlmMessage>,
             _tools: Vec<jinn_core_types::ToolDefinition>,
+            _tool_choice: jinn_provider::ToolChoice,
         ) -> Result<ToolStream, Report<LlmServiceError>> {
             Err(Report::new(LlmServiceError::Provider))
         }
@@ -128,6 +130,7 @@ mod test_fakes {
             _system_prompt: Option<&str>,
             _messages: Vec<jinn_provider::LlmMessage>,
             _tools: Vec<jinn_core_types::ToolDefinition>,
+            _tool_choice: jinn_provider::ToolChoice,
         ) -> Result<ToolStream, Report<LlmServiceError>> {
             Err(Report::new(LlmServiceError::Retryable))
         }
@@ -414,6 +417,7 @@ async fn start_stream_emits_stream_completed_with_tokens() {
         dispatched_at: jiff::Timestamp::now(),
         turn: jinn_core_types::turn_identity::TurnToken::from_counter(105),
         stream: jinn_core_types::turn_identity::StreamId::from_counter(105),
+        tool_choice: None,
     };
 
     // When starting a stream (direct handler call).
@@ -482,6 +486,7 @@ async fn an_in_flight_stream_finishes_on_its_own_factory_through_a_registry_relo
         dispatched_at: jiff::Timestamp::now(),
         turn: jinn_core_types::turn_identity::TurnToken::from_counter(107),
         stream: jinn_core_types::turn_identity::StreamId::from_counter(107),
+        tool_choice: None,
     };
     actor.start_stream(&payload).await;
     // Let the spawned stream task reach its service build first: the
@@ -535,6 +540,7 @@ async fn start_stream_aborts_existing_stream_for_same_session() {
         dispatched_at: jiff::Timestamp::now(),
         turn: jinn_core_types::turn_identity::TurnToken::from_counter(106),
         stream: jinn_core_types::turn_identity::StreamId::from_counter(106),
+        tool_choice: None,
     };
 
     // Start first stream and save the handle.
@@ -576,6 +582,7 @@ async fn start_stream_sets_session_to_streaming() {
         dispatched_at: jiff::Timestamp::now(),
         turn: jinn_core_types::turn_identity::TurnToken::from_counter(107),
         stream: jinn_core_types::turn_identity::StreamId::from_counter(107),
+        tool_choice: None,
     };
 
     // When starting a stream.
@@ -618,6 +625,7 @@ async fn handle_send_to_llm_via_bus() {
         dispatched_at: jiff::Timestamp::now(),
         turn: jinn_core_types::turn_identity::TurnToken::from_counter(108),
         stream: jinn_core_types::turn_identity::StreamId::from_counter(108),
+        tool_choice: None,
     };
 
     // When handling the send directly (trouper actor; the publishes land
@@ -687,6 +695,7 @@ async fn a_cancel_turn_publishes_no_completion_of_its_own() {
             dispatched_at: jiff::Timestamp::now(),
             turn: jinn_core_types::turn_identity::TurnToken::from_counter(109),
             stream: jinn_core_types::turn_identity::StreamId::from_counter(109),
+            tool_choice: None,
         })
         .await;
     // The stream must be actively streaming before the cancel, or the
@@ -739,6 +748,7 @@ async fn stream_error_emits_chat_entry_and_completion_via_bus() {
             dispatched_at: jiff::Timestamp::now(),
             turn: dispatched_turn,
             stream: dispatched_stream,
+            tool_choice: None,
         })
         .await;
 
@@ -1622,6 +1632,7 @@ fn dispatch_for(session_id: &SessionId) -> SendToLlmProvider {
         dispatched_at: jiff::Timestamp::now(),
         turn: jinn_core_types::turn_identity::TurnToken::from_counter(111),
         stream: jinn_core_types::turn_identity::StreamId::from_counter(111),
+        tool_choice: None,
     }
 }
 

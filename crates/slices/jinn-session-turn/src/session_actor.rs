@@ -88,6 +88,9 @@ pub struct SessionPersistenceActor {
     /// Image converter (ImageMagick) for transcoding non-native image
     /// attachments. Wraps a trait object so tests inject fakes.
     image_converter: jinn_llm_support::image_convert::ImageConverterService,
+    /// The handoff recap prompt: the launch copy, re-read at point of use
+    /// with this as the last-good fallback.
+    handoff_prompt: String,
 }
 
 impl BusPublish for SessionPersistenceActor {
@@ -104,6 +107,10 @@ pub struct SessionPersistenceActorDeps {
     /// Auto-pruner entry token cache for the accumulation gate.
     pub token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache,
     pub image_converter: jinn_llm_support::image_convert::ImageConverterService,
+    /// The handoff-compaction recap prompt, loaded at launch and re-read
+    /// at each handoff with this copy as the last-good fallback. Empty in
+    /// test constructors that do not exercise the handoff path.
+    pub handoff_prompt: String,
 }
 
 impl ServiceActor for SessionPersistenceActor {
@@ -150,6 +157,7 @@ impl SessionPersistenceActor {
                             counter: deps.counter,
                             token_cache: deps.token_cache,
                             image_converter: deps.image_converter,
+                            handoff_prompt: deps.handoff_prompt,
                         })
                     })
                 }
