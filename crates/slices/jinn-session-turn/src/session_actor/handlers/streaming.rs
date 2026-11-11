@@ -432,8 +432,8 @@ impl SessionPersistenceActor {
                 });
                 let outcome = outcome_from_history(last_entry);
                 // The handoff fold: a terminal success on a handoff turn
-                // owes the fresh context — exclude everything the paper
-                // drops, insert the recap, and the queued request
+                // owes the fresh context — exclude everything but the
+                // task record and pins, insert the recap, and the queued request
                 // re-dispatches through the ordinary idle drain below.
                 // Cancel and error clear the flag without a fold: the
                 // gate simply re-fires at the next boundary. There is no

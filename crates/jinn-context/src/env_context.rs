@@ -31,10 +31,12 @@ pub fn persona_section(persona: Option<&Persona>) -> String {
         .map_or(String::new(), |p| p.body.clone())
 }
 
-/// Renders the handoff-resume section — the paper's `{recap_section}`.
+/// Renders the handoff-resume section — how to continue working from a
+/// compacted context and what a handoff recap must contain.
 ///
 /// Empty string when handoff compaction is disabled, so the section is
-/// omitted entirely from the assembled prompt (the paper ships the
+/// omitted entirely from the assembled prompt (the reference
+/// implementation ships the
 /// variable "empty without compaction").
 #[must_use]
 pub fn handoff_resume_section(enabled: bool) -> String {

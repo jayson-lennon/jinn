@@ -1,4 +1,5 @@
-//! The handoff dispatch: the actor-side half of EoCC.
+//! The handoff dispatch: the actor-side half of end-of-conversation
+//! compaction.
 //!
 //! When the gate fires at a model-request boundary, the pending request
 //! is replaced by the handoff turn. The three boundary shapes:
@@ -83,9 +84,9 @@ impl super::super::SessionPersistenceActor {
             )
         };
         let (assembled_size, excluded_cost, model_name) = gate_input;
-        let effective_limit = resolve_handoff_effective_limit(&self.state, &config, &model_name);
+        let model_reported_limit = resolve_model_context_length(&self.state, &model_name);
 
-        if evaluate_handoff_gate(&config, effective_limit, assembled_size, excluded_cost)
+        if evaluate_handoff_gate(&config, model_reported_limit, assembled_size, excluded_cost)
             != GateDecision::Fire
         {
             return None;
@@ -146,9 +147,9 @@ impl super::super::SessionPersistenceActor {
     ///
     /// If the replaced request was a mid-loop continuation (the marker
     /// this actor left at the queue front), the fold re-mints a fresh
-    /// turn and hands it to the dispatch queue: the paper's fresh
-    /// context continues executing — the remaining plan's next step is
-    /// the continuation's answer, now authored against task + recap.
+    /// turn and hands it to the dispatch queue: the fresh context
+    /// continues executing — the remaining plan's next step is the
+    /// continuation's answer, now authored against task + recap.
     pub(in crate::session_actor) async fn run_handoff_fold(
         &self,
         session_id: &jinn_core_types::SessionId,
@@ -236,8 +237,8 @@ impl super::super::SessionPersistenceActor {
         // dispatch assembles the folded history (guaranteed — the
         // mutations above applied synchronously, before this publish)
         // and joins the turn minted here.
-        // Minting a fresh turn for the continuation is the paper's
-        // shape: the fresh context takes the next action.
+        // The fresh context takes the next action: mint a fresh turn
+        // for the continuation.
         self.redispatch_after_fold_if_owed(session_id, continuation_owed)
             .await;
     }
@@ -274,18 +275,15 @@ impl super::super::SessionPersistenceActor {
     }
 }
 
-/// Resolves the effective context limit for the gate: the explicit
-/// `context_limit` key, then the model's `context_length` from the model
-/// cache (the same lookup the status bar and background compaction use,
-/// so gate and display agree). `None` passes the gate — it never guesses.
-fn resolve_handoff_effective_limit(
+/// Resolves the model's reported context length from the model cache —
+/// the same lookup the status bar and background compaction use, so gate
+/// and display agree. The gate resolves the full firing regime
+/// (explicit `context_limit` overrides this) in
+/// `HandoffCompactionConfig::resolve_regime`.
+fn resolve_model_context_length(
     state: &jinn_kernel::common::state::State,
-    config: &HandoffCompactionConfig,
     model_name: &str,
 ) -> Option<u32> {
-    if let Some(limit) = config.context_limit {
-        return u32::try_from(limit).ok();
-    }
     let model_cache = state
         .read()
         .provider_state()

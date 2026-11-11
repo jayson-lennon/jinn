@@ -47,7 +47,7 @@ pub struct AssemblyInputs {
     pub context_files: Vec<ContextFile>,
     /// Whether handoff compaction is enabled for this session. `true`
     /// appends the resume-instructions section to the system prompt —
-    /// the paper's `{recap_section}` analog: how to continue from a
+    /// the handoff resume instructions: how to continue from a
     /// handoff recap and what a recap must carry.
     #[serde(default)]
     pub handoff_enabled: bool,

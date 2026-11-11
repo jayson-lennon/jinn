@@ -1,12 +1,22 @@
-//! Handoff compaction — the EoCC gate, handoff dispatch, and fold.
+//! Handoff compaction — the gate, handoff dispatch, and fold of
+//! end-of-conversation compaction.
 //!
-//! Implements the End-of-Conversation Compaction regime from
-//! arXiv 2611.05306: at a model-request boundary whose estimated context
-//! crosses the configured threshold, the pending request is replaced by a
-//! handoff turn — the session model authors a recap in-conversation with
-//! the full context in-frame — after which the fold excludes everything
-//! except user turns, Intersession entries, pins, and the new recap
-//! (inserted as a context-riding [`ChatEntryKind::Compaction`] entry).
+//! Reference: "You Don't Need Long Context" (NVIDIA),
+//! <https://arxiv.org/abs/2611.05306>. This module implements the
+//! paper's End-of-Conversation Compaction (EoCC) regime per Section 3
+//! (the compaction cycle) and Appendix A (the recap brief structure):
+//!
+//! - **Gate** (`evaluate_handoff_gate`): at a model-request boundary
+//!   whose estimated working context reaches the configured absolute
+//!   token trigger (Appendix E's explicit total-limit/threshold pairs,
+//!   e.g. 16K/12K), the pending request is replaced by a handoff turn.
+//! - **Handoff turn**: the session model authors the recap
+//!   in-conversation with the full context in-frame, forbidden tool
+//!   calls at the API layer.
+//! - **Fold** (`build_fold_mutations`): after the recap completes, the
+//!   context folds down to the task turns, pins, and the new recap
+//!   (Appendix A: task verbatim + pointers + plan) — the paper's fresh
+//!   conversation, resumed from the remaining plan.
 //!
 //! The three pieces here are pure: the gate math, the handoff content
 //! builder, and the fold's mutation builder. The session actor wires
@@ -27,40 +37,37 @@ mod gate_tests;
 pub enum GateDecision {
     /// Fire: replace the pending request with the handoff turn.
     Fire,
-    /// Below threshold, disabled, or no effective limit — dispatch
+    /// Below the trigger, disabled, or no valid firing regime — dispatch
     /// normally.
     Pass,
 }
 
 /// Evaluates the handoff gate for one model-request boundary.
 ///
-/// Fires when the estimated context (`assembled_size + excluded_cost`)
-/// meets `threshold × effective_limit`. `assembled_size` is the session's
-/// cached assembled estimate (the status-bar value); `excluded_cost` is
-/// the token cost of entries excluded since that assembly.
+/// Fires when the estimated working context (`assembled_size +
+/// excluded_cost`) meets the configured absolute `trigger_tokens`
+/// against the resolved `context_limit`. `assembled_size` is the
+/// session's cached assembled estimate (the status-bar value);
+/// `excluded_cost` is the token cost of entries excluded since that
+/// assembly.
 ///
-/// A missing effective limit is a **pass**, not a guess: in blocking mode
-/// jinn never fires a handoff it cannot bound.
+/// A regime that does not resolve (`None`) is a **pass**, not a guess:
+/// in blocking mode jinn never fires a handoff it cannot bound.
 #[must_use]
 pub fn evaluate_handoff_gate(
     config: &HandoffCompactionConfig,
-    effective_limit: Option<u32>,
+    model_reported_limit: Option<u32>,
     assembled_size: Option<u32>,
     excluded_cost: u32,
 ) -> GateDecision {
-    if !config.enabled {
-        return GateDecision::Pass;
-    }
-    let Some(limit) = effective_limit else {
+    let Some((_, trigger)) = config.resolve_regime(model_reported_limit) else {
         return GateDecision::Pass;
     };
     let Some(assembled) = assembled_size else {
         return GateDecision::Pass;
     };
-    let threshold = config.effective_threshold();
     let projected = u64::from(assembled) + u64::from(excluded_cost);
-    let line = f64::from(limit) * threshold;
-    if f64::from(u32::try_from(projected).unwrap_or(u32::MAX)) >= line {
+    if projected >= u64::from(trigger) {
         GateDecision::Fire
     } else {
         GateDecision::Pass
@@ -69,9 +76,10 @@ pub fn evaluate_handoff_gate(
 
 /// Builds the handoff nudge content from the recap prompt.
 ///
-/// `recap_prompt` is the point-of-use load of `_handoff.md` (the
-/// Appendix G structure). The nudge preamble is the paper's own: stop
-/// work, write only the recap, the conversation resets afterward.
+/// `recap_prompt` is the point-of-use load of `_handoff.md` (the recap
+/// brief structure from the paper's Appendix G). The nudge preamble is
+/// the paper's own: stop work, write only the recap, the conversation
+/// resets afterward.
 #[must_use]
 pub fn build_handoff_nudge(recap_prompt: &str) -> String {
     format!("{recap_prompt}")
@@ -91,8 +99,7 @@ const HANDOFF_WORKER: &str = "handoff-compaction";
 ///
 /// `recap_entry` is the fold's own insertion: a context-riding
 /// [`ChatEntryKind::Compaction`] entry placed after `last_excluded_id`,
-/// so the fresh context is system prompt + task + recap — the paper's
-/// fresh conversation.
+/// so the fresh context is system prompt + task + recap.
 ///
 /// Pins are never mutated by the fold.
 #[must_use]
@@ -124,9 +131,10 @@ pub fn build_fold_mutations(
 
 /// Whether the fold must leave `entry` in the fresh context.
 ///
-/// User turns and Intersession dispatches are the task record (the
-/// paper's verbatim task); pinned entries are the user's explicit
-/// keep-signal; already-excluded entries stay excluded (idempotence).
+/// User turns and Intersession dispatches are the task record (kept
+/// verbatim across compaction cycles); pinned entries are the user's
+/// explicit keep-signal; already-excluded entries stay excluded
+/// (idempotence).
 #[must_use]
 pub fn is_fold_protected(entry: &ChatEntry) -> bool {
     if entry.pin_position.is_some() {

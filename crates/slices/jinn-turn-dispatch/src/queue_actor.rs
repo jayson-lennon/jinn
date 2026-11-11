@@ -423,8 +423,9 @@ impl QueueActor {
             self.resolve_dispatch_model(session_id);
 
         // A pending handoff turn is the recap request: tools stay defined
-        // (prefix continuity) but the API layer forbids calls — the paper's
-        // "no commands" constraint enforced at the API, not the prompt. By
+        // (prefix continuity) but the API layer forbids calls — the recap
+        // prompt's "no commands" constraint enforced at the API, not just
+        // the prompt. By
         // fold time the flag is cleared, so every later dispatch is
         // unconstrained.
         let tool_choice = self

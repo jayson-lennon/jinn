@@ -9,11 +9,11 @@ use jinn_kernel::protocol::ChatEntryKind;
 use jinn_preferences_config::schemas::HandoffCompactionConfig;
 use jinn_session_state::ChatSessionState;
 
-/// Builds a recording-bus actor with handoff compaction enabled at
-/// `threshold` over an explicit 1000-token limit — the gate's inputs
-/// fully determined, no model cache involved.
+/// Builds a recording-bus actor with handoff compaction enabled at the
+/// given absolute `trigger_tokens` over an explicit 1000-token limit —
+/// the gate's inputs fully determined, no model cache involved.
 async fn handoff_actor(
-    threshold: f64,
+    trigger_tokens: usize,
 ) -> (
     SessionPersistenceActor,
     jinn_kernel::common::services::BusAudit,
@@ -24,8 +24,8 @@ async fn handoff_actor(
         .config
         .put(&HandoffCompactionConfig {
             enabled: true,
-            threshold,
             context_limit: Some(1000),
+            trigger_tokens: Some(trigger_tokens),
         })
         .expect("test config update");
     crate::session_actor::helpers::ensure_context_assembly(&services.trouper_system);
@@ -68,10 +68,10 @@ fn set_context_size(
 #[tokio::test]
 async fn gate_fire_pushes_nudge_sets_flag_and_holds_the_queue() {
     // Given a handoff-enabled actor whose session reads 700 of 1000
-    // tokens (0.7 ≥ 0.6 threshold).
-    let (actor, _audit) = handoff_actor(0.6).await;
+    // tokens (700 ≥ the 600-token trigger).
+    let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
-    set_context_size(&actor, &session_id, 700);
+    set_context_size(&actor, &session_id, 700); // past the 600-token trigger
 
     // When the intercept runs at the boundary.
     let nudge = actor.handoff_nudge_if_gated(&session_id, None).await;
@@ -87,9 +87,9 @@ async fn gate_fire_pushes_nudge_sets_flag_and_holds_the_queue() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn gate_pass_below_threshold_dispatches_normally() {
+async fn gate_pass_below_the_trigger_dispatches_normally() {
     // Given a handoff-enabled actor whose session reads 300 of 1000.
-    let (actor, _audit) = handoff_actor(0.6).await;
+    let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
     set_context_size(&actor, &session_id, 300);
 
@@ -113,7 +113,7 @@ async fn gate_pass_below_threshold_dispatches_normally() {
 async fn gate_passes_when_disabled_even_past_the_line() {
     // Given a handoff-enabled actor whose session reads 990 of 1000,
     // then handoff disabled before the boundary.
-    let (actor, _audit) = handoff_actor(0.1).await;
+    let (actor, _audit) = handoff_actor(990).await;
     let session_id = actor.state.read().session.active_session_id().clone();
     actor
         .services
@@ -139,7 +139,7 @@ async fn gate_passes_when_disabled_even_past_the_line() {
 async fn other_sessions_are_unaffected_by_one_session_gate() {
     // Given a handoff-enabled actor with a second session below the line
     // while the active session sits above it.
-    let (actor, _audit) = handoff_actor(0.6).await;
+    let (actor, _audit) = handoff_actor(600).await;
     let active_id = actor.state.read().session.active_session_id().clone();
     let second = ChatSessionState::new();
     let second_id = second.session_id().clone();
@@ -167,9 +167,9 @@ async fn other_sessions_are_unaffected_by_one_session_gate() {
 async fn gate_fire_holds_the_replaced_user_entry_at_the_queue_front() {
     // Given a handoff-enabled actor above the line, with a user entry
     // the boundary was about to dispatch.
-    let (actor, _audit) = handoff_actor(0.6).await;
+    let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
-    set_context_size(&actor, &session_id, 700);
+    set_context_size(&actor, &session_id, 700); // past the 600-token trigger
     let held = jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
         jinn_kernel::protocol::ChatEntry::user("the user's actual request"),
     ));
@@ -197,9 +197,9 @@ async fn gate_fire_holds_the_replaced_user_entry_at_the_queue_front() {
 #[tokio::test]
 async fn a_pending_handoff_never_re_triggers_the_gate() {
     // Given an actor whose session just fired the gate.
-    let (actor, _audit) = handoff_actor(0.6).await;
+    let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
-    set_context_size(&actor, &session_id, 700);
+    set_context_size(&actor, &session_id, 700); // past the 600-token trigger
     assert!(
         actor
             .handoff_nudge_if_gated(&session_id, None)
@@ -227,9 +227,9 @@ async fn fold_excludes_non_protected_entries_and_inserts_the_recap() {
     // tool result, nudge, and the recap response entries.
     use jinn_core_types::ToolResultStatus;
     use jinn_kernel::protocol::ChatEntryKind;
-    let (actor, _audit) = handoff_actor(0.6).await;
+    let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
-    set_context_size(&actor, &session_id, 700);
+    set_context_size(&actor, &session_id, 700); // past the 600-token trigger
     // The mid-loop caller pushes the returned nudge (the idle callers
     // dispatch it as the turn's entry); same observable state either way.
     let nudge = actor
@@ -295,7 +295,7 @@ async fn fold_excludes_non_protected_entries_and_inserts_the_recap() {
 #[tokio::test]
 async fn end_handoff_owes_the_fold_only_for_terminal_success() {
     // Given a handoff-pending session.
-    let (actor, _audit) = handoff_actor(0.6).await;
+    let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
     actor.state.with_session(|view| {
         view.session
@@ -322,7 +322,7 @@ async fn end_handoff_owes_the_fold_only_for_terminal_success() {
 #[tokio::test]
 async fn end_handoff_on_a_non_pending_session_owes_nothing() {
     // Given a session with no handoff in flight.
-    let (actor, _audit) = handoff_actor(0.6).await;
+    let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
 
     // When its (ordinary) turn completes successfully.
@@ -342,7 +342,7 @@ async fn end_handoff_on_a_non_pending_session_owes_nothing() {
 #[tokio::test]
 async fn cancel_sweep_clears_the_handoff_flag_without_a_fold() {
     // Given a handoff-pending session with uncompacted history.
-    let (actor, _audit) = handoff_actor(0.6).await;
+    let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
     actor.state.with_session(|view| {
         view.session

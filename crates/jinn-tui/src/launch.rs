@@ -109,8 +109,8 @@ pub fn load_compaction_prompt(
 
 /// Loads the handoff-compaction system prompt from the user prompts directory.
 ///
-/// The handoff recap prompt (arXiv 2611.05306, Appendix G) is fatal at launch
-/// the same way `_compaction.md` is: the fallback path re-reads it at point of
+/// The handoff recap prompt is fatal at launch the same way
+/// `_compaction.md` is: the fallback path re-reads it at point of
 /// use from the last launch-time copy, so the launch load must succeed for
 /// there to be a last good copy to fall back to.
 ///

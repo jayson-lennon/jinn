@@ -15,11 +15,12 @@ fn jinn_config_test_layer() -> &'static jinn_config::ConfigLayer {
     jinn_config::empty_config_layer()
 }
 
-fn enabled_config(threshold: f64) -> HandoffCompactionConfig {
-    let mut config = HandoffCompactionConfig::default();
-    config.enabled = true;
-    config.threshold = threshold;
-    config
+fn enabled_config(context_limit: usize, trigger_tokens: usize) -> HandoffCompactionConfig {
+    HandoffCompactionConfig {
+        enabled: true,
+        context_limit: Some(context_limit),
+        trigger_tokens: Some(trigger_tokens),
+    }
 }
 
 #[rstest::rstest]
@@ -36,10 +37,10 @@ fn gate_passes_when_disabled() {
 
 #[rstest::rstest]
 fn gate_passes_without_an_effective_limit() {
-    // Given handoff enabled but no model context length resolvable.
-    let config = enabled_config(0.6);
+    // Given handoff enabled with a trigger but no limit from any source.
+    let config = enabled_config(1000, 600);
 
-    // When evaluating the gate with no limit.
+    // When evaluating the gate with no model-reported limit.
     let decision = evaluate_handoff_gate(&config, None, Some(500), 0);
 
     // Then the gate never guesses: it passes.
@@ -47,11 +48,12 @@ fn gate_passes_without_an_effective_limit() {
 }
 
 #[rstest::rstest]
-fn gate_fires_when_projected_context_crosses_the_threshold() {
-    // Given handoff enabled at 0.6 of a 1000-token limit.
-    let config = enabled_config(0.6);
+fn gate_fires_when_projected_context_reaches_the_trigger() {
+    // Given handoff enabled with a 600-token trigger over a 1000-token
+    // limit.
+    let config = enabled_config(1000, 600);
 
-    // When the assembled estimate plus excluded cost reaches the line.
+    // When the assembled estimate reaches the trigger.
     let decision = evaluate_handoff_gate(&config, Some(1000), Some(600), 0);
 
     // Then the pending request is replaced by the handoff.
@@ -59,10 +61,10 @@ fn gate_fires_when_projected_context_crosses_the_threshold() {
 }
 
 #[rstest::rstest]
-fn gate_counts_excluded_cost_toward_the_line() {
-    // Given handoff enabled and an assembled estimate below the line
+fn gate_counts_excluded_cost_toward_the_trigger() {
+    // Given handoff enabled and an assembled estimate below the trigger
     // only because prune excluded entries after the last assembly.
-    let config = enabled_config(0.6);
+    let config = enabled_config(1000, 600);
 
     // When the excluded cost pushes the projection over.
     let decision = evaluate_handoff_gate(&config, Some(1000), Some(500), 150);
@@ -72,14 +74,43 @@ fn gate_counts_excluded_cost_toward_the_line() {
 }
 
 #[rstest::rstest]
-fn gate_passes_below_the_threshold() {
-    // Given handoff enabled at 0.6 of a 1000-token limit.
-    let config = enabled_config(0.6);
+fn gate_passes_below_the_trigger() {
+    // Given handoff enabled with a 600-token trigger.
+    let config = enabled_config(1000, 600);
 
-    // When the projection is well under the line.
+    // When the projection is well under the trigger.
     let decision = evaluate_handoff_gate(&config, Some(1000), Some(590), 0);
 
     // Then the request dispatches normally.
+    assert_eq!(decision, GateDecision::Pass);
+}
+
+#[rstest::rstest]
+fn gate_fires_against_a_model_reported_limit_when_unset() {
+    // Given handoff enabled with a trigger and no explicit limit.
+    let config = HandoffCompactionConfig {
+        enabled: true,
+        context_limit: None,
+        trigger_tokens: Some(12_000),
+    };
+
+    // When resolving against the model's reported length.
+    let decision = evaluate_handoff_gate(&config, Some(16_000), Some(12_500), 0);
+
+    // Then the model's length is the limit and the trigger fires.
+    assert_eq!(decision, GateDecision::Fire);
+}
+
+#[rstest::rstest]
+fn gate_passes_when_the_trigger_meets_the_limit() {
+    // Given a mis-edited config whose trigger sits at the limit — no gap
+    // for the recap turn.
+    let config = enabled_config(1000, 1000);
+
+    // When evaluating the gate.
+    let decision = evaluate_handoff_gate(&config, None, Some(900), 0);
+
+    // Then the regime is invalid and the gate refuses.
     assert_eq!(decision, GateDecision::Pass);
 }
 
@@ -183,8 +214,8 @@ fn recap_entry_is_a_default_included_compaction_entry() {
         "test-model".to_owned(),
     );
 
-    // Then it is a Compaction entry riding context by default (the
-    // paper's fresh conversation = system + task + recap).
+    // Then it is a Compaction entry riding context by default (the fresh
+    // conversation = system + task + recap).
     assert!(matches!(
         recap.kind,
         jinn_core_types::ChatEntryKind::Compaction { .. }
