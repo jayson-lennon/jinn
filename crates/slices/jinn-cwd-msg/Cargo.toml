@@ -12,6 +12,9 @@ jinn-common = { workspace = true }
 jinn-core-types = { workspace = true }
 jinn-slices = { workspace = true }
 serde = { workspace = true }
+# `trouper::schema` derive on the crossing command (Command kind) — same
+# shape `jinn-session-lifecycle-msg` uses; no kernel, no slice crates.
+trouper = { workspace = true }
 
 [dev-dependencies]
 jinn-testutil = { workspace = true }

@@ -3771,9 +3771,11 @@ version = "1.23.0"
 dependencies = [
  "dirs",
  "error-stack",
+ "fuzzy-matcher",
  "jinn-common",
  "jinn-core-types",
  "jinn-cwd-msg",
+ "jinn-kernel",
  "jinn-slices",
  "jinn-testutil",
  "jinn-theme",
@@ -3781,6 +3783,7 @@ dependencies = [
  "ratatui",
  "rstest",
  "tokio",
+ "trouper",
  "unicode-segmentation",
  "wherror",
 ]
@@ -3797,6 +3800,7 @@ dependencies = [
  "marked-path",
  "rstest",
  "serde",
+ "trouper",
 ]
 
 [[package]]

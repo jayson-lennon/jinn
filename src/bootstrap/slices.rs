@@ -123,7 +123,17 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
 
     jinn_scope_focus::activate(&mut ctx.host());
     jinn_chat_log_view::activate(&mut ctx.host());
-    jinn_cwd::activate(&mut ctx.host());
+    // The cwd slice spawns the suggestion actor behind its popup's ghost
+    // (same publish-path shape as the chat input's lister below): the
+    // subscription must exist before the popup can mint a request, and no
+    // scope is reachable until the interactive tail — early enough.
+    let services_snapshot = ctx.services().clone();
+    jinn_cwd::activate(
+        &mut ctx.host(),
+        jinn_kernel::common::actor_deps::ActorDeps {
+            services: services_snapshot,
+        },
+    );
     jinn_status_bar::activate(&mut ctx.host());
     jinn_quake_bar::activate(&mut ctx.host());
     // The work-time monitor folds `WorkStateChanged`, which the session actor

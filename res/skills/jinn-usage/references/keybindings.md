@@ -108,7 +108,7 @@ Misc:
 | `<leader>sa` | Applets picker                   |
 | `<leader>so` | OpenRouter model market          |
 | `<leader>sx` | Stream-rule picker               |
-| `<leader>cd` | CWD input (type a path directly) |
+| `<leader>cd` | CWD input (type a path; ghost suggestion follows the cursor, `<tab>` accepts) |
 
 ## Input mode (typing a message)
 

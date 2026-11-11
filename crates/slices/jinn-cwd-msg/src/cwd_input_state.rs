@@ -31,10 +31,37 @@ pub fn cwds_slot() -> SlotKey {
 /// The editable text and cursor live in [`LineInput`] (shared with the arg and
 /// rename session inputs) under the [`CwdInputState::text`] field; access via
 /// `.text.input` / `.text.cursor_pos`.
+///
+/// Field ownership: the input hook (and the popup's actions) own
+/// [`ghost`'s clearing](CwdInputState::ghost),
+/// [`expected_request_id`](CwdInputState::expected_request_id), and
+/// [`base_dir`](CwdInputState::base_dir); the [`CwdSuggestActor`][jinn_cwd::cwd_suggest_actor::CwdSuggestActor]
+/// is the only other writer, touching `ghost` alone and only behind the
+/// request-id guard.
 #[derive(Debug, Clone, Default)]
 pub struct CwdInputState {
     /// The editable text + cursor.
     pub text: LineInput,
+    /// The suggested directory name to ghost after the cursor (bare name,
+    /// no separator), or `None` for no suggestion.
+    ///
+    /// OWNER: cleared by the input hook on every edit; written by the
+    /// suggest actor only when the reply's request id still matches
+    /// `expected_request_id`. Render and Tab-accept derive the display
+    /// (remainder vs whole name) from the typed segment.
+    pub ghost: Option<String>,
+    /// The request id the next ghost write must carry to be accepted.
+    ///
+    /// OWNER: bumped by the input hook on every edit (and stamped at open);
+    /// read by the actor as the staleness guard.
+    pub expected_request_id: u64,
+    /// The resolve base captured at popup open — the session cwd the input
+    /// was seeded against.
+    ///
+    /// OWNER: stamped once by the opener action; read by the input hook to
+    /// resolve suggestion parents. `None` = never stamped (`Default`), and
+    /// the hook then requests nothing rather than listing a wrong root.
+    pub base_dir: Option<MarkedPathBuf<Absolute>>,
 }
 
 /// The outcome of resolving a cwd input string.

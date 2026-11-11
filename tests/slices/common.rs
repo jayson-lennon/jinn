@@ -491,6 +491,9 @@ pub fn activate_theme(services: &mut jinn_kernel::Services) {
 
 /// Activates the cwd slice on the harness services.
 pub fn activate_cwd(services: &mut jinn_kernel::Services) {
+    let actor_deps = jinn_kernel::common::actor_deps::ActorDeps {
+        services: services.clone(),
+    };
     let mut host = jinn_slices::SliceHost::new(
         &services.slices,
         &mut services.viewport,
@@ -498,7 +501,7 @@ pub fn activate_cwd(services: &mut jinn_kernel::Services) {
         &services.key_routes,
         &services.trouper_system,
     );
-    jinn_cwd::activate(&mut host);
+    jinn_cwd::activate(&mut host, actor_deps);
 }
 
 /// Activates the project slice on the harness services.

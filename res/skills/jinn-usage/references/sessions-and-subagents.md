@@ -85,7 +85,7 @@ alone; once setup has run, further presses are inert.
 | ------------ | --------------------------------------------------------- |
 | `<M-c>`      | Change cwd, browsing from the session's current directory |
 | `<M-d>`      | Change cwd, browsing from `$HOME`                         |
-| `<leader>cd` | Type a path directly                                      |
+| `<leader>cd` | Type a path directly (ghosts a fuzzy match as you type; `<tab>` accepts it) |
 
 ## Forking
 
