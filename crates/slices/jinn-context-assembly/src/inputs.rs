@@ -44,8 +44,7 @@ pub fn build_assembly_inputs(
     let session = AssemblySessionProjection::capture(session_id, state.session(session_id));
     let handoff_enabled = config
         .get::<jinn_preferences_config::schemas::HandoffCompactionConfig>()
-        .map(|config| config.enabled)
-        .unwrap_or(false);
+        .is_ok_and(|config| config.enabled);
 
     let persona = state.persona_selection().and_then(|cell| {
         cell.read()

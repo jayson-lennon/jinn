@@ -91,27 +91,36 @@ impl ChatSessionState {
     /// pending).
     ///
     /// A non-terminal outcome (stream-rule intercept, loop retry) leaves
-    /// the flag untouched: the turn is still live and the fold still
-    /// fires at its eventual terminal completion. A terminal non-success
-    /// clears the flag — the gate simply re-fires at the next boundary.
+    /// the flags untouched: the turn is still live and the fold still
+    /// fires at its eventual terminal completion. A terminal outcome —
+    /// success or failure — clears both handoff fields: the recap cycle's
+    /// bookkeeping is done either way, and a failure leaves nothing owed.
+    /// The success-path fold re-clears idempotently; on the mid-loop
+    /// shape the fold's call here is the clear.
     pub fn end_handoff(&mut self, turn_is_over: bool) -> bool {
         if !self.core.ephemeral.handoff_pending {
             return false;
         }
         if turn_is_over {
             self.core.ephemeral.handoff_pending = false;
+            self.core.ephemeral.handoff_continuation_owed = false;
             return true;
         }
-        // Terminal failure: the turn is over, the fold is not owed, the
-        // flag must not orphan.
+        // Terminal failure: the turn is over, the fold is not owed, and
+        // the owed-continuation marker must not orphan — the field pair
+        // clears together.
         self.core.ephemeral.handoff_pending = false;
+        self.core.ephemeral.handoff_continuation_owed = false;
         false
     }
 
-    /// Clears the handoff flag outright — the cancel sweep's cleanup: the
-    /// turn is gone, so nothing owes the fold.
+    /// Clears both handoff fields outright — the cancel sweep's cleanup:
+    /// the turn is gone, so nothing owes the fold and no continuation is
+    /// owed. Canceling a handoff cancels the turn; there is no
+    /// handoff-specific cancel path.
     pub fn abandon_handoff(&mut self) {
         self.core.ephemeral.handoff_pending = false;
+        self.core.ephemeral.handoff_continuation_owed = false;
     }
 
     /// Records excluded-entry token cost toward the gate's estimate.
@@ -129,19 +138,24 @@ impl ChatSessionState {
         std::mem::take(&mut self.core.ephemeral.handoff_excluded_cost)
     }
 
-    /// Pops a front-of-queue `ToolContinuation` marker, recording that
-    /// the fresh context owes its dispatch. Returns whether a marker was
-    /// found (the fold consults this to decide the re-mint).
-    pub fn pop_if_front_continuation(&mut self) -> bool {
-        let is_continuation = matches!(
-            self.core.ephemeral.message_queue.peek(),
-            Some(jinn_turn_dispatch_msg::QueueItem::ToolContinuation)
-        );
-        if is_continuation {
-            let _ = self.dequeue();
-            self.core.ephemeral.handoff_continuation_owed = true;
-        }
-        is_continuation
+    /// Records that the gate fired mid-loop: the replaced request was a
+    /// live tool-loop continuation, so the recap's success must route
+    /// back into the loop instead of ending the turn. Read (never
+    /// cleared) by the completion routing; cleared alongside
+    /// [`Self::is_handoff_pending`] by [`Self::end_handoff`] and
+    /// [`Self::abandon_handoff`].
+    pub fn set_handoff_continuation_owed(&mut self) {
+        self.core.ephemeral.handoff_continuation_owed = true;
+    }
+
+    /// Whether the handoff replaced a mid-loop continuation, without
+    /// clearing — the completion routing peeks this (together with
+    /// [`Self::is_handoff_pending`]) to ack the recap's success as a loop
+    /// continuation; the clears belong to [`Self::end_handoff`] and
+    /// [`Self::abandon_handoff`].
+    #[must_use]
+    pub fn handoff_continuation_owed(&self) -> bool {
+        self.core.ephemeral.handoff_continuation_owed
     }
 
     // ----- Discovered resources (per-session, cwd-scoped) -----

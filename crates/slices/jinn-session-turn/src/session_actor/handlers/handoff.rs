@@ -82,7 +82,7 @@ pub fn evaluate_handoff_gate(
 /// resets afterward.
 #[must_use]
 pub fn build_handoff_nudge(recap_prompt: &str) -> String {
-    format!("{recap_prompt}")
+    recap_prompt.to_owned()
 }
 
 /// The worker name the fold stamps on its mutations.

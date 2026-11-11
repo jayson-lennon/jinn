@@ -109,7 +109,12 @@ compaction rarely fires. The tuning lives in `jinn.toml`:
   for the recap turn). The recap turn is visible in the transcript and
   jumpable with `]c`/`[c` like any compaction summary; a handoff
   cancelled mid-turn applies nothing and the gate re-fires on the next
-  request.
+  request. A handoff fired mid-loop (while the model is working through
+  tool calls) keeps the turn live: the transcript shows the recap as one
+  round inside the same turn, with no idle flash between it and the
+  continuation; a handoff fired at an idle boundary is its own turn, and
+  the message you sent (or your queued request) dispatches right after
+  the fold.
 
 See `configuration.md` for how to edit these; they are re-read at next
 use, so an edit applies by the next compaction.

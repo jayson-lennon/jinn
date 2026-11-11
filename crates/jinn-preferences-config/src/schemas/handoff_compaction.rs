@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 /// below the limit, and the gate refuses to fire when it does not.
 ///
 /// Serialized as `[context_curation.handoff_compaction]` in `jinn.toml`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HandoffCompactionConfig {
     /// Master switch. `false` (default) means nothing anywhere observes
     /// this feature: no gate check, no prompt section, no fold.
@@ -48,16 +48,6 @@ pub struct HandoffCompactionConfig {
     /// or overfull handoff.
     #[serde(default)]
     pub trigger_tokens: Option<usize>,
-}
-
-impl Default for HandoffCompactionConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            context_limit: None,
-            trigger_tokens: None,
-        }
-    }
 }
 
 impl HandoffCompactionConfig {

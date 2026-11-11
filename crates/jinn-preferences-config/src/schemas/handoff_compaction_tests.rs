@@ -1,6 +1,8 @@
 //! `HandoffCompactionConfig` tests — defaults, regime resolution, and
 //! TOML shape.
 
+#![allow(clippy::expect_used, reason = "test code")]
+
 use super::HandoffCompactionConfig;
 
 #[rstest::rstest]

@@ -19,6 +19,7 @@ use jinn_kernel::protocol::{ChatEntry, ChatEntryKind};
 use jinn_session_history_msg::PushChatEntry;
 
 use super::super::SessionPersistenceActor;
+use super::handoff_dispatch::HandoffBoundary;
 use jinn_context::PromptTemplateStore;
 use jinn_context::attachment_path::{PathResolveContext, PendingPath};
 use jinn_llm_support::image_convert::ResolveOutcome;
@@ -196,14 +197,13 @@ impl SessionPersistenceActor {
                 // re-dispatches through the ordinary idle drain after
                 // the fold. The nudge dispatches as an ordinary fresh
                 // turn below.
-                let handoff_entry = self
-                    .handoff_nudge_if_gated(
-                        &payload.session_id,
-                        Some(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
-                            entry.clone(),
-                        ))),
-                    )
-                    .await;
+                let handoff_entry = self.handoff_nudge_if_gated(
+                    &payload.session_id,
+                    HandoffBoundary::IdleDirect,
+                    Some(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+                        entry.clone(),
+                    ))),
+                );
                 let entry = handoff_entry.unwrap_or(entry);
                 // Admission before the entry lands: a user message mints a
                 // fresh turn (`FreshTurn`), so the only refusal is a cancel
@@ -506,14 +506,13 @@ impl SessionPersistenceActor {
         // fire can hold it at the queue front (its UI role survives the
         // fold) and dispatch the nudge as an ordinary fresh turn instead.
         let marker = ChatEntry::system("\u{21bb} session resumed");
-        let handoff_entry = self
-            .handoff_nudge_if_gated(
-                &payload.session_id,
-                Some(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
-                    marker.clone(),
-                ))),
-            )
-            .await;
+        let handoff_entry = self.handoff_nudge_if_gated(
+            &payload.session_id,
+            HandoffBoundary::IdleDirect,
+            Some(jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
+                marker.clone(),
+            ))),
+        );
         let marker = handoff_entry.unwrap_or(marker);
 
         // Admission first: a resume is a fresh turn (a turn the cancel

@@ -29,8 +29,7 @@ fn handoff_enabled(services: &jinn_kernel::Services) -> bool {
     services
         .config
         .get::<jinn_preferences_config::schemas::HandoffCompactionConfig>()
-        .map(|config| config.enabled)
-        .unwrap_or(false)
+        .is_ok_and(|config| config.enabled)
 }
 
 /// The context size actor's static trouper path.

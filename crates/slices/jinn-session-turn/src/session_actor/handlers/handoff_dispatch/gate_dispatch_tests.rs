@@ -1,9 +1,13 @@
 //! Tests for the handoff dispatch intercept: gate fire shape, non-fire
 //! pass-through, and per-session scope.
 
+#![allow(clippy::expect_used, clippy::panic, reason = "test code")]
+
 use crate::session_actor::SessionPersistenceActor;
+use crate::session_actor::handlers::handoff_dispatch::HandoffBoundary;
 use jinn_core_types::ChatEntry;
 use jinn_core_types::ContextOverride;
+use jinn_core_types::ToolResultStatus;
 use jinn_kernel::common::app_state::AppState;
 use jinn_kernel::protocol::ChatEntryKind;
 use jinn_preferences_config::schemas::HandoffCompactionConfig;
@@ -74,7 +78,7 @@ async fn gate_fire_pushes_nudge_sets_flag_and_holds_the_queue() {
     set_context_size(&actor, &session_id, 700); // past the 600-token trigger
 
     // When the intercept runs at the boundary.
-    let nudge = actor.handoff_nudge_if_gated(&session_id, None).await;
+    let nudge = actor.handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None);
 
     // Then it fired: the nudge is returned for dispatch, the flag is
     // set, and the held request (none here) was not queued.
@@ -95,8 +99,7 @@ async fn gate_pass_below_the_trigger_dispatches_normally() {
 
     // When the intercept runs.
     let fired = actor
-        .handoff_nudge_if_gated(&session_id, None)
-        .await
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
         .is_some();
 
     // Then nothing happened: no flag, no entries, no queue.
@@ -124,8 +127,7 @@ async fn gate_passes_when_disabled_even_past_the_line() {
 
     // When the intercept runs.
     let fired = actor
-        .handoff_nudge_if_gated(&session_id, None)
-        .await
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
         .is_some();
 
     // Then the boundary dispatches normally.
@@ -149,8 +151,8 @@ async fn other_sessions_are_unaffected_by_one_session_gate() {
 
     // When the intercept runs for the active session, then for the
     // second.
-    let active_nudge = actor.handoff_nudge_if_gated(&active_id, None).await;
-    let second_nudge = actor.handoff_nudge_if_gated(&second_id, None).await;
+    let active_nudge = actor.handoff_nudge_if_gated(&active_id, HandoffBoundary::IdleDirect, None);
+    let second_nudge = actor.handoff_nudge_if_gated(&second_id, HandoffBoundary::IdleDirect, None);
 
     // Then only the active session's boundary fired, and its state did
     // not leak into the second session.
@@ -176,8 +178,7 @@ async fn gate_fire_holds_the_replaced_user_entry_at_the_queue_front() {
 
     // When the intercept runs with the held request.
     let nudge = actor
-        .handoff_nudge_if_gated(&session_id, Some(held))
-        .await
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, Some(held))
         .expect("gate should fire");
 
     // Then the nudge is returned for dispatch and the user entry waits
@@ -202,13 +203,12 @@ async fn a_pending_handoff_never_re_triggers_the_gate() {
     set_context_size(&actor, &session_id, 700); // past the 600-token trigger
     assert!(
         actor
-            .handoff_nudge_if_gated(&session_id, None)
-            .await
+            .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
             .is_some()
     );
 
     // When the recap turn's own dispatch boundary evaluates the gate.
-    let re_nudge = actor.handoff_nudge_if_gated(&session_id, None).await;
+    let re_nudge = actor.handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None);
 
     // Then it passes — the recap turn must not recurse.
     assert!(re_nudge.is_none());
@@ -222,19 +222,107 @@ async fn a_pending_handoff_never_re_triggers_the_gate() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn mid_loop_gate_fire_records_owed_but_holds_nothing() {
+    // Given a handoff-enabled actor above the line.
+    let (actor, _audit) = handoff_actor(600).await;
+    let session_id = actor.state.read().session.active_session_id().clone();
+    set_context_size(&actor, &session_id, 700); // past the 600-token trigger
+
+    // When the intercept runs at the mid-loop boundary (no held request —
+    // the loop's continuation rides the live turn, not the queue).
+    let nudge = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::MidLoop, None)
+        .expect("gate should fire");
+
+    // Then the nudge is returned and the owed field records that the
+    // recap owes its post-fold continuation — with nothing queued.
+    assert!(matches!(&nudge.kind, ChatEntryKind::RuleInterrupt { rule, .. } if rule == "handoff"));
+    let state = actor.state.read();
+    let session = state.session(&session_id);
+    assert!(session.is_handoff_pending());
+    assert!(session.handoff_continuation_owed());
+    assert_eq!(session.queue_len(), 0);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn idle_direct_gate_fire_does_not_record_owed() {
+    // Given a handoff-enabled actor above the line.
+    let (actor, _audit) = handoff_actor(600).await;
+    let session_id = actor.state.read().session.active_session_id().clone();
+    set_context_size(&actor, &session_id, 700); // past the 600-token trigger
+
+    // When the intercept runs at an idle-direct boundary.
+    actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
+        .expect("gate should fire");
+
+    // Then the recap turn is pending but owes no loop continuation — the
+    // held entry's drain, not a live turn, follows the fold.
+    let state = actor.state.read();
+    let session = state.session(&session_id);
+    assert!(session.is_handoff_pending());
+    assert!(!session.handoff_continuation_owed());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn fold_clears_the_owed_field_with_the_pending_flag() {
+    // Given a session whose mid-loop gate fired (pending + owed) and whose
+    // history holds the nudge and the recap response.
+    use jinn_core_types::ToolResultStatus;
+    let (actor, _audit) = handoff_actor(600).await;
+    let session_id = actor.state.read().session.active_session_id().clone();
+    set_context_size(&actor, &session_id, 700);
+    let nudge = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::MidLoop, None)
+        .expect("gate should fire");
+    {
+        let mut state = actor.state.write();
+        let session = state.session.get_or_create(&session_id);
+        session.push_entry(nudge);
+        session.push_entry(ChatEntry::assistant("long working text"));
+        session.push_entry(ChatEntry::tool_call("tc-1", "bash", "ls"));
+        session.push_entry(ChatEntry::tool_result(
+            "tc-1",
+            "bash",
+            "files...",
+            ToolResultStatus::Success,
+        ));
+        session.push_entry(ChatEntry::assistant("## Recap\nobjective: ..."));
+    }
+    assert!(
+        actor
+            .state
+            .read()
+            .session(&session_id)
+            .handoff_continuation_owed()
+    );
+
+    // When the fold runs (the top of `continue_tool_loop`, after the recap
+    // completion acked `Continue`).
+    actor.run_handoff_fold(&session_id).await;
+
+    // Then both handoff fields are clear — the fold is the success-path
+    // owner, and nothing is left pending or owed.
+    let state = actor.state.read();
+    let session = state.session(&session_id);
+    assert!(!session.is_handoff_pending());
+    assert!(!session.handoff_continuation_owed());
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn fold_excludes_non_protected_entries_and_inserts_the_recap() {
     // Given a handoff-pending session with user, assistant, tool call,
     // tool result, nudge, and the recap response entries.
-    use jinn_core_types::ToolResultStatus;
-    use jinn_kernel::protocol::ChatEntryKind;
     let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
     set_context_size(&actor, &session_id, 700); // past the 600-token trigger
     // The mid-loop caller pushes the returned nudge (the idle callers
     // dispatch it as the turn's entry); same observable state either way.
     let nudge = actor
-        .handoff_nudge_if_gated(&session_id, None)
-        .await
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
         .expect("gate should fire");
     {
         let mut state = actor.state.write();
@@ -301,7 +389,7 @@ async fn end_handoff_owes_the_fold_only_for_terminal_success() {
         view.session
             .map()
             .get_or_create(&session_id)
-            .begin_handoff()
+            .begin_handoff();
     });
 
     // When the turn ends WITHOUT success (cancel or error outcome).
@@ -341,14 +429,14 @@ async fn end_handoff_on_a_non_pending_session_owes_nothing() {
 #[rstest::rstest]
 #[tokio::test]
 async fn cancel_sweep_clears_the_handoff_flag_without_a_fold() {
-    // Given a handoff-pending session with uncompacted history.
+    // Given a handoff-pending session (mid-loop: owed recorded) with
+    // uncompacted history.
     let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
     actor.state.with_session(|view| {
-        view.session
-            .map()
-            .get_or_create(&session_id)
-            .begin_handoff()
+        let session = view.session.map().get_or_create(&session_id);
+        session.begin_handoff();
+        session.set_handoff_continuation_owed();
     });
     actor.state.with_session(|view| {
         view.session
@@ -362,14 +450,15 @@ async fn cancel_sweep_clears_the_handoff_flag_without_a_fold() {
         view.session
             .map()
             .get_or_create(&session_id)
-            .abandon_handoff()
+            .abandon_handoff();
     });
 
-    // Then the flag is gone and history is untouched — no fold applied.
-    use jinn_kernel::protocol::ChatEntryKind;
+    // Then both fields are gone and history is untouched — no fold applied.
     let state = actor.state.read();
-    assert!(!state.session(&session_id).is_handoff_pending());
-    let history = state.session(&session_id).history();
+    let session = state.session(&session_id);
+    assert!(!session.is_handoff_pending());
+    assert!(!session.handoff_continuation_owed());
+    let history = session.history();
     assert!(
         history
             .iter()

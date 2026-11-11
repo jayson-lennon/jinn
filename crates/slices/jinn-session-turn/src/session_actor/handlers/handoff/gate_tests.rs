@@ -1,14 +1,19 @@
 //! Tests for the handoff gate, fold mutations, and recap entry shape.
 
+#![allow(clippy::expect_used, reason = "test code")]
+
 use super::GateDecision;
 use super::build_fold_mutations;
 use super::build_handoff_nudge;
 use super::build_recap_entry;
 use super::evaluate_handoff_gate;
 use super::is_fold_protected;
+
+use jinn_core_types::ChangeSource;
 use jinn_core_types::ChatEntry;
 use jinn_core_types::ContextOverride;
 use jinn_core_types::HistoryMutation;
+use jinn_core_types::PinPosition;
 use jinn_preferences_config::schemas::HandoffCompactionConfig;
 
 fn jinn_config_test_layer() -> &'static jinn_config::ConfigLayer {
@@ -175,7 +180,6 @@ fn fold_excludes_assistant_but_keeps_user_entries() {
 #[rstest::rstest]
 fn fold_treats_already_excluded_entries_as_protected() {
     // Given a history whose assistant entry the user already excluded.
-    use jinn_core_types::ChangeSource;
     let mut history = history_with_mixed_entries();
     let entry = history
         .get_mut(1)
@@ -192,7 +196,6 @@ fn fold_treats_already_excluded_entries_as_protected() {
 #[rstest::rstest]
 fn fold_leaves_pins_alone() {
     // Given a pinned assistant entry (pins are the user's keep-signal).
-    use jinn_core_types::PinPosition;
     let mut entry = ChatEntry::assistant("keep this");
     entry.pin_position = Some(PinPosition::Top);
 

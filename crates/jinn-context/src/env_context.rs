@@ -40,9 +40,6 @@ pub fn persona_section(persona: Option<&Persona>) -> String {
 /// variable "empty without compaction").
 #[must_use]
 pub fn handoff_resume_section(enabled: bool) -> String {
-    if !enabled {
-        return String::new();
-    }
     const SECTION: &str = "# Handoff Compaction\n\n\
         This session uses handoff compaction: when the working context grows\n\
         past its limit, you will be asked to stop and write a handoff recap\n\
@@ -55,6 +52,10 @@ pub fn handoff_resume_section(enabled: bool) -> String {
         established facts, and never re-derive what it records. Re-read a\n\
         file with a tool before editing it if the recap does not state its\n\
         current contents.";
+
+    if !enabled {
+        return String::new();
+    }
     SECTION.to_owned()
 }
 

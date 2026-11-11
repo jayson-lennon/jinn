@@ -432,7 +432,7 @@ impl QueueActor {
             .state
             .read()
             .try_session(session_id)
-            .is_some_and(|session| session.is_handoff_pending())
+            .is_some_and(jinn_kernel::ChatSessionState::is_handoff_pending)
             .then_some(ToolChoiceKind::None);
 
         let estimated_tokens = assembled.estimated_tokens();

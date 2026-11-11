@@ -71,7 +71,12 @@ pub struct SessionCoreEphemeral {
     #[serde(skip)]
     pub handoff_excluded_cost: u32,
     /// The fold found the replaced request to be a mid-loop continuation:
-    /// the fresh context owes it a dispatch (re-minted as a fresh turn).
+    /// the recap's success routes back into the live tool loop — the
+    /// completion routing acks `Continue` and the loop-continue path runs
+    /// the fold before the post-fold continuation dispatches, within the
+    /// same turn. Peeked by the completion routing; cleared with
+    /// [`Self::handoff_pending`] by [`ChatSessionState::end_handoff`] and
+    /// [`ChatSessionState::abandon_handoff`].
     #[serde(skip)]
     pub handoff_continuation_owed: bool,
     /// Generation marker for the currently active inference stream.

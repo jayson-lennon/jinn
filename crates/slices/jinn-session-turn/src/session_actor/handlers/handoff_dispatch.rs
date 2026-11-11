@@ -2,16 +2,24 @@
 //! compaction.
 //!
 //! When the gate fires at a model-request boundary, the pending request
-//! is replaced by the handoff turn. The three boundary shapes:
+//! is replaced by the handoff recap turn. The two boundary shapes:
 //!
-//! - **Idle-direct / resume** (`enqueue.rs`): the caller swaps the entry
-//!   it was about to dispatch for the nudge entry; the held entry waits
-//!   at the queue front and re-dispatches through the ordinary idle
-//!   drain after the fold. The turn is an ordinary fresh turn.
-//! - **Mid-loop** (`tool_calls.rs`): the recap continuation joins the
-//!   live turn through the existing tool-loop machinery, with the nudge
-//!   pushed ahead of it. The owed loop continuation waits at the queue
-//!   front; the fold re-mints a fresh turn for it.
+//! - **Idle-direct / resume** (`enqueue.rs`, [`HandoffBoundary::IdleDirect`]):
+//!   the caller swaps the entry it was about to dispatch for the nudge
+//!   entry; the held entry waits at the queue front and re-dispatches
+//!   through the ordinary idle drain after the fold. The recap is its own
+//!   turn: no loop is live at this boundary, so the turn definition ("a
+//!   turn is the tool loop until `Idle`") places the boundary at the
+//!   recap's own settle, and the held entry legitimately starts the next
+//!   turn.
+//! - **Mid-loop** (`tool_calls.rs`, [`HandoffBoundary::MidLoop`]): the
+//!   recap continuation joins the live turn through the existing
+//!   tool-loop machinery, with the nudge pushed ahead of it. The gate
+//!   records `handoff_continuation_owed`; the recap's successful
+//!   completion is then acked `Continue` instead of `End`, so the settle
+//!   never touches `Idle` — the loop-continue path runs the fold and the
+//!   post-fold continuation dispatches within the same live turn, under a
+//!   fresh stream. Compaction is a mid-loop event, not a turn boundary.
 //!
 //! The nudge rides as a `RuleInterrupt` entry — the established
 //! harness-steering kind: default-included (the model must see it — a
@@ -21,11 +29,17 @@
 //! rather than a rule so its provenance is legible. The fold excludes it
 //! after the cycle.
 //!
-//! The queue actor maps a pending handoff to `tool_choice = none` on the
-//! dispatch (tools stay defined — prefix continuity; the API layer
-//! forbids calls). By fold time the flag is cleared, so the held
-//! request's re-dispatch and the re-minted continuation dispatch
-//! unconstrained.
+//! The recap request keeps tools defined (prefix continuity) but the API
+//! layer forbids calls: the dispatch transports map a pending handoff to
+//! `tool_choice = none` (the session actor's continuation path and the
+//! queue actor's prepared dispatch). By fold time the flag is cleared, so
+//! the post-fold continuation and every later dispatch are unconstrained.
+//!
+//! A handoff fired with a regime sized below the protected floor re-fires
+//! back-to-back *within* the same turn after each fold — the gate still
+//! passes while pending because each fire's recap is a fresh boundary.
+//! ESC is the escape; the regime's sizing is configuration
+//! responsibility.
 
 use crate::session_actor::handlers::handoff::GateDecision;
 use crate::session_actor::handlers::handoff::build_fold_mutations;
@@ -42,23 +56,45 @@ use jinn_turn_dispatch_msg::QueueItem;
 #[cfg(test)]
 mod gate_dispatch_tests;
 
+/// Which model-request boundary the gate is evaluating — the two shapes
+/// a fire can interrupt, with different turn-liveness consequences.
+///
+/// Explicit, not derived from the session's phase: the phase projection
+/// is a display fact that lags the ledger, and misreading the boundary
+/// kind would either hold a loop continuation at the queue front (a
+/// turn-shape nothing else produces) or owe a fold to a boundary with no
+/// live turn to continue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::session_actor) enum HandoffBoundary {
+    /// The recap replaces a live tool-loop continuation (`continue_tool_loop`):
+    /// its success must rejoin the loop within the same turn.
+    MidLoop,
+    /// The recap replaces a dispatch from `Idle` (a user message or a
+    /// resume): its success ends the recap turn, and the held entry
+    /// starts the next one through the idle drain.
+    IdleDirect,
+}
+
 /// Point-of-use prompt name for the recap prompt.
 const HANDOFF_PROMPT_FILE: &str = "_handoff.md";
 
 impl super::super::SessionPersistenceActor {
     /// Evaluates the handoff gate for one model-request boundary.
     ///
-    /// On a fire, marks the session handoff-pending, holds `held` at the
-    /// queue front (the request this boundary was about to run — it
-    /// re-dispatches through the ordinary drain after the fold), and
-    /// returns the nudge entry for the caller to dispatch instead.
-    /// Returns `None` when the boundary dispatches normally.
+    /// On a fire, marks the session handoff-pending — recording
+    /// `owed` for a [`HandoffBoundary::MidLoop`] fire (the recap owes its
+    /// post-fold continuation) — holds `held` at the queue front (an
+    /// idle-direct fire's replaced request; it re-dispatches through the
+    /// ordinary drain after the fold), and returns the nudge entry for
+    /// the caller to dispatch instead. Returns `None` when the boundary
+    /// dispatches normally.
     ///
     /// A handoff already in flight always passes: the recap turn's own
     /// dispatch must not re-trigger the gate.
-    pub(in crate::session_actor) async fn handoff_nudge_if_gated(
+    pub(in crate::session_actor) fn handoff_nudge_if_gated(
         &self,
         session_id: &jinn_core_types::SessionId,
+        boundary: HandoffBoundary,
         held: Option<QueueItem>,
     ) -> Option<ChatEntry> {
         // Read everything the gate needs under one write guard (the
@@ -98,6 +134,12 @@ impl super::super::SessionPersistenceActor {
         self.state.with_session(|view| {
             let session = view.session.map().get_or_create(session_id);
             session.begin_handoff();
+            if boundary == HandoffBoundary::MidLoop {
+                // The recap's success routes back into the live loop: the
+                // completion routing reads this to ack `Continue`, and the
+                // fold clears it with the pending flag.
+                session.set_handoff_continuation_owed();
+            }
             if let Some(held) = held {
                 // The replaced request jumps nothing: it waits at the
                 // front and re-dispatches first after the fold.
@@ -107,6 +149,7 @@ impl super::super::SessionPersistenceActor {
 
         tracing::info!(
             session_id = %session_id,
+            boundary = ?boundary,
             "handoff gate fired: dispatching recap turn, holding the pending request"
         );
         Some(nudge)
@@ -145,11 +188,11 @@ impl super::super::SessionPersistenceActor {
     /// validation apply: it is the session's own mutation application
     /// path.
     ///
-    /// If the replaced request was a mid-loop continuation (the marker
-    /// this actor left at the queue front), the fold re-mints a fresh
-    /// turn and hands it to the dispatch queue: the fresh context
-    /// continues executing — the remaining plan's next step is the
-    /// continuation's answer, now authored against task + recap.
+    /// The handoff fields clear here — the single success-path owner.
+    /// Callers run this before dispatching the follow-up request, so the
+    /// folded context is what assembles: mid-loop, the same-turn
+    /// continuation from `continue_tool_loop`; idle-direct, the held
+    /// entry's drain.
     pub(in crate::session_actor) async fn run_handoff_fold(
         &self,
         session_id: &jinn_core_types::SessionId,
@@ -174,7 +217,7 @@ impl super::super::SessionPersistenceActor {
             let state = self.state.read();
             state
                 .try_session(session_id)
-                .and_then(|session| session.context_size())
+                .and_then(jinn_kernel::ChatSessionState::context_size)
                 .unwrap_or_default()
         };
         let recap_prose = last_entry
@@ -202,25 +245,20 @@ impl super::super::SessionPersistenceActor {
             return;
         }
 
-        // Apply synchronously; collect the changed entries for the
-        // override broadcasts outside the lock, and whether the fold
-        // found an owed continuation.
-        let (changed, continuation_owed) = self.state.with_session(|view| {
+        // Apply synchronously and clear both handoff fields under the
+        // same write guard — the fresh context is post-fold and nothing
+        // is pending or owed anymore.
+        let changed = self.state.with_session(|view| {
             let session = view.session.map().get_or_create(session_id);
             session.queue_mutations(mutations);
             let (_count, changed) = session.drain_and_apply_pending_mutations();
-            // The owed mid-loop continuation: pop the marker this actor
-            // left at the queue front. `true` means the replaced request
-            // was a loop continuation and the fresh context owes it a
-            // dispatch.
-            let owed = session.pop_if_front_continuation();
-            (changed, owed)
+            session.end_handoff(true);
+            changed
         });
 
         tracing::info!(
             session_id = %session_id,
             changed = changed.len(),
-            continuation_owed,
             "handoff fold applied: fresh context is task + pins + recap"
         );
         for entry_id in changed {
@@ -231,47 +269,6 @@ impl super::super::SessionPersistenceActor {
             .await;
         }
         super::super::helpers::emit_history_appended(self.bus(), session_id).await;
-
-        // The mid-loop continuation re-dispatch: a fresh turn on the
-        // fresh context. `DispatchTurn` → the queue actor's prepared
-        // dispatch assembles the folded history (guaranteed — the
-        // mutations above applied synchronously, before this publish)
-        // and joins the turn minted here.
-        // The fresh context takes the next action: mint a fresh turn
-        // for the continuation.
-        self.redispatch_after_fold_if_owed(session_id, continuation_owed)
-            .await;
-    }
-
-    /// Mints a fresh turn and asks the dispatch queue to run it, when
-    /// the fold found an owed continuation.
-    async fn redispatch_after_fold_if_owed(
-        &self,
-        session_id: &jinn_core_types::SessionId,
-        owed: bool,
-    ) {
-        if !owed {
-            return;
-        }
-        let minted = jinn_kernel::common::turn_ledger::mint_dispatch_with_stamp(
-            &self.services,
-            &self.state,
-            session_id,
-            jinn_kernel::common::turn_ledger::MintKind::FreshTurn,
-            jiff::Timestamp::now(),
-        )
-        .await;
-        if minted.is_none() {
-            tracing::warn!(
-                session_id = %session_id,
-                "post-fold continuation dropped: the ledger refused a fresh mint"
-            );
-            return;
-        }
-        self.publish(jinn_turn_dispatch_msg::DispatchTurn {
-            session_id: session_id.clone(),
-        })
-        .await;
     }
 }
 
