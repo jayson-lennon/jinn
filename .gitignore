@@ -47,3 +47,4 @@ worktrees/*
 .autodev.ledger.md
 *.html
 *.wav
+.artifacts
