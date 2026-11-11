@@ -1,6 +1,6 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
-## (development)
+## 2026-11-10 v1.23.0
 
 - Applet picker now shows the bind address for the applet server.
 - Applet server now has an index page at `/`.
