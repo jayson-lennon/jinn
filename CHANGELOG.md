@@ -4,6 +4,7 @@
 
 - Add autocomplete to CWD picker (`cd`) using fuzzy matching. Press `TAB` to complete the proposed directory.
 - Personas now carry their own compaction prompts enclosed in a `<compaction></compaction>` block.
+- `workset_trigger_tokens` now triggers an error if less than `accumulation_threshold_tokens`.
 - Add new "handoff compaction" automated compaction method:
 
 ```toml
