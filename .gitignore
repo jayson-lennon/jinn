@@ -53,3 +53,5 @@ worktrees/*
 /*.md
 !clippy.toml
 !Cargo.toml
+dump/
+dumps/
