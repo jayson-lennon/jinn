@@ -108,6 +108,11 @@ impl BusMessage for AppletDeleted {}
 pub struct OpenApplet {
     /// The app's directory id.
     pub id: String,
+    /// The session to report a failed launch into. A launch failure is a
+    /// chat error entry, not a silent log line; the session is fixed at
+    /// keypress, when the picker action still knows which session the
+    /// user is looking at.
+    pub session_id: jinn_core_types::SessionId,
 }
 
 impl BusMessage for OpenApplet {}
@@ -127,6 +132,9 @@ impl BusMessage for OpenApplet {}
 pub struct OpenAppletKiosk {
     /// The app's directory id.
     pub id: String,
+    /// The session to report a failed launch into — same contract as
+    /// [`OpenApplet`]'s.
+    pub session_id: jinn_core_types::SessionId,
 }
 
 impl BusMessage for OpenAppletKiosk {}

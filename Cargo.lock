@@ -3219,9 +3219,11 @@ dependencies = [
  "jinn-cell-catalog",
  "jinn-common",
  "jinn-config",
+ "jinn-core-types",
  "jinn-picker",
  "jinn-preferences-config",
  "jinn-selection-widget",
+ "jinn-session-history-msg",
  "jinn-slices",
  "jinn-testutil",
  "jinn-theme",
@@ -3247,6 +3249,7 @@ dependencies = [
 name = "jinn-applets-msg"
 version = "1.23.0"
 dependencies = [
+ "jinn-core-types",
  "jinn-picker",
  "jinn-selection-widget",
  "jinn-slices",

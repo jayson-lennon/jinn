@@ -132,9 +132,9 @@ impl AppletsStoreActor {
             .emits::<AppletsRescanned>()
             .emits::<AppletRenamed>()
             .emits::<AppletDeleted>()
-            // The kiosk open path publishes a row note when the launch
-            // fails — a transient dashboard row note, not a chat message.
-            .emits::<jinn_slices::ServiceStatusUpdate>()
+            // A failed open or kiosk launch reports into the chat: the
+            // handler publishes the push, the session actor owns history.
+            .emits::<jinn_session_history_msg::PushChatEntry>()
             .mailbox(16, trouper::inbox::OverloadPolicy::Block)
             .start()
     }

@@ -59,7 +59,23 @@ pub fn opener_command(url: &str) -> Option<Vec<String>> {
     }
 }
 
-/// Spawns the opener for `url`, detached — the browser outlives jinn.
+/// Builds a `Command` whose stdio is detached from jinn's terminal.
+///
+/// A browser jinn spawned with inherited stdio paints its own stderr —
+/// Wayland/Vulkan/GLib diagnostics, crash noise — straight over the
+/// TUI, since both processes share the same pty. Nulling all three
+/// streams silences the child at the descriptor level: nothing to
+/// redirect on the user's side, and no output is lost anywhere it
+/// mattered (a browser's stderr is diagnostics, not data).
+fn detached_command(program: &str) -> std::process::Command {
+    let mut command = std::process::Command::new(program);
+    command.stdin(std::process::Stdio::null());
+    command.stdout(std::process::Stdio::null());
+    command.stderr(std::process::Stdio::null());
+    command
+}
+
+/// Spawns the OS opener for `url`, detached — the browser outlives jinn.
 ///
 /// # Errors
 /// Launches the user's default browser at `url`.
@@ -80,7 +96,7 @@ pub fn open_in_browser(url: &str) -> Result<(), error_stack::Report<BrowserLaunc
         return Err(error_stack::Report::new(BrowserLaunchError)
             .attach(format!("the opener command was empty for {url}")));
     };
-    let spawned = std::process::Command::new(program).args(args).spawn();
+    let spawned = detached_command(program).args(args).spawn();
     match spawned {
         Ok(_child) => Ok(()),
         Err(error) => Err(error_stack::Report::new(BrowserLaunchError)
@@ -89,8 +105,12 @@ pub fn open_in_browser(url: &str) -> Result<(), error_stack::Report<BrowserLaunc
     }
 }
 
-/// The transient note an open publishes when the bind is not up or the
-/// launch fails — user-facing prose, not a code.
+/// The prose a failed open reports into the chat — user-facing, not a
+/// code.
+///
+/// `reason` is the launcher report's debug chain: the type name plus
+/// every attachment (the looked-for families, the exit code), which is
+/// the part the user needs.
 #[must_use]
 pub fn open_failed_note(reason: &str) -> String {
     format!("could not open the applet in a browser: {reason}")
@@ -338,17 +358,17 @@ pub fn shell_command(substituted: &str) -> Vec<String> {
 /// # Errors
 ///
 /// Returns [`KioskLaunchError`] when the spawn itself fails.
-fn spawn_detached(argv: &[String]) -> Result<(), Report<KioskLaunchError>> {
+fn spawn_detached(argv: &[String]) -> Result<KioskChild, Report<KioskLaunchError>> {
     let Some((program, args)) = argv.split_first() else {
         // Unreachable by construction: both builders produce non-empty
         // argv. Handled anyway so the function is total.
         return Err(Report::new(KioskLaunchError).attach("the kiosk launch command was empty"));
     };
-    match std::process::Command::new(program).args(args).spawn() {
-        Ok(_child) => Ok(()),
+    match detached_command(program).args(args).spawn() {
+        Ok(child) => Ok(KioskChild::new(child)),
         Err(error) => Err(Report::new(KioskLaunchError)
             .attach(error.to_string())
-            .attach(format!("failed to spawn {:?}", argv.first()))),
+            .attach(format!("failed to spawn {program:?}"))),
     }
 }
 
@@ -396,10 +416,81 @@ pub fn launch_kiosk(
     request: &KioskLaunchRequest,
     command_override: Option<&str>,
     probe: &dyn BinaryProbe,
-) -> Result<(), Report<KioskLaunchError>> {
+) -> Result<KioskChild, Report<KioskLaunchError>> {
     let argv = kiosk_argv(request, command_override, probe)?;
     spawn_detached(&argv)
 }
+
+/// A kiosk process jinn successfully spawned.
+///
+/// The launcher cannot block on `wait()` — a browser lives for hours —
+/// so it hands the child back and the caller decides how to observe it:
+/// [`KioskChild::report_if_failed_fast`] turns an instant nonzero exit
+/// (a mistyped `kiosk_command`, a missing binary behind the shell) into
+/// the failure text, while a browser that starts and later closes is a
+/// normal kiosk session and reports nothing.
+pub struct KioskChild {
+    /// The detached child, held so its exit status can be observed.
+    child: std::process::Child,
+}
+
+impl KioskChild {
+    /// Wraps a spawned child.
+    #[must_use]
+    pub fn new(child: std::process::Child) -> Self {
+        Self { child }
+    }
+
+    /// Takes the child back, for a caller that must reap a process the
+    /// grace watch deliberately left running.
+    #[must_use]
+    pub fn into_child(self) -> std::process::Child {
+        self.child
+    }
+
+    /// Waits up to `grace` for the child to exit; reports only a
+    /// nonzero exit inside the window.
+    ///
+    /// A command that cannot run (`sh -c "bogus"`, exit 127) fails
+    /// instantly; a browser that actually started keeps running past
+    /// the grace window and this answers `Ok` without waiting for
+    /// it. The child is reaped when it exits.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KioskLaunchError`] when the child exited nonzero
+    /// within the grace window or the wait itself failed.
+    pub fn report_if_failed_fast(
+        mut self,
+        grace: std::time::Duration,
+    ) -> Result<(), Report<KioskLaunchError>> {
+        let deadline = std::time::Instant::now() + grace;
+        let status = loop {
+            match self.child.try_wait() {
+                // Still running past the grace window: a healthy kiosk
+                // session — leave it running and report nothing.
+                Ok(None) if std::time::Instant::now() >= deadline => return Ok(()),
+                Ok(None) => std::thread::sleep(POLL_INTERVAL),
+                Ok(Some(status)) => break status,
+                Err(error) => {
+                    return Err(Report::new(KioskLaunchError)
+                        .attach(error.to_string())
+                        .attach("observing the kiosk process failed"));
+                }
+            }
+        };
+        match status.code() {
+            Some(0) => Ok(()),
+            Some(code) => Err(Report::new(KioskLaunchError)
+                .attach(format!("the kiosk process exited with code {code}"))),
+            None => Err(Report::new(KioskLaunchError)
+                .attach("the kiosk process was terminated by a signal")),
+        }
+    }
+}
+
+/// How often a fast-fail watch polls a child's exit status.
+const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(25);
 
 /// The kiosk launcher trait: one method, one error.
 ///
@@ -411,6 +502,10 @@ pub trait KioskLauncher: Send + Sync {
     /// Launches the kiosk window for `request`, honoring the configured
     /// override (which replaces the built-in launcher entirely).
     ///
+    /// Returns the spawned child so the caller can observe an instant
+    /// nonzero exit — the failure mode a spawn cannot catch, since a
+    /// shell wrapping a bad command starts fine and dies immediately.
+    ///
     /// # Errors
     ///
     /// Returns [`KioskLaunchError`] when the launcher could not run —
@@ -419,7 +514,7 @@ pub trait KioskLauncher: Send + Sync {
         &self,
         request: &KioskLaunchRequest,
         command_override: Option<&str>,
-    ) -> Result<(), Report<KioskLaunchError>>;
+    ) -> Result<KioskChild, Report<KioskLaunchError>>;
 
     /// Returns the name of this backend for debugging.
     fn name(&self) -> &'static str;
@@ -434,7 +529,7 @@ impl KioskLauncher for RealKioskLauncher {
         &self,
         request: &KioskLaunchRequest,
         command_override: Option<&str>,
-    ) -> Result<(), Report<KioskLaunchError>> {
+    ) -> Result<KioskChild, Report<KioskLaunchError>> {
         launch_kiosk(request, command_override, &WhichProbe)
     }
 
@@ -466,6 +561,104 @@ mod tests {
         // Then the URL names the applet path with the trailing slash, so
         // relative sibling references resolve.
         assert_eq!(url, "http://127.0.0.1:41234/applets/sales-dashboard/");
+    }
+
+    #[rstest::rstest]
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_detached_spawn_never_inherits_the_terminal_streams() {
+        // Given a child spawned through the detach helper — `sleep`,
+        // alive long enough to inspect.
+        let mut child = super::detached_command("sleep")
+            .arg("5")
+            .spawn()
+            .expect("sleep spawns");
+
+        // When reading the child's stdio fd links from procfs.
+        let pid = child.id();
+        for fd in ["0", "1", "2"] {
+            let link = format!("/proc/{pid}/fd/{fd}");
+            let target = std::fs::read_link(std::path::Path::new(&link))
+                .expect("the child's fd link exists");
+
+            // Then every stream points at the null device — never at
+            // the pty a browser would paint its diagnostics over.
+            assert_eq!(
+                target,
+                std::path::Path::new("/dev/null"),
+                "fd {fd} of a detached child"
+            );
+        }
+
+        // Reap the child.
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[rstest::rstest]
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn an_instant_nonzero_exit_reports_as_a_fast_failure() {
+        // Given a child that cannot run — `sh -c` on a command the
+        // shell does not know, the mistyped-`kiosk_command` shape.
+        let child = super::detached_command("sh")
+            .args(["-c", "definitely-not-a-real-command"])
+            .spawn()
+            .expect("the shell spawns");
+
+        // When watching it through the grace window.
+        let result =
+            super::KioskChild::new(child).report_if_failed_fast(std::time::Duration::from_secs(5));
+
+        // Then the failure is reported, naming the exit code.
+        let report = result.expect_err("a bogus command fails");
+        let text = format!("{report:?}");
+        assert!(text.contains("code"), "got: {text}");
+    }
+
+    #[rstest::rstest]
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn a_running_child_outlives_the_grace_window_and_reports_nothing() {
+        // Given a child that stays up — the started-browser shape.
+        let spawned = super::detached_command("sleep")
+            .arg("30")
+            .spawn()
+            .expect("sleep spawns");
+        let pid = spawned.id();
+
+        // When watching it through a short grace window.
+        let result = super::KioskChild::new(spawned)
+            .report_if_failed_fast(std::time::Duration::from_millis(150));
+
+        // Then nothing is reported — a browser that started is a
+        // healthy kiosk session, however long it later runs.
+        assert!(result.is_ok(), "got: {result:?}");
+
+        // Reap the child the watch deliberately left running: the
+        // watch consumed the handle, so cleanup goes by pid.
+        let _ = std::process::Command::new("kill")
+            .args([pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+
+    #[rstest::rstest]
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn a_zero_exit_inside_the_grace_window_reports_nothing() {
+        // Given a child that exits successfully right away.
+        let child = super::detached_command("true")
+            .spawn()
+            .expect("true spawns");
+
+        // When watching it through the grace window.
+        let result =
+            super::KioskChild::new(child).report_if_failed_fast(std::time::Duration::from_secs(5));
+
+        // Then nothing is reported — a clean exit is not a failure.
+        assert!(result.is_ok());
     }
 
     #[rstest::rstest]

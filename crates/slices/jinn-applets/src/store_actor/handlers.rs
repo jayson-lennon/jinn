@@ -16,6 +16,8 @@
 //! never held across an await: the kiosk path snapshots the title, then
 //! awaits.
 
+use jinn_core_types::SessionId;
+use jinn_session_history_msg::PushChatEntry;
 use marked_path::MarkedPathAccess as _;
 
 use crate::browser::open_failed_note;
@@ -163,6 +165,12 @@ pub(crate) async fn handle_open(actor: &mut AppletsStoreActor, msg: &jinn_applet
     let url = crate::browser::applet_url(bind, &msg.id);
     if let Err(report) = crate::browser::open_in_browser(&url) {
         tracing::warn!(%report, "browser launch failed");
+        chat_error(
+            actor,
+            &msg.session_id,
+            &open_failed_note(&format!("{report:?}")),
+        )
+        .await;
     }
 }
 
@@ -174,9 +182,17 @@ pub(crate) async fn handle_open(actor: &mut AppletsStoreActor, msg: &jinn_applet
 /// `?kiosk=1` marker) and the launcher. `[applets] kiosk_command` is
 /// read from the live config layer at open time — a reloaded section
 /// takes effect without a restart — and `None`/blank falls through to
-/// the built-in Chromium-family launcher. A failed launch surfaces as a
-/// transient error note on the applets dashboard row, then the actor
-/// continues: a missing browser must not take the picker down.
+/// the built-in Chromium-family launcher. A failed launch surfaces as
+/// a chat error entry in the session the keypress came from (the same
+/// vehicle a failed export or a blocked attachment uses), then the
+/// actor continues: a missing browser must not take the picker down.
+///
+/// The launch is observed past the spawn: a command that cannot run —
+/// a mistyped `kiosk_command` behind the shell — spawns fine and dies
+/// with a nonzero status immediately, so the handler watches the child
+/// through a short grace window and reports only an instant nonzero
+/// exit. A browser that starts and later closes is a normal kiosk
+/// session and reports nothing.
 pub(crate) async fn handle_kiosk_open(
     actor: &mut AppletsStoreActor,
     msg: &jinn_applets_msg::OpenAppletKiosk,
@@ -207,10 +223,10 @@ pub(crate) async fn handle_kiosk_open(
         Ok(config) => config.effective_kiosk_command().map(str::to_owned),
         Err(error) => {
             tracing::error!(%error, "failed to read the [applets] config section");
-            note(
+            chat_error(
                 actor,
+                &msg.session_id,
                 "could not read the [applets] config for the kiosk launch",
-                Some(jinn_slices::NoteTone::Error),
             )
             .await;
             return;
@@ -223,28 +239,66 @@ pub(crate) async fn handle_kiosk_open(
         id: msg.id.clone(),
         title,
     };
-    if let Err(report) = actor.launcher.launch(&request, kiosk_command.as_deref()) {
-        tracing::warn!(%report, "kiosk launch failed");
-        let reason = open_failed_note(&report.to_string());
-        note(actor, &reason, Some(jinn_slices::NoteTone::Error)).await;
-    }
+    let child = match actor.launcher.launch(&request, kiosk_command.as_deref()) {
+        Ok(child) => child,
+        Err(report) => {
+            tracing::warn!(%report, "kiosk launch failed");
+            let reason = open_failed_note(&format!("{report:?}"));
+            chat_error(actor, &msg.session_id, &reason).await;
+            return;
+        }
+    };
+
+    // Observe the child on a side task: this handler returns immediately
+    // (the inbox drains; nothing races a browser's lifetime), the grace
+    // watch polls off the async runtime, and only an instant nonzero
+    // exit is reported as a failure. A browser that started keeps the
+    // task alive for at most the grace window, then both exit quietly.
+    let bus = actor.bus.clone();
+    let session_id = msg.session_id.clone();
+    let _watch = tokio::spawn(async move {
+        let outcome =
+            tokio::task::spawn_blocking(move || child.report_if_failed_fast(FAST_FAIL_GRACE)).await;
+        match outcome {
+            Ok(Ok(())) => {}
+            Ok(Err(report)) => {
+                tracing::warn!(%report, "kiosk process failed fast");
+                let reason = open_failed_note(&format!("{report:?}"));
+                publish_chat_error(&bus, &session_id, &reason).await;
+            }
+            Err(join_error) => {
+                tracing::warn!(%join_error, "the kiosk fast-fail watch did not run");
+            }
+        }
+    });
 }
 
-/// Publishes a transient note on the applets dashboard row.
+/// How long a launched kiosk process has to exit nonzero before its
+/// exit is considered a normal close rather than a launch failure.
+const FAST_FAIL_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Pushes a chat error entry into `session_id`'s history.
 ///
-/// The store actor owns the row its actor name announces; the note is
-/// how a failed kiosk launch reaches the user without a chat message
-/// and without the actor crashing.
-async fn note(actor: &AppletsStoreActor, message: &str, tone: Option<jinn_slices::NoteTone>) {
-    actor
-        .bus
-        .publish(jinn_slices::ServiceStatusUpdate {
-            name: crate::store_actor::APPLETS_STORE_ACTOR_NAME.to_owned(),
-            description: None,
-            status_message: Some(message.to_owned()),
-            note_tone: tone,
-        })
-        .await;
+/// A failed launch is user-facing feedback, not a log line: the entry
+/// rides [`PushChatEntry`] to the session actor — the single writer of
+/// session history — which persists it and repaints the chat log, the
+/// same vehicle a failed export or a blocked attachment uses.
+async fn chat_error(actor: &AppletsStoreActor, session_id: &SessionId, message: &str) {
+    publish_chat_error(&actor.bus, session_id, message).await;
+}
+
+/// Publishes [`PushChatEntry`] carrying one `Error` entry.
+async fn publish_chat_error(
+    bus: &jinn_slices::bus::BusService,
+    session_id: &SessionId,
+    message: &str,
+) {
+    bus.publish(PushChatEntry {
+        session_id: session_id.clone(),
+        entry: jinn_core_types::ChatEntry::error(message.to_owned()),
+        pin: None,
+    })
+    .await;
 }
 
 /// Ensures the server is bound and returns the resolved bind.
@@ -300,7 +354,7 @@ mod tests {
     use marked_path::MarkedPathAccess as _;
     use std::str::FromStr as _;
 
-    use crate::browser::{KioskLaunchError, KioskLaunchRequest, KioskLauncher};
+    use crate::browser::{KioskChild, KioskLaunchError, KioskLaunchRequest, KioskLauncher};
     use crate::store_actor::{AppletsStoreActor, AppletsStoreActorDeps};
 
     /// A launcher recording each request and answering from a script.
@@ -344,13 +398,25 @@ mod tests {
             &self,
             request: &KioskLaunchRequest,
             _command_override: Option<&str>,
-        ) -> Result<(), error_stack::Report<KioskLaunchError>> {
+        ) -> Result<KioskChild, error_stack::Report<KioskLaunchError>> {
             self.record(request);
             match self.error {
                 Some(message) => {
                     Err(error_stack::Report::new(KioskLaunchError).attach(message.to_owned()))
                 }
-                None => Ok(()),
+                // A child that outlives the fast-fail watch — the shape
+                // of a browser that actually started.
+                None => {
+                    let child = std::process::Command::new("sleep")
+                        .arg("30")
+                        .spawn()
+                        .map_err(|error| {
+                            error_stack::Report::new(KioskLaunchError)
+                                .attach(error.to_string())
+                                .attach("the test browser child did not spawn")
+                        })?;
+                    Ok(KioskChild::new(child))
+                }
             }
         }
 
@@ -363,18 +429,18 @@ mod tests {
     /// scripted kiosk launcher, seeded with one catalog entry, and
     /// returns everything a test drives or observes.
     async fn spawn_store(
-        launcher: Arc<ScriptedLauncher>,
+        launcher: Arc<dyn KioskLauncher>,
         config: jinn_config::ConfigLayer,
     ) -> (
         trouper::actor::ActorPath,
         trouper::system::ActorSystem,
-        jinn_testutil::bus_harness::Recorder<jinn_slices::ServiceStatusUpdate>,
+        jinn_testutil::bus_harness::Recorder<jinn_session_history_msg::PushChatEntry>,
         jinn_testutil::bus_harness::TestHarness,
         marked_path::MarkedPathBuf<marked_path::Absolute>,
     ) {
         let harness = jinn_testutil::bus_harness::TestHarness::new().await;
-        let notes = harness
-            .spawn_recorder::<jinn_slices::ServiceStatusUpdate>()
+        let pushes = harness
+            .spawn_recorder::<jinn_session_history_msg::PushChatEntry>()
             .await;
         let system = harness.system().clone();
 
@@ -434,7 +500,7 @@ mod tests {
             reply.decode().expect("the warmup outcome decodes");
         assert!(outcome.ok, "the warmup ensure binds: {:?}", outcome.error);
 
-        (actor, system, notes, harness, applets_dir)
+        (actor, system, pushes, harness, applets_dir)
     }
 
     /// A throwaway applets root, as in the slice-level tests.
@@ -460,18 +526,24 @@ mod tests {
             .expect("layer loads")
     }
 
+    /// A stable session id the tests publish kiosk opens with.
+    fn test_session_id() -> jinn_core_types::SessionId {
+        jinn_core_types::SessionId::new_v5_tag("applet-kiosk-test")
+    }
+
     #[rstest::rstest]
     #[tokio::test]
     async fn a_kiosk_open_publishes_the_kiosk_command_to_the_launcher() {
         // Given a store actor whose launcher records launches.
         let launcher = ScriptedLauncher::succeeding();
-        let (actor, system, _notes, _harness, _apps_root) =
+        let (actor, system, _pushes, _harness, _apps_root) =
             spawn_store(launcher.clone(), empty_config()).await;
 
         // When a kiosk open for the catalog's applet lands.
         system
             .publish(jinn_applets_msg::OpenAppletKiosk {
                 id: "quiz".to_owned(),
+                session_id: test_session_id(),
             })
             .await;
         jinn_testutil::wait::await_inbox_drained(
@@ -501,13 +573,14 @@ mod tests {
     async fn a_kiosk_open_with_an_invalid_id_never_reaches_the_launcher() {
         // Given a store actor whose launcher records launches.
         let launcher = ScriptedLauncher::succeeding();
-        let (actor, system, notes, _harness, _apps_root) =
+        let (actor, system, pushes, _harness, _apps_root) =
             spawn_store(launcher.clone(), empty_config()).await;
 
         // When a kiosk open for an invalid id lands.
         system
             .publish(jinn_applets_msg::OpenAppletKiosk {
                 id: "../escape".to_owned(),
+                session_id: test_session_id(),
             })
             .await;
         jinn_testutil::wait::await_inbox_drained(
@@ -517,23 +590,25 @@ mod tests {
         )
         .await;
 
-        // Then the launcher was never called and no note published.
+        // Then the launcher was never called and no chat entry pushed.
         assert_eq!(launcher.calls.load(Ordering::SeqCst), 0);
-        assert!(notes.is_empty(), "no note on a refused open");
+        assert!(pushes.is_empty(), "no error entry on a refused open");
     }
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn a_failed_kiosk_launch_surfaces_the_error_note() {
-        // Given a store actor whose launcher always fails.
+    async fn a_failed_kiosk_launch_surfaces_a_chat_error_entry() {
+        // Given a store actor whose launcher always fails, and a
+        // recorder for the chat-entry pushes.
         let launcher = ScriptedLauncher::failing("no Chromium-family browser found");
-        let (actor, system, notes, _harness, _apps_root) =
+        let (actor, system, pushes, _harness, _apps_root) =
             spawn_store(launcher.clone(), empty_config()).await;
 
         // When a kiosk open lands.
         system
             .publish(jinn_applets_msg::OpenAppletKiosk {
                 id: "quiz".to_owned(),
+                session_id: test_session_id(),
             })
             .await;
         jinn_testutil::wait::await_inbox_drained(
@@ -543,25 +618,23 @@ mod tests {
         )
         .await;
 
-        // Then the failure surfaced as one error-tone note on the
-        // applets row, naming the cause — and the actor survived (the
-        // drained inbox proves the handler returned, not crashed).
+        // Then the failure surfaced as one error entry pushed into the
+        // session the command named, with user-facing prose — and the
+        // actor survived (the drained inbox proves the handler
+        // returned, not crashed).
         let recorded = jinn_testutil::bus_harness::await_recorded(
-            &notes,
+            &pushes,
             1,
             std::time::Duration::from_secs(5),
         )
         .await;
+        let push = recorded.first().expect("one push recorded");
+        assert_eq!(push.session_id, test_session_id());
         assert!(
-            recorded.iter().any(|update| {
-                update.name == crate::store_actor::APPLETS_STORE_ACTOR_NAME
-                    && update.note_tone == Some(jinn_slices::NoteTone::Error)
-                    && update
-                        .status_message
-                        .as_deref()
-                        .is_some_and(|message| message.contains("could not open"))
-            }),
-            "got {recorded:?}"
+            matches!(&push.entry.kind, jinn_core_types::ChatEntryKind::Error(text)
+                if text.contains("could not open") && text.contains("no Chromium-family browser")),
+            "got {:?}",
+            push.entry.kind
         );
     }
 
@@ -577,13 +650,14 @@ mod tests {
             jinn_config::ConfigLayer::load(Arc::new(jinn_config::InMemoryConfigStorage::new(doc)))
                 .expect("layer loads");
         let launcher = ScriptedLauncher::succeeding();
-        let (actor, system, _notes, _harness, _apps_root) =
+        let (actor, system, _pushes, _harness, _apps_root) =
             spawn_store(launcher.clone(), config).await;
 
         // When a kiosk open lands.
         system
             .publish(jinn_applets_msg::OpenAppletKiosk {
                 id: "quiz".to_owned(),
+                session_id: test_session_id(),
             })
             .await;
         jinn_testutil::wait::await_inbox_drained(
@@ -601,6 +675,56 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[cfg(target_family = "unix")]
+    async fn a_bogus_kiosk_command_reports_the_nonzero_exit_into_the_chat() {
+        // Given a store actor over a layer whose kiosk command cannot
+        // run — the exact user bug: a `jinn.toml` command that exits
+        // nonzero immediately.
+        let doc = toml_edit::DocumentMut::from_str(
+            "[applets]\nkiosk_command = 'definitely-not-a-real-command'\n",
+        )
+        .expect("doc parses");
+        let config =
+            jinn_config::ConfigLayer::load(Arc::new(jinn_config::InMemoryConfigStorage::new(doc)))
+                .expect("layer loads");
+        let (actor, system, pushes, _harness, _apps_root) =
+            spawn_store(Arc::new(crate::browser::RealKioskLauncher), config).await;
+
+        // When a kiosk open lands and the grace window passes.
+        system
+            .publish(jinn_applets_msg::OpenAppletKiosk {
+                id: "quiz".to_owned(),
+                session_id: test_session_id(),
+            })
+            .await;
+        jinn_testutil::wait::await_inbox_drained(
+            &system,
+            &actor,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+
+        // Then the nonzero exit surfaced as an error entry in the chat
+        // naming the code — feedback the previous silent-spawn path
+        // never gave.
+        let recorded = jinn_testutil::bus_harness::await_recorded(
+            &pushes,
+            1,
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+        let push = recorded.first().expect("one push recorded");
+        assert_eq!(push.session_id, test_session_id());
+        assert!(
+            matches!(&push.entry.kind, jinn_core_types::ChatEntryKind::Error(text)
+                if text.contains("could not open") && text.contains("code")),
+            "got {:?}",
+            push.entry.kind
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
     async fn a_blank_kiosk_command_falls_through_to_the_builtin() {
         // Given a store actor over a layer whose kiosk command is blank.
         let doc = toml_edit::DocumentMut::from_str("[applets]\nkiosk_command = \"   \"\n")
@@ -609,13 +733,14 @@ mod tests {
             jinn_config::ConfigLayer::load(Arc::new(jinn_config::InMemoryConfigStorage::new(doc)))
                 .expect("layer loads");
         let launcher = ScriptedLauncher::succeeding();
-        let (actor, system, _notes, _harness, _apps_root) =
+        let (actor, system, _pushes, _harness, _apps_root) =
             spawn_store(launcher.clone(), config).await;
 
         // When a kiosk open lands.
         system
             .publish(jinn_applets_msg::OpenAppletKiosk {
                 id: "quiz".to_owned(),
+                session_id: test_session_id(),
             })
             .await;
         jinn_testutil::wait::await_inbox_drained(
