@@ -48,6 +48,6 @@ worktrees/*
 *.html
 *.wav
 .artifacts
-*.toml
-*.html
-*.md
+/*.toml
+/*.html
+/*.md
