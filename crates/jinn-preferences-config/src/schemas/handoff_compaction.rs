@@ -17,11 +17,11 @@ use serde::{Deserialize, Serialize};
 /// model-request boundary.
 ///
 /// The trigger is **work-relative**: it counts the tokens of
-/// accumulated work — the assembled prompt minus its system share
-/// (system prompt, tools, skills) — rather than the whole wire size.
-/// The system floor is constant across requests, so subtracting it
-/// keeps a large fixed floor from sitting at the fire line and folding
-/// in circles.
+/// accumulated work — the assembled prompt minus its constant floor
+/// (system prompt, skills, shipped tool schemas), i.e. the conversation
+/// content alone — rather than the whole wire size. The floor is
+/// constant across requests, so subtracting it keeps a large fixed
+/// floor from sitting at the fire line and folding in circles.
 ///
 /// Serialized as `[context_curation.handoff_compaction]` in `jinn.toml`.
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -30,9 +30,10 @@ pub struct HandoffCompactionConfig {
     /// this feature: no gate check, no prompt section, no fold.
     #[serde(default)]
     pub enabled: bool,
-    /// The fire line in work tokens — assembled size minus the system
-    /// share. The handoff fires at the first model-request boundary
-    /// whose estimated work meets or exceeds this count.
+    /// The fire line in work tokens — assembled size minus the constant
+    /// floor (system prompt, skills, shipped tool schemas). The handoff
+    /// fires at the first model-request boundary whose estimated work
+    /// meets or exceeds this count.
     ///
     /// Required for a firing regime. An unset value is a pass — the
     /// gate never fires an unbounded handoff.

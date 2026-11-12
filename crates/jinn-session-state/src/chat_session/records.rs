@@ -67,8 +67,9 @@ impl ChatSessionState {
         self.core.ephemeral.cached_context_size
     }
 
-    /// Record an honest assembly's sizes: the prompt total and the system
-    /// prompt's share of it.
+    /// Record an honest assembly's sizes: the prompt total and the
+    /// constant floor's share of it (system prompt, skills, shipped tool
+    /// schemas).
     ///
     /// The only production writer is the context-size actor, and the pair
     /// must land together — a total without its system half would make
@@ -79,14 +80,16 @@ impl ChatSessionState {
         self.core.ephemeral.cached_system_size = Some(system);
     }
 
-    /// The work size in tokens: assembled total minus the system prompt.
+    /// The work size in tokens: assembled total minus the constant floor
+    /// — the conversation content alone.
     ///
     /// `None` unless both halves of the cached pair are present — after a
     /// compaction invalidation this reads `None` until the next honest
     /// recalc lands, which is exactly the behavior that stops a stale
-    /// gate from re-firing on fresh history. Tool schemas ride the total
-    /// but not the system count, so they are part of "work" here; they
-    /// are constant across requests and neither grow nor loop.
+    /// gate from re-firing on fresh history. The floor (system prompt,
+    /// skills, shipped tool schemas) is constant across requests, so it
+    /// is subtracted out here and can neither grow with the conversation
+    /// nor sit at a compaction trigger's fire line.
     #[must_use]
     pub fn work_size(&self) -> Option<u32> {
         self.core
@@ -192,21 +195,6 @@ impl ChatSessionState {
     /// re-arm the gate's fire line.
     pub fn note_user_turn_for_fold(&mut self) {
         self.core.ephemeral.folded_since_last_user_turn = false;
-    }
-
-    /// Records excluded-entry token cost toward the gate's estimate.
-    pub fn add_handoff_excluded_cost(&mut self, tokens: u32) {
-        self.core.ephemeral.handoff_excluded_cost = self
-            .core
-            .ephemeral
-            .handoff_excluded_cost
-            .saturating_add(tokens);
-    }
-
-    /// The excluded-entry cost the gate adds to the assembled estimate,
-    /// resetting it — consumed once per gate evaluation.
-    pub fn take_handoff_excluded_cost(&mut self) -> u32 {
-        std::mem::take(&mut self.core.ephemeral.handoff_excluded_cost)
     }
 
     /// Records that the gate fired mid-loop: the replaced request was a
