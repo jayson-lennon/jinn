@@ -3,7 +3,8 @@
 ## (development)
 
 - Add autocomplete to CWD picker (`cd`) using fuzzy matching. Press `TAB` to complete the proposed directory.
-- Add new "handoff compaction".
+- Personas now carry their own compaction prompts enclosed in a `<compaction></compaction>` block.
+- Add new "handoff compaction" automated compaction method:
 
 ```toml
 # > Handoff compaction: at each model-request boundary whose accumulated work
