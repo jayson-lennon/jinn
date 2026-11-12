@@ -490,19 +490,19 @@ fallback_context_window = 150000
 
 # > Handoff compaction: at each model-request boundary whose accumulated work
 # > reaches `workset_trigger_tokens`, the active session model writes a handoff
-# > recap in-conversation and the context folds down to the task turns, pins,
-# > and the recap. Off by default; while enabled the background compaction
-# > above is disabled for that session. The fire line is work-relative (the
-# > assembled prompt minus its system share), so an unset
-# > `workset_trigger_tokens` never fires.
+# > recap in-conversation.
 [context_curation.handoff_compaction]
-# > Master switch. false = the feature is entirely inert: no gate check, no
-# > prompt section, no fold.
-enabled = false
+enabled = true
 
-# > The fire line in work tokens — assembled size minus the system share
-# > (system prompt, tools, skills). Uncomment to enable firing.
-# workset_trigger_tokens = 50000
+# > This much context must accumulate in the "working set". The working set
+# > does not include the assembled system prompt. So if your system prompt is
+# > 10k, and your `workset_trigger_tokens` is 50k, then compaction will trigger
+# > at 60k context usage.
+#
+# > This value should _always_ be higher than context_curation.auto_prune.accumulation_threshold_tokens.
+# > Setting this to a value _lower_ than the accumulation_threshold_tokens effectively disables all
+# > auto-pruners because compaction will trigger before the auto-pruners do.
+workset_trigger_tokens = 230000
 
 # > Policy for retrying failed provider requests.
 [provider.request_retry]
