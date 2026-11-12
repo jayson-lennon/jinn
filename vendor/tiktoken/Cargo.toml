@@ -2,10 +2,7 @@
 edition = "2024"
 name = "tiktoken"
 version = "3.5.1"
-authors = [
-    "GOLIA株式会社",
-    "Li Hao <lihao@golia.jp>",
-]
+authors = ["GOLIA株式会社", "Li Hao <lihao@golia.jp>"]
 autolib = false
 autobins = false
 autoexamples = false
@@ -14,17 +11,8 @@ autobenches = false
 description = "A high-performance pure-Rust implementation of OpenAI's tiktoken BPE tokenizer"
 documentation = "https://docs.rs/tiktoken"
 readme = "README.md"
-keywords = [
-    "tiktoken",
-    "tokenizer",
-    "bpe",
-    "openai",
-    "gpt",
-]
-categories = [
-    "text-processing",
-    "algorithms",
-]
+keywords = ["tiktoken", "tokenizer", "bpe", "openai", "gpt"]
+categories = ["text-processing", "algorithms"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/goliajp/rust-tiktoken"
 
@@ -53,4 +41,3 @@ version = "^2"
 version = "^0.8"
 
 [lints]
-workspace = true
