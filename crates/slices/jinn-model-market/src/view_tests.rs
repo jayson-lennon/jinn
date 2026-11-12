@@ -461,3 +461,168 @@ fn the_filter_line_renders_the_glyph_in_detail_mode_too() {
         "the titlebar stays plain, got: {title:?}"
     );
 }
+
+/// Helper unit tests live beside the render tests so the geometry
+/// helpers read as one section; these are pure — no harness.
+mod centered_offset_tests {
+    use crate::view::centered_offset;
+
+    #[rstest::rstest]
+    #[test]
+    fn offset_centers_a_mid_list_selection_with_slack_both_sides() {
+        // Given a 12-row list in a 6-row window.
+        // When the offset derives for selection 5.
+        let offset = centered_offset(5, 12, 6);
+
+        // Then the selection sits mid-window: offset 2 puts it third of
+        // six visible rows.
+        assert_eq!(offset, 2);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn offset_clamps_to_zero_while_the_selection_is_in_the_top_half() {
+        // Given a tall list, the selection still inside the top half.
+        // When the offset derives for selection 1 in a 6-row window.
+        let offset = centered_offset(1, 12, 6);
+
+        // Then the window starts at the list's top — centering never
+        // scrolls above row 0.
+        assert_eq!(offset, 0);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn offset_clamps_to_the_bottom_so_no_blank_rows_render() {
+        // Given the selection at the list's very bottom.
+        // When the offset derives for selection 11 of 12 rows.
+        let offset = centered_offset(11, 12, 6);
+
+        // Then the window is the last six rows exactly — no blank
+        // rows below the last one.
+        assert_eq!(offset, 6);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn offset_is_zero_when_the_list_fits_the_window() {
+        // Given a list shorter than the window.
+        // When the offset derives for its last row.
+        let offset = centered_offset(2, 3, 6);
+
+        // Then the window starts at row 0 — nothing to scroll.
+        assert_eq!(offset, 0);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn offset_is_zero_for_an_empty_list() {
+        // Given an empty list at selection 0 (the route actions reset
+        // to zero on an empty projection).
+        // When the offset derives.
+        let offset = centered_offset(0, 0, 6);
+
+        // Then the window starts at 0 — no panic, nothing to show.
+        assert_eq!(offset, 0);
+    }
+}
+
+/// One listing with a distinct index in its slug — table filler whose
+/// fetch order survives the PROJ-ascending stable sort (identical
+/// prices), so `m/model{i}` is visible row `i`.
+fn numbered_row(i: usize) -> MarketRow {
+    MarketRow {
+        id: format!("openrouter/m/model{i}"),
+        author: "m".to_owned(),
+        slug: format!("model{i}"),
+        variant: None,
+        prompt_price: 1e-6,
+        completion_price: 2e-6,
+        cache_read_price: Some(1e-7),
+        has_overrides: false,
+        context_length: Some(128_000),
+        eci: None,
+        eci_ci: None,
+        is_free: false,
+    }
+}
+
+/// The first on-screen data row's text, scanning the table band from
+/// the top — the window's opening row.
+fn first_data_row(buffer: &Buffer, popup: ratatui::layout::Rect) -> String {
+    (popup.y + 5..popup.y + popup.height)
+        .map(|y| row_text(buffer, y, popup.width))
+        .find(|text| text.contains("m/model"))
+        .expect("a data row renders")
+}
+
+#[rstest::rstest]
+fn scrolling_up_from_the_bottom_keeps_the_window_still() {
+    // Given a 12-row list (past the 5-row window) with the selection on
+    // its last row — the window bottom-clamped.
+    let harness = Harness::new();
+    harness.data.update(|d| {
+        d.rows = (0..12).map(numbered_row).collect();
+    });
+    harness.ui.update(|s| s.selection = 11);
+    let popup = ratatui::layout::Rect::new(5, 2, 130, 16);
+
+    // When the popup renders, and then renders again one up-step later
+    // (the selection now on the second-to-last row).
+    let at_bottom = harness.render(popup, 140, 100);
+    harness.ui.update(|s| s.selection = 10);
+    let after_up_step = harness.render(popup, 140, 100);
+
+    // Then both frames open on the same model row — the up-step moved
+    // the cursor within the window instead of dragging the window edge.
+    assert_eq!(
+        first_data_row(&at_bottom, popup),
+        first_data_row(&after_up_step, popup),
+        "the window holds still across the up-step from the bottom"
+    );
+}
+
+#[rstest::rstest]
+fn a_frame_one_up_step_from_the_bottom_shows_the_cursor_strictly_inside() {
+    // Given the same 12-row list with the selection one up-step off
+    // the bottom (selection 10 of 12).
+    let harness = Harness::new();
+    harness.data.update(|d| {
+        d.rows = (0..12).map(numbered_row).collect();
+    });
+    harness.ui.update(|s| s.selection = 10);
+    let popup = ratatui::layout::Rect::new(5, 2, 130, 16);
+
+    // When the popup renders.
+    let buffer = harness.render(popup, 140, 100);
+    let theme = jinn_theme::default_theme();
+
+    // Then the highlighted row is model10 and it sits strictly above
+    // the band's last data row — slack remains below the cursor, so
+    // the cursor rose inside the window. The row under the cursor
+    // (model11) still renders. The band's last data row is the row
+    // just above the status line: popup.y + height − 4.
+    let selected_y = (popup.y + 5..popup.y + popup.height)
+        .find(|y| {
+            (popup.x..popup.x + popup.width).any(|x| {
+                buffer
+                    .cell((x, *y))
+                    .is_some_and(|c| c.bg == theme.picker_selected_bg)
+            })
+        })
+        .expect("a selected row renders");
+    let selected = row_text(&buffer, selected_y, popup.width);
+    assert!(
+        selected.contains("m/model10"),
+        "the highlight follows the selection, got: {selected:?}"
+    );
+    assert!(
+        selected_y < popup.y + popup.height - 4,
+        "the cursor keeps slack below it, highlighted at y={selected_y}"
+    );
+    let below = row_text(&buffer, selected_y + 1, popup.width);
+    assert!(
+        below.contains("m/model11"),
+        "the row under the cursor still renders, got: {below:?}"
+    );
+}

@@ -407,6 +407,10 @@ fn render_mode_table(
     ui: &MarketUiState,
     theme: &Theme,
 ) {
+    // The data-row window: the table area less its one-line header —
+    // the row count the widget can actually show. The pivot math
+    // windows against this, never against the header-inclusive height.
+    let viewport = table_area.height.saturating_sub(1) as usize;
     if ui.detail_model.is_some() {
         match ui_state::sorted_detail_rows(data, ui) {
             Some(rows) => {
@@ -425,8 +429,9 @@ fn render_mode_table(
                 )
                 .header(header)
                 .column_spacing(1);
-                let mut table_state =
-                    TableState::default().with_selected(Some(ui.detail_selection));
+                let mut table_state = TableState::default()
+                    .with_offset(centered_offset(ui.detail_selection, rows.len(), viewport))
+                    .with_selected(Some(ui.detail_selection));
                 frame.render_stateful_widget(table, table_area, &mut table_state);
             }
             None => {
@@ -459,9 +464,13 @@ fn render_mode_table(
     .header(header)
     .column_spacing(1);
 
-    // The highlighted row stays inside the visible window the paging
-    // keys clamp against.
-    let mut table_state = TableState::default().with_selected(Some(ui.selection));
+    // The window centers the selection and clamps to the list's ends,
+    // derived fresh each frame — the same pivot the sidebar's layout
+    // uses — so scrolling back up moves the cursor within the window
+    // instead of dragging the window edge along with it.
+    let mut table_state = TableState::default()
+        .with_offset(centered_offset(ui.selection, visible.len(), viewport))
+        .with_selected(Some(ui.selection));
     frame.render_stateful_widget(table, table_area, &mut table_state);
 }
 
@@ -803,6 +812,18 @@ fn render_footer(frame: &mut Frame<'_>, inner: Rect, theme: &Theme) {
 #[must_use]
 pub fn results_viewport(popup: Rect) -> usize {
     block_inner(popup).saturating_sub(5).max(1) as usize
+}
+
+/// The first visible row index for a selection, centering it in a
+/// viewport of `viewport` rows and clamping to the list's ends — the
+/// sidebar layout's offset expression over the popup's table. Derived
+/// fresh each frame from the selection alone, so a list that shrinks
+/// or grows never leaves a stale window behind.
+#[must_use]
+pub fn centered_offset(selection: usize, row_count: usize, viewport: usize) -> usize {
+    selection
+        .saturating_sub(viewport / 2)
+        .min(row_count.saturating_sub(viewport))
 }
 
 /// The frame's usage numbers for [`ui_state::resolve_mix`], read from
