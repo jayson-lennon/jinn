@@ -8258,3 +8258,23 @@ fn a_user_turn_re_arms_the_fold_fire_line() {
     // Then the fold flag is cleared — the gate may fire again.
     assert!(!session.folded_since_last_user_turn());
 }
+
+#[rstest::rstest]
+#[test]
+fn an_intersession_turn_re_arms_the_fold_fire_line() {
+    // Given a session that folded since the last user turn.
+    let mut session = ChatSessionState::new();
+    session.set_last_fold_gathered();
+
+    // When an intersession entry is pushed (a bot dispatch — task-bearing
+    // work that arrived without a user turn).
+    session.push_entry(ChatEntry::intersession(
+        SessionId::new(),
+        None,
+        SessionId::new(),
+        "[Message from session abc]: new bot task",
+    ));
+
+    // Then the fold flag is cleared — the gate may fire again.
+    assert!(!session.folded_since_last_user_turn());
+}

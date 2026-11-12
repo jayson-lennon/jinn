@@ -98,8 +98,10 @@ the handoff rarely fires. The tuning lives in `jinn.toml`:
   model-request boundary after accumulated work reaches
   `workset_trigger_tokens`, jinn asks the same session model to write
   a handoff recap of the work so far — no tools are callable during
-  that turn — then drops everything except your messages, pins, and
-  the recap from context and continues. The fire line is
+  that turn — then drops everything except pins and the recap from
+  context and continues: your own past messages fold away with the rest
+  of the conversation, and the recap is the sole task carrier. The fire
+  line is
   work-relative: it counts the assembled prompt minus its system share
   (system prompt, tools, skills), so a large system floor never sits
   at the fire line and cannot eat the budget. An unset

@@ -5,27 +5,17 @@
 - Add autocomplete to CWD picker (`cd`) using fuzzy matching. Press `TAB` to complete the proposed directory.
 - Personas now carry their own compaction prompts enclosed in a `<compaction></compaction>` block.
   - Compaction blocks are now required for all personas.
-- `workset_trigger_tokens` now triggers an error if less than `accumulation_threshold_tokens`.
-- Set default `accumulation_threshold_tokens` to 170k (up from 150k).
 - Add new "handoff compaction" automated compaction method:
 
 ```toml
-# > Handoff compaction: at each model-request boundary whose accumulated work
-# > reaches `workset_trigger_tokens`, the active session model writes a handoff
-# > recap in-conversation.
 [context_curation.handoff_compaction]
 enabled = true
-
-# > This much context must accumulate in the "working set". The working set
-# > does not include the assembled system prompt. So if your system prompt is
-# > 10k, and your `workset_trigger_tokens` is 50k, then compaction will trigger
-# > at 60k context usage.
-#
-# > This value should _always_ be higher than context_curation.auto_prune.accumulation_threshold_tokens.
-# > Setting this to a value _lower_ than the accumulation_threshold_tokens effectively disables all
-# > auto-pruners because compaction will trigger before the auto-pruners do.
-workset_trigger_tokens = 230000
+workset_trigger_tokens = 200000
 ```
+
+- (`jinn.toml`): `workset_trigger_tokens` triggers an error if less than `accumulation_threshold_tokens`.
+- Set default `accumulation_threshold_tokens` to 170k (up from 150k).
+- Removed background compactor.
 
 
 ## 2026-11-10 v1.23.0
