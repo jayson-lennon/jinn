@@ -38,7 +38,7 @@
 //!    subscription must already exist.
 //! 4. Turn-dispatch, inference, and context-curation precede the
 //!    session-actor spawn: those actors' subscriptions must exist before
-//!    any dispatch, stream, `HistoryAppended`, or `TriggerCompaction`.
+//!    any dispatch, stream, or `HistoryAppended`.
 //! 5. `AllActorsSpawned` is published only after every subscription
 //!    above exists, or the readiness signal races the wiring it means to
 //!    certify.
@@ -319,12 +319,12 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
         ctx.services(),
     );
 
-    // Context curation: the prune and compaction actors. MUST precede the
-    // session-actor spawn — see constraint 4. The worker list is built
-    // from config at the root because the config layer is the root's.
+    // Context curation: the prune actor. MUST precede the session-actor
+    // spawn — see constraint 4. The worker list is built from config at
+    // the root because the config layer is the root's.
     let prune_workers = ctx.prune_workers();
-    let compaction_deps = ctx.compaction_deps();
-    jinn_context_curation::activate(&mut ctx.host(), prune_workers, compaction_deps);
+    let (state, services) = (ctx.state().clone(), ctx.services().clone());
+    jinn_context_curation::activate(&mut ctx.host(), prune_workers, state, services);
 
     // The session-turn reducer. MUST follow turn-dispatch, inference, and
     // context-curation — see constraint 4.

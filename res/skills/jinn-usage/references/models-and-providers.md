@@ -49,17 +49,6 @@ session's next request too.
 Scope rules: a pin applies only to a **single (non-alloy) model served via
 OpenRouter**; alloys and every other backend keep their usual auto-routing.
 
-## Compaction model
-
-The summarizer model is configured in `jinn.toml` alone; set it there:
-
-```toml
-[context_curation.compaction]
-# model = "openrouter/anthropic/claude-sonnet-4"
-```
-
-When unset, compaction summaries use the session's own model.
-
 ## Provider configuration (`providers.toml`)
 
 Lives at `~/.config/jinn/providers.toml` (API keys, base URLs, model

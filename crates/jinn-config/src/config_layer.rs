@@ -65,7 +65,12 @@ struct RegisteredSection {
 
 /// The type-erased "does this table deserialize" check a registered
 /// section carries, so `validate` never has to name the section's type.
-type SectionCheck = Arc<dyn Fn(&toml::Table) -> Result<(), ConfigSectionError> + Send + Sync>;
+///
+/// Public because [`ConfigLayer::register_raw_check`] hands the same
+/// shape to a domain: a closure receiving the table at its key, failing
+/// with a [`ConfigSectionError`] when the configuration as a whole is
+/// inconsistent.
+pub type SectionCheck = Arc<dyn Fn(&toml::Table) -> Result<(), ConfigSectionError> + Send + Sync>;
 
 impl std::fmt::Debug for RegisteredSection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -331,6 +336,28 @@ impl ConfigLayer {
             key: T::KEY,
             type_name: std::any::type_name::<T>(),
             check: Arc::new(check),
+        });
+        self
+    }
+
+    /// Registers a cross-section check under an umbrella key.
+    ///
+    /// A raw check rides the same registry a [`Configurable`] section
+    /// does — [`Self::validate`] and [`Self::reload_validated`] run it
+    /// in registration order, exactly like a section check — but its
+    /// closure names no section type: it receives the table at `key`
+    /// whole, so one function may read several sibling sections and
+    /// reject the configuration as a whole. The layer stays ignorant of
+    /// what the check compares; the domain that owns both sections
+    /// registers the rule.
+    ///
+    /// An absent `key` skips the check, the same absence-is-a-default
+    /// contract a section follows.
+    pub fn register_raw_check(&self, key: &'static str, check: SectionCheck) -> &Self {
+        self.inner.registry.write().push(RegisteredSection {
+            key,
+            type_name: "<raw check>",
+            check,
         });
         self
     }
@@ -2002,6 +2029,93 @@ mod tests {
 
         // Then validation passes — registration is what opts a section in.
         assert!(result.is_ok(), "an unregistered section is not validated");
+    }
+
+    /// A raw check rejecting the configuration whenever the stall section
+    /// is enabled — a stand-in for a cross-section rule that reads a
+    /// value out of an umbrella's child table.
+    fn stall_enabled_rejects(table: &toml::Table) -> Result<(), ConfigSectionError> {
+        let cfg = WatchdogCfg::from_table(table)?;
+        if cfg.stall.enabled {
+            return Err(ConfigSectionError::Invalid {
+                key: WatchdogCfg::KEY,
+                detail: "the stall must stay disabled".to_owned(),
+            });
+        }
+        Ok(())
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn validate_runs_a_raw_check_registered_under_an_umbrella() {
+        // Given a document whose child section trips a raw check.
+        let (layer, _storage) = layer("[watchdog.stall]\nenabled = true\n");
+        layer.register_raw_check("watchdog", Arc::new(stall_enabled_rejects));
+
+        // When validating.
+        let result = layer.validate();
+
+        // Then the raw check rejects the configuration with Invalid.
+        assert!(matches!(
+            result,
+            Err(ConfigSectionError::Invalid { key, .. }) if key == "watchdog.stall"
+        ));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn validate_skips_a_raw_check_whose_key_is_absent() {
+        // Given a document that does not carry the raw check's umbrella.
+        let (layer, _storage) = layer("[other]\nkey = 1\n");
+        layer.register_raw_check("watchdog", Arc::new(stall_enabled_rejects));
+
+        // When validating.
+        let result = layer.validate();
+
+        // Then absence is fine, the same contract a section follows.
+        assert!(result.is_ok(), "an absent umbrella skips its raw check");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn validate_passes_when_a_raw_check_holds() {
+        // Given a document whose child section satisfies the raw check.
+        let (layer, _storage) = layer("[watchdog.stall]\nenabled = false\n");
+        layer.register_raw_check("watchdog", Arc::new(stall_enabled_rejects));
+
+        // When validating.
+        let result = layer.validate();
+
+        // Then the configuration as a whole validates.
+        assert!(result.is_ok(), "a satisfied raw check is not a refusal");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn reload_validated_refuses_a_candidate_a_raw_check_rejects() {
+        // Given a layer with a registered raw check whose live snapshot
+        // satisfies it.
+        let (layer, storage) = layer("[watchdog.stall]\nenabled = false\n");
+        layer.register_raw_check("watchdog", Arc::new(stall_enabled_rejects));
+        storage
+            .write(&doc("[watchdog.stall]\nenabled = true\n"))
+            .expect("external write");
+
+        // When reloading through the validated path.
+        let result = layer.reload_validated();
+
+        // Then the reload reports failure.
+        assert!(
+            result.is_err(),
+            "a raw-check-violating candidate fails the reload"
+        );
+
+        // And the layer still holds the last good snapshot.
+        let value = layer.get::<WatchdogCfg>().expect("section still reads");
+        assert!(
+            !value.stall.enabled,
+            "a refused candidate must not blank the running snapshot"
+        );
     }
 
     #[rstest::rstest]

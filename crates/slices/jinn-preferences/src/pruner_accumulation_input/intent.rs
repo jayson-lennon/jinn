@@ -11,7 +11,8 @@ use jinn_slices::route::{
 
 use super::state::PrunerAccumulationInputState;
 use jinn_preferences_config::ConfigLayer;
-use jinn_preferences_config::schemas::AutoPruneConfig;
+use jinn_preferences_config::cross_checks::check_pruner_headroom;
+use jinn_preferences_config::schemas::{AutoPruneConfig, HandoffCompactionConfig};
 
 /// The popup's dynamic input-capturing scope.
 #[must_use]
@@ -144,6 +145,13 @@ fn open_pruner_accumulation(ctx: &mut ActionCtx<'_>, cell: &PrunerCell) -> Route
 
 /// Confirms a valid decimal threshold and writes it to the
 /// `[[context_curation.auto_prune]]` section.
+///
+/// The candidate threshold is cross-checked against the live handoff
+/// compaction configuration before the write: a value at or below the
+/// handoff trigger would silently disable every auto-pruner, so the
+/// confirm refuses it and the popup stays open. The refusal is silent
+/// like the popup's other invalid-input confirmations — the visible
+/// value simply does not change.
 fn confirm_pruner_accumulation(ctx: &mut ActionCtx<'_>, cell: &PrunerCell) -> RouteResult {
     let raw = cell.read().text.input.trim().to_owned();
     if raw.is_empty() || !raw.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -152,6 +160,15 @@ fn confirm_pruner_accumulation(ctx: &mut ActionCtx<'_>, cell: &PrunerCell) -> Ro
     let Ok(threshold) = raw.parse::<u32>() else {
         return RouteResult::empty();
     };
+    // Validate the *candidate*, not the live value: the user may be
+    // lowering the threshold back under a trigger, which must succeed.
+    let handoff = ctx
+        .config
+        .get::<HandoffCompactionConfig>()
+        .unwrap_or_default();
+    if check_pruner_headroom(&handoff, threshold).is_err() {
+        return RouteResult::empty();
+    }
     set_accumulation_threshold(ctx.config, threshold);
     leave_pruner_accumulation(cell);
     RouteResult::empty().with_scope_signal(ScopeSignal::PopIf(pruner_accumulation_scope()))
@@ -307,5 +324,68 @@ mod tests {
         assert_eq!(result.message_names, [] as [&str; 0]);
         assert!(result.scope_signal.is_none());
         assert_eq!(cell.read().text.input, "4294967296");
+    }
+
+    #[rstest::rstest]
+    fn confirm_refuses_a_threshold_that_starves_the_pruners() {
+        // Given an enabled handoff trigger the candidate threshold would
+        // violate — the candidate meets the trigger, so the fold would fire
+        // before the pruners' batch ever flushed.
+        let (slices, cell) = cell();
+        cell.update(|state| state.text.set("200000".to_owned()));
+        let mut state = state();
+        let config = jinn_config::testutil::config_layer(
+            "[context_curation.handoff_compaction]\nenabled = true\nworkset_trigger_tokens = 150000\n",
+        );
+        let mut ctx = ActionCtx {
+            state: &mut state,
+            slices: &slices,
+            config: &config,
+            key_bytes: Vec::new(),
+        };
+
+        // When confirmation runs.
+        let result = confirm_pruner_accumulation(&mut ctx, &cell);
+
+        // Then the write is refused: the section keeps its default.
+        let auto_prune = config.get::<AutoPruneConfig>().expect("section reads");
+        assert_eq!(
+            auto_prune.accumulation_threshold_tokens, 150_000,
+            "a threshold at or above the trigger must not be written"
+        );
+        // And the popup stays open, input intact.
+        assert!(result.scope_signal.is_none());
+        assert_eq!(cell.read().text.input, "200000");
+    }
+
+    #[rstest::rstest]
+    fn confirm_allows_restoring_headroom_below_the_trigger() {
+        // Given a live threshold at or above an enabled handoff trigger —
+        // the violating shape already in the file — and a candidate that
+        // restores headroom below the trigger.
+        let (slices, cell) = cell();
+        cell.update(|state| state.text.set("100000".to_owned()));
+        let mut state = state();
+        let config = jinn_config::testutil::config_layer(
+            "[context_curation.handoff_compaction]\nenabled = true\nworkset_trigger_tokens = 150000\n\n[context_curation.auto_prune]\naccumulation_threshold_tokens = 150000\n",
+        );
+        let mut ctx = ActionCtx {
+            state: &mut state,
+            slices: &slices,
+            config: &config,
+            key_bytes: Vec::new(),
+        };
+
+        // When confirmation runs.
+        let result = confirm_pruner_accumulation(&mut ctx, &cell);
+
+        // Then the restoring write lands.
+        let auto_prune = config.get::<AutoPruneConfig>().expect("section reads");
+        assert_eq!(auto_prune.accumulation_threshold_tokens, 100_000);
+        // And the popup closes.
+        assert_eq!(
+            result.scope_signal,
+            Some(ScopeSignal::PopIf(pruner_accumulation_scope()))
+        );
     }
 }

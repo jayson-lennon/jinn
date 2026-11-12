@@ -9,7 +9,7 @@ accept the offer; that choice is theirs.
 
 | File             | Location                          | Contents                                                                                                                                                                           |
 | ---------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jinn.toml`      | `~/.config/jinn/jinn.toml`        | User preferences: tools/skills defaults, session lifecycles, projects, MCP servers, compaction, auto-prune, stream rules, web search, Discord, interactive terminal, remote surface, canvas/applets binds, shell paths, session retention |
+| `jinn.toml`      | `~/.config/jinn/jinn.toml`        | User preferences: tools/skills defaults, session lifecycles, projects, MCP servers, handoff compaction, auto-prune, stream rules, web search, Discord, interactive terminal, remote surface, canvas/applets binds, shell paths, session retention |
 | `providers.toml` | `~/.config/jinn/providers.toml`   | Providers, API keys, base URLs, per-model metadata                                                                                                                                 |
 | themes           | `~/.config/jinn/themes/*.toml`    | Color themes (picked with `<leader>sh`)                                                                                                                                            |
 | personas         | `~/.config/jinn/personas/*.md`    | Persona templates (markdown + TOML frontmatter)                                                                                                                                    |
@@ -30,7 +30,7 @@ one of three schedules:
 
 | Category | What it covers | When the edit takes effect |
 | --- | --- | --- |
-| **Re-read at next use** | `[tools]` timeouts & output caps, `[chat_log]`, `[context_curation.compaction]`, `[context_curation.auto_prune]`, `[provider.request_retry]`, `[provider.web_search]`, `[ui.cwd_selector]`, `[ui.minimap]`, every `[watchdog.*]` section, `[term]` settle keys, `[maintenance]`, `[[bot.entry]]` (next picker open or bot creation), `[[session_lifecycle.script]]`, `[[project.entry]]` | immediately: these items read the config on demand, so the next tool call, compaction, or picker open uses the new value |
+| **Re-read at next use** | `[tools]` timeouts & output caps, `[chat_log]`, `[context_curation.handoff_compaction]`, `[context_curation.auto_prune]`, `[provider.request_retry]`, `[provider.web_search]`, `[ui.cwd_selector]`, `[ui.minimap]`, every `[watchdog.*]` section, `[term]` settle keys, `[maintenance]`, `[[bot.entry]]` (next picker open or bot creation), `[[session_lifecycle.script]]`, `[[project.entry]]` | immediately: these items read the config on demand, so the next tool call, compaction, or picker open uses the new value |
 | **Deferred update** | `[canvas]`, `[applets]`, `[remote]` binds; `[discord]`; `[dictation]`; `[shell]`; `[mcp.<name>]` entries; `providers.toml` (registry, keys, models, `[[endpoint_defaults]]`); `stream_rules.toml` | when the affected piece next reconnects or rebuilds: sockets rebind, Discord applies when the bot next goes idle, dictation at the next arm, an edited MCP server entry reconnects it, provider settings apply when the next stream opens |
 | **New session only** | `[tools].tool_filter`, `[skills].skill_filter`, the session's enabled-MCP set (`auto_enable = true`) | in sessions created after the edit: existing sessions keep their picker/session configuration, which is the point. A session's pickers (`<leader>st` / `<leader>sk` / `<leader>sM`) are that session's control |
 
@@ -248,15 +248,14 @@ args = ["@context7/mcp-server", "--stdio"]
 auto_enable = true
 ```
 
-**Compaction** (a backstop for full contexts; rarely fires during normal
-coding):
+**Handoff compaction** (the context summarizer; opt-in via
+`[context_curation.handoff_compaction]` `enabled = true` — see
+`context-management.md` for the full behavior):
 
 ```toml
-[context_curation.compaction]
-threshold = 0.7                      # usage fraction that triggers compaction
-reserve_tokens = 20000               # recent history kept during compaction
-fallback_context_window = 150000     # used when the provider doesn't report one
-# model = "openrouter/anthropic/claude-sonnet-4"   # summarizer model
+[context_curation.handoff_compaction]
+enabled = true
+workset_trigger_tokens = 230000   # work tokens that trigger the handoff; must stay ABOVE the accumulation threshold below
 ```
 
 **Auto-prune** (context trimming workers; each has `enabled` + `min_age` and
@@ -544,8 +543,9 @@ a linked reference (`mcp-servers.md`, `terminal-overlay.md`,
 `context-management.md`, `sessions-and-subagents.md`, `bots.md`,
 `remote.md`, and the canvas/applets/shell/maintenance blocks above).
 Section names are exact: the interactive terminal section is `[term]`;
-each MCP server is `[mcp.<name>]`; compaction nests as
-`[context_curation.compaction]`. **A misspelled section reads as absent**:
+each MCP server is `[mcp.<name>]`; the summarizer nests as
+`[context_curation.handoff_compaction]`. **A misspelled section reads as
+absent**:
 the file parses cleanly and the section silently sits at its defaults.
 
 An ask touching a key beyond this reference? The full commented reference

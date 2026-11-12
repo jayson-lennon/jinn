@@ -216,6 +216,16 @@ pub enum ConfigSectionError {
         /// The deserializer's complaint.
         detail: String,
     },
+    /// The section's values are internally inconsistent with another
+    /// section's: a registered cross-section check rejected the
+    /// configuration as a whole.
+    #[error("config section [{key}]: {detail}")]
+    Invalid {
+        /// The section whose key the complaint is filed under.
+        key: &'static str,
+        /// What is inconsistent, phrased for the user.
+        detail: String,
+    },
 }
 
 impl From<ConfigSectionError> for std::io::Error {

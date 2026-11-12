@@ -10,11 +10,6 @@
 pub enum SlashCommand {
     /// Create a new chat session.
     New,
-    /// Summarize conversation history into a structured checkpoint.
-    Compact,
-    /// Compact all messages, ignoring the token reserve.
-    /// Compact all messages, ignoring the token reserve.
-    CompactAll,
     /// Write the session to a single self-contained file.
     Export,
 }
@@ -33,14 +28,6 @@ impl SlashCommand {
     pub fn all_entries() -> Vec<SlashCommandEntry> {
         vec![
             SlashCommandEntry {
-                name: "compact".to_owned(),
-                description: "Summarize conversation history".to_owned(),
-            },
-            SlashCommandEntry {
-                name: "compact-all".to_owned(),
-                description: "Compact all messages (ignores reserve)".to_owned(),
-            },
-            SlashCommandEntry {
                 name: "export".to_owned(),
                 description: "Write the session to a file".to_owned(),
             },
@@ -54,8 +41,6 @@ impl SlashCommand {
     /// Looks up a slash command by name (without the leading `/`).
     pub fn lookup(name: &str) -> Option<Self> {
         match name {
-            "compact" => Some(Self::Compact),
-            "compact-all" => Some(Self::CompactAll),
             "export" => Some(Self::Export),
             "new" => Some(Self::New),
             _ => None,
@@ -75,30 +60,20 @@ mod tests {
     use super::*;
 
     #[rstest::rstest]
-    fn lookup_compact_returns_compact() {
-        // Given the command name "compact".
-        // When looking it up.
-        // Then it resolves to the Compact command.
-        assert_eq!(SlashCommand::lookup("compact"), Some(SlashCommand::Compact));
-    }
-
-    #[rstest::rstest]
-    fn lookup_compact_all_returns_compact_all() {
-        // Given the command name "compact-all".
-        // When looking it up.
-        // Then it resolves to the CompactAll command.
-        assert_eq!(
-            SlashCommand::lookup("compact-all"),
-            Some(SlashCommand::CompactAll)
-        );
-    }
-
-    #[rstest::rstest]
     fn lookup_new_returns_new() {
         // Given the command name "new".
         // When looking it up.
         // Then it resolves to the New command.
         assert_eq!(SlashCommand::lookup("new"), Some(SlashCommand::New));
+    }
+
+    #[rstest::rstest]
+    fn lookup_removed_compact_names_resolve_nothing() {
+        // Given the retired command names.
+        // When looking each up.
+        // Then nothing resolves — the compaction surface is gone.
+        assert_eq!(SlashCommand::lookup("compact"), None);
+        assert_eq!(SlashCommand::lookup("compact-all"), None);
     }
 
     #[rstest::rstest]
@@ -134,8 +109,6 @@ mod tests {
         let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
 
         // Then every command is advertised.
-        assert!(names.contains(&"compact"));
-        assert!(names.contains(&"compact-all"));
         assert!(names.contains(&"export"));
         assert!(names.contains(&"new"));
     }

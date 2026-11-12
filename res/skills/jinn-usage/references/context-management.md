@@ -83,9 +83,9 @@ pins the isolated entry. Undo per-entry with `x`/`r`, or start a new session
 ## Tune pruning and compaction
 
 jinn prunes stale detail automatically, keeping context small and
-prefix-cache friendly. Compaction (summarizing the history) is the
-backstop; during coding, pruning keeps usage below the threshold, so
-compaction rarely fires. The tuning lives in `jinn.toml`:
+prefix-cache friendly. Handoff compaction (summarizing the history) is
+the backstop; during coding, pruning keeps usage below the trigger, so
+the handoff rarely fires. The tuning lives in `jinn.toml`:
 
 - `[context_curation.auto_prune.*]`: per-strategy rules (stale reads,
   repeated edits, old tool output, trivial assistant chatter, regex
@@ -93,23 +93,20 @@ compaction rarely fires. The tuning lives in `jinn.toml`:
 - `[context_curation.auto_prune] accumulation_threshold_tokens`: prune
   mutations batch until this token budget accumulates, protecting
   prefix-cache hits.
-- `[context_curation.compaction]`: `threshold` (usage fraction that
-  triggers compaction), `reserve_tokens`, `fallback_context_window`, and an
-  optional compaction `model`.
 - `[context_curation.handoff_compaction]`: "handoff" compaction
-  (opt-in via `enabled = true`). When enabled, background compaction is
-  skipped for that session; instead, at the next model-request boundary
-  after accumulated work reaches `workset_trigger_tokens`, jinn asks
-  the same session model to write a handoff recap of the work so
-  far — no tools are callable during that turn — then drops everything
-  except your messages, pins, and the recap from context and continues.
-  The fire line is work-relative: it counts the assembled prompt minus
-  its system share (system prompt, tools, skills), so a large system
-  floor never sits at the fire line and cannot eat the budget. An unset
+  (opt-in via `enabled = true`). When enabled, at the next
+  model-request boundary after accumulated work reaches
+  `workset_trigger_tokens`, jinn asks the same session model to write
+  a handoff recap of the work so far — no tools are callable during
+  that turn — then drops everything except your messages, pins, and
+  the recap from context and continues. The fire line is
+  work-relative: it counts the assembled prompt minus its system share
+  (system prompt, tools, skills), so a large system floor never sits
+  at the fire line and cannot eat the budget. An unset
   `workset_trigger_tokens` never fires. Right after a fold the size
   cache is invalidated, so the gate passes until the next honest size
-  recalculation — a fold never re-fires on the fresh, tiny context. The
-  recap turn is visible in the transcript and jumpable with `]c`/`[c`
+  recalculation — a fold never re-fires on the fresh, tiny context.
+  The recap turn is visible in the transcript and jumpable with `]c`/`[c`
   like any compaction summary; a handoff cancelled mid-turn applies
   nothing and the gate re-fires on the next request. A handoff fired
   mid-loop (while the model is working through tool calls) keeps the
@@ -117,6 +114,14 @@ compaction rarely fires. The tuning lives in `jinn.toml`:
   same turn, with no idle flash between it and the continuation; a
   handoff fired at an idle boundary is its own turn, and the message
   you sent (or your queued request) dispatches right after the fold.
+- **The trigger must stay above the accumulation threshold.** A
+  `workset_trigger_tokens` at or below
+  `accumulation_threshold_tokens` would fold the context before the
+  pruners' batch ever flushes, silently disabling every auto-pruner.
+  jinn refuses that configuration outright: launch aborts naming both
+  values, a live edit creating the conflict is refused (the previous
+  config stays active), and the pruner-accumulation popup cannot save
+  such a threshold.
 
 See `configuration.md` for how to edit these; they are re-read at next
 use, so an edit applies by the next compaction.

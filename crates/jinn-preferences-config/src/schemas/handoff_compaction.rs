@@ -5,8 +5,7 @@
 //! model-request boundary whose accumulated *work* reaches the
 //! configured trigger, the session model writes a handoff recap
 //! in-conversation and the context folds down to the task turns, pins,
-//! and the recap. The sibling [`crate::schemas::CompactionConfig`]
-//! section is unchanged; this section exists alongside it.
+//! and the recap.
 
 use serde::{Deserialize, Serialize};
 
