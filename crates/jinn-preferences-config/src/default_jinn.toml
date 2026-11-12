@@ -758,7 +758,7 @@ skill_filter = { mode = "allow", names = [] }
 # > until the sum of the queued chat entries reaches this token threshold. This
 # > queueing is to keep cache hits high in order to take advantage of cache
 # > pricing.
-accumulation_threshold_tokens = 150000
+accumulation_threshold_tokens = 170000
 
 # ---------------------------------------------------------------------------
 # > Prunes `edit` and `write` tool results that precede a `read` of the same file.
