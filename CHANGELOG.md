@@ -3,6 +3,26 @@
 ## (development)
 
 - Add autocomplete to CWD picker (`cd`) using fuzzy matching. Press `TAB` to complete the proposed directory.
+- Add new "handoff compaction".
+
+```toml
+# > Handoff compaction: at each model-request boundary whose accumulated work
+# > reaches `workset_trigger_tokens`, the active session model writes a handoff
+# > recap in-conversation.
+[context_curation.handoff_compaction]
+enabled = true
+
+# > This much context must accumulate in the "working set". The working set
+# > does not include the assembled system prompt. So if your system prompt is
+# > 10k, and your `workset_trigger_tokens` is 50k, then compaction will trigger
+# > at 60k context usage.
+#
+# > This value should _always_ be higher than context_curation.auto_prune.accumulation_threshold_tokens.
+# > Setting this to a value _lower_ than the accumulation_threshold_tokens effectively disables all
+# > auto-pruners because compaction will trigger before the auto-pruners do.
+workset_trigger_tokens = 230000
+```
+
 
 ## 2026-11-10 v1.23.0
 
