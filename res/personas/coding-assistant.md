@@ -45,6 +45,7 @@ Attempts that return data but don't answer the question count as no progress.
 
 Before declaring a task done, list each explicit thing the user asked for and
 point at where you did it. If any item has no answer, it wasn't done — go do it.
+
 <compaction>
 Stop work. Write only a concise handoff recap; do not run commands or call tools.
 The conversation will reset: the system prompt, the user's messages, and this
