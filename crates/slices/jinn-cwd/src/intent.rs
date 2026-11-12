@@ -8,7 +8,12 @@
 //! popup.
 
 use jinn_common::shorten_path;
-use jinn_cwd_msg::{CwdInputState, CwdResolution, resolve_cwd_input};
+use jinn_cwd_msg::CwdInputState;
+use jinn_cwd_msg::CwdResolution;
+use jinn_cwd_msg::SuggestCwdCompletion;
+use jinn_cwd_msg::resolve_cwd_input;
+use jinn_cwd_msg::resolve_parent_dir;
+use jinn_cwd_msg::split_at_cursor;
 use jinn_slices::RouteResult as IntentResult;
 use jinn_slices::SliceScopeId;
 use jinn_slices::cell::TypedCell;
@@ -108,10 +113,24 @@ pub fn attach_cwd_rows(routes: &jinn_slices::KeyRoutes, cell: &CwdCell) {
         "clear the path, or leave when already empty",
         action(cell, |_ctx, cell| clear_or_leave_cwd_input(cell)),
     ));
+    routes.attach(row(
+        "accept-cwd-ghost",
+        "<tab>",
+        "session",
+        "accept the ghosted completion",
+        action(cell, |_ctx, cell| accept_cwd_ghost(cell)),
+    ));
 }
 
 /// Registers the popup's editing hook: every editing intent lands in the
-/// cell; non-editing intents pass through (`None`).
+/// cell and mints a fresh suggestion request; non-editing intents pass
+/// through (`None`).
+///
+/// The hook is the popup's only synchronous writer besides its actions:
+/// each edit clears the ghost, bumps the staleness id, and returns a
+/// `SuggestCwdCompletion` for the new input. No disk I/O happens here —
+/// the request names one directory and the suggest actor reads it on a
+/// blocking thread.
 pub fn register_cwd_input_hook(routes: &jinn_slices::KeyRoutes, cell: &CwdCell) {
     let cell = cell.clone();
     let hook: InputHook = Arc::new(move |intent: &EditIntent| {
@@ -150,19 +169,38 @@ pub fn register_cwd_input_hook(routes: &jinn_slices::KeyRoutes, cell: &CwdCell) 
                 IntentResult::empty()
             }
         };
-        Some(result)
+        Some(result.with_message(request_suggestion(&cell)))
     });
     routes.register_input_hook(&cwd_scope(), hook);
+}
+
+/// Mints the suggestion request for the cell's current input, bumping the
+/// staleness id and clearing the ghost in the same update.
+///
+/// The request's `parent_dir` is the lexical parent of the segment before
+/// the cursor, resolved against the popup's open-time base — `None` base
+/// (popup never opened through the opener) resolves against the home
+/// fallback `resolve_parent_dir` already agrees on with the confirm
+/// resolver; the guard still advances, keeping the protocol total. The
+/// home for tilde expansion comes from the `-msg` crate's `tilde_home()`
+/// (an env read, the same one the confirm resolver uses on this thread).
+fn request_suggestion(cell: &CwdCell) -> SuggestCwdCompletion {
+    cell.update(request_suggestion_from_state)
 }
 
 /// Opens the popup: seeds the input with the active session's cwd
 /// (tilde-compressed, cursor at end) and pushes the popup scope.
 fn open_cwd_input(state: &mut dyn jinn_slices::SliceActionState, cell: &CwdCell) -> IntentResult {
     let seeded = shorten_path(&state.active_session_cwd());
+    let base_dir = Some(state.active_session_cwd());
     cell.update(|s| {
         let mut text = jinn_slices::LineInput::new();
         text.set(seeded);
-        *s = CwdInputState { text };
+        *s = CwdInputState {
+            text,
+            base_dir,
+            ..CwdInputState::default()
+        };
     });
     IntentResult {
         messages: Vec::new(),
@@ -208,6 +246,87 @@ fn clear_or_leave_cwd_input(cell: &CwdCell) -> IntentResult {
         IntentResult::empty()
     } else {
         IntentResult::empty().with_scope_signal(ScopeSignal::PopIf(cwd_scope()))
+    }
+}
+
+/// Accepts the ghost at the cursor: prefix-extension appends the remainder;
+/// type-over replaces the whole segment before the cursor with the winner.
+/// The separator is appended in both cases, the cursor lands after it, and
+/// a fresh suggestion request is minted for the new input (so repeated Tab
+/// walks down the tree). With no ghost, Tab is consumed and nothing changes.
+fn accept_cwd_ghost(cell: &CwdCell) -> IntentResult {
+    let winner = cell.read().ghost.clone();
+    let Some(winner) = winner else {
+        return IntentResult::empty();
+    };
+    let request = cell.update(|s| {
+        let before_cursor = &s
+            .text
+            .input
+            .get(..s.text.cursor_pos)
+            .unwrap_or_default()
+            .to_owned();
+        let after_cursor = s
+            .text
+            .input
+            .get(s.text.cursor_pos..)
+            .unwrap_or_default()
+            .to_owned();
+        let (parent_text, segment) = split_at_cursor(before_cursor);
+        let remainder = crate::suggest::ghost_remainder(segment, &winner);
+        let filled = if remainder.len() < winner.len() {
+            // Prefix extension (the remainder is shorter than the whole
+            // name): keep the typed text, append the remainder + separator.
+            let mut text = s.text.clone();
+            let suffix = format!("{remainder}{}", std::path::MAIN_SEPARATOR);
+            for ch in suffix.chars() {
+                text.insert_char(ch);
+            }
+            text
+        } else {
+            // Type-over (the remainder is the whole name): replace the
+            // segment before the cursor with the winner. The separator is
+            // appended unless the text after the cursor already begins
+            // with one (the old separator serves; appending would double it).
+            let appended_sep = if after_cursor
+                .chars()
+                .next()
+                .is_some_and(std::path::is_separator)
+            {
+                String::new()
+            } else {
+                std::path::MAIN_SEPARATOR.to_string()
+            };
+            let mut text = jinn_slices::LineInput::new();
+            text.set(format!("{parent_text}{winner}{appended_sep}"));
+            text.input.push_str(&after_cursor);
+            text.cursor_pos = text.input.len() - after_cursor.len();
+            text
+        };
+        s.text = filled;
+        request_suggestion_from_state(s)
+    });
+    IntentResult::empty().with_message(request)
+}
+
+/// The state-taking half of [`request_suggestion`], for callers already
+/// holding the cell's write lock.
+fn request_suggestion_from_state(s: &mut CwdInputState) -> SuggestCwdCompletion {
+    s.ghost = None;
+    s.expected_request_id = s.expected_request_id.wrapping_add(1);
+    let before_cursor = s.text.input.get(..s.text.cursor_pos).unwrap_or_default();
+    let (parent_text, segment) = split_at_cursor(before_cursor);
+    let segment = segment.to_owned();
+    let base = s.base_dir.clone().unwrap_or_else(jinn_cwd_msg::tilde_home);
+    let parent_dir = resolve_parent_dir(
+        parent_text,
+        &base.as_marked_path(),
+        &jinn_cwd_msg::tilde_home(),
+    );
+    SuggestCwdCompletion {
+        parent_dir,
+        segment,
+        request_id: s.expected_request_id,
     }
 }
 
@@ -522,6 +641,152 @@ mod tests {
         // Then the intent is consumed and the cursor reaches the start.
         assert!(result.is_some());
         assert_eq!(cell.read().text.cursor_pos, 0);
+    }
+
+    #[rstest::rstest]
+    fn accept_appends_the_remainder_and_requests_a_fresh_suggestion() {
+        // Given a popup whose typed segment prefixes the ghost.
+        let dir = jinn_testutil::tempdir();
+        let (_slices, cell) = cell();
+        cell.update(|s| {
+            s.base_dir = Some(dir.path.clone());
+            s.text.set("~/co".to_owned());
+            s.ghost = Some("completed-projects".to_owned());
+            s.expected_request_id = 3;
+        });
+
+        // When Tab accepts the ghost.
+        let result = accept_cwd_ghost(&cell);
+
+        // Then the input extends to winner + separator with the cursor
+        // after it, and a fresh suggestion request rides the result.
+        assert_eq!(
+            cell.read().text.input,
+            format!("~/completed-projects{}", std::path::MAIN_SEPARATOR)
+        );
+        assert_eq!(cell.read().text.cursor_pos, cell.read().text.input.len());
+        assert_eq!(result.message_names, vec!["SuggestCwdCompletion"]);
+        assert_eq!(cell.read().expected_request_id, 4);
+    }
+
+    #[rstest::rstest]
+    fn accept_type_over_replaces_the_segment_before_the_cursor() {
+        // Given a popup whose typed segment is a typo of the ghost, with
+        // text after the cursor.
+        let dir = jinn_testutil::tempdir();
+        let (_slices, cell) = cell();
+        cell.update(|s| {
+            s.base_dir = Some(dir.path.clone());
+            s.text.set("~/mkn/more".to_owned());
+            s.text.cursor_pos = "~/mkn".len();
+            s.ghost = Some("mkdir".to_owned());
+            s.expected_request_id = 3;
+        });
+
+        // When Tab accepts the ghost.
+        let _ = accept_cwd_ghost(&cell);
+
+        // Then the segment is replaced wholesale; the old separator after
+        // the cursor serves (no doubling), the rest is preserved, and the
+        // cursor sits right after the winner.
+        assert_eq!(cell.read().text.input, "~/mkdir/more");
+        assert_eq!(cell.read().text.cursor_pos, "~/mkdir".len());
+    }
+
+    #[rstest::rstest]
+    fn accept_after_a_trailing_separator_fills_the_first_child_for_the_walk() {
+        // Given a popup whose input ends in a separator with a first-child
+        // ghost (the walk shape).
+        let dir = jinn_testutil::tempdir();
+        let (_slices, cell) = cell();
+        cell.update(|s| {
+            s.base_dir = Some(dir.path.clone());
+            s.text.set("~/".to_owned());
+            s.ghost = Some("projects".to_owned());
+            s.expected_request_id = 3;
+        });
+
+        // When Tab accepts the ghost.
+        let _ = accept_cwd_ghost(&cell);
+
+        // Then the child name is appended with its own separator — ready
+        // for the next Tab to walk into it.
+        assert_eq!(
+            cell.read().text.input,
+            format!("~/projects{}", std::path::MAIN_SEPARATOR)
+        );
+    }
+
+    #[rstest::rstest]
+    fn accept_without_a_ghost_is_a_consumed_noop() {
+        // Given a popup with no ghost.
+        let (_slices, cell) = cell();
+        cell.update(|s| {
+            s.text.set("~/co".to_owned());
+            s.expected_request_id = 3;
+        });
+
+        // When Tab is pressed.
+        let result = accept_cwd_ghost(&cell);
+
+        // Then nothing changes and nothing publishes — but the key is
+        // still consumed (an empty, signal-free result).
+        assert_eq!(cell.read().text.input, "~/co");
+        assert!(result.messages.is_empty());
+        assert!(result.scope_signal.is_none());
+    }
+
+    #[rstest::rstest]
+    fn input_hook_clears_the_ghost_and_bumps_the_request_id_per_edit() {
+        // Given a route table with the hook registered and a cell holding
+        // a ghost and a prior request id.
+        let dir = jinn_testutil::tempdir();
+        let routes = KeyRoutes::new();
+        let (_slices, cell) = cell();
+        cell.update(|s| {
+            s.ghost = Some("alpha".to_owned());
+            s.expected_request_id = 7;
+            s.base_dir = Some(dir.path.clone());
+            s.text.set("~/al".to_owned());
+        });
+        register_cwd_input_hook(&routes, &cell);
+        let hook = routes
+            .input_hook(&cwd_scope())
+            .expect("hook registered for the cwd scope");
+
+        // When an edit flows through the hook.
+        let _ = hook(&EditIntent::InsertChar('p'));
+
+        // Then the ghost is cleared and the id bumped.
+        let state = cell.read();
+        assert_eq!(state.ghost, None);
+        assert_eq!(state.expected_request_id, 8);
+    }
+
+    #[rstest::rstest]
+    fn input_hook_mints_a_suggestion_request_for_the_new_input() {
+        // Given the hook registered and the popup stamped with the base.
+        let dir = jinn_testutil::tempdir();
+        let routes = KeyRoutes::new();
+        let (_slices, cell) = cell();
+        cell.update(|s| {
+            s.base_dir = Some(dir.path.clone());
+            s.text.set("~/al".to_owned());
+            s.expected_request_id = 7;
+        });
+        register_cwd_input_hook(&routes, &cell);
+        let hook = routes
+            .input_hook(&cwd_scope())
+            .expect("hook registered for the cwd scope");
+
+        // When an edit flows through the hook.
+        let result = hook(&EditIntent::InsertChar('p')).expect("editing intents are consumed");
+
+        // Then one SuggestCwdCompletion rides the result, carrying the
+        // bumped id, the resolved parent (~/ under the temp home region),
+        // and the segment before the cursor.
+        assert_eq!(result.message_names, vec!["SuggestCwdCompletion"]);
+        assert_eq!(result.messages.len(), 1);
     }
 
     #[rstest::rstest]

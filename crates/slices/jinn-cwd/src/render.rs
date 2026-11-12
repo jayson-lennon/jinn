@@ -120,10 +120,32 @@ fn draw(
         return;
     }
 
-    // Input line: "> {input}" - the ">" uses focus_accent for consistency.
+    // Input line: "> {input}{ghost}" - the ">" uses focus_accent for
+    // consistency; the ghost (when present) renders muted, immediately
+    // after the typed text, without moving the cursor.
     let prefix = Span::styled("> ", Style::default().fg(theme.focus_accent));
-    let input_span = Span::raw(&input_state.text.input);
-    let input_line = Line::from(vec![prefix, input_span]);
+    let ghost_text = input_state
+        .ghost
+        .as_ref()
+        .map(|winner| {
+            let before_cursor = input_state
+                .text
+                .input
+                .get(..input_state.text.cursor_pos)
+                .unwrap_or_default();
+            let (_parent, segment) = jinn_cwd_msg::split_at_cursor(before_cursor);
+            let remainder = crate::suggest::ghost_remainder(segment, winner);
+            format!("{remainder}{}", std::path::MAIN_SEPARATOR)
+        })
+        .unwrap_or_default();
+    let mut spans = vec![prefix, Span::raw(input_state.text.input.clone())];
+    if !ghost_text.is_empty() {
+        spans.push(Span::styled(
+            ghost_text,
+            Style::default().fg(theme.muted_text),
+        ));
+    }
+    let input_line = Line::from(spans);
     let input_para = Paragraph::new(input_line);
     frame.render_widget(input_para, Rect::new(inner.x, inner.y, inner.width, 1));
 
@@ -172,4 +194,190 @@ pub fn render_cwd_input(frame: &mut Frame<'_>, area: Rect, ctx: &RenderFacts) {
         MarkedPathBuf::<Absolute>::new(ctx.fact(SESSION_CWD_FACT).unwrap_or_default())
             .expect("the session.cwd fact is an absolute path");
     draw(frame, area, &state, &ctx.theme, &current_cwd);
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing,
+        clippy::uninlined_format_args,
+        reason = "test code"
+    )]
+    use super::*;
+    use jinn_cwd_msg::cwds_slot;
+    use jinn_slices::Slices;
+    use jinn_slices::TypedCell;
+    use jinn_testutil::setup_term;
+    use marked_path::MarkedPathAccess as _;
+
+    /// Test wiring: a slices registry with the cwd cell seeded from typed
+    /// text, cursor position, and ghost. Returns (slices, cell).
+    fn cwd_ctx(
+        input: &str,
+        cursor_pos: usize,
+        ghost: Option<&str>,
+    ) -> (Slices, TypedCell<CwdInputState>) {
+        let slices = Slices::new();
+        let cell = slices
+            .register(cwds_slot(), CwdInputState::default())
+            .expect("fresh registry");
+        cell.update(|s| {
+            s.text.set(input.to_owned());
+            s.text.cursor_pos = cursor_pos;
+            s.ghost = ghost.map(str::to_owned);
+        });
+        (slices, cell)
+    }
+
+    fn facts_for(slices: &Slices) -> RenderFacts {
+        let mut facts = RenderFacts::new(jinn_theme::default_theme(), slices);
+        // The footer's live validation resolves against this fact; a temp
+        // root is a real existing directory, so the footer renders green.
+        facts.set_facts([jinn_slices::AppFact {
+            key: SESSION_CWD_FACT,
+            value: jinn_testutil::volume_root().to_string_lossy().to_string(),
+        }]);
+        facts
+    }
+
+    /// Renders the popup into a fresh terminal; the popup rect is derived
+    /// from the terminal area the way the overlay geometry does.
+    fn render_popup(slices: &Slices) -> (ratatui::Terminal<ratatui::backend::TestBackend>, Rect) {
+        let (mut terminal, area) = setup_term(80, 24);
+        let popup_area = cwd_input_popup_rect(area);
+        terminal
+            .draw(|frame| {
+                let facts = facts_for(slices);
+                render_cwd_input(frame, popup_area, &facts);
+            })
+            .expect("test draw never fails");
+        (terminal, popup_area)
+    }
+
+    /// Collects (symbol, foreground) per column of one row.
+    fn row_cells(
+        terminal: &ratatui::Terminal<ratatui::backend::TestBackend>,
+        area: Rect,
+        y: u16,
+    ) -> Vec<(String, Option<ratatui::style::Color>)> {
+        let buffer = terminal.backend().buffer();
+        (area.x..area.x + area.width)
+            .map(|x| {
+                buffer
+                    .cell((x, y))
+                    .map(|c| (c.symbol().to_owned(), c.style().fg))
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
+    #[rstest::rstest]
+    fn ghost_renders_after_the_cursor_in_muted_text() {
+        // Given a popup seeded with a typed segment and a prefix ghost.
+        let (slices, _cell) = cwd_ctx("~/co", "~/co".len(), Some("completed-projects"));
+        let (terminal, popup_area) = render_popup(&slices);
+
+        // When reading the input row.
+        let input_y = popup_area.y + 1;
+        let row = row_cells(&terminal, popup_area, input_y);
+        let rendered: String = row.iter().map(|(sym, _)| sym.as_str()).collect();
+
+        // Then the ghost remainder appears right after the typed text.
+        let ghost = format!("mpleted-projects{}", std::path::MAIN_SEPARATOR);
+        assert!(
+            rendered.contains(&format!("~/co{ghost}")),
+            "input row was {rendered:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    fn ghost_is_styled_muted_and_the_typed_text_is_not() {
+        // Given the same popup.
+        let (slices, cell) = cwd_ctx("~/co", "~/co".len(), Some("completed-projects"));
+        let muted = facts_for(&slices).theme.muted_text;
+        let _ = cell;
+        let (terminal, popup_area) = render_popup(&slices);
+
+        // When locating the ghost columns (after "> ~/co").
+        let input_y = popup_area.y + 1;
+        let row = row_cells(&terminal, popup_area, input_y);
+        // Relative index: inner edge (border) + "> " prefix + typed text.
+        let ghost_idx = 1 + 2 + "~/co".len();
+
+        // Then every ghost cell carries the muted foreground and the cell
+        // just before it (the typed 'o') does not.
+        let (before_sym, before_fg) = &row[ghost_idx - 1];
+        assert_eq!(before_sym, "o");
+        assert_ne!(*before_fg, Some(muted));
+        for (sym, fg) in row.iter().skip(ghost_idx) {
+            if sym == " " {
+                break; // ghost text ends; padding cells follow
+            }
+            assert_eq!(*fg, Some(muted), "ghost cell {sym:?} not muted");
+        }
+    }
+
+    #[rstest::rstest]
+    fn ghost_render_does_not_move_the_cursor() {
+        // Given the same popup.
+        let (slices, _cell) = cwd_ctx("~/co", "~/co".len(), Some("completed-projects"));
+        let (mut terminal, popup_area) = render_popup(&slices);
+
+        // When reading the terminal cursor.
+        let cursor = terminal
+            .get_cursor_position()
+            .expect("test backend reports cursor");
+
+        // Then the cursor sits at the end of the typed text — the ghost
+        // extended nothing.
+        let input_y = popup_area.y + 1;
+        assert_eq!(cursor.y, input_y);
+        // Inner edge (border) + prefix + typed text.
+        let expected_x = popup_area.x + 1 + 2 + u16::try_from("~/co".len()).expect("small");
+        assert_eq!(cursor.x, expected_x);
+    }
+
+    #[rstest::rstest]
+    fn no_ghost_renders_no_extra_span() {
+        // Given a popup with no ghost.
+        let (slices, _cell) = cwd_ctx("~/co", "~/co".len(), None);
+        let (terminal, popup_area) = render_popup(&slices);
+
+        // When reading the input row.
+        let input_y = popup_area.y + 1;
+        let rendered: String = row_cells(&terminal, popup_area, input_y)
+            .iter()
+            .map(|(sym, _)| sym.as_str())
+            .collect();
+
+        // Then only the typed text renders — no ghost residue.
+        assert!(rendered.contains("> ~/co"), "row was {rendered:?}");
+        assert!(
+            !rendered.contains("mpleted"),
+            "no ghost text expected, row was {rendered:?}"
+        );
+    }
+
+    #[rstest::rstest]
+    fn type_over_ghost_renders_the_whole_winner_name() {
+        // Given a popup whose segment does not prefix the winner.
+        let (slices, _cell) = cwd_ctx("~/mkn", "~/mkn".len(), Some("mkdir"));
+        let (terminal, popup_area) = render_popup(&slices);
+
+        // When reading the input row.
+        let input_y = popup_area.y + 1;
+        let rendered: String = row_cells(&terminal, popup_area, input_y)
+            .iter()
+            .map(|(sym, _)| sym.as_str())
+            .collect();
+
+        // Then the whole winner name ghosts (type-over display).
+        let ghost = format!("mkdir{}", std::path::MAIN_SEPARATOR);
+        assert!(
+            rendered.contains(&format!("~/mkn{ghost}")),
+            "input row was {rendered:?}"
+        );
+    }
 }

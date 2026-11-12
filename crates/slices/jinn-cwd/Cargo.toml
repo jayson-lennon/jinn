@@ -7,18 +7,22 @@ edition.workspace = true
 marked-path = { workspace = true }
 jinn-common = { workspace = true }
 jinn-cwd-msg = { workspace = true }
+jinn-kernel = { workspace = true }
+trouper = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-theme = { workspace = true }
 jinn-core-types = { workspace = true }
+fuzzy-matcher = { workspace = true }
 ratatui = { workspace = true }
 unicode-segmentation = { workspace = true }
 wherror = { workspace = true }
 error-stack = { workspace = true }
+tokio = { workspace = true }
 rstest = { workspace = true }
 
 [dev-dependencies]
 jinn-testutil = { workspace = true }
-tokio = { workspace = true }
+
 dirs = { workspace = true }
 
 [lints]

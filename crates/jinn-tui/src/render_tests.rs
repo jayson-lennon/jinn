@@ -239,6 +239,9 @@ async fn cwd_input_popup_renders_and_is_selectable() {
     let mut app = render_test_app().await;
     {
         let services = &mut app.services;
+        let actor_deps = jinn_kernel::common::actor_deps::ActorDeps {
+            services: services.clone(),
+        };
         let mut host = jinn_slices::SliceHost::new(
             &services.slices,
             &mut services.viewport,
@@ -246,7 +249,7 @@ async fn cwd_input_popup_renders_and_is_selectable() {
             &services.key_routes,
             &services.trouper_system,
         );
-        jinn_cwd::activate(&mut host);
+        jinn_cwd::activate(&mut host, actor_deps);
     }
     app.core
         .state
