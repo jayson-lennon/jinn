@@ -81,6 +81,9 @@ impl SessionStoreActor {
                 );
                 session.set_persona_name(normalized);
             }
+            // Announce a block-less seeded persona the same way a loaded
+            // session's is: loud error entry, shipped fallback implied.
+            self.emit_missing_compaction_error(session);
 
             let seed = SessionSeed::from_config(&self.services.config);
             {

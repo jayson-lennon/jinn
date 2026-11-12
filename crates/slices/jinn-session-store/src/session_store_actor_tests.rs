@@ -3360,6 +3360,7 @@ fn seed_persona_catalog(fixture: &ActorFixture, names: &[&str]) {
                     name: (*name).to_owned(),
                     description: String::new(),
                     body: String::new(),
+                    handoff_prompt: String::new(),
                 })
                 .collect(),
         );
@@ -3465,6 +3466,147 @@ async fn hydrate_normalizes_unknown_session_persona() {
         .expect("hydrated session")
         .clone();
     assert_eq!(session.persona_name(), "coding-assistant");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hydrate_announces_a_blockless_persona_with_an_error_entry() {
+    // Given a stored session whose persona carries no compaction block,
+    // and a running actor.
+    let fixture = actor_fixture().await;
+    seed_persona_catalog(&fixture, &["coding-assistant"]);
+    let session_id = SessionId::new();
+    let mut stored = ChatSessionState::new();
+    stored.set_session_id(session_id.clone());
+    stored.set_persona_name("coding-assistant".to_owned());
+    stored.push_entry(jinn_core_types::ChatEntry::user("older work"));
+    fixture
+        .store
+        .save(&stored.capture_snapshot())
+        .await
+        .expect("save session");
+
+    // When the session is hydrated back.
+    fixture
+        .harness
+        .publish(SessionLoadRequested {
+            session_id: session_id.clone(),
+            content_width: Some(60),
+        })
+        .await;
+    jinn_testutil::wait::poll_until_async_fn(Duration::from_secs(2), || async {
+        fixture.state.read().session.contains(&session_id)
+    })
+    .await;
+
+    // Then the live session's history carries the missing-block error.
+    let session = fixture
+        .state
+        .read()
+        .session
+        .get(&session_id)
+        .expect("hydrated session")
+        .clone();
+    let expected = jinn_persona_msg::missing_compaction_block_message("coding-assistant");
+    assert!(
+        session
+            .history()
+            .iter()
+            .any(|entry| entry.kind_str() == "error" && entry.text() == expected),
+        "expected the missing-block error, got: {:?}",
+        session
+            .history()
+            .iter()
+            .map(|entry| (entry.kind_str(), entry.text()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn hydrate_does_not_duplicate_a_persisted_missing_block_error() {
+    // Given a stored session whose history already carries the exact
+    // missing-block error a persona switch persisted.
+    let fixture = actor_fixture().await;
+    seed_persona_catalog(&fixture, &["coding-assistant"]);
+    let session_id = SessionId::new();
+    let mut stored = ChatSessionState::new();
+    stored.set_session_id(session_id.clone());
+    stored.set_persona_name("coding-assistant".to_owned());
+    stored.push_entry(jinn_core_types::ChatEntry::user("older work"));
+    stored.push_entry(jinn_core_types::ChatEntry::error(
+        jinn_persona_msg::missing_compaction_block_message("coding-assistant"),
+    ));
+    fixture
+        .store
+        .save(&stored.capture_snapshot())
+        .await
+        .expect("save session");
+
+    // When the session is hydrated back.
+    fixture
+        .harness
+        .publish(SessionLoadRequested {
+            session_id: session_id.clone(),
+            content_width: Some(60),
+        })
+        .await;
+    jinn_testutil::wait::poll_until_async_fn(Duration::from_secs(2), || async {
+        fixture.state.read().session.contains(&session_id)
+    })
+    .await;
+
+    // Then the history still holds exactly one copy of the message.
+    let session = fixture
+        .state
+        .read()
+        .session
+        .get(&session_id)
+        .expect("hydrated session")
+        .clone();
+    let expected = jinn_persona_msg::missing_compaction_block_message("coding-assistant");
+    let copies = session
+        .history()
+        .iter()
+        .filter(|entry| entry.kind_str() == "error" && entry.text() == expected)
+        .count();
+    assert_eq!(copies, 1, "the persisted copy must not be duplicated");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn welcome_session_seed_announces_a_blockless_persona() {
+    // Given a persisted persona the catalog carries without a block.
+    let fixture = actor_fixture().await;
+    seed_persona_catalog(&fixture, &["coding-assistant"]);
+    seed_persisted_persona(&fixture, "coding-assistant");
+
+    // When startup runs.
+    fixture
+        .harness
+        .publish(EnvironmentLoaded {
+            config: empty_providers_config(),
+        })
+        .await;
+    jinn_testutil::wait::await_inbox_drained(
+        fixture.harness.system(),
+        &fixture.actor_path,
+        Duration::from_secs(10),
+    )
+    .await;
+
+    // Then the welcome session carries the missing-block error entry.
+    let expected = jinn_persona_msg::missing_compaction_block_message("coding-assistant");
+    assert!(
+        fixture
+            .state
+            .read()
+            .active_session()
+            .history()
+            .iter()
+            .any(|entry| entry.kind_str() == "error" && entry.text() == expected),
+        "the seeded welcome session must announce the missing block"
+    );
 }
 
 /// Inserts one live listed session, saves it to the store, and returns its id.

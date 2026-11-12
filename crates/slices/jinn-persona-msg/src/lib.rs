@@ -1,11 +1,13 @@
 //! Canonical contracts and shared vocabulary for the persona slice.
 
+mod compaction_block;
 mod event;
 pub mod persona_entry;
 mod persona_picker_scope;
 mod persona_picker_state;
 pub mod persona_state;
 
+pub use compaction_block::missing_compaction_block_message;
 pub use event::PersonasLoaded;
 pub use persona_entry::{PersonaEntry, persona_row};
 pub use persona_picker_scope::persona_picker_scope;

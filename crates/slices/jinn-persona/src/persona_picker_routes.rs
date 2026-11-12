@@ -36,7 +36,9 @@
 
 use std::sync::Arc;
 
+use jinn_core_types::ChatEntry;
 use jinn_core_types::DEFAULT_PERSONA_NAME;
+use jinn_persona_msg::missing_compaction_block_message;
 use jinn_persona_msg::{PersonaPickerState, persona_picker_scope, personas_slot};
 use jinn_preferences_config::protocol::app_state_command::{AppStateUpdate, UpdateAppState};
 use jinn_session_msg::MarkSessionInteracted;
@@ -287,10 +289,12 @@ fn open_persona_picker(_ctx: &mut ActionCtx<'_>, _cell: &PersonaPickerCell) -> I
 /// The active session's profile persona is the only persona authority: the
 /// binding is the whole effect. The persisted `SetPersona` seeds the startup
 /// session on the next launch, exactly like `last_model`.
+///
+/// A chosen persona with no `<compaction>` handoff block additionally pushes
+/// an error entry into the active session: the shipped default handoff prompt
+/// will apply at handoff compaction instead of a persona-carried one, and the
+/// user must see that.
 fn confirm_persona_picker(ctx: &mut ActionCtx<'_>, cell: &PersonaPickerCell) -> IntentResult {
-    let Some(state) = app(ctx) else {
-        return IntentResult::empty();
-    };
     let Some(name) = cell
         .read()
         .selection
@@ -300,9 +304,30 @@ fn confirm_persona_picker(ctx: &mut ActionCtx<'_>, cell: &PersonaPickerCell) -> 
         return IntentResult::empty();
     };
 
+    // A block-less persona is a loud error, not a silent downgrade: name
+    // the persona and state the fallback in the session's own history.
+    // Resolved before the state borrow: the catalog read and the state
+    // write cannot borrow `ctx` at the same time. The chosen name always
+    // resolves — the picker's rows come from the catalog — so a miss here
+    // is a missing catalog cell, which degrades to no announcement.
+    let blockless = ctx
+        .slices
+        .reader::<jinn_persona_msg::Personas>(&personas_slot())
+        .and_then(|personas| personas.read().persona(&name).cloned())
+        .is_some_and(|persona| persona.handoff_prompt.is_empty());
+    let Some(state) = app(ctx) else {
+        return IntentResult::empty();
+    };
+
     // Bind it to the active session.
     let session_id = state.session.active_session_id().clone();
     state.active_session_mut().set_persona_name(name.clone());
+
+    if blockless {
+        state
+            .active_session_mut()
+            .push_entry(ChatEntry::error(missing_compaction_block_message(&name)));
+    }
 
     IntentResult::new_message(UpdateAppState {
         updates: vec![AppStateUpdate::SetPersona(Some(name))],
