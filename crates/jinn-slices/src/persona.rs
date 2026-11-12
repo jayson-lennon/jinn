@@ -19,6 +19,15 @@ pub struct Persona {
     pub description: String,
     /// The persona body - the actual system prompt text.
     pub body: String,
+    /// The persona's `<compaction>` handoff block text. Replaces the shipped
+    /// handoff recap prompt wholesale when handoff compaction fires.
+    ///
+    /// Empty string = the persona carries no well-formed block, matching the
+    /// domain contract [`Self::description`] uses for an omitted frontmatter
+    /// field. The block is extracted from [`Self::body`] at parse time, so a
+    /// parsed persona's body never contains the tags or the block text.
+    #[serde(default)]
+    pub handoff_prompt: String,
 }
 
 #[cfg(test)]
@@ -32,6 +41,7 @@ mod tests {
             name: "reviewer".to_owned(),
             description: "reviews code".to_owned(),
             body: "You review code.".to_owned(),
+            handoff_prompt: "Recap the critique headings.".to_owned(),
         };
 
         // When it is serialized and read back.
@@ -42,5 +52,19 @@ mod tests {
         assert_eq!(restored.name, "reviewer");
         assert_eq!(restored.description, "reviews code");
         assert_eq!(restored.body, "You review code.");
+        assert_eq!(restored.handoff_prompt, "Recap the critique headings.");
+    }
+
+    #[rstest::rstest]
+    fn serde_deserializes_payloads_without_handoff_prompt() {
+        // Given JSON written before handoff_prompt existed.
+        let legacy =
+            r#"{"name":"reviewer","description":"reviews code","body":"You review code."}"#;
+
+        // When deserializing.
+        let restored: Persona = serde_json::from_str(legacy).expect("deserializes");
+
+        // Then handoff_prompt defaults to empty (no block).
+        assert_eq!(restored.handoff_prompt, "");
     }
 }

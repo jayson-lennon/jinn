@@ -85,6 +85,7 @@ impl Wired {
                         name: name.to_owned(),
                         description: description.to_owned(),
                         body: format!("{name} body"),
+                        handoff_prompt: String::new(),
                     })
                     .collect();
             });
@@ -687,6 +688,74 @@ async fn confirming_asks_the_scope_stack_to_pop_the_picker() {
     assert_eq!(
         result.scope_signal,
         Some(ScopeSignal::PopIf(persona_picker_scope()))
+    );
+}
+
+/// Replaces the personas cell's entries wholesale.
+///
+/// The `Wired::new` seed carries no handoff blocks; the announcement tests
+/// need one persona that does.
+fn seed_entries(wired: &Wired, entries: Vec<Persona>) {
+    wired
+        .slices
+        .reader::<jinn_persona_msg::Personas>(&personas_slot())
+        .expect("the catalog registers the personas cell before activation")
+        .update(|p: &mut jinn_persona_msg::Personas| p.entries = entries);
+}
+
+fn error_texts(state: &jinn_kernel::AppState) -> Vec<String> {
+    state
+        .active_session()
+        .history()
+        .iter()
+        .filter(|entry| entry.kind_str() == "error")
+        .map(jinn_core_types::ChatEntry::text)
+        .collect()
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn confirming_a_blockless_persona_pushes_the_missing_block_error() {
+    // Given an open picker over a persona with no compaction block.
+    let wired = Wired::new(vec![("plain", "no block")]).await;
+    wired.open();
+
+    // When enter confirms it.
+    wired.fire("confirm-persona-picker");
+
+    // Then the active session's history names the persona and states the
+    // default-prompt fallback in an error entry.
+    let texts = error_texts(&wired.state.borrow());
+    let expected = jinn_persona_msg::missing_compaction_block_message("plain");
+    assert!(
+        texts.contains(&expected),
+        "expected the missing-block error in {texts:?}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn confirming_a_persona_with_a_block_pushes_no_error() {
+    // Given an open picker over a persona that carries a compaction block.
+    let wired = Wired::new(vec![("rich", "has a block")]).await;
+    seed_entries(
+        &wired,
+        vec![Persona {
+            name: "rich".to_owned(),
+            description: "has a block".to_owned(),
+            body: "You are rich.".to_owned(),
+            handoff_prompt: "Recap the thesis.".to_owned(),
+        }],
+    );
+    wired.open();
+
+    // When enter confirms it.
+    wired.fire("confirm-persona-picker");
+
+    // Then no error entry was pushed.
+    assert!(
+        error_texts(&wired.state.borrow()).is_empty(),
+        "a block-carrying persona must not announce anything"
     );
 }
 

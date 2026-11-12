@@ -102,6 +102,7 @@ mod tests {
             name: name.to_owned(),
             description: String::new(),
             body: String::new(),
+            handoff_prompt: String::new(),
         }
     }
 

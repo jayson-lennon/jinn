@@ -185,6 +185,7 @@ mod tests {
                     name: "coding-assistant".to_owned(),
                     description: "Expert coder".to_owned(),
                     body: String::new(),
+                    handoff_prompt: String::new(),
                 });
             });
         state

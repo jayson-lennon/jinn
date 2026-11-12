@@ -1416,6 +1416,7 @@ mod tests {
                     name: "custom".to_owned(),
                     description: "Custom persona".to_owned(),
                     body: "You are a custom persona.".to_owned(),
+                    handoff_prompt: String::new(),
                 });
             });
             let mut guard = state.write();
@@ -1440,6 +1441,59 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
+    fn assemble_prompt_carries_no_compaction_block_into_the_system_prompt() {
+        // Given a session whose persona body contains a compaction block.
+        let (state, session_id) = state_with_history(vec![ChatEntry::user("hello")]);
+        {
+            let cell = {
+                state
+                    .read()
+                    .persona_selection()
+                    .expect("persona cell attached")
+            };
+            let () = cell.update(|p| {
+                p.entries.push(jinn_slices::Persona {
+                    name: "blocky".to_owned(),
+                    description: "Blocky persona".to_owned(),
+                    body: "You are a blocky persona.".to_owned(),
+                    handoff_prompt: "Recap the blocky critique headings.".to_owned(),
+                });
+            });
+            let mut guard = state.write();
+            guard
+                .session
+                .get_mut(&session_id)
+                .expect("session exists")
+                .set_persona_name("blocky".to_owned());
+        }
+
+        // When assembling the prompt.
+        let guard = state.read();
+        let result = assemble_prompt(&guard, &session_id, &counter());
+
+        // Then the system prompt contains the extracted persona body.
+        let system = result.system_prompt.to_string();
+        assert!(
+            system.contains("You are a blocky persona."),
+            "should contain persona body, got: {system}"
+        );
+        // And neither the tags nor the block text leak into it.
+        assert!(
+            !system.contains("<compaction>"),
+            "opening tag must not reach the system prompt, got: {system}"
+        );
+        assert!(
+            !system.contains("</compaction>"),
+            "closing tag must not reach the system prompt, got: {system}"
+        );
+        assert!(
+            !system.contains("Recap the blocky critique headings."),
+            "handoff block text must not reach the system prompt, got: {system}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
     fn assemble_prompt_falls_back_to_coding_assistant_persona() {
         // Given a session with persona name "nonexistent" but "coding-assistant" is available.
         let (state, session_id) = state_with_history(vec![ChatEntry::user("hello")]);
@@ -1455,6 +1509,7 @@ mod tests {
                     name: "coding-assistant".to_owned(),
                     description: "Default".to_owned(),
                     body: "You are a coding assistant.".to_owned(),
+                    handoff_prompt: String::new(),
                 });
             });
             let mut guard = state.write();
@@ -1545,6 +1600,7 @@ mod tests {
                 name: "custom".to_owned(),
                 description: "Custom persona".to_owned(),
                 body: "ORDER-MARK-PERSONA".to_owned(),
+                handoff_prompt: String::new(),
             });
         });
         let mut guard = state.write();

@@ -112,9 +112,13 @@ impl super::super::SessionPersistenceActor {
             if session.is_handoff_pending() {
                 return None;
             }
-            (session.work_size(), session.take_handoff_excluded_cost())
+            (
+                session.work_size(),
+                session.take_handoff_excluded_cost(),
+                session.persona_name().to_owned(),
+            )
         };
-        let (work_size, excluded_cost) = gate_input;
+        let (work_size, excluded_cost, persona_name) = gate_input;
 
         // Progress guard: after a fold, new user work is what makes
         // another fold meaningful. Refusing when none has arrived breaks
@@ -138,7 +142,11 @@ impl super::super::SessionPersistenceActor {
             return None;
         }
 
-        let recap_prompt = self.current_handoff_prompt();
+        // The persona's own handoff block replaces the shipped recap prompt
+        // wholesale when it carries one; otherwise the shipped file applies.
+        let recap_prompt = self
+            .persona_handoff_prompt(&persona_name)
+            .unwrap_or_else(|| self.current_handoff_prompt());
         let nudge = ChatEntry::rule_interrupt("handoff", build_handoff_nudge(&recap_prompt));
 
         self.state.with_session(|view| {
@@ -177,6 +185,31 @@ impl super::super::SessionPersistenceActor {
             Ok(prompt) => prompt,
             Err(_) => self.handoff_prompt.clone(),
         }
+    }
+
+    /// The session persona's `<compaction>` handoff block, when it carries
+    /// one.
+    ///
+    /// Resolves the persona from the catalog cell by name. Returns `None`
+    /// when the persona is unknown, the persona slice is not activated, or
+    /// the persona carries no well-formed block — the caller then uses the
+    /// shipped fallback via [`Self::current_handoff_prompt`].
+    pub(in crate::session_actor) fn persona_handoff_prompt(
+        &self,
+        persona_name: &str,
+    ) -> Option<String> {
+        // The catalog cell is the persona slice's write handle; a missing
+        // cell means the slice is not activated, which degrades to the
+        // shipped fallback rather than failing the boundary.
+        let cell = self
+            .services
+            .slices
+            .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())?;
+        cell.read()
+            .persona(persona_name)
+            .map(|persona| persona.handoff_prompt.clone())
+            // An empty block is a missing block: the caller falls back.
+            .filter(|text| !text.is_empty())
     }
 
     /// Runs the fold after a successful handoff turn: excludes every

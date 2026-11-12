@@ -60,5 +60,45 @@ Guidelines, drawn from how the shipped ones are built:
   lowercase and hyphens) and `description` (one line, shown in the
   picker).
 
+## The compaction block
+
+A persona may carry one `<compaction>` block at the end of its body:
+
+```markdown
++++
+name = "brainstorm"
+description = "Attacks ideas"
++++
+
+[persona body]
+
+<compaction>
+Stop work. Write only a concise handoff recap; do not run commands or
+call tools.
+
+Record:
+1. Thesis — the idea as it now stands.
+2. ...
+</compaction>
+```
+
+When handoff compaction fires in a session on that persona, the block's
+text **replaces** the shipped handoff recap prompt wholesale — it is the
+entire instruction the model receives for writing its recap. A persona
+that process compaction its own way (a tutor recording curriculum
+position; a brainstorm recording theses and critiques) states its own
+recap structure here.
+
+The block never reaches the model as part of the system prompt: it is
+extracted at parse time and stripped from the body. Tags match exactly
+(`<compaction>`, no attributes). An unclosed tag counts as missing.
+
+**A persona without a well-formed block is an error condition, not a
+silent downgrade.** Switching to it — or starting jinn / loading a
+session on it — pushes an error entry into that session's chat history
+naming the persona and stating that the shipped default handoff prompt
+will be used instead. Everything still works; the entry exists so the
+gap is visible. The four shipped personas all carry blocks.
+
 `#generate-persona` follows these conventions; hand-edit its output the
 same way you would tune any prompt.

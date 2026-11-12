@@ -660,6 +660,7 @@ Entries are added or amended **only with human approval**.
 - (persona) The active session's profile persona is the single persona authority: the sidebar, the persona picker's pre-selection, and context assembly all read it.
 - (persona) Confirming the persona picker binds the active session only and persists the choice as the startup-session seed; no global active-persona selection exists.
 - (persona) A session whose stored persona name is absent from the scanned catalog is rewritten to the default persona when the catalog lands or the session hydrates, with the first available persona as the backstop.
+- (persona) A persona may carry one `<compaction>` body block whose text replaces the handoff recap prompt wholesale; a persona without a well-formed block emits an error chat entry at persona switch and session load and falls back to the shipped handoff prompt. BECAUSE: personas process compaction in their own way, and a missing block must be loud rather than silently tolerated.
 - (session) New sessions inherit the active session's persona, the same way they inherit its working directory.
 - (remote) A running jinn instance serves an unauthenticated loopback HTTP control surface bound per the `[remote]` config section, defaulting to 127.0.0.1:0.
 - (remote) Each instance registers its pid, port, and cwd in a registry file under the AppPaths state dir, and instance discovery reads that registry.
