@@ -25,3 +25,6 @@ wherror = { workspace = true }
 rstest = { workspace = true }
 jinn-testutil = { workspace = true }
 tokio = { workspace = true }
+
+[lints]
+workspace = true

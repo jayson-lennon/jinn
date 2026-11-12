@@ -12,7 +12,6 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "A high-performance pure-Rust implementation of OpenAI's tiktoken BPE tokenizer"
-homepage = "https://github.com/goliajp/rust-tiktoken"
 documentation = "https://docs.rs/tiktoken"
 readme = "README.md"
 keywords = [
@@ -52,3 +51,6 @@ version = "^2"
 
 [dependencies.ruzstd]
 version = "^0.8"
+
+[lints]
+workspace = true

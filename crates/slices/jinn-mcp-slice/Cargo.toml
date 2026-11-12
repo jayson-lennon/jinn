@@ -50,3 +50,6 @@ rstest = { workspace = true }
 ctor = "0.8"
 rustls = { workspace = true }
 
+
+[lints]
+workspace = true

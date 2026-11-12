@@ -43,3 +43,6 @@ jinn-session-lifecycle-msg = { workspace = true }
 jinn-testutil = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
+
+[lints]
+workspace = true

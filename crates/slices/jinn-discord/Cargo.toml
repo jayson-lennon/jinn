@@ -50,3 +50,6 @@ jinn-cell-catalog = { workspace = true }
 jinn-testutil = { workspace = true }
 tempfile = { workspace = true }
 jinn-session-store = { workspace = true }
+
+[lints]
+workspace = true

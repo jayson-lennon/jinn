@@ -624,3 +624,6 @@ use_debug = "warn"
 verbose_file_reads = "warn"
 
 indexing_slicing = "deny"
+
+[lints]
+workspace = true

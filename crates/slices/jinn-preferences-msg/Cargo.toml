@@ -6,3 +6,6 @@ description = "The preferences slice's shared cell vocabulary: the pruner accumu
 
 [dependencies]
 jinn-slices = { workspace = true }
+
+[lints]
+workspace = true

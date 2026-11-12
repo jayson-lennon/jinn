@@ -35,3 +35,6 @@ testing = []
 # (apply_migrations_inner, the format renderers).
 jinn-session-schema = { path = ".", features = ["testing"] }
 rstest = { workspace = true }
+
+[lints]
+workspace = true

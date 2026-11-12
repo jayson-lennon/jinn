@@ -68,3 +68,6 @@ jinn-token-count-msg = { workspace = true }
 # The preview tests derive their cwd fixtures from a tempdir, so no absolute
 # path literal ships in test code.
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
+
+[lints]
+workspace = true
