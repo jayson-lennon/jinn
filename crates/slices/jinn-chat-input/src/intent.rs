@@ -501,14 +501,6 @@ fn execute_slash_command(
     config: &jinn_config::ConfigLayer,
 ) -> IntentResult {
     match command {
-        SlashCommand::Compact | SlashCommand::CompactAll => {
-            let compact_all = matches!(command, SlashCommand::CompactAll);
-            let session_id = state.session.active_session_id().clone();
-            IntentResult::new_message(jinn_context_curation_msg::TriggerCompaction {
-                session_id,
-                compact_all,
-            })
-        }
         SlashCommand::New => {
             jinn_kernel::session_lifecycle::intent::handle_session_new(state, config)
         }

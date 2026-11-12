@@ -4167,7 +4167,6 @@ dependencies = [
  "error-stack",
  "image",
  "jinn-context",
- "jinn-context-curation",
  "jinn-core-types",
  "jinn-provider",
  "jinn-testutil",

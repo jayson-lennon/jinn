@@ -12,7 +12,8 @@ pub mod configurable;
 pub mod testutil;
 
 pub use config_layer::{
-    ConfigDocumentStorage, ConfigError, ConfigLayer, FilesystemConfigStorage, InMemoryConfigStorage,
+    ConfigDocumentStorage, ConfigError, ConfigLayer, FilesystemConfigStorage,
+    InMemoryConfigStorage, SectionCheck,
 };
 pub use configurable::{ConfigList, ConfigSectionError, Configurable, EntryKey};
 

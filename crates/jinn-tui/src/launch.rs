@@ -22,9 +22,8 @@ use crate::{AppStatus, MsgHandler, TuiApp};
 
 /// Error returned by [`launch`] when TUI bootstrap fails.
 ///
-/// The only currently-fatal bootstrap step is loading the compaction prompt:
-/// the application cannot run without it. Theme and prompt-template failures
-/// degrade to defaults and are logged at `warn`.
+/// Theme and prompt-template failures degrade to defaults and are logged
+/// at `warn`; nothing in the current bootstrap sequence is fatal.
 #[derive(Debug, Error)]
 #[error(debug)]
 pub struct LaunchError;
@@ -33,17 +32,13 @@ pub struct LaunchError;
 /// actor host.
 ///
 /// Owns the full TUI bootstrap sequence:
-/// 1. Load prompt templates, the compaction prompt, and the theme into `core.state`.
+/// 1. Load the theme into `core.state`.
 /// 2. Read `JINN_MOUSE_SELECTION` to resolve mouse-selection behavior.
 /// 3. Build the keymap via [`keymap::init`] — this is the single site
 ///    that does so, shared by production and tests.
 /// 4. Register all UI elements and sidebar sections.
 /// 5. Assemble and return the [`TuiApp`].
 ///
-/// # Errors
-///
-/// Returns `Err` if the compaction prompt cannot be loaded (the application
-/// cannot run without it).
 /// Assembles the TUI around an already-wired actor system.
 ///
 /// `ui_registry` is built by the composition root (see
@@ -51,13 +46,18 @@ pub struct LaunchError;
 /// whose display widgets live in slice crates are registered there,
 /// because the kernel's registry cannot reference slice crates and this
 /// crate is the wrong place to know which slices exist.
+///
+/// # Errors
+///
+/// Returns [`LaunchError`] when a bootstrap step fails. Nothing in the
+/// current sequence is fatal, so this is a forward-compatibility contract
+/// rather than a reachable case.
 pub fn launch(
     core: AppCore,
     mut services: jinn_kernel::Services,
     ui_registry: AppUiRegistry,
 ) -> Result<TuiApp, Report<LaunchError>> {
     let paths = &services.paths;
-    load_compaction_prompt(&paths.prompts_dir().as_marked_path())?;
     load_theme(&core.state, &paths.themes_dir().as_marked_path());
 
     // Resolve mouse-selection config from environment.
@@ -92,27 +92,12 @@ pub fn launch(
     })
 }
 
-/// Loads the compaction system prompt from the user prompts directory.
-///
-/// # Errors
-///
-/// Returns an error if the compaction prompt is missing from the user prompts
-/// directory or cannot be read. This is a fatal error - the application cannot
-/// run without it.
-pub fn load_compaction_prompt(
-    user_dir: &MarkedPath<Absolute>,
-) -> Result<String, Report<LaunchError>> {
-    let prompt = load_system_resource("_compaction.md", user_dir).change_context(LaunchError)?;
-    tracing::info!("loaded compaction prompt");
-    Ok(prompt)
-}
-
 /// Loads the handoff-compaction system prompt from the user prompts directory.
 ///
-/// The handoff recap prompt is fatal at launch the same way
-/// `_compaction.md` is: the fallback path re-reads it at point of
-/// use from the last launch-time copy, so the launch load must succeed for
-/// there to be a last good copy to fall back to.
+/// The handoff recap prompt is fatal at launch: the fallback path
+/// re-reads it at point of use from the last launch-time copy, so the
+/// launch load must succeed for there to be a last good copy to fall
+/// back to.
 ///
 /// # Errors
 ///

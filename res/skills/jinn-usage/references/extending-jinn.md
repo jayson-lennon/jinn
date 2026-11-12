@@ -251,7 +251,7 @@ description = "Review the current change."
 Review the pending diff. Focus on correctness and clarity. ...
 ```
 
-jinn ships twelve prompt templates (`plan`, `approve-plan`, `_compaction`
+jinn ships twelve prompt templates (`plan`, `approve-plan`, `_handoff`
 among them), reconciled into place on launch. Type `#` in the input to see
 what's available, and `#foo#` to expand `foo` early for editing before
 sending.
@@ -387,7 +387,7 @@ These live in jinn's own code; extending them starts with a PR:
   which-key are built in. A custom status bar, footer, or editor starts
   with a PR.
 - **The agent loop**: turn dispatch, steering vs. queueing, the settled
-  boundary, compaction triggers.
+  boundary, handoff-compaction triggers.
 - **Tool-call interception**: jinn's policy surface is
   `[[stream_rules.entry]]`: regex rules over the assistant's output,
   which can stop a named tool's call before it runs by interrupting its

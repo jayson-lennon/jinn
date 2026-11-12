@@ -111,11 +111,6 @@ pub use protocol::{
 
 pub use jinn_session_history_msg::PushChatEntry;
 pub use jinn_session_history_msg::{PinChatEntry, UnpinChatEntry};
-// The curation contracts are owned by the context-curation slice's msg
-// crate (kernel→msg direction, same as the stream contracts); re-exported
-// here so the long-standing `jinn_kernel::TriggerCompaction` path keeps
-// resolving.
-pub use jinn_context_curation_msg::TriggerCompaction;
 // Stream contracts are owned by the inference slice's msg crate (kernel→msg
 // direction, jinn-session-msg precedent); re-exported here so the long-standing
 // `jinn_kernel::X` paths keep resolving.

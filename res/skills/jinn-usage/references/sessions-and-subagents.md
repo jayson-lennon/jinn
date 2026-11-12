@@ -15,9 +15,9 @@ symbol; forks get the fork origin even when forked from a subagent).
 | `<leader>sp` | Project picker: create a session in a curated project directory |
 | `<leader>sl` | Session lifecycle recipe picker                                  |
 
-Three more slash commands work the same way in the input box: `/compact`
-(summarize history), `/compact-all` (ignore the token reserve), and
-`/export` (write the session to a self-contained file).
+One more slash command works the same way in the input box: `/export`
+(write the session to a self-contained file). Context summarization is
+handoff compaction's job — see `context-management.md`.
 
 A **lifecycle recipe** is a named pair of setup/teardown commands configured
 in `jinn.toml` (`[[session_lifecycle.script]]`, e.g. open a fossil branch

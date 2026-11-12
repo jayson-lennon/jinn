@@ -1529,12 +1529,12 @@ fn compaction_entry(summary: &str) -> ChatEntry {
 #[rstest::rstest]
 #[test]
 fn excluding_compaction_summary_never_breaks_message_sequencing() {
-    // Given a history whose compaction boundary would, without Pass 3, leave
-    // an Assistant opener as the first kept entry:
+    // Given a history whose compaction boundary leaves an Assistant opener
+    // as the first kept entry:
     //   [User, Assistant(BIG), Assistant(opener), User(recent turn)]
-    // After adjust_cut_to_boundary the kept region must open with the final User.
-    use jinn_context_curation::compaction_algorithm::adjust_cut_to_boundary;
-
+    // The kept region (from index 3, the final User) must still convert
+    // validly even with the summary excluded — the opener guarantee
+    // `entries_to_messages` exists to provide.
     let mut entries = vec![
         ChatEntry::user("start"),
         ChatEntry::assistant(format!("big {}", "w".repeat(600))),
@@ -1542,7 +1542,7 @@ fn excluding_compaction_summary_never_breaks_message_sequencing() {
         ChatEntry::user("recent turn"),
     ];
 
-    let cut = adjust_cut_to_boundary(&entries, 2);
+    let cut = 3;
 
     // Force-exclude everything on the compacted side (indices < cut) and
     // insert + force-exclude the compaction summary at the boundary.
@@ -1570,8 +1570,6 @@ fn including_compaction_summary_produces_valid_sequencing() {
     // Given the same history as above, but with the summary included
     // (regression: the old code was only valid because the summary masked
     // the broken opener), and the earlier entries force-excluded.
-    use jinn_context_curation::compaction_algorithm::adjust_cut_to_boundary;
-
     let mut entries = vec![
         ChatEntry::user("start"),
         ChatEntry::assistant(format!("big {}", "w".repeat(600))),
@@ -1579,7 +1577,7 @@ fn including_compaction_summary_produces_valid_sequencing() {
         ChatEntry::user("recent turn"),
     ];
 
-    let cut = adjust_cut_to_boundary(&entries, 2);
+    let cut = 3;
     for entry in entries.iter_mut().take(cut) {
         force_exclude(entry);
     }
@@ -1637,14 +1635,13 @@ fn assert_messages_are_structurally_valid(messages: &[LlmMessage]) {
 #[test]
 fn excluding_compaction_summary_yields_valid_message_sequence() {
     // Given a history reproducing the bug layout: a complete tool loop whose
-    // summary-compaction would sit between a ToolResult and an Assistant, and
-    // whose reserve boundary lands on an Assistant opener.
+    // summary-compaction would sit between a ToolResult and an Assistant,
+    // with the reserve boundary past the Assistant opener:
     //   [User, Assistant(big), ToolCall, ToolResult, Assistant(opener), User(recent)]
-    use jinn_context_curation::compaction_algorithm::adjust_cut_to_boundary;
     use jinn_core_types::ChangeSource;
 
     let big_padding = "w".repeat(600);
-    let mut entries = vec![
+    let mut entries = [
         ChatEntry::user("start"),
         ChatEntry::assistant(format!("big {big_padding}")),
         ChatEntry::tool_call("tc-1", "bash", "ls"),
@@ -1653,14 +1650,10 @@ fn excluding_compaction_summary_yields_valid_message_sequence() {
         ChatEntry::user("recent turn"),
     ];
 
-    // When compaction computes its cut boundary.
-    // With a small reserve, the cut lands on the Assistant opener (index 4);
-    // Pass 3 must advance it to the User at index 5 so the kept region is valid.
-    let cut = adjust_cut_to_boundary(&entries, 4);
-    assert_eq!(
-        cut, 5,
-        "cut must advance past the Assistant opener to the User"
-    );
+    // The compacted side is everything before the boundary the old
+    // cut-advance pass chose: the User at index 5, so the kept region opens
+    // with a valid self-sufficient turn.
+    let cut = 5;
 
     // Force-exclude every entry on the compacted side (indices < cut).
     for entry in entries.iter_mut().take(cut) {

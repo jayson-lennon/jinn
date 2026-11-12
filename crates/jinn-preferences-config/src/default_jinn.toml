@@ -466,28 +466,6 @@ args = ["mcp", "overgraph"]
 singleton = true
 auto_enable = false
 
-# > Compaction command + auto compaction.
-[context_curation.compaction]
-# > Provider/model used for compaction summarization. Falls back to the session model
-# > when unset.
-# model = "openrouter/deepseek/deepseek-v4.1-flash"
-#
-# > Automatically compact the conversation when the used context window exceeds
-# > this usage percentage. Recommend no higher than 0.85 to account for drift in
-# > token calculations between models and providers (jinn applies a single token
-# > calculation across the board).
-threshold = 0.7
-
-# > Number of tokens to reserve during compaction. This will keep up to the
-# > `reserve_tokens` worth of recent messages so the model doesn't lose track of
-# > what it was working on.
-reserve_tokens = 20000
-
-# > Fallback context window size (in tokens) when the provider does not report one.
-# > Note that if the provider doesn't report the size that you can configure it
-# > manually in `providers.toml` (highly recommended)
-fallback_context_window = 150000
-
 # > Handoff compaction: at each model-request boundary whose accumulated work
 # > reaches `workset_trigger_tokens`, the active session model writes a handoff
 # > recap in-conversation.

@@ -21,6 +21,7 @@
 pub mod app_state_file;
 pub mod app_state_storage;
 pub mod config_template;
+pub mod cross_checks;
 
 pub mod protocol;
 pub mod registration;

@@ -1,6 +1,6 @@
 //! System resource loader - loads internal system files from the user directory.
 //!
-//! System resources are files like `_compaction.md` that live in the prompts
+//! System resources are files like `_handoff.md` that live in the prompts
 //! directory but are prefixed with `_` to mark them as internal. They are not
 //! prompt templates (no TOML frontmatter) and should not appear in the user-facing
 //! autocomplete picker.
@@ -71,14 +71,14 @@ mod tests {
         std::fs::create_dir_all(&user_dir).expect("create user dir");
         std::fs::write(
             user_dir
-                .join("_compaction.md")
+                .join("_test_resource.md")
                 .expect("typed parent joins a bare name"),
             "user prompt",
         )
         .expect("write");
 
         // When loading the system resource.
-        let result = load_system_resource("_compaction.md", &user_dir.as_marked_path());
+        let result = load_system_resource("_test_resource.md", &user_dir.as_marked_path());
 
         // Then the user file content is returned.
         assert_eq!(result.expect("load"), "user prompt");
@@ -94,7 +94,7 @@ mod tests {
             .expect("temp root joins a bare name");
 
         // When loading the system resource.
-        let result = load_system_resource("_compaction.md", &user_dir.as_marked_path());
+        let result = load_system_resource("_test_resource.md", &user_dir.as_marked_path());
 
         // Then an error is returned.
         assert!(result.is_err());
@@ -117,7 +117,7 @@ mod tests {
         std::fs::create_dir_all(&user_dir).expect("create user dir");
 
         let file_path = user_dir
-            .join("_compaction.md")
+            .join("_test_resource.md")
             .expect("typed parent joins a bare name");
         std::fs::write(&file_path, "user prompt").expect("write");
 
@@ -139,7 +139,7 @@ mod tests {
                 reason = "Windows skips the unreadable-file assertion"
             )
         )]
-        let result = load_system_resource("_compaction.md", &user_dir.as_marked_path());
+        let result = load_system_resource("_test_resource.md", &user_dir.as_marked_path());
 
         // Then an error is returned (on Unix, permission denied prevents reading).
         #[cfg(unix)]
