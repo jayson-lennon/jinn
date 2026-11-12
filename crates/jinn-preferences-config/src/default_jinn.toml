@@ -488,34 +488,21 @@ reserve_tokens = 20000
 # > manually in `providers.toml` (highly recommended)
 fallback_context_window = 150000
 
-# > Handoff compaction: at each model-request boundary whose working context
-# > reaches `trigger_tokens`, the active session model writes a handoff recap
-# > in-conversation and the context folds down to the task turns, pins, and
-# > the recap. Replaces history accumulation with a bounded working context;
-# > the session model is always the author. Off by default; while enabled the
-# > background compaction above is disabled for that session. Configure the
-# > regime in absolute tokens: `context_limit` is the total budget and
-# > `trigger_tokens` the fire line inside it — the gap between the two
-# > reserves room for the recap turn, so `trigger_tokens` must sit strictly
-# > below the effective limit. When `context_limit` is unset the model's
-# > reported `context_length` is the budget (set it per-model in
-# > `providers.toml` if it is missing); an unset or out-of-range
-# > `trigger_tokens` never fires. Keep the fire line below the auto-prune
-# > accumulation point so prune does not delete tool evidence the recap
-# > needs to read.
+# > Handoff compaction: at each model-request boundary whose accumulated work
+# > reaches `workset_trigger_tokens`, the active session model writes a handoff
+# > recap in-conversation and the context folds down to the task turns, pins,
+# > and the recap. Off by default; while enabled the background compaction
+# > above is disabled for that session. The fire line is work-relative (the
+# > assembled prompt minus its system share), so an unset
+# > `workset_trigger_tokens` never fires.
 [context_curation.handoff_compaction]
 # > Master switch. false = the feature is entirely inert: no gate check, no
 # > prompt section, no fold.
 enabled = false
 
-# > Total context budget in tokens, overriding the model's reported
-# > context_length. Uncomment to pin the budget regardless of model.
-# context_limit = 32000
-
-# > The fire line in tokens: the handoff fires at the first
-# > model-request boundary whose estimated working context reaches this
-# > count. Uncomment to enable firing (e.g. 24000 against a 32000 budget).
-# trigger_tokens = 24000
+# > The fire line in work tokens — assembled size minus the system share
+# > (system prompt, tools, skills). Uncomment to enable firing.
+# workset_trigger_tokens = 50000
 
 # > Policy for retrying failed provider requests.
 [provider.request_retry]
