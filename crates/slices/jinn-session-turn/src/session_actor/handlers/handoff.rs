@@ -7,7 +7,9 @@
 //! (the compaction cycle) and Appendix A (the recap brief structure):
 //!
 //! - **Gate** (`evaluate_handoff_gate`): at a model-request boundary
-//!   whose estimated working context reaches the configured absolute
+//!   whose estimated working context — the assembled estimate minus the
+//!   constant floor (system prompt, skills, shipped tool schemas), i.e.
+//!   the conversation content alone — reaches the configured absolute
 //!   token trigger (Appendix E's explicit total-limit/threshold pairs,
 //!   e.g. 16K/12K), the pending request is replaced by a handoff turn.
 //! - **Handoff turn**: the session model authors the recap
@@ -45,11 +47,11 @@ pub enum GateDecision {
 /// Evaluates the handoff gate for one model-request boundary.
 ///
 /// Fires when the estimated accumulated **work** — `work_size` is the
-/// assembled estimate minus the cached system share — plus the
-/// `excluded_cost` of entries excluded since that assembly meets the
-/// configured work-token trigger. The system floor (system prompt,
-/// tools, skills) is constant across requests, so it is subtracted out
-/// by construction and cannot sit at the fire line.
+/// assembled estimate minus the constant floor, i.e. the conversation
+/// content alone — meets the configured work-token trigger. The floor
+/// (system prompt, skills, shipped tool schemas) is constant across
+/// requests, so it is subtracted out by construction and cannot sit at
+/// the fire line.
 ///
 /// `work_size` of `None` (no honest size pair cached — e.g. a
 /// compaction just invalidated the cache and the recalc has not landed)
@@ -59,7 +61,6 @@ pub enum GateDecision {
 pub fn evaluate_handoff_gate(
     config: &HandoffCompactionConfig,
     work_size: Option<u32>,
-    excluded_cost: u32,
 ) -> GateDecision {
     let Some(trigger) = config.resolve_trigger() else {
         return GateDecision::Pass;
@@ -67,8 +68,7 @@ pub fn evaluate_handoff_gate(
     let Some(work) = work_size else {
         return GateDecision::Pass;
     };
-    let projected = u64::from(work) + u64::from(excluded_cost);
-    if projected >= u64::from(trigger) {
+    if work >= trigger {
         GateDecision::Fire
     } else {
         GateDecision::Pass

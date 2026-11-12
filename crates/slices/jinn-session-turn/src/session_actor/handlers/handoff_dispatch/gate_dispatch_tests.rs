@@ -111,6 +111,78 @@ async fn gate_pass_below_the_trigger_dispatches_normally() {
     assert_eq!(session.queue_len(), 0);
 }
 
+/// Caches the session's size pair through the real assembly service —
+/// the honest path the context-size actor uses — so tool schemas land
+/// in the floor the way production computes it.
+async fn recalculate_via_real_assembly(
+    actor: &SessionPersistenceActor,
+    session_id: &jinn_core_types::SessionId,
+) {
+    let prompt = {
+        let guard = actor.state.read();
+        let inputs =
+            jinn_context_assembly::inputs_snapshot::build_assembly_inputs(&guard, session_id);
+        jinn_context_assembly::inputs_snapshot::assemble_via_service(&actor.services, inputs)
+            .await
+            .expect("real assembly at the boundary")
+    };
+    actor.state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(session_id)
+            .set_context_sizes(prompt.estimated_tokens(), prompt.system_tokens());
+    });
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_empty_workset_passes_a_small_trigger_at_a_real_boundary() {
+    // Given a handoff-enabled actor at a 1000-token trigger, an empty
+    // history, and one registered tool — so the request ships a real
+    // schema floor several thousand tokens wide.
+    let (actor, _audit) = handoff_actor(1000).await;
+    let session_id = actor.state.read().session.active_session_id().clone();
+    let cell = actor
+        .state
+        .read()
+        .tool_registry()
+        .expect("registry cell attached");
+    cell.update(|r| {
+        r.global.insert(
+            "schema-heavy".to_owned(),
+            jinn_core_types::ToolDefinition {
+                name: "schema-heavy".to_owned(),
+                description: "A".repeat(200),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "BBBB".repeat(20)}
+                    }
+                }),
+                prompt_snippet: Some("SNIPPET-ONLY-IN-SYSTEM-PROMPT".to_owned()),
+                prompt_guidelines: vec!["GUIDELINE-ONLY-IN-SYSTEM-PROMPT".to_owned()],
+                server_tool_type: None,
+            },
+        );
+    });
+
+    // When the boundary's size pair is cached through the real assembly.
+    recalculate_via_real_assembly(&actor, &session_id).await;
+
+    // Then the measured work is the conversation content alone — the
+    // schema floor rode the system share — and the boundary dispatches
+    // normally instead of firing on an empty conversation.
+    let state = actor.state.read();
+    let session = state.session(&session_id);
+    assert_eq!(session.work_size(), Some(0));
+    drop(state);
+    let fired = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
+        .is_some();
+    assert!(!fired);
+    assert!(!actor.state.read().session(&session_id).is_handoff_pending());
+}
+
 #[rstest::rstest]
 #[tokio::test]
 async fn gate_passes_when_disabled_even_past_the_line() {

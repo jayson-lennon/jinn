@@ -157,22 +157,25 @@ pub fn assemble(inputs: &AssemblyInputs, counter: &dyn TokenCounter) -> Assemble
     // trailing tool run so the pins land before the loop's assistant.
     insert_bottom_pins(&mut final_messages, bottom_messages);
 
-    // Count tokens: the system prompt, every conversation message, and the
+    // Count tokens: the constant floor, and every conversation message.
+    // The floor is everything that does not grow with the conversation —
+    // the system prompt (which already carries the skills block) plus the
     // tool schemas actually shipped in the request. Providers bill the
-    // tools array alongside the messages, so leaving it out under-reports
-    // the request the same way the minimap's per-entry counts do not.
-    // The system prompt's share is counted once here and carried on the
-    // result: consumers computing a work size (assembled minus system)
-    // read the split instead of recounting.
-    let system_tokens =
-        u32::try_from(system_prompt.as_deref().map_or(0, |c| counter.count(c))).unwrap_or(u32::MAX);
-    let estimated_tokens = {
-        let message_tokens = count_messages(&final_messages, counter);
-        let schema_tokens = tool_schema_tokens_seq(&tool_defs, counter);
-        message_tokens
-            .saturating_add(u32::try_from(schema_tokens).unwrap_or(u32::MAX))
-            .saturating_add(system_tokens)
+    // tools array alongside the messages, so leaving it out of the floor
+    // would under-report the request the same way the minimap's per-entry
+    // counts do not, and would let a fixed schema cost sit at a compaction
+    // trigger's fire line, firing on an empty conversation.
+    // The floor's share is counted once here and carried on the result:
+    // consumers computing a work size (assembled minus floor) read the
+    // split instead of recounting.
+    let system_tokens = {
+        let system_text = u32::try_from(system_prompt.as_deref().map_or(0, |c| counter.count(c)))
+            .unwrap_or(u32::MAX);
+        let schema_tokens =
+            u32::try_from(tool_schema_tokens_seq(&tool_defs, counter)).unwrap_or(u32::MAX);
+        system_text.saturating_add(schema_tokens)
     };
+    let estimated_tokens = count_messages(&final_messages, counter).saturating_add(system_tokens);
 
     AssembledPrompt {
         session_id: session_id.clone(),
@@ -885,6 +888,63 @@ mod tests {
         let schema_tokens = tool_schema_tokens_seq(&result.tool_definitions, &counter);
         let manual = system_tokens + message_tokens + schema_tokens;
         assert_eq!(result.estimated_tokens(), manual as u32);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn assemble_system_tokens_carries_system_text_plus_shipped_schemas() {
+        // Given a state with one registered tool whose schema is shipped in
+        // the request.
+        let (state, session_id) = state_with_history(vec![ChatEntry::user("use tools")]);
+        let cell = state
+            .read()
+            .tool_registry()
+            .expect("registry cell attached");
+        cell.update(|r| {
+            r.global.insert(
+                "schema-heavy".to_owned(),
+                ToolDefinition {
+                    name: "schema-heavy".to_owned(),
+                    description: "A".repeat(200),
+                    parameters: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "BBBB".repeat(20)}
+                        }
+                    }),
+                    prompt_snippet: Some("SNIPPET-ONLY-IN-SYSTEM-PROMPT".to_owned()),
+                    prompt_guidelines: vec!["GUIDELINE-ONLY-IN-SYSTEM-PROMPT".to_owned()],
+                    server_tool_type: None,
+                },
+            );
+        });
+
+        // When assembling the prompt.
+        let counter = counter();
+        let guard = state.read();
+        let result = assemble_prompt(&guard, &session_id, &counter);
+
+        // Then the reported floor is the system-prompt text plus the shipped
+        // schema tokens — the schemas ride the floor, not the work.
+        let expected = counter.count(result.system_prompt.as_deref().unwrap_or_default()) as u32
+            + tool_schema_tokens_seq(&result.tool_definitions, &counter) as u32;
+        assert_eq!(result.system_tokens(), expected);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn assemble_system_tokens_is_text_only_without_tools() {
+        // Given a session with no tools registered.
+        let (state, session_id) = state_with_history(vec![ChatEntry::user("hello world")]);
+
+        // When assembling the prompt.
+        let counter = counter();
+        let guard = state.read();
+        let result = assemble_prompt(&guard, &session_id, &counter);
+
+        // Then the reported floor is exactly the system-prompt text.
+        let expected = counter.count(result.system_prompt.as_deref().unwrap_or_default()) as u32;
+        assert_eq!(result.system_tokens(), expected);
     }
 
     #[rstest::rstest]

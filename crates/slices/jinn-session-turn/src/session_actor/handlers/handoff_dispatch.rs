@@ -97,10 +97,10 @@ impl super::super::SessionPersistenceActor {
         boundary: HandoffBoundary,
         held: Option<QueueItem>,
     ) -> Option<ChatEntry> {
-        // Read everything the gate needs under one write guard (the
-        // excluded-cost take mutates), config outside the lock (Snapshot
-        // Read semantics: a jinn.toml edit applies at the next boundary,
-        // never mid-evaluation).
+        // Read everything the gate needs under one write guard
+        // (session_mut_or_create mutates), config outside the lock
+        // (Snapshot Read semantics: a jinn.toml edit applies at the next
+        // boundary, never mid-evaluation).
         let config = self
             .services
             .config
@@ -112,13 +112,9 @@ impl super::super::SessionPersistenceActor {
             if session.is_handoff_pending() {
                 return None;
             }
-            (
-                session.work_size(),
-                session.take_handoff_excluded_cost(),
-                session.persona_name().to_owned(),
-            )
+            (session.work_size(), session.persona_name().to_owned())
         };
-        let (work_size, excluded_cost, persona_name) = gate_input;
+        let (work_size, persona_name) = gate_input;
 
         // Progress guard: after a fold, new user work is what makes
         // another fold meaningful. Refusing when none has arrived breaks
@@ -138,7 +134,7 @@ impl super::super::SessionPersistenceActor {
             return None;
         }
 
-        if evaluate_handoff_gate(&config, work_size, excluded_cost) != GateDecision::Fire {
+        if evaluate_handoff_gate(&config, work_size) != GateDecision::Fire {
             return None;
         }
 

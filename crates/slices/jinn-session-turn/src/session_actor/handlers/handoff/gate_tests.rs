@@ -33,7 +33,7 @@ fn gate_passes_when_disabled() {
     let config = HandoffCompactionConfig::default();
 
     // When evaluating the gate.
-    let decision = evaluate_handoff_gate(&config, Some(1000), 0);
+    let decision = evaluate_handoff_gate(&config, Some(1000));
 
     // Then the request dispatches normally.
     assert_eq!(decision, GateDecision::Pass);
@@ -46,7 +46,7 @@ fn gate_passes_without_a_cached_size_pair() {
     let config = enabled_config(600);
 
     // When evaluating the gate with no work size.
-    let decision = evaluate_handoff_gate(&config, None, 0);
+    let decision = evaluate_handoff_gate(&config, None);
 
     // Then the gate never guesses: it passes.
     assert_eq!(decision, GateDecision::Pass);
@@ -57,9 +57,9 @@ fn gate_fires_on_work_not_wire() {
     // Given a 600-token work trigger.
     let config = enabled_config(600);
 
-    // When the work size (assembled minus system) reaches the trigger —
-    // regardless of how large the system floor made the wire total.
-    let decision = evaluate_handoff_gate(&config, Some(600), 0);
+    // When the work size (assembled minus the constant floor) reaches the
+    // trigger — regardless of how large the floor made the wire total.
+    let decision = evaluate_handoff_gate(&config, Some(600));
 
     // Then the pending request is replaced by the handoff.
     assert_eq!(decision, GateDecision::Fire);
@@ -72,23 +72,10 @@ fn gate_passes_when_a_large_system_floor_holds_the_work_small() {
 
     // When the wire total is huge but the work above the floor is small
     // (the floor can no longer sit at the fire line).
-    let decision = evaluate_handoff_gate(&config, Some(10_000), 0);
+    let decision = evaluate_handoff_gate(&config, Some(10_000));
 
     // Then the request dispatches normally.
     assert_eq!(decision, GateDecision::Pass);
-}
-
-#[rstest::rstest]
-fn gate_counts_excluded_cost_toward_the_trigger() {
-    // Given handoff enabled and a work size below the trigger only
-    // because prune excluded entries after the last assembly.
-    let config = enabled_config(600);
-
-    // When the excluded cost pushes the projection over.
-    let decision = evaluate_handoff_gate(&config, Some(500), 150);
-
-    // Then the gate still fires.
-    assert_eq!(decision, GateDecision::Fire);
 }
 
 #[rstest::rstest]
@@ -96,8 +83,8 @@ fn gate_passes_below_the_trigger() {
     // Given a 600-token work trigger.
     let config = enabled_config(600);
 
-    // When the projection is well under the trigger.
-    let decision = evaluate_handoff_gate(&config, Some(590), 0);
+    // When the work is well under the trigger.
+    let decision = evaluate_handoff_gate(&config, Some(590));
 
     // Then the request dispatches normally.
     assert_eq!(decision, GateDecision::Pass);
@@ -113,7 +100,7 @@ fn gate_passes_without_a_configured_trigger() {
     };
 
     // When evaluating the gate.
-    let decision = evaluate_handoff_gate(&config, Some(60_000), 0);
+    let decision = evaluate_handoff_gate(&config, Some(60_000));
 
     // Then the gate never fires an unbounded handoff.
     assert_eq!(decision, GateDecision::Pass);
