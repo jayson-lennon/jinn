@@ -29,6 +29,8 @@ workset_trigger_tokens = 200000
 kiosk_command = 'chromium --kiosk --app="{url}" --user-data-dir="{profile}"'
 ```
 
+- OpenRouter model market cursor no longer "sticks" at the bottom when scrolling. Now stays centered when scrollable content is still available.
+
 
 ## 2026-11-10 v1.23.0
 
