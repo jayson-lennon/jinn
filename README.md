@@ -12,9 +12,9 @@ A TUI agent harness with multi-session support and Vim-style keybinds.
 
 Run any number of concurrent sessions, with live preview session navigation.
 
-- First-class forking and subagent support
-- Inter-session communication via the `tell_session` tool, so agents can hand work between sessions
-- Cache hit %, tokens up/down, context usage/max, total spend, and number of turns tracked per session and aggregated across forks, subagents, and bots.
+- Session forking, subagents, [bots](#bots)
+- Inter-session communication via the `tell_session` tool, so agents can hand work between sessions.
+- Cache hit %, tokens up/down, context usage/max, total spend, and number of turns tracked per session. Aggregated across forks, subagents, and bots.
 
 ![Multisession](doc/screenshots/multi-session.png)
 
@@ -43,13 +43,15 @@ Quickly navigate and change things via Telescope-inspired pickers:
 
 ### Bots
 
-Attach "bots" to sessions that fire when their parent session turn ends (or manually with `G`). Things that bots can do:
+Add "bots" that can fire when their parent session turn ends (or manually with `G`). Things that bots can do:
 
 - Restarting a session if it stops mid-task (shipped by default as `auto-nudge`)
 - Ensure implementation is actually done (shipped by default as `gap-check`)
 - Code quality gate
 
-They can be created entirely in-app by typing in the instructions in the bot session and then turning it on. Bots can be optionally saved to your `jinn.toml` via keybind so you can attach them to any session.
+They can be created entirely in-app by typing in the instructions in the bot session and then turning it on. Bots can be optionally saved to your `jinn.toml` via keybind so you can spawn them on-demand.
+
+Bots can be configured to reset their context on each invocation which makes them useful for repeatable tasks.
 
 ### Workflows
 
@@ -123,11 +125,11 @@ Run TUI apps in a separate task that an agent can interact with.
 
 ### Comprehensive context management
 
-- Background workers continuously manage the context while sessions are in-progress. Changes are buffered(configurable) to take advantage of prefix cache pricing.
+- Background workers continuously manage the context while sessions are in-progress. Changes are buffered to take advantage of prefix cache pricing.
 - Individual chat entries can toggled in and out of context using `x`, good for when you send a message but then change your mind to avoid context poisoning.
 - Pin messages with `p` to keep them in context indefinitely, with coarse positioning (start/mid/end).
-- Made a plan and want to implement it? Use keybind `gci` on the plan message to "isolate" it, which excludes everything except the selected message and pins. No spawning of dedicated subagents or session forking needed.
-- Auto compaction exists as an emergency backstop and should _almost never_ fire when doing anything even remotely related to building software. If your sessions get compacted _at all_ while coding, please **open an issue** describing your workflow and provide your `[auto_prune*]` and `[compaction]` sections from your `jinn.toml` file along with the model you used.
+- Made a plan and want to implement it? Use keybind `gci` on the plan message to "isolate" it, which excludes everything except the selected plan message and pins. No spawning of dedicated subagents nor session forking needed.
+- Compaction at a configurable threshold, with customizable compaction prompts per [persona](#persona).
 - Cache hit rate indicator should floor at 98% _during agentic coding loops_ (usually 99%). Anything lower than 98% means your configuration should be adjusted.
 
 ### etc
