@@ -31,6 +31,34 @@ pub fn persona_section(persona: Option<&Persona>) -> String {
         .map_or(String::new(), |p| p.body.clone())
 }
 
+/// Renders the handoff-resume section — how to continue working from a
+/// compacted context and what a handoff recap must contain.
+///
+/// Empty string when handoff compaction is disabled, so the section is
+/// omitted entirely from the assembled prompt (the reference
+/// implementation ships the
+/// variable "empty without compaction").
+#[must_use]
+pub fn handoff_resume_section(enabled: bool) -> String {
+    const SECTION: &str = "# Handoff Compaction\n\n\
+        This session uses handoff compaction: when the working context grows\n\
+        past its limit, you will be asked to stop and write a handoff recap\n\
+        (objective, established facts, applied changes, verification, dead\n\
+        ends, remaining plan). The conversation then folds down to the\n\
+        user's messages, pinned context, and your most recent recap — older\n\
+        tool output and prose is summarized into that recap, not kept.\n\n\
+        When resuming after a fold, treat the most recent recap as your\n\
+        working state: continue from its remaining plan, trust its\n\
+        established facts, and never re-derive what it records. Re-read a\n\
+        file with a tool before editing it if the recap does not state its\n\
+        current contents.";
+
+    if !enabled {
+        return String::new();
+    }
+    SECTION.to_owned()
+}
+
 /// Renders the project context files section (AGENTS.md/CLAUDE.md contents).
 ///
 /// Empty string when there are no context files.
@@ -259,6 +287,28 @@ mod tests {
 
         // Then the section is empty.
         assert_eq!(result, "");
+    }
+
+    #[rstest::rstest]
+    fn handoff_resume_section_is_empty_when_disabled() {
+        // Given handoff compaction disabled.
+        // When building the resume section.
+        let result = handoff_resume_section(false);
+
+        // Then the section is empty.
+        assert_eq!(result, "");
+    }
+
+    #[rstest::rstest]
+    fn handoff_resume_section_teaches_resume_when_enabled() {
+        // Given handoff compaction enabled.
+        // When building the resume section.
+        let result = handoff_resume_section(true);
+
+        // Then the section names the recap structure and the resume rule.
+        assert!(result.contains("# Handoff Compaction"));
+        assert!(result.contains("recap"));
+        assert!(result.contains("remaining plan"));
     }
 
     #[rstest::rstest]

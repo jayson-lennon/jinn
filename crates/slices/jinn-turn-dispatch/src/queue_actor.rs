@@ -61,7 +61,7 @@ use jinn_context_assembly::inputs::build_assembly_inputs;
 use jinn_context_assembly::inputs_snapshot::assemble_via_service;
 use jinn_core_types::model_selection::ModelSelection;
 use jinn_core_types::{ChatEntry, ChatEntryKind, ReasoningEffort, SessionId};
-use jinn_inference_msg::{SendToLlmProvider, StreamOrigin};
+use jinn_inference_msg::{SendToLlmProvider, StreamOrigin, ToolChoiceKind};
 use jinn_kernel::common::actor_deps::BusPublish;
 use jinn_kernel::common::services::Services;
 use jinn_kernel::common::services::bus_service::BusService;
@@ -196,7 +196,7 @@ impl QueueActor {
     async fn assemble(&self, session_id: &SessionId, label: &str) -> Option<AssembledPrompt> {
         let inputs = {
             let guard = self.state.read();
-            build_assembly_inputs(&guard, session_id)
+            build_assembly_inputs(&guard, &self.services.config, session_id)
         };
         match assemble_via_service(&self.services, inputs).await {
             Ok(prompt) => Some(prompt),
@@ -309,6 +309,7 @@ impl QueueActor {
             dispatched_at: stamp,
             turn: grant.turn,
             stream: grant.stream,
+            tool_choice: None,
         })
         .await;
 
@@ -421,6 +422,19 @@ impl QueueActor {
         let (provider_id, model_used, reasoning_effort, endpoint_tag) =
             self.resolve_dispatch_model(session_id);
 
+        // A pending handoff turn is the recap request: tools stay defined
+        // (prefix continuity) but the API layer forbids calls — the recap
+        // prompt's "no commands" constraint enforced at the API, not just
+        // the prompt. By
+        // fold time the flag is cleared, so every later dispatch is
+        // unconstrained.
+        let tool_choice = self
+            .state
+            .read()
+            .try_session(session_id)
+            .is_some_and(jinn_kernel::ChatSessionState::is_handoff_pending)
+            .then_some(ToolChoiceKind::None);
+
         let estimated_tokens = assembled.estimated_tokens();
 
         self.publish(SendToLlmProvider {
@@ -437,6 +451,7 @@ impl QueueActor {
             dispatched_at: stamp,
             turn: grant.turn,
             stream: grant.stream,
+            tool_choice,
         })
         .await;
     }
@@ -560,6 +575,7 @@ impl QueueActor {
             dispatched_at: stamp,
             turn: grant.turn,
             stream: grant.stream,
+            tool_choice: None,
         })
         .await;
 

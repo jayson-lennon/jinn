@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 jinn-bot-msg = { workspace = true }
+jinn-config = { workspace = true }
 jinn-core-types = { workspace = true }
 jinn-context = { workspace = true }
 jinn-context-assembly-msg = { workspace = true }
@@ -18,6 +19,7 @@ jinn-session-state = { workspace = true }
 jinn-persona-msg = { workspace = true }
 jinn-kernel = { workspace = true }
 jinn-llm-support = { workspace = true }
+jinn-preferences-config = { workspace = true }
 jinn-provider = { workspace = true }
 trouper = { workspace = true }
 tracing = { workspace = true }

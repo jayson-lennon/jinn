@@ -93,13 +93,14 @@ impl GoogleService {
         system_prompt: Option<&str>,
         messages: &[LlmMessage],
         tools: &[ToolDefinition],
+        tool_choice: crate::ToolChoice,
     ) -> Result<reqwest::Response, Report<LlmServiceError>> {
         if self.api_key.is_empty() {
             return Err(Report::new(LlmServiceError::ApiKey)
                 .attach(format!("Missing {PROVIDER_NAME} API key")));
         }
 
-        let body = request::build_request(system_prompt, messages, tools);
+        let body = request::build_request(system_prompt, messages, tools, tool_choice);
         let url = self.stream_url();
 
         let response = self
@@ -146,7 +147,7 @@ impl LlmService for GoogleService {
         messages: Vec<LlmMessage>,
     ) -> Result<ChatStream, Report<LlmServiceError>> {
         let response = self
-            .send_streaming_request(system_prompt, &messages, &[])
+            .send_streaming_request(system_prompt, &messages, &[], crate::ToolChoice::Auto)
             .await?;
         let parser = GeminiStreamParser::new();
         let sse = SseParser::new();
@@ -195,9 +196,10 @@ impl LlmService for GoogleService {
         system_prompt: Option<&str>,
         messages: Vec<LlmMessage>,
         tools: Vec<ToolDefinition>,
+        tool_choice: crate::ToolChoice,
     ) -> Result<ToolStream, Report<LlmServiceError>> {
         let response = self
-            .send_streaming_request(system_prompt, &messages, &tools)
+            .send_streaming_request(system_prompt, &messages, &tools, tool_choice)
             .await?;
         let parser = GeminiStreamParser::new();
         let sse = SseParser::new();

@@ -54,6 +54,13 @@ impl TurnQueue {
         &self.inner
     }
 
+    /// The front item, without popping (the handoff fold consults
+    /// whether the held request was a continuation before popping).
+    #[must_use]
+    pub fn peek(&self) -> Option<&QueueItem> {
+        self.inner.front()
+    }
+
     /// Pop the front item from the queue, if any.
     ///
     /// The sanctioned production consumer is the turn-dispatch queue actor,

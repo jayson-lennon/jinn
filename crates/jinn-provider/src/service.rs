@@ -81,13 +81,20 @@ pub trait LlmService: Send + Sync {
     /// delegates to [`chat_stream`](LlmService::chat_stream), wrapping text
     /// tokens as [`StreamEvent::Text`] and appending a terminal
     /// [`StreamEvent::Done`].
+    ///
+    /// `tool_choice` constrains tool use without dropping the definitions:
+    /// [`ToolChoiceKind::None`] keeps the tools in the request (prefix-cache
+    /// continuity) while the API layer forbids calling them. The parameter
+    /// carries no default here — every caller states its intent.
     async fn chat_stream_with_tools(
         &self,
         system_prompt: Option<&str>,
         messages: Vec<LlmMessage>,
         tools: Vec<ToolDefinition>,
+        tool_choice: crate::ToolChoice,
     ) -> Result<ToolStream, Report<LlmServiceError>> {
         let _ = tools; // Default: no tool support, ignore tool definitions.
+        let _ = tool_choice; // Default: no tool support, nothing to constrain.
         let text_stream = self.chat_stream(system_prompt, messages).await?;
         let events = text_stream.map(|result| result.map(StreamEvent::Text));
         let done = stream::once(async {

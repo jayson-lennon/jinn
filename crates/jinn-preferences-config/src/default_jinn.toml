@@ -488,6 +488,22 @@ reserve_tokens = 20000
 # > manually in `providers.toml` (highly recommended)
 fallback_context_window = 150000
 
+# > Handoff compaction: at each model-request boundary whose accumulated work
+# > reaches `workset_trigger_tokens`, the active session model writes a handoff
+# > recap in-conversation and the context folds down to the task turns, pins,
+# > and the recap. Off by default; while enabled the background compaction
+# > above is disabled for that session. The fire line is work-relative (the
+# > assembled prompt minus its system share), so an unset
+# > `workset_trigger_tokens` never fires.
+[context_curation.handoff_compaction]
+# > Master switch. false = the feature is entirely inert: no gate check, no
+# > prompt section, no fold.
+enabled = false
+
+# > The fire line in work tokens — assembled size minus the system share
+# > (system prompt, tools, skills). Uncomment to enable firing.
+# workset_trigger_tokens = 50000
+
 # > Policy for retrying failed provider requests.
 [provider.request_retry]
 # > Retry the request this amount of times before aborting.

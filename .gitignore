@@ -47,3 +47,8 @@ worktrees/*
 .autodev.ledger.md
 *.html
 *.wav
+.artifacts
+/*.toml
+/*.html
+/*.md
+!clippy.toml

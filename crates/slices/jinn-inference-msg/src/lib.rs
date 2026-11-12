@@ -127,6 +127,25 @@ pub struct SendToLlmProvider {
     /// The stream this dispatch starts, minted alongside `turn`.
     #[serde(default)]
     pub stream: jinn_core_types::turn_identity::StreamId,
+    /// The tool-choice constraint for this request. `None` (the
+    /// default) sends no field: every provider applies its own default
+    /// (`auto`), which is today's behavior byte-for-byte. The handoff
+    /// compaction turn sends `NoneChoice` — tools stay defined (prefix
+    /// continuity) but the API layer forbids calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoiceKind>,
+}
+
+/// The tool-choice constraint a dispatch can request, across providers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum ToolChoiceKind {
+    /// No constraint: the provider default (`auto`). The default, and
+    /// today's behavior.
+    #[default]
+    Auto,
+    /// Tools stay defined but calling them is forbidden. The handoff
+    /// compaction recap request's constraint.
+    None,
 }
 
 impl jinn_slices::BusMessage for SendToLlmProvider {}
@@ -326,6 +345,7 @@ mod tests {
             origin: StreamOrigin::User,
             turn: jinn_core_types::turn_identity::TurnToken::from_counter(1),
             stream: jinn_core_types::turn_identity::StreamId::from_counter(1),
+            tool_choice: None,
         };
 
         // When serializing and deserializing.
@@ -336,6 +356,23 @@ mod tests {
         assert_eq!(back.session_id, original.session_id);
         assert_eq!(back.estimated_tokens, 10);
         assert_eq!(back.origin, StreamOrigin::User);
+        // And the unconstrained choice roundtrips as None.
+        assert_eq!(back.tool_choice, None);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn tool_choice_none_roundtrips_through_omission() {
+        // Given a payload deserialized from JSON with no tool_choice key —
+        // the shape every pre-existing producer emits.
+        let back: SendToLlmProvider = serde_json::from_str(&format!(
+            r#"{{"session_id":"{}","messages":[],"dispatched_at":"2026-01-01T00:00:00Z"}}"#,
+            SessionId::new()
+        ))
+        .expect("deserialize");
+
+        // Then the choice defaults to the unconstrained Auto.
+        assert_eq!(back.tool_choice, None);
     }
 
     #[rstest::rstest]

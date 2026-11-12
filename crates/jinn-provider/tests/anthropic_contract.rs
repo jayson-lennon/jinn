@@ -50,6 +50,7 @@ async fn text_streaming_yields_text_events() {
                 attachments: Vec::new(),
             }],
             vec![],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -102,6 +103,7 @@ async fn text_streaming_yields_done_event() {
                 attachments: Vec::new(),
             }],
             vec![],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -154,6 +156,7 @@ async fn tool_call_streaming_yields_tool_use_start() {
                 parameters: serde_json::json!({"type": "object"}),
                 server_tool_type: None,
             }],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -206,6 +209,7 @@ async fn tool_call_streaming_yields_input_delta() {
                 parameters: serde_json::json!({"type": "object"}),
                 server_tool_type: None,
             }],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -258,6 +262,7 @@ async fn tool_call_streaming_yields_tool_use_complete() {
                 parameters: serde_json::json!({"type": "object"}),
                 server_tool_type: None,
             }],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -310,6 +315,7 @@ async fn tool_call_streaming_yields_done_event() {
                 parameters: serde_json::json!({"type": "object"}),
                 server_tool_type: None,
             }],
+            jinn_provider::ToolChoice::Auto,
         )
         .await
         .unwrap();
@@ -409,6 +415,7 @@ async fn error_response_401_returns_error() {
                 attachments: Vec::new(),
             }],
             vec![],
+            jinn_provider::ToolChoice::Auto,
         )
         .await;
 

@@ -40,6 +40,7 @@ pub(crate) async fn test_actor() -> super::SessionPersistenceActor {
         counter: TiktokenCounter::o200k_base(),
         token_cache: HistoryWorkerChatEntryTokenCache::default(),
         image_converter: test_image_converter(),
+        handoff_prompt: String::new(),
     }
 }
 
@@ -82,6 +83,7 @@ pub(crate) async fn test_actor_recording() -> (
             counter: TiktokenCounter::o200k_base(),
             token_cache: HistoryWorkerChatEntryTokenCache::default(),
             image_converter: test_image_converter(),
+            handoff_prompt: String::new(),
         },
         audit,
     )
@@ -431,6 +433,7 @@ pub(crate) async fn test_actor_with_store_recording(
             counter: jinn_llm_support::token_estimator::TiktokenCounter::o200k_base(),
             token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
             image_converter: test_image_converter(),
+            handoff_prompt: String::new(),
         },
         store,
         audit,

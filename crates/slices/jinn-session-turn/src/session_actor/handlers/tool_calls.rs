@@ -210,7 +210,7 @@ impl SessionPersistenceActor {
         let assembled = {
             let inputs = {
                 let guard = self.state.read();
-                build_assembly_inputs(&guard, session_id)
+                build_assembly_inputs(&guard, &self.services.config, session_id)
             };
             match assemble_via_service(&self.services, inputs).await {
                 Ok(prompt) => prompt,
@@ -277,6 +277,18 @@ impl SessionPersistenceActor {
 
         let estimated_tokens = assembled.estimated_tokens();
 
+        // A pending handoff turn is the recap request: tools stay defined
+        // (prefix continuity) but the API layer forbids calls — the recap
+        // prompt's "no commands" constraint enforced at the API, not just
+        // the prompt. The flag clears in the fold before the post-fold
+        // continuation dispatches, so that request reads absent.
+        let tool_choice = self
+            .state
+            .read()
+            .try_session(session_id)
+            .is_some_and(jinn_kernel::ChatSessionState::is_handoff_pending)
+            .then_some(jinn_inference_msg::ToolChoiceKind::None);
+
         tracing::info!(
             session_id = %session_id,
             model = ?model_used,
@@ -296,6 +308,7 @@ impl SessionPersistenceActor {
             dispatched_at: stamp,
             turn: grant.turn,
             stream: grant.stream,
+            tool_choice,
         })
         .await;
     }
@@ -338,17 +351,38 @@ impl SessionPersistenceActor {
         }
     }
 
-    /// Continues the tool loop after a batch completes: applies pending
-    /// mutations, checks `tool_loop_disabled`, and dispatches the next
-    /// `SendToLlmProvider` (or finishes sending if the loop is disabled).
+    /// Continues the tool loop after a batch completes: runs a pending
+    /// handoff fold, applies pending mutations, checks
+    /// `tool_loop_disabled`, and dispatches the next `SendToLlmProvider`
+    /// (or finishes sending if the loop is disabled).
     ///
     /// Called from the work-settlement sites: the session actor's completion
     /// handler when its close emptied the work set, and the stream-completion
-    /// fold when the retirement did.
+    /// fold when the retirement did — which includes a mid-loop handoff: the
+    /// recap's success acks `Continue` (turn stays live, no `Idle`), and
+    /// this is the path that lands. The fold runs at the top, before the
+    /// continuation assembles, so the recap is in the dispatched context
+    /// and the cleared handoff flag leaves the continuation unconstrained.
     pub(in crate::session_actor) async fn continue_tool_loop(
         &self,
         session_id: &jinn_core_types::SessionId,
     ) {
+        // Handoff fold first: a successful recap completion routed here via
+        // `Continue` owes the fold before anything dispatches. Both
+        // handoff fields clear inside the fold, under the same write guard
+        // as the mutations — `tool_choice` reads the flag at dispatch time,
+        // so ordering here is what keeps the post-fold request
+        // unconstrained. An ordinary loop round reads no pending handoff
+        // and pays one flag check.
+        if self
+            .state
+            .read()
+            .try_session(session_id)
+            .is_some_and(jinn_kernel::ChatSessionState::is_handoff_pending)
+        {
+            self.run_handoff_fold(session_id).await;
+        }
+
         // If tool loop is disabled, end the turn instead of continuing.
         // This is used by judge verdict tools to prevent infinite tool-call loops.
         // Consume-on-read: the flag is per-turn and self-clearing, the same
@@ -377,6 +411,27 @@ impl SessionPersistenceActor {
         }
 
         self.apply_pending_mutations_and_steering(session_id).await;
+
+        // Handoff gate: a tool-loop continuation is a model-request
+        // boundary like any other. A fire converts this continuation into
+        // the recap turn — same continuation machinery (ledger join via
+        // `assemble_and_send_continuation`), nudge entry pushed ahead of
+        // it so the recap is authored with the just-completed call+result
+        // pair in-frame, and the boundary recorded so the recap's success
+        // routes back into this loop within the same turn.
+        if let Some(nudge) = self.handoff_nudge_if_gated(
+            session_id,
+            super::handoff_dispatch::HandoffBoundary::MidLoop,
+            None,
+        ) {
+            self.state.with_session(|view| {
+                view.session
+                    .map()
+                    .get_or_create(session_id)
+                    .push_entry(nudge);
+            });
+            super::super::helpers::emit_history_appended(self.bus(), session_id).await;
+        }
 
         self.assemble_and_send_continuation(session_id).await;
     }
@@ -436,6 +491,7 @@ mod tests {
                     token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
                     image_converter:
                         jinn_llm_support::image_convert::ImageConverterService::unavailable(),
+                    handoff_prompt: String::new(),
                 },
             );
             Self { harness, services }

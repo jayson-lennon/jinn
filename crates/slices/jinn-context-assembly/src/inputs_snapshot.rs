@@ -7,7 +7,7 @@
 
 use jinn_core_types::SessionId;
 
-use jinn_context_assembly_msg::{AssembleContext, AssembledResponse, AssemblyInputs};
+use jinn_context_assembly_msg::{AssembleContext, AssemblyInputs};
 use jinn_core_types::DEFAULT_PERSONA_NAME;
 use jinn_kernel::common::app_state::AppState;
 
@@ -17,6 +17,10 @@ use jinn_kernel::common::app_state::AppState;
 /// is cloned out of it. Cell-backed state (persona selection, tool
 /// registry) resolves through `state.frontend.slices()`; a missing cell
 /// degrades to empty inputs rather than failing dispatch.
+/// `handoff_enabled` is not resolved here: kernel-side callers pass the
+/// config layer to [`crate::inputs::build_assembly_inputs`]; this
+/// snapshot builder defaults the flag off and callers that need the
+/// live value set it on the returned inputs.
 #[must_use]
 pub fn build_assembly_inputs(state: &AppState, session_id: &SessionId) -> AssemblyInputs {
     let session = state.session(session_id);
@@ -44,6 +48,7 @@ pub fn build_assembly_inputs(state: &AppState, session_id: &SessionId) -> Assemb
         skill_filter: session.skill_filter().cloned(),
         loaded_skills: session.loaded_skills(),
         context_files: session.discovered_context_files().to_vec(),
+        handoff_enabled: false,
     }
 }
 
@@ -61,6 +66,26 @@ pub async fn assemble_via_service(
     services: &jinn_kernel::common::services::Services,
     inputs: AssemblyInputs,
 ) -> Result<jinn_slices::AssembledPrompt, error_stack::Report<trouper::context::AskError>> {
+    assemble_response_via_service(services, inputs)
+        .await
+        .map(|response| response.prompt)
+}
+
+/// Like [`assemble_via_service`], but returns the full reply envelope —
+/// the context-size actor reads the prompt and lets its caller pair the
+/// write with a generation check.
+///
+/// # Errors
+///
+/// Returns the trouper `AskError` report if the service is absent or
+/// the ask times out.
+pub async fn assemble_response_via_service(
+    services: &jinn_kernel::common::services::Services,
+    inputs: AssemblyInputs,
+) -> Result<
+    jinn_context_assembly_msg::AssembledResponse,
+    error_stack::Report<trouper::context::AskError>,
+> {
     use trouper::actor::ActorPath;
 
     const CONTEXT_ASSEMBLY_PATH: &str = "context-assembly";
@@ -74,13 +99,12 @@ pub async fn assemble_via_service(
             ASSEMBLE_TIMEOUT,
         )
         .await?;
-    let response: AssembledResponse = reply.decode().map_err(|e| {
+    reply.decode().map_err(|e| {
         error_stack::Report::new(trouper::context::AskError::Unresolved(
             "assembled response deserialization failed".to_owned(),
         ))
         .attach(format!("deserialization failed: {e}"))
-    })?;
-    Ok(response.prompt)
+    })
 }
 
 #[cfg(test)]

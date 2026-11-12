@@ -335,14 +335,34 @@ impl SessionPersistenceActor {
             .as_ref()
             .map(|calls| calls.iter().map(|c| c.id.clone()).collect())
             .unwrap_or_default();
+        // A terminal success on a mid-loop handoff recap is a loop round,
+        // not a turn boundary: the fold is the live turn's next continuation.
+        // Peeking, not taking — the fold (in `continue_tool_loop`) owns both
+        // field clears; consuming here would strand it before it reads.
+        let handoff_loop_continuation = self
+            .state
+            .read()
+            .try_session(&event.session_id)
+            .is_some_and(|session| {
+                session.is_handoff_pending() && session.handoff_continuation_owed()
+            });
+        let next = match event.reason {
+            // A tool-use completion always continues the loop — the calls
+            // are open work now, whichever round asked for them.
+            StreamCompletedReason::ToolUse => jinn_kernel::common::turn_ledger::Next::Continue,
+            // The recap succeeded mid-loop: the tool loop continues — the
+            // settle runs the fold at the top of `continue_tool_loop` and
+            // dispatches the continuation, no `Idle`, no `TurnCompleted`.
+            StreamCompletedReason::Finished if handoff_loop_continuation => {
+                jinn_kernel::common::turn_ledger::Next::Continue
+            }
+            _ => jinn_kernel::common::turn_ledger::Next::End,
+        };
         let ack = self.services.turn_ledger.ack_stream_with_calls(
             &event.session_id,
             &event.turn,
             &event.stream,
-            match event.reason {
-                StreamCompletedReason::ToolUse => jinn_kernel::common::turn_ledger::Next::Continue,
-                _ => jinn_kernel::common::turn_ledger::Next::End,
-            },
+            next,
             tool_call_ids,
         );
 
@@ -431,6 +451,23 @@ impl SessionPersistenceActor {
                         .cloned()
                 });
                 let outcome = outcome_from_history(last_entry);
+                // The handoff fold: a terminal success on an idle-direct
+                // handoff recap owes the fresh context — exclude everything
+                // but the task record and pins, insert the recap, and the
+                // held request re-dispatches through the ordinary idle drain
+                // below. Cancel and error clear both handoff fields without
+                // a fold: the gate simply re-fires at the next boundary.
+                // There is no handoff-specific resume branch — the queue
+                // already holds the held request. A mid-loop recap never
+                // reaches this arm: its success acked `Continue` and folds
+                // inside `continue_tool_loop`.
+                let fold = self.state.with_session(|view| {
+                    let session = view.session.map().get_or_create(session_id);
+                    session.end_handoff(matches!(outcome, TurnOutcome::Succeeded))
+                });
+                if fold {
+                    self.run_handoff_fold(session_id).await;
+                }
                 self.bus()
                     .publish(TurnCompleted {
                         session_id: session_id.clone(),
@@ -467,6 +504,11 @@ impl SessionPersistenceActor {
                 let (old, new) = self.state.with_session(|view| {
                     let session = view.session.map().get_or_create(session_id);
                     session.sweep_pending_tool_results_to_failure();
+                    // A cancelled handoff turn is a cancelled turn: the
+                    // flag clears with the rest of the turn's state, no
+                    // fold applies, and the gate re-fires at the next
+                    // boundary. No handoff-specific branch.
+                    session.abandon_handoff();
                     let old = session.phase();
                     session.settle_to_idle();
                     // The cancelled turn owns the in-flight guard; killing it
@@ -822,7 +864,9 @@ mod tests {
         test_actor, test_actor_recording, test_actor_with_store_recording,
     };
     use jinn_core_types::SessionId;
-    use jinn_inference_msg::{CancelTurn, StreamCompleted, StreamCompletedReason, StreamToken};
+    use jinn_inference_msg::{
+        CancelTurn, SendToLlmProvider, StreamCompleted, StreamCompletedReason, StreamToken,
+    };
     use jinn_kernel::protocol::{ChangeSource, ChatEntry, ChatEntryKind};
     use jinn_session_history_msg::CitationsReceived;
     use jinn_session_msg::SessionPhaseChanged;
@@ -4052,6 +4096,394 @@ mod tests {
         assert_eq!(
             completions[0].outcome,
             jinn_session_msg::TurnOutcome::Canceled
+        );
+    }
+    // ------------------------------------------------------------------
+    // Mid-loop handoff turn liveness — the recap completion acks `Continue`,
+    // so the settle never touches `Idle` before the folded continuation
+    // ------------------------------------------------------------------
+
+    /// Puts the active session mid-loop with a handoff pending and owed —
+    /// the exact shape a mid-loop gate fire leaves: `Working`, the recap
+    /// continuation's stream minted and live, both handoff fields set, the
+    /// nudge and the recap request in history. Returns the session id.
+    ///
+    /// This is `begin_sending_session` plus the handoff fields and the
+    /// nudge push — the same writes the mid-loop gate fire makes before the
+    /// recap request can be dispatched.
+    async fn begin_sending_session_with_handoff_owed(
+        actor: &SessionPersistenceActor,
+    ) -> jinn_core_types::SessionId {
+        let session_id = begin_sending_session(actor).await;
+        actor.state.with_session(|view| {
+            let session = view.session.map().get_or_create(&session_id);
+            session.begin_handoff();
+            session.set_handoff_continuation_owed();
+            session.push_entry(ChatEntry::rule_interrupt(
+                "handoff",
+                "recap the conversation",
+            ));
+        });
+        session_id
+    }
+
+    /// A finished, cancel-completed, and error-completed fixture for a
+    /// handoff-pending session — same identity resolution as
+    /// `stream_completed`.
+    fn handoff_recap_completed(
+        actor: &SessionPersistenceActor,
+        session_id: &jinn_core_types::SessionId,
+        reason: StreamCompletedReason,
+    ) -> StreamCompleted {
+        stream_completed(
+            actor,
+            session_id,
+            reason,
+            Some("## Recap\nobjective retained"),
+            None,
+            None,
+            None,
+        )
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn mid_loop_recap_success_acks_continue_and_skips_turn_completed() {
+        // Given a mid-loop session whose handoff recap stream completes.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_sending_session_with_handoff_owed(&actor).await;
+
+        // When the recap finishes.
+        actor
+            .on_stream_completed(&handoff_recap_completed(
+                &actor,
+                &session_id,
+                StreamCompletedReason::Finished,
+            ))
+            .await;
+
+        // Then the turn did not end: no `TurnCompleted` published, and the
+        // phase reads busy (`Working`) — the fold-and-continuation path
+        // owns what happens next.
+        let reports = audit.of_type::<jinn_session_msg::TurnCompleted>();
+        assert!(
+            reports.is_empty(),
+            "a mid-loop recap success must not end the turn; got {reports:?}"
+        );
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(
+            session.phase(),
+            PhaseView::Working,
+            "the turn must still be live after the recap finished"
+        );
+        // And the ledger intends the continuation (`Continue`), not an end.
+        assert!(
+            actor.services.turn_ledger.live(&session_id).is_some(),
+            "the live turn must survive the recap completion"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn mid_loop_recap_success_runs_the_fold() {
+        use jinn_core_types::ContextOverride;
+
+        // Given a mid-loop session whose handoff recap stream completes.
+        let (actor, _audit) = test_actor_recording().await;
+        let session_id = begin_sending_session_with_handoff_owed(&actor).await;
+
+        // When the recap finishes.
+        actor
+            .on_stream_completed(&handoff_recap_completed(
+                &actor,
+                &session_id,
+                StreamCompletedReason::Finished,
+            ))
+            .await;
+
+        // Then the fold ran: both handoff fields are clear (the fold is the
+        // success-path owner) and the recap rides context as a Compaction
+        // entry with the working entries excluded.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert!(!session.is_handoff_pending());
+        assert!(!session.handoff_continuation_owed());
+        assert!(
+            session
+                .history()
+                .iter()
+                .any(|e| matches!(e.kind, ChatEntryKind::Compaction { .. })),
+            "the fold must insert the recap entry"
+        );
+        let nudge = session
+            .history()
+            .iter()
+            .find(|e| matches!(e.kind, ChatEntryKind::RuleInterrupt { .. }))
+            .expect("the nudge entry");
+        assert_eq!(
+            nudge.context_override,
+            ContextOverride::ForcedExclude,
+            "the fold must exclude the nudge with the rest of the old context"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn mid_loop_recap_success_dispatches_a_continuation_in_the_same_turn() {
+        // Given a mid-loop session whose handoff recap stream completes.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_sending_session_with_handoff_owed(&actor).await;
+        let turn_before = actor
+            .services
+            .turn_ledger
+            .live(&session_id)
+            .expect("live turn")
+            .turn;
+
+        // When the recap finishes and the settle's continuation runs.
+        actor
+            .on_stream_completed(&handoff_recap_completed(
+                &actor,
+                &session_id,
+                StreamCompletedReason::Finished,
+            ))
+            .await;
+
+        // Then the continuation dispatched on the same turn token, under a
+        // fresh stream, with the recap in the assembled messages and no
+        // tool constraint (the fold cleared the flag before the dispatch).
+        let sent = audit.of_type::<SendToLlmProvider>();
+        assert_eq!(
+            sent.len(),
+            1,
+            "the post-fold continuation must dispatch exactly one request"
+        );
+        assert_eq!(
+            sent[0].turn, turn_before,
+            "the continuation must rejoin the same live turn, not mint a fresh one"
+        );
+        assert_ne!(
+            sent[0].stream.get(),
+            sent[0].turn.get(),
+            "the continuation must run under its own stream id, not the turn counter"
+        );
+        assert!(
+            sent[0].messages.iter().any(
+                |msg| matches!(msg, jinn_core_types::LlmMessage::User { content, .. }
+                    if content.contains("recap the conversation"))
+            ),
+            "the recap nudge must be in the dispatched context"
+        );
+        assert_eq!(
+            sent[0].tool_choice, None,
+            "the post-fold continuation must be unconstrained"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn mid_loop_recap_canceled_ends_the_turn_like_any_cancel() {
+        // Given a mid-loop session whose handoff recap stream is cancelled.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_sending_session_with_handoff_owed(&actor).await;
+
+        // When the cancel chain lands on the recap turn: the cancel arms
+        // the drain (`Started` — the recap stream is the turn's open work),
+        // and the terminate's stamped cancel-completion retires the stream
+        // and runs the settle in-line.
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+            drain_buffers_to_input: false,
+        };
+        actor.on_cancel_turn(&msg).await;
+        actor
+            .on_stream_completed(&handoff_recap_completed(
+                &actor,
+                &session_id,
+                StreamCompletedReason::Canceled,
+            ))
+            .await;
+
+        // Then the turn ends exactly as any cancel: one Canceled report,
+        // the phase Idle, and both handoff fields cleared — with no fold
+        // applied (no recap Compaction entry in history).
+        let reports = audit.of_type::<jinn_session_msg::TurnCompleted>();
+        assert_eq!(reports.len(), 1, "the cancelled turn reports once");
+        assert_eq!(reports[0].outcome, jinn_session_msg::TurnOutcome::Canceled);
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(session.phase(), PhaseView::Idle);
+        assert!(!session.is_handoff_pending());
+        assert!(!session.handoff_continuation_owed());
+        assert!(
+            !session
+                .history()
+                .iter()
+                .any(|e| matches!(e.kind, ChatEntryKind::Compaction { .. })),
+            "a cancelled handoff must not fold"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn mid_loop_recap_error_ends_the_turn_without_a_fold() {
+        // Given a mid-loop session whose handoff recap stream errors
+        // non-retryably.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_sending_session_with_handoff_owed(&actor).await;
+
+        // When the error completion lands — the error entry first, which is
+        // the LLM actor's job before it publishes StreamCompleted(Error).
+        actor.state.with_session(|view| {
+            view.session
+                .map()
+                .get_or_create(&session_id)
+                .push_entry(ChatEntry::error("provider exploded"));
+        });
+        actor
+            .on_stream_completed(&handoff_recap_completed(
+                &actor,
+                &session_id,
+                StreamCompletedReason::Error,
+            ))
+            .await;
+
+        // Then the turn ends with the existing error semantics: one report,
+        // Idle, both handoff fields cleared, no fold, no continuation
+        // dispatched.
+        let reports = audit.of_type::<jinn_session_msg::TurnCompleted>();
+        assert_eq!(reports.len(), 1, "the errored turn reports once");
+        assert_eq!(reports[0].outcome, jinn_session_msg::TurnOutcome::Error);
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(session.phase(), PhaseView::Idle);
+        assert!(!session.is_handoff_pending());
+        assert!(!session.handoff_continuation_owed());
+        assert!(
+            !session
+                .history()
+                .iter()
+                .any(|e| matches!(e.kind, ChatEntryKind::Compaction { .. })),
+            "an errored handoff must not fold"
+        );
+        assert!(
+            audit.of_type::<SendToLlmProvider>().is_empty(),
+            "an errored recap must not dispatch the continuation"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn esc_during_a_mid_loop_recap_cancels_the_turn_and_folds_nothing() {
+        // Given a mid-loop session whose handoff recap is in flight, and an
+        // ESC cancel landing on it.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = begin_sending_session_with_handoff_owed(&actor).await;
+
+        // When the ESC chain runs: the cancel arms the drain (`Started`) and
+        // the terminate publishes the cancel-completion, which the handler
+        // runs — the same chain the ESC-ESC cascade drives.
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+            drain_buffers_to_input: false,
+        };
+        actor.on_cancel_turn(&msg).await;
+        actor
+            .on_stream_completed(&handoff_recap_completed(
+                &actor,
+                &session_id,
+                StreamCompletedReason::Canceled,
+            ))
+            .await;
+
+        // Then the turn is over exactly as any cancelled turn — no
+        // handoff-specific behavior: one Canceled report, Idle, both
+        // handoff fields clear, no fold, no recap entry, and nothing
+        // dispatched afterward.
+        let reports = audit.of_type::<jinn_session_msg::TurnCompleted>();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].outcome, jinn_session_msg::TurnOutcome::Canceled);
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(session.phase(), PhaseView::Idle);
+        assert!(!session.is_handoff_pending());
+        assert!(!session.handoff_continuation_owed());
+        assert!(
+            !session
+                .history()
+                .iter()
+                .any(|e| matches!(e.kind, ChatEntryKind::Compaction { .. }))
+        );
+        assert!(
+            audit.of_type::<SendToLlmProvider>().is_empty(),
+            "a cancelled handoff must dispatch nothing"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn cancel_during_an_idle_direct_recap_keeps_the_held_entry_queued() {
+        // Given an idle-direct recap: pending but not owed (the held entry
+        // waits at the queue front), the recap turn streaming.
+        let (actor, audit) = test_actor_recording().await;
+        let session_id = {
+            let sid = begin_streaming_session(&actor).await;
+            actor.state.with_session(|view| {
+                let session = view.session.map().get_or_create(&sid);
+                session.begin_handoff();
+                session.push_entry(ChatEntry::rule_interrupt(
+                    "handoff",
+                    "recap the conversation",
+                ));
+            });
+            sid
+        };
+        actor.state.with_session(|view| {
+            view.session.map().get_or_create(&session_id).enqueue(
+                jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(ChatEntry::user(
+                    "the user's held request",
+                ))),
+            );
+        });
+
+        // When the recap turn is cancelled: the cancel arms the drain and
+        // the terminate's stamped cancel-completion retires the stream —
+        // the chain the recording bus cannot round-trip, so the test drives
+        // it like every cancel fixture here.
+        let msg = CancelTurn {
+            session_id: session_id.clone(),
+            drain_buffers_to_input: false,
+        };
+        actor.on_cancel_turn(&msg).await;
+        actor
+            .on_stream_completed(&handoff_recap_completed(
+                &actor,
+                &session_id,
+                StreamCompletedReason::Canceled,
+            ))
+            .await;
+
+        // Then the fields clear with no fold, and the held entry survives at
+        // the queue front for the next turn's idle drain.
+        let reports = audit.of_type::<jinn_session_msg::TurnCompleted>();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].outcome, jinn_session_msg::TurnOutcome::Canceled);
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session exists");
+        assert_eq!(session.phase(), PhaseView::Idle);
+        assert!(!session.is_handoff_pending());
+        assert!(!session.handoff_continuation_owed());
+        assert_eq!(
+            session.queue_len(),
+            1,
+            "the held request must survive a cancelled recap"
+        );
+        assert!(
+            !session
+                .history()
+                .iter()
+                .any(|e| matches!(e.kind, ChatEntryKind::Compaction { .. }))
         );
     }
 }

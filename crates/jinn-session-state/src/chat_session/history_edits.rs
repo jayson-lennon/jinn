@@ -35,6 +35,11 @@ impl ChatSessionState {
         );
         let index = self.core.history_work.history.len();
         self.core.history_work.history.push(entry.clone());
+        if entry.is_user() {
+            // New user work re-arms the handoff gate's fire line: a fold
+            // may run once per user turn.
+            self.note_user_turn_for_fold();
+        }
         if cursor_at_last {
             self.scroll_to_bottom();
             if let Some(entry) = self.core.history_work.history.last() {

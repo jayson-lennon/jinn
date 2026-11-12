@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 
 use jinn_context::env_context::{
-    context_files_section, cwd_section, date_section, persona_section,
+    context_files_section, cwd_section, date_section, handoff_resume_section, persona_section,
 };
 use jinn_context_assembly_msg::AssemblyInputs;
 use jinn_core_types::LlmMessage;
@@ -59,6 +59,7 @@ pub fn assemble(inputs: &AssemblyInputs, counter: &dyn TokenCounter) -> Assemble
         skill_filter,
         loaded_skills,
         context_files,
+        handoff_enabled,
     } = inputs;
 
     let persona = persona.as_ref();
@@ -127,6 +128,13 @@ pub fn assemble(inputs: &AssemblyInputs, counter: &dyn TokenCounter) -> Assemble
         if !skills_block.is_empty() {
             system_parts.push(skills_block);
         }
+        // The handoff-resume section rides with the other tail sections;
+        // the builder returns empty (omitted) when handoff is disabled,
+        // so a disabled feature leaves the prompt byte-identical.
+        let handoff_section = handoff_resume_section(*handoff_enabled);
+        if !handoff_section.is_empty() {
+            system_parts.push(handoff_section);
+        }
         system_parts.push(date_section());
         system_parts.push(cwd_section(cwd));
         SystemPrompt::new(system_parts.join("\n\n"))
@@ -153,10 +161,17 @@ pub fn assemble(inputs: &AssemblyInputs, counter: &dyn TokenCounter) -> Assemble
     // tool schemas actually shipped in the request. Providers bill the
     // tools array alongside the messages, so leaving it out under-reports
     // the request the same way the minimap's per-entry counts do not.
+    // The system prompt's share is counted once here and carried on the
+    // result: consumers computing a work size (assembled minus system)
+    // read the split instead of recounting.
+    let system_tokens =
+        u32::try_from(system_prompt.as_deref().map_or(0, |c| counter.count(c))).unwrap_or(u32::MAX);
     let estimated_tokens = {
-        let message_tokens = count_messages(&system_prompt, &final_messages, counter);
+        let message_tokens = count_messages(&final_messages, counter);
         let schema_tokens = tool_schema_tokens_seq(&tool_defs, counter);
-        message_tokens.saturating_add(u32::try_from(schema_tokens).unwrap_or(u32::MAX))
+        message_tokens
+            .saturating_add(u32::try_from(schema_tokens).unwrap_or(u32::MAX))
+            .saturating_add(system_tokens)
     };
 
     AssembledPrompt {
@@ -165,6 +180,7 @@ pub fn assemble(inputs: &AssemblyInputs, counter: &dyn TokenCounter) -> Assemble
         messages: final_messages,
         tool_definitions: tool_defs,
         estimated_tokens,
+        system_tokens,
     }
 }
 
@@ -221,18 +237,14 @@ fn insert_bottom_pins(final_messages: &mut Vec<LlmMessage>, bottom_messages: Vec
     final_messages.splice(insert_at..insert_at, bottom_messages);
 }
 
-/// Counts tokens across the system prompt and all messages.
+/// Counts tokens across all conversation messages (the system prompt is
+/// counted separately in [`assemble`] and carried on the result).
 ///
 /// Mirrors the per-entry estimator's conventions (`estimate_entry_content_tokens`)
 /// so the assembled estimate always covers the sum of per-entry counts shown in
 /// the minimap: tool-call `name + arguments`, tool-result `name + content`, and
 /// the flat per-image attachment cost are all counted here.
-fn count_messages(
-    system_prompt: &SystemPrompt,
-    messages: &[LlmMessage],
-    counter: &dyn TokenCounter,
-) -> u32 {
-    let system_tokens = system_prompt.as_deref().map_or(0, |c| counter.count(c));
+fn count_messages(messages: &[LlmMessage], counter: &dyn TokenCounter) -> u32 {
     messages
         .iter()
         .map(|msg| match msg {
@@ -253,8 +265,7 @@ fn count_messages(
             }
             LlmMessage::Tool { name, content, .. } => counter.count(name) + counter.count(content),
         })
-        .sum::<usize>()
-        .wrapping_add(system_tokens) as u32
+        .sum::<usize>() as u32
 }
 
 /// Flat per-image cost shared with the per-entry estimator, so the assembled
@@ -326,7 +337,11 @@ mod tests {
         session_id: &SessionId,
         counter: &TiktokenCounter,
     ) -> jinn_slices::AssembledPrompt {
-        let inputs = crate::inputs::build_assembly_inputs(state, session_id);
+        let inputs = crate::inputs::build_assembly_inputs(
+            state,
+            jinn_config::empty_config_layer(),
+            session_id,
+        );
         assemble(&inputs, counter)
     }
 
@@ -364,8 +379,7 @@ mod tests {
     /// message-level tests can assert exact deltas.
     fn count_messages_only(messages: &[LlmMessage]) -> u32 {
         let counter = counter();
-        let system = SystemPrompt::new(String::new());
-        count_messages(&system, messages, &counter)
+        count_messages(messages, &counter)
     }
 
     /// Bridges [`TiktokenCounter`] to the per-entry estimator trait so tests

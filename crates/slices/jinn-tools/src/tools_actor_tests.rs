@@ -60,6 +60,7 @@ async fn spawn_session_actor_with(
             counter: jinn_llm_support::token_estimator::TiktokenCounter::o200k_base(),
             token_cache: jinn_token_count_msg::HistoryWorkerChatEntryTokenCache::default(),
             image_converter: jinn_llm_support::image_convert::ImageConverterService::unavailable(),
+            handoff_prompt: String::new(),
         },
     );
 }

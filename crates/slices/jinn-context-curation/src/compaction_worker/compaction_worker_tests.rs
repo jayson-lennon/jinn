@@ -530,6 +530,75 @@ fn evaluate_for_session_returns_empty_for_empty_history() {
     );
 }
 
+#[rstest::rstest]
+#[test]
+fn evaluate_for_session_skips_handoff_enabled_sessions() {
+    // Given a worker whose session has handoff compaction enabled and a
+    // history that would otherwise cross the compaction threshold.
+    let (worker, session_id) = sending_session_worker(20);
+    worker
+        .services
+        .config
+        .put(&jinn_preferences_config::schemas::HandoffCompactionConfig {
+            enabled: true,
+            ..jinn_preferences_config::schemas::HandoffCompactionConfig::default()
+        })
+        .expect("test config update");
+
+    // When evaluating compaction for the session.
+    let rt = tokio::runtime::Runtime::new().expect("test runtime");
+    let result = rt.block_on(async {
+        worker
+            .evaluate_for_session(&CompactionTrigger {
+                session_id,
+                compact_all: false,
+            })
+            .await
+    });
+
+    // Then the worker yields nothing — the handoff gate owns the
+    // context reduction for this session.
+    let mutations = result.expect("handoff-enabled session should not error");
+    assert!(
+        mutations.is_empty(),
+        "background compaction must not fight an enabled handoff gate"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn evaluate_for_session_skips_handoff_pending_sessions() {
+    // Given a worker whose session has a handoff turn in flight (the
+    // flag the gate sets at fire) with handoff compaction disabled
+    // globally — the in-flight turn alone must suppress the background
+    // pass for that session.
+    let (worker, session_id) = sending_session_worker(20);
+    worker.state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(&session_id)
+            .begin_handoff();
+    });
+
+    // When evaluating compaction for the session.
+    let rt = tokio::runtime::Runtime::new().expect("test runtime");
+    let result = rt.block_on(async {
+        worker
+            .evaluate_for_session(&CompactionTrigger {
+                session_id,
+                compact_all: false,
+            })
+            .await
+    });
+
+    // Then the worker yields nothing while the handoff turn is live.
+    let mutations = result.expect("handoff-pending session should not error");
+    assert!(
+        mutations.is_empty(),
+        "background compaction must not run under a live handoff turn"
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SECTION 2: Bug regression tests
 // ═══════════════════════════════════════════════════════════════════════════
@@ -711,7 +780,7 @@ impl ThresholdTestEnv {
             .get_mut(&self.session_id)
             .expect("session exists");
         if let Some(s) = size {
-            session.set_context_size(s);
+            session.set_context_sizes(s, 0);
         }
         // If None, leave it unset (default is None)
     }
@@ -1320,7 +1389,7 @@ fn gate_passes_but_nothing_to_compact_with_empty_history() {
     session.set_model(ModelSelection::Single("provider/model-200k".to_owned()));
     // No entries - empty history.
     let session_id = session.session_id().clone();
-    session.set_context_size(150_000);
+    session.set_context_sizes(150_000, 0);
 
     let state = State::new(AppState::default_with_scope_focus());
     {
@@ -1716,7 +1785,7 @@ fn error_clears_flag_and_allows_retry() {
     {
         let mut app = state.write();
         if let Some(session) = app.session.get_mut(&session_id) {
-            session.set_context_size(150_000);
+            session.set_context_sizes(150_000, 0);
         }
         app.provider_state()
             .expect("provider cell attached")
@@ -1791,6 +1860,7 @@ impl jinn_provider::LlmService for FailingLlmService {
         _system_prompt: Option<&str>,
         _messages: Vec<jinn_provider::LlmMessage>,
         _tools: Vec<jinn_core_types::ToolDefinition>,
+        _tool_choice: jinn_provider::ToolChoice,
     ) -> Result<jinn_provider::ToolStream, error_stack::Report<jinn_provider::LlmServiceError>>
     {
         Err(

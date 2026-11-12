@@ -34,6 +34,7 @@ pub fn build_request(
     messages: &[LlmMessage],
     tools: &[ToolDefinition],
     system_prompt: Option<&str>,
+    tool_choice: crate::ToolChoice,
 ) -> MessagesRequest {
     // Anthropic uses a top-level `system` field.
     let system_text = system_prompt.map(std::borrow::ToOwned::to_owned);
@@ -48,7 +49,11 @@ pub fn build_request(
     };
 
     let tool_choice = if anthropic_tools.is_some() {
-        Some(serde_json::json!({"type": "auto"}))
+        let kind = match tool_choice {
+            crate::ToolChoice::Auto => "auto",
+            crate::ToolChoice::None => "none",
+        };
+        Some(serde_json::json!({ "type": kind }))
     } else {
         None
     };
@@ -212,7 +217,13 @@ mod tests {
         }];
 
         // When building request with the system prompt parameter.
-        let req = build_request("claude-3", &messages, &[], Some("You are helpful."));
+        let req = build_request(
+            "claude-3",
+            &messages,
+            &[],
+            Some("You are helpful."),
+            crate::ToolChoice::Auto,
+        );
 
         // Then system is set from the parameter and messages are untouched.
         assert_eq!(req.system.as_deref(), Some("You are helpful."));
@@ -229,7 +240,7 @@ mod tests {
         }];
 
         // When building request with None.
-        let req = build_request("claude-3", &messages, &[], None);
+        let req = build_request("claude-3", &messages, &[], None, crate::ToolChoice::Auto);
 
         // Then the system field is absent.
         assert_eq!(req.system, None);
@@ -386,5 +397,32 @@ mod tests {
         let result_content = json["content"][0]["content"].as_array().expect("array");
         assert_eq!(result_content.len(), 1);
         assert_eq!(result_content[0]["type"], "image");
+    }
+
+    #[rstest::rstest]
+    fn build_request_none_choice_keeps_tools_and_serializes_type_none() {
+        // Given messages and tool definitions, with a None (forbid) choice.
+        let messages = vec![LlmMessage::User {
+            content: "write the recap".into(),
+            attachments: Vec::new(),
+        }];
+        let tools = vec![ToolDefinition {
+            name: "echo".into(),
+            description: "Echo".into(),
+            prompt_snippet: None,
+            prompt_guidelines: vec![],
+            parameters: serde_json::json!({"type": "object"}),
+            server_tool_type: None,
+        }];
+
+        // When building the request with the forbidding choice.
+        let req = build_request("claude-3", &messages, &tools, None, crate::ToolChoice::None);
+
+        // Then the tools stay defined (prefix continuity) and the choice
+        // is the Anthropic wire form {"type":"none"}.
+        assert!(req.tools.is_some());
+        let choice = req.tool_choice.as_ref().expect("choice present");
+        let json = serde_json::to_value(choice).expect("serialize");
+        assert_eq!(json, serde_json::json!({"type": "none"}));
     }
 }

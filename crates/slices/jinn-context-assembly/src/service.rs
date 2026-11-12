@@ -137,7 +137,7 @@ mod tests {
         }
         let inputs = {
             let guard = state.read();
-            build_assembly_inputs(&guard, &session_id)
+            build_assembly_inputs(&guard, jinn_config::empty_config_layer(), &session_id)
         };
         // When asking the service to assemble.
         let reply = services

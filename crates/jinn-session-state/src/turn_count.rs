@@ -4,19 +4,25 @@
 //! - User sends a message → 1 turn
 //! - Model finishes a response (not tool-use) → 1 turn
 //!
+//! A model response immediately following a `RuleInterrupt` (harness steering,
+//! such as a handoff compaction nudge) is part of the steering turn, not a new
+//! one: the agent never gave up control, so it is not counted.
+//!
 //! Always recomputes from the active session's chat history so the count
 //! is correct after session switches, reloads, etc.
 
 use jinn_core_types::{ChatEntry, ChatEntryKind};
 
 #[cfg(test)]
-use jinn_core_types::ToolResultStatus;
+use jinn_core_types::{ChatEntryId, EntryTiming, ToolResultStatus};
 
 /// Computes the number of conversation turns in the given chat history.
 ///
 /// A user entry always counts as a turn. An assistant entry counts as a turn
 /// only if it is the last entry or is NOT followed by a `ToolCall` - intermediate
-/// tool-loop assistant messages are part of the same turn.
+/// tool-loop assistant messages are part of the same turn. An assistant entry
+/// immediately preceded by a `RuleInterrupt` is likewise part of the steering
+/// turn, not a new one — the agent never gave up control.
 ///
 /// When `fork_ordinal` is `Some(n)`, entries at indices 0..=n are treated as inherited
 /// from a parent session and are skipped — only entries after the fork point count.
@@ -39,7 +45,14 @@ pub fn compute_turn_count(history: &[ChatEntry], fork_ordinal: Option<usize>) ->
                     && history
                         .get(i + 1)
                         .is_some_and(|h| matches!(h.kind, ChatEntryKind::ToolCall { .. }));
-                if !followed_by_tool_call {
+                // A response to harness steering (RuleInterrupt) is same-turn
+                // work — the agent never gave up control — so it is not counted.
+                let preceded_by_rule_interrupt = i > 0
+                    && matches!(
+                        history.get(i - 1).map(|h| &h.kind),
+                        Some(ChatEntryKind::RuleInterrupt { .. })
+                    );
+                if !followed_by_tool_call && !preceded_by_rule_interrupt {
                     count += 1;
                 }
             }
@@ -216,5 +229,132 @@ mod tests {
 
         // Then all entries are counted.
         assert_eq!(count, 2);
+    }
+
+    #[rstest::rstest]
+    fn assistant_after_rule_interrupt_is_not_a_turn() {
+        // Given a user message followed by harness steering and the model's
+        // response to it.
+        let history = vec![
+            ChatEntry::user("fix the bug"),
+            ChatEntry::rule_interrupt("handoff", "summarize progress"),
+            ChatEntry::assistant("recap: fixed half of it"),
+        ];
+
+        // When computing the turn count.
+        let count = compute_turn_count(&history, None);
+
+        // Then only the user turn counts — the response to steering is
+        // same-turn work.
+        assert_eq!(count, 1);
+    }
+
+    #[rstest::rstest]
+    fn handoff_cycle_sequence_counts_one_turn() {
+        // Given a full handoff compaction cycle: nudge, recap, summary.
+        let history = vec![
+            ChatEntry::user("fix the bug"),
+            ChatEntry::rule_interrupt("handoff", "summarize progress"),
+            ChatEntry::assistant("recap: fixed half of it"),
+            ChatEntry::new_with_kind(
+                ChatEntryId::new(),
+                EntryTiming::instant_now(),
+                ChatEntryKind::Compaction {
+                    summary: "summary of the session".to_owned(),
+                    tokens_before: 100,
+                    tokens_after: 50,
+                    entries_compacted: 2,
+                    model_used: "test-model".to_owned(),
+                },
+                None,
+            ),
+        ];
+
+        // When computing the turn count.
+        let count = compute_turn_count(&history, None);
+
+        // Then the compaction cycle is invisible: only the user turn counts.
+        assert_eq!(count, 1);
+    }
+
+    #[rstest::rstest]
+    fn assistant_after_rule_interrupt_followed_by_tool_call_not_counted() {
+        // Given steering whose response continues straight into a tool call.
+        let history = vec![
+            ChatEntry::user("fix the bug"),
+            ChatEntry::rule_interrupt("handoff", "summarize progress"),
+            ChatEntry::assistant("recap, then continuing"),
+            ChatEntry::tool_call("id-1", "bash", r#"{"command":"ls"}"#),
+            ChatEntry::tool_result("id-1", "bash", "main.rs", ToolResultStatus::Success),
+        ];
+
+        // When computing the turn count.
+        let count = compute_turn_count(&history, None);
+
+        // Then neither skip fires a count: only the user turn counts.
+        assert_eq!(count, 1);
+    }
+
+    #[rstest::rstest]
+    fn plain_assistant_still_counts() {
+        // Given an ordinary response with no steering in front of it.
+        let history = vec![ChatEntry::user("hello"), ChatEntry::assistant("hi there")];
+
+        // When computing the turn count.
+        let count = compute_turn_count(&history, None);
+
+        // Then both entries count — the steering rule changed nothing here.
+        assert_eq!(count, 2);
+    }
+
+    #[rstest::rstest]
+    fn rule_interrupt_alone_counts_nothing() {
+        // Given steering that fired with no response recorded yet.
+        let history = vec![
+            ChatEntry::user("fix the bug"),
+            ChatEntry::rule_interrupt("handoff", "summarize progress"),
+        ];
+
+        // When computing the turn count.
+        let count = compute_turn_count(&history, None);
+
+        // Then only the user turn counts — steering itself is not a turn.
+        assert_eq!(count, 1);
+    }
+
+    #[rstest::rstest]
+    fn assistant_after_consecutive_rule_interrupts_is_not_a_turn() {
+        // Given two rules fired back-to-back before one response.
+        let history = vec![
+            ChatEntry::user("fix the bug"),
+            ChatEntry::rule_interrupt("handoff", "summarize progress"),
+            ChatEntry::rule_interrupt("no-cat-command", "halt"),
+            ChatEntry::assistant("recap: fixed half of it"),
+        ];
+
+        // When computing the turn count.
+        let count = compute_turn_count(&history, None);
+
+        // Then it is still one steering episode: only the user turn counts.
+        assert_eq!(count, 1);
+    }
+
+    #[rstest::rstest]
+    fn response_after_steering_then_user_message_counts_normally() {
+        // Given steering, a response, and then a fresh user message answered.
+        let history = vec![
+            ChatEntry::user("fix the bug"),
+            ChatEntry::rule_interrupt("handoff", "summarize progress"),
+            ChatEntry::assistant("recap: fixed half of it"),
+            ChatEntry::user("keep going"),
+            ChatEntry::assistant("done"),
+        ];
+
+        // When computing the turn count.
+        let count = compute_turn_count(&history, None);
+
+        // Then the steering cycle is invisible but the later exchange counts
+        // in full: user(1), recap(0), user(2), response(3).
+        assert_eq!(count, 3);
     }
 }
