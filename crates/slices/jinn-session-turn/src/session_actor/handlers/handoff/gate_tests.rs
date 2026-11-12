@@ -119,16 +119,15 @@ fn nudge_wraps_the_recap_prompt_verbatim() {
 }
 
 fn history_with_mixed_entries() -> Vec<jinn_core_types::ChatEntry> {
-    let history = vec![
+    vec![
         ChatEntry::user("first task"),
         ChatEntry::assistant("working on it"),
         ChatEntry::user("steer this way"),
-    ];
-    history
+    ]
 }
 
 #[rstest::rstest]
-fn fold_excludes_assistant_but_keeps_user_entries() {
+fn fold_excludes_assistant_and_user_entries() {
     // Given a history of user, assistant, and user entries.
     let history = history_with_mixed_entries();
     let recap = build_recap_entry(
@@ -136,7 +135,7 @@ fn fold_excludes_assistant_but_keeps_user_entries() {
         "recap text".to_owned(),
         500,
         60,
-        2,
+        3,
         "test-model".to_owned(),
     );
     let last_id = history.last().map(|entry| entry.id.clone());
@@ -144,8 +143,8 @@ fn fold_excludes_assistant_but_keeps_user_entries() {
     // When building the fold mutations.
     let mutations = build_fold_mutations(&history, recap, last_id);
 
-    // Then the assistant entry is excluded and the recap inserted after
-    // the last entry.
+    // Then all three non-pinned entries receive the exclusion mutation and
+    // the recap is inserted after the last entry.
     let excluded: Vec<_> = mutations
         .iter()
         .filter_map(|mutation| match mutation {
@@ -153,15 +152,53 @@ fn fold_excludes_assistant_but_keeps_user_entries() {
             _ => None,
         })
         .collect();
-    assert_eq!(excluded.len(), 1);
-    let excluded_id = excluded.first().expect("one exclusion");
-    let assistant = history.get(1).expect("assistant entry in fixture");
-    assert_eq!(*excluded_id, &assistant.id);
+    assert_eq!(excluded.len(), 3);
+    assert_eq!(excluded, history.iter().map(|e| &e.id).collect::<Vec<_>>());
     assert!(
         mutations
             .iter()
             .any(|mutation| matches!(mutation, HistoryMutation::InsertEntry { .. }))
     );
+}
+
+#[rstest::rstest]
+fn fold_excludes_intersession_entries() {
+    // Given a history containing an Intersession dispatch (a bot turn).
+    let history = vec![
+        ChatEntry::user("first task"),
+        ChatEntry::assistant("working on it"),
+        ChatEntry::intersession(
+            jinn_core_types::SessionId::new(),
+            None,
+            jinn_core_types::SessionId::new(),
+            "[Message from session abc]: stage finished",
+        ),
+    ];
+    let recap = build_recap_entry(
+        jinn_core_types::ChatEntryId::new(),
+        "recap text".to_owned(),
+        500,
+        60,
+        3,
+        "test-model".to_owned(),
+    );
+    let last_id = history.last().map(|entry| entry.id.clone());
+
+    // When building the fold mutations.
+    let mutations = build_fold_mutations(&history, recap, last_id);
+
+    // Then the intersession entry is excluded along with the rest — the
+    // recap carries its intent forward.
+    let excluded: Vec<_> = mutations
+        .iter()
+        .filter_map(|mutation| match mutation {
+            HistoryMutation::SetContextOverride { entry_id, .. } => Some(entry_id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(excluded.len(), 3);
+    let intersession = history.get(2).expect("intersession entry in fixture");
+    assert!(excluded.contains(&&intersession.id));
 }
 
 #[rstest::rstest]
@@ -188,6 +225,29 @@ fn fold_leaves_pins_alone() {
 
     // When asking whether the fold protects it.
     // Then the pin wins over the kind.
+    assert!(is_fold_protected(&entry));
+}
+
+#[rstest::rstest]
+fn fold_leaves_pinned_user_entries_alone() {
+    // Given a pinned user entry.
+    let mut entry = ChatEntry::user("keep this task visible");
+    entry.pin_position = Some(PinPosition::Top);
+
+    // When asking whether the fold protects it.
+    // Then the pin wins even over the sweepable kind.
+    assert!(is_fold_protected(&entry));
+}
+
+#[rstest::rstest]
+fn fold_treats_a_user_excluded_user_entry_as_protected() {
+    // Given a user entry the user already x-excluded.
+    let mut entry = ChatEntry::user("noise turn");
+    entry.apply_context_override(ContextOverride::ForcedExclude, ChangeSource::User);
+
+    // When asking whether the entry is fold-protected.
+    // Then protection holds — the fold never overrides a user's explicit
+    // exclusion (idempotence covers user-stamped entries too).
     assert!(is_fold_protected(&entry));
 }
 

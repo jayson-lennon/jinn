@@ -35,9 +35,15 @@ impl ChatSessionState {
         );
         let index = self.core.history_work.history.len();
         self.core.history_work.history.push(entry.clone());
-        if entry.is_user() {
-            // New user work re-arms the handoff gate's fire line: a fold
-            // may run once per user turn.
+        if matches!(
+            entry.kind,
+            ChatEntryKind::User { .. } | ChatEntryKind::Intersession { .. }
+        ) {
+            // New User or Intersession work re-arms the handoff gate's
+            // fire line: a fold may run once per such entry — bot
+            // dispatches are task-bearing arrivals too, and without the
+            // intersession re-arm a bot-driven session would fold once
+            // and stay disarmed forever.
             self.note_user_turn_for_fold();
         }
         if cursor_at_last {
