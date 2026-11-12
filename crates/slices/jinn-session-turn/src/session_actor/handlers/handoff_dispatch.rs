@@ -116,10 +116,11 @@ impl super::super::SessionPersistenceActor {
         };
         let (work_size, persona_name) = gate_input;
 
-        // Progress guard: after a fold, new user work is what makes
-        // another fold meaningful. Refusing when none has arrived breaks
-        // the pins-dominated fixed point (work estimate still above the
-        // fire line, nothing new to summarize) instead of looping on it.
+        // Progress guard: after a fold, new task-bearing work (a User or
+        // Intersession entry) is what makes another fold meaningful.
+        // Refusing when none has arrived breaks the fixed point (work
+        // estimate still above the fire line, nothing new to summarize)
+        // instead of looping on the recap itself.
         let folded_since_last_user_turn = {
             self.state
                 .read()
@@ -129,7 +130,7 @@ impl super::super::SessionPersistenceActor {
         if folded_since_last_user_turn {
             tracing::warn!(
                 session_id = %session_id,
-                "handoff refused: no user turn since the previous fold"
+                "handoff refused: no User or Intersession entry since the previous fold"
             );
             return None;
         }
@@ -209,8 +210,10 @@ impl super::super::SessionPersistenceActor {
     }
 
     /// Runs the fold after a successful handoff turn: excludes every
-    /// entry except user turns, Intersession dispatches, and pins, and
-    /// inserts the recap as a context-riding `Compaction` entry.
+    /// entry except pins and entries already excluded, and inserts the
+    /// recap as a context-riding `Compaction` entry. The recap is the
+    /// sole task carrier across cycles — user turns and Intersession
+    /// dispatches fold away with the rest of the conversation.
     ///
     /// The raw handoff response is an `Assistant` entry —
     /// default-included — so the fold's `ForcedExclude` is load-bearing
@@ -288,7 +291,7 @@ impl super::super::SessionPersistenceActor {
         // same write guard — the fresh context is post-fold and nothing
         // is pending or owed anymore. The fold also marks that it ran
         // since the last user turn: the gate's progress guard refuses a
-        // repeat fire until the next user turn re-arms it.
+        // repeat fire until the next User or Intersession entry re-arms it.
         let changed = self.state.with_session(|view| {
             let session = view.session.map().get_or_create(session_id);
             session.set_last_fold_gathered();
@@ -301,7 +304,7 @@ impl super::super::SessionPersistenceActor {
         tracing::info!(
             session_id = %session_id,
             changed = changed.len(),
-            "handoff fold applied: fresh context is task + pins + recap"
+            "handoff fold applied: fresh context is pins + recap"
         );
         for entry_id in changed {
             self.publish(jinn_context_assembly_msg::ContextOverrideChanged {

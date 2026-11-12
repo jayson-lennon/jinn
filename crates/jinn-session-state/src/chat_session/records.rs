@@ -178,21 +178,22 @@ impl ChatSessionState {
     }
 
     /// Record that the just-run fold excluded its set: the session has
-    /// folded since the last user turn, until the next user turn arrives.
-    /// The gate refuses to fold again while this holds — a fire with
-    /// nothing new to summarize would loop on the protected residual.
+    /// folded since the last User or Intersession entry, until the next
+    /// such entry arrives. The gate refuses to fold again while this
+    /// holds — a fire with nothing new to summarize would loop on the
+    /// recap itself.
     pub fn set_last_fold_gathered(&mut self) {
         self.core.ephemeral.folded_since_last_user_turn = true;
     }
 
-    /// Whether a fold has run since the last user turn.
+    /// Whether a fold has run since the last User or Intersession entry.
     #[must_use]
     pub fn folded_since_last_user_turn(&self) -> bool {
         self.core.ephemeral.folded_since_last_user_turn
     }
 
-    /// A user turn arrived: new work exists for a fold to summarize, so
-    /// re-arm the gate's fire line.
+    /// A User or Intersession entry arrived: new task-bearing work exists
+    /// for a fold to summarize, so re-arm the gate's fire line.
     pub fn note_user_turn_for_fold(&mut self) {
         self.core.ephemeral.folded_since_last_user_turn = false;
     }

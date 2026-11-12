@@ -1,6 +1,8 @@
 Stop work. Write only a concise handoff recap; do not run commands or call tools.
-The conversation will reset: the system prompt, the user's messages, and this
-recap will be provided again; everything else here is discarded.
+The conversation will reset: the system prompt, pins, and this recap are
+provided again; everything else here is discarded — your messages and the
+user's messages alike. This recap is the only verbatim survivor, so it alone
+must carry the task forward.
 
 Record:
 

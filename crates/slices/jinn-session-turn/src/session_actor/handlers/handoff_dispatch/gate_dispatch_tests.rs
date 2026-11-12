@@ -409,6 +409,40 @@ async fn distinct_gather_set_fires() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn an_intersession_turn_since_the_fold_re_arms_the_gate() {
+    // Given an actor whose fold ran, with an intersession entry since it
+    // (a bot dispatch — task-bearing work that arrived without a user).
+    let (actor, _audit) = handoff_actor(600).await;
+    let session_id = actor.state.read().session.active_session_id().clone();
+    {
+        let mut state = actor.state.write();
+        let session = state.session.get_or_create(&session_id);
+        session.set_last_fold_gathered();
+        session.push_entry(ChatEntry::intersession(
+            jinn_core_types::SessionId::new(),
+            None,
+            session_id.clone(),
+            "[Message from session abc]: new bot task",
+        ));
+    }
+    actor.state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(&session_id)
+            .set_context_sizes(700, 0);
+    });
+
+    // When the gate evaluates a fire over the new work.
+    let fired = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
+        .is_some();
+
+    // Then it fires — the intersession arrival re-armed the fire line.
+    assert!(fired);
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn healthy_growth_still_fires() {
     // Given a handoff-enabled actor with no fold history at all.
     let (actor, _audit) = handoff_actor(600).await;
@@ -593,8 +627,10 @@ async fn fold_excludes_non_protected_entries_and_inserts_the_recap() {
     // When the fold runs (the completion hook's success branch).
     actor.run_handoff_fold(&session_id).await;
 
-    // Then every non-protected entry is excluded, the recap rides
-    // context as a Compaction entry, and user entries survive verbatim.
+    // Then every pinned entry is untouched, everything else — user turns
+    // and intersession dispatches included — is excluded, and the recap
+    // rides context as a Compaction entry (the fresh context is pins +
+    // recap; the recap is the sole task carrier).
     let state = actor.state.read();
     let session = state.session(&session_id);
     let recap = session
@@ -604,13 +640,10 @@ async fn fold_excludes_non_protected_entries_and_inserts_the_recap() {
         .expect("recap inserted");
     assert_eq!(recap.context_override, ContextOverride::Default);
     for entry in session.history() {
-        let protected = matches!(
-            entry.kind,
-            ChatEntryKind::User { .. }
-                | ChatEntryKind::Intersession { .. }
-                | ChatEntryKind::Compaction { .. }
-        );
-        if protected {
+        if entry.id == recap.id {
+            continue; // the fold's own insertion rides context by default
+        }
+        if entry.pin_position.is_some() {
             assert_eq!(entry.context_override, ContextOverride::Default);
         } else {
             assert_eq!(

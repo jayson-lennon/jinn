@@ -16,9 +16,11 @@
 //!   in-conversation with the full context in-frame, forbidden tool
 //!   calls at the API layer.
 //! - **Fold** (`build_fold_mutations`): after the recap completes, the
-//!   context folds down to the task turns, pins, and the new recap
-//!   (Appendix A: task verbatim + pointers + plan) — the paper's fresh
-//!   conversation, resumed from the remaining plan.
+//!   context folds down to the pins and the new recap (Appendix A:
+//!   pointers + plan) — the paper's fresh conversation, resumed from
+//!   the remaining plan. The recap is the sole task carrier: user turns
+//!   and Intersession dispatches fold away with the rest of the
+//!   conversation, so nothing accumulates verbatim across cycles.
 //!
 //! The three pieces here are pure: the gate math, the handoff content
 //! builder, and the fold's mutation builder. The session actor wires
@@ -91,16 +93,17 @@ const HANDOFF_WORKER: &str = "handoff-compaction";
 
 /// Builds the fold's mutation batch from the post-handoff history.
 ///
-/// Protected (never excluded): user turns, Intersession entries, pinned
-/// entries, entries already excluded (idempotent). Excluded: everything
-/// else — assistant prose, tool calls/results (the just-completed pair
-/// included), prior compaction summaries (superseded by this cycle's),
-/// actor/thinking/system/error/transient entries, the nudge, and the raw
-/// handoff response.
+/// Protected (never excluded): pinned entries (the user's explicit
+/// keep-signal) and entries already excluded (idempotence). Excluded:
+/// everything else — user turns and Intersession dispatches (the recap
+/// carries their intent forward), assistant prose, tool calls/results
+/// (the just-completed pair included), prior compaction summaries
+/// (superseded by this cycle's), actor/thinking/system/error/transient
+/// entries, the nudge, and the raw handoff response.
 ///
 /// `recap_entry` is the fold's own insertion: a context-riding
 /// [`ChatEntryKind::Compaction`] entry placed after `last_excluded_id`,
-/// so the fresh context is system prompt + task + recap.
+/// so the fresh context is system prompt + pins + recap.
 ///
 /// Pins are never mutated by the fold.
 #[must_use]
@@ -132,19 +135,18 @@ pub fn build_fold_mutations(
 
 /// Whether the fold must leave `entry` in the fresh context.
 ///
-/// User turns and Intersession dispatches are the task record (kept
-/// verbatim across compaction cycles); pinned entries are the user's
-/// explicit keep-signal; already-excluded entries stay excluded
-/// (idempotence).
+/// Pinned entries are the user's explicit keep-signal and outrank
+/// everything; already-excluded entries stay excluded (idempotence — a
+/// re-fold must not restamp them). Everything else — user turns,
+/// Intersession dispatches, assistant prose, tool traffic, prior
+/// summaries — joins the swept set: the recap is the sole task carrier
+/// across compaction cycles.
 #[must_use]
 pub fn is_fold_protected(entry: &ChatEntry) -> bool {
     if entry.pin_position.is_some() {
         return true;
     }
-    match &entry.kind {
-        ChatEntryKind::User { .. } | ChatEntryKind::Intersession { .. } => true,
-        _ => entry.context_override == ContextOverride::ForcedExclude,
-    }
+    entry.context_override == ContextOverride::ForcedExclude
 }
 
 /// Constructs the recap entry the fold inserts.
