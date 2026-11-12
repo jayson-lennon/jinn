@@ -22,7 +22,6 @@ which = { workspace = true }
 wherror = { workspace = true }
 
 [dev-dependencies]
-jinn-context-curation = { workspace = true }
 rstest = { workspace = true }
 jinn-testutil = { workspace = true }
 

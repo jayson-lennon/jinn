@@ -1931,7 +1931,7 @@ fn slash_autocomplete_tab_completes_name() {
     jinn_chat_input::intent::handle_insert_char('/', &mut state);
 
     // Navigate to the "new" entry (default selection is the last entry).
-    // Entries: compact(0), compact-all(1), new(2). Default = 2 (= new).
+    // Entries: export(0), new(1). Default = 1 (= new).
 
     // When confirming autocomplete (Tab).
     let _ = jinn_chat_input::intent::handle_autocomplete_confirm(&mut state);
@@ -2164,8 +2164,8 @@ fn submit_unknown_slash_command_clears_buffer() {
 }
 
 #[rstest::rstest]
-fn submit_compact_slash_command_pushes_system_message() {
-    // Given a state with "/compact" in the buffer.
+fn submit_compact_slash_command_no_longer_resolves() {
+    // Given a state with the retired "/compact" in the buffer.
     let mut state = AppState::default_with_scope_focus();
     state.update_active_input(|i| i.insert_text("/compact"));
 
@@ -2175,21 +2175,14 @@ fn submit_compact_slash_command_pushes_system_message() {
         jinn_kernel::common::render_ctx::empty_config_layer(),
     );
 
-    // Then a MarkSessionInteracted and TriggerCompaction command are dispatched.
-    assert_eq!(result.message_names.len(), 2);
+    // Then nothing is dispatched — the compaction surface is gone, and the
+    // text is treated as an ordinary message.
     assert!(
-        result
-            .message_names
-            .iter()
-            .any(|n| n.contains("MarkSessionInteracted")),
-        "first command should be MarkSessionInteracted"
-    );
-    assert!(
-        result
+        !result
             .message_names
             .iter()
             .any(|n| n.contains("TriggerCompaction")),
-        "second command should be TriggerCompaction"
+        "the retired command must not dispatch anything"
     );
 }
 
@@ -2365,7 +2358,7 @@ fn tab_completes_name_without_executing() {
     let old_id = state.session.active_session_id().clone();
 
     // The default selection is "new" (last entry). No navigation needed.
-    // Entries: compact(0), compact-all(1), new(2). Default = 2 (= new).
+    // Entries: export(0), new(1). Default = 1 (= new).
 
     // When confirming autocomplete (Tab).
     let _ = jinn_chat_input::intent::handle_autocomplete_confirm(&mut state);
@@ -2390,7 +2383,7 @@ fn enter_completes_and_executes_slash_command() {
     let old_id = state.session.active_session_id().clone();
 
     // The default selection is the last entry ("new"). No navigation needed.
-    // Entries: compact(0), compact-all(1), new(2). Default = 2 (= new).
+    // Entries: export(0), new(1). Default = 1 (= new).
 
     // When pressing Enter (SubmitMessage with autocomplete active).
     let _result = jinn_chat_input::intent::handle_submit_message(

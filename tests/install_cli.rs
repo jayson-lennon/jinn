@@ -339,8 +339,8 @@ fn install_never_touches_an_edited_jinn_toml() {
     let edited = format!(
         "# user was here\n{}",
         original.replace(
-            "[context_curation.compaction]",
-            "[context_curation.compaction]\nthreshold = 0.4",
+            "[watchdog.stall]",
+            "[watchdog.stall]\n# user tuned this\ntimeout_secs = 90",
         )
     );
     std::fs::write(&toml_path, &edited).expect("write edited jinn.toml");
@@ -358,7 +358,7 @@ fn install_never_touches_an_edited_jinn_toml() {
     let on_disk = std::fs::read_to_string(&toml_path).expect("read jinn.toml after install");
     assert_eq!(on_disk, edited, "install must never modify jinn.toml");
     // And the user's knob survived.
-    assert!(on_disk.contains("threshold = 0.4"));
+    assert!(on_disk.contains("timeout_secs = 90"));
 }
 
 #[rstest::rstest]

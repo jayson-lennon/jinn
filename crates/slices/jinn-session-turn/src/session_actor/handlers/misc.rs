@@ -82,18 +82,14 @@ impl SessionPersistenceActor {
                 .filter_map(|m| match m {
                     jinn_core_types::HistoryMutation::SetContextOverride {
                         entry_id,
-                        source,
+                        value: jinn_core_types::ContextOverride::ForcedExclude,
                         ..
                     } => {
                         // Only prune ForcedExclude mutations reach the
                         // accumulator, so only their cost is relevant.
-                        // Worker ForcedInclude and compaction overrides
-                        // apply immediately and need no cost.
-                        if is_compaction_source(source) {
-                            None
-                        } else {
-                            Some(entry_id)
-                        }
+                        // Worker ForcedInclude overrides apply immediately
+                        // and need no cost.
+                        Some(entry_id)
                     }
                     _ => None,
                 })
@@ -180,29 +176,18 @@ impl SessionPersistenceActor {
 ///
 /// The accumulator exists to batch pruner excludes into a single flush so
 /// the server-side KV cache isn't invalidated per-entry. Worker
-/// `ForcedInclude` (protection), compaction overrides, and any non-context
-/// mutation apply immediately instead.
+/// `ForcedInclude` (protection) and any non-context mutation apply
+/// immediately instead.
 fn is_prune_override(mutation: &jinn_core_types::HistoryMutation) -> bool {
-    use jinn_core_types::HistoryMutation;
     matches!(
         mutation,
-        HistoryMutation::SetContextOverride {
+        jinn_core_types::HistoryMutation::SetContextOverride {
             value: jinn_core_types::ContextOverride::ForcedExclude,
-            source,
             ..
-        } if !is_compaction_source(source)
+        }
     )
 }
 
-/// Whether a `ChangeSource` is the compaction worker.
-///
-/// Compaction overrides are exempt from the accumulation gate: compaction is
-/// itself a context reduction that must apply promptly, and holding back its
-/// excludes would leave the gathered entries and the new summary both in
-/// context simultaneously.
-fn is_compaction_source(source: &jinn_kernel::protocol::ChangeSource) -> bool {
-    matches!(source, jinn_kernel::protocol::ChangeSource::Worker { name } if name == "compaction")
-}
 /// Builds a markdown message listing discovered skills.
 fn build_skills_refresh_message(skills: &[Skill]) -> String {
     let mut msg = format!("Skills refreshed: {} found\n\n", skills.len());
@@ -456,15 +441,16 @@ mod tests {
                 .clone()
         };
 
-        // When submitting a compaction-worker ForcedExclude override.
+        // When submitting a worker ForcedInclude override — protection
+        // applies immediately and is visible to the change event.
         actor
             .handle_submit_history_mutations(&jinn_session_history_msg::SubmitHistoryMutations {
                 session_id: session_id.clone(),
                 mutations: vec![jinn_core_types::HistoryMutation::SetContextOverride {
                     entry_id: entry_id.clone(),
-                    value: jinn_core_types::ContextOverride::ForcedExclude,
+                    value: jinn_core_types::ContextOverride::ForcedInclude,
                     source: ChangeSource::Worker {
-                        name: "compaction".to_owned(),
+                        name: "edit_read".to_owned(),
                     },
                 }],
             })
@@ -576,7 +562,7 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn compaction_forced_exclude_override_applies_immediately_not_buffered() {
+    async fn worker_forced_exclude_override_is_buffered_like_any_prune() {
         // Given a session with one assistant entry.
         let (actor, _audit) = test_actor_recording().await;
         let (session_id, entry_id) = {
@@ -588,7 +574,9 @@ mod tests {
             (state.session.active_session_id().clone(), id)
         };
 
-        // When submitting a compaction ForcedExclude override.
+        // When submitting a worker-named ForcedExclude override — the shape
+        // a persisted session still carries from the retired compaction
+        // worker, and the shape every pruner submits today.
         actor
             .handle_submit_history_mutations(&jinn_session_history_msg::SubmitHistoryMutations {
                 session_id: session_id.clone(),
@@ -602,17 +590,18 @@ mod tests {
             })
             .await;
 
-        // Then the override applied immediately and did not enter the buffer.
+        // Then the override entered the accumulation buffer like any prune
+        // exclude — no worker name is special-cased anymore.
         let state = actor.state.read();
         let session = state.session.get(&session_id).unwrap();
         assert_eq!(
             session.history()[0].context_override(),
-            jinn_core_types::ContextOverride::ForcedExclude,
-            "compaction ForcedExclude must apply immediately"
+            jinn_core_types::ContextOverride::Default,
+            "a worker exclude is a prune and must wait for the accumulator"
         );
         assert!(
-            session.accumulated_prune_count() == 0,
-            "compaction ForcedExclude must not enter the accumulation buffer"
+            session.accumulated_prune_count() == 1,
+            "the worker exclude must be buffered regardless of its name"
         );
     }
 }

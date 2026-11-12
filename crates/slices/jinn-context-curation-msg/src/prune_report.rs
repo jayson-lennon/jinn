@@ -3,19 +3,12 @@
 //! [`prune_report`] scans the active session's history at render time and
 //! totals the token cost of entries that are currently excluded by an
 //! auto-prune worker — `ContextOverride::ForcedExclude` whose latest
-//! `context_history` event names a pruner worker (compaction excluded).
-//! No state is written: the quake bar recomputes this per frame, so the
-//! number always reflects the live history (re-includes drop out
-//! automatically and pending, un-flushed prunes never appear).
+//! `context_history` event names a worker. No state is written: the
+//! quake bar recomputes this per frame, so the number always reflects
+//! the live history (re-includes drop out automatically and pending,
+//! un-flushed prunes never appear).
 
 use jinn_core_types::{ChangeSource, ChatEntry, ContextOverride};
-
-/// The `HistoryWorker::name` of the compaction worker.
-///
-/// Compaction records `ForcedExclude` + `Worker { name: "compaction" }` — the
-/// same shape auto-pruners use — so the name filter is what keeps compaction
-/// out of the pruned total.
-const COMPACTION_WORKER_NAME: &str = "compaction";
 
 /// Result of scanning history for currently-applied auto-pruner exclusions.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -27,15 +20,15 @@ pub struct PruneReport {
     pub entries: usize,
 }
 
-/// Totals the entries currently excluded by auto-prune workers.
+/// Totals the entries currently excluded by workers.
 ///
 /// An entry is counted iff its override is still
 /// [`ContextOverride::ForcedExclude`] and its most recent
-/// `context_history` event came from a `ChangeSource::Worker` other than
-/// compaction. Entries whose token count is not yet computed contribute zero
-/// tokens but still count, so `tokens` is a lower bound. Entries whose prune
-/// is still buffered in the mutation accumulator are not applied yet and are
-/// never counted.
+/// `context_history` event came from a `ChangeSource::Worker`. Entries
+/// whose token count is not yet computed contribute zero tokens but
+/// still count, so `tokens` is a lower bound. Entries whose prune is
+/// still buffered in the mutation accumulator are not applied yet and
+/// are never counted.
 pub fn prune_report(history: &[ChatEntry]) -> PruneReport {
     let counted = history.iter().filter(|entry| is_pruned_by_worker(entry));
     let tokens = counted
@@ -47,22 +40,19 @@ pub fn prune_report(history: &[ChatEntry]) -> PruneReport {
     PruneReport { tokens, entries }
 }
 
-/// Whether the entry is currently excluded by an auto-prune worker.
+/// Whether the entry is currently excluded by a worker.
 ///
 /// Counts only entries whose override is still `ForcedExclude` (a later
 /// user re-include drops them out) and whose latest recorded context
-/// change names a pruner worker — never compaction, never the user, and
-/// never an unattributed exclude with no recorded history.
+/// change names a worker — never the user, and never an unattributed
+/// exclude with no recorded history.
 fn is_pruned_by_worker(entry: &ChatEntry) -> bool {
     let Some(last) = entry.context_history.last() else {
         return false;
     };
 
     entry.context_override() == ContextOverride::ForcedExclude
-        && matches!(
-            &last.source,
-            ChangeSource::Worker { name } if name != COMPACTION_WORKER_NAME
-        )
+        && matches!(&last.source, ChangeSource::Worker { .. })
 }
 
 #[cfg(test)]
@@ -107,13 +97,14 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    fn skips_compaction_sourced_excludes() {
-        // Given an entry excluded by compaction.
+    fn counts_persisted_compaction_named_excludes() {
+        // Given an entry whose latest exclude names the retired compaction
+        // worker — the shape persisted sessions still carry.
         let mut entry = ChatEntry::user("summarized away");
         entry.apply_context_override(
             ContextOverride::ForcedExclude,
             ChangeSource::Worker {
-                name: COMPACTION_WORKER_NAME.to_owned(),
+                name: "compaction".to_owned(),
             },
         );
         entry.token_count = Some(300);
@@ -121,9 +112,10 @@ mod tests {
         // When computing the prune report.
         let report = prune_report(std::slice::from_ref(&entry));
 
-        // Then the compaction exclude is not counted.
-        assert_eq!(report.tokens, 0);
-        assert_eq!(report.entries, 0);
+        // Then the exclude is counted like any worker exclude: the report
+        // no longer special-cases the retired worker name.
+        assert_eq!(report.tokens, 300);
+        assert_eq!(report.entries, 1);
     }
 
     #[rstest::rstest]

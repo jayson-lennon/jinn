@@ -252,10 +252,6 @@ impl App {
                     Commands::Tui | Commands::Mcp { .. } | Commands::Remote { .. } => {
                         let dump_requests = resolve_dump_requests(cli.dump_requests.as_deref())?;
                         let app_paths = jinn_kernel::AppPaths::default();
-                        let compaction_prompt = jinn_tui::load_compaction_prompt(
-                            &app_paths.prompts_dir().as_marked_path(),
-                        )
-                        .change_context(AppError)?;
                         let handoff_prompt = jinn_tui::load_handoff_prompt(
                             &app_paths.prompts_dir().as_marked_path(),
                         )
@@ -277,7 +273,6 @@ impl App {
                                         resolved_config_path: resolved_config_path.clone(),
                                         paths: jinn_kernel::AppPaths::default(),
                                         dump_requests: dump_requests.clone(),
-                                        compaction_prompt,
                                         handoff_prompt,
                                     },
                                 )
@@ -316,10 +311,6 @@ impl App {
                         let store_for_shutdown = session_store.clone();
                         let dump_requests = resolve_dump_requests(cli.dump_requests.as_deref())?;
                         let app_paths = jinn_kernel::AppPaths::default();
-                        let compaction_prompt = jinn_tui::load_compaction_prompt(
-                            &app_paths.prompts_dir().as_marked_path(),
-                        )
-                        .change_context(AppError)?;
                         let handoff_prompt = jinn_tui::load_handoff_prompt(
                             &app_paths.prompts_dir().as_marked_path(),
                         )
@@ -341,7 +332,6 @@ impl App {
                                         resolved_config_path,
                                         paths: jinn_kernel::AppPaths::default(),
                                         dump_requests,
-                                        compaction_prompt,
                                         handoff_prompt,
                                     },
                                 )
@@ -590,7 +580,7 @@ async fn fetch_models_from_url(
 #[cfg(test)]
 mod tests {
     use jinn_kernel::{AppState, State};
-    use jinn_tui::{load_compaction_prompt, load_theme};
+    use jinn_tui::load_theme;
     use std::sync::Arc;
 
     use crate::config_path::{config_init_target, resolve_config_path};
@@ -646,43 +636,6 @@ mod tests {
     //     `Bench::Run` and `Bench::Tui`.
     //  2. The checkpoint itself is proven by `shutdown_truncates_wal_file` and
     //     `shutdown_makes_db_self_contained_for_backup` in the session store tests.
-
-    #[rstest::rstest]
-    fn load_compaction_prompt_populates_state() {
-        // Given a user dir with a compaction prompt file.
-        let dir = jinn_testutil::tempdir();
-        std::fs::write(
-            dir.path
-                .join("_compaction.md")
-                .expect("temp root joins a bare name"),
-            "test compaction prompt",
-        )
-        .expect("write compaction prompt");
-
-        // When loading the compaction prompt.
-        let prompt = load_compaction_prompt(&dir.path.as_marked_path()).expect("load");
-
-        // Then the loader returns the prompt text.
-        assert_eq!(prompt, "test compaction prompt");
-    }
-
-    #[rstest::rstest]
-    fn load_compaction_prompt_returns_err_when_missing() {
-        // Given an empty user dir.
-        let user_dir = jinn_testutil::tempdir();
-
-        // When loading the compaction prompt with no file present.
-        let result = load_compaction_prompt(&user_dir.path.as_marked_path());
-
-        // Then an error is returned (hard-fail semantics).
-        assert!(
-            result.is_err(),
-            "expected error when compaction prompt is missing"
-        );
-
-        // And the loader does not touch any state (pure function — nothing
-        // to assert beyond the error).
-    }
 
     #[rstest::rstest]
     fn load_theme_updates_state_from_file() {
