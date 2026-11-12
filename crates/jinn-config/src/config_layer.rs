@@ -114,6 +114,13 @@ pub enum ConfigError {
         /// The patcher's complaint.
         detail: String,
     },
+    /// The document parses, but a registered section check rejected the
+    /// candidate as a whole — the values are internally inconsistent.
+    #[error("config values rejected: {detail}")]
+    Rejected {
+        /// The section check's complaint, naming the section.
+        detail: String,
+    },
 }
 
 /// Reads and writes the configuration document.
@@ -680,15 +687,15 @@ impl ConfigLayer {
     /// Returns [`ConfigError::Storage`] or [`ConfigError::Malformed`]
     /// when the document cannot be re-read or parsed — including the
     /// case where the document has been deleted, which refuses rather
-    /// than reloading to defaults — and the first
-    /// [`ConfigSectionError`] a registered section reports against the
-    /// candidate.
+    /// than reloading to defaults — and [`ConfigError::Rejected`] with
+    /// the first [`ConfigSectionError`] a registered section reports
+    /// against the candidate.
     pub fn reload_validated(&self) -> Result<(), Report<ConfigError>> {
         let candidate = self.inner.storage.read().read_existing()?;
         let registry = self.inner.registry.read().clone();
         validate_document(&candidate, &registry).map_err(|section| {
-            Report::new(ConfigError::Malformed {
-                detail: format!("candidate document failed validation: {section}"),
+            Report::new(ConfigError::Rejected {
+                detail: section.to_string(),
             })
         })?;
         *self.inner.doc.write() = candidate;
@@ -1930,6 +1937,31 @@ mod tests {
         assert_eq!(
             value.timeout_secs, 1,
             "a refused candidate must not blank the running snapshot"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn reload_validated_reports_a_rejected_candidate_as_rejected_not_malformed() {
+        // Given a layer with a registered section whose backing document
+        // is edited to a shape the section rejects.
+        let (layer, storage) = layer("[watchdog.stall]\ntimeout_secs = 1\n");
+        layer.register::<WatchdogCfg>();
+        storage
+            .write(&doc("[watchdog.stall]\ntimeout_secs = \"soon\"\n"))
+            .expect("external write");
+
+        // When reloading through the validated path.
+        let error = layer
+            .reload_validated()
+            .expect_err("a validation-refused edit fails the reload");
+
+        // Then the refusal is a semantic rejection — the document parsed,
+        // its values did not agree — not a TOML parse failure.
+        let rejection = error.downcast_ref::<ConfigError>().expect("config error");
+        assert!(
+            matches!(rejection, ConfigError::Rejected { detail } if detail.contains("watchdog.stall")),
+            "expected Rejected naming the section, got: {rejection}"
         );
     }
 
