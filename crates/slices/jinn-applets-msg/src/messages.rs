@@ -112,6 +112,25 @@ pub struct OpenApplet {
 
 impl BusMessage for OpenApplet {}
 
+/// Opens one saved applet in a kiosk window.
+///
+/// The picker's `<c-enter>` publishes this; the store actor validates
+/// the id, ensures the server is bound (the same lazy bind a normal
+/// open rides), builds `http://<resolved>/applets/<id>/?kiosk=1`, and
+/// launches the kiosk window — the built-in Chromium-family launcher,
+/// or the configured `[applets] kiosk_command` template when set, which
+/// replaces the built-in entirely. The marker on the URL is how a page
+/// knows it is kiosk-hosted; the base URL stays identical to a normal
+/// open's.
+#[derive(Debug, Clone, Serialize, Deserialize, trouper::schema::Command, PartialEq)]
+#[schema(description = "Open a saved applet in a kiosk window.")]
+pub struct OpenAppletKiosk {
+    /// The app's directory id.
+    pub id: String,
+}
+
+impl BusMessage for OpenAppletKiosk {}
+
 /// Wakes the applets server: bind its listener if it is dormant.
 ///
 /// The picker's `<leader>sa` opener publishes this alongside

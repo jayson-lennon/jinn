@@ -105,7 +105,7 @@ Misc:
 | `<leader>sl` | Session lifecycle recipe picker  |
 | `<leader>sb` | Saved-bots picker                |
 | `<leader>sw` | Workflow picker                  |
-| `<leader>sa` | Applets picker                   |
+| `<leader>sa` | Applets picker (`<c-enter>` opens the highlighted applet in a kiosk window) |
 | `<leader>so` | OpenRouter model market          |
 | `<leader>sx` | Stream-rule picker               |
 | `<leader>cd` | CWD input (type a path; ghost suggestion follows the cursor, `<tab>` accepts) |

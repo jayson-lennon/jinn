@@ -140,6 +140,25 @@ bind = "127.0.0.1:0"
 # > listens on loopback only, which is safe on a single-user machine.
 bind = "127.0.0.1:0"
 
+# > `<c-enter>` in the applets picker opens the applet in a kiosk window —
+# > full-screen, chromeless. By default jinn finds a Chromium-family
+# > browser (Chrome, Chromium, Edge, Brave) on its own and launches it
+# > with a jinn-owned profile, so the kiosk opens even while your normal
+# > browser is running. Set this key to launch a specific browser
+# > instead: the whole command REPLACES the built-in launcher and runs
+# > through your shell (sh on Linux/macOS, cmd on Windows).
+# >
+# > Four placeholders are substituted verbatim — jinn adds no quoting,
+# > you write the quotes ({profile} and {title} must be quoted by you):
+# >   {url}      the applet URL, carrying the ?kiosk=1 marker
+# >   {profile}  a jinn-owned browser profile directory
+# >   {id}       the applet's directory id
+# >   {title}    the applet's display title
+# >
+# > Chromium example (single-quoted TOML literal string, so nothing is
+# > escaped):
+# kiosk_command = 'chromium --kiosk --app="{url}" --user-data-dir="{profile}"'
+
 # ###########################################################################
 # Dictation (local voice input)
 # ###########################################################################

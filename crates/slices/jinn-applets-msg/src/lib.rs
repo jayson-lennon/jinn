@@ -31,7 +31,7 @@ pub use catalog::{
 };
 pub use messages::{
     AppletDeleted, AppletRenamed, AppletsRescanned, AppletsServingChanged, DeleteApplet,
-    OpenApplet, RenameApplet, RescanApplets, WakeAppletsServer,
+    OpenApplet, OpenAppletKiosk, RenameApplet, RescanApplets, WakeAppletsServer,
 };
 pub use picker_state::{
     AppletPickerEntry, AppletsPickerState, ServingAddress, applet_row, applet_search_text,

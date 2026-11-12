@@ -552,10 +552,15 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
         let config_snapshot = ctx.services().config.clone();
         let bus_snapshot = ctx.services().bus.clone();
         let applets_dir = ctx.services().paths.applets_dir();
+        // The kiosk profile dir rides with the applets dir: path
+        // derivation is composition's job, so the slice never reads
+        // AppPaths itself.
+        let kiosk_profile_dir = ctx.services().paths.kiosk_profile_dir();
         jinn_applets::activate(
             &mut ctx.host(),
             &config_snapshot,
             &applets_dir,
+            &kiosk_profile_dir,
             &bus_snapshot,
         )
         .map_err(|report| ActivateError::Applets(format!("{report:?}")))?;

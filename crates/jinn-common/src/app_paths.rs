@@ -240,6 +240,22 @@ impl AppPaths {
             .expect("name join keeps the base absolute")
     }
 
+    /// Kiosk browser profile directory (`~/.local/share/jinn/kiosk-profile`).
+    ///
+    /// The kiosk launcher's `--user-data-dir`: one jinn-owned Chromium
+    /// profile, persistent across launches — a per-launch temp dir would
+    /// leak one directory per launch (jinn spawns the browser detached
+    /// and cannot clean up), and reusing the user's real profile would
+    /// break the kiosk itself: Chromium silently ignores `--kiosk` when
+    /// the profile is already in use by a running browser, so isolation
+    /// from the user's own browser is what makes the flag work at all.
+    #[must_use]
+    pub fn kiosk_profile_dir(&self) -> MarkedPathBuf<Absolute> {
+        self.data_dir
+            .join_all([APP_NAME, "kiosk-profile"])
+            .expect("name joins keep the base absolute")
+    }
+
     /// Prompt templates directory (`~/.config/jinn/prompts`).
     #[must_use]
     pub fn prompts_dir(&self) -> MarkedPathBuf<Absolute> {
