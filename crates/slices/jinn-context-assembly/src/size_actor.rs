@@ -94,10 +94,23 @@ impl ContextSizeActor {
     /// The CPU-intensive `assemble_prompt` call is moved into
     /// `tokio::task::spawn_blocking` to avoid consuming the async worker's
     /// coop budget during startup bursts.
+    ///
+    /// The session's size generation is snapshotted alongside the assembly
+    /// inputs and re-checked before the write: a compaction apply
+    /// invalidates the cache and bumps the generation while this task is
+    /// in flight, and a recalc that snapshotted before the fold must not
+    /// re-poison the cache with the pre-fold total after it. A moved
+    /// generation discards the write — the fold's own events schedule a
+    /// fresh recalc, so the next honest number lands anyway.
     pub(crate) async fn recalculate(&self) {
-        let session_id = {
+        let (session_id, generation_snapshot) = {
             let state = self.state.read();
-            state.session.active_session_id().clone()
+            (
+                state.session.active_session_id().clone(),
+                state
+                    .try_session(state.session.active_session_id())
+                    .map(jinn_session_state::ChatSessionState::size_generation),
+            )
         };
 
         let state_clone = self.state.clone();
@@ -110,18 +123,40 @@ impl ContextSizeActor {
                 inputs.handoff_enabled = handoff_enabled(&services_clone);
                 inputs
             };
-            assemble_via_service(&self.services, inputs)
-                .await
-                .map(|prompt| prompt.estimated_tokens())
+            assemble_via_service(&self.services, inputs).await
         }
         .await;
 
         match result {
-            Ok(assembled_tokens) => {
-                let session_id = session_id.clone();
+            Ok(prompt) => {
+                let Some(snapshotted) = generation_snapshot else {
+                    return;
+                };
+                // The staleness window is the whole ask above: a fold's
+                // synchronous drain ran on this session while the assembly
+                // was in flight, invalidating the cache and bumping the
+                // generation. The re-read below sees the moved value, and
+                // the write is discarded — the pre-fold total never lands.
+                // The fold's own HistoryAppended event schedules a fresh
+                // recalc, so the next honest number arrives anyway.
+                let stale = {
+                    let state = self.state.read();
+                    state
+                        .try_session(&session_id)
+                        .is_some_and(|session| session.size_generation_moved_since(snapshotted))
+                };
+                if stale {
+                    tracing::debug!(
+                        session_id = %session_id,
+                        "context-size recalculate superseded by a compaction invalidation; discarding write"
+                    );
+                    return;
+                }
+                let assembled_tokens = prompt.estimated_tokens();
+                let system_tokens = prompt.system_tokens();
                 self.state.with_session(|view| {
                     if let Some(session) = view.session.map().get_mut(&session_id) {
-                        session.set_context_size(assembled_tokens);
+                        session.set_context_sizes(assembled_tokens, system_tokens);
                     }
                 });
             }
@@ -318,5 +353,119 @@ mod tests {
                 .is_none(),
             "non-active session should not have context_size set"
         );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn recalculate_writes_the_system_share_alongside_the_total() {
+        // Given an actor with a session that has history.
+        let actor = test_actor().await;
+        let session_id = {
+            let mut state = actor.state.write();
+            state
+                .active_session_mut()
+                .push_entry(ChatEntry::user("hello world"));
+            state.session.active_session_id().clone()
+        };
+
+        // When recalculating.
+        actor.recalculate().await;
+
+        // Then both halves of the size pair are set, and the work size is
+        // the total minus the system share — the gate's input is defined.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session");
+        let total = session.context_size().expect("total set");
+        let system = session
+            .work_size()
+            .map(|work| total - work)
+            .expect("work size defined");
+        assert!(system > 0, "system share should be positive");
+        assert!(
+            system < total,
+            "system share must be part of the total: {system} vs {total}"
+        );
+        assert_eq!(
+            session.work_size(),
+            Some(total.saturating_sub(system)),
+            "work size is total minus system"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_write_after_a_compaction_invalidation_is_discarded() {
+        // Given an actor whose session carries a pending fold batch: the
+        // recalc snapshots the generation, the assembly ask runs, and the
+        // fold invalidates the cache while that ask is in flight.
+        let actor = test_actor().await;
+        let session_id = {
+            let mut state = actor.state.write();
+            let session = state.active_session_mut();
+            let entry = ChatEntry::user("work that will fold");
+            let entry_id = entry.id.clone();
+            session.push_entry(entry);
+            session.queue_mutations(vec![jinn_core_types::HistoryMutation::SetContextOverride {
+                entry_id,
+                value: jinn_core_types::ContextOverride::ForcedExclude,
+                source: jinn_core_types::ChangeSource::Worker {
+                    name: "handoff-compaction".to_owned(),
+                },
+            }]);
+            state.session.active_session_id().clone()
+        };
+        let invalidate_during_ask = {
+            let state = actor.state.clone();
+            let fold_session = session_id.clone();
+            async move {
+                // Yield until the actor's snapshot is taken and the ask is
+                // underway, then run the fold's synchronous drain.
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                state.with_session(|view| {
+                    let _ = view
+                        .session
+                        .map()
+                        .get_or_create(&fold_session)
+                        .drain_and_apply_pending_mutations();
+                });
+            }
+        };
+        let ((), ()) = tokio::join!(actor.recalculate(), invalidate_during_ask);
+
+        // When the recalc finishes against the moved generation.
+        // (Both tasks completed above.)
+
+        // Then the write is discarded: the cache stays invalidated — the
+        // pre-fold total never re-poisons it.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session");
+        assert!(
+            session.context_size().is_none(),
+            "stale write must not land"
+        );
+        assert_eq!(session.work_size(), None);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_write_at_an_unmoved_generation_lands() {
+        // Given an actor whose recalc runs with no invalidation in flight.
+        let actor = test_actor().await;
+        let session_id = {
+            let mut state = actor.state.write();
+            state
+                .active_session_mut()
+                .push_entry(ChatEntry::user("hello world"));
+            state.session.active_session_id().clone()
+        };
+
+        // When the recalc completes.
+        actor.recalculate().await;
+
+        // Then the honest sizes land.
+        let state = actor.state.read();
+        let session = state.session.get(&session_id).expect("session");
+        assert!(session.context_size().is_some(), "fresh write should land");
+        assert!(session.work_size().is_some());
     }
 }

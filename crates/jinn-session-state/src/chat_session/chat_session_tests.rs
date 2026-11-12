@@ -8075,3 +8075,186 @@ fn set_stream_request_model_overwrites_between_dispatches() {
     // Then the active stamp is the second model.
     assert_eq!(session.stream_request_model().as_deref(), Some("model-b"));
 }
+
+#[rstest::rstest]
+#[test]
+fn work_size_is_total_minus_system() {
+    // Given a session with an honest size pair cached.
+    let mut session = ChatSessionState::new();
+    session.set_context_sizes(60_000, 50_000);
+
+    // When reading the work size.
+    // Then it is the total minus the system share.
+    assert_eq!(session.work_size(), Some(10_000));
+}
+
+#[rstest::rstest]
+#[test]
+fn work_size_is_none_until_both_halves_are_cached() {
+    // Given a session with no sizes cached.
+    let session = ChatSessionState::new();
+
+    // When reading the work size.
+    // Then it is None — the gate passes until an honest recalc lands.
+    assert_eq!(session.work_size(), None);
+}
+
+#[rstest::rstest]
+#[test]
+fn compaction_apply_invalidates_cached_sizes_and_bumps_generation() {
+    // Given a session with sizes cached at generation 0 and a pending
+    // handoff-fold batch (a compaction-sourced override).
+    let mut session = ChatSessionState::new();
+    session.set_context_sizes(50_000, 20_000);
+    let entry = ChatEntry::assistant("to fold");
+    let entry_id = entry.id.clone();
+    session.push_entry(entry);
+    session.queue_mutations(vec![HistoryMutation::SetContextOverride {
+        entry_id,
+        value: ContextOverride::ForcedExclude,
+        source: ChangeSource::Worker {
+            name: "handoff-compaction".to_owned(),
+        },
+    }]);
+
+    // When the drain applies the batch.
+    let (_count, _changed) = session.drain_and_apply_pending_mutations();
+
+    // Then both cached sizes are gone and the generation moved — a gate
+    // reads work_size() as None and passes until the next honest recalc.
+    assert_eq!(session.context_size(), None);
+    assert_eq!(session.work_size(), None);
+    assert_eq!(session.size_generation(), 1);
+}
+
+#[rstest::rstest]
+#[test]
+fn prune_apply_keeps_cached_sizes_and_generation() {
+    // Given a session with sizes cached and a pending prune batch (a
+    // non-compaction worker override).
+    let mut session = ChatSessionState::new();
+    session.set_context_sizes(50_000, 20_000);
+    let entry = ChatEntry::assistant("stale read");
+    let entry_id = entry.id.clone();
+    session.push_entry(entry);
+    session.queue_mutations(vec![HistoryMutation::SetContextOverride {
+        entry_id,
+        value: ContextOverride::ForcedExclude,
+        source: ChangeSource::Worker {
+            name: "auto-prune-stale-reads".to_owned(),
+        },
+    }]);
+
+    // When the drain applies the batch.
+    let (_count, _changed) = session.drain_and_apply_pending_mutations();
+
+    // Then the size pair survives — prunes do not invalidate.
+    assert_eq!(session.context_size(), Some(50_000));
+    assert_eq!(session.work_size(), Some(30_000));
+    assert_eq!(session.size_generation(), 0);
+}
+
+#[rstest::rstest]
+#[test]
+fn background_compaction_apply_invalidates_the_same_as_the_fold() {
+    // Given a session with sizes cached and a pending batch from the
+    // background compaction writer.
+    let mut session = ChatSessionState::new();
+    session.set_context_sizes(50_000, 20_000);
+    let entry = ChatEntry::assistant("to summarize");
+    let entry_id = entry.id.clone();
+    session.push_entry(entry);
+    session.queue_mutations(vec![HistoryMutation::SetContextOverride {
+        entry_id,
+        value: ContextOverride::ForcedExclude,
+        source: ChangeSource::Worker {
+            name: "compaction".to_owned(),
+        },
+    }]);
+
+    // When the drain applies the batch.
+    let (_count, _changed) = session.drain_and_apply_pending_mutations();
+
+    // Then the cache is invalidated — one check covers both compaction
+    // writers.
+    assert_eq!(session.context_size(), None);
+    assert_eq!(session.size_generation(), 1);
+}
+
+#[rstest::rstest]
+#[test]
+fn user_override_apply_keeps_cached_sizes() {
+    // Given a session with sizes cached and a pending user override.
+    let mut session = ChatSessionState::new();
+    session.set_context_sizes(50_000, 20_000);
+    let entry = ChatEntry::assistant("user excluded");
+    let entry_id = entry.id.clone();
+    session.push_entry(entry);
+    session.queue_mutations(vec![HistoryMutation::SetContextOverride {
+        entry_id,
+        value: ContextOverride::ForcedExclude,
+        source: ChangeSource::User,
+    }]);
+
+    // When the drain applies the batch.
+    let (_count, _changed) = session.drain_and_apply_pending_mutations();
+
+    // Then the size pair survives — only compaction invalidates.
+    assert_eq!(session.context_size(), Some(50_000));
+    assert_eq!(session.size_generation(), 0);
+}
+
+#[rstest::rstest]
+#[test]
+fn stale_generation_snapshot_reports_moved() {
+    // Given a session whose generation a recalc snapshotted at 0.
+    let mut session = ChatSessionState::new();
+    let snapshotted = session.size_generation();
+
+    // When a compaction invalidation bumps the generation to 1.
+    session.invalidate_sizes_bumping_generation();
+
+    // Then the snapshot check reports the recalc's write is stale.
+    assert!(session.size_generation_moved_since(snapshotted));
+    assert_eq!(session.size_generation(), 1);
+}
+
+#[rstest::rstest]
+#[test]
+fn fresh_generation_snapshot_reports_unmoved() {
+    // Given a recalc that snapshotted the current generation.
+    let mut session = ChatSessionState::new();
+    session.invalidate_sizes_bumping_generation();
+    let snapshotted = session.size_generation();
+
+    // When nothing invalidates before the recalc's write.
+    // Then the snapshot check reports the write may land.
+    assert!(!session.size_generation_moved_since(snapshotted));
+}
+
+#[rstest::rstest]
+#[test]
+fn fold_marks_the_session_until_the_next_user_turn() {
+    // Given a fresh session.
+    let mut session = ChatSessionState::new();
+
+    // When a fold records that it ran.
+    session.set_last_fold_gathered();
+
+    // Then the gate sees the session as folded-since-last-user-turn.
+    assert!(session.folded_since_last_user_turn());
+}
+
+#[rstest::rstest]
+#[test]
+fn a_user_turn_re_arms_the_fold_fire_line() {
+    // Given a session that folded since the last user turn.
+    let mut session = ChatSessionState::new();
+    session.set_last_fold_gathered();
+
+    // When a user entry is pushed.
+    session.push_entry(ChatEntry::user("new work"));
+
+    // Then the fold flag is cleared — the gate may fire again.
+    assert!(!session.folded_since_last_user_turn());
+}

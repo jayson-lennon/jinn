@@ -99,22 +99,24 @@ compaction rarely fires. The tuning lives in `jinn.toml`:
 - `[context_curation.handoff_compaction]`: "handoff" compaction
   (opt-in via `enabled = true`). When enabled, background compaction is
   skipped for that session; instead, at the next model-request boundary
-  after usage reaches `trigger_tokens` (against `context_limit` if set,
-  else the model's context length), jinn asks the same session model to
-  write a handoff recap of the work so far — no tools are callable
-  during that turn — then drops everything except your messages, pins,
-  and the recap from context and continues. The regime is configured in
-  absolute tokens: `context_limit` is the budget and `trigger_tokens`
-  the fire line, which must sit strictly below it (the gap reserves room
-  for the recap turn). The recap turn is visible in the transcript and
-  jumpable with `]c`/`[c` like any compaction summary; a handoff
-  cancelled mid-turn applies nothing and the gate re-fires on the next
-  request. A handoff fired mid-loop (while the model is working through
-  tool calls) keeps the turn live: the transcript shows the recap as one
-  round inside the same turn, with no idle flash between it and the
-  continuation; a handoff fired at an idle boundary is its own turn, and
-  the message you sent (or your queued request) dispatches right after
-  the fold.
+  after accumulated work reaches `workset_trigger_tokens`, jinn asks
+  the same session model to write a handoff recap of the work so
+  far — no tools are callable during that turn — then drops everything
+  except your messages, pins, and the recap from context and continues.
+  The fire line is work-relative: it counts the assembled prompt minus
+  its system share (system prompt, tools, skills), so a large system
+  floor never sits at the fire line and cannot eat the budget. An unset
+  `workset_trigger_tokens` never fires. Right after a fold the size
+  cache is invalidated, so the gate passes until the next honest size
+  recalculation — a fold never re-fires on the fresh, tiny context. The
+  recap turn is visible in the transcript and jumpable with `]c`/`[c`
+  like any compaction summary; a handoff cancelled mid-turn applies
+  nothing and the gate re-fires on the next request. A handoff fired
+  mid-loop (while the model is working through tool calls) keeps the
+  turn live: the transcript shows the recap as one round inside the
+  same turn, with no idle flash between it and the continuation; a
+  handoff fired at an idle boundary is its own turn, and the message
+  you sent (or your queued request) dispatches right after the fold.
 
 See `configuration.md` for how to edit these; they are re-read at next
 use, so an edit applies by the next compaction.

@@ -780,7 +780,7 @@ impl ThresholdTestEnv {
             .get_mut(&self.session_id)
             .expect("session exists");
         if let Some(s) = size {
-            session.set_context_size(s);
+            session.set_context_sizes(s, 0);
         }
         // If None, leave it unset (default is None)
     }
@@ -1389,7 +1389,7 @@ fn gate_passes_but_nothing_to_compact_with_empty_history() {
     session.set_model(ModelSelection::Single("provider/model-200k".to_owned()));
     // No entries - empty history.
     let session_id = session.session_id().clone();
-    session.set_context_size(150_000);
+    session.set_context_sizes(150_000, 0);
 
     let state = State::new(AppState::default_with_scope_focus());
     {
@@ -1785,7 +1785,7 @@ fn error_clears_flag_and_allows_retry() {
     {
         let mut app = state.write();
         if let Some(session) = app.session.get_mut(&session_id) {
-            session.set_context_size(150_000);
+            session.set_context_sizes(150_000, 0);
         }
         app.provider_state()
             .expect("provider cell attached")

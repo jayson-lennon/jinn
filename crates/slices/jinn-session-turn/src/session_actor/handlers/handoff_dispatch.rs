@@ -112,19 +112,29 @@ impl super::super::SessionPersistenceActor {
             if session.is_handoff_pending() {
                 return None;
             }
-            let model_name = session.profile().model.display_str().to_owned();
-            (
-                session.context_size(),
-                session.take_handoff_excluded_cost(),
-                model_name,
-            )
+            (session.work_size(), session.take_handoff_excluded_cost())
         };
-        let (assembled_size, excluded_cost, model_name) = gate_input;
-        let model_reported_limit = resolve_model_context_length(&self.state, &model_name);
+        let (work_size, excluded_cost) = gate_input;
 
-        if evaluate_handoff_gate(&config, model_reported_limit, assembled_size, excluded_cost)
-            != GateDecision::Fire
-        {
+        // Progress guard: after a fold, new user work is what makes
+        // another fold meaningful. Refusing when none has arrived breaks
+        // the pins-dominated fixed point (work estimate still above the
+        // fire line, nothing new to summarize) instead of looping on it.
+        let folded_since_last_user_turn = {
+            self.state
+                .read()
+                .try_session(session_id)
+                .is_some_and(jinn_kernel::ChatSessionState::folded_since_last_user_turn)
+        };
+        if folded_since_last_user_turn {
+            tracing::warn!(
+                session_id = %session_id,
+                "handoff refused: no user turn since the previous fold"
+            );
+            return None;
+        }
+
+        if evaluate_handoff_gate(&config, work_size, excluded_cost) != GateDecision::Fire {
             return None;
         }
 
@@ -247,9 +257,12 @@ impl super::super::SessionPersistenceActor {
 
         // Apply synchronously and clear both handoff fields under the
         // same write guard — the fresh context is post-fold and nothing
-        // is pending or owed anymore.
+        // is pending or owed anymore. The fold also marks that it ran
+        // since the last user turn: the gate's progress guard refuses a
+        // repeat fire until the next user turn re-arms it.
         let changed = self.state.with_session(|view| {
             let session = view.session.map().get_or_create(session_id);
+            session.set_last_fold_gathered();
             session.queue_mutations(mutations);
             let (_count, changed) = session.drain_and_apply_pending_mutations();
             session.end_handoff(true);
@@ -270,27 +283,4 @@ impl super::super::SessionPersistenceActor {
         }
         super::super::helpers::emit_history_appended(self.bus(), session_id).await;
     }
-}
-
-/// Resolves the model's reported context length from the model cache —
-/// the same lookup the status bar and background compaction use, so gate
-/// and display agree. The gate resolves the full firing regime
-/// (explicit `context_limit` overrides this) in
-/// `HandoffCompactionConfig::resolve_regime`.
-fn resolve_model_context_length(
-    state: &jinn_kernel::common::state::State,
-    model_name: &str,
-) -> Option<u32> {
-    let model_cache = state
-        .read()
-        .provider_state()
-        .and_then(|cell| cell.read().model_cache.clone());
-    let cache = model_cache?;
-    let provider_name = model_name.split('/').next()?;
-    let models = cache.entries.get(provider_name)?;
-    let model_suffix = model_name.get(provider_name.len().wrapping_add(1)..)?;
-    models
-        .iter()
-        .find(|model| model.id == model_suffix)
-        .and_then(|model| model.context_length)
 }

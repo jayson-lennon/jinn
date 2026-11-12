@@ -20,59 +20,72 @@ fn jinn_config_test_layer() -> &'static jinn_config::ConfigLayer {
     jinn_config::empty_config_layer()
 }
 
-fn enabled_config(context_limit: usize, trigger_tokens: usize) -> HandoffCompactionConfig {
+fn enabled_config(workset_trigger_tokens: usize) -> HandoffCompactionConfig {
     HandoffCompactionConfig {
         enabled: true,
-        context_limit: Some(context_limit),
-        trigger_tokens: Some(trigger_tokens),
+        workset_trigger_tokens: Some(workset_trigger_tokens),
     }
 }
 
 #[rstest::rstest]
 fn gate_passes_when_disabled() {
-    // Given handoff compaction disabled and a context far past any line.
+    // Given handoff compaction disabled and a work size far past any line.
     let config = HandoffCompactionConfig::default();
 
     // When evaluating the gate.
-    let decision = evaluate_handoff_gate(&config, Some(1000), Some(2000), 0);
+    let decision = evaluate_handoff_gate(&config, Some(1000), 0);
 
     // Then the request dispatches normally.
     assert_eq!(decision, GateDecision::Pass);
 }
 
 #[rstest::rstest]
-fn gate_passes_without_an_effective_limit() {
-    // Given handoff enabled with a trigger but no limit from any source.
-    let config = enabled_config(1000, 600);
+fn gate_passes_without_a_cached_size_pair() {
+    // Given handoff enabled with a trigger but no honest size pair cached
+    // (a compaction just invalidated the cache, say).
+    let config = enabled_config(600);
 
-    // When evaluating the gate with no model-reported limit.
-    let decision = evaluate_handoff_gate(&config, None, Some(500), 0);
+    // When evaluating the gate with no work size.
+    let decision = evaluate_handoff_gate(&config, None, 0);
 
     // Then the gate never guesses: it passes.
     assert_eq!(decision, GateDecision::Pass);
 }
 
 #[rstest::rstest]
-fn gate_fires_when_projected_context_reaches_the_trigger() {
-    // Given handoff enabled with a 600-token trigger over a 1000-token
-    // limit.
-    let config = enabled_config(1000, 600);
+fn gate_fires_on_work_not_wire() {
+    // Given a 600-token work trigger.
+    let config = enabled_config(600);
 
-    // When the assembled estimate reaches the trigger.
-    let decision = evaluate_handoff_gate(&config, Some(1000), Some(600), 0);
+    // When the work size (assembled minus system) reaches the trigger —
+    // regardless of how large the system floor made the wire total.
+    let decision = evaluate_handoff_gate(&config, Some(600), 0);
 
     // Then the pending request is replaced by the handoff.
     assert_eq!(decision, GateDecision::Fire);
 }
 
 #[rstest::rstest]
+fn gate_passes_when_a_large_system_floor_holds_the_work_small() {
+    // Given a 60_000-token system floor and a 60_000-token work trigger.
+    let config = enabled_config(60_000);
+
+    // When the wire total is huge but the work above the floor is small
+    // (the floor can no longer sit at the fire line).
+    let decision = evaluate_handoff_gate(&config, Some(10_000), 0);
+
+    // Then the request dispatches normally.
+    assert_eq!(decision, GateDecision::Pass);
+}
+
+#[rstest::rstest]
 fn gate_counts_excluded_cost_toward_the_trigger() {
-    // Given handoff enabled and an assembled estimate below the trigger
-    // only because prune excluded entries after the last assembly.
-    let config = enabled_config(1000, 600);
+    // Given handoff enabled and a work size below the trigger only
+    // because prune excluded entries after the last assembly.
+    let config = enabled_config(600);
 
     // When the excluded cost pushes the projection over.
-    let decision = evaluate_handoff_gate(&config, Some(1000), Some(500), 150);
+    let decision = evaluate_handoff_gate(&config, Some(500), 150);
 
     // Then the gate still fires.
     assert_eq!(decision, GateDecision::Fire);
@@ -80,42 +93,29 @@ fn gate_counts_excluded_cost_toward_the_trigger() {
 
 #[rstest::rstest]
 fn gate_passes_below_the_trigger() {
-    // Given handoff enabled with a 600-token trigger.
-    let config = enabled_config(1000, 600);
+    // Given a 600-token work trigger.
+    let config = enabled_config(600);
 
     // When the projection is well under the trigger.
-    let decision = evaluate_handoff_gate(&config, Some(1000), Some(590), 0);
+    let decision = evaluate_handoff_gate(&config, Some(590), 0);
 
     // Then the request dispatches normally.
     assert_eq!(decision, GateDecision::Pass);
 }
 
 #[rstest::rstest]
-fn gate_fires_against_a_model_reported_limit_when_unset() {
-    // Given handoff enabled with a trigger and no explicit limit.
+fn gate_passes_without_a_configured_trigger() {
+    // Given an enabled config whose fire line was never set (a config
+    // from before the field existed, or a deliberately unconfigured one).
     let config = HandoffCompactionConfig {
         enabled: true,
-        context_limit: None,
-        trigger_tokens: Some(12_000),
+        workset_trigger_tokens: None,
     };
 
-    // When resolving against the model's reported length.
-    let decision = evaluate_handoff_gate(&config, Some(16_000), Some(12_500), 0);
-
-    // Then the model's length is the limit and the trigger fires.
-    assert_eq!(decision, GateDecision::Fire);
-}
-
-#[rstest::rstest]
-fn gate_passes_when_the_trigger_meets_the_limit() {
-    // Given a mis-edited config whose trigger sits at the limit — no gap
-    // for the recap turn.
-    let config = enabled_config(1000, 1000);
-
     // When evaluating the gate.
-    let decision = evaluate_handoff_gate(&config, None, Some(900), 0);
+    let decision = evaluate_handoff_gate(&config, Some(60_000), 0);
 
-    // Then the regime is invalid and the gate refuses.
+    // Then the gate never fires an unbounded handoff.
     assert_eq!(decision, GateDecision::Pass);
 }
 

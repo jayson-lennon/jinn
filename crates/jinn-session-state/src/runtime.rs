@@ -53,6 +53,29 @@ pub struct SessionCoreEphemeral {
     pub message_queue: TurnQueue,
     /// Most recently assembled prompt size, in tokens.
     pub cached_context_size: Option<u32>,
+    /// System-prompt token count from the same honest assembly as
+    /// [`Self::cached_context_size`] — the two are written together by the
+    /// context-size actor and invalidated together by a compaction apply.
+    /// The gate's work size is the total minus this; work-relative math is
+    /// only defined when both halves of the pair came from the same
+    /// assembly, which the paired invalidation guarantees.
+    #[serde(default)]
+    pub cached_system_size: Option<u32>,
+    /// Bumped every time the cached size pair is invalidated (a
+    /// compaction-sourced mutation batch applied). Context-size recalcs
+    /// snapshot the generation before assembling and discard their write
+    /// if it moved: a recalc that snapshotted before a fold cannot
+    /// re-poison the cache with the pre-fold total after it.
+    #[serde(skip)]
+    pub size_generation: u64,
+    /// Whether any user turn has arrived since the previous handoff fold
+    /// completed. The gate refuses a fold when no new user work exists:
+    /// a fire with nothing new to summarize would recap the same context
+    /// again (the pins-dominated fixed point). New user work — the
+    /// conversation's only forward-progress signal that survives folds —
+    /// re-arms the fire line.
+    #[serde(skip)]
+    pub folded_since_last_user_turn: bool,
     /// A handoff-compaction turn is in flight for this session: the gate
     /// fired, the recap request was dispatched, and the fold has not yet
     /// run. Set when the handoff dispatch replaces the pending request;

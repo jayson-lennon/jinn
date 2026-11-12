@@ -56,6 +56,12 @@ pub struct AssembledPrompt {
     /// Estimated token count (tiktoken o200k_base) of the system prompt and
     /// all messages.
     pub estimated_tokens: u32,
+    /// The system prompt's share of [`Self::estimated_tokens`], computed in
+    /// the same counting pass. Zero when the assembly produced no system
+    /// content. Lets consumers subtract the constant system floor from the
+    /// total to get the request's work size without recounting.
+    #[serde(default)]
+    pub system_tokens: u32,
 }
 
 impl AssembledPrompt {
@@ -63,5 +69,11 @@ impl AssembledPrompt {
     #[must_use]
     pub fn estimated_tokens(&self) -> u32 {
         self.estimated_tokens
+    }
+
+    /// The system prompt's token share of the estimate.
+    #[must_use]
+    pub fn system_tokens(&self) -> u32 {
+        self.system_tokens
     }
 }

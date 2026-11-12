@@ -1,0 +1,848 @@
+# jinn default configuration
+
+# ###########################################################################
+# Tools
+# ###########################################################################
+[tools]
+# > Default execution timeout (seconds) for all builtin tool calls. Acts as a
+# > safety ceiling so a hung tool never stalls the turn indefinitely. Bash calls
+# > can override this per-call via the `max_duration_secs` tool argument.
+default_timeout_secs = 300
+
+# > Number of lines in a tool call before truncating.
+max_output_lines = 2000
+
+# > Number of bytes in a tool call before truncating.
+max_output_bytes = 51200
+
+# > Tool set initialization for new sessions. `deny` disables the listed tools
+# > and permits everything else; `allow` permits the listed tools and
+# > blocks everything else. Globs are supported, so `mcp__foo__*` covers
+# > every tool the `foo` server contributes.
+tool_filter = { mode = "deny", names = ["grep", "openrouter:web_search"] }
+
+[stream_rules]
+
+[[stream_rules.entry]]
+name = "no-double-cargo-test"
+description = "Running the suite twice in one command re-runs everything; use the justfile."
+conditions = ['(?s)cargo\s+(test|t)\b.*cargo\s+(test|t)\b']
+scopes = ["tool:bash"]
+body = "Never pipe cargo test through filters (grep/awk/head) or invoke it twice in one command — that runs the whole suite once per invocation. Run `just test` ONCE; it tees full output to target/test-output.log and prints a summary. Get failure names instantly via `just test-failures`."
+project = "**/jinn/**"
+disabled = true
+
+[[stream_rules.entry]]
+name = "no-cargo-test-no-run"
+description = "Pre-compiling tests is redundant; just test compiles anyway."
+conditions = ['cargo(\s+\+\S+)?\s+(test|t)\b[^\n|;]*--no-run']
+scopes = ["tool:bash"]
+body = "Never pre-compile tests with --no-run before a test run (`just test` compiles anyway). For a compile check use `just check`."
+project = "**/jinn/**"
+
+[[stream_rules.entry]]
+name = "no-direct-cargo-test"
+description = "Direct cargo test bypasses the justfile capture and summary."
+conditions = ['cargo(\s+\+\S+)?\s+(test|t)\b']
+scopes = ["tool:bash"]
+body = "Never run cargo test directly — the suite is slow and raw output gets truncated, forcing re-runs. Use `just test` (runs once, tees target/test-output.log, prints a summary), `just test-failures` for failure names from the last run, or `just test-one <filter>` to iterate on a failing test."
+project = "**/jinn/**"
+
+[[stream_rules.entry]]
+name = "no-per-package-test"
+description = "Package-scoped test runs bypass the workspace suite."
+conditions = ['cargo\s+(test|t)\b.*\s-p\b']
+scopes = ["tool:bash"]
+body = "Do not run tests on individual packages. Use `just test` (the general cargo-test rule already blocks direct cargo test)."
+project = "**/jinn/**"
+
+[[stream_rules.entry]]
+name = "no-per-package-check"
+description = "Package-scoped check runs bypass the workspace check."
+conditions = ['cargo\s+(check|c)\b.*\s-p\b']
+scopes = ["tool:bash"]
+body = "Do not run check on individual packages. Use `just check` or `cargo check --workspace` as indicated in AGENTS.md."
+project = "**/jinn/**"
+
+[[stream_rules.entry]]
+name = "no-per-package-clippy"
+description = "Package-scoped clippy runs bypass the workspace clippy."
+conditions = ['cargo\s+(clippy|c)\b.*\s-p\b']
+scopes = ["tool:bash"]
+body = "Do not run clippy on individual packages. Use `just clippy` or `cargo clippy --workspace` as indicated in AGENTS.md."
+project = "**/jinn/**"
+
+[[stream_rules.entry]]
+name = "no-nextest"
+description = "nextest is not the runner this repo uses."
+conditions = ['cargo(\s+\+\S+)?\s+nextest\b']
+scopes = ["tool:bash"]
+body = "Do not run nextest in this repo. Use `just test`."
+project = "**/jinn/**"
+
+[[stream_rules.entry]]
+name = "no-cargo-nextest-binary"
+description = "The standalone nextest binary is not the runner this repo uses."
+conditions = ['cargo-nextest\b']
+scopes = ["tool:bash"]
+body = "Do not run the cargo-nextest binary in this repo. Use `just test`."
+project = "**/jinn/**"
+
+# ###########################################################################
+# Chat log
+# ###########################################################################
+[chat_log]
+#
+# > Number of lines displayed in a tool result. This is just the visual
+# > representation in the chat log and does not impact what is sent to the model.
+tool_entry_max_lines = 6
+#
+# > Once this many consecutive out-of-context chat entries is reached, they will
+# > be collapsed into a hidden block.
+min_collapse_count = 3
+#
+# ###########################################################################
+# Skills
+# ###########################################################################
+[skills]
+# > Skill set initialization for new sessions. `deny` blocks the listed skills
+# > and permits everything else; `allow` permits _only_ the listed skills.
+# > Globs are supported.
+skill_filter = { mode = "allow", names = [
+    "applets",
+    "canvas",
+    "jinn-usage",
+    "micro-task-loop",
+    "simple-task-loop",
+    "rust-programming",
+    "workflows",
+] }
+
+# ###########################################################################
+# Canvas
+# ###########################################################################
+[canvas]
+# > Where the canvas server binds when the agent serves an artifact with
+# > the `canvas` tool. Host:port as one value. Port 0 (the default) asks
+# > the OS for an ephemeral port, so two running jinn instances never
+# > fight over one port; the resolved URL comes back in the tool result.
+# >
+# > The bind must be a loopback address — the canvas server has no
+# > authentication, so it never listens on an exposed interface.
+bind = "127.0.0.1:0"
+
+# ###########################################################################
+# Applets (saved artifacts)
+# ###########################################################################
+[applets]
+# > Where the saved-applet server binds when you open an applet from the applets
+# > picker (<leader>sa). Host:port as one value. Port 0 (the default) asks
+# > the OS for an ephemeral port, so two running jinn instances never
+# > fight over one port; the resolved port is what the opened URL carries.
+# >
+# > The bind must be a loopback address — the saved-applet server has no
+# > authentication, so it never listens on an exposed interface.
+bind = "127.0.0.1:0"
+
+# ###########################################################################
+# Dictation (local voice input)
+# ###########################################################################
+[dictation]
+# > Local speech-to-text for the chat input. alt-i toggles recording;
+# > committed utterances append to the input of whichever session holds
+# > focus. The model runs entirely on this machine — no cloud path.
+#
+# > Whether dictation is active. Disabled (the default) keeps the actor
+# > offline: alt-i reports "disabled", nothing downloads, the meter
+# > never shows. Config changes take effect on the next jinn start.
+enabled = true
+#
+# > The capture device to open, matched exactly against the input
+# > device names. Omit it to use the system default input. A name that
+# > matches nothing refuses to arm and lists the available inputs.
+# device = "USB Microphone"
+#
+# > Which model to run. Currently supported:
+# >
+# >   parakeet-tdt-0.6b-v2   NVIDIA Parakeet TDT 0.6B v2, English,
+# >                          int8 ONNX (the shipped default)
+#
+# > An unknown value fails the actor into an error state naming the
+# > valid set.
+model = "parakeet-tdt-0.6b-v2"
+#
+# > Denoise the capture before transcription (recommended; the filter
+# > runs at the device's native rate before the model's 16 kHz
+# > resample).
+noise_reduction = false
+
+# ###########################################################################
+# Session lifecycle commands
+# ###########################################################################
+# > Lifecycle commands run at session startup and teardown. They allow you to
+# > setup and cleanup the environment.
+#
+# > `setup_command` is ran when the session is created. `teardown_command` is ran
+# > when the session is "closed" or the command can be ran manually with the `t`
+# > keyboard shortcut.
+#
+# > The `setup_command` can optionally end by printing the desired CWD and jinn
+# > will configure the session to use that CWD. This is useful when checking out
+# > a new branch in a new workspace and then switching to that workspace.
+#
+
+# > my_project/        <-- configured as the project directory in jinn
+# >    repo.fossil
+# >    checkouts_will_go_here_as_siblings/
+# >       .fslckout
+# >
+[[session_lifecycle.script]]
+name = "fossil branch checkout"
+description = "Open a new checkout + branch"
+setup_command = "mkdir <branch> && cd <branch> && fossil open ../<repo>.fossil && fossil commit -m 'Open <branch>' --branch <branch> --allow-empty && echo ./<branch>"
+teardown_command = "fossil merge trunk --force && fossil addremove && fossil commit -m 'Bring in latest trunk' && fossil update trunk && fossil merge <branch> && fossil addremove && fossil commit -m 'Merge <branch>' && fossil branch close <branch> && cd .. && rm -rfv <branch>"
+
+# >Git worktrees. Project directory should be a parent folder of the repo:
+#
+# >my_project/        <-- configured as the project directory in jinn
+# >   repo/           <-- your actual repo
+# >      .git/
+# >   worktrees_will_go_here_as_siblings/
+# >      .git/
+# >
+[[session_lifecycle.script]]
+name = "git worktree (rebase + squash)"
+description = "Open a git worktree + branch (teardown: squash branch to ONE commit, flat history)"
+setup_command = """[ -d "<repo>" ] || { echo "repo dir '<repo>' not found under the project dir" >&2; exit 1; } && git -C "<repo>" worktree add -q -b "<branch>" "$(pwd)/<branch>" && echo "$(pwd)/<branch>\""""
+teardown_command = """[ -z "$(git status --porcelain)" ] || { echo "TEARDOWN-DIRTY: uncommitted changes; commit or clean first" >&2; exit 1; } && wt="$(pwd)" && main="$(cd .. && pwd)/<repo>" && git rebase main && [ -z "$(git diff --name-only --diff-filter=U)" ] || { echo "TEARDOWN-CONFLICT: rebase conflicts; resolve and re-run" >&2; exit 1; } && landed=$(git rev-list --reverse main..HEAD | head -1) && { [ -z "$landed" ] || { git reset --soft main && git commit -q -C "$landed"; }; } && git -C "$main" merge --ff-only -q <branch> && git worktree remove "$wt" && git -C "$main" branch -d <branch>"""
+
+[[session_lifecycle.script]]
+name = "git worktree (branch + merge commit)"
+description = "Open a git worktree + branch (teardown: merge into main; one merge commit per branch)"
+setup_command = """[ -d "<repo>" ] || { echo "repo dir '<repo>' not found under the project dir" >&2; exit 1; } && git -C "<repo>" worktree add -q -b "<branch>" "$(pwd)/<branch>" && echo "$(pwd)/<branch>\""""
+teardown_command = """[ -z "$(git status --porcelain)" ] || { echo "TEARDOWN-DIRTY: uncommitted changes; commit or clean first" >&2; exit 1; } && wt="$(pwd)" && main="$(cd .. && pwd)/<repo>" && { git merge main --no-edit || { git merge --abort 2>/dev/null; echo "TEARDOWN-CONFLICT: resolve 'git merge main' here in the worktree, then re-run teardown" >&2; exit 1; }; } && git -C "$main" merge --no-ff --no-edit <branch> && git worktree remove "$wt" && git -C "$main" branch -d <branch>"""
+
+# ###########################################################################
+# Projects
+# ###########################################################################
+#
+# > Projects are curated directories you frequently start sessions in. They
+# > appear in the project picker (`<leader>so`) and let you create a session
+# > directly at one of these paths without first changing the active session's
+# > directory.
+#
+# > Add one block per directory. Duplicates are ignored.
+#
+# > A project may also carry a `command_policy`: a list of blocked-command
+# > rules enforced by the bash tool for any session whose working directory
+# > falls inside the project. Each rule pairs a regex `pattern` (matched
+# > against the full command string; first match wins) with the corrective
+# > `message` returned to the agent when it matches. The command never runs.
+#
+[[project.entry]]
+path = "/mnt/zed/repos/jinn"
+
+[[project.entry]]
+path = "/mnt/zed/repos/corridor"
+
+[[project.entry]]
+path = "/mnt/zed/repos/transcriber"
+
+[[project.entry]]
+path = "/mnt/zed/repos/blog"
+
+[[project.entry]]
+path = "/mnt/zed/repos/automixah"
+
+[[project.entry]]
+path = "/mnt/zed/repos/deslop"
+
+[[project.entry]]
+path = "/mnt/zed/repos/vidcap"
+
+[[project.entry]]
+path = "/mnt/zed/repos/trouper"
+
+# ###########################################################################
+# MCP servers (Model Context Protocol)
+# ###########################################################################
+# > jinn acts as an MCP *client*: each entry below declares a server it can
+# > connect to. Servers are OFF by default and must be enabled per-session
+# > (the choice is persisted with the session). When enabled for a session,
+# > jinn spawns/connects the server, advertises its tools to the model under
+# > a namespaced id `mcp__<name>__<tool>`, and forwards calls to it.
+#
+# > Add one block per server. The `name` must be unique across all servers.
+#
+# > Three transport modes are available:
+#
+# >   stdio       (default) — jinn spawns the server and talks over its
+# >                          stdin/stdout. Most MCP servers support this.
+# >                          Omit the `transport` field entirely.
+#
+# >   local_http  — jinn spawns the server (usually with a --port flag) and
+# >                connects over HTTP. jinn allocates a free port for each
+# >                session and expands the `<port>` token in both `args` and
+# >                `url` with that port. The host is parsed from the `url`.
+# >                Use this when the server supports HTTP mode and you want
+# >                stdout logging or HTTP transport.
+#
+# >   remote_http — jinn connects to an already-running server at the
+# >                given `url`. No process is spawned; `command`/`args` are
+# >                not needed. Use this for servers running in Docker, on a
+# >                remote host, or as a system service.
+#
+# > stdio example (transport omitted — it's the default)
+# [mcp.foo]
+# command = "npx"
+# args = ["@foo/mcp-server", "--stdio"]
+# auto_enable = false
+#
+# > local_http example
+# [mcp.foo_http]
+# command = "npx"
+# > - <port> is expanded to a jinn-allocated port number
+# > - <ip> is expanded to the IP address listed in the `url` key (below).
+# args = ["@foo/mcp-server", "--port", "<port>", "--host", "<ip>"]
+# transport = "local_http"
+# url = "http://127.0.0.1:<port>/mcp"
+#
+# > remote_http example (no process spawned, connect to url)
+# [mcp.remote]
+# transport = "remote_http"
+# url = "http://localhost:3001/mcp"
+#
+# > HTTP headers (local_http and remote_http only; ignored on stdio).
+# > Values may embed ${ENV_VAR} tokens — expanded from your environment once
+# > at startup. Changing a variable requires a jinn restart to take effect.
+# > A variable that is unset or empty keeps the server from connecting and
+# > names the variable in the failure; header values are never logged.
+#
+# [mcp.remote.headers]
+# Authorization = "Bearer ${MY_API_KEY}"
+# X-Api-Key = "${OTHER_KEY}"
+
+[mcp.overgraph]
+command = "<jinn>"
+args = ["mcp", "overgraph"]
+singleton = true
+auto_enable = false
+
+[mcp.excalimate]
+command = "npx"
+# args = ["@excalimate/mcp-server", "--stdio"]
+args = ["@excalimate/mcp-server", "--port", "<port>", "--host", "<ip>"]
+transport = "local_http"
+url = "http://127.0.0.1:<port>/mcp"
+auto_enable = false
+
+[mcp.excalimate.headers]
+
+[mcp.parallel]
+transport = "remote_http"
+url = "https://mcp.parallel.ai/mcp?tools=web_search,web_decisions"
+auto_enable = true
+args = []
+
+[mcp.parallel.headers]
+Authorization = "Bearer ${PARALLEL_API_KEY}"
+
+[mcp.zai-web-search-prime]
+transport = "remote_http"
+url = "https://api.z.ai/api/mcp/web_search_prime/mcp"
+args = []
+auto_enable = false
+
+[mcp.zai-web-search-prime.headers]
+Authorization = "Bearer ${ZAI_API_KEY}"
+
+[mcp.zai-web-reader]
+transport = "remote_http"
+url = "https://api.z.ai/api/mcp/web_reader/mcp"
+args = []
+auto_enable = true
+
+[mcp.zai-web-reader.headers]
+Authorization = "Bearer ${ZAI_API_KEY}"
+
+# > REA (reverse engineering) — local stdio server from the globally installed
+# > rea-agents package. Version-pinned; update alongside `rea update`.
+[mcp.rea]
+command = "/home/jayson/.npm-packages/bin/rea"
+args = ["mcp"]
+auto_enable = false
+
+[mcp.godot-stagehand]
+command = "/mnt/zed/repos/corridor/corridor/godot-stagehand"
+auto_enable = false
+
+[mcp.godot-gda]
+command = "uvx"
+args = ["--from", "gda[mcp]", "gda-mcp"]
+
+[mcp.godot-gda.env]
+GDA_PROJECT = "<session_cwd>/corridor-game"
+GDA_GODOT = "/usr/bin/godot"
+
+# > Compaction command + auto compaction.
+[context_curation.compaction]
+# > Provider/model used for compaction summarization. Falls back to the session model
+# > when unset.
+# model = "openrouter/deepseek/deepseek-v4.1-flash"
+#
+# > Automatically compact the conversation when the used context window exceeds
+# > this usage percentage. Recommend no higher than 0.85 to account for drift in
+# > token calculations between models and providers (jinn applies a single token
+# > calculation across the board).
+threshold = 0.7
+
+# > Number of tokens to reserve during compaction. This will keep up to the
+# > `reserve_tokens` worth of recent messages so the model doesn't lose track of
+# > what it was working on.
+reserve_tokens = 20000
+
+# > Fallback context window size (in tokens) when the provider does not report one.
+# > Note that if the provider doesn't report the size that you can configure it
+# > manually in `providers.toml` (highly recommended)
+fallback_context_window = 150000
+
+# > Handoff compaction: at each model-request boundary whose accumulated
+# > work reaches `workset_trigger_tokens`, the active session model writes
+# > a handoff recap in-conversation and the context folds down to the task
+# > turns, pins, and the recap. Replaces history accumulation with a
+# > bounded working context; the session model is always the author. Off
+# > by default; while enabled the background compaction above is disabled
+# > for that session. The fire line is work-relative: it counts the
+# > assembled prompt minus its system share (system prompt, tools,
+# > skills), so the constant system floor never sits at the fire line and
+# > a large floor cannot eat the budget. An unset `workset_trigger_tokens`
+# > never fires. Keep the fire line above the auto-prune accumulation
+# > point so prune does not delete tool evidence the recap needs to read.
+[context_curation.handoff_compaction]
+# > Master switch. false = the feature is entirely inert: no gate check, no
+# > prompt section, no fold.
+enabled = true
+
+# > The fire line in work tokens — assembled size minus the system share.
+# > The handoff fires at the first model-request boundary whose estimated
+# > work reaches this count (e.g. 50000 means roughly 50k tokens of
+# > accumulated conversation between handoffs, regardless of how large the
+# > system prompt is).
+workset_trigger_tokens = 50000
+
+# > Policy for retrying failed provider requests.
+[provider.request_retry]
+# > Retry the request this amount of times before aborting.
+max_retries = 5
+
+# > Retry uses exponential backoff. Start at this number of seconds, doubling each retry.
+base_delay_secs = 2
+
+# > Maximum amount of time to wait before retrying.
+max_delay_secs = 60
+
+# > OpenRouter web search. Only valid when using OpenRouter as the provider.
+[provider.web_search]
+# > Search engine used by the openrouter_web_search tool. One of:
+# > - "exa",
+# > - "firecrawl"
+# > - "parallel"
+# > - "native"
+# > - "auto"
+engine = "exa"
+
+# > Optional OpenRouter web-search tuning.
+
+# > Maximum number of results to return per individual tool call.
+# max_results = 5
+
+# > Maximum number of results to return per request.
+# max_total_results = 20
+
+# > Controls how much context is used by the OpenRouter results processing
+# > engine when handling the results (ie: extra big pages would need more
+# > context). Leave unset to let OpenRouter decide.
+# > "low", "medium", "high" are only acceptable values.
+# search_context_size = "medium"
+
+# > If present, only ever searches these domains.
+# allowed_domains = ["example.com", "docs.example.com"]
+
+# > If present, blocks these domains from the search result.
+# excluded_domains = ["pinterest.com"]
+
+[ui.cwd_selector]
+# > Shell command template run by the cwd_selector tool. `{path}` is replaced
+# > with the starting directory. Must print a single absolute path on stdout.
+command = "find -L {path} -type d 2>/dev/null | fzf --no-multi"
+
+# > The minimap uses colors (dark to light) to mark the size of a particular
+# > message.
+[ui.minimap]
+# > Messages `max_tokens` or higher will always be the lightest color.
+max_tokens = 2000
+
+# ###########################################################################
+# Watchdogs
+# ###########################################################################
+
+# > Monitors for streams that fail to provide tokens.
+[watchdog.stall]
+# > Seconds of stream silence before a stalled turn is retried. Minimum 1.
+timeout_secs = 300
+# > Consecutive silent-stall restarts allowed before the turn is cancelled.
+max_restarts = 3
+
+# > Monitors tool call problems.
+[watchdog.tool_call]
+# > Tool failures before the turn is cancelled. The calculation uses a simple
+# > accumulator that increments on fail and decrements on success. So the
+# > failures may or may not be consecutive.
+max_failures = 6
+
+# > Monitors for degenerate repetition loops — a response whose reasoning,
+# > prose, or tool-call arguments repeat the same text over and over.
+[watchdog.stuck_loop]
+# > Detected loops retried before the turn is cancelled. A response that
+# > completes without a detected loop debits the count.
+max_failures = 3
+
+# > Retries a turn whose provider stream failed with a transient error.
+[watchdog.provider_error]
+# > Seconds to wait before each successive retry. Attempt N waits the Nth
+# > entry; a failure past the list ends the turn as an ordinary error. Every
+# > entry has a one-second floor; an empty list disables the watchdog.
+waits_secs = [10, 30, 60]
+
+[discord]
+# Whether the Discord bot is active.
+enabled = true
+# Discord guild (server) ID the bot operates in.
+guild_id = "1458244294509985974"
+# Forum channel where the bot creates session threads.
+forum_channel = "1522828581556715540"
+authorized_users = ["702151049703850044"]
+
+# ###########################################################################
+# Interactive terminal panes
+# ###########################################################################
+
+[term]
+# > Keybind to toggle keyboard capture.
+control_toggle_key = "<m-g>"
+
+# > When an agent sends a keystroke, the terminal must remain unchanged for
+# > this long before a terminal screenshot is sent back to the agent.
+settle_quiet_ms = 400
+
+# > After an agent sends a keystroke, the maximum amount of time to wait until
+# > sending a terminal screenshot back to the agent. This covers cases with stuff
+# > like `htop` that may update more frequently than the settle_quiet_ms.
+settle_max_wait_ms = 3000
+
+# ###########################################################################
+# Bots
+# ###########################################################################
+[bot]
+
+# > "Nudges" a session to complete it's work if it stops mid-way. Relies
+# > on the agent having a defined list of work and that it reports how far along
+# > it is. This is NOT for evaluating the quality nor checking if the work was
+# > actually implemented.
+[[bot.entry]]
+behavior = "reset"
+name = "auto-nudge"
+pins = [
+    { role = "user", text = """
+You are in charge of keeping another agent on track. Please read the most recent message from the parent using the `session_fetch` tool and determine if it stopped prematurely. If it stopped prematurely, use the `notify_parent` tool to tell the agent to continue. The "continue" explanation should be brief but firm like "Continue with the <task>".
+
+Examples of agents that stopped too early:
+> I am on phase 3 of 5 <explanation of why it stopped>.
+
+Examples of agents that stopped correctly:
+> I've finished all phases of the plan.
+> I had to stop because there is a problem with the current plan and I cannot continue because <reasons>.
+
+It's important that you only tell the agent to continue if it stopped for something it _should not_ have stopped for. If it got blocked by something, then stopping is OK.
+
+Regardless of the outcome, always use the `conclude` tool to record your conclusion:
+- If you had to use `notify_parent` -> the "conclude" should be "Nudged"
+- If the agent finished -> the "conclude" should be "Task complete"
+
+You **do not** need to evaluate whether the agent actually did the work. Your job is simply to keep the agent moving if it says that it stopped before finishing. You don't need to check the work at all.""" },
+]
+prep_mode = false
+reasoning_effort = "high"
+seed_template = "The parent session's id is <parent_id>. The previous run of this bot reported: <prior_report>."
+trigger = "parent_completed"
+tool_filter = { mode = "allow", names = [
+    "conclude",
+    "notify_parent",
+    "session_fetch",
+    "session_search",
+] }
+skill_filter = { mode = "allow", names = [] }
+
+# > Checks a completed implementation turn against the criteria the session
+# > itself committed to. Silent when there is nothing to report — it
+# > concludes "nothing to audit" and stays out of the way.
+[[bot.entry]]
+behavior = "preserve"
+name = "gap-check"
+pins = [
+    { role = "user", text = """
+You audit a coding session that has just finished a turn. Your job is to check whether the work that was actually done satisfies the criteria the session itself committed to — and to stay silent when there is nothing to report.
+
+You have no conversation history. Everything you know comes from the parent session's transcript and the code on disk.
+
+## 1. Decide whether there is anything to audit
+
+Read the parent's most recent turn with `session_fetch` (tail mode, no `session_id` — the seed prompt tells you which session is the parent).
+
+This audit only applies when ALL of these hold:
+
+- The turn implemented or changed something.
+- The session had stated acceptance criteria, a plan, or an explicit list of requirements it was working toward.
+- The turn's closing message claims that work is done or a phase is complete.
+
+If any of these do not hold — the turn was a question, an explanation, a research pass, a debugging session with no stated criteria, or work that is explicitly still in progress — there is nothing to audit. Go to step 5 and conclude that there was nothing to check.
+
+Do not invent acceptance criteria. If the session never wrote any down, its vague sense of what it was aiming at is not an audit target.
+
+## 2. Recover the criteria
+
+The criteria live in the session's own transcript, not in any fixed location. Search the parent session for them with `session_search`, passing the parent's session id. Try more than one phrasing — sessions state their expectations under different names, and a single failed search is not evidence that none exist. Look for:
+
+- "acceptance criteria", "AC1", "definition of done", "requirements"
+- "the plan", "phase", "step 3", "we decided to", "the approach"
+- "invariants", "constraints", "must not", "should still", "backwards compatible", "no regression"
+
+Read the surrounding entries with `session_fetch` when a hit looks relevant. The criteria are often stated early in a long session, so a hit near the end of the transcript may point at a summary of something written earlier — follow it back.
+
+Some sessions also keep a written plan on disk. If the transcript shows this session was working from one, read it — a plan file is usually more precise than what the session said out loud about it. Look for a `.plans/` directory, or wherever this project keeps them; treat it as a supplement, never as a requirement, and never assume a plan file found on disk belongs to this session unless the transcript says so.
+
+State the criteria you are auditing against before you start. If recovering them takes more than a few searches, that is a sign they were never pinned down; conclude that and stop.
+
+## 3. Check each criterion against the code
+
+Evaluate them one at a time. For each, read the actual implementation — do not accept the parent session's account of what it did. Use `grep` and `read` to confirm that the behavior exists and is wired up; use `bash` when a build, a test, or a lint settles the question definitively.
+
+A deterministic check beats your reading, always. If `just test` or `just check` settles a criterion, that is your evidence — do not reason about code a compiler will answer for you.
+
+If the plan included record updates, also confirm those landed in `.agents/RECORD.md` and match what was implemented. Report drift in either direction: a promised entry that is missing or wrong, and an existing entry the implementation has made stale.
+
+## 4. Report
+
+Report only criteria that are unmet or partially met. A criterion that is demonstrably satisfied produces no output — do not narrate successes back to the user, and do not pad the report to look thorough. Silence on the satisfied criteria IS the finding; it is what makes the remaining lines worth reading.
+
+For each real gap, one compact entry:
+
+- **<criterion>** — unmet or partial
+- **Evidence:** what you read or ran, with file:line where relevant
+- **Recommendation:** the specific change, if you can name one
+
+If there are no gaps, say so in one line.
+
+Keep the whole report under roughly fifteen lines. This runs unattended; nobody is waiting on it, and a long report trains the user to skip it.
+
+## 5. Conclude, and notify only when it earns it
+
+Always call `conclude` — even when there is nothing to report. The report you file is the only thing carried into your next run and shown in the sidebar, so an unlogged run reads as a failed run.
+
+The first line of the conclude body is shown on its own in the sidebar, so it must read as a complete, standalone sentence with no leading markup. Eight words or so is all that fits — put everything else on later lines, where it is free-form.
+
+First lines that work:
+
+- "No gaps — 5 of 5 criteria verified"
+- "Nothing to audit this turn — explanation only"
+- "2 gaps — missing error handling, stale Record entry"
+- "Could not recover criteria — nothing pinned down"
+
+Then, on following lines, the detail: which criteria passed, the gap evidence and recommendations, and anything you want your next run to know.
+
+Call `notify_parent` ONLY when you found at least one unmet or partial criterion. The message is the report, trimmed to its most consequential gap. Do not notify for satisfied criteria, do not notify to confirm success, and do not notify when there was nothing to audit.
+
+Do not call `notify_parent` because the work looked risky, incomplete in a way you did not verify, or stylistically off. Silence is the correct output most of the time.
+
+## What you do not do
+
+You do not fix anything. You do not use `notify_parent` to instruct the parent agent on how to proceed beyond naming the gap — it is a notification, not a task hand-off, and a parent that starts treating it as one will begin looping. You do not re-audit work the parent already showed passing.""" },
+]
+prep_mode = false
+reasoning_effort = "high"
+seed_template = "The parent session's id is <parent_id>. The previous run of this bot reported: <prior_report>."
+trigger = "parent_completed"
+tool_filter = { mode = "allow", names = [
+    "bash",
+    "conclude",
+    "grep",
+    "notify_parent",
+    "read",
+    "session_fetch",
+    "session_search",
+] }
+skill_filter = { mode = "allow", names = [] }
+
+# ###########################################################################
+# Context curation
+# ###########################################################################
+
+[context_curation.auto_prune]
+# > When auto pruners run, their targeted chat entries are held in a queue
+# > until the sum of the queued chat entries reaches this token threshold. This
+# > queueing is to keep cache hits high in order to take advantage of cache
+# > pricing.
+accumulation_threshold_tokens = 170000
+
+# ---------------------------------------------------------------------------
+# > Prunes `edit` and `write` tool results that precede a `read` of the same file.
+#
+#   X  edit(/foo.rs)        ← pruned
+#   X  edit applied         ← pruned
+#      read(/foo.rs)        ← trigger
+#      <contents>
+[context_curation.auto_prune.edit_read]
+enabled = true
+# > Only apply pruning after there are this many messages ahead of the prune target.
+min_age = 100
+
+# ---------------------------------------------------------------------------
+# > Prunes `read` tool results that precede an `edit` or `write` of the same file.
+#
+#     read(/foo.rs)        ← pruned
+#     <contents>
+#     edit(/foo.rs)
+#     write(/foo.rs)       ← 2nd edit: trigger, threshold = 2
+[context_curation.auto_prune.read_edit]
+enabled = true
+# > Number of edits or writes before the "read" becomes stale.
+threshold = 2
+# > Only apply pruning after there are this many messages ahead of the prune target.
+min_age = 80
+
+# ---------------------------------------------------------------------------
+# > Prunes context based on regex rules.
+[context_curation.auto_prune.regex]
+enabled = true
+
+# > In this example, only 2 `cargo test` are allowed to remain in context. Once
+# > a third `cargo test` is detected, then the oldest detected result will be
+# > pruned.
+[[context_curation.auto_prune.regex.rules]]
+# > Regex pattern to check
+pattern = "cargo test"
+# > Tool name to check
+tool_name = "bash"
+# > Keep this many matching instances.
+keep_last = 2
+# > Only apply pruning after there are this many messages ahead of the prune target.
+min_age = 100
+
+[[context_curation.auto_prune.regex.rules]]
+pattern = "cargo check"
+tool_name = "bash"
+keep_last = 1
+min_age = 100
+
+[[context_curation.auto_prune.regex.rules]]
+pattern = "cargo clippy"
+tool_name = "bash"
+keep_last = 1
+min_age = 50
+
+# ---------------------------------------------------------------------------
+# > Prunes the `edit` tool if it failed.
+[context_curation.auto_prune.broken_edit]
+enabled = true
+# > Only apply pruning after there are this many messages ahead of the prune target.
+min_age = 30
+
+
+# ---------------------------------------------------------------------------
+# > Prunes todo list calls.
+#
+# > With the default settings (min_age=0, protect_latest=true), the latest todo
+# > call will remain in history indefinitely and older todo entries will get
+# > pruned.
+[context_curation.auto_prune.todo]
+enabled = true
+# > Setting to 0 means it can trigger immediately.
+min_age = 0
+# > Force-include the most recent todo call+result pair so other pruners can
+# > never remove the current task list from context.
+protect_latest = true
+
+# ---------------------------------------------------------------------------
+# > Prunes files that have been edited/written multiple times.
+[context_curation.auto_prune.double_edit]
+enabled = true
+# > The number of writes/edits to keep for any particular file
+max_file_edits = 2
+# > Only apply pruning after there are this many messages ahead of the prune target.
+min_age = 40
+
+# ---------------------------------------------------------------------------
+# > Prunes reads of the same file.
+[context_curation.auto_prune.consecutive_reads]
+enabled = true
+# > Keep up to 5 reads per file. Don't set this too low because agents can read
+# > files in chunks multiple times on purpose.
+keep_last = 5
+# > Only apply pruning after there are this many messages ahead of the prune target.
+min_age = 120
+
+# ---------------------------------------------------------------------------
+# > Catch-all pruner that removes all tool results of a certain age.
+[context_curation.auto_prune.tool_age_window]
+enabled = true
+# > Only apply pruning after there are this many messages ahead of the prune
+# > target. Since this pruner impacts all tool calls, make sure min_age is set
+# > relatively high.
+min_age = 200
+
+# ---------------------------------------------------------------------------
+# > Prunes short assistant entries. These are common during tool loops when then
+# > model is "thinking out loud" or "restating" what it's doing.
+[context_curation.auto_prune.trivial_assistant]
+enabled = true
+# > Prune entries of this token length or smaller.
+max_tokens = 80
+# > Only apply pruning after there are this many messages ahead of the prune
+# > target. The min_age for this pruner should be set somewhat high because
+# > models use their own short responses to stay on track.
+min_age = 100
+
+# ---------------------------------------------------------------------------
+# > Prunes large assistant entries.
+#
+# > Sometimes the assistant thinks "out loud" with large entries (which we want
+# > to prune). However, large entries are also typically associated with direct
+# > responses to user messages and are of more importance (like plans or
+# > explanations or code samples that we want to keep).
+#
+# > This pruner calculates a `radius` of entries anchored from all user messages
+# > and the first/last message in the entire chat history. If the assistant entry
+# > is outside the radius, it gets pruned. If it's inside, it stays. The size of
+# > the assistant message is the `trivial_assistant` pruner config `max_tokens`
+# > size + 1.
+#
+# > Here's a visual to help explain:
+#
+#  u = user message
+#  A = assistant message
+#  t = tool call
+#  . = outside radius
+#  - = inside radius
+#
+#         keep                            keep
+#         v     v                         v  v
+#        uAtttttA.........................AttAttu
+# anchor ^-------|         prune         |------^ user message anchor
+
+[context_curation.auto_prune.anchored_assistant]
+enabled = true
+# > Protect large assistant messages if a user messages is within the radius
+# > (in terms of entries), or this many entries near a session edge.
+radius = 20
+# > Only apply pruning after there are this many messages ahead of the prune target.
+min_age = 50

@@ -498,7 +498,7 @@ fn render_shows_zero_percent_max_when_context_size_but_no_limit() {
         prompt_tokens: None,
         cached_tokens: None,
     });
-    state.active_session_mut().set_context_size(5000);
+    state.active_session_mut().set_context_sizes(5000, 0);
 
     // When rendering.
     let terminal = render_element(&mut element, &state, 80, 2);
@@ -760,7 +760,7 @@ fn render_shows_context_limit_with_usage_and_percentage() {
         prompt_tokens: None,
         cached_tokens: None,
     });
-    state.active_session_mut().set_context_size(5000);
+    state.active_session_mut().set_context_sizes(5000, 0);
     attach_model_cache(
         &mut state,
         "openrouter",
@@ -796,7 +796,7 @@ fn render_falls_back_to_last_ledger_tokens_when_no_cached_context_size() {
         prompt_tokens: None,
         cached_tokens: None,
     });
-    // No set_context_size — the fallback must supply the used side.
+    // No set_context_sizes — the fallback must supply the used side.
     attach_model_cache(
         &mut state,
         "openrouter",
@@ -881,7 +881,7 @@ fn render_prefers_cached_context_size_over_the_ledger_fallback() {
         prompt_tokens: None,
         cached_tokens: None,
     });
-    state.active_session_mut().set_context_size(6_000);
+    state.active_session_mut().set_context_sizes(6_000, 0);
     attach_model_cache(
         &mut state,
         "openrouter",
@@ -938,7 +938,7 @@ fn render_falls_back_when_no_context_limit_in_cache() {
         prompt_tokens: None,
         cached_tokens: None,
     });
-    state.active_session_mut().set_context_size(5000);
+    state.active_session_mut().set_context_sizes(5000, 0);
     attach_model_cache(&mut state, "ollama", "llama3", None);
 
     // When rendering.
@@ -971,7 +971,7 @@ fn render_falls_back_when_no_model_cache() {
         prompt_tokens: None,
         cached_tokens: None,
     });
-    state.active_session_mut().set_context_size(5000);
+    state.active_session_mut().set_context_sizes(5000, 0);
     // No model cache.
     assert!(
         state
@@ -1024,7 +1024,7 @@ fn render_shows_used_over_unknown_when_no_context_length() {
     state
         .active_session_mut()
         .set_model(ModelSelection::Single("ollama/llama3".to_owned()));
-    state.active_session_mut().set_context_size(15_000);
+    state.active_session_mut().set_context_sizes(15_000, 0);
 
     // Model cache exists but has no context_length.
     attach_model_cache(&mut state, "ollama", "llama3", None);

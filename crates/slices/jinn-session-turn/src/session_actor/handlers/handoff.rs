@@ -44,29 +44,30 @@ pub enum GateDecision {
 
 /// Evaluates the handoff gate for one model-request boundary.
 ///
-/// Fires when the estimated working context (`assembled_size +
-/// excluded_cost`) meets the configured absolute `trigger_tokens`
-/// against the resolved `context_limit`. `assembled_size` is the
-/// session's cached assembled estimate (the status-bar value);
-/// `excluded_cost` is the token cost of entries excluded since that
-/// assembly.
+/// Fires when the estimated accumulated **work** — `work_size` is the
+/// assembled estimate minus the cached system share — plus the
+/// `excluded_cost` of entries excluded since that assembly meets the
+/// configured work-token trigger. The system floor (system prompt,
+/// tools, skills) is constant across requests, so it is subtracted out
+/// by construction and cannot sit at the fire line.
 ///
-/// A regime that does not resolve (`None`) is a **pass**, not a guess:
-/// in blocking mode jinn never fires a handoff it cannot bound.
+/// `work_size` of `None` (no honest size pair cached — e.g. a
+/// compaction just invalidated the cache and the recalc has not landed)
+/// is a **pass**, not a guess: in blocking mode jinn never fires a
+/// handoff it cannot measure.
 #[must_use]
 pub fn evaluate_handoff_gate(
     config: &HandoffCompactionConfig,
-    model_reported_limit: Option<u32>,
-    assembled_size: Option<u32>,
+    work_size: Option<u32>,
     excluded_cost: u32,
 ) -> GateDecision {
-    let Some((_, trigger)) = config.resolve_regime(model_reported_limit) else {
+    let Some(trigger) = config.resolve_trigger() else {
         return GateDecision::Pass;
     };
-    let Some(assembled) = assembled_size else {
+    let Some(work) = work_size else {
         return GateDecision::Pass;
     };
-    let projected = u64::from(assembled) + u64::from(excluded_cost);
+    let projected = u64::from(work) + u64::from(excluded_cost);
     if projected >= u64::from(trigger) {
         GateDecision::Fire
     } else {

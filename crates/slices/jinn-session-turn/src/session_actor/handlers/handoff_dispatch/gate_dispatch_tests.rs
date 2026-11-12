@@ -14,10 +14,10 @@ use jinn_preferences_config::schemas::HandoffCompactionConfig;
 use jinn_session_state::ChatSessionState;
 
 /// Builds a recording-bus actor with handoff compaction enabled at the
-/// given absolute `trigger_tokens` over an explicit 1000-token limit —
-/// the gate's inputs fully determined, no model cache involved.
+/// given work-token trigger — the gate's inputs fully determined, no
+/// model cache involved.
 async fn handoff_actor(
-    trigger_tokens: usize,
+    workset_trigger_tokens: usize,
 ) -> (
     SessionPersistenceActor,
     jinn_kernel::common::services::BusAudit,
@@ -28,8 +28,7 @@ async fn handoff_actor(
         .config
         .put(&HandoffCompactionConfig {
             enabled: true,
-            context_limit: Some(1000),
-            trigger_tokens: Some(trigger_tokens),
+            workset_trigger_tokens: Some(workset_trigger_tokens),
         })
         .expect("test config update");
     crate::session_actor::helpers::ensure_context_assembly(&services.trouper_system);
@@ -53,8 +52,9 @@ async fn handoff_actor(
     (actor, audit)
 }
 
-/// Caches the session's assembled-estimate size directly — the gate's
-/// context input. A full assembly is not needed to decide the gate.
+/// Caches the session's size pair directly — the gate's work-size input
+/// is the total minus the system share. A full assembly is not needed to
+/// decide the gate.
 fn set_context_size(
     actor: &SessionPersistenceActor,
     session_id: &jinn_core_types::SessionId,
@@ -64,18 +64,18 @@ fn set_context_size(
         view.session
             .map()
             .get_or_create(session_id)
-            .set_context_size(size);
+            .set_context_sizes(size, 0);
     });
 }
 
 #[rstest::rstest]
 #[tokio::test]
 async fn gate_fire_pushes_nudge_sets_flag_and_holds_the_queue() {
-    // Given a handoff-enabled actor whose session reads 700 of 1000
-    // tokens (700 ≥ the 600-token trigger).
+    // Given a handoff-enabled actor whose session reads 700 tokens of
+    // work (700 ≥ the 600-token work trigger).
     let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
-    set_context_size(&actor, &session_id, 700); // past the 600-token trigger
+    set_context_size(&actor, &session_id, 700); // past the 600-token work trigger
 
     // When the intercept runs at the boundary.
     let nudge = actor.handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None);
@@ -92,7 +92,7 @@ async fn gate_fire_pushes_nudge_sets_flag_and_holds_the_queue() {
 #[rstest::rstest]
 #[tokio::test]
 async fn gate_pass_below_the_trigger_dispatches_normally() {
-    // Given a handoff-enabled actor whose session reads 300 of 1000.
+    // Given a handoff-enabled actor whose session reads 300 tokens of work.
     let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
     set_context_size(&actor, &session_id, 300);
@@ -114,8 +114,8 @@ async fn gate_pass_below_the_trigger_dispatches_normally() {
 #[rstest::rstest]
 #[tokio::test]
 async fn gate_passes_when_disabled_even_past_the_line() {
-    // Given a handoff-enabled actor whose session reads 990 of 1000,
-    // then handoff disabled before the boundary.
+    // Given a handoff-enabled actor whose session reads 990 tokens of
+    // work, then handoff disabled before the boundary.
     let (actor, _audit) = handoff_actor(990).await;
     let session_id = actor.state.read().session.active_session_id().clone();
     actor
@@ -171,7 +171,7 @@ async fn gate_fire_holds_the_replaced_user_entry_at_the_queue_front() {
     // the boundary was about to dispatch.
     let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
-    set_context_size(&actor, &session_id, 700); // past the 600-token trigger
+    set_context_size(&actor, &session_id, 700); // past the 600-token work trigger
     let held = jinn_turn_dispatch_msg::QueueItem::UserMessage(Box::new(
         jinn_kernel::protocol::ChatEntry::user("the user's actual request"),
     ));
@@ -196,11 +196,182 @@ async fn gate_fire_holds_the_replaced_user_entry_at_the_queue_front() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn fold_pair_race_never_refires() {
+    // Given a handoff-enabled actor whose cached size pair still reads
+    // pre-compaction (the recalc has not landed), replaying the observed
+    // duplicate: fold applies, the drain invalidates the cache, and the
+    // gate re-checks immediately after.
+    let (actor, _audit) = handoff_actor(600).await;
+    let session_id = actor.state.read().session.active_session_id().clone();
+    set_context_size(&actor, &session_id, 700); // stale pre-fold pair
+    let nudge = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
+        .expect("first fire");
+    {
+        let mut state = actor.state.write();
+        let session = state.session.get_or_create(&session_id);
+        session.push_entry(nudge);
+        session.push_entry(ChatEntry::assistant("## Recap\nobjective: ..."));
+    }
+    actor.run_handoff_fold(&session_id).await;
+
+    // When the gate re-checks before any recalc has landed (the race
+    // window that used to read the stale pair and fire again).
+    let re_fired = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
+        .is_some();
+
+    // Then it passes: the drain invalidated the cache, so the gate reads
+    // no work size rather than the stale pre-fold pair.
+    assert!(!re_fired);
+    let state = actor.state.read();
+    let session = state.session(&session_id);
+    assert_eq!(session.work_size(), None);
+    assert!(!session.is_handoff_pending());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn fixed_point_regime_folds_once_per_growth() {
+    // Given a handoff-enabled actor replaying the 50k-loop signature: a
+    // large protected set (pins), a fire-line work size, and a fold
+    // that gathers the same entries every time.
+    let (actor, _audit) = handoff_actor(600).await;
+    let session_id = actor.state.read().session.active_session_id().clone();
+    set_context_size(&actor, &session_id, 700);
+    let mut pinned = ChatEntry::assistant("pinned grounding doc");
+    pinned.pin_position = Some(jinn_core_types::PinPosition::Top);
+    {
+        let mut state = actor.state.write();
+        let session = state.session.get_or_create(&session_id);
+        session.push_entry(pinned);
+        session.push_entry(ChatEntry::user("the task"));
+        session.push_entry(ChatEntry::assistant("long work prose"));
+    }
+    let first = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
+        .is_some();
+    {
+        let mut state = actor.state.write();
+        let session = state.session.get_or_create(&session_id);
+        session.push_entry(ChatEntry::assistant("## Recap\nobjective: ..."));
+    }
+    actor.run_handoff_fold(&session_id).await;
+
+    // When the gate re-checks post-fold with the size pair still cached
+    // at the fire line and no new gatherable entries.
+    actor.state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(&session_id)
+            .set_context_sizes(700, 0);
+    });
+    let re_fired = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
+        .is_some();
+
+    // Then the first fire happened once and the repeat is refused: same
+    // gather set as the recorded fold — the fixed point is broken.
+    assert!(first);
+    assert!(!re_fired);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn identical_gather_set_refuses_the_fold() {
+    // Given an actor whose fold already ran with no user turn since.
+    let (actor, _audit) = handoff_actor(600).await;
+    let session_id = actor.state.read().session.active_session_id().clone();
+    {
+        let mut state = actor.state.write();
+        let session = state.session.get_or_create(&session_id);
+        session.push_entry(ChatEntry::assistant("will fold"));
+        session.set_last_fold_gathered();
+    }
+
+    // When the gate evaluates a fire whose fold would gather nothing new
+    // (the size pair re-cached at the fire line).
+    actor.state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(&session_id)
+            .set_context_sizes(700, 0);
+    });
+    let fired = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
+        .is_some();
+
+    // Then the fire is refused — no nudge, no pending flag.
+    assert!(!fired);
+    let state = actor.state.read();
+    assert!(!state.session(&session_id).is_handoff_pending());
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn distinct_gather_set_fires() {
+    // Given an actor whose fold ran, with a new user turn since it.
+    let (actor, _audit) = handoff_actor(600).await;
+    let session_id = actor.state.read().session.active_session_id().clone();
+    {
+        let mut state = actor.state.write();
+        let session = state.session.get_or_create(&session_id);
+        session.set_last_fold_gathered();
+        session.push_entry(ChatEntry::user("new work since the fold"));
+    }
+    actor.state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(&session_id)
+            .set_context_sizes(700, 0);
+    });
+
+    // When the gate evaluates a fire over the new work.
+    let fired = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
+        .is_some();
+
+    // Then it fires — new user work re-armed the fire line.
+    assert!(fired);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn healthy_growth_still_fires() {
+    // Given a handoff-enabled actor with no fold history at all.
+    let (actor, _audit) = handoff_actor(600).await;
+    let session_id = actor.state.read().session.active_session_id().clone();
+    {
+        let mut state = actor.state.write();
+        let session = state.session.get_or_create(&session_id);
+        session.push_entry(ChatEntry::user("real work"));
+        session.push_entry(ChatEntry::assistant("more real work"));
+    }
+    actor.state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(&session_id)
+            .set_context_sizes(700, 0);
+    });
+
+    // When the gate evaluates the first boundary past the trigger.
+    let fired = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
+        .is_some();
+
+    // Then it fires exactly as before the guard existed.
+    assert!(fired);
+    let state = actor.state.read();
+    assert!(state.session(&session_id).is_handoff_pending());
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn a_pending_handoff_never_re_triggers_the_gate() {
     // Given an actor whose session just fired the gate.
     let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
-    set_context_size(&actor, &session_id, 700); // past the 600-token trigger
+    set_context_size(&actor, &session_id, 700); // past the 600-token work trigger
     assert!(
         actor
             .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
@@ -226,7 +397,7 @@ async fn mid_loop_gate_fire_records_owed_but_holds_nothing() {
     // Given a handoff-enabled actor above the line.
     let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
-    set_context_size(&actor, &session_id, 700); // past the 600-token trigger
+    set_context_size(&actor, &session_id, 700); // past the 600-token work trigger
 
     // When the intercept runs at the mid-loop boundary (no held request —
     // the loop's continuation rides the live turn, not the queue).
@@ -250,7 +421,7 @@ async fn idle_direct_gate_fire_does_not_record_owed() {
     // Given a handoff-enabled actor above the line.
     let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
-    set_context_size(&actor, &session_id, 700); // past the 600-token trigger
+    set_context_size(&actor, &session_id, 700); // past the 600-token work trigger
 
     // When the intercept runs at an idle-direct boundary.
     actor
@@ -318,7 +489,7 @@ async fn fold_excludes_non_protected_entries_and_inserts_the_recap() {
     // tool result, nudge, and the recap response entries.
     let (actor, _audit) = handoff_actor(600).await;
     let session_id = actor.state.read().session.active_session_id().clone();
-    set_context_size(&actor, &session_id, 700); // past the 600-token trigger
+    set_context_size(&actor, &session_id, 700); // past the 600-token work trigger
     // The mid-loop caller pushes the returned nudge (the idle callers
     // dispatch it as the turn's entry); same observable state either way.
     let nudge = actor

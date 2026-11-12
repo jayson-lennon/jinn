@@ -67,9 +67,60 @@ impl ChatSessionState {
         self.core.ephemeral.cached_context_size
     }
 
-    /// Update the cached context size.
-    pub fn set_context_size(&mut self, size: u32) {
-        self.core.ephemeral.cached_context_size = Some(size);
+    /// Record an honest assembly's sizes: the prompt total and the system
+    /// prompt's share of it.
+    ///
+    /// The only production writer is the context-size actor, and the pair
+    /// must land together — a total without its system half would make
+    /// [`Self::work_size`] read `None` (gate passes) rather than a
+    /// plausible-looking wrong number.
+    pub fn set_context_sizes(&mut self, total: u32, system: u32) {
+        self.core.ephemeral.cached_context_size = Some(total);
+        self.core.ephemeral.cached_system_size = Some(system);
+    }
+
+    /// The work size in tokens: assembled total minus the system prompt.
+    ///
+    /// `None` unless both halves of the cached pair are present — after a
+    /// compaction invalidation this reads `None` until the next honest
+    /// recalc lands, which is exactly the behavior that stops a stale
+    /// gate from re-firing on fresh history. Tool schemas ride the total
+    /// but not the system count, so they are part of "work" here; they
+    /// are constant across requests and neither grow nor loop.
+    #[must_use]
+    pub fn work_size(&self) -> Option<u32> {
+        self.core
+            .ephemeral
+            .cached_context_size
+            .zip(self.core.ephemeral.cached_system_size)
+            .map(|(total, system)| total.saturating_sub(system))
+    }
+
+    /// Invalidate the cached size pair and bump the size generation.
+    ///
+    /// Called from the mutation drain when an applied batch carries a
+    /// compaction-sourced mutation: the just-applied fold means the
+    /// cached pre-compaction total no longer describes the session, and
+    /// a gate reading it would re-fire on the fresh, tiny history.
+    /// Gates read [`Self::work_size`] as `None` and pass until the next
+    /// honest recalc.
+    pub fn invalidate_sizes_bumping_generation(&mut self) {
+        self.core.ephemeral.cached_context_size = None;
+        self.core.ephemeral.cached_system_size = None;
+        self.core.ephemeral.size_generation = self.core.ephemeral.size_generation.wrapping_add(1);
+    }
+
+    /// The current size generation: recalcs snapshot it before assembling.
+    pub fn size_generation(&self) -> u64 {
+        self.core.ephemeral.size_generation
+    }
+
+    /// Re-checks a recalc's snapshot: `true` when the generation moved
+    /// since `snapshotted`, meaning the recalc's result is stale and its
+    /// write must be discarded.
+    #[must_use]
+    pub fn size_generation_moved_since(&self, snapshotted: u64) -> bool {
+        self.core.ephemeral.size_generation != snapshotted
     }
 
     // ----- Handoff compaction (per-session, process-local) -----
@@ -121,6 +172,26 @@ impl ChatSessionState {
     pub fn abandon_handoff(&mut self) {
         self.core.ephemeral.handoff_pending = false;
         self.core.ephemeral.handoff_continuation_owed = false;
+    }
+
+    /// Record that the just-run fold excluded its set: the session has
+    /// folded since the last user turn, until the next user turn arrives.
+    /// The gate refuses to fold again while this holds — a fire with
+    /// nothing new to summarize would loop on the protected residual.
+    pub fn set_last_fold_gathered(&mut self) {
+        self.core.ephemeral.folded_since_last_user_turn = true;
+    }
+
+    /// Whether a fold has run since the last user turn.
+    #[must_use]
+    pub fn folded_since_last_user_turn(&self) -> bool {
+        self.core.ephemeral.folded_since_last_user_turn
+    }
+
+    /// A user turn arrived: new work exists for a fold to summarize, so
+    /// re-arm the gate's fire line.
+    pub fn note_user_turn_for_fold(&mut self) {
+        self.core.ephemeral.folded_since_last_user_turn = false;
     }
 
     /// Records excluded-entry token cost toward the gate's estimate.

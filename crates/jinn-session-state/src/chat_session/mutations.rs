@@ -79,13 +79,28 @@ impl ChatSessionState {
     ///
     /// Returns the number of batches applied and the entry IDs whose
     /// `context_override` actually changed value during this drain.
+    ///
+    /// A batch carrying a compaction-sourced mutation (the handoff fold or
+    /// the background compaction writer) invalidates the session's cached
+    /// size pair and bumps the size generation: the cached total describes
+    /// the pre-compaction history, so a gate or threshold read immediately
+    /// after the fold would see the stale total and fire on the fresh,
+    /// tiny context. Every consumer reads `None` and passes until the
+    /// context-size actor's next honest recalc lands. One check at the
+    /// drain covers every producer — fold, `/compact`, and any future
+    /// background path — rather than each call site remembering to
+    /// invalidate.
     pub fn drain_and_apply_pending_mutations(&mut self) -> (usize, Vec<ChatEntryId>) {
         let batches = self.drain_pending_mutations();
         let count = batches.len();
         let mut changed = Vec::new();
         for batch in batches {
+            let carried_compaction = batch.iter().any(is_compaction_sourced);
             let mut batch_changed = self.apply_mutations(batch);
             changed.append(&mut batch_changed);
+            if carried_compaction {
+                self.invalidate_sizes_bumping_generation();
+            }
         }
         (count, changed)
     }
@@ -193,4 +208,21 @@ impl ChatSessionState {
     pub fn take_pending_cancel_drain(&mut self) -> bool {
         self.core.ephemeral.take_pending_cancel_drain()
     }
+}
+
+/// Whether a mutation was produced by a compaction writer — the handoff
+/// fold (`"handoff-compaction"`) or the background compaction worker
+/// (`"compaction"`). Matched by worker name, not by mutation kind:
+/// `ForcedExclude` is produced by prunes too, and a prune batch must not
+/// wipe the size cache. Self-contained in this crate: the session-turn
+/// predicate of the same name guards a different boundary and must not
+/// couple the two.
+fn is_compaction_sourced(mutation: &HistoryMutation) -> bool {
+    matches!(
+        mutation,
+        HistoryMutation::SetContextOverride {
+            source: ChangeSource::Worker { name },
+            ..
+        } if name == "compaction" || name == "handoff-compaction"
+    )
 }

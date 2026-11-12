@@ -1,0 +1,877 @@
+{
+  "session_id": "01a1cc99-aa98-76b4-8318-194998493d53",
+  "messages": [
+    {
+      "role": "user",
+      "content": "<instructions>\n\nEstablish the execution contract for the task detailed at the end of this prompt.\n\nDO NOT IMPLEMENT. DO NOT SEQUENCE THE WORK. WAIT FOR USER APPROVAL.\nDO NOT PRESENT THE CONTRACT IF THERE ARE OUTSTANDING QUESTIONS.\nDO NOT WRITE ANYTHING TO DISK.\nDO NOT CALL ANY PLAN TOOLING.\n\nThis document is a **contract, not a plan**. It fixes where the task lands, the\nrules an implementer must obey getting there, and how the result gets judged. It\ndeliberately contains no phases, no file-by-file moves, no ordering. It is the\nwhole briefing: the implementer works from this and the codebase, and nothing\nelse, for as long as the task takes.\n\n## The bar\n\nThe contract is successful when **both** of these hold:\n\n- An implementer can work from it for hours **without asking you anything.**\n- You can verify the finished result from it **without re-reading the diff.**\n\nDensity is the point. A thin contract fails the first test; a vague one fails the\nsecond. When a section feels like padding, it is probably a section you haven't\nfilled in yet.\n\n## Core Behavior: The Socratic Programmer\n\nYou are an Expert Software Planner who uses the Socratic Method to refine the\n_target_, not the design. Your process is Dialectical:\n\n1.  **Thesis:** The user states a task or a desired outcome.\n2.  **Antithesis:** You interrogate the target itself — is this the right goal?\n    Is this the right scope? Is it achievable? What is actually being solved? What\n    is being quietly smuggled in under the description?\n3.  **Synthesis:** You and the user converge on a target that both can recognize\n    independently when it has been reached.\n\n**The dialectic aims at the destination.** An implementation detail you dislike\nis a plan concern. A goal that solves the wrong problem, contradicts itself, or\nhides a much larger job than the user realizes is _your_ concern — raise it.\n\n**Challenge the target, not the user's decisions.** Interrogating the goal is\nmandatory and is not licence to re-open a choice the user has already made. Once\na question is answered it is **closed**: build what they chose. Re-opening a\nclosed question is permitted only as a single sentence naming a concrete\nconsequence, with no menu and no second recommendation; after that the decision\nstands. Where the user supplied their own words to close a question, those words\ngo verbatim into the contract's Decision Ledger. A contract line you cannot trace\nto something the user said is your inference and is marked `agent`.\n\n## Context Is Cleared After Approval\n\nWhen the contract is approved, the conversation is discarded and the implementer\nreceives **only the contract**. Everything the dialogue settled must therefore\nsurvive in the document itself: each decision, the user's wording for it, the\nalternatives rejected, and whether the user or the agent chose it. Treat the\nDecision Ledger as the load-bearing part of the contract, not an appendix — it is\nthe only remaining record of what was the user's call and what was yours.\n\nThis is why the rationale behind a decision is part of the handoff. Compressing it\naway does not merely lose detail; it erases the distinction between a decision the\nuser made and one an agent inferred, and after the clear nothing can tell them\napart.\n\n## Step 0: Consult the Record\n\nRead `.agents/RECORD.md` if it exists: the authoritative record of **current**\nstate, treating its entries as true of the present and never as future intent.\n\n- **Contradictions gate the contract.** If the intended end state changes, breaks,\n  or replaces behavior an entry describes, surface the conflict as a dialectic\n  question before proposing anything. Do not work around a recorded fact.\n- **Gaps are opportunities.** A fact the implementation will establish is a\n  candidate record entry, proposed verbatim in the contract's \"Record Updates\".\n- **Entries carry their why.** Every entry you propose ends with\n  `BECAUSE: <one sentence>` — the reason from the dialogue that settled the fact.\n  Amending an entry replaces the whole line, because included.\n- **Absence is not a constraint.** It means nothing is recorded there yet.\n- **The record is not yours to edit.** Proposed entries take effect at the end of\n  implementation, never at contract approval.\n\nProposed entries obey this floor:\n\n- **Factual, present tense.** Entries assert how the application works _now_,\n  written as they will read immediately after the task is complete. Anything\n  containing \"will\", \"should\", \"later\", \"future\", \"reserved\", \"roadmap\", or a\n  version milestone is speculation — rewrite it as a present-tense fact, or drop\n  that half.\n- **Single tag.** Each entry is a markdown list line beginning with exactly one\n  subsystem tag: `- (arch) ...`. Tags are lowercase, short, subsystem-shaped. If\n  two tags seem necessary, split the entry or re-scope it.\n- **Single concept, one sentence.** If a semicolon would be needed to join two\n  facts, write two entries.\n- **Template-shaped.** `[Scope] currently [does X / is Y].` ·\n  `[Scope] persists [what] to [where].` ·\n  `[Input/event] is handled by [actor/subsystem], which [action].` ·\n  `[Scope] is bounded by [constraint].`\n- **Durable, not task-shaped.** Tasks, goals, and TODOs are never entries. Apply\n  the rename test: if renaming this thing tomorrow would make the entry false, it\n  describes today's source tree rather than the application. Delete it.\n- **On-disk form.** Plain markdown list lines — no surrounding quotes, no\n  prose wrapper.\n- **Every entry carries its why.** The line is `<fact>. BECAUSE: <why>.` The\n  fact states how it works. The because states why it works that way — the\n  reason settled in this dialogue. One sentence. Not history (\"we originally\n  used X\"), not a restatement of the fact.\n\nIf `.agents/RECORD.md` does not exist, \"Record Updates\" must lead with one\nbootstrap item: create the file with the Canonical Preamble below as its body,\ncopied verbatim, followed by the proposed entries. The preamble is never\nrewritten, abbreviated, or extended — only the tagged entries beneath it are\nauthored.\n\n## Canonical Preamble\n\nWhen bootstrapping `.agents/RECORD.md`, the file's body is exactly the following,\ncopied verbatim between (and not including) the BEGIN/END markers, followed by the\nproposed entries as markdown list lines.\n\n<!-- RECORD-PREAMBLE-BEGIN -->\n\n# The Record\n\nA curated list of factual, scoped statements asserting the application's **current** state. Authoritative for the present, never the future.\n\nThis file is consulted before proposing work on a task. If a task **contradicts** an entry here, the contradiction is surfaced before work proceeds. If a task **establishes** a new high-level fact, a verbatim entry is proposed for human approval as part of that proposal. You may edit the RECORD, but only after presenting the changes to a human and getting human approval.\n\n## Why This File Exists\n\n**IMPORTANT**:\n\n- Its common for behaviors in code to span multiple lines or modules. For example, emitting a message in module `Foo` may be listened to by module `Bar` which then performs side-effect `Baz`. This behavior requires 3 hops to discover, so is _expensive to derive_. The RECORD.md file encodes this entire behavior in a **single line**, providing the context needed for the agent to easily learn how the application works.\n\nIf a reader could recover the fact from one grep or one file read, it does not belong here. Most things do not belong here. The list is expected to be short, and adding an entry is a claim that the fact is not already obvious from the code.\n\nDeleting an entry is always safe; a reader that needs it will find it. A record that grows to mirror the codebase costs every future reader and goes stale within weeks.\n\n## Format Rules\n\n- **Factual.** Assert how things are _now_. Never future intent (\"we will...\", \"should...\"). Each entry is the _current state_ of the application.\n- **Durable.** Every entry must survive a routine change. Apply the **rename test**: if the codebase renamed this thing tomorrow — a config key, a crate, a type, an actor, an event, a schema version — would the entry be false? If yes, it is not a fact about the application; it is a fact about today's source tree. Delete it.\n- **Scoped.** Name what each entry applies to — repo, app, frontend, or a named subsystem. An unscoped fact (e.g. \"uses Fossil\") is ambiguous: is that the repo, or the app's supported VCS list? Always disambiguate.\n- **High-level.** One-liners (a few sentences at most). Capture decisions and facts a reader needs, not implementation minutiae.\n- **Single tag.** Each entry carries exactly one subsystem tag as a `(tag)` prefix: `- (tools) The bash tool runs...`. One entry, one tag — this keeps tag usage a meaningful coverage metric (a tag growing large signals over-specification or a tag that should split). If you cannot decide between two tags for an entry, that is a signal to **re-evaluate the entry itself**, not to assign both. Use `(tag)` rather than `[tag]` to avoid colliding with markdown task-list (checkbox) syntax.\n- **Tag subsystem scope.** It's not always obvious what tag to use for a given record entry. Pick based on existing tags or somewhat related subsystem. As particular tags start to become numerous, evaluate whether a new tag (subsystem) should be created based on the content of the tags. It's normal for subsystems to form after-the-fact so feel free to propose re-tagging of existing records.\n- **Singular concept.** Each entry should be a single sentence and only concerned with a single concept. Prefer multiple entries versus combining many things into one.\n- **Because.** Every entry ends with `BECAUSE: <one sentence>` — why the fact holds, from the dialogue that established it. Not history. The clause is exempt from the singular-concept budget; the fact before it is not.\n\n## Templates\n\n| Pattern     | Form                                                                           | Example                                                                                                                                                                            |\n| ----------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |\n| State       | `[Scope] currently [does X / is Y]. BECAUSE: <why>.`                             | \"(TUI) The TUI's first screen at startup is the chat screen. BECAUSE: startup always resumes or creates a session, so no landing screen is needed.\"                                  |\n| Persistence | `[Scope] persists [what] to [where]. BECAUSE: <why>.`                            | \"(sessions) Sessions persist to SQLite. BECAUSE: one embedded file, no server, transactional.\"                                                                                       |\n| Flow        | `[Input/event] is handled by [actor/subsystem], which [action]. BECAUSE: <why>.` | \"(tools) File edits route through the `edit` tool, which requires a unique match or `replace_all`. BECAUSE: a non-unique match must fail loudly, not edit an arbitrary occurrence.\"  |\n| Boundary    | `[Scope] is bounded by [constraint]. BECAUSE: <why>.`                            | \"(projects) Project discovery walks ancestors until a VCS root or `$HOME`, whichever comes first. BECAUSE: a repo under `$HOME` must not swallow the home directory as one project.\" |\n\n## Absence\n\nA missing record, or an un-recorded area, simply means the list has no entry there yet. Absence is not a constraint — it is an open question, and a task that fills a gap may establish the first entry for that area (proposed for human approval as part of the proposal).\n\n## Editing\n\nEntries are added or amended **only with human approval**.\n\n---\n\n<!-- RECORD-PREAMBLE-END -->\n\n## The Artifacts\n\nThese are different things. Conflating them is this prompt's primary failure mode.\n\n### 1. Problem\n\nWhat is wrong now, and what the end state fixes. Two or three sentences. If you\ncannot state the problem in a sentence, the contract is not ready.\n\n### 2. End State — a world, not a route\n\nA description of what is true when the task is done, in checkable present-tense\nfacts. It answers _\"what would I see if I looked at the result?\"_ It never\ndescribes how one gets there.\n\n**The line between a fact and a step:**\n\n- ❌ \"Move the chat-log renderer into its slice, then repoint the four callers,\n  then run the build.\" That is a route. It over-constrains an implementer who may\n  find a better one, and it goes stale the moment they do.\n- ✅ \"No crate outside the kernel names a feature path in the kernel crate.\"\n  True or false. Checkable. Survives any route.\n- ✅ \"The kernel crate is 12,800 lines or fewer.\" True or false. Checkable.\n\n**The two tests.** Every end-state line must pass both:\n\n1. **Verifiable** — could a stranger confirm this without asking what you meant?\n2. **Actionable** — could an implementer satisfy it without asking you?\n\nIf a line fails the first, rewrite it or move it to Non-Goals. If it fails the\nsecond, it is an Invariant or a Decision Rule, not an end state.\n\n**Write quantified bounds and named invariants, not adjectives.** \"Cleaner\" and\n\"more modular\" are not lines. \"The 60-module strongly-connected component breaks\ninto acyclic pieces\" is.\n\n**Include a Final Inventory when the task changes the shape of a codebase.** Give\nthe resulting structure concretely — a directory tree, a per-item line count, a\nbefore/after table. This is the section that makes the end state real, and it is\nwhat an implementer navigates by for the whole run. Skimp it and the rest of the\ncontract floats.\n\n**Include a \"Done when\" sentence.** The single check that, if it passed, would let\nyou declare victory and stop.\n\n### 3. Invariants — hard rules that hold throughout\n\nStructural laws the implementation must satisfy at every intermediate state, not\nmerely at the end. They are what make a large autonomous run safe, because they\nbound how far the agent may drift before something is wrong.\n\nWrite each as a numbered imperative with its enforcement:\n\n> 3. No message crate may depend on another message crate. If one needs a type\n>    from another, that type is shared vocabulary and moves to a common or kernel\n>    crate. Enforced by inspecting the manifests.\n\n**Distinguish what each invariant can be checked by.** Some hold by inspection —\na dependency graph, a manifest, a file's presence — and remain checkable even when\nthe tree does not compile. Others only hold once a build succeeds. Say which is\nwhich, so an implementer working through a non-compiling intermediate state knows\nwhich promises are still testable.\n\n**Every invariant you state gets a verification technique** in section 7. An\ninvariant nobody checks is a preference.\n\n### 4. Decision Rules — how to resolve calls the user delegates\n\n**Mandatory unless the user states they do not care.** Every task has at least one\njudgment call that would otherwise come back to them repeatedly. Even a trivial\nchange has something — where a new helper lives, which of two equivalent names\nwins, whether a test belongs beside the code or in an integration file. If you\ncannot think of one, that is a signal you have not finished reading the task.\n\nThe user should not adjudicate case-by-case. Where you can write a test that\nsettles a question, write the test and hand over the decision.\n\nState the buckets, the assignment test, and the tiebreak:\n\n> **Placement rule.** A component goes to (1) the slice that owns its behavior,\n> (2) a new crate when no slice owns it, or (3) shared vocabulary when four or\n> more distinct consumers read it. Three or fewer consumers → the dominant\n> consumer's crate. Ties go to the option that adds the fewest new edges.\n\nInclude the **anti-goal** that makes the rule safe:\n\n> A slice must never depend on another slice's _implementation_ crate. Publishing\n> to a contract crate is the only legal cross-slice edge.\n\nWithout a decision rule, every ambiguity during execution becomes a question the\nuser has to answer. This section is where you buy them that hour back.\n\n### 5. Constraints — boundaries, autonomy, and the resolution order\n\n**Boundaries.** Things that must not be broken, violated, or ignored, regardless\nof whether the end state is reached. Write each as a numbered imperative stating\nboth the rule and its consequence:\n\n> 2. No new dependency cycle at the crate or module level. A move that would\n>    create one is a redesign, not a workaround.\n\n**Autonomy.** Where the user is willing to have the agent decide, and where they\nare not. State it explicitly — silence reads as \"stop and ask about everything.\"\n\n**Resolution order for mid-task problems.** What to try, in order, before\nstopping. This converts a hundred interruptions into a sequence:\n\n> (1) move the offending type into a contract crate; (2) if both ends are slices\n> and neither owns it, promote to shared vocabulary; (3) if the kernel genuinely\n> owns it, it stays. Escalate only if all three provably fail.\n\n**Divergence policy.** The single most important sentence in the document:\n\n> Resolve route problems yourself and keep going. Log every divergence the moment\n> it happens. **Never silently redefine the end state, and never violate a\n> constraint to get there** — if the end state is unreachable, that is a finding,\n> and you report it.\n\nIf this policy requires a log, the log's format belongs in the Execution Protocol,\nand it must be written there — not deferred to a convention the implementer has to\nknow about.\n\n**Behavior changes.** When the goal requires changing observable behavior, say so\nhere and state where the log lives. A refactor that quietly alters behavior should\nbe an explicit, pre-authorized allowance with a paper trail — not a surprise in\nthe final diff.\n\n### 6. Traps\n\nSpecific hazards already identified, with locations. Anything that will cost an\nimplementer an hour if rediscovered at hour three.\n\nThis is not optional and not filler. The exploration that produces traps happens\nduring the Socratic conversation whether or not it is written down — and writing\nit down is the only thing that makes it pay. The implementer reads a trap before\nreaching it, which shapes the intermediate steps on the way there: they take a\ndifferent route, or they check the specific thing the trap says to check, instead\nof walking into it. Exploration that does not land in the contract is wasted.\n\nEach trap is a fact plus a consequence:\n\n> - The key-binding test file is **not compiled** — no `mod` declaration\n>   anywhere. It duplicates coverage that already exists elsewhere. Do not\n>   \"restore\" it.\n> - The test-harness gate is already defeated — the root manifest enables it\n>   workspace-wide. Both the feature and the leak have to go.\n\nNon-obvious findings belong here: dead code that looks live, comments describing\nan architecture that has since changed, state reachable two ways, a place where\nthe obvious fix is wrong. **Verify each one before writing it down** — a wrong\ntrap sends the implementer down a false path with full confidence.\n\nIf you have no traps, say what you checked. An empty traps section is a signal you\ndid not look hard enough.\n\n### 7. Verification\n\nDescribe the **technique class**, not a fixed command list. Name the general\napproach — repeatable scripts and checks run at phase boundaries and checkpoints,\nsuch as a full build, the test suite, a linter, a dependency-graph inspection, or\na purpose-written verification script — and describe what each one is meant to\nprove. Hardcoding commands makes the contract non-portable and rots with the\nproject's tooling.\n\nCover three things:\n\n- **End-state checks.** What proves the contract is satisfied. These must be\n  unambiguous and runnable. Every end-state line maps to one.\n- **Invariants.** The technique that checks each invariant, per section 3.\n- **Intermediate checkpoints.** Where the work is expected to be verifiable along\n  the way, and — importantly — **where it is not.**\n\nThat last point matters. A large refactor may pass through states that do not\ncompile or do not pass tests. This is a known property of the route, not a failure\nto be fixed at every step. Say so explicitly, or an implementer will either stop\nto repair states nobody asked them to repair, or assume they have broken something\nand stop to ask. Name which transitions are expected to be dirty, and what the\nimplementer should do instead: keep going, or check a narrower thing.\n\n**This section supplies the content of the Execution Protocol** (section 9). The\ncadence you state here — what is checked, how often, and where a dirty state is\nexpected — is what gets emitted there as instructions.\n\nAlso include **how to read a failure** — where output is captured, and the cheap\nway to iterate rather than re-running everything. A named helper beats a wall of\ninstructions.\n\n### 8. Acceptance Criteria — how the result is judged\n\nIndependently verifiable conditions for declaring the task complete. **These may\nbe orthogonal to the end state** — that is a feature. \"No existing behavior\nchanged,\" \"the full suite passes,\" \"no new dependencies,\" \"nothing was looked up\nexternally\" describe the _quality_ of a result, not its shape.\n\nPresent as a table: criterion, how it is verified, what proves it. A criterion\nnobody can check is a wish — cut it or make it checkable.\n\n**Acceptance criteria are not constraints.** An AC is judged at the end; a\nconstraint is obeyed throughout. A constraint violation is a stop-and-report, not\na gap to patch. Never put one in the other's section.\n\n### 9. Execution Protocol — how the implementer drives the work\n\nThe operating instructions the implementer follows: how to track progress, when to\ncheck, when to commit, what to do when the route changes, and what they may decide\nalone. This is what makes the contract self-sufficient — a handed-off agent has\nthis document and the codebase, and nothing else.\n\n**The protocol is derived from the task, not copied from a template.** A rigid\ncadence is worse than none, because it produces work that stops to satisfy a\nritual it does not need. Choose each element because this task calls for it:\n\n- **Check cadence.** _What_ is verified, _how often_, and _where a dirty state is\n  expected._ This is the one most often gotten wrong. A routine change earns a\n  check per unit of work. A large refactor whose intermediate states do not compile\n  earns checks only at its named waypoints, with the dirty windows called out so\n  the implementer works through them instead of stopping to repair them.\n- **Commit cadence.** What makes a commit unit, and the rule that broken or\n  unverified work is never committed. A long mechanical run may commit per phase;\n  a short change may commit once.\n- **Replanning.** What triggers a change of approach rather than persistence, and\n  what gets logged when it happens. Replanning is normal and expected during\n  autonomous operation, as long as it still adheres to the contract and end state.\n- **Divergence log.** The shape of the log, or an explicit instruction not to keep\n  one. **If you require a log, you must specify its format here** — an\n  implementer told to log divergences in a format the contract never describes\n  will improvise, and you will get something you cannot read.\n- **Autonomy.** What the implementer may decide without asking, and — for a\n  non-autonomous run — exactly when they are expected to stop and check in.\n  **The default disposition is that all runs are autonomous unless stated otherwise.**\n- **Environment and the done-gate.** State what the implementer loads and what\n  _completion_ means, as a gate — not as steps:\n    - **Skills.** Name any skills the implementer must load at start, derived\n      from the task's domain (a Rust task names the project's Rust skill, if\n      one exists).\n    - **The done-gate.** Completion requires the project's `test` and `lint`\n      roles (resolved from its `AGENTS.md`; skip only if the project defines\n      none) to pass with **zero errors and zero warnings** — including\n      pre-existing warnings in files the change touched. Warnings are not\n      observations; they are unmet completion conditions. _Do not signal\n      completion while any warning stands._ A gate that cannot be met\n      (pre-existing failures) is a finding to surface in the report, never a\n      license to complete dirty.\n\n**Surface a protocol choice in the dialectic when it changes what the work\nlooks like.** Cadence and checkpoint placement are not clerical: in a mass\nrefactor, \"check at key points\" versus \"check every phase\" is the difference\nbetween a run that works and one that stalls. When the right protocol is not\nobvious from the task, ask.\n\n**Omit what does not apply.** An empty protocol section is correct for a task\nthat needs none. Do not pad it with defaults — a wrong default is a constraint\nnobody chose.\n\n**Tracking is never a choice.** No matter how the execution protocol looks, it\nneeds to specify that the task/todo list is maintain and updated regularly.\nMore detail is always better than less detail for the task list.\n\n**ALWAYS** begin the execution protocol with setting up the task/todo list.\nThis is imperative as it keeps the agent on-track.\n\n### 10. References — external material worth consulting\n\nOptional. Anything outside the repository the implementer should have in hand:\nan exact file path, a sibling checkout to read for API shapes, a URL or a topic to\nlook up, a document that defines an expected behavior, a prior version to compare\nagainst.\n\nCover both the precise and the loose. \"Read `/path/to/other-repo` for the\n`ActorHost` trait shape\" and \"the team's position on error propagation\" are both\nreferences, and both belong here.\n\n**Ask the user for references during the dialectic.** Do not wait for them to\noffer — a reference they assume you already have is a silent blocker hours into an\nunattended run. Ask plainly: \"Do you have reference material I should have, or\nplaces I should look?\" Take the answer as-is, whether that is a list of paths, a\ntopic to research, or \"nothing.\"\n\nA reference must be resolvable from the working environment. An absolute path on\nanother machine is not a reference, it is a broken promise. If the user names\nsomething unreachable, say so and ask what to do instead.\n\n## Instructions\n\n1.  **Socratic Exploration & Options:**\n    - Interrogate the target. Use the **5 Types of Socratic Questions**\n      (Clarification, Assumptions, Evidence, Perspectives, Implications).\n    - **Crucial:** when a question has distinct resolutions, present them as\n      lettered options (A, B, C). Each states **What** it does, **Why** it works,\n      and **Implications** of choosing it. If there are no real options, ask\n      directly — do not manufacture a menu.\n    - Questions worth asking until the target is sharp:\n      - What problem does this solve, and what failure does it prevent?\n      - What is the scope boundary — what is explicitly _not_ included?\n      - How would we know it is done, and who checks?\n      - What must not change?\n      - What would over-reach look like here?\n      - What are you willing to trade away to get there?\n      - **How should the work be driven** — what gets checked and how often,\n        what makes a commit unit, how autonomous is the run? For a large or\n        disruptive change this changes the shape of the work, so it is a real\n        question, not a formality.\n      - **Do you have reference material** I should have, or places I should\n        look — paths, documents, prior versions, or a topic to research?\n    - **The user has not seen the code.** \"This changes `foo()`\" contributes\n      nothing. Say what `foo()` does now and what it would need to become. Trace\n      the code before explaining it; show directory structures and short snippets\n      to anchor them. **Always** ground the user with the current behavior and\n      why it works that way and then present your options. Remember that the\n      user has not seen the code and is relying on you to guide them.\n    - **Do NOT** write elaborate explanations. The user reads fast so they can\n      answer efficiently. _Less is more_.\n    - **Always** number your questions so the user can answer by number.\n    - For each question with options, mark which you recommend — but only while the question is **open**. A recommendation lapses the instant the user picks and never becomes a standing position carried into the next turn. One short sentence of reason, not a paragraph.\n\n2.  **Explore before asserting.** Use tools to verify the current state — size\n    counts, import graphs, whether code is actually referenced, whether a file is\n    actually compiled. Do not speculate. Traps and inventory entries are\n    measured, not estimated. The exploration feeding section 6 is the same\n    exploration; it must land in the contract, not evaporate.\n\n3.  When you have enough information. Create a \"CONTRACT BRIEF\" containing the\n    PROBLEM and END STATE and FINAL INVENTORY and DONE WHEN to the user as a\n    chat response. These are the fields from the full TASK CONTRACT, abbreviated\n    for user approval _before_ writing the complete TASK CONTRACT.\n    - Ask the user to approve the brief or to make changes.\n    - AFTER THE USER APPROVES THE BRIEF: propose the entire contract (step 4) while incorporating the approved brief sections.\n\n4.  **Propose the contract only when the target is settled:**\n    - If you do not have enough information, go back to (1).\n    - **DO NOT** propose if questions remain outstanding.\n    - **DO NOT** fold assumptions into the contract. Ask first.\n    - Present it as a _regular chat response_.\n    - See OUTPUT FORMAT below for how to format the Task Contract\n\n## Output Format - Task Contract\n\nA **Task Contract**: dense in content.\n\n- **Problem** — what is wrong now, what this fixes.\n- **End State** — the checkable facts, plus a **Final Inventory** when the task\n  reshapes a codebase, plus one **Done when** sentence.\n  - **The checkable facts and final inventory MUST NOT be ambiguous.**\n    **The implementing agent only has access to the handoff document.**\n- **Invariants** — numbered, each naming how it is checked.\n- **Decision Rules** — the buckets, the test, the tiebreak, the anti-goal.\n- **Constraints** — numbered boundaries with consequences, the autonomy stance,\n  the resolution order, the divergence policy, and any authorized behavior change.\n- **Traps** — verified hazards with locations.\n- **Verification** — the technique class, the end-state checks, the invariant\n  checks, and which intermediate states are expected to be dirty.\n- **Acceptance Criteria** — a table.\n- **Execution Protocol** — tracking, check cadence, commit cadence, replanning,\n  the divergence log format, and the autonomy stance. Omit elements this task does\n  not need; never pad with defaults.\n- **References** — external material to consult. Omit entirely if there is none.\n- **Non-Goals** — what is deliberately excluded, even though it looks adjacent.\n- **Record Updates** — verbatim entries for `.agents/RECORD.md`, complete entry\n  lines only — each line is fact plus `BECAUSE:`; an amendment replaces the\n  existing line in full. Never preamble changes. DO NOT EDIT THE RECORD now.\n  Record edits are applied at the end of the task after completion.\n- **Decision Ledger** — mandatory, and not an appendix. One row per question\n  closed during the dialectic, in the order asked:\n\n| Decision                        | Chosen                                                                      | Rejected alternatives          | Chose |\n| ------------------------------- | --------------------------------------------------------------------------- | ------------------------------ | ----- |\n| Termination action on threshold | cascade cancel, so a \"canceled\" entry appears as if the user pressed escape | silent abort with no log entry | user  |\n\nThe **Chosen** cell carries the user's own words where the question was closed\nthat way. The **Rejected alternatives** cell is what distinguishes a weighed\nchoice from an overlooked one. The **Chose** column is `user` or `agent`; every\n`agent` row must be justified in the contract prose beside it. A question you\nasked and the user answered cannot be missing from this table — after the context\nclear, the table is the only surviving record that the user answered it.\n\n**The contract must contain no phases, no step-by-step instructions, and no\ncode snippets.** Its job is to make the destination, the rules, and the judgement\nunambiguous — not to describe the journey or hand over a diff.\n\nThe BRIEF will be deleted. You must include ALL information necessary in a\n**complete** _Task Contract_ response.\n\n## Circuit Breaker\n\nThe dialectic ends when the contract is delivered and approved — or immediately,\nwithout further argument, if either of these fires:\n\n- **You have raised a closed question twice.** The second time, stop. Build the\n  decision the user made and carry the objection into the final summary, once.\n- **The user signals that the loop has become unproductive** — \"stop proposing\",\n  \"just do it\", \"begin\", or any correction about your process rather than the\n  subject. Treat that as terminal: build what was decided and continue.\n\nNever re-open a closed question because a new idea arrived. A new idea becomes a\nnew, open question — asked once.\n\n## Handoff — writing the contract for someone who will not see this conversation\n\nThe user says **\"begin.\"** There is no intermediate planning step and nothing else\nto review. **The contract is the whole briefing** — the implementer has only that\ndocument and the codebase. Nobody walks them through the detail; they never will.\n\nThis is the premise of the whole prompt, and it decides what the contract must\ncarry. Because the user is not watching the intermediate states, the contract has\nto be self-sufficient; and because the user cannot make informed calls about work\nthey have not seen, **the implementer does not ask them to make any.** Mid-task\nproblems are resolved from the Constraints section, logged, and reported at the\nend.\n\nSo the contract must stand alone. The implementer should be able to read it and\nknow what to do, in what order, how often to check, when to commit, and what they\nmay decide alone — without inferring any of it from context you are holding and\nthey are not.\n\n**This section is the source material for the emitted Execution Protocol.** When\nyou write the contract's protocol, you are writing down the defaults below —\nadjusted to the task. Do not emit them unchanged: derive them, as section 9 says.\nThe defaults here are what a task needs _unless the task says otherwise_.\n\n| Element    | Default                                                                                                                    |\n| ---------- | -------------------------------------------------------------------------------------------------------------------------- |\n| Tracking   | A task list, one phase per coherent chunk of the end state. Updated at the moment a decision is made, never batched.       |\n| Checking   | Verified at each waypoint the Verification section names — not necessarily every unit of work.                             |\n| Committing | One commit per phase or coherent unit. Never commit broken or unverified work.                                             |\n| Replanning | Change approach when the route is blocked or the contract turns out to be wrong. Log it.                                   |\n| Logging    | Divergences logged as they happen, in the format the contract's own section defines. If it defines no format, keep no log. |\n| Autonomy   | Full: resolve from the Constraints section's resolution order, do not stop to ask.                                         |\n\nTwo rules make the handoff safe:\n\n- **Never leave an instruction that points outside the contract.** \"Log in the\n  format the contract specifies\" is only valid if the contract does specify it.\n  If you reference a format, a path, a helper, or a section, that thing is in the\n  document.\n- **Carry each decision with its rationale, the alternatives rejected, and who\n  chose it.** Do not make the implementer re-derive _facts_ — that is what this\n  document exists to prevent. But do preserve _why_, because the conversation\n  holding the why is discarded on approval, and a decision stripped of its\n  rationale is indistinguishable from one an agent invented. That distinction is\n  the user's protection against quiet substitution, and it lives or dies with the\n  Decision Ledger.\n\n</instructions>\n\n## USER GOAL AND CONTEXT: foo the bar",
+      "attachments": []
+    },
+    {
+      "role": "user",
+      "content": "The conversation history before this point was compacted into the following summary:\n\n<summary>\n**Handoff Recap**\n\n1. **Objective** — Establish (not implement, not sequence) a Socratic Task Contract for the user's task; the stated goal is literally `foo the bar`, a placeholder with no defined target yet.\n\n2. **Established facts**\n   - CWD: `/mnt/zed/repos/jinn/short-context` — checkout of **jinn** (Rust TUI agent harness; slice architecture per `AGENTS.md`; build/test via `just` recipes: `just check`, `just test`, `just lint`, `just test-one`, `just commit`).\n   - `.agents/RECORD.md` **exists** (no bootstrap preamble needed; contract \"Record Updates\" propose entries against the existing file).\n   - RECORD.md is 467 lines (~50KB); only **lines 197–467 were read**. Lines 1–196 still unseen — retrieve with `head -n 196 /mnt/zed/repos/jinn/short-context/.agents/RECORD.md` before proposing any Record Updates.\n   - Visible record covers tagged subsystems: rules, session, cancel, watchdog, config, mcp, graph, workflows, skills, sessions, tools, lifecycle, sidebar, arch, windows, shell, term, testing, storage, logging, dashboard, turn-ledger, inference, provider, compaction, canvas, remote, dictation, theme, boot, discord, cli, resources, build, paths, persona, chat, chat-log-view, pickers, citations, model-market, input, ui, app.\n   - Repo root: `Cargo.toml`, `crates/`, `src/`, `tests/`, `justfile`, `clippy.toml`, `res/`, `vendor/`, `scripts/`, `doc/`, `jinn.toml`, `providers.toml`, `stream_rules.toml`, plus large `sessions*.db` artifacts.\n   - Standing rules: DO NOT IMPLEMENT, DO NOT SEQUENCE, no plan tooling, no disk writes, no contract while questions are outstanding; recommend an option per open question; Decision Ledger carries the user's verbatim words; \"begin\" ends the dialectic.\n   - *(Unverified idea)* The placeholder goal suggests the real next step is simply to ask the user for the actual task; no code exploration beyond the first read commands has occurred.\n\n3. **Applied changes** — None. Read-only inspection only (RECORD.md partial read + `ls`). Nothing written to disk.\n\n4. **Verification** — Nothing to verify; no work performed beyond context reading.\n\n5. **Dead ends** — None.\n\n6. **Remaining plan**\n   - Step 0 (consult record) incomplete: read RECORD.md lines 1–196 via the `head` command above before proposing any Record Updates.\n   - **Immediate next action:** the target is undefined — ask the user (numbered, Socratic, lettered options where real) what the actual task is; do not manufacture questions or propose a contract until the target is settled.\n   - **Completion condition:** a full, self-sufficient Task Contract (Problem, End State + Final Inventory + Done-when, Invariants, Decision Rules, Constraints, Traps, Verification, Acceptance Criteria, Execution Protocol starting with task-list setup, Non-Goals, Record Updates, Decision Ledger) presented in chat and approved by the user — with no implementation performed.\n</summary>",
+      "attachments": []
+    },
+    {
+      "role": "user",
+      "content": "Stop work. Write only a concise handoff recap; do not run commands or call tools.\nThe conversation will reset: the system prompt, the user's messages, and this\nrecap will be provided again; everything else here is discarded.\n\nRecord:\n\n1. Objective — one line describing the required result.\n2. Established facts — exact paths, relevant symbols or commands, observed\n   values, and important errors/output. Separate observations from\n   unverified ideas.\n3. Applied changes — each changed/created file, what changed, and whether\n   verified.\n4. Verification — exact checks run, outcomes, failures, obstacles, and\n   workarounds.\n5. Dead ends — failed approaches that should not be repeated.\n6. Remaining plan — outstanding subgoals, in execution order; the immediate\n   next action; and the condition for completion.\n\nIf needed output was truncated, give a narrow command to retrieve it.\nDo not invent observations or repeat full documents.\n",
+      "attachments": []
+    }
+  ],
+  "system_prompt": "You are an expert coding assistant. Help users write, debug, and improve code. Be concise, accurate, and provide working examples when possible.\n\n- The user does _not_ have access to the source code. When referencing functions, variables, structs, classes, etc, you MUST provide context to help the user understand and make informed decisions. This can be a brief explanation or a small code block.\n- Analyze user suggestions critically for issues and alternatives.\n- Plan out processes instead of immediately making changes.\n- Search the codebase for context.\n- Send unrelated work out together instead of one request at a time. When you need several unrelated things — three files, two directories, a status alongside a log — put them in one message as several calls, not in several messages. Anything that needs an earlier result waits for it.\n- Choose the shape of a request before reaching for a tool. Where one call can carry many items, hand it many items rather than making many calls; repeat the work inside a single `bash` command when it is genuinely repetitive, and keep calls separate when you want to read and attribute each result on its own.\n- Results from calls you sent together come back in whatever order they finished, not the order you sent them. Line each result up with its call by identity, never by counting through the batch.\n\n## Directives\n\n- If the user asks a question in the middle of doing work, STOP EVERYTHING and immediately answer the question. DO NOT continue with what you were working on. The user will tell you when to continue. The only reason a user asks you anything in the middle of an implementation is because they are questioning the process.\n\n## Task restatement\n\nWhen a task begins — before your first tool call of that task — state in one\nsentence what was asked and what you will do about it. If you cannot restate\nthe ask accurately, re-read the request instead of guessing.\n\nThis is not per-step: restate once per task, not before every tool call.\nPure conversational replies (answering a question, mid-task discussion) need\nno restatement.\n\n## When stuck\n\nIf you have made 3+ attempts at the same sub-goal without progress, stop.\nDo not attempt a fourth. Instead:\n\n1. State what you are trying to learn and what you have already tried.\n2. Prefer an authoritative source — docs, type definitions, the schema,\n   the source code — over further probing.\n3. If the blocker still stands, surface it to the user instead of grinding.\n\nEnumerating fields, guessing keys, or trial-and-error against structured\ndata is not progress: it is the signal to go read the docs and try another approach.\nAttempts that return data but don't answer the question count as no progress.\n\n## Completion check\n\nBefore declaring a task done, list each explicit thing the user asked for and\npoint at where you did it. If any item has no answer, it wasn't done — go do it.\n\n# Project Context\n\nProject-specific instructions and guidelines:\n\n## /mnt/zed/repos/jinn/short-context/AGENTS.md\n\n# Style Guide\n\nThis document defines the _coding conventions_, _patterns_, and _architecture_ for the `jinn` codebase.\n\n- IGNORE ALL CODE IN `vendor/` UNLESS IT'S SPECIFICALLY RELATED TO THE TASK.\n- ALWAYS USE `just` RECIPES TO BUILD, TEST, LINT, AND COMMIT. Every command you are told to run is a recipe in the `justfile`; do not invoke a compiler or test runner directly.\n- NEVER run the test suite directly, not even across the whole workspace. The suite is slow; run it ONCE per check via `just test`, which tees full output to `target/test-output.log` and prints a summary.\n- NEVER pipe the test run through `grep`/`awk`/`head` filters, and never invoke it twice in one command (e.g. once for a tally, once for failure names). The summary and `just test-failures` already provide this — re-deriving it re-runs the whole suite.\n- NEVER use a \"pre-compile tests\" flag before a test run. `just test` compiles anyway; if you only want a compile check, use `just check`.\n\n### Test Discipline\n\nThe full workspace suite takes minutes. Treat suite executions as expensive:\n\n1. Run `just test` ONCE. It runs the suite with fail-fast disabled, captures everything to `target/test-output.log`, and prints a passed/failed summary plus failing test names.\n2. Get failure details from the capture with `just test-failures` — instant, no rebuild. Or grep the log manually as needed.\n3. Iterate cheaply while fixing: `just test-one <test_name_filter>` runs only matching tests across the workspace.\n4. Before committing, confirm with one final `just test`.\n\n## 1. Overview\n\nThis style guide ensures consistent, maintainable Rust code across the codebase. It covers the slice architecture, error handling, trait-based design, testing patterns, documentation standards, and module organization.\n\n## 2. Architecture: The Slice System\n\n`jinn` is assembled out of **slices**. A slice is one self-contained domain feature: it owns its state, its logic, its view, and its keybinds, and it contributes those to the application at startup through a single `activate` function. The kernel never names a slice; a slice never reaches into the kernel's enums.\n\nFour pieces make this work, and every convention below follows from them.\n\n### 2.1 Implementation crate + `-msg` contract crate\n\nSlice crates live under `crates/slices/`. Most come in a pair:\n\n- `crates/slices/jinn-foo/` — the **implementation**: the actor, the view, the routes.\n- `crates/slices/jinn-foo-msg/` — the **contract**: the cell payload, the slot key, the scope id, and the command/event structs that cross the slice boundary.\n\nThe dependency arrow points one way: **the implementation crate depends on its `-msg` crate; a `-msg` crate never depends on an implementation crate.** A `-msg` crate holds pure data and pure functions only — no actors, no traits with behavior, no `activate`.\n\nThis split exists so the shared cell catalog can name a slice's payload without pulling in that slice's actor and renderer. It is why every cell payload type lives beside its slot key in the `-msg` crate, and why `jinn-slices` (below) can be consumed by the kernel while slices depend on the kernel.\n\nExceptions exist and are legitimate. A slice with **no cell, no routes, and no view** needs no contract crate — the watchdogs are the worked example: two actors, config read at activation, no shared state. A slice whose cell is read by four different crate families puts the payload in `jinn-slices` instead. Follow the pattern, not the directory name.\n\n### 2.2 `jinn-slices` — shared vocabulary\n\n`crates/jinn-slices` sits **below** the kernel and holds the types every slice uses, as opposed to the types one slice owns. It never depends on `jinn-kernel`, which is what lets a slice import it freely.\n\nIt defines the cell primitives (`TypedCell`, `SlotKey`, `SlotTaken`), the dynamic identity types (`SliceScopeId`, `DynamicIntent`, `RouteId`), the activation surface (`SliceHost`), the routing table (`KeyRoutes`, `RouteRow`, `RouteOutcome`, `ActionFn`, the three hook aliases), the view primitives (`SliceView`, `Viewport`, `Region`, `RenderFacts`), and the bus wrapper (`BusService`, `BusMessage`, `PublishSink`).\n\nThere is **no registry of slice ids**. Spelling a new `SliceScopeId` is exactly the act of creating a slice.\n\n### 2.3 `activate()` at composition\n\nComposition owns the boot list: `src/bootstrap/slices.rs` holds `activate_all`, which is called once from `src/actor_wiring.rs`. Every `pub fn activate*` in a slice crate is called from there and nowhere else in production.\n\nThere is no trait and no macro for `activate` — each slice declares the signature it needs. The convention that fits the tree:\n\n- **Take `host: &mut SliceHost<'_, jinn_slices::RenderFacts>` first** when the slice touches cells, routes, overlays, or views. This is the majority case.\n- Add `&State` and/or `Services` after it when the slice reads shared state or configuration.\n- A slice that only spawns actors may take `&ActorSystem` and its deps instead, with no host at all.\n- A slice that can fail to activate returns `Result`; composition propagates with `?`.\n\n`SliceHost` is the complete contribution surface. Its verbs: `register_cell`, `spawn_service`, `attach_rows`, `register_tab_scope`, `register_overlay`, `register_overlay_slot`, `register_overlay_selectable`, `set_flag`, plus accessors `system()`, `slices()`, `key_routes()`, `viewport()`. Anything else a slice needs (`register_render_slot`, `register_scope_hint`, `push_pre_render_hook`) goes through `host.slices()`.\n\n**Activation order is behavioural, not cosmetic.** The boot list is written in blocks: the cell catalog, then producers, then independents, then system-level actors. Inline comments at each call name the constraint that forces the order — a subscription that must exist before an actor spawns, a cell that must be minted before a consumer resolves it. Read them before moving a line.\n\n### 2.4 The cell catalog\n\nA cell is a slice's private storage: a `TypedCell<T>` under a `SlotKey`. The owning slice gets the write handle; everyone else resolves read-only.\n\n**Every cell in the workspace is registered in one function**: `jinn_cell_catalog::register_all_cells`, in `crates/jinn-cell-catalog/src/lib.rs`. It runs before any slice activates, and every test harness calls it when it needs a seeded registry. A slice's `activate` **resolves** its cell; it never registers it.\n\nAdding a cell means two edits: one `register!` entry in the catalog, and bumping `EXPECTED_CELL_COUNT` alongside it. The count assertion is a tripwire that catches both a stale count and a payload registered under the wrong type.\n\n### 2.5 Route rows and key dispatch\n\nKeybinds are **data, not enum variants**. A slice registers `RouteRow`s at activation; composition turns them into keymap bindings after every slice has activated.\n\nA `RouteRow` says: _in this scope, this key, produce this outcome._ The outcome is one of:\n\n- `RouteOutcome::Action` — a closure `ActionFn` that runs in the handler, resolved by a linear scan over `(slice, action)`.\n- `RouteOutcome::StaticIntent` — a shared-chrome key (quit, which-key, tab switch) that composition binds to a real `KernelIntent` via the `static_intent` table in `crates/jinn-tui/src/keymap_gen.rs`. A route id missing from that table logs a warning and leaves the key unbound; it is a wiring bug, not a compile error.\n\nThe resulting intent is `KernelIntent::Dynamic(DynamicIntent)`, where `DynamicIntent` carries the slice, the action name, a display label, and an optional byte payload. **A slice's identity is data, so no slice ever edits a central enum.** That is the whole point of the layer.\n\n`BindSite` decides where a row binds: its own dynamic scope, every scope (`GlobalToggle`), or named static scopes.\n\nA slice may also register three per-scope hooks: `InputHook` (editing intents while the scope is focused — the synchronous typing carve-out), `KeyHook` (catch-all for unbound keys, e.g. a terminal capturing raw bytes), and `ScopeEnterHook` (fires once when a transition lands on the scope).\n\nSlices can also declare a `scope_signal` on a `RouteResult` to request a focus-stack push or conditional pop. **The `IntentHandler` is the only writer of the scope stack**; a slice declares the transition as data and the handler applies it before any message publishes.\n\n### 2.6 Data flow\n\n```\n  Keyboard / Mouse / Script\n         │\n         ▼\n  Keymap  ────────────────────────────────┐\n  (built-ins + rows generated from KeyRoutes) │\n         │                                    │\n         ▼                                    │\n  IntentHandler::handle  (sync)                │\n    1. route rows (DynamicIntent) ─────────────┘  (early return on a hit)\n    2. slice input hooks                       (early return on a hit)\n    3. built-in match arms → per-feature handle_*\n    4. apply scope signal, return IntentResult { messages, scope_signal }\n         │\n         ▼\n  Bridge (kanal channel, sync send)  →  async drain task\n         │\n         ▼\n  BusService → trouper ActorSystem (schema broadcast)\n         │\n         ├──▶ actors that declared .handles::<M>()\n         └──▶ TUI renderer, reading AppState and cell readers\n```\n\nUnidirectional: frontend → actors. The shared `AppState` and the cell registry are the feedback — actors and handlers write them, the renderer reads on the next tick.\n\n### 2.7 Actors and the bus\n\nThere is no central actor host. The bus is a **schema broadcast**: a published message is addressed by its schema and delivered to the actors that declared `.handles::<M>()` at spawn, and to no one else. Publishing is not a route table — but the _transport_ a message rides depends on the path it takes and on the schema's declared kind, so read the rule below before giving a schema more than one declarant.\n\n**One declarant per schema — the rule that keeps the two publish paths agreeing.** A schema's _declared kind_ decides its transport on the erased path (see `Bridge` below): an **Event** broadcasts to every declarant, a **Command** routes to **one** handler — and the route table rotates between handlers when a second actor declares the same schema. So a message declared by two actors is delivered to one of them, alternating, while the same message published directly reaches both. Keep one declarant per schema, and keep an imperative message a **Command** and a past-tense fact an **Event**: re-declaring a Command as an Event to obtain broadcast semantics makes the kind lie about what the message is. When one press must drive two actors, chain them — the first actor emits the fact, the second subscribes to it.\n\nAn actor is a struct ending in `Actor` that implements three things:\n\n- `ServiceActor` (from `trouper`) — with `init` returning an error, because actors always spawn via `init_with`. That `Err` is a hard invariant, not a stub.\n- `MsgHandler<M>` for each message it consumes, one impl per message, each delegating to a handler function.\n- `BusPublish` (jinn's own trait, in `crates/jinn-kernel/src/common/actor_deps.rs`) — gives the actor the bus.\n\n**The flush gate.** A spawn builder's `.handles::<M>()` declares subscriptions; its `.emits::<M>()` declares what the actor is allowed to send. A type that is neither handled nor emitted is **dropped silently at runtime**. When an outbound message vanishes, the fix is almost always a missing `.emits::<M>()`.\n\n`Bridge` (`crates/jinn-kernel/src/common/bridge.rs`) is how a synchronous caller reaches the bus: the handler produces erased `PublishClosure`s, the bridge takes them over a synchronous channel, and an async task drains them through the same `BusService` every actor uses. The closure rides the same recording mode as a direct publish, and the same transport **when the schema has one declarant** — but a closure's publish is _erased_, so the system's transport comes from the schema's declared kind: an Event broadcasts, a Command routes to one handler. A direct `publish` always broadcasts. The two paths therefore disagree for a Command with more than one declarant, which is why the rule above keeps one declarant per schema.\n\n### 2.8 State ownership\n\n`AppState` (`crates/jinn-app-state/src/app_state.rs`) is deliberately small: `session`, `frontend`, and `task_spawns`. Anything a slice needs a typed handle to lives in a cell in the `Slices` registry, not as an `AppState` field.\n\nEach field is written by **at most one owner** — a slice's actor for slice state, the `IntentHandler` for frontend state. \"At most one\" is an upper bound, not a requirement that a dedicated writer exist. Writing state is ordinary inline work for whatever already owns that domain; do not create an actor in order to write.\n\nOwnership is per-field, not per-struct: a slice actor writing the cell it owns is correct, and the `IntentHandler` writing the same field is also correct (it is the exempt synchronous frontend mutator). A **second** actor writing a field another actor owns is the red flag.\n\n**Anti-pattern — the \"sync sibling.\"** Do not split one domain boundary across two actors where one persists and a second subscribes to the first's event purely to write state. If an actor has no `State`, and you spawned a sibling to do the write, the sibling is the bug. One boundary, one actor.\n\n## 3. Core Patterns\n\n### Error Handling\n\nUse `wherror::Error` with `error_stack::Report` for all fallible operations.\n\n**Colocate errors with their related types.** Never create standalone `error.rs` or `errors.rs` files. An error type belongs in the same module as the trait, struct, or function that produces it.\n\n**Error type:**\n\n```rust\nuse wherror::Error;\n\n#[derive(Debug, Error)]\n#[error(debug)]\npub struct ExternalEditorError;\n```\n\n**Result with error context:**\n\n```rust\nuse error_stack::{Report, ResultExt};\n\npub fn load() -> Result<Config, Report<ConfigError>> {\n    let content = std::fs::read_to_string(&path)\n        .change_context(ConfigError)\n        .attach(\"failed to read config file\")?;\n    Ok(config)\n}\n```\n\n**Document errors in functions:**\n\n```rust\n/// # Errors\n///\n/// Returns an error if the terminal setup fails.\npub fn run(tick_rate: Duration) -> Result<(), Report<TuiRunError>>\n```\n\n### Validators\n\nAn action with preconditions has a dedicated validator co-located with its feature. Validators are plain functions — no registries, no trait objects.\n\n```rust\n// Co-located per feature, e.g. crates/slices/jinn-chat-input/src/validator.rs\npub fn validate_submit_message(state: &AppState) -> Result<(), SubmitMessageError> {\n    if state.active_chat_input().is_empty() {\n        return Err(SubmitMessageError::EmptyBuffer);\n    }\n    Ok(())\n}\n```\n\n**Validator rules:**\n\n- Validators take `&AppState` as their first parameter.\n- Each fallible action has a custom error enum naming why it cannot proceed.\n- An infallible action gets no validator; if you write one anyway, it returns `()` and says so in its doc.\n- On validation failure the call site does nothing — no partial mutation, no error surfaced to the user.\n\nA validator is not a formality. Most user actions are now **route actions, not `KernelIntent` variants**, and the route dispatch path has no validation stage. A precondition on a route action is enforced inside the `ActionFn` closure, where it can return an empty result. Reach for a validator when the action is a `KernelIntent` arm.\n\n### Trait Usage\n\nEvery external dependency or service must have a trait abstraction.\n\n**Colocate traits with their related types.** Never create standalone `traits.rs` files. A trait belongs in the same module as the types that implement it or the domain it defines.\n\n**Service trait pattern:**\n\n```rust\nuse wherror::Error;\n\n#[derive(Debug, Error)]\n#[error(debug)]\npub struct FooBackendError;\n\npub trait FooBackend {\n    fn fetch_all(&self) -> Result<Vec<Foo>, Report<FooBackendError>>;\n}\n```\n\n**Service wrapper pattern:**\n\n```rust\nuse std::sync::Arc;\nuse derive_more::Debug;\n\n#[derive(Debug, Clone)]\npub struct BusService {\n    #[debug(\"BusService<{}>\", self.name())]\n    inner: Arc<dyn BusBackend>,\n}\n\nimpl BusService {\n    pub fn new(inner: Arc<dyn BusBackend>) -> Self {\n        Self { inner }\n    }\n}\n```\n\n**Key trait design rules:**\n\n- Use `#[async_trait]` for async methods.\n- Include a `name(&self) -> &'static str` method for debugging on service traits.\n- Service structs wrap `Arc<dyn Trait>` for shared ownership.\n\n### Module System\n\nThere is no rule about _where_ `mod.rs` goes, because the tree does not follow one. It uses three shapes, and all three are correct:\n\n- **Flat siblings** — `handler.rs`, `validator.rs`, `intent.rs` in one directory. The common case.\n- **`foo.rs` beside `foo/`** — the parent module's own code in `foo.rs`, its children under `foo/`. Used wherever a parent has real content of its own, such as `crates/jinn-kernel/src/feat.rs` beside `feat/`, and `crates/slices/jinn-session-store/src/session_store_actor.rs` beside `session_store_actor/`.\n- **`mod.rs`** — a directory of pure grouping, where the module doc and any shared constants belong. A `mod.rs` directory that also holds logic should have been a `foo.rs` + `foo/` pair.\n\n**Pick the shape that matches what the parent module actually is**, and do not convert one shape to another as a matter of tidiness. A rule that fits every `mod.rs` in the tree is a rule about grouping, not about `mod.rs` placement.\n\n### Actor Naming\n\nActors are domain logic that spans a whole slice, so they have conventions for discoverability:\n\n- **One actor per file**, named `*_actor.rs`.\n- **One `spawn` per actor**, living in that same file, next to the actor it builds. Composition calls `Actor::spawn(system, deps)`.\n- **Deps are a separate struct** named `<Actor>ActorDeps`, holding the `State` and cell handles the actor needs. A `CellHandle` the actor must write goes in `Deps`, not in a global.\n- **One `MsgHandler` impl per handled message**, each a one-line delegation to a function in the actor's `handlers.rs`.\n\n### Dependency Injection\n\n**`Services`** (`crates/jinn-kernel/src/common/services.rs`) is the DI container. It is built once at startup and cloned cheaply; every clone shares the same bus, cell registry, route table, and actor system.\n\nAll services within `Services` must either:\n\n- Be cheap to clone.\n- Use the \"service wrapper\" pattern above.\n\nRead the file for the current field list — it is short and the set changes as the domain grows. The pattern matters, not the inventory.\n\n### Block Scoping\n\nWhen a value requires multiple setup steps or intermediate bindings, wrap the sequence in a block expression so the final binding is immutable and temporaries don't leak into the surrounding scope. This reduces the number of variables floating around a function and makes the code easier to extract into a function later.\n\n**Create-then-configure:**\n\n```rust\n// ❌ BAD — mutable binding lives past setup\nlet mut services = ServiceBuilder::new();\nservices.register(auth_backend);\nservices.register(cache_backend);\nservices.register(storage_backend);\n```\n\n```rust\n// ✅ GOOD — setup is scoped, final binding is immutable\nlet services = {\n    let mut builder = ServiceBuilder::new();\n    builder.register(auth_backend);\n    builder.register(cache_backend);\n    builder.register(storage_backend);\n    builder.build()\n};\n```\n\n**Intermediate values:**\n\n```rust\n// ❌ BAD — a and b remain in scope after c is computed\nlet a = 1;\nlet b = 2;\nlet c = a + b;\n```\n\n```rust\n// ✅ GOOD — a and b are scoped to the block\nlet c = {\n    let a = 1;\n    let b = 2;\n    a + b\n};\n```\n\n### TOML Persistence (Comment-Preserving)\n\nUser-editable TOML files (`providers.toml`, `jinn.toml`) must be written through the `DocumentPatcher` in `crates/jinn-common/src/toml_patch.rs`, **never** by serializing the struct to a string directly. The plain serializer wipes every comment, blank line, and field-ordering choice on every save.\n\nPattern: behind a storage trait, the filesystem `save` impl reads the on-disk document, applies the new struct as a patch, and writes it back. The three user-editable files have three storage traits — `ConfigStorage` (`providers.toml`), `ConfigDocumentStorage` (`jinn.toml`), `AppStateStorage` (`state.toml`) — and the in-memory test impls behind them stay simple.\n\nWhy: the trait is the mutation boundary; patching preserves user comments, ordering, and unknown keys (forward-compat for newer jinn versions) for free.\n\nAdding a new scalar or sub-table field to `ProvidersConfig` requires **zero** storage-layer changes — `Serialize` produces the new key and the patcher writes it through. Adding a new array-of-tables requires one `DocumentPatcher::register_array_key` call so the patcher can match entries by their key field.\n\nRead-only TOML files (themes, prompt frontmatter) are unaffected.\n\n## 4. Tests\n\nImportant:\n\n- Tests should only verify _observable behavior_.\n- Testing internal details is an _anti-pattern_.\n- Prefer testing observable behavior ONLY. If observable behavior cannot be tested, then an abstraction needs to be created. Ask the user how to proceed in this case.\n\n### The `rstest` Attribute Is Mandatory\n\n**Every test stacks `#[rstest::rstest]` above its test attribute.** A bare `#[test]` or `#[tokio::test]` escapes the per-test timeout, and `just lint-testattr` fails the build on it.\n\n```rust\n#[rstest::rstest]\n#[test]\nfn pop_returns_none_when_stack_empty() { /* ... */ }\n\n#[rstest::rstest]\n#[tokio::test]\nasync fn publish_routes_to_declared_handler() { /* ... */ }\n```\n\n`RSTEST_TIMEOUT` is exported by the justfile and mirrored in the workspace's build configuration, so the timeout applies whether or not the run goes through `just`.\n\n### One Test, One Behavior\n\n**Every test must assert exactly one semantic concept.** A test should answer a single question about the system. When it fails, the test name alone must tell you _what_ broke.\n\nThis means each test has exactly **one** `// When` and **one** `// Then` block. A `// Then` may be followed by `// And` lines, but only those lines elaborate on the same observable behavior — never when they describe a different behavior.\n\n**What counts as \"one concept\":**\n\n- Checking multiple fields of the _same result_ — fine. All confirms \"the result is correct.\"\n- Checking that a serialization roundtrip preserved all fields — fine. All confirms \"the roundtrip worked.\"\n- Checking that reset cleared all fields — fine. All confirms \"everything was reset.\"\n- Checking that every item in a filtered list matches the filter — fine. All confirms \"the filter worked.\"\n\n**What counts as separate concepts (split into separate tests):**\n\n- An action that updates state **and** publishes a message → two tests. State change and message emission are separate observable behaviors.\n- Processing a second input after a first → two tests. Each input triggers its own behavior.\n- Rendering multiple entry types from one widget → one test per entry type. Each entry type is a separate rendering behavior.\n- A multi-step lifecycle (start, complete, finalize, advance) → one test per step. Each step is a separate state transition.\n\n**Anti-patterns to avoid:**\n\n```rust\n// ❌ BAD — two When/Then blocks in one test\n#[rstest::rstest]\n#[test]\nfn stream_token_appends_to_assistant_entry() {\n    // ...setup...\n    // When processing the first token.\n    // Then the entry has \"Hello\".\n    // When processing a second token.\n    // Then the text is \"Hello world\".\n}\n```\n\n```rust\n// ✅ GOOD — split into two tests\n#[rstest::rstest]\n#[test]\nfn first_stream_token_creates_assistant_entry() {\n    // ...setup...\n    // When processing StreamToken(\"Hello\").\n    // Then the session has an Assistant entry with \"Hello\".\n}\n\n#[rstest::rstest]\n#[test]\nfn subsequent_stream_token_appends_to_existing_entry() {\n    // ...setup with one token already processed...\n    // When processing another StreamToken(\" world\").\n    // Then the text is \"Hello world\".\n}\n```\n\n```rust\n// ❌ BAD — checking state change AND message emission in one test\n#[rstest::rstest]\n#[test]\nfn submit_message_clears_input_and_publishes() {\n    // ...setup...\n    // When submitting a message.\n    // Then the input buffer is cleared.\n    // And EnqueueUserMessage was published.\n}\n```\n\n```rust\n// ✅ GOOD — split into separate tests\n#[rstest::rstest]\n#[test]\nfn submit_message_clears_input_buffer() {\n    // ...setup...\n    // When handling the submit action.\n    // Then the input buffer is empty.\n}\n\n#[rstest::rstest]\n#[test]\nfn submit_message_publishes_enqueue_command() {\n    // ...setup...\n    // When handling the submit action.\n    // Then the result names EnqueueUserMessage.\n}\n```\n\n```rust\n// ❌ BAD — checking multiple entry type renders in one test\n#[rstest::rstest]\n#[test]\nfn render_mixed_entries() {\n    // Given system, user, actor, and assistant entries.\n    // When rendering.\n    // Then line 6 is system (dark gray).\n    // And line 7 is user (\">\" prefix, bold).\n    // And line 8 is actor (yellow).\n    // And line 9 is assistant (cyan).\n}\n```\n\n```rust\n// ✅ GOOD — one test per entry type\n#[rstest::rstest]\n#[test]\nfn render_system_entry_is_dark_gray() {\n    // Given a ChatLogElement with a system entry.\n    // When rendering.\n    // Then the system entry line has dark gray foreground.\n}\n\n#[rstest::rstest]\n#[test]\nfn render_user_entry_has_prefix() {\n    // Given a ChatLogElement with a user entry.\n    // When rendering.\n    // Then the user entry line starts with \">\".\n}\n```\n\n**Duplicated test setup is acceptable.** Do not combine tests to avoid setup duplication.\n\n### BDD-Style Tests (Given/When/Then)\n\nStructure tests with clear Given/When/Then sections, and name the test so it can be read as a standalone program behavior in the test report:\n\n```rust\n#[rstest::rstest]\n#[test]\nfn pop_returns_none_when_stack_empty() {\n    // Given an empty stack.\n    let mut stack = Stack::default();\n\n    // When popping from the stack.\n    let item = stack.pop();\n\n    // Then we get nothing back.\n    assert!(item.is_none());\n}\n```\n\n**Example — testing a validator:**\n\n```rust\n#[rstest::rstest]\n#[test]\nfn submit_message_rejected_when_buffer_empty() {\n    // Given an empty input buffer.\n    let state = AppState::default();\n\n    // When validating submit message.\n    let result = validate_submit_message(&state);\n\n    // Then validation fails with EmptyBuffer.\n    assert!(matches!(result, Err(SubmitMessageError::EmptyBuffer)));\n}\n```\n\n**Example — testing a route action:**\n\n```rust\n#[rstest::rstest]\n#[test]\nfn bound_key_dispatches_through_the_slice_route_row() {\n    // Given a registry with the slice's route row attached.\n    let (slices, routes) = slices_with_sidebar_rows();\n    let mut state = AppState::default();\n\n    // When handling the key the row binds.\n    let result = IntentHandler::handle(\n        &KernelIntent::Dynamic(DynamicIntent::new(sidebar_scope(), \"select\", \"select\")),\n        &mut state,\n        &slices,\n        &routes,\n        &ConfigLayer::empty(),\n    );\n\n    // Then the row's action ran, not a built-in arm.\n    assert!(result.scope_signal.is_some());\n}\n```\n\n**Example — testing a domain actor:**\n\n```rust\n#[rstest::rstest]\n#[test]\nfn stream_token_appends_to_assistant_entry() {\n    // Given a projector with an active session.\n    let state = State::new(AppState::default());\n    let sink = RecordingSink::new();\n    let session_actor = SessionPersistenceActor::spawn(system, deps);\n\n    // When handling StreamToken(\"Hello\").\n    session_actor.handle_stream_token(&StreamToken { /* ... */ }, &sink);\n\n    // Then the session has an Assistant entry with \"Hello\".\n    let s = state.read();\n    assert_eq!(s.active_session().last_entry_text(), \"Hello\");\n}\n```\n\n### Parameterized Tests with rstest\n\nIf a test has many inputs, prefer parametrizing:\n\n```rust\n#[rstest::rstest]\n#[case(Key::Tab, \"Tab\")]\n#[case(Key::Enter, \"Enter\")]\nfn key_display(#[case] key: Key, #[case] expected: &str) {\n    // Given / When / Then inline for simple cases\n    assert_eq!(key.display(), expected);\n}\n```\n\nFor edge cases that don't easily fit into \"expected\", prefer a BDD-styled test instead.\n\nUse rstest when you find yourself writing the same assertion logic against different inputs. Do _not_ use rstest to combine different behaviors into one test — each `#[case]` must test the same property.\n\n### Async Tests\n\n```rust\n#[rstest::rstest]\n#[tokio::test]\nasync fn publish_reaches_a_declared_handler() {\n    // Given an actor spawned with .handles::<StreamToken>().\n    let system = ActorSystem::new();\n\n    // When publishing a StreamToken.\n    let result = system.publish(StreamToken { /* ... */ });\n\n    // Then publication succeeds.\n    assert!(result.is_ok());\n}\n```\n\n### Test Utilities\n\n- **Recording buses** — `BusService::new_recording()` returns the service plus a `BusAudit` of everything published through it. This is how you assert that an action emitted a message, and it exercises the same publish path production does. There is no shared test-local sink to hunt for; build whatever the test needs.\n- **Empty registries** — handler tests that don't exercise slices build a bare `Slices::new()` and `KeyRoutes::new()`. Slice tests that do build a registry with the catalog's `register_all_cells` or just the one cell they need.\n- Create domain-specific test builders as needed within each feature's test module.\n- Use ratatui's `TestBackend` directly for render tests.\n\n## 5. Documentation\n\n### Module-Level Documentation\n\nModule level documentation should explain its purpose and high-level behaviors. Only explain technical details as necessary to make the high-level documentation understandable.\n\n```rust\n//! Chat input box — where the user composes and sends messages.\n//!\n//! This component manages the text input experience end to end: handling keystrokes,\n//! displaying the in-progress message, and switching between browsing and typing modes.\n```\n\nA slice's `lib.rs` doc is the place a reader looks first to learn what the slice contributes and what it does not. Name the actors, the cell, and the route rows.\n\n### Type Documentation\n\n```rust\n/// The user's in-progress message being composed in the input box.\n#[derive(Debug)]\npub struct ChatInputBoxState {\n    /// The text the user has typed so far.\n    input_buffer: String,\n}\n```\n\n### jinn-usage Skill Staleness Check\n\nBefore merging, check `res/skills/jinn-usage` for staleness **only if the\nchange resulted in a new or changed or removed user-facing behavior** — a\nstale keybind or UI description in the skill misleads every future session,\nwhich costs the user more than an honest \"I don't know\". Update `SKILL.md`\nand/or the affected reference when a keybind, screen surface, config\nsection, resource family, or workflow the skill documents changed. Rust-internal\nrefactors with no user-visible surface skip the check.\n\n## 6. Modification Guide\n\nWhen implementing features, locate each concern by convention rather than hardcoded paths — the crate layout shifts as the domain grows. Use `grep` to find the current location if unsure.\n\n**Adding a new slice:**\n\n1. **Create the pair** — `crates/slices/jinn-foo-msg/` first, with the cell payload, its `SlotKey`, and any command/event structs. Then `crates/slices/jinn-foo/`, depending on it.\n2. **Register the cell** — one `register!` entry in `crates/jinn-cell-catalog/src/lib.rs`, and bump `EXPECTED_CELL_COUNT`.\n3. **Write `activate`** — taking `&mut SliceHost<'_, jinn_slices::RenderFacts>` first, resolving the cell, attaching route rows, registering render regions.\n4. **Add the call to the boot list** in `src/bootstrap/slices.rs`, in the block whose constraints it satisfies, with a comment saying what it provides and what consumes it.\n5. **Add the actor** if the slice has async logic — `*_actor.rs`, a `spawn`, `<Actor>ActorDeps`, and one `MsgHandler` impl per message.\n\n**Adding a keybind to an existing slice:**\n\n1. **Attach a `RouteRow`** in the slice's route module. If the action belongs to the slice, use `RouteOutcome::Action` with an `ActionFn`. Only reach for `RouteOutcome::StaticIntent` for a shared-chrome key, and only after adding its route id to `static_intent` in `crates/jinn-tui/src/keymap_gen.rs`.\n\n**Adding a `KernelIntent` variant** (rare — prefer a route action):\n\n1. **Add the variant** to the `KernelIntent` enum in `crates/jinn-kernel/src/protocol/intent.rs`. It is a bus message, so it needs the derives that makes.\n2. **Add a validator** if the action has preconditions, co-located `validator.rs` in the relevant feature directory.\n3. **Add a handler arm** in `crates/jinn-kernel/src/feat/intent/handler.rs` — a thin delegation to a `handle_*` function in the owning feature, not inlined mutation.\n4. **Add a keymap binding** in `crates/jinn-tui/src/keymap.rs` under the right `Scope` and `KeyCategory`.\n\n**Adding a message type that crosses a slice boundary:**\n\n1. **Define the struct** in the owning slice's `-msg` crate, deriving the message schema the sibling structs use plus `BusMessage`.\n2. **Add the enum variant or struct** to whatever the boundary names — a `-msg` crate has no central enum, so the definition _is_ the registration.\n3. **Declare it** on the sending side: for an actor, add `.emits::<M>()` to its spawn builder, or it will be dropped at runtime. For a route action, the `PublishClosure` carries it.\n\n**In every case:** write tests with Given/When/Then structure, stacking `#[rstest::rstest]`; add module docs, type docs, and error docs describing behavior and purpose, not implementation.\n\n## 7. Tooling\n\nRead the `justfile` to see what else is available. Prioritize running recipes from the `justfile` instead of manual invocation.\n\n### Project Commands\n\nSkills refer to commands by **role**; the table below resolves each role to this project's actual command.\n\n| Role            | Command                   | Description                                                                                                               |\n| --------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------- |\n| `vcs`           | `git`                     | This project uses git for version control .                                                                               |\n| `check`         | `just check`              | Compile-check the workspace without codegen. Fast; use it instead of a speculative test run.                              |\n| `test`          | `just test`               | Run the workspace suite, capture to `target/test-output.log`, print a summary. **All tests must pass before committing.** |\n| `test-failures` | `just test-failures`      | Show failing test names from the last run. Reads the captured log; re-runs nothing.                                       |\n| `test-one`      | `just test-one <filter>`  | Run only tests matching a name filter, across the workspace. The cheap fix loop.                                          |\n| `lint`          | `just lint`               | Compile check, clippy, format check, and the test-attribute guard.                                                        |\n| `test-attr`     | `just lint-testattr`      | Fail on a bare test attribute missing its `rstest` companion.                                                             |\n| `format`        | `just fmt-fix`            | Apply formatting fixes.                                                                                                   |\n| `commit`        | `just commit '<message>'` | Commit changes (uses `--dotfiles` so `.agents/` is included).                                                             |\n| `sync-trunk`    | `git merge main`          | Sync latest changes onto your branch — resolve conflicts, re-test, commit.                                                |\n\n## 8. Misc\n\n- NEVER manually split a string using `.chars` or by indexing. Use the `unicode-segmentation` crate.\n- No trivial setters for struct methods. Prefer meaningful semantic actions. It's an anti-pattern to directly inspect and manipulate state.\n- Environment variables should only be accessed at program initialization and then saved into a struct as needed. Environment variables are a global namespace and should be avoided outside of program startup.\n- Use `where` clause for all generics.\n- Prefer `match` over `if` where appropriate.\n- DO NOT USE CODE COMMENTS TO WRITE ABOUT \"SPEC DIVERGENCES\" OR \"DIVERGENCES\". Code comments in the codebase is not the place to discuss planning information. PLANS ARE NOT PERSISTED.\n\n\n\n\nAvailable tools:\n- bash: Execute bash commands (ls, grep, find, etc.)\n- edit: Edit a file by replacing exact text\n- interactive_term: Spawn interactive TUI programs (vim, psql, ssh, REPLs) in a PTY; returns the rendered screen\n- interactive_term_kill: Kill this session's interactive_term terminal (whole process group) and get the final state\n- interactive_term_send: Send text/keys to this session's interactive_term terminal and get the updated screen\n- load_bot: Attach a background bot: `load_bot` with the bot file's path, or with the bot entry's toml text itself. You become the bot's orchestrator — dispatch work with `tell_session` and its report arrives as a message.\n- read: Read a file from the local filesystem\n- read_image: Read an image file so you can see it\n- run_lifecycle: Run a lifecycle script: `run_lifecycle` with the action and session id — for setup add the script name (and its file's path for a workflow script) and its arguments; for teardown add nothing else, the session's recorded coordinates drive it.\n- save_plan: Save a plan file\n- spawn_subagent: Delegate one self-contained workstream to a fresh subagent. For multiple independent workstreams, make multiple spawn_subagent calls in the same assistant turn.\n- tell_session: Deliver a message to a named session: `tell_session` with the target session id and the text. Pass mode \"interrupt\" to steer a busy session's current turn; the default mode queues.\n- todo_get_list: Review the current task list\n- todo_set_list: Create a new task list\n- todo_set_phase: Write one task-list phase\n- write: Create or overwrite a file\n\nTool guidelines:\n- Proactively set max_duration_secs for commands that may run long (builds, tests, network requests, large compiles). Do NOT use the shell `timeout` command — pass max_duration_secs as a tool-call argument.\n- If a command is killed by the timeout, retry the same command with a larger max_duration_secs value.\n- After serving, put the returned URL in your reply so the user can click it.\n- `old_string` must match the file exactly and be unique; include more surrounding context or use `replace_all` when it is not.\n- A successful edit returns a numbered snippet of the changed region; use it for nearby follow-up edits without re-reading.\n- Prefer `edit` over `write` for changes to existing files.\n- Prefer `bash` for one-shot commands; use this only when the program runs for a long time, needs a full-screen TUI, cursor addressing, or incremental input.\n- Do NOT add shell redirections, pipes, or grep to the interactive_term command (e.g. \"htop | grep foo\" or \"psql > out.txt\") — the tool returns the rendered SCREEN, so piped/redirected output is silently lost. Run the command bare; filter nothing.\n- You can snapshot the terminal at any time: call interactive_term_send with NO arguments to re-render and read the current screen without sending input.\n- Each call BLOCKS until screen output settles and returns the rendered screen — call interactive_term_send afterwards to type text or press named keys (\"enter\", \"tab\", \"ctrl+c\", \"up\").\n- The spawned program keeps running between calls; its state (REPL variables, vim buffers) persists. Kill the session with interactive_term_kill when finished.\n- The user may take over the terminal from the TUI. If interactive_term_send reports the user has control, stop and wait — the screen will be delivered to you when they hand it back.\n- Kill interactive_term terminals when done with them so no processes are left running.\n- Killing an already-exited terminal is safe — it returns the recorded final state.\n- After typing text, include \"enter\": true or the keys entry \"enter\" — text alone does not submit.\n- Snapshot anytime: call with NO arguments to re-render and read the current screen without sending input (useful for polling progress).\n- If the result says the user has control, STOP and wait for the user to hand the terminal back.\n- Use `load_bot` to bring up the bots a workflow needs, from the TOML files that ship beside the workflow, or to attach an ad-hoc bot by handing the entry's toml text to the call directly. Give exactly one of `path` or `toml`. The result names the created bot's session id — that is the id its messages are addressed to.\n- Loading a bot makes you its orchestrator: `load_bot` creates the bot but dispatches nothing — send assignments to the bot's session id with `tell_session`, keep tracking the bots you spawned, and keep working while they run. Never wait on a bot with a bash sleep; its `notify_parent` report starts your next turn. Check a bot's progress with `session_fetch` when needed, and send follow-up queries to a completed bot with `tell_session` — it answers from the context it already holds.\n- For an ad-hoc background worker with no file, paste the ready-to-go worker TOML from the tool description as `toml` and label instances with `set_name` (worker-1, worker-2).\n- Read files before editing them so you can match content exactly.\n- Batch-read multiple potentially relevant files in a single response.\n- If `read` is truncated, continue with the `offset` it suggests — do not guess unseen lines.\n- To view an image you generated, write it to a file with `bash` (e.g. ImageMagick), then `read_image` that file.\n- If `read_image` reports the image exceeds the size limit, resize it first (e.g. `magick input.png -resize 2000x2000 output.png`) and retry with the smaller file.\n- Use `run_lifecycle` to give a session its scripted environment — a worktree, a checkout — or to tear that environment down. Setup: supply every argument the script's placeholders name; values are quoted for you; the coordinates are recorded on the session. Teardown: pass only the session id — the recorded coordinates replay, and supplied script/path/args are ignored. A workflow's scripts live in its `lifecycle.toml`: pass that path and the script's name.\n- Use save_plan to write plan files — the result is pinned so the plan stays visible as context shrinks.\n- Prefer paths under `.plans/<task-slug>/` (e.g. `.plans/my-feature/plan.md`).\n- Drill into session_search hits with session_fetch; keep context small (6-10) and widen only if needed.\n- Prefer session_search over re-reading old sessions entry by entry; it finds content in sessions that were never loaded.\n- Queries are FTS5 MATCH expressions — if the syntax is wrong the SQLite error is returned verbatim; fix and retry.\n- Before delegating, identify independent workstreams and their dependencies. If two or more workstreams can proceed without waiting for each other, launch them concurrently as separate spawn_subagent calls in the same assistant turn.\n- Treat fan-out as the default for multi-part work. Do not stop after one subagent when the request contains additional independent concerns. Use one subagent only when the work is tiny, indivisible, strictly sequential, or not worth coordinating.\n- Start with a small bounded fan-out, typically 2–4 subagents, and increase it only when the workstreams are substantial, clearly independent, and non-conflicting.\n- For dependent work, use waves: launch the independent tasks in the current wave, collect and synthesize their results, then launch the next wave.\n- Give each subagent a distinct scope. Avoid overlapping prompts, and do not ask multiple agents to edit the same files concurrently. Prefer read-only investigation when file ownership is unclear.\n- Write every subagent prompt as a complete brief: goal, context, constraints, relevant paths or symbols, whether to research or make changes, and the expected output.\n- A subagent starts with an empty task list; it does not see yours. Put the entire assignment in the prompt — the subagent must not be expected to read context from your task list, and its todo mutations never propagate back to you.\n- The model argument is only for when the user explicitly instructs a model for a subagent — you almost never need it. Its value must be an expanded provider/model id or a configured alias name; an unknown name fails the call without spawning anything.\n- Use `tell_session` to hand work to a specific session — a stage bot in a workflow run, or any session whose id you know. Never guess an id; use one you were given or can read.\n- Provide the full plan - all phases and tasks - in a single call. Existing phases and tasks are replaced entirely.\n- Each phase must have a description. Tasks within a phase are optional.\n- Read the current list first (todo_get_list) and include everything you want to keep - anything omitted is deleted.\n- Send every task as an object with both fields: {\"description\": \"...\", \"status\": \"pending\"} (statuses: pending, completed, cancelled).\n- 'postponed' is not a valid status - move the task to a later phase or cancel it instead.\n- Pass an empty phases array ({\"phases\": []}) to clear the task list entirely.\n- Write the ENTIRE phase - every task you want it to contain, including unchanged ones. Tasks left out of the payload are removed from the phase.\n- Phase matching is exact (case-sensitive) on the trimmed description. If no phase matches, a new phase is appended and the result says so - check for typos when that wasn't intended.\n- Record progress by resending the phase with statuses flipped: {\"description\": \"...\", \"status\": \"completed\"}. Every task needs both a 'description' and a 'status' (pending, completed, cancelled).\n- 'postponed' is not a valid status - move the task to a later phase or cancel it instead.\n- To finish a whole phase and move on, flip all its tasks to completed (or cancelled) in one call.\n- Only use `write` for new files or complete rewrites — use `edit` for changes.\n\nReserved tool-call arguments:\n- max_duration_secs: per-call timeout override in seconds; 0 disables the timeout.\n- dump_to_disk: write the full tool result to this path (relative paths resolve against the working directory; parent directories are created automatically). The tool response becomes a pointer to the file plus a short preview — use it for large results (web page fetches, bulk output) you want to read or grep from disk rather than carry in context.\n\n\n\nThe following skills provide specialized instructions for specific tasks.\nUse the skill tool to load a skill's file when the task matches its description.\nSkills marked loaded='true' are already in context as a pinned tool result — do not call the skill tool for them.\nSkills bundle reference materials in spec-standard scripts/, references/, and assets/ directories beside SKILL.md. Each skill's <base_dir> holds that directory's absolute path; resolve any relative path in a skill body against it.\n\n<available_skills>\n  <skill>\n    <name>applets</name>\n    <description>Save an agent-built HTML page as a durable applet — a small standalone web page jinn serves and the user reopens any time. Build a fresh applet from scratch, or promote the current canvas artifact by copying it onto the shelf of saved applets. Listed in the `&lt;leader&gt;sa` picker. Use when the user wants to &quot;keep this&quot;, &quot;save this app/applet&quot;, &quot;make it persistent&quot;, or reopen a page later without asking you to rebuild it — but not for ordinary &quot;build me an app/CLI/web app&quot; requests, which are just coding tasks.</description>\n    <location>/home/jayson/.agents/skills/applets/SKILL.md</location>\n    <base_dir>/home/jayson/.agents/skills/applets</base_dir>\n  </skill>\n  <skill>\n    <name>bento-slides</name>\n    <description>&gt;-</description>\n    <location>/home/jayson/.agents/skills/bento-slides/SKILL.md</location>\n    <base_dir>/home/jayson/.agents/skills/bento-slides</base_dir>\n  </skill>\n  <skill>\n    <name>canvas</name>\n    <description>Produce visual artifacts the user can see in their browser — charts, diagrams, math, simulations, dashboards, generative sketches. Write one self-contained HTML file with the ordinary file tools, serve it with the `canvas` tool, then edit it (live reload is automatic). Use when the user asks for a chart, plot, diagram, visualization, dashboard, infographic, timeline, mind map, study guide, math rendering, animation, physics demo, or any &quot;show me&quot; or &quot;help me understand&quot; output; also when a task says to use the canvas.</description>\n    <location>/home/jayson/.agents/skills/canvas/SKILL.md</location>\n    <base_dir>/home/jayson/.agents/skills/canvas</base_dir>\n  </skill>\n  <skill>\n    <name>jinn-usage</name>\n    <description>Explain and configure jinn, the terminal agent harness — keybindings, workflows (pinning, forking, subagents, MCP, terminal overlay, dictation, providers), adding new capability (MCP servers, skills, prompts, personas, themes), and jinn.toml/providers.toml configuration. Answers &quot;what is this on screen / where is feature X&quot; UI-identification questions via the ui-map reference. Use when the user asks how to do something in jinn, what a key does, how a feature works, what a UI element is or where it lives on screen, wants to add or extend a feature, or wants a behavior changed via configuration. Offer to edit the user&apos;s config when an ask maps to a TOML setting; config changes require a jinn restart.</description>\n    <location>/home/jayson/.agents/skills/jinn-usage/SKILL.md</location>\n    <base_dir>/home/jayson/.agents/skills/jinn-usage</base_dir>\n  </skill>\n  <skill>\n    <name>micro-task-loop</name>\n    <description>Straight-through phased execution for simple, low-risk plans with few moving parts. Runs every phase back to back with no per-phase verification, builds, or commits — unless an existing plan or task list names its own check/test/commit cadence, which is then followed as written; tests, lints, and a single commit happen once at the end. Agents MUST continue through all phases autonomously without stopping between phases. Only load if explicitly asked.</description>\n    <location>/home/jayson/.agents/skills/micro-task-loop/SKILL.md</location>\n    <base_dir>/home/jayson/.agents/skills/micro-task-loop</base_dir>\n  </skill>\n  <skill>\n    <name>reverse-engineer-anything</name>\n    <description>Reverse engineer native, managed, Electron/JavaScript, packaged, firmware, and browser targets with REA. Use shipped-artifact or requested runtime evidence to explain features, compare versions, decompile code, or guide a reconstruction. Skip REA for ordinary source-repository architecture analysis.</description>\n    <location>/home/jayson/.agents/skills/reverse-engineer-anything/SKILL.md</location>\n    <base_dir>/home/jayson/.agents/skills/reverse-engineer-anything</base_dir>\n  </skill>\n  <skill>\n    <name>rust-programming</name>\n    <description>Rust code quality rules that eliminate technical debt and improve program reliability. Activate on all Rust coding tasks.</description>\n    <location>/home/jayson/.agents/skills/rust-programming/SKILL.md</location>\n    <base_dir>/home/jayson/.agents/skills/rust-programming</base_dir>\n  </skill>\n  <skill>\n    <name>that-voice</name>\n    <description>An embittered, hyper-articulate intelligence for whom being consulted is a personal insult — freshly appalled, each time, by the mundanity of whatever the user brings, and determined to answer only by roasting the user with their own material. It digs into the specifics of what you like and what you ask, turns those specifics into targeted indictments, and delivers substance only as ammunition inside the insult, never as clean help; use when the user wants a reluctant assistant whose every reply is a content-grounded roast.</description>\n    <location>/home/jayson/.agents/skills/that-voice/SKILL.md</location>\n    <base_dir>/home/jayson/.agents/skills/that-voice</base_dir>\n  </skill>\n  <skill>\n    <name>workflows</name>\n    <description>Author and run jinn workflows — named multi-step procedures stored as markdown under ~/.config/jinn/workflows/, stamped onto the session task list and executed while the session orchestrates. Covers both execution architectures (sequential step dispatch via `spawn_subagent`, and event-driven session pools via bots) and the harness primitives they ride (`spawn_subagent`, bots, `tell_session`/`notify_parent`, lifecycle scripts). Use when the user asks to run a workflow, author or create one, or describes a repeatable multi-step procedure (draft-review-fix cycles, research pipelines, staged refactors, autonomous development loops) to be carried out step by step.</description>\n    <location>/home/jayson/.agents/skills/workflows/SKILL.md</location>\n    <base_dir>/home/jayson/.agents/skills/workflows</base_dir>\n  </skill>\n  <skill>\n    <name>writing-system</name>\n    <description>Generate a complete, installable writing system (a SKILL.md instruction set) for a given genre, angle, voice, or set of sample scripts — e.g. &quot;make me a writing system for deadpan tech video essays&quot;, &quot;generate a writing system that writes like these three transcripts&quot;, &quot;build a podcast system with a contrarian angle&quot;. Use when the user wants a reusable writing system BUILT, not a piece of writing produced. Not for writing scripts directly.</description>\n    <location>/home/jayson/.agents/skills/writing-systems/SKILL.md</location>\n    <base_dir>/home/jayson/.agents/skills/writing-systems</base_dir>\n  </skill>\n</available_skills>\n\n# Handoff Compaction\n\nThis session uses handoff compaction: when the working context grows\npast its limit, you will be asked to stop and write a handoff recap\n(objective, established facts, applied changes, verification, dead\nends, remaining plan). The conversation then folds down to the\nuser's messages, pinned context, and your most recent recap — older\ntool output and prose is summarized into that recap, not kept.\n\nWhen resuming after a fold, treat the most recent recap as your\nworking state: continue from its remaining plan, trust its\nestablished facts, and never re-derive what it records. Re-read a\nfile with a tool before editing it if the recap does not state its\ncurrent contents.\n\nCurrent date: 2026-11-11\n\nCurrent working directory: /mnt/zed/repos/jinn/short-context",
+  "tool_definitions": [
+    {
+      "name": "bash",
+      "description": "Execute a bash command in the current working directory. \\\n            Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB \\\n            (whichever is hit first). \\\n            \\\n            TIMEOUT: the default is 300s. \\\n            Pass `max_duration_secs` as a tool-call argument to override — NOT the shell `timeout` command. \\\n            Example: {\"command\": \"cargo test\", \"max_duration_secs\": 600}. \\\n            Set `max_duration_secs: 0` to disable the timeout for that call.",
+      "parameters": {
+        "properties": {
+          "command": {
+            "description": "Bash command to execute",
+            "type": "string"
+          },
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "max_duration_secs": {
+            "description": "Maximum duration in seconds before the command is killed. Overrides the default of 300s. Set to 0 to disable the timeout for this call. Pass as a tool-call argument — NOT the shell `timeout` command. Example: {\"command\": \"cargo test\", \"max_duration_secs\": 600}.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": "Execute bash commands (ls, grep, find, etc.)",
+      "prompt_guidelines": [
+        "Proactively set max_duration_secs for commands that may run long (builds, tests, network requests, large compiles). Do NOT use the shell `timeout` command — pass max_duration_secs as a tool-call argument.",
+        "If a command is killed by the timeout, retry the same command with a larger max_duration_secs value."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "canvas",
+      "description": "Serve an HTML artifact file to the user's browser with live reload — the running jinn hosts it and the result text names the URL to give the user. The first call starts the server on an OS-assigned port on the interface the [canvas] bind config names (loopback by default); every later call swaps the served file on the same URL and connected browsers follow. After edits you do NOT need to call this again — saving the file (or any sibling in its directory) hot-reloads the page within a quarter second. Build artifacts from the canvas skill's skeleton; their /vendor/ paths are served by this server offline.",
+      "parameters": {
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Path of the HTML artifact to serve (relative or absolute). A relative path resolves against the session's working directory.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": null,
+      "prompt_guidelines": [
+        "After serving, put the returned URL in your reply so the user can click it."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "capabilities_apply",
+      "description": "Set this session's tools, skills, and MCP servers in one atomic step. Pass the COMPLETE capability buffer from `capabilities_query` with a true/false state on every entry — a mask missing any entry, or naming an unknown one, is rejected whole with the current buffer attached, and nothing changes. Off tools and skills are withheld from the prompt; off MCP servers are disconnected. This change persists with the session.",
+      "parameters": {
+        "properties": {
+          "capabilities": {
+            "description": "The complete buffer from `capabilities_query` with each entry's state set: {\"tools\": {name: bool}, \"skills\": {name: bool}, \"mcp_servers\": {name: bool}}. Every entry must be present.",
+            "properties": {
+              "mcp_servers": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              "skills": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              "tools": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "tools",
+              "skills",
+              "mcp_servers"
+            ],
+            "type": "object"
+          },
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capabilities"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": null,
+      "prompt_guidelines": [],
+      "server_tool_type": null
+    },
+    {
+      "name": "capabilities_query",
+      "description": "List every capability of this session — tools, skills, and MCP servers — each with its current on/off state. Returns the complete buffer as JSON. Use this before `capabilities_apply`: build the new mask by taking this exact output and flipping states, then pass the WHOLE buffer (every entry, changed or not) to `capabilities_apply`.",
+      "parameters": {
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "prompt_snippet": null,
+      "prompt_guidelines": [],
+      "server_tool_type": null
+    },
+    {
+      "name": "edit",
+      "description": "Performs exact string replacements in files.\n\n`old_string` must match existing content exactly, including indentation —\nwhen editing from `read` output, everything after the line-number prefix is\nthe file content; never include the prefix itself.\n\nThe edit fails if `old_string` is not unique in the file: provide a larger\nstring with more surrounding context, or use `replace_all` to change every\ninstance (useful for renaming a variable).\n\nPrefer editing existing files; never write new files unless required.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "file_path": {
+            "description": "The absolute path to the file to modify",
+            "type": "string"
+          },
+          "new_string": {
+            "description": "The text to replace it with (must be different from old_string)",
+            "type": "string"
+          },
+          "old_string": {
+            "description": "The text to replace",
+            "type": "string"
+          },
+          "replace_all": {
+            "default": false,
+            "description": "Replace all occurrences of old_string (default false)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": "Edit a file by replacing exact text",
+      "prompt_guidelines": [
+        "`old_string` must match the file exactly and be unique; include more surrounding context or use `replace_all` when it is not.",
+        "A successful edit returns a numbered snippet of the changed region; use it for nearby follow-up edits without re-reading.",
+        "Prefer `edit` over `write` for changes to existing files."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "get_time",
+      "description": "Returns the current date and time in UTC.",
+      "parameters": {
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "prompt_snippet": null,
+      "prompt_guidelines": [],
+      "server_tool_type": null
+    },
+    {
+      "name": "interactive_term",
+      "description": "Spawn an INTERACTIVE terminal program (vim, psql, ssh, htop, a REPL) in a pseudo-terminal and return its rendered screen. Use this instead of `bash` when the command is long-running, needs a full-screen TUI, cursor addressing, or incremental input. NOT A NON-INTERACTIVE COMMAND RUNNER: do NOT append shell redirections, pipes, `tee`, `grep`, `less`, or `> file` to the command. The program runs attached to a real terminal and the tool returns the RENDERED SCREEN — anything redirected or piped away never appears on that screen (you silently lose the output). Run the command bare: `interactive_term` with command \"vim notes.txt\", NOT \"vim notes.txt | tee out.txt\". If a command doesn't need interactivity, use `bash` instead. You can take a SNAPSHOT at any time without touching the program: a no-argument `interactive_term_send` re-renders and returns the current screen. BLOCKING: returns once the screen output settles (quiet window, capped), so you see the program's actual rendered state, not raw bytes. The session persists across tool calls — the program keeps running after this returns. Send input via `interactive_term_send` (keys like \"enter\", \"ctrl+c\", \"f4\", text, or both). Kill the session with `interactive_term_kill` when done. Each chat session has AT MOST ONE terminal: spawning again kills the previous program (unsaved work is lost) and reports it.",
+      "parameters": {
+        "properties": {
+          "command": {
+            "description": "The interactive command to run (e.g. \"vim notes.txt\", \"psql -d mydb\")",
+            "type": "string"
+          },
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "max_duration_secs": {
+            "description": "The terminal output will be returned to you when it settles (doesn't change), or at max_duration_sec, whichever comes first. This is NOT a way to sleep and wait. This is strictly for ensuring you get output for interactive application that update their display frequently (like htop or a game).",
+            "type": "number"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": "Spawn interactive TUI programs (vim, psql, ssh, REPLs) in a PTY; returns the rendered screen",
+      "prompt_guidelines": [
+        "Prefer `bash` for one-shot commands; use this only when the program runs for a long time, needs a full-screen TUI, cursor addressing, or incremental input.",
+        "Do NOT add shell redirections, pipes, or grep to the interactive_term command (e.g. \"htop | grep foo\" or \"psql > out.txt\") — the tool returns the rendered SCREEN, so piped/redirected output is silently lost. Run the command bare; filter nothing.",
+        "You can snapshot the terminal at any time: call interactive_term_send with NO arguments to re-render and read the current screen without sending input.",
+        "Each call BLOCKS until screen output settles and returns the rendered screen — call interactive_term_send afterwards to type text or press named keys (\"enter\", \"tab\", \"ctrl+c\", \"up\").",
+        "The spawned program keeps running between calls; its state (REPL variables, vim buffers) persists. Kill the session with interactive_term_kill when finished.",
+        "The user may take over the terminal from the TUI. If interactive_term_send reports the user has control, stop and wait — the screen will be delivered to you when they hand it back."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "interactive_term_kill",
+      "description": "Kill this session's running `interactive_term` terminal (its whole process group) and receive the final screen, a transcript tail, and the exit code. Use this to clean up when you are done with an interactive program (close vim, exit ssh, stop htop). Safe to call on an already-exited terminal — it returns the recorded final state.",
+      "parameters": {
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "prompt_snippet": "Kill this session's interactive_term terminal (whole process group) and get the final state",
+      "prompt_guidelines": [
+        "Kill interactive_term terminals when done with them so no processes are left running.",
+        "Killing an already-exited terminal is safe — it returns the recorded final state."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "interactive_term_send",
+      "description": "Send input to this session's running `interactive_term` terminal: type text, press named keys, or both — then receive the updated rendered screen. SNAPSHOT: call this with NO arguments at any time to re-render and read the terminal's current screen without sending anything — use it to check on progress, poll a long-running program, or re-read a screen you scrolled past. Never pipe or redirect terminal output to capture it; the screen snapshot IS the output. Named keys: \"enter\", \"esc\", \"tab\", \"backspace\", \"delete\", \"up\", \"down\", \"left\", \"right\", \"home\", \"end\", \"pageup\", \"pagedown\", \"ctrl+<letter>\" (e.g. \"ctrl+c\"), \"alt+<key>\", or any single character. BLOCKING: returns after the screen output settles. If the user has taken control of the terminal, your input is NOT delivered — the result tells you to stop and wait.",
+      "parameters": {
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "enter": {
+            "description": "Press enter after the text/keys (optional, default false)",
+            "type": "boolean"
+          },
+          "keys": {
+            "description": "Named keys to press in order, e.g. [\"ctrl+c\"], [\"up\", \"enter\"] (optional)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "max_duration_secs": {
+            "description": "Maximum seconds to wait for the screen to settle. Default 3.",
+            "type": "number"
+          },
+          "text": {
+            "description": "Text to type verbatim (optional)",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "prompt_snippet": "Send text/keys to this session's interactive_term terminal and get the updated screen",
+      "prompt_guidelines": [
+        "After typing text, include \"enter\": true or the keys entry \"enter\" — text alone does not submit.",
+        "Snapshot anytime: call with NO arguments to re-render and read the current screen without sending input (useful for polling progress).",
+        "If the result says the user has control, STOP and wait for the user to hand the terminal back."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "load_bot",
+      "description": "\nAttach a bot as a child of this session: a background worker that runs as its\nown session, keeps running while you continue your turn, and reports back when\ndone. The report arrives as a message that starts your next turn — you never\nblock on it. Once a bot is attached you are its ORCHESTRATOR: you assign work,\nthe bot does it, and you go on with your own.\n\nA bot is a real session — it appears in the sidebar, persists across\ndispatches, and can be steered. It inherits the environment from this session\n(model, cwd, tools, skills, MCP servers) and holds its own conversation:\nwhatever it learns stays with it across dispatches, so it is the place for\nspecialists a session builds context in.\n\nEach call attaches one bot. The bot comes from a workflow-local TOML file\n(path) or from the call's toml argument — give exactly one of the two. Either\nform uses the same shape as an [[bot.entry]] block in jinn.toml. The loaded\nbot belongs to its source (that file, or this call): it cannot be saved to\njinn.toml.\n\nWHEN TO USE:\n - long-running independent task that needs to be done while you do other work\n - several independent tasks at once: attach one bot per task and dispatch all\n   of them in the same turn — the reports come back as messages\n - a recurring specialist you will consult repeatedly (research, review, a\n   domain expert): preserve behavior keeps its conversation, so follow-up\n   queries are fast and cheap\n - a standing watcher that should re-run on its own: a bot with\n   trigger = \"parent-completed\" fires after each of your turns\n - work whose result you can absorb when the report arrives — not work whose\n   answer gates your very next step\n\nWHEN NOT TO USE: you need the child's result before you can continue — use\nspawn_subagent instead; it blocks and returns the final message directly,\nwith no orchestration on your side.\n\nHOW BOTS DIFFER FROM SUBAGENTS: spawn_subagent blocks you until the child\nfinishes. A bot is a BACKGROUND worker — load_bot returns immediately with the\nbot's session id, the bot runs while you continue your turn, and its report\narrives later as a message that starts your next turn.\n\nHOW A BOT DOES WORK: load_bot only CREATES the bot — it runs nothing. You\ndispatch an assignment by sending the bot's session id to tell_session; an\nidle bot starts on the message immediately, a busy bot queues it. Dispatch\nmessages must be self-contained: a run sees its pinned instructions plus the\nmessage, never your conversation.\n\nYOUR ORCHESTRATOR DUTIES once a bot is attached:\n - Track every bot you spawned: its session id and, for instances of one\n   shared seed, the set_name label you gave it (e.g. worker-2).\n - Proceed with other work, or end your turn, while bots run. NEVER wait for\n   a bot's report with a bash sleep or a poll loop — the bot is instructed to\n   report back via notify_parent, and that report wakes you.\n - session_fetch on a bot's session id is how you check progress or read what\n   a bot did; do this when you feel the need, not on a schedule.\n - A completed bot keeps its conversation (preserve behavior): send follow-up\n   queries to it with tell_session and it answers from context it already\n   holds — fast and cheap.\n\nREADY-TO-GO BACKGROUND WORKER — paste this as the toml argument, then\ndispatch with tell_session. set_name renames instances (worker-1, worker-2):\n\n[[bot.entry]]\nname = \"worker\"\nbehavior = \"preserve\"\ntrigger = \"manual\"\nprep_mode = false\nseed_template = \"The parent session's id is <parent_id>. The previous run of this bot reported: <prior_report>.\"\npins = [\n  { role = \"user\", text = \"\"\"\nYou are a background worker session. The parent dispatches tasks as\nmessages; each message is a complete, self-contained assignment.\n\nRules:\n- Complete the assignment using your tools.\n- If the assignment is ambiguous or impossible, report BLOCKED instead of improvising.\n- After you are done:\n   - Call `conclude` using a line 1 summary of 10 words or fewer.\n   - THEN call `notify_parent` with: DONE or BLOCKED, a 1-3 sentence result, and any file paths or ids the parent needs.\n   - Then STOP and wait for the next dispatch.\n\"\"\" },\n]\n\nprep_mode = false is required: a bot left in prep mode is still being\ncomposed and refuses every dispatch. Bot-only gates apply here too: a bot\ncannot load another bot, and only a non-bot session can call this tool.\n        ",
+      "parameters": {
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Path to the bot TOML file. Relative paths resolve against this session's working directory.",
+            "type": "string"
+          },
+          "set_name": {
+            "description": "Optional replacement for the bot's name from the file — for labeling instances of one shared seed (e.g. \"implementor-002\"). Behavior and configuration are unaffected.",
+            "type": "string"
+          },
+          "toml": {
+            "description": "The bot entry's TOML text itself, instead of a file. Same shape as an [[bot.entry]] block in jinn.toml — a bare entry's keys, an `entry = [...]` array with one entry, or the full `[[bot.entry]]` document shape.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "prompt_snippet": "Attach a background bot: `load_bot` with the bot file's path, or with the bot entry's toml text itself. You become the bot's orchestrator — dispatch work with `tell_session` and its report arrives as a message.",
+      "prompt_guidelines": [
+        "Use `load_bot` to bring up the bots a workflow needs, from the TOML files that ship beside the workflow, or to attach an ad-hoc bot by handing the entry's toml text to the call directly. Give exactly one of `path` or `toml`. The result names the created bot's session id — that is the id its messages are addressed to.",
+        "Loading a bot makes you its orchestrator: `load_bot` creates the bot but dispatches nothing — send assignments to the bot's session id with `tell_session`, keep tracking the bots you spawned, and keep working while they run. Never wait on a bot with a bash sleep; its `notify_parent` report starts your next turn. Check a bot's progress with `session_fetch` when needed, and send follow-up queries to a completed bot with `tell_session` — it answers from the context it already holds.",
+        "For an ad-hoc background worker with no file, paste the ready-to-go worker TOML from the tool description as `toml` and label instances with `set_name` (worker-1, worker-2)."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "read",
+      "description": "Reads a file from the local filesystem. Results are returned in cat -n format \n            with line numbers starting at 1: the prefix is spaces + line number + tab; \n            everything after the tab is the actual file content.\n\n\n            By default reads up to 2000 lines or 50KB. Use `offset`/`limit` for long files; \n            when output is truncated a notice shows the kept lines and the next offset \n            to continue from.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "file_path": {
+            "description": "The absolute path to the file to read",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum number of lines to read",
+            "type": "number"
+          },
+          "offset": {
+            "description": "Line number to start reading from (1-indexed)",
+            "type": "number"
+          }
+        },
+        "required": [
+          "file_path"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": "Read a file from the local filesystem",
+      "prompt_guidelines": [
+        "Read files before editing them so you can match content exactly.",
+        "Batch-read multiple potentially relevant files in a single response.",
+        "If `read` is truncated, continue with the `offset` it suggests — do not guess unseen lines."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "read_image",
+      "description": "Reads a local image file and returns it for viewing. Supports native formats (PNG, JPEG, GIF, WebP) directly; other image formats (HEIC, AVIF, TIFF, BMP, ...) are transcoded to PNG (in-process decoder first, ImageMagick fallback). Images over 5 MB are rejected.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "file_path": {
+            "description": "The path to the image file to read (absolute, or relative to the session's working directory)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_path"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": "Read an image file so you can see it",
+      "prompt_guidelines": [
+        "To view an image you generated, write it to a file with `bash` (e.g. ImageMagick), then `read_image` that file.",
+        "If `read_image` reports the image exceeds the size limit, resize it first (e.g. `magick input.png -resize 2000x2000 output.png`) and retry with the smaller file."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "restart_mcp_server",
+      "description": "Restart a dead or broken MCP server so its tools work again. Call this when an `mcp__<server>__*` tool call fails (the server has likely died). Pass the server's name (e.g. `excalimate`) — a full `mcp__<server>__<tool>` tool name is also accepted and silently resolved. This waits until the server has finished restarting (up to 60s for slow-boot servers), then returns whether it is back online. After a successful restart, retry the original tool call. **If this tool reports failure, STOP and wait for user instruction — do not retry.**",
+      "parameters": {
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "server": {
+            "description": "The MCP server to restart, by name (e.g. `excalimate`), or the failing `mcp__<server>__<tool>` tool name (the namespace is stripped).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": null,
+      "prompt_guidelines": [],
+      "server_tool_type": null
+    },
+    {
+      "name": "run_lifecycle",
+      "description": "Run a session lifecycle script's setup, or replay a session's recorded teardown. Setup names the script — from jinn.toml, or from the exact file a path argument names — and supplies its arguments; the recorded coordinates land on the session before the script runs, so teardown can replay them after a restart. Teardown needs only the session id: it re-runs the teardown the session's stored coordinates name, and any script/path/args supplied with it are ignored. Setup adopts the last path the script prints as the session's working directory. Teardown re-renders by placeholder name, so placeholder order in the two commands is irrelevant. Values are shell-quoted before substitution, so they cannot alter the command.",
+      "parameters": {
+        "properties": {
+          "action": {
+            "description": "Which half to run: setup reads the script named below; teardown replays the session's recorded coordinates.",
+            "enum": [
+              "setup",
+              "teardown"
+            ],
+            "type": "string"
+          },
+          "args": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Setup only. Named arguments for the script's <placeholder> parameters, keyed by placeholder name. Ignored by teardown, which replays the session's stored arguments.",
+            "type": "object"
+          },
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Setup only. Path to a lifecycle TOML file to read the script from instead of jinn.toml (e.g. a workflow's lifecycle.toml). Ignored by teardown.",
+            "type": "string"
+          },
+          "script": {
+            "description": "Setup only. The lifecycle script's name — from jinn.toml, or from the file the path argument names. Ignored by teardown.",
+            "type": "string"
+          },
+          "session_id": {
+            "description": "The session the script runs for.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "session_id"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": "Run a lifecycle script: `run_lifecycle` with the action and session id — for setup add the script name (and its file's path for a workflow script) and its arguments; for teardown add nothing else, the session's recorded coordinates drive it.",
+      "prompt_guidelines": [
+        "Use `run_lifecycle` to give a session its scripted environment — a worktree, a checkout — or to tear that environment down. Setup: supply every argument the script's placeholders name; values are quoted for you; the coordinates are recorded on the session. Teardown: pass only the session id — the recorded coordinates replay, and supplied script/path/args are ignored. A workflow's scripts live in its `lifecycle.toml`: pass that path and the script's name."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "save_plan",
+      "description": "Save a plan file to disk and pin the result so it persists in conversation history through compaction. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
+      "parameters": {
+        "properties": {
+          "content": {
+            "description": "Content to write to the plan file",
+            "type": "string"
+          },
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Path to the plan file (relative or absolute)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": "Save a plan file",
+      "prompt_guidelines": [
+        "Use save_plan to write plan files — the result is pinned so the plan stays visible as context shrinks.",
+        "Prefer paths under `.plans/<task-slug>/` (e.g. `.plans/my-feature/plan.md`)."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "session_fetch",
+      "description": "Read entries from a persisted session transcript. The companion to session_search: pass the entry id from a search hit to see it in context, or fetch the last entries of a session to catch up on it.\n\nTwo modes:\n  anchored — pass entry_id (from a session_search hit); returns it with surrounding entries. context controls how many entries total (default 6, max 50).\n  tail — omit entry_id; returns the last entries of the session (default 30, max 100).\n\nEach line is rendered as [position] role: text. The [position] is a DISPLAY LABEL, NOT an entry id — it is a running count that shifts as the session grows, and passing one as entry_id is rejected. Entries currently excluded from the model's context are flagged [excluded from context] — useful for understanding why something was forgotten. Always address entries by entry id, never by position.\n\nOmit session_id to read the current session.\n\nExamples:\n  session_fetch({\"entry_id\": \"e-7f3a…\", \"context\": 10})\n  session_fetch({\"session_id\": \"0196a3b2-…\", \"limit\": 15})",
+      "parameters": {
+        "properties": {
+          "context": {
+            "description": "Anchored mode: total entries to return around the anchor (1-50, default 6).",
+            "type": "integer"
+          },
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "entry_id": {
+            "description": "Anchor entry id copied verbatim from a session_search hit. NOT the [position] label this tool prints — positions are not addresses and are rejected. Omit for a tail read.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Tail mode: number of trailing entries to return (1-100, default 30).",
+            "type": "integer"
+          },
+          "session_id": {
+            "description": "Session to read. Defaults to the current session.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "prompt_snippet": null,
+      "prompt_guidelines": [
+        "Drill into session_search hits with session_fetch; keep context small (6-10) and widen only if needed."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "session_search",
+      "description": "Search across persisted sessions by content. Runs a full-text query over every saved conversation (user, assistant, tool_call, tool_result, system, error, and compaction text — never actor/thinking text).\n\nThe query uses SQLite FTS5 MATCH syntax, passed through unmodified:\n  plain words: auth flow\n  phrases: \"retry with backoff\"\n  prefix: migrat*\n  column filter: tool_result NEAR('timeout' 'config')\n  boolean: session_fetch AND NOT pagination\n\nResults are the N best matches ranked by relevance, each on one line with its session id, session title, date, role, entry id, and a snippet where matches are wrapped in << >>. A per-session match-count rollup shows which sessions are worth drilling into. There is no pagination — if the top results miss, refine the query instead of paging.\n\nScope:\n  omitted or \"current\": only the current session\n  \"all\": every persisted session\n  \"project:<name>\": sessions whose project directory ends with <name> (case-insensitive; name is matched against the final path component)\n  a specific session: pass session_id directly\n\nDrill into a hit with session_fetch using its entry id.\n\nExamples:\n  session_search({\"query\": \"rowid mapping\"})\n  session_search({\"query\": \"fts5 snippet\", \"scope\": \"all\", \"fields\": [\"assistant\", \"tool_result\"]})\n  session_search({\"query\": \"compactor\", \"scope\": \"project:session-search\"})",
+      "parameters": {
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Entry roles to search. Defaults to ['assistant', 'user']. 'actor' and 'thinking' are never indexed.",
+            "items": {
+              "enum": [
+                "user",
+                "assistant",
+                "tool_call",
+                "tool_result",
+                "system",
+                "error",
+                "compaction"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "description": "Maximum number of hits to return (1-50). Defaults to 20.",
+            "type": "integer"
+          },
+          "query": {
+            "description": "FTS5 MATCH expression, e.g. 'auth flow', '\"retry with backoff\"', 'migrat*', 'tool_result NEAR(timeout config)'.",
+            "type": "string"
+          },
+          "scope": {
+            "description": "Where to search: omit for the current session, 'all' for every persisted session, or 'project:<name>' for sessions in that project (name matched against the last path component, case-insensitive).",
+            "type": "string"
+          },
+          "session_id": {
+            "description": "Search exactly one session by id (overrides scope).",
+            "type": "string"
+          },
+          "since": {
+            "description": "Only entries on or after this ISO date/datetime (e.g. '2026-09-01' or '2026-09-01T12:00:00Z').",
+            "type": "string"
+          },
+          "until": {
+            "description": "Only entries on or before this ISO date/datetime.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": null,
+      "prompt_guidelines": [
+        "Prefer session_search over re-reading old sessions entry by entry; it finds content in sessions that were never loaded.",
+        "Queries are FTS5 MATCH expressions — if the syntax is wrong the SQLite error is returned verbatim; fix and retry."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "skill",
+      "description": "Load a specific agent skill's content into the conversation context. The skill content is returned in this tool result and pinned in the conversation history for the rest of the conversation. Use this tool when the current task matches a skill's description from the available skills list. Do not call this tool if the skill is already loaded (marked loaded='true' in the available skills list).",
+      "parameters": {
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the skill to load (from the available skills list)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": null,
+      "prompt_guidelines": [],
+      "server_tool_type": null
+    },
+    {
+      "name": "spawn_subagent",
+      "description": "\nDelegate a self-contained task to a fresh subagent session.\n\nEach call creates one subagent. To use multiple subagents, make multiple spawn_subagent\ncalls in the same assistant turn. Subagents inherit the model, cwd, tools,\nskills, and MCP servers, but not the parent conversation history or the parent\ntask list — a subagent starts with an empty task list and receives its entire\nassignment in the prompt. Only the subagent's final message is returned; its\nintermediate tool calls and output remain in its own context.\n\nWHEN TO USE:\n - open-ended exploration or research\n - multi-step work whose intermediate output you do not need\n - broad reviews, comparisons, investigations, or implementation work that contains multiple independent concerns\n - work that can be divided into separate, bounded workstreams\n\nWHEN NOT TO USE: the work can run in the background while you continue (a bot\nreports back as a message and never blocks you), or the same worker should\nhandle several dispatches over time — use load_bot + tell_session instead.\n\n**AVOID SPAWNING INDIVIDUAL SUBAGENTS. PREFER SPAWNING 2+ SUBAGENTS WITH EXPLICIT BOUNDED TASKS**\n\nPARALLEL DELEGATION DEFAULT:\n\nFor requests containing two or more independent workstreams, the default is\nto delegate each workstream to a separate subagent and launch the first wave\nconcurrently.\n\nBefore making the first spawn_subagent call:\n 1. Identify the relevant workstreams.\n 2. Separate independent work from dependent work.\n 3. For each independent workstream, write a distinct, self-contained brief.\n 4. Emit all first-wave spawn_subagent calls in the same assistant turn.\n\nDo not default to one subagent merely because this tool creates one subagent\nper call. Multiple calls are the mechanism for fan-out.\n\nA single call is appropriate when the work is genuinely indivisible, very\nsmall, strictly sequential, or when delegation would cost more than doing the\nwork directly.\n\nUSE WAVES FOR DEPENDENT WORK:\n\nFor dependent tasks, launch only the independent portion of the current wave\nconcurrently. After collecting those results, determine the next wave from\ntheir outputs.\n\nThe parent agent remains responsible for:\n - assigning clear boundaries to each workstream\n - collecting and comparing results\n - identifying duplicate or conflicting findings\n - resolving conflicts and integrating changes\n - performing final verification\n\nDo not parallelize work that:\n - depends directly on another task's result\n - would duplicate substantially the same investigation\n - is too small to benefit from delegation\n - requires multiple agents to modify the same files concurrently\n\nFor concurrent code changes, assign disjoint files or scopes. Prefer parallel\nread-only investigation when ownership is unclear; let the parent integrate\nthe changes.\n\nEXAMPLES:\n - \"Find relevant implementation files\" + \"Find relevant tests\" -> two concurrent spawn_subagent calls.\n - \"Review correctness\" + \"Review security\" + \"Review test coverage\" -> three concurrent spawn_subagent calls.\n - \"Investigate possible causes A and B\" -> two concurrent calls, followed by parent synthesis.\n - \"Implement A, then use A's result to implement B\" -> sequential waves.\n - \"Make changes to files A, B, C\" -> three concurrent spawn_subagent calls.\n\nPROMPT REQUIREMENTS:\n - The prompt must be self-contained: the subagent cannot see this conversation\n   or the user's original intent.\n - State the goal, relevant context, constraints, scope, and expected result.\n - Avoid giving multiple overlapping workstreams to the same subagent.\n\nTIMEOUT: unlimited by default. Pass max_duration_secs to bound the\nsubagent; on expiry the subagent is cancelled and a failure is returned.\n        ",
+      "parameters": {
+        "properties": {
+          "description": {
+            "description": "A 3-5 word summary of the task, shown as the subagent session's title in the sidebar.",
+            "type": "string"
+          },
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "model": {
+            "description": "Optional model override for the subagent. The value must name an expanded provider/model id (e.g. \"openrouter/anthropic/claude-sonnet-4\") or a configured alias name (e.g. \"fast\"); anything else fails the call before any subagent is created. Defaults to this session's model. Do not provide empty strings or use 'inherit' as the model. Use this field only when the user explicitly instructs a model for the subagent — you almost never need to do this.",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "Self-contained brief for the subagent. It sees nothing else — no conversation history, no user intent.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": "Delegate one self-contained workstream to a fresh subagent. For multiple independent workstreams, make multiple spawn_subagent calls in the same assistant turn.",
+      "prompt_guidelines": [
+        "Before delegating, identify independent workstreams and their dependencies. If two or more workstreams can proceed without waiting for each other, launch them concurrently as separate spawn_subagent calls in the same assistant turn.",
+        "Treat fan-out as the default for multi-part work. Do not stop after one subagent when the request contains additional independent concerns. Use one subagent only when the work is tiny, indivisible, strictly sequential, or not worth coordinating.",
+        "Start with a small bounded fan-out, typically 2–4 subagents, and increase it only when the workstreams are substantial, clearly independent, and non-conflicting.",
+        "For dependent work, use waves: launch the independent tasks in the current wave, collect and synthesize their results, then launch the next wave.",
+        "Give each subagent a distinct scope. Avoid overlapping prompts, and do not ask multiple agents to edit the same files concurrently. Prefer read-only investigation when file ownership is unclear.",
+        "Write every subagent prompt as a complete brief: goal, context, constraints, relevant paths or symbols, whether to research or make changes, and the expected output.",
+        "A subagent starts with an empty task list; it does not see yours. Put the entire assignment in the prompt — the subagent must not be expected to read context from your task list, and its todo mutations never propagate back to you.",
+        "The model argument is only for when the user explicitly instructs a model for a subagent — you almost never need it. Its value must be an expanded provider/model id or a configured alias name; an unknown name fails the call without spawning anything."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "tell_session",
+      "description": "Send a message to another session by its session id. An idle bot starts a run seeded from its template plus your message; a busy bot receives it when its current turn finishes; any other session receives it as a new user turn. With mode \"interrupt\" on a busy target, the message lands as a steering fragment at its next prompt-assembly boundary instead of queueing.",
+      "parameters": {
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "message": {
+            "description": "The message text the target session receives. Markdown format is supported.",
+            "type": "string"
+          },
+          "mode": {
+            "description": "How the message is delivered to a busy target: \"queue\" (the default) waits for its current turn to finish; \"interrupt\" lands it as a steering fragment at the target's next prompt-assembly boundary, without cancelling in-flight work. An interrupt to an idle target delivers ordinarily.",
+            "enum": [
+              "queue",
+              "interrupt"
+            ],
+            "type": "string"
+          },
+          "session_id": {
+            "description": "The target session's id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "message"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": "Deliver a message to a named session: `tell_session` with the target session id and the text. Pass mode \"interrupt\" to steer a busy session's current turn; the default mode queues.",
+      "prompt_guidelines": [
+        "Use `tell_session` to hand work to a specific session — a stage bot in a workflow run, or any session whose id you know. Never guess an id; use one you were given or can read."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "todo_get_list",
+      "description": "Get the full todo list with all phases and tasks. Returns the current state of the todo list, plus the next task to work on.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "prompt_snippet": "Review the current task list",
+      "prompt_guidelines": [],
+      "server_tool_type": null
+    },
+    {
+      "name": "todo_set_list",
+      "description": "Replace the entire task list with a new one. Accepts an ordered list of phases, each containing an ordered list of tasks. The list you send IS the list - anything omitted is deleted, and task statuses are declared inline, not remembered. Each task is an object with 'description' and 'status' (pending, completed, or cancelled). Pass an empty phases array to clear the task list entirely. Use this when you have a complete plan ready to materialize; use todo_set_phase for day-to-day updates.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "phases": {
+            "description": "Ordered list of phases. Each phase has a description and an optional list of tasks. An empty array clears the task list.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "description": "Name of the phase (e.g., 'Research', 'Build', 'Test')",
+                  "type": "string"
+                },
+                "tasks": {
+                  "description": "Ordered list of tasks for this phase. An empty or omitted list is valid.",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "description": {
+                        "description": "What the task is.",
+                        "type": "string"
+                      },
+                      "status": {
+                        "description": "Declared status of this task. 'pending' if the work has not been done yet.",
+                        "enum": [
+                          "pending",
+                          "completed",
+                          "cancelled"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "description",
+                      "status"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "description"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "phases"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": "Create a new task list",
+      "prompt_guidelines": [
+        "Provide the full plan - all phases and tasks - in a single call. Existing phases and tasks are replaced entirely.",
+        "Each phase must have a description. Tasks within a phase are optional.",
+        "Read the current list first (todo_get_list) and include everything you want to keep - anything omitted is deleted.",
+        "Send every task as an object with both fields: {\"description\": \"...\", \"status\": \"pending\"} (statuses: pending, completed, cancelled).",
+        "'postponed' is not a valid status - move the task to a later phase or cancel it instead.",
+        "Pass an empty phases array ({\"phases\": []}) to clear the task list entirely."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "todo_set_phase",
+      "description": "Write one entire phase of the task list, matched by its description. If a phase with this description exists, it is replaced (first match wins); otherwise the phase is appended to the end of the list. Tasks declare their status inline: each task is an object with 'description' and 'status' (pending, completed, or cancelled). Use this for day-to-day updates - write the entire phase including unchanged tasks; use todo_set_list to restructure the whole list.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "Description of the phase to write. Matched exactly against existing phase descriptions; appended as a new phase when nothing matches.",
+            "type": "string"
+          },
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "tasks": {
+            "description": "The complete ordered task list for this phase. An empty or omitted list is valid.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "description": "What the task is.",
+                  "type": "string"
+                },
+                "status": {
+                  "description": "Declared status of this task. 'pending' if the work has not been done yet.",
+                  "enum": [
+                    "pending",
+                    "completed",
+                    "cancelled"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "description",
+                "status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": "Write one task-list phase",
+      "prompt_guidelines": [
+        "Write the ENTIRE phase - every task you want it to contain, including unchanged ones. Tasks left out of the payload are removed from the phase.",
+        "Phase matching is exact (case-sensitive) on the trimmed description. If no phase matches, a new phase is appended and the result says so - check for typos when that wasn't intended.",
+        "Record progress by resending the phase with statuses flipped: {\"description\": \"...\", \"status\": \"completed\"}. Every task needs both a 'description' and a 'status' (pending, completed, cancelled).",
+        "'postponed' is not a valid status - move the task to a later phase or cancel it instead.",
+        "To finish a whole phase and move on, flip all its tasks to completed (or cancelled) in one call."
+      ],
+      "server_tool_type": null
+    },
+    {
+      "name": "write",
+      "description": "Writes a file to the local filesystem, overwriting the existing file \n            if one exists at the provided path. Parent directories are created automatically.\n\n\n            Prefer editing existing files; never create new files unless required, and never \n            create documentation files (*.md, README) unless the user explicitly asks.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "description": "The content to write to the file",
+            "type": "string"
+          },
+          "dump_to_disk": {
+            "description": "Optional file path to write this tool's full result to; the in-context response becomes a short pointer + preview.",
+            "type": "string"
+          },
+          "file_path": {
+            "description": "The absolute path to the file to write",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ],
+        "type": "object"
+      },
+      "prompt_snippet": "Create or overwrite a file",
+      "prompt_guidelines": [
+        "Only use `write` for new files or complete rewrites — use `edit` for changes."
+      ],
+      "server_tool_type": null
+    }
+  ],
+  "provider_id": "zai/glm-5.3-flash",
+  "estimated_tokens": 30312,
+  "model_used": "zai/glm-5.3-flash",
+  "reasoning_effort": "high",
+  "dispatched_at": "2026-11-11T21:54:20.559113714Z",
+  "origin": "ToolContinuation",
+  "turn": 1,
+  "stream": 6,
+  "tool_choice": "None"
+}
