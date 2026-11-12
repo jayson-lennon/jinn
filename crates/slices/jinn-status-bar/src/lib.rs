@@ -19,7 +19,6 @@
 //! falls back to the model display when the slice is not activated.
 
 pub mod element;
-pub mod turn_counter;
 
 #[cfg(test)]
 mod element_tests;

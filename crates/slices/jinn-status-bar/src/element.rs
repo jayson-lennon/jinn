@@ -26,7 +26,10 @@ use jinn_provider_config::ModelCache;
 use jinn_provider_config::ModelInfo;
 use jinn_session_state::ChatSessionState;
 use jinn_session_state::aggregate_tree_stats;
+use jinn_session_state::compute_turn_count;
 use jinn_slices::DrawContext;
+use jinn_status_bar_msg::StatusBarState;
+use jinn_status_bar_msg::status_bar_slot;
 use jinn_theme::Theme;
 use jinn_token_count_msg::TokenStats;
 use jinn_work_time_msg::WorkingTimeState;
@@ -36,10 +39,6 @@ use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-
-use crate::turn_counter;
-use jinn_status_bar_msg::StatusBarState;
-use jinn_status_bar_msg::status_bar_slot;
 
 /// A display element that shows the active strategy and provider/model in the status bar.
 #[derive(Debug)]
@@ -352,8 +351,7 @@ pub fn render_session_info_line(
     let total_cost = TokenStats::total_cost(session.token_ledger());
 
     let left_side = {
-        let turn_count =
-            turn_counter::compute_turn_count(session.history(), session.fork_ordinal());
+        let turn_count = compute_turn_count(session.history(), session.fork_ordinal());
         let turn_symbol = '\u{21BB}';
         let mut left_spans: Vec<Span> = Vec::new();
         // Cache-hit percentage — leftmost, shown only when there are cache hits.
