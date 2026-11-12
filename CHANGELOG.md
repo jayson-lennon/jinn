@@ -16,6 +16,11 @@ workset_trigger_tokens = 200000
 - (`jinn.toml`): `workset_trigger_tokens` triggers an error if less than `accumulation_threshold_tokens`.
 - Set default `accumulation_threshold_tokens` to 170k (up from 150k).
 - Removed background compactor.
+- Update `learning-tutor` persona:
+  - Now maintains a glossary
+  - Provides a primary source at session end for further exploration
+  - Should adjust difficulty based on the zone of proximal development
+  - Should now use simpler and more direct phrasing
 
 
 ## 2026-11-10 v1.23.0
