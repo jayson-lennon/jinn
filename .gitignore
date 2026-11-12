@@ -51,3 +51,4 @@ worktrees/*
 /*.toml
 /*.html
 /*.md
+!clippy.toml
