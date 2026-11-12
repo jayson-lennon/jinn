@@ -738,3 +738,5 @@ Entries are added or amended **only with human approval**.
 - (compaction) Applying compaction-sourced history mutations invalidates the session's cached context and system sizes until the next honest size recalc lands. BECAUSE: a gate reading a pre-compaction size re-fires on the fresh history — the paired-compaction race.
 - (compaction) The background compaction worker's auto path has no production caller; /compact is its only production entry. BECAUSE: the slice migration split the workers and the compaction worker fell out of the prune list.
 - (compaction) The handoff gate refuses a second fold until a new user turn arrives: the fold arms a flag, the next user entry clears it. BECAUSE: user turns are fold-protected, so without one a post-fold work estimate can still exceed the fire line while the fold has nothing new to summarize — the pins-dominated fixed point.
+- (session) The derived turn counter treats an assistant response immediately following a RuleInterrupt as the same turn, not a new one. BECAUSE: harness steering — the handoff recap included — is same-turn work; the agent never gave up control.
+
