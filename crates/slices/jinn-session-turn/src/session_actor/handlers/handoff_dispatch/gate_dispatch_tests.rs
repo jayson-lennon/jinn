@@ -641,3 +641,124 @@ async fn cancel_sweep_clears_the_handoff_flag_without_a_fold() {
             .all(|e| !matches!(e.kind, ChatEntryKind::Compaction { .. }))
     );
 }
+
+/// Seeds the actor's personas cell (the fake `Services` builder registers
+/// the full cell catalog) with one block-carrying persona — the catalog
+/// resolution surface the nudge helper reads through.
+fn seed_persona_catalog(actor: &SessionPersistenceActor, persona: jinn_slices::Persona) {
+    actor
+        .services
+        .slices
+        .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+        .expect("the fake services builder registers the personas cell")
+        .update(|p: &mut jinn_persona_msg::Personas| p.entries = vec![persona]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn gate_fire_uses_the_persona_handoff_block_as_the_nudge() {
+    // Given a handoff-enabled actor whose session's persona carries a
+    // compaction block, past the trigger.
+    let (actor, _audit) = handoff_actor(600).await;
+    seed_persona_catalog(
+        &actor,
+        jinn_slices::Persona {
+            name: "brainstorm".to_owned(),
+            description: String::new(),
+            body: String::new(),
+            handoff_prompt: "Recap the thesis and the open critiques.".to_owned(),
+        },
+    );
+    let session_id = actor.state.read().session.active_session_id().clone();
+    actor.state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(&session_id)
+            .set_persona_name("brainstorm".to_owned());
+    });
+    set_context_size(&actor, &session_id, 700);
+
+    // When the intercept runs at the boundary.
+    let nudge = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
+        .expect("gate should fire");
+
+    // Then the nudge body is exactly the persona block, not the shipped
+    // recap prompt ("recap prompt", the launch-copy fallback).
+    let ChatEntryKind::RuleInterrupt { body, .. } = &nudge.kind else {
+        panic!("expected a rule interrupt");
+    };
+    assert!(
+        body.contains("Recap the thesis and the open critiques."),
+        "nudge should carry the persona block, got: {body}"
+    );
+    assert!(
+        !body.contains("recap prompt"),
+        "nudge must not fall back to the shipped prompt, got: {body}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn gate_fire_falls_back_to_the_shipped_prompt_for_a_blockless_persona() {
+    // Given a handoff-enabled actor whose persona carries no block, past
+    // the trigger.
+    let (actor, _audit) = handoff_actor(600).await;
+    seed_persona_catalog(
+        &actor,
+        jinn_slices::Persona {
+            name: "plain".to_owned(),
+            description: String::new(),
+            body: String::new(),
+            handoff_prompt: String::new(),
+        },
+    );
+    let session_id = actor.state.read().session.active_session_id().clone();
+    actor.state.with_session(|view| {
+        view.session
+            .map()
+            .get_or_create(&session_id)
+            .set_persona_name("plain".to_owned());
+    });
+    set_context_size(&actor, &session_id, 700);
+
+    // When the intercept runs at the boundary.
+    let nudge = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
+        .expect("gate should fire");
+
+    // Then the nudge body is the shipped recap prompt (the launch copy
+    // the harness seeds as "recap prompt").
+    let ChatEntryKind::RuleInterrupt { body, .. } = &nudge.kind else {
+        panic!("expected a rule interrupt");
+    };
+    assert!(
+        body.contains("recap prompt"),
+        "nudge should use the shipped fallback, got: {body}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn gate_fire_falls_back_when_the_catalog_cell_is_missing() {
+    // Given a handoff-enabled actor with no personas cell registered at
+    // all (persona slice not activated), past the trigger.
+    let (actor, _audit) = handoff_actor(600).await;
+    let session_id = actor.state.read().session.active_session_id().clone();
+    set_context_size(&actor, &session_id, 700);
+
+    // When the intercept runs at the boundary.
+    let nudge = actor
+        .handoff_nudge_if_gated(&session_id, HandoffBoundary::IdleDirect, None)
+        .expect("gate should fire");
+
+    // Then the nudge still fires on the shipped fallback — a missing
+    // catalog degrades, it does not panic.
+    let ChatEntryKind::RuleInterrupt { body, .. } = &nudge.kind else {
+        panic!("expected a rule interrupt");
+    };
+    assert!(
+        body.contains("recap prompt"),
+        "nudge should use the shipped fallback, got: {body}"
+    );
+}

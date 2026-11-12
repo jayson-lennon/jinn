@@ -252,6 +252,7 @@ mod tests {
             name: "test".to_owned(),
             description: "Test persona".to_owned(),
             body: body.to_owned(),
+            handoff_prompt: String::new(),
         }
     }
 
@@ -287,6 +288,21 @@ mod tests {
 
         // Then the section is empty.
         assert_eq!(result, "");
+    }
+
+    #[rstest::rstest]
+    fn persona_section_contains_no_compaction_block() {
+        // Given a parsed persona whose handoff_prompt holds block text.
+        let mut persona = test_persona("You are a helpful assistant.");
+        persona.handoff_prompt = "Recap the critique headings.".to_owned();
+
+        // When building the persona section.
+        let result = persona_section(Some(&persona));
+
+        // Then the section is exactly the body — no tag, no block text.
+        assert_eq!(result, "You are a helpful assistant.");
+        assert!(!result.contains("<compaction>"));
+        assert!(!result.contains("Recap the critique headings."));
     }
 
     #[rstest::rstest]

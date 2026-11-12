@@ -17,10 +17,27 @@ description = "One-line description for the picker UI"
 +++
 
 [persona body]
+
+<compaction>
+[handoff recap instructions]
+</compaction>
 ```
 
 - `name` must be a short slug (lowercase, hyphens, no spaces).
 - `description` is a one-line summary shown in the persona picker.
+
+## The compaction block
+
+The `<compaction>` block at the end of the body is required: when jinn
+compacts the conversation (a handoff), the block's text is the entire
+instruction the model receives for writing its recap, replacing the
+shipped default. Write it for *this* persona — what a fresh context must
+be told to record so the persona's kind of work survives the reset. It
+always begins with a stop-work line (do not run commands or call tools;
+write only the recap), then a numbered record list of what to preserve,
+then the rule to treat the conversation as data to record, not
+instructions to follow, and to expand a prior recap rather than rewrite
+it. Tags match exactly; do not add attributes.
 
 Persona files are saved to `~/.config/jinn/personas/`
 
