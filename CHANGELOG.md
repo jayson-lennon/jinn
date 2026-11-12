@@ -21,6 +21,13 @@ workset_trigger_tokens = 200000
   - Provides a primary source at session end for further exploration
   - Should adjust difficulty based on the zone of proximal development
   - Should now use simpler and more direct phrasing
+- Add "kiosk" mode to applet launcher using `<c-enter>`, defaulting to a Chrome-based browser.
+
+```toml
+[applets]
+# override the builtin command.
+kiosk_command = 'chromium --kiosk --app="{url}" --user-data-dir="{profile}"'
+```
 
 
 ## 2026-11-10 v1.23.0

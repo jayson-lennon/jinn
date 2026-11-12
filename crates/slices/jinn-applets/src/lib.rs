@@ -84,7 +84,12 @@ pub struct AppletsActivateError;
 /// The picker's cells are catalog-registered (block 0); this resolves
 /// them. The server is dormant — no listener binds, no filesystem work
 /// at activation. The store actor reads the catalog lazily on the first
-/// `RescanApplets` (the picker's opener publishes one), never at activation.
+/// `RescanApplets` (the picker's opener publishes one), never at
+/// activation, and reads `[applets] kiosk_command` at each kiosk open,
+/// so a reloaded section takes effect without a restart. The kiosk
+/// profile dir arrives resolved — `AppPaths::kiosk_profile_dir()` at
+/// composition — because path derivation is composition's job, not a
+/// slice's.
 ///
 /// # Errors
 ///
@@ -104,6 +109,7 @@ pub fn activate(
     host: &mut SliceHost<'_, jinn_slices::RenderFacts>,
     config: &jinn_config::ConfigLayer,
     applets_dir: &marked_path::MarkedPathBuf<marked_path::Absolute>,
+    kiosk_profile_dir: &marked_path::MarkedPathBuf<marked_path::Absolute>,
     bus: &jinn_slices::bus::BusService,
 ) -> Result<(), error_stack::Report<AppletsActivateError>> {
     let applets_config = config
@@ -129,8 +135,13 @@ pub fn activate(
         .reader::<jinn_applets_msg::AppletsPickerState>(&jinn_applets_msg::applets_picker_slot())
         .expect("the cell catalog registers the applets picker slot before any slice activates");
 
-    // The store actor: catalog and directory mutations, plus the open
-    // path. Its command subscriptions are the readiness point.
+    // The store actor: catalog and directory mutations, plus the two
+    // open paths. Its command subscriptions are the readiness point.
+    // The launcher is the production wrapper injected as the trait
+    // object the handler calls; tests swap the backend through the
+    // deps.
+    let launcher: std::sync::Arc<dyn crate::browser::KioskLauncher> =
+        std::sync::Arc::new(crate::browser::RealKioskLauncher);
     AppletsStoreActor::spawn(
         &system,
         &store_actor::AppletsStoreActorDeps {
@@ -140,6 +151,9 @@ pub fn activate(
             server_actor: trouper::actor::ActorPath::new(
                 server_actor::APPLETS_ACTOR_NAME.to_owned(),
             ),
+            config: config.clone(),
+            kiosk_profile: kiosk_profile_dir.clone(),
+            launcher,
         },
     );
 
@@ -227,7 +241,13 @@ mod tests {
         // Then activation succeeds — the bind is taken as configured;
         // securing the interface is the operator's call.
         with_test_host!(|host| {
-            let result = super::activate(&mut host, &config, &apps_dir_for_test(), &bus_for_test());
+            let result = super::activate(
+                &mut host,
+                &config,
+                &apps_dir_for_test(),
+                &kiosk_profile_for_test(),
+                &bus_for_test(),
+            );
             assert!(
                 result.is_ok(),
                 "err: {:?}",
@@ -244,7 +264,13 @@ mod tests {
 
         // When activating against a live test host.
         let error = with_test_host!(|host| {
-            match super::activate(&mut host, &config, &apps_dir_for_test(), &bus_for_test()) {
+            match super::activate(
+                &mut host,
+                &config,
+                &apps_dir_for_test(),
+                &kiosk_profile_for_test(),
+                &bus_for_test(),
+            ) {
                 Err(report) => format!("{report:?}"),
                 Ok(()) => panic!("expected activation to fail"),
             }
@@ -264,7 +290,13 @@ mod tests {
         // Then activation succeeds end to end — bind parse, both actors,
         // the picker, and the republisher.
         with_test_host!(|host| {
-            let result = super::activate(&mut host, &config, &apps_dir_for_test(), &bus_for_test());
+            let result = super::activate(
+                &mut host,
+                &config,
+                &apps_dir_for_test(),
+                &kiosk_profile_for_test(),
+                &bus_for_test(),
+            );
             assert!(
                 result.is_ok(),
                 "err: {:?}",
@@ -280,6 +312,15 @@ mod tests {
         std::fs::create_dir_all(applets.as_path()).expect("mkdir");
         marked_path::MarkedPathBuf::<marked_path::Absolute>::new(applets.as_path())
             .expect("absolute")
+    }
+
+    /// A throwaway kiosk profile dir (never touched — activation does no
+    /// IO; the launcher is only invoked by a kiosk open, which these
+    /// activation tests never fire).
+    fn kiosk_profile_for_test() -> marked_path::MarkedPathBuf<marked_path::Absolute> {
+        let dir = jinn_testutil::retained_tempdir();
+        let profile = dir.path.join("kiosk-profile").expect("join");
+        marked_path::MarkedPathBuf::<marked_path::Absolute>::new(profile).expect("absolute")
     }
 
     /// A recording bus, so activation's publishes are captured, not sent.
@@ -341,6 +382,7 @@ mod tests {
         layer
             .put(&jinn_preferences_config::schemas::AppletsConfig {
                 bind: "127.0.0.1:0".to_owned(),
+                kiosk_command: None,
             })
             .expect("layer put lands");
         system.publish(jinn_boot_msg::JinnTomlReloaded).await;
@@ -412,6 +454,7 @@ mod tests {
         layer
             .put(&jinn_preferences_config::schemas::AppletsConfig {
                 bind: format!("127.0.0.1:{taken}"),
+                kiosk_command: None,
             })
             .expect("layer put lands");
         system.publish(jinn_boot_msg::JinnTomlReloaded).await;

@@ -18,8 +18,19 @@
 //!   footer's status line can show the resolved address on a fresh run.
 //! - `ENTER` publishes [`OpenApplet`](jinn_applets_msg::OpenApplet): the store
 //!   actor ensures the server is bound (lazy bind on the first open),
-//!   builds the URL, and launches the OS browser. Route actions are
-//!   synchronous, so the ensure-and-launch lives in the actor.
+//!   builds the URL, and launches the OS browser; a failed launch is
+//!   reported into the chat (the session id rides the command, fixed at
+//!   keypress). Route actions are synchronous, so the ensure-and-launch
+//!   lives in the actor.
+//! - `<c-enter>` publishes
+//!   [`OpenAppletKiosk`](jinn_applets_msg::OpenAppletKiosk): the store
+//!   actor runs the same ensure-bind, then launches the applet in a
+//!   kiosk window — the built-in Chromium launcher or the configured
+//!   `[applets] kiosk_command`, which replaces it entirely; a failed
+//!   launch (including a command that exits nonzero straight away) is
+//!   reported into the chat the same way. A modified key, deliberately:
+//!   the filter's input hook captures bare letters, so an unmodified
+//!   key must stay a filter keystroke.
 //! - `<c-r>` pushes the rename popup. A modified key, deliberately: the
 //!   filter's input hook captures bare letters, so an unmodified `r`
 //!   must stay a filter keystroke.
@@ -39,8 +50,8 @@
 use std::sync::Arc;
 
 use jinn_applets_msg::{
-    AppletsPickerState, DeleteApplet, OpenApplet, RescanApplets, WakeAppletsServer,
-    applets_picker_scope,
+    AppletsPickerState, DeleteApplet, OpenApplet, OpenAppletKiosk, RescanApplets,
+    WakeAppletsServer, applets_picker_scope,
 };
 use jinn_slices::KeyRoutes;
 use jinn_slices::RouteId;
@@ -62,6 +73,7 @@ pub type AppletsPickerCell = TypedCell<AppletsPickerState>;
 /// the picker actually binds — a footer advertising a dead key is a bug.
 pub const APPLETS_PICKER_BINDINGS: &[(&str, &str)] = &[
     ("<enter>", "open in browser"),
+    ("<c-enter>", "open in kiosk"),
     ("<c-r>", "rename"),
     ("<c-d>", "delete"),
     ("<esc>", "close"),
@@ -147,6 +159,20 @@ pub fn attach_applets_picker_rows(routes: &KeyRoutes, picker: &AppletsPickerCell
         "general",
         "open the highlighted app in your browser",
         action(picker, open_highlighted_app),
+    ));
+    routes.attach(row(
+        "open-highlighted-app-kiosk",
+        "<c-enter>",
+        "general",
+        "open the highlighted app in a kiosk window",
+        action(picker, open_highlighted_app_kiosk),
+    ));
+    routes.attach(row(
+        "open-highlighted-app-kiosk",
+        "<c-enter>",
+        "general",
+        "open the highlighted app in a kiosk window",
+        action(picker, open_highlighted_app_kiosk),
     ));
     routes.attach(row(
         "rename-highlighted-app",
@@ -279,12 +305,32 @@ pub fn register_applets_picker_enter_hook(routes: &KeyRoutes, picker: &AppletsPi
 /// launch; the picker's action only snapshots the highlighted id,
 /// publishes, and pops. An empty picker (nothing highlighted) is a
 /// no-op — nothing opens, so the picker stays.
-fn open_highlighted_app(_ctx: &mut ActionCtx<'_>, picker: &AppletsPickerCell) -> IntentResult {
+fn open_highlighted_app(ctx: &mut ActionCtx<'_>, picker: &AppletsPickerCell) -> IntentResult {
     let Some(id) = picker.read().highlighted_id() else {
         return IntentResult::empty();
     };
-    IntentResult::new_message(OpenApplet { id })
-        .with_scope_signal(ScopeSignal::PopIf(applets_picker_scope()))
+    IntentResult::new_message(OpenApplet {
+        id,
+        session_id: ctx.state.active_session_id(),
+    })
+    .with_scope_signal(ScopeSignal::PopIf(applets_picker_scope()))
+}
+
+/// `<c-enter>`: publish the kiosk open command for the highlighted app
+/// and close the picker.
+///
+/// The store actor runs the same ensure-bind and launches the kiosk
+/// window; the action only snapshots the highlighted id, publishes, and
+/// pops. A no-op on an empty picker, exactly like `ENTER`.
+fn open_highlighted_app_kiosk(ctx: &mut ActionCtx<'_>, picker: &AppletsPickerCell) -> IntentResult {
+    let Some(id) = picker.read().highlighted_id() else {
+        return IntentResult::empty();
+    };
+    IntentResult::new_message(OpenAppletKiosk {
+        id,
+        session_id: ctx.state.active_session_id(),
+    })
+    .with_scope_signal(ScopeSignal::PopIf(applets_picker_scope()))
 }
 
 /// `<c-r>`: push the rename popup, seeded with the highlighted title.
@@ -452,6 +498,68 @@ mod tests {
             .expect("the opener row attaches an action named open-applets-picker")
     }
 
+    /// Fires a row action by name against a picker cell seeded with one
+    /// catalog entry.
+    fn fire_action(
+        slices: &jinn_slices::Slices,
+        routes: &jinn_slices::KeyRoutes,
+        config: &jinn_config::ConfigLayer,
+        cell: &TypedCell<AppletsPickerState>,
+        action: &'static str,
+    ) -> (jinn_slices::RouteResult, jinn_core_types::SessionId) {
+        super::republish_from_catalog(
+            cell,
+            &jinn_applets_msg::AppletsCatalog {
+                entries: vec![alpha_entry()],
+            },
+        );
+        let mut state = AppState::default();
+        let session_id = jinn_slices::route::SliceActionState::active_session_id(&state);
+        let result = routes
+            .action_for(
+                &jinn_slices::DynamicIntent::new(applets_picker_scope(), action, action),
+                jinn_slices::ActionCtx {
+                    state: &mut state,
+                    slices,
+                    config,
+                    key_bytes: Vec::new(),
+                },
+            )
+            .unwrap_or_else(|| panic!("no row serves the action {action}"));
+        (result, session_id)
+    }
+
+    /// A publish sink capturing every payload a `RouteResult` carries.
+    #[derive(Default)]
+    struct RecordingSink {
+        payloads: std::sync::Mutex<Vec<serde_json::Value>>,
+    }
+
+    impl jinn_slices::PublishSink for RecordingSink {
+        fn publish_schema(
+            &self,
+            _schema_id: trouper::schema::SchemaId,
+            payload: serde_json::Value,
+            _name: &'static str,
+        ) {
+            self.payloads.lock().expect("sink lock").push(payload);
+        }
+    }
+
+    /// Drains `result`'s publish closures into a recording sink and
+    /// decodes the single command they carried.
+    fn decode_first<M: serde::de::DeserializeOwned>(result: jinn_slices::RouteResult) -> M {
+        let sink = RecordingSink::default();
+        for publish in result.messages {
+            publish(&sink);
+        }
+        let payloads = sink.payloads.lock().expect("sink lock").clone();
+        payloads
+            .first()
+            .and_then(|payload| serde_json::from_value(payload.clone()).ok())
+            .unwrap_or_else(|| panic!("no decodable message in {payloads:?}"))
+    }
+
     #[rstest::rstest]
     #[test]
     fn opening_the_picker_publishes_the_rescan_and_the_wake() {
@@ -526,6 +634,142 @@ mod tests {
             title: "Alpha".to_owned(),
             created_at: "2026-01-01T00:00:00Z".to_owned(),
         }
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn ctrl_enter_publishes_the_kiosk_open_command() {
+        // Given the picker wired the way activation wires it, showing
+        // one applet.
+        let (slices, routes, cell) = wired();
+        let config = jinn_config::empty_config_layer().clone();
+
+        // When firing the `<c-enter>` row's action.
+        let (result, session_id) = fire_action(
+            &slices,
+            &routes,
+            &config,
+            &cell,
+            "open-highlighted-app-kiosk",
+        );
+
+        // Then the kiosk command is published — the store actor owns
+        // the ensure-bind and the launch — carrying the session the
+        // keypress came from, so a failed launch is reported into the
+        // conversation the user is looking at.
+        assert_eq!(result.message_names, ["OpenAppletKiosk"]);
+        let command = decode_first::<jinn_applets_msg::OpenAppletKiosk>(result);
+        assert_eq!(command.session_id, session_id);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn ctrl_enter_pushes_the_same_popif_close_as_enter() {
+        // Given the wired picker showing one applet.
+        let (slices, routes, cell) = wired();
+        let config = jinn_config::empty_config_layer().clone();
+
+        // When firing the `<c-enter>` row's action.
+        let (result, _session_id) = fire_action(
+            &slices,
+            &routes,
+            &config,
+            &cell,
+            "open-highlighted-app-kiosk",
+        );
+
+        // Then the picker closes the way `ENTER` closes it: a
+        // conditional pop the handler applies before publishing.
+        assert_eq!(
+            result.scope_signal,
+            Some(ScopeSignal::PopIf(applets_picker_scope()))
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn enter_still_publishes_the_plain_open_command() {
+        // Given the wired picker showing one applet.
+        let (slices, routes, cell) = wired();
+        let config = jinn_config::empty_config_layer().clone();
+
+        // When firing the `ENTER` row's action.
+        let (result, session_id) =
+            fire_action(&slices, &routes, &config, &cell, "open-highlighted-app");
+
+        // Then the plain open command is published, unchanged — the
+        // kiosk path is an addition, not a replacement — and carries
+        // the same session-reporting contract.
+        assert_eq!(result.message_names, ["OpenApplet"]);
+        let command = decode_first::<jinn_applets_msg::OpenApplet>(result);
+        assert_eq!(command.session_id, session_id);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn both_open_rows_are_noops_on_an_empty_picker() {
+        // Given the wired picker with no rows.
+        let (slices, routes, cell) = wired();
+        let config = jinn_config::empty_config_layer().clone();
+
+        // When firing both open actions with nothing highlighted.
+        let kiosk = routes.action_for(
+            &jinn_slices::DynamicIntent::new(
+                applets_picker_scope(),
+                "open-highlighted-app-kiosk",
+                "open-highlighted-app-kiosk",
+            ),
+            jinn_slices::ActionCtx {
+                state: &mut AppState::default(),
+                slices: &slices,
+                config: &config,
+                key_bytes: Vec::new(),
+            },
+        );
+        let plain = routes.action_for(
+            &jinn_slices::DynamicIntent::new(
+                applets_picker_scope(),
+                "open-highlighted-app",
+                "open-highlighted-app",
+            ),
+            jinn_slices::ActionCtx {
+                state: &mut AppState::default(),
+                slices: &slices,
+                config: &config,
+                key_bytes: Vec::new(),
+            },
+        );
+
+        // Then neither carries a message — nothing opens, so the picker
+        // stays. (`_cell` keeps the registry alive for the rows.)
+        let _ = &cell;
+        assert!(kiosk.is_none_or(|r| r.message_names.is_empty()));
+        assert!(plain.is_none_or(|r| r.message_names.is_empty()));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn the_footer_lists_the_kiosk_binding_and_only_bound_keys() {
+        // Given the picker's declared bindings.
+        let bindings = super::APPLETS_PICKER_BINDINGS;
+        let bound = super::bound_keys();
+
+        // When reading the footer order.
+        let keys: Vec<&str> = bindings.iter().map(|(key, _)| *key).collect();
+
+        // Then `<c-enter>` is advertised directly after `ENTER`, and
+        // every advertised key is one the picker binds — no dead key.
+        assert_eq!(
+            keys.first().copied(),
+            Some("<enter>"),
+            "ENTER leads the footer"
+        );
+        assert_eq!(
+            keys.get(1).copied(),
+            Some("<c-enter>"),
+            "the kiosk open is the second entry"
+        );
+        assert_eq!(keys, bound, "the footer advertises exactly the bound keys");
     }
 
     #[rstest::rstest]

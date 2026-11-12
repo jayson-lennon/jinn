@@ -15,12 +15,14 @@ jinn-preferences-config = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-applets-msg = { workspace = true }
 jinn-config = { workspace = true }
+# The launch-failure report: a failed open pushes a chat error entry.
+jinn-session-history-msg = { workspace = true }
+jinn-core-types = { workspace = true }
 # The live-reload trigger: a jinn.toml change re-reads [applets] bind.
 jinn-boot-msg = { workspace = true }
 jinn-picker = { workspace = true }
 jinn-selection-widget = { workspace = true }
 jinn-theme = { workspace = true }
-jinn-app-state = { workspace = true }
 axum = "0.8"
 parking_lot = { workspace = true }
 tokio = { workspace = true }
@@ -47,6 +49,7 @@ toml = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+jinn-app-state = { workspace = true }
 jinn-testutil = { workspace = true }
 jinn-cell-catalog = { workspace = true }
 serde_json = { workspace = true }

@@ -43,8 +43,13 @@ build an applet from scratch. Either way:
   in green. Opening the picker wakes the server (it binds on the first
   picker open, or on the first `<enter>`), so the address is visible
   without opening an applet first. `<enter>` opens it in your browser,
-  `<c-r>` renames, `<c-d>` deletes (removes the saved copy for good),
-  `<esc>` closes.
+  `<c-enter>` opens it in a **kiosk window** — full-screen, chromeless,
+  even while your normal browser is running (jinn launches a
+  Chromium-family browser it finds with its own profile; set
+  `[applets] kiosk_command` in `jinn.toml` to launch a specific browser
+  instead — `{url}`, `{profile}`, `{id}`, and `{title}` are substituted
+  into your command verbatim). `<c-r>` renames, `<c-d>` deletes (removes
+  the saved copy for good), `<esc>` closes.
 - An applet is a **snapshot**: later improvements to the canvas page it
   came from never change it, and it does not live-reload. Ask the agent
   to re-promote (a fresh copy) when you want the improvements.

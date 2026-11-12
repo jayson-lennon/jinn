@@ -52,6 +52,16 @@ pub struct AppletsStoreActor {
     bus: BusService,
     /// The server actor's registry path, for the open path's ensure ask.
     server_actor: ActorPath,
+    /// The live config layer: `[applets] kiosk_command` is read at each
+    /// kiosk open, so a reloaded section takes effect without a restart.
+    config: jinn_config::ConfigLayer,
+    /// The jinn-owned kiosk profile directory
+    /// (`AppPaths::kiosk_profile_dir`), resolved at activation and
+    /// handed to every launch.
+    kiosk_profile: MarkedPathBuf<Absolute>,
+    /// The kiosk launcher seam: the production wrapper in composition,
+    /// a recording or failing backend in tests.
+    launcher: std::sync::Arc<dyn crate::browser::KioskLauncher>,
 }
 
 impl ServiceActor for AppletsStoreActor {
@@ -80,6 +90,15 @@ pub struct AppletsStoreActorDeps {
     pub bus: BusService,
     /// The server actor's registry path, for the open path's ensure ask.
     pub server_actor: ActorPath,
+    /// The live config layer; the kiosk open path reads
+    /// `[applets] kiosk_command` from it at open time.
+    pub config: jinn_config::ConfigLayer,
+    /// The jinn-owned kiosk profile directory from
+    /// `AppPaths::kiosk_profile_dir()`.
+    pub kiosk_profile: MarkedPathBuf<Absolute>,
+    /// The kiosk launcher seam; composition passes the production
+    /// wrapper, tests a recording or failing backend.
+    pub launcher: std::sync::Arc<dyn crate::browser::KioskLauncher>,
 }
 
 impl AppletsStoreActor {
@@ -98,6 +117,9 @@ impl AppletsStoreActor {
                             catalog_cell: deps.catalog_cell,
                             bus: deps.bus,
                             server_actor: deps.server_actor,
+                            config: deps.config,
+                            kiosk_profile: deps.kiosk_profile,
+                            launcher: deps.launcher,
                         })
                     })
                 }
@@ -106,9 +128,13 @@ impl AppletsStoreActor {
             .handles::<jinn_applets_msg::RenameApplet>()
             .handles::<jinn_applets_msg::DeleteApplet>()
             .handles::<jinn_applets_msg::OpenApplet>()
+            .handles::<jinn_applets_msg::OpenAppletKiosk>()
             .emits::<AppletsRescanned>()
             .emits::<AppletRenamed>()
             .emits::<AppletDeleted>()
+            // A failed open or kiosk launch reports into the chat: the
+            // handler publishes the push, the session actor owns history.
+            .emits::<jinn_session_history_msg::PushChatEntry>()
             .mailbox(16, trouper::inbox::OverloadPolicy::Block)
             .start()
     }
@@ -135,5 +161,11 @@ impl MsgHandler<jinn_applets_msg::DeleteApplet> for AppletsStoreActor {
 impl MsgHandler<jinn_applets_msg::OpenApplet> for AppletsStoreActor {
     async fn handle(&mut self, msg: &jinn_applets_msg::OpenApplet, _ctx: &mut MsgCtx<'_>) {
         handlers::handle_open(self, msg).await;
+    }
+}
+
+impl MsgHandler<jinn_applets_msg::OpenAppletKiosk> for AppletsStoreActor {
+    async fn handle(&mut self, msg: &jinn_applets_msg::OpenAppletKiosk, _ctx: &mut MsgCtx<'_>) {
+        handlers::handle_kiosk_open(self, msg).await;
     }
 }
