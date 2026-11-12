@@ -488,6 +488,60 @@ fn detail_selection_highlights_the_chosen_row() {
 }
 
 #[rstest::rstest]
+fn detail_mode_scrolled_to_the_bottom_sends_the_sentinel_offscreen() {
+    // Given detail mode over 12 endpoints (13 rows with the sentinel —
+    // past the 5-row window) with the selection pinned to the last
+    // endpoint (detail_selection 12).
+    let harness = Harness::new();
+    let mut provider_index = 0;
+    let endpoints: Vec<MarketEndpointRow> = (0..12)
+        .map(|i| {
+            let mut endpoint = full_endpoint();
+            provider_index += 1;
+            endpoint.provider_name = format!("Provider{provider_index:02}");
+            endpoint.tag = format!("tag{i}");
+            endpoint
+        })
+        .collect();
+    harness.ui.update(|s| {
+        s.enter_detail("openrouter/a/model".to_owned());
+        s.detail_selection = 12;
+    });
+    harness.data.update(|d| {
+        d.rows = vec![listed_row("openrouter/a/model")];
+        d.detail = Some(detail_for("openrouter/a/model", endpoints));
+    });
+    let popup = ratatui::layout::Rect::new(5, 2, 130, 16);
+
+    // When the popup renders.
+    let buffer = harness.render(popup, 140, 100);
+
+    // Then the Default sentinel is not on screen — the window sits on
+    // the list's tail, exactly as table mode bottoms out — and the
+    // highlighted row is the twelfth endpoint.
+    let text = buffer_text(&buffer);
+    assert!(
+        !text.contains("Default"),
+        "the sentinel scrolled off the window top, got: {text:?}"
+    );
+    let theme = jinn_theme::default_theme();
+    let selected_y = (popup.y + 5..popup.y + popup.height)
+        .find(|y| {
+            (popup.x..popup.x + popup.width).any(|x| {
+                buffer
+                    .cell((x, *y))
+                    .is_some_and(|c| c.bg == theme.picker_selected_bg)
+            })
+        })
+        .expect("a selected row renders");
+    let selected = row_text(&buffer, selected_y, popup.width);
+    assert!(
+        selected.contains("Provider12 (tag11)"),
+        "the highlight follows detail_selection, got: {selected:?}"
+    );
+}
+
+#[rstest::rstest]
 fn table_mode_uses_the_full_height_after_the_pane_gone() {
     // Given a 60-row table (well past the viewport) with detail landed
     // for the pinned row — then the round trip back to table mode.
