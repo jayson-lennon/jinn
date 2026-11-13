@@ -21,7 +21,7 @@ mod tests {
         clippy::indexing_slicing,
         reason = "test code"
     )]
-    use crate::chat_log::shared::RenderContext;
+    use crate::chat_log::shared::{EntryGraphics, RenderContext};
 
     fn render_context() -> RenderContext {
         RenderContext {
@@ -33,6 +33,8 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: EntryGraphics::default(),
+            session_id: jinn_core_types::SessionId::new(),
         }
     }
 

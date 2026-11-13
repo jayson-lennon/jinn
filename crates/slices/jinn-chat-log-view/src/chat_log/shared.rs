@@ -8,8 +8,46 @@ use ratatui::text::{Line, Span};
 /// Width of the left gutter column (2 cells for emoji support).
 pub const GUTTER_WIDTH: u16 = 2;
 
+/// Per-entry graphics inputs: the epoch of the graphics state this render
+/// belongs to, and each image attachment's display rows in attachment order.
+///
+/// `rows` is parallel to the entry's image attachments (index 0 → first
+/// image attachment, and so on); a 0 means that attachment gets no slot and
+/// renders through its normal path. The epoch rides the render-variant key
+/// so a `[graphics]` config flip re-measures every entry even when no other
+/// input changed.
+///
+/// Inactive by default (`Default`: epoch 0, no slots) — the graphics-off
+/// rendering, which is today's rendering byte for byte.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EntryGraphics {
+    /// The graphics epoch this render was computed under.
+    pub epoch: u64,
+    /// Display rows per image attachment, in attachment order.
+    pub rows: Vec<u16>,
+}
+
+impl EntryGraphics {
+    /// Whether any attachment gets a slot this render.
+    #[must_use]
+    pub fn active(&self) -> bool {
+        self.rows.iter().any(|&rows| rows > 0)
+    }
+
+    /// The row count for the image attachment at index `i`; `0` past the
+    /// list, so an adapter that sees more attachments than the snapshot
+    /// carries degrades that attachment instead of panicking.
+    #[must_use]
+    pub fn rows_for(&self, index: usize) -> u16 {
+        self.rows.get(index).copied().unwrap_or(0)
+    }
+}
+
 /// Context passed to each entry module's `to_lines` function.
 pub struct RenderContext {
+    /// The session whose entries are being rendered. Names image slot
+    /// keys; adapters never read it.
+    pub session_id: jinn_core_types::SessionId,
     /// Available content width (area width minus gutter).
     pub content_width: u16,
     /// Whether this entry is currently selected by the cursor.
@@ -28,6 +66,10 @@ pub struct RenderContext {
     pub is_streaming: bool,
     /// `spawn_subagent` call whose linked child session is loaded and still running.
     pub is_waiting_on_subagent: bool,
+    /// Per-entry graphics inputs: which attachments get image slots and
+    /// how many rows each reserves. Inactive when graphics are off,
+    /// undetected, or the entry carries no images.
+    pub graphics: EntryGraphics,
 }
 
 /// Split text on `\n` and produce styled lines with the given prefix.

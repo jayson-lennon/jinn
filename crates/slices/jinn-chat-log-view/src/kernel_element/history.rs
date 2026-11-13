@@ -50,12 +50,13 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
 use super::loading_indicator::LoadingIndicator;
 use crate::chat_log::{
-    GUTTER_WIDTH, GutterStyle, RenderContext, ScrollState, build_blank_gutter_lines,
-    build_collapsed_block_gutter_line, build_entry_gutter_lines, compute_scroll, entry_to_lines,
-    find_visible_indices, render_scroll_indicator,
+    EntryGraphics, GUTTER_WIDTH, GutterStyle, RenderContext, ScrollState, build_blank_gutter_lines,
+    build_collapsed_block_gutter_line, build_entry_gutter_lines, compute_scroll,
+    entry_to_lines_with_slots, find_visible_indices, render_scroll_indicator, wrapped_slot_offsets,
 };
-use jinn_chat_log_view_msg::EntryLineCache;
+use jinn_chat_log_view_msg::{EntryLineCache, ImageKey, ImageSlot};
 use jinn_preferences_config::schemas::ChatLogConfig;
+use jinn_preferences_config::schemas::GraphicsConfig;
 
 /// Default number of lines to show for tool entries (calls and results) before truncating.
 const DEFAULT_TOOL_ENTRY_MAX_LINES: u16 = 6;
@@ -81,10 +82,16 @@ pub(crate) fn render_variant(
     paired_status: Option<ToolResultStatus>,
     is_streaming: bool,
     is_waiting_on_subagent: bool,
+    graphics: &EntryGraphics,
 ) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     (paired_status, is_streaming, is_waiting_on_subagent).hash(&mut hasher);
+    // The graphics epoch and slot rows ride the variant: a `[graphics]`
+    // config flip (epoch bump) or a rows change (image decoded, cap
+    // edited) invalidates every affected entry's cached count.
+    graphics.epoch.hash(&mut hasher);
+    graphics.rows.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -104,6 +111,13 @@ pub(crate) struct LayoutInputs {
     streaming: HashSet<ChatEntryId>,
     /// Child sessions loaded and actively running, by session id.
     running_children: HashSet<SessionId>,
+    /// Graphics inputs: the epoch plus per-entry slot rows, snapshotted off
+    /// the graphics cell. The worker measures with exactly what the render
+    /// pass last rendered; where they disagree (a just-attached image the
+    /// worker saw before the decode landed), the variant hash — which folds
+    /// these rows — forces the miss and the render pass's count wins.
+    graphics_epoch: u64,
+    graphics_rows: HashMap<ChatEntryId, Vec<u16>>,
 }
 
 impl LayoutInputs {
@@ -124,11 +138,28 @@ impl LayoutInputs {
             .collect();
 
         let session = state.session.get(session_id);
+        let (graphics_epoch, graphics_rows) = graphics_snapshot(state, session_id);
         Self {
             theme: state.frontend.theme.clone(),
             expanded: session.map_or_else(HashSet::new, ChatSessionState::expanded_entry_ids),
             streaming: session.map_or_else(HashSet::new, ChatSessionState::streaming_tool_call_ids),
             running_children,
+            graphics_epoch,
+            graphics_rows,
+        }
+    }
+
+    /// The graphics inputs for one entry: epoch plus its slot rows, from
+    /// this snapshot. Inactive (`rows` empty) when graphics are off or the
+    /// snapshot holds no rows for the entry.
+    pub(crate) fn graphics_for(&self, entry: &ChatEntry) -> EntryGraphics {
+        EntryGraphics {
+            epoch: self.graphics_epoch,
+            rows: self
+                .graphics_rows
+                .get(&entry.id)
+                .cloned()
+                .unwrap_or_default(),
         }
     }
 
@@ -311,6 +342,7 @@ impl ChatLogElement {
         }
 
         let mut render = HistoryRender::new(state, area, ctx.config());
+        render.prepare_graphics(state);
         render.compute_visual_items();
         render.build_tool_result_map();
 
@@ -415,12 +447,17 @@ struct CoverageProbe<'a> {
     shown_ignored_blocks: HashSet<ChatEntryId>,
     content_width: u16,
     min_collapse_count: usize,
+    /// Graphics rows per entry, resolved exactly as the render pass and the
+    /// layout worker resolve them.
+    graphics_rows: HashMap<ChatEntryId, Vec<u16>>,
+    graphics_epoch: u64,
 }
 
 impl<'a> CoverageProbe<'a> {
     /// Resolves the same inputs [`HistoryRender::compute_line_ranges`] resolves.
     ///
     fn new(state: &'a AppState, session: &'a ChatSessionState, content_width: u16) -> Self {
+        let (graphics_epoch, graphics_rows) = graphics_snapshot(state, session.session_id());
         Self {
             history: session.history(),
             tool_result_statuses: tool_result_statuses_of(session.history()),
@@ -438,6 +475,8 @@ impl<'a> CoverageProbe<'a> {
             min_collapse_count: session
                 .min_collapse_count()
                 .unwrap_or(DEFAULT_MIN_COLLAPSE_COUNT),
+            graphics_rows,
+            graphics_epoch,
         }
     }
 
@@ -480,7 +519,20 @@ impl<'a> CoverageProbe<'a> {
             paired_status_for(entry, &self.tool_result_statuses),
             is_streaming_tool_call(entry, &self.streaming_tool_call_ids),
             is_task_waiting(entry, &self.tool_result_statuses, &self.running_children),
+            &self.entry_graphics(entry),
         )
+    }
+
+    /// The graphics inputs for one entry, from this probe's snapshot.
+    fn entry_graphics(&self, entry: &ChatEntry) -> EntryGraphics {
+        EntryGraphics {
+            epoch: self.graphics_epoch,
+            rows: self
+                .graphics_rows
+                .get(&entry.id)
+                .cloned()
+                .unwrap_or_default(),
+        }
     }
 }
 
@@ -493,6 +545,74 @@ fn tool_result_statuses_of(history: &[ChatEntry]) -> HashMap<ToolCallId, ToolRes
             _ => None,
         })
         .collect()
+}
+
+/// Snapshots the graphics state for layout work: the epoch and the resolved
+/// slot rows per entry of the named session.
+///
+/// The worker measures with exactly what the render pass last established;
+/// where a just-attached image has not been decoded yet, the worker's rows
+/// differ from the render pass's and the variant hash (which folds these
+/// rows) forces the miss, so the render pass's count wins.
+fn graphics_snapshot(
+    state: &AppState,
+    session_id: &SessionId,
+) -> (u64, HashMap<ChatEntryId, Vec<u16>>) {
+    let Some(cell) = state.frontend.graphics_cell() else {
+        return (0, HashMap::new());
+    };
+    cell.update(|graphics| {
+        // The render pass re-applies `[graphics]` every frame, so the
+        // last-applied copy here is at most one frame stale; the epoch bump
+        // from the render pass's own apply forces this snapshot to re-run.
+        let applied = graphics.applied_config().clone();
+        let _changed = graphics.apply_config(&applied);
+        let Some(geometry) = graphics.geometry().filter(|_| applied.enabled) else {
+            return (graphics.epoch(), HashMap::new());
+        };
+        let mut rows = HashMap::new();
+        let Some(session) = state.session.get(session_id) else {
+            return (graphics.epoch(), rows);
+        };
+        for entry in session.history() {
+            let images = match &entry.kind {
+                ChatEntryKind::User { attachments, .. }
+                | ChatEntryKind::ToolResult { attachments, .. } => attachments
+                    .iter()
+                    .filter(|a| a.is_image())
+                    .enumerate()
+                    .collect::<Vec<_>>(),
+                _ => continue,
+            };
+            if images.is_empty() {
+                continue;
+            }
+            let mut entry_rows = Vec::with_capacity(images.len());
+            for (i, attachment) in images {
+                let key = ImageKey::new(session_id, &entry.id, i);
+                let dims = graphics
+                    .decode_once(&key, || decode_attachment(attachment))
+                    .map(|img| (img.width(), img.height()));
+                entry_rows.push(dims.map_or(0, |(w, h)| geometry.rows_for_image(w, h)));
+            }
+            rows.insert(entry.id.clone(), entry_rows);
+        }
+        (graphics.epoch(), rows)
+    })
+}
+
+/// Decodes one attachment's bytes for display. `None` when the bytes are
+/// undecodable — the attachment layer only stores actual image payloads, so
+/// a failure here is a corrupt/truncated attachment, and the slot degrades
+/// to its text fallback.
+fn decode_attachment(
+    attachment: &jinn_core_types::attachment::Attachment,
+) -> Option<image::DynamicImage> {
+    image::ImageReader::new(std::io::Cursor::new(attachment.data()))
+        .with_guessed_format()
+        .ok()?
+        .decode()
+        .ok()
 }
 
 /// The ids of every session that is loaded and actively running.
@@ -624,6 +744,23 @@ struct HistoryRender<'a> {
     /// Per-visual-item wrapped line ranges: `entry_line_ranges[vi_idx] = (start, end)`.
     entry_line_ranges: Vec<(u32, u32)>,
     miss_lines: HashMap<usize, Vec<Line<'static>>>,
+    /// Image slots recorded this frame, keyed by visual-item index. Consumed
+    /// by the paint step to draw the images over their reserved rows.
+    image_slots: HashMap<usize, Vec<ImageSlot>>,
+    /// This frame's graphics snapshot: the epoch and the per-entry slot rows
+    /// it resolved, taken once in [`Self::prepare_graphics`]. `None` when the
+    /// graphics cell is absent or the state is inactive — every entry then
+    /// renders graphics-off.
+    frame_graphics: Option<(u64, HashMap<ChatEntryId, Vec<u16>>)>,
+    /// The `[graphics]` config read with the snapshot, for the live-apply
+    /// compare and the paint pass's slot gating.
+    graphics_config: GraphicsConfig,
+    /// Whether a forced protocol degrades this frame to fallbacks (the
+    /// config's `protocol` override names something the terminal lacks).
+    /// Slots stay inactive; the paint pass skips them.
+    forced_protocol_unavailable: bool,
+    /// The live configuration layer `[graphics]` is re-read from each frame.
+    config_layer: jinn_config::ConfigLayer,
     #[expect(
         clippy::rc_buffer,
         reason = "Arc keeps cloning a rendered entry's line buffer O(1) where a plain Vec would deep-copy every line on each cache hit"
@@ -677,6 +814,11 @@ impl<'a> HistoryRender<'a> {
             running_children,
             entry_line_ranges: Vec::new(),
             miss_lines: HashMap::new(),
+            image_slots: HashMap::new(),
+            frame_graphics: None,
+            graphics_config: GraphicsConfig::default(),
+            forced_protocol_unavailable: false,
+            config_layer: config.clone(),
             cached_lines: HashMap::new(),
             total_wrapped: 0,
             scroll: ScrollState {
@@ -691,6 +833,73 @@ impl<'a> HistoryRender<'a> {
             visual_items: Vec::new(),
             stream_rendered: None,
         }
+    }
+
+    /// Reads `[graphics]` live, applies it to the graphics cell, and takes
+    /// this frame's graphics snapshot.
+    ///
+    /// This is the Event-Dependent config stage: the render pass runs every
+    /// frame, so the compare-and-apply here makes a `[graphics]` edit take
+    /// effect at the next frame — no bus handler, no restart. The apply
+    /// clears the protocol state and bumps the epoch whenever the config
+    /// changed or a lifecycle edge (suspend/restore) marked the state dirty;
+    /// the epoch then rides every entry's render variant, forcing a re-render.
+    fn prepare_graphics(&mut self, state: &AppState) {
+        let config = self.config_layer.read::<GraphicsConfig>();
+        self.graphics_config = config.clone();
+        let Some(cell) = state.frontend.graphics_cell() else {
+            self.frame_graphics = None;
+            self.forced_protocol_unavailable = false;
+            return;
+        };
+        let session_id = state.active_session().session_id().clone();
+        let snapshot = cell.update(|graphics| {
+            graphics.evict_other_sessions(&session_id);
+            let _changed = graphics.apply_config(&config);
+            let unavailable = graphics.forced_protocol_unavailable();
+            let geometry = graphics.geometry();
+            (graphics.epoch(), geometry, unavailable)
+        });
+        self.forced_protocol_unavailable = snapshot.2;
+        let (epoch, geometry, _) = snapshot;
+        let Some(geometry) = geometry
+            .filter(|_| self.graphics_config.enabled)
+            .filter(|_| !self.forced_protocol_unavailable)
+        else {
+            self.frame_graphics = None;
+            return;
+        };
+        // Resolve rows per entry off the session's history. A decode not yet
+        // in the cache is resolved through `decode_once` here — bounded by
+        // the 5 MB attachment cap and cached afterwards, so steady-state
+        // frames cost a hash peek per image.
+        let mut rows_by_entry: HashMap<ChatEntryId, Vec<u16>> = HashMap::new();
+        for entry in state.active_session().history() {
+            let image_attachments = match &entry.kind {
+                ChatEntryKind::User { attachments, .. }
+                | ChatEntryKind::ToolResult { attachments, .. } => attachments
+                    .iter()
+                    .filter(|a| a.is_image())
+                    .enumerate()
+                    .collect::<Vec<_>>(),
+                _ => continue,
+            };
+            if image_attachments.is_empty() {
+                continue;
+            }
+            let mut rows = Vec::with_capacity(image_attachments.len());
+            for (i, attachment) in image_attachments {
+                let key = ImageKey::new(&session_id, &entry.id, i);
+                let dims = cell.update(|graphics| {
+                    graphics
+                        .decode_once(&key, || decode_attachment(attachment))
+                        .map(|img| (img.width(), img.height()))
+                });
+                rows.push(dims.map_or(0, |(w, h)| geometry.rows_for_image(w, h)));
+            }
+            rows_by_entry.insert(entry.id.clone(), rows);
+        }
+        self.frame_graphics = Some((epoch, rows_by_entry));
     }
 
     /// Compute visual items from flat history and store on session state.
@@ -791,6 +1000,9 @@ impl<'a> HistoryRender<'a> {
         throttled: Option<&(u32, Arc<Vec<Line<'static>>>)>,
     ) {
         let mut wrapped_cursor: u32 = 0;
+        // Slots accumulate here so the loop can keep borrowing self
+        // immutably; they merge into self.image_slots after the walk.
+        let mut new_slots: HashMap<usize, Vec<ImageSlot>> = HashMap::new();
 
         for (vi_idx, item) in self.visual_items.iter().enumerate() {
             match item {
@@ -820,11 +1032,7 @@ impl<'a> HistoryRender<'a> {
                     // Variant hash covers status-derived look inputs; a
                     // changed variant forces a re-render even when the
                     // entry's content fingerprint is unchanged.
-                    let variant = render_variant(
-                        self.paired_status_for_entry(entry),
-                        self.is_streaming_tool_call(entry),
-                        self.is_task_waiting(entry),
-                    );
+                    let variant = self.variant_of(entry);
                     let probe = cache.probe(entry, is_expanded, variant, self.content_width);
                     if let Some(hit) = probe.hit {
                         let start = wrapped_cursor;
@@ -832,6 +1040,9 @@ impl<'a> HistoryRender<'a> {
                         self.entry_line_ranges.push((start, end));
                         wrapped_cursor = end;
                         if let Some(lines) = hit.lines {
+                            if let Some(slots) = self.tail_slots_for(entry, hit.wrapped_count) {
+                                new_slots.insert(vi_idx, slots);
+                            }
                             self.cached_lines.insert(vi_idx, lines);
                         }
                     } else {
@@ -843,9 +1054,15 @@ impl<'a> HistoryRender<'a> {
                         let paired_status = self.paired_status_for_entry(entry);
                         let is_streaming = self.is_streaming_tool_call(entry);
                         let is_waiting_on_subagent = self.is_task_waiting(entry);
-                        let variant =
-                            render_variant(paired_status, is_streaming, is_waiting_on_subagent);
+                        let graphics = self.entry_graphics(entry);
+                        let variant = render_variant(
+                            paired_status,
+                            is_streaming,
+                            is_waiting_on_subagent,
+                            &graphics,
+                        );
                         let ctx = RenderContext {
+                            session_id: self.state.active_session().session_id().clone(),
                             content_width: self.content_width,
                             is_selected,
                             is_expanded,
@@ -854,8 +1071,13 @@ impl<'a> HistoryRender<'a> {
                             paired_status,
                             is_streaming,
                             is_waiting_on_subagent,
+                            graphics,
                         };
-                        let lines = entry_to_lines(entry, &ctx);
+                        let mut slots = Vec::new();
+                        let lines = entry_to_lines_with_slots(entry, &ctx, &mut slots);
+                        if !slots.is_empty() {
+                            new_slots.insert(vi_idx, slots);
+                        }
                         let wrapped_count: u32 = if self.content_width == 0 {
                             lines.len() as u32
                         } else {
@@ -898,13 +1120,37 @@ impl<'a> HistoryRender<'a> {
             }
         }
 
+        self.image_slots.extend(new_slots);
         self.total_wrapped = wrapped_cursor;
         cache.evict_if_needed();
+    }
+
+    /// The render-variant key this entry is probed under, from this frame's
+    /// graphics snapshot.
+    fn variant_of(&self, entry: &ChatEntry) -> u64 {
+        render_variant(
+            self.paired_status_for_entry(entry),
+            self.is_streaming_tool_call(entry),
+            self.is_task_waiting(entry),
+            &self.entry_graphics(entry),
+        )
     }
 
     /// Look up the paired tool result status for an entry (if applicable).
     fn paired_status_for_entry(&self, entry: &ChatEntry) -> Option<ToolResultStatus> {
         paired_status_for(entry, &self.tool_result_statuses)
+    }
+
+    /// The graphics inputs for one entry, from this frame's snapshot.
+    /// Inactive on every entry when graphics are off, undetected, or the
+    /// terminal carries no images.
+    fn entry_graphics(&self, entry: &ChatEntry) -> EntryGraphics {
+        self.frame_graphics
+            .as_ref()
+            .map_or_else(EntryGraphics::default, |(epoch, rows)| EntryGraphics {
+                epoch: *epoch,
+                rows: rows.get(&entry.id).cloned().unwrap_or_default(),
+            })
     }
 
     /// Whether this entry is a `spawn_subagent` tool call still awaiting its result
@@ -1008,6 +1254,9 @@ impl<'a> HistoryRender<'a> {
         let chat_log_active =
             matches!(self.state.frontend.scope(), jinn_slices::FocusScope::Normal);
         let cursor_color = self.theme.focus_accent;
+        // Slots accumulate here so the loop can borrow self immutably; they
+        // merge into self.image_slots after the walk.
+        let mut new_slots: HashMap<usize, Vec<ImageSlot>> = HashMap::new();
 
         for &vi_idx in &self.visible_indices {
             let (entry_start, entry_end) = self
@@ -1029,10 +1278,12 @@ impl<'a> HistoryRender<'a> {
                         .config
                         .tool_entry_max_lines
                         .unwrap_or(DEFAULT_TOOL_ENTRY_MAX_LINES);
+                    let graphics = self.entry_graphics(entry);
                     let variant = render_variant(
                         self.paired_status_for_entry(entry),
                         self.is_streaming_tool_call(entry),
                         self.is_task_waiting(entry),
+                        &graphics,
                     );
 
                     // Get content lines - cached lines → miss lines → render fresh.
@@ -1052,6 +1303,7 @@ impl<'a> HistoryRender<'a> {
                         let is_streaming = self.is_streaming_tool_call(entry);
                         let is_waiting_on_subagent = self.is_task_waiting(entry);
                         let ctx = RenderContext {
+                            session_id: self.state.active_session().session_id().clone(),
                             content_width: self.content_width,
                             is_selected,
                             is_expanded,
@@ -1060,8 +1312,14 @@ impl<'a> HistoryRender<'a> {
                             paired_status,
                             is_streaming,
                             is_waiting_on_subagent,
+                            graphics: graphics.clone(),
                         };
-                        let lines = entry_to_lines(entry, &ctx);
+                        let mut slots = Vec::new();
+                        let lines = entry_to_lines_with_slots(entry, &ctx, &mut slots);
+                        wrapped_slot_offsets(&lines, &mut slots, self.content_width);
+                        if !slots.is_empty() {
+                            new_slots.insert(vi_idx, slots);
+                        }
                         self.cache_lines(cache, entry, vi_idx, is_expanded, variant, lines.clone());
                         lines
                     };
@@ -1119,31 +1377,147 @@ impl<'a> HistoryRender<'a> {
                 None => {}
             }
         }
+
+        self.image_slots.extend(new_slots);
+    }
+
+    /// Draws each recorded image slot over its reserved terminal rows.
+    ///
+    /// Slot geometry: a slot's line index is known absolutely within the
+    /// entry's rendered lines and the entry's start row is known absolutely
+    /// within the session, so the terminal position falls out of the same
+    /// line math the paragraph used. The sliced-image widget handles partial
+    /// visibility (skip-top/drop-bottom) itself, so a half-scrolled image
+    /// renders its visible slice without re-transmitting.
+    fn paint_image_slots(&mut self, frame: &mut Frame<'_>) {
+        let Some(cell) = self.state.frontend.graphics_cell() else {
+            return;
+        };
+        let scroll = self.scroll.clamped;
+        let area = self.content_area;
+        let forced_unavailable = self.forced_protocol_unavailable;
+        // Attachment bytes by slot key, resolved once for this pass.
+        // prepare_graphics decoded each image into the cell's cache, so the
+        // closure below is a cold-path fallback only (an image attached
+        // between the line pass and the paint pass).
+        let session_id = self.session_id_of();
+        let attachments: HashMap<ImageKey, jinn_core_types::attachment::Attachment> = self
+            .state
+            .active_session()
+            .history()
+            .iter()
+            .flat_map(|entry| match &entry.kind {
+                ChatEntryKind::User { attachments, .. }
+                | ChatEntryKind::ToolResult { attachments, .. } => attachments
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, a)| a.is_image())
+                    .map(|(i, a)| (ImageKey::new(&session_id, &entry.id, i), a.clone()))
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+            .collect();
+        let slots = std::mem::take(&mut self.image_slots);
+        for (vi_idx, entry_slots) in slots {
+            let Some(&(start, _)) = self.entry_line_ranges.get(vi_idx) else {
+                continue;
+            };
+            for slot in entry_slots {
+                // The slot's first row within the viewport: its absolute row
+                // (entry start + line index) less the scrolled-off top.
+                let slot_top = i64::from(start) + i64::from(slot.line_index) - i64::from(scroll);
+                let position = i16::try_from(slot_top).unwrap_or(0);
+                let bytes = attachments.get(&slot.key).cloned();
+                let holder = cell.update(|graphics| {
+                    graphics
+                        .ensure_protocol(&slot.key, slot.rows, || {
+                            bytes.as_ref().and_then(decode_attachment)
+                        })
+                        .filter(|_| !forced_unavailable)
+                });
+                let Some(holder) = holder else { continue };
+                frame.render_widget(
+                    ratatui_image::sliced::SlicedImage::new(
+                        &holder.protocol,
+                        ratatui_image::sliced::SignedPosition::from((0, position)),
+                    ),
+                    area,
+                );
+            }
+        }
+    }
+
+    /// The active session's id, for image slot keys.
+    fn session_id_of(&self) -> jinn_core_types::SessionId {
+        self.state.active_session().session_id().clone()
+    }
+
+    /// Rebuilds a cache-hit entry's slot records from the frame's graphics
+    /// rows and the entry's wrapped count.
+    ///
+    /// Slot rows always land at the tail of an entry's rendered lines (the
+    /// user block's images follow the message text; the tool result's slots
+    /// follow its content), and each slot line wraps to exactly one row, so
+    /// the first slot's wrapped offset is `wrapped_count − rows_total` and
+    /// each later slot follows the previous by its own rows. No re-render,
+    /// no second count pass.
+    fn tail_slots_for(&self, entry: &ChatEntry, wrapped_count: u32) -> Option<Vec<ImageSlot>> {
+        let (_, rows) = self.frame_graphics.as_ref()?;
+        let entry_rows = rows.get(&entry.id)?;
+        let rows_total = u32::from(entry_rows.iter().copied().sum::<u16>());
+        if rows_total == 0 || rows_total > wrapped_count {
+            return None;
+        }
+        let session_id = self.state.active_session().session_id().clone();
+        let mut slots = Vec::with_capacity(entry_rows.len());
+        let mut cursor = wrapped_count - rows_total;
+        for (i, &row_count) in entry_rows.iter().enumerate() {
+            if row_count == 0 {
+                continue;
+            }
+            // entry_rows is in image-attachment order, so the enumerate
+            // position is the image index the ImageKey counts.
+            slots.push(ImageSlot {
+                key: ImageKey::new(&session_id, &entry.id, i),
+                line_index: cursor,
+                rows: row_count,
+            });
+            cursor += u32::from(row_count);
+        }
+        (!slots.is_empty()).then_some(slots)
     }
 
     // -----------------------------------------------------------------------
     // Step 7: Paint
     // -----------------------------------------------------------------------
 
-    /// Render the final gutter and content paragraph widgets to the frame.
-    fn paint(self, frame: &mut Frame<'_>) {
+    /// Render the final gutter and content paragraph widgets to the frame,
+    /// then draw every visible image slot over its reserved rows.
+    fn paint(mut self, frame: &mut Frame<'_>) {
         // ratatui's `Paragraph::scroll` takes u16, so the u32 line math is
         // narrowed at this boundary. A session long enough to overflow u16 rows
         // cannot be scrolled to in one frame anyway.
         let paragraph_scroll = u16::try_from(self.lines_before_viewport).unwrap_or(u16::MAX);
 
         // Render gutter column.
-        let gutter_widget = Paragraph::new(self.gutter_lines)
+        let gutter_widget = Paragraph::new(self.gutter_lines.as_slice())
             .block(Block::default().borders(Borders::NONE))
             .scroll((paragraph_scroll, 0));
         frame.render_widget(gutter_widget, self.gutter_area);
 
-        // Render content column.
-        let chat_widget = Paragraph::new(self.content_lines)
+        // Render content column. Borrowed so image slots can read the
+        // ranges after the render.
+        let chat_widget = Paragraph::new(self.content_lines.as_slice())
             .block(Block::default().borders(Borders::NONE))
             .wrap(Wrap { trim: false })
             .scroll((paragraph_scroll, 0));
         frame.render_widget(chat_widget, self.content_area);
+
+        // Draw images over their reserved rows. Runs after the paragraph
+        // render so the image's glyphs win over any placeholder content.
+        if !self.image_slots.is_empty() && self.graphics_config.enabled {
+            self.paint_image_slots(frame);
+        }
 
         // Render scroll indicator (delegates to the chat-log-view slice).
         // The indicator is a u16 widget; clamping both values preserves the

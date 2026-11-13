@@ -104,6 +104,34 @@ tool_entry_max_lines = 6
 min_collapse_count = 3
 #
 # ###########################################################################
+# Graphics
+# ###########################################################################
+[graphics]
+#
+# > Render images in the chat log as actual pictures in terminals that
+# > support a graphics protocol (kitty, ghostty, ...). Attached images
+# > (the green `@path` tokens) draw below the message; `read_image`
+# > tool results draw in place of the text summary. Terminals without
+# > graphics support keep the plain-text placeholders regardless of
+# > this setting.
+enabled = true
+#
+# > Force a specific graphics protocol instead of trusting detection.
+# > For when detection lies (tmux, ssh, odd terminal configs). One of:
+# > "auto" (trust detection), "kitty", "sixel", "iterm2", "halfblocks".
+# > Forcing a protocol the terminal cannot actually speak degrades to
+# > the plain-text placeholders — force means force.
+# > Behavior: Event-Dependent — edits apply live; only the startup
+# > capability query is fixed (a terminal swap mid-session needs a
+# > restart to re-detect).
+# protocol = "auto"
+#
+# > Absolute cap on the rows one image may occupy in the chat log.
+# > Default 16; additionally clamped to half the viewport height,
+# > never below 4 rows. Uncomment to override.
+# max_image_rows = 16
+
+# ###########################################################################
 # Skills
 # ###########################################################################
 [skills]

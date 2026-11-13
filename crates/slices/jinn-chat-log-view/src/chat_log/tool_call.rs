@@ -247,7 +247,7 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::chat_log::shared::RenderContext;
+    use crate::chat_log::shared::{EntryGraphics, RenderContext};
     use jinn_core_types::ToolResultStatus;
     use jinn_tools_msg::SPAWN_SUBAGENT_TOOL_NAME;
 
@@ -261,6 +261,8 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: EntryGraphics::default(),
+            session_id: jinn_core_types::SessionId::new(),
         }
     }
 
@@ -274,6 +276,8 @@ mod tests {
             paired_status: status,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: EntryGraphics::default(),
+            session_id: jinn_core_types::SessionId::new(),
         }
     }
 
@@ -287,6 +291,8 @@ mod tests {
             paired_status: None,
             is_streaming: true,
             is_waiting_on_subagent: false,
+            graphics: EntryGraphics::default(),
+            session_id: jinn_core_types::SessionId::new(),
         }
     }
 
@@ -300,6 +306,8 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: EntryGraphics::default(),
+            session_id: jinn_core_types::SessionId::new(),
         }
     }
 
@@ -717,6 +725,8 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: EntryGraphics::default(),
+            session_id: jinn_core_types::SessionId::new(),
         };
         let long_cmd = "a".repeat(100);
 

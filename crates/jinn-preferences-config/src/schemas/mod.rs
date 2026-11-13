@@ -53,6 +53,7 @@ pub mod chat_log;
 pub mod cwd_selector;
 pub mod dictation;
 pub mod discord;
+pub mod graphics;
 pub mod handoff_compaction;
 pub mod legacy_command_policy;
 pub mod maintenance;
@@ -87,6 +88,7 @@ pub use chat_log::ChatLogConfig;
 pub use cwd_selector::CwdSelectorConfig;
 pub use dictation::DictationConfig;
 pub use discord::DiscordConfig;
+pub use graphics::{DEFAULT_MAX_IMAGE_ROWS, GraphicsConfig, GraphicsProtocol};
 pub use handoff_compaction::HandoffCompactionConfig;
 pub use legacy_command_policy::{
     LEGACY_COMMAND_POLICY_KEY, LegacyCommandPolicyRule, LegacyProjectConfig,

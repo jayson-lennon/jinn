@@ -33,6 +33,8 @@ marked-path = { workspace = true }
 parking_lot = { workspace = true }
 ratatui = { workspace = true }
 ratatui-which-key = { workspace = true }
+# Runs the once-per-launch terminal graphics capability query (Picker::from_query_stdio).
+ratatui-image = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

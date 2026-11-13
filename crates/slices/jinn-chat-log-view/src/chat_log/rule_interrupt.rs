@@ -82,6 +82,8 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: Default::default(),
+            session_id: jinn_core_types::SessionId::new(),
         }
     }
 

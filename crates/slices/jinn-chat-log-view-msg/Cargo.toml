@@ -6,6 +6,13 @@ edition.workspace = true
 jinn-core-types = { workspace = true }
 jinn-slices = { workspace = true }
 ratatui = { workspace = true }
+# GraphicsState carries the terminal-graphics picker and decode caches as pure
+# data; the render pass in the implementation crate drives them.
+ratatui-image = { workspace = true }
+image = { workspace = true }
+lru = { workspace = true }
+# The payload reads [graphics] config shape and the row-cap default.
+jinn-preferences-config = { workspace = true }
 serde = { workspace = true }
 parking_lot = { workspace = true }
 trouper = { workspace = true }

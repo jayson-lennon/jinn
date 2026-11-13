@@ -76,7 +76,7 @@ pub fn register_all_cells(slices: &Slices) {
 /// The `jinn-slices` infrastructure slots are not counted: they are
 /// registered lazily by the first caller that resolves one, and a harness
 /// that never renders never creates them.
-const EXPECTED_CELL_COUNT: usize = 48;
+const EXPECTED_CELL_COUNT: usize = 49;
 
 // ── The catalog ─────────────────────────────────────────────────────
 //
@@ -137,6 +137,15 @@ fn register_catalog(slices: &Slices) -> usize {
         count,
         jinn_chat_log_view_msg::entry_line_cache_slot(),
         jinn_chat_log_view_msg::EntryLineCache::default()
+    );
+    // The terminal-graphics state: picker from the startup query, per-image
+    // protocol state, decode cache. Written by the render pass and jinn-tui's
+    // startup/suspend paths.
+    register!(
+        slices,
+        count,
+        jinn_chat_log_view_msg::chat_log_graphics_slot(),
+        jinn_chat_log_view_msg::GraphicsState::new()
     );
 
     // jinn-chat-input — the per-session input draft and the `@path` popup.

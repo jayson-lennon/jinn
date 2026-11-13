@@ -151,6 +151,19 @@ impl FrontendState {
         )
     }
 
+    /// Resolves the chat log's graphics-state cell, if the handle is
+    /// attached and the cell catalog registered it.
+    ///
+    /// Same ownership story as the line cache: a `jinn-chat-log-view` cell
+    /// rather than a field here — written by that slice's render pass and
+    /// by jinn-tui's startup query and suspend/restore edges.
+    pub fn graphics_cell(&self) -> Option<TypedCell<jinn_chat_log_view_msg::GraphicsState>> {
+        let slices = self.scope_focus.get()?;
+        slices.reader::<jinn_chat_log_view_msg::GraphicsState>(
+            &jinn_chat_log_view_msg::chat_log_graphics_slot(),
+        )
+    }
+
     /// Resolves the sidebar sections cell, if the handle is attached and
     /// the sidebar slice's `activate()` minted it.
     fn sections_cell(

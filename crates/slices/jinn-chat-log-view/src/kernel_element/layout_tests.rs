@@ -542,6 +542,7 @@ fn an_expired_layout_deadline_writes_nothing_into_the_conversation() {
 /// A preview render context at `content_width`, with every per-entry render
 /// input pinned off — which is exactly how the sidebar's preview builds it.
 fn preview_ctx(content_width: u16) -> crate::chat_log::RenderContext {
+    use crate::chat_log::EntryGraphics;
     crate::chat_log::RenderContext {
         content_width,
         is_selected: false,
@@ -551,6 +552,8 @@ fn preview_ctx(content_width: u16) -> crate::chat_log::RenderContext {
         paired_status: None,
         is_streaming: false,
         is_waiting_on_subagent: false,
+        graphics: EntryGraphics::default(),
+        session_id: jinn_core_types::SessionId::new(),
     }
 }
 

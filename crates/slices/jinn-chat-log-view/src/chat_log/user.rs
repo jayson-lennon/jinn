@@ -251,7 +251,7 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::chat_log::shared::RenderContext;
+    use crate::chat_log::shared::{EntryGraphics, RenderContext};
     use jinn_core_types::{AttachmentOutcome, ResolvedToken};
     use jinn_testutil::volume_root;
 
@@ -265,6 +265,8 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: EntryGraphics::default(),
+            session_id: jinn_core_types::SessionId::new(),
         }
     }
 
