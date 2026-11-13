@@ -83,6 +83,23 @@ pub enum Prepared {
         /// Warm the embedding model's cache and exit without serving.
         fetch_model: bool,
     },
+    /// The builtin smolvm MCP server should run over stdio, then the
+    /// process should exit. Carries the raw flag values; `dispatch` hands
+    /// them to the server crate, which types them at its own argv boundary.
+    ServeSmolvm {
+        /// Host directory to mount read-write at `/workspace` in the guest.
+        #[expect(
+            clippy::disallowed_types,
+            reason = "argv transit: carries the raw --cwd flag from the parse to dispatch, where resolve_cwd types it"
+        )]
+        cwd: Option<std::path::PathBuf>,
+        /// Manifest override; `None` uses the jinn-managed seed.
+        #[expect(
+            clippy::disallowed_types,
+            reason = "argv transit: carries the raw --smolfile flag from the parse to dispatch, where the manifest resolver types it"
+        )]
+        smolfile: Option<std::path::PathBuf>,
+    },
     /// The run is configured; carry on to wire the actors.
     Ready(LaunchServices),
 }
@@ -431,6 +448,22 @@ fn run_recovery_subcommand(cli: &jinn_cli::cli::Cli) -> Result<Option<Prepared>,
             db: db.clone(),
             embed_model,
             fetch_model: *fetch_model,
+        }));
+    }
+
+    // The smolvm child intercepts with its sibling: same child-process
+    // rule — it opens no config or session store — and it must run before
+    // `read_config` would seed the template or open the session database.
+    // A malformed flag value is not rendered here: the server crate's
+    // argv boundary types `--cwd`/`--smolfile` and its panic message is
+    // the child's startup feedback.
+    if let Some(Commands::Mcp {
+        subcommand: jinn_cli::cli::McpCommands::Smolvm { cwd, smolfile },
+    }) = &cli.command
+    {
+        return Ok(Some(Prepared::ServeSmolvm {
+            cwd: cwd.clone(),
+            smolfile: smolfile.clone(),
         }));
     }
 

@@ -298,6 +298,21 @@ impl AppPaths {
             .expect("name joins keep the base absolute")
     }
 
+    /// smolvm machine-manifest directory (`~/.config/jinn/smolvm`).
+    ///
+    /// Holds the machine manifests the bundled `smolvm` MCP server boots
+    /// from: one lowercase-named manifest per machine profile, seeded by
+    /// the reconciler (the `res/smolvm` family) and edited by the user —
+    /// the server reads the file from disk at boot and refuses to start
+    /// without it. Configuration the user edits, so it lives under the
+    /// config dir like personas and workflows.
+    #[must_use]
+    pub fn smolvm_dir(&self) -> MarkedPathBuf<Absolute> {
+        self.config_dir
+            .join_all([APP_NAME, "smolvm"])
+            .expect("name joins keep the base absolute")
+    }
+
     /// Model cache file (`~/.cache/jinn/model_cache.json`).
     #[must_use]
     pub fn cache_path(&self) -> MarkedPathBuf<Absolute> {
@@ -618,6 +633,26 @@ mod tests {
         );
         // And it is a sibling of the personas dir.
         assert_eq!(dir.parent(), paths.personas_dir().parent());
+    }
+
+    #[rstest::rstest]
+    fn smolvm_dir_sits_beside_workflows_under_config() {
+        // Given an AppPaths rooted at a temp tree.
+        let root = jinn_testutil::tempdir();
+        let paths = AppPaths::new_in(&root.path.as_marked_path());
+
+        // When resolving the smolvm manifest dir.
+        let dir = paths.smolvm_dir();
+
+        // Then it is the config dir's smolvm folder, beside workflows.
+        assert_eq!(
+            dir,
+            root.path
+                .join_all(["config", "jinn", "smolvm"])
+                .expect("root joins bare names")
+        );
+        // And it is a sibling of the workflows dir.
+        assert_eq!(dir.parent(), paths.workflows_dir().parent());
     }
 
     #[rstest::rstest]

@@ -326,6 +326,21 @@ pub enum McpCommands {
         #[arg(long)]
         fetch_model: bool,
     },
+    /// Serve the builtin smolvm microVM server over stdio MCP.
+    ///
+    /// Boots one ephemeral machine per invocation, mounts `--cwd`
+    /// read-write at `/workspace` in the guest, and serves until the
+    /// client disconnects.
+    Smolvm {
+        /// The host directory mounted at `/workspace` in the guest (the
+        /// shipped MCP entry expands `<session_cwd>` into this).
+        #[arg(long)]
+        cwd: Option<std::path::PathBuf>,
+        /// Machine manifest to boot; defaults to the jinn-managed seed
+        /// (`~/.config/jinn/smolvm/alpine.toml`).
+        #[arg(long)]
+        smolfile: Option<std::path::PathBuf>,
+    },
 }
 
 /// Headless subcommands.
@@ -806,6 +821,70 @@ mod tests {
 
         // Then parsing fails naming the missing flag.
         assert!(result.is_err());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn mcp_smolvm_parses_the_cwd_and_leaves_the_manifest_default() {
+        // Given an `mcp smolvm` argv carrying --cwd.
+        // When parsing.
+        let result = Cli::try_parse_from([
+            "jinn",
+            "mcp",
+            "smolvm",
+            "--cwd",
+            "/home/me/worktrees/feature",
+        ]);
+
+        // Then the cwd is carried raw for the server crate to type, and no
+        // manifest override was given.
+        let cli = result.expect("parse");
+        let Some(Commands::Mcp {
+            subcommand: McpCommands::Smolvm { cwd, smolfile },
+        }) = cli.command
+        else {
+            panic!("expected the smolvm subcommand");
+        };
+        assert_eq!(
+            cwd.as_deref().map(std::path::Path::new),
+            Some(std::path::Path::new("/home/me/worktrees/feature"))
+        );
+        assert!(smolfile.is_none());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn mcp_smolvm_parses_an_optional_smolfile_override() {
+        // Given an `mcp smolvm` argv carrying both flags.
+        // When parsing.
+        let result = Cli::try_parse_from([
+            "jinn",
+            "mcp",
+            "smolvm",
+            "--cwd",
+            "/worktree",
+            "--smolfile",
+            "/home/me/.config/jinn/smolvm/custom.toml",
+        ]);
+
+        // Then both values ride through untouched.
+        let cli = result.expect("parse");
+        let Some(Commands::Mcp {
+            subcommand: McpCommands::Smolvm { cwd, smolfile },
+        }) = cli.command
+        else {
+            panic!("expected the smolvm subcommand");
+        };
+        assert_eq!(
+            cwd.as_deref().map(std::path::Path::new),
+            Some(std::path::Path::new("/worktree"))
+        );
+        assert_eq!(
+            smolfile.as_deref().map(std::path::Path::new),
+            Some(std::path::Path::new(
+                "/home/me/.config/jinn/smolvm/custom.toml"
+            ))
+        );
     }
 
     #[rstest::rstest]

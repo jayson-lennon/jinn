@@ -471,7 +471,10 @@ teardown_command = """[ -z "$(git status --porcelain)" ] || { echo "TEARDOWN-DIR
 # Bundled servers
 # ---------------------------------------------------------------------------
 #
-# > jinn ships one builtin server: overgraph, an embedded graph database
+# > jinn ships two builtin servers. Overgraph is the first; `smolvm` is
+# > the second, described below.
+#
+# > Overgraph: an embedded graph database
 # > speaking GQL. The entry is active (no config needed) but disabled per
 # > session by default — enable it in the MCP picker. `<jinn>` in `command`
 # > or `args` expands to the running jinn executable, so the entry works no
@@ -507,6 +510,29 @@ teardown_command = """[ -z "$(git status --porcelain)" ] || { echo "TEARDOWN-DIR
 command = "<jinn>"
 args = ["mcp", "overgraph"]
 singleton = true
+auto_enable = false
+
+# > Smolvm: a sandboxed Linux microVM per session. Enabling it boots one
+# > disposable Alpine machine with this session's working directory
+# > mounted read-write at /workspace inside the guest, and serves two
+# > tools: vm_run (run a shell command in the guest, capture
+# > stdout/stderr/exit code) and vm_info (machine manifest + live guest
+# > facts). The VM is ephemeral — it lives and dies with the server
+# > process, so disabling the server or quitting jinn discards the guest
+# > disk; writes to the mounted session directory on the host persist.
+# > Requires hardware virtualization (KVM on Linux, HVF on macOS, WHP on
+# > Windows); without it the server fails to connect and names the
+# > missing piece. First boot needs the network (the toolchain installs
+# > from Alpine's package index) and downloads the VM engine on first
+# > use — progress shows in the connection failure message. Machine
+# > manifests seed into ~/.config/jinn/smolvm/ (alpine.toml ships;
+# > jinn never overwrites your edits) and every boot reads the file from
+# > disk: the server refuses to start without it. To run a different
+# > manifest, add a second entry with `--smolfile` pointing at it — each
+# > `[mcp.<name>]` entry is its own per-session machine.
+[mcp.smolvm]
+command = "<jinn>"
+args = ["mcp", "smolvm", "--cwd", "<session_cwd>"]
 auto_enable = false
 
 # > Handoff compaction: at each model-request boundary whose accumulated work

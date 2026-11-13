@@ -97,6 +97,7 @@ jinn-applets-msg = { workspace = true }
 jinn-remote = { workspace = true }
 jinn-remote-msg = { workspace = true }
 jinn-mcp-overgraph = { workspace = true }
+jinn-mcp-smolvm = { workspace = true }
 jinn-luau = { workspace = true }
 jinn-chat-input = { workspace = true }
 jinn-chat-log-view = { workspace = true }
@@ -298,6 +299,7 @@ jinn-dictation = { path = "crates/slices/jinn-dictation" }
 jinn-theme = { path = "crates/jinn-theme" }
 jinn-mcp = { path = "crates/jinn-mcp" }
 jinn-mcp-overgraph = { path = "crates/jinn-mcp-overgraph" }
+jinn-mcp-smolvm = { path = "crates/jinn-mcp-smolvm" }
 jinn-luau = { path = "crates/jinn-luau" }
 # Embedded Luau scripting behind `jinn luau`. `default-features = false`
 # drops mlua's async + macos-event features so exactly one VM (the vendored
@@ -374,6 +376,12 @@ rmcp = { version = "3.0.0-beta.2", features = [
     "transport-streamable-http-client",
     "transport-streamable-http-client-reqwest",
 ] }
+
+# Embedded microVM engine behind the builtin smolvm MCP server
+# (`crates/jinn-mcp-smolvm`). One SDK generation pins one engine release:
+# the crate PATH-looks-up only engines of this exact generation, and a
+# version bump here changes which engine is fetched on first boot.
+smolmachines = "~1.32"
 
 # Async / channels
 tokio = { version = "1", features = ["full"] }
