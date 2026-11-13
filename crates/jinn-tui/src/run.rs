@@ -14,6 +14,7 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use error_stack::{Report, ResultExt as _};
+use jinn_chat_log_view_msg::GraphicsState;
 use jinn_preferences_config::schemas::CwdSelectorConfig;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use wherror::Error;
@@ -72,6 +73,13 @@ pub fn run(mut app: TuiApp) -> Result<(), Report<TuiRunError>> {
         .change_context(TuiRunError)
         .attach("failed to create terminal")?;
 
+    // Query the terminal for graphics capability before the event thread
+    // starts: the query reads stdin, and the poll thread would race it.
+    // Runs once per launch (a mid-session terminal swap needs a restart to
+    // re-detect); the result lands in the chat-log graphics cell, where
+    // `None` means every image renders as today's text placeholder.
+    install_graphics_picker(&app);
+
     // Start the event poll thread (independent of tokio runtime).
     app.event_thread = Some(app.events.start_event_thread());
 
@@ -122,6 +130,116 @@ pub fn run(mut app: TuiApp) -> Result<(), Report<TuiRunError>> {
     }
 
     result
+}
+
+/// Upper bound on the graphics capability query, wall-clock.
+///
+/// `Picker::from_query_stdio` has its own internal read timeout, but an
+/// unresponsive terminal must never hold startup hostage beyond this
+/// window: the query runs on a helper thread and this run races it. On
+/// expiry (or any error) the picker stays `None` and images degrade to
+/// text placeholders.
+#[cfg(not(windows))]
+const GRAPHICS_QUERY_BUDGET: Duration = Duration::from_millis(2500);
+
+/// Queries the terminal for graphics capability and installs the resulting
+/// picker into the chat-log graphics cell.
+///
+/// Best-effort by design: an absent cell (test harnesses without the slice
+/// activated) or a failed query both leave graphics off, which is today's
+/// rendering. Windows is skipped entirely — ConPTY does not pass the
+/// graphics escape sequences through, so detection cannot succeed.
+fn install_graphics_picker(app: &TuiApp) {
+    #[cfg(not(windows))]
+    {
+        let picker = query_graphics_within_budget().map_or_else(
+            || {
+                tracing::info!("terminal graphics unavailable; images stay textual");
+                None
+            },
+            Some,
+        );
+        write_graphics_picker(app, picker);
+    }
+
+    #[cfg(windows)]
+    {
+        // ConPTY does not pass the graphics sequences through, so detection
+        // cannot succeed; recording `None` keeps the cell's story explicit.
+        write_graphics_picker(app, None);
+        tracing::info!("graphics rendering unavailable on Windows; images stay textual");
+    }
+}
+
+/// Runs the capability query on a helper thread, bounded by
+/// [`GRAPHICS_QUERY_BUDGET`].
+///
+/// The crate's own stdio read has a 2s timeout, but a terminal that stalls
+/// mid-answer could still outlast it; this wait bounds the total. `None`
+/// on expiry, on a query error, or if the helper panicked.
+#[cfg(not(windows))]
+fn query_graphics_within_budget() -> Option<ratatui_image::picker::Picker> {
+    let query = std::thread::spawn(|| ratatui_image::picker::Picker::from_query_stdio());
+    if !wait_until_finished(&query, GRAPHICS_QUERY_BUDGET) {
+        tracing::info!(
+            budget_ms = GRAPHICS_QUERY_BUDGET.as_millis() as u64,
+            "terminal graphics query timed out"
+        );
+        return None;
+    }
+    match query.join() {
+        Ok(Ok(picker)) => {
+            tracing::info!(
+                protocol = ?picker.protocol_type(),
+                font_size = ?picker.font_size(),
+                "terminal graphics capability detected"
+            );
+            Some(picker)
+        }
+        Ok(Err(err)) => {
+            tracing::info!(err = ?err, "terminal graphics query failed");
+            None
+        }
+        Err(_) => {
+            tracing::info!("terminal graphics query panicked");
+            None
+        }
+    }
+}
+
+/// Polls `handle` until it finishes or `budget` elapses; `true` when it
+/// finished in time.
+#[cfg(not(windows))]
+fn wait_until_finished<T>(handle: &std::thread::JoinHandle<T>, budget: Duration) -> bool {
+    let deadline = Instant::now() + budget;
+    while !handle.is_finished() {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    true
+}
+
+/// Writes the picker into the graphics cell, if the cell exists.
+fn write_graphics_picker(app: &TuiApp, picker: Option<ratatui_image::picker::Picker>) {
+    let Some(cell) = app.core.state.read().frontend.graphics_cell() else {
+        tracing::debug!("no graphics cell; chat-log images stay textual");
+        return;
+    };
+    cell.update(|graphics| graphics.set_picker(picker));
+}
+
+/// Marks the chat-log graphics state dirty after a suspend.
+///
+/// Leaving the alternate screen wipes the terminal's graphics state — kitty
+/// discards transmitted images when the alt screen exits — so every
+/// rendered image must re-transmit on the next frame. Best-effort: a
+/// missing cell simply means nothing to mark.
+fn mark_graphics_dirty(app: &TuiApp) {
+    if let Some(cell) = app.core.state.read().frontend.graphics_cell() {
+        cell.update(GraphicsState::mark_dirty);
+    }
 }
 
 /// Runs the main TUI event loop - receives events, processes state, and renders frames.
@@ -287,6 +405,10 @@ fn handle_suspend_action(
     .change_context(TuiRunError)
     .attach("failed to suspend terminal for editor")?;
 
+    // The alternate screen exited and re-entered: the terminal's graphics
+    // state is gone, so every image must re-transmit on the next frame.
+    mark_graphics_dirty(app);
+
     // Restart the event poll thread with a fresh crossterm state.
     app.event_thread = Some(app.events.start_event_thread());
 
@@ -391,7 +513,10 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
+    use jinn_chat_log_view_msg::GraphicsState;
+    use jinn_kernel::AppState;
     use jinn_kernel::common::bridge::Bridge;
+    use jinn_kernel::protocol::ChatEntryId;
     use jinn_session_lifecycle_msg::SetSessionCwd;
     use jinn_testutil::barrier::Barrier;
     use std::sync::{Arc, Mutex};
@@ -659,5 +784,81 @@ mod tests {
             await_recorder_drained(&bridge, &acks).await;
             assert!(buffer.lock().unwrap().is_empty(), "no message expected");
         });
+    }
+
+    // -------------------------------------------------------------------------
+    // Graphics lifecycle: capability query budget, suspend dirty, switch eviction
+    // -------------------------------------------------------------------------
+
+    #[rstest::rstest]
+    #[cfg(not(windows))]
+    fn picker_query_respects_bounded_timeout() {
+        // Given a query thread that never finishes.
+        let never = std::thread::spawn(|| std::thread::park());
+
+        // When polling it under a tiny budget.
+        let finished = wait_until_finished(&never, Duration::from_millis(20));
+
+        // Then the budget expires first and the query reports unfinished.
+        // (The parked thread leaks — a detached never-parked thread, no side
+        // effects — and the real query path abandons it the same way.)
+        assert!(!finished, "an unfinished query must not report finished");
+    }
+
+    #[rstest::rstest]
+    fn suspend_restore_marks_protocols_dirty() {
+        // Given a state whose graphics cell holds a picker and a dirty-clean state.
+        let state = {
+            let s = AppState::default_with_scope_focus();
+            if let Some(cell) = s.frontend.graphics_cell() {
+                let picker = ratatui_image::picker::Picker::halfblocks();
+                cell.update(|graphics| graphics.set_picker(Some(picker)));
+            }
+            s
+        };
+        let cell = state.frontend.graphics_cell().expect("catalog ran");
+        let epoch_before = cell.read().epoch();
+
+        // When the suspend/restore edge marks the graphics state dirty.
+        if let Some(cell) = state.frontend.graphics_cell() {
+            cell.update(GraphicsState::mark_dirty);
+        }
+
+        // Then the next apply_config consumes the dirty mark and bumps the
+        // epoch, so every image re-transmits.
+        let config = jinn_preferences_config::schemas::GraphicsConfig::default();
+        cell.update(|graphics| graphics.apply_config(&config));
+        assert!(
+            cell.read().epoch() > epoch_before,
+            "the dirty mark must bump the epoch on the next apply"
+        );
+    }
+
+    #[rstest::rstest]
+    fn image_cache_evicts_on_session_switch() {
+        // Given a graphics cell whose decode cache holds an entry keyed to a
+        // session the user has switched away from.
+        use jinn_chat_log_view_msg::{GraphicsState, ImageKey};
+        let mut graphics = GraphicsState::new();
+        let switched_away = jinn_core_types::SessionId::new();
+        let entry = ChatEntryId::new();
+        let key = ImageKey::new(&switched_away, &entry, 0);
+        // A known-undecodable tombstone is a valid cache entry: eviction is
+        // about the KEY, not the payload's decodability.
+        graphics.insert_decoded(key.clone(), None);
+        assert!(
+            graphics.peek_decoded(&key).is_some(),
+            "warm-up caches the key"
+        );
+
+        // When the switch evicts everything not belonging to the new session.
+        let now_active = jinn_core_types::SessionId::new();
+        graphics.evict_other_sessions(&now_active);
+
+        // Then the switched-away session's decode is gone.
+        assert!(
+            graphics.peek_decoded(&key).is_none(),
+            "the switched-away session's decode must be evicted"
+        );
     }
 }

@@ -388,12 +388,21 @@ portable-pty = "0.9"
 vt100 = "0.15"
 
 # UI
-ratatui = { version = "0.30.0", default-features = false, features = [
+ratatui = { version = "0.30.1", default-features = false, features = [
     "unstable-rendered-line-info",
 ] }
+# Terminal graphics (kitty protocol etc.) for inline chat-log images.
+# default-features = false drops `chafa-dyn` (a pkg-config + system-libchafa
+# dependency that breaks the `cargo xwin` Windows cross-check) and
+# `image-defaults` (this workspace already controls the `image` feature set).
 crossterm = { version = "0.29", features = ["event-stream"] }
+ratatui-image = { version = "11", default-features = false, features = [
+    "crossterm",
+] }
 ratatui-which-key = "0.14.0"
 throbber-widgets-tui = "0.11"
+# Bounded decode cache for chat-log image display (already resolved transitively).
+lru = "0.18"
 
 
 # State
@@ -486,10 +495,15 @@ csv = "1.3"
 # `default-formats`: the magic-byte sniffer classifies everything except
 # BMP/TIFF/HEIC-family as native (attached as-is) or not-an-image (degraded),
 # so only BMP and TIFF decode here; `png` is required to re-encode to PNG.
+# The chat-log image display (kitty-graphics) decodes the formats the
+# attachment layer passes through natively: jpeg, gif, webp.
 image = { version = "0.25", default-features = false, features = [
     "bmp",
     "tiff",
     "png",
+    "jpeg",
+    "gif",
+    "webp",
 ] }
 # Database
 daow = "0.2.0"

@@ -143,6 +143,7 @@ const OWNED_KEYS: &[&str] = &[
     // Launch-validated (`Configurable`).
     "tools",
     "chat_log",
+    "graphics",
     "skills",
     "context_curation.compaction",
     "context_curation.handoff_compaction",

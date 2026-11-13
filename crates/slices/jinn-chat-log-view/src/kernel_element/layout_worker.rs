@@ -23,7 +23,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::chat_log::{RenderContext, entry_to_lines};
+use crate::chat_log::{EntryGraphics, RenderContext, entry_to_lines};
 use error_stack::Report;
 use jinn_chat_log_view_msg::{
     ChatLogLayoutComputed, ContentIdentity, LayoutChatSession, MeasuredEntryCount,
@@ -450,6 +450,7 @@ impl MsgHandler<PreviewSessionRequested> for LayoutWorkerActor {
 
         let lines = tokio::task::spawn_blocking(move || {
             let ctx = RenderContext {
+                session_id: job.session_id.clone(),
                 content_width: job.content_width,
                 is_selected: false,
                 is_expanded: false,
@@ -458,6 +459,7 @@ impl MsgHandler<PreviewSessionRequested> for LayoutWorkerActor {
                 paired_status: None,
                 is_streaming: false,
                 is_waiting_on_subagent: false,
+                graphics: EntryGraphics::default(),
             };
             render_preview(
                 &job.entries,
@@ -484,6 +486,8 @@ impl MsgHandler<PreviewSessionRequested> for LayoutWorkerActor {
 /// Shaped like [`MeasureJob`] for the same reason: the history moves to a
 /// blocking thread as a shared `Arc`, never a second transcript.
 pub(crate) struct PreviewJob {
+    /// The session whose entries are previewed. Names image slot keys.
+    pub session_id: jinn_core_types::SessionId,
     /// The session's trailing entries, shared with the sidebar that requested
     /// them.
     ///
@@ -500,6 +504,7 @@ pub(crate) struct PreviewJob {
 impl From<&PreviewSessionRequested> for PreviewJob {
     fn from(msg: &PreviewSessionRequested) -> Self {
         Self {
+            session_id: msg.session_id.clone(),
             // Bounded here, at the one place a request becomes work, rather than
             // in `render_preview`: the preview displays at most its last 20 rows
             // and its in-production entries only a 256-column marker, so text
@@ -658,6 +663,8 @@ pub(crate) fn measure(job: &MeasureJob, inputs: &LayoutInputs) -> Vec<MeasuredLi
 /// thread is a pointer bump rather than a second transcript. Only the small
 /// id-keyed set is copied.
 pub(crate) struct MeasureJob {
+    /// The session whose entries are measured. Names image slot keys.
+    pub session_id: jinn_core_types::SessionId,
     /// The session's history, shared with whoever else already holds it.
     pub entries: Arc<[jinn_core_types::ChatEntry]>,
     /// Blocks of ignored entries the user has expanded.
@@ -673,6 +680,7 @@ pub(crate) struct MeasureJob {
 impl From<&LayoutChatSession> for MeasureJob {
     fn from(msg: &LayoutChatSession) -> Self {
         Self {
+            session_id: msg.session_id.clone(),
             entries: Arc::clone(&msg.entries),
             shown_ignored_blocks: msg.shown_ignored_blocks.clone(),
             min_collapse_count: msg.min_collapse_count,
@@ -701,6 +709,7 @@ fn measure_entry(
     let is_waiting_on_subagent = inputs.is_task_waiting(entry, tool_result_statuses);
 
     let ctx = RenderContext {
+        session_id: job.session_id.clone(),
         content_width: job.content_width,
         is_selected: false,
         is_expanded,
@@ -709,6 +718,7 @@ fn measure_entry(
         paired_status,
         is_streaming,
         is_waiting_on_subagent,
+        graphics: inputs.graphics_for(entry),
     };
     let lines = entry_to_lines(entry, &ctx);
     let wrapped_count = wrapped_line_count(&lines, job.content_width);
@@ -724,6 +734,7 @@ fn measure_entry(
             paired_status,
             is_streaming,
             is_waiting_on_subagent,
+            &inputs.graphics_for(entry),
         ),
         wrapped_count,
     }

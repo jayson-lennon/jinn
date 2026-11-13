@@ -30,6 +30,15 @@ kiosk_command = 'chromium --kiosk --app="{url}" --user-data-dir="{profile}"'
 ```
 
 - OpenRouter model market cursor no longer "sticks" at the bottom when scrolling. Now stays centered when scrollable content is still available.
+- Add terminal image support for protocols: kitty, sixel, iterm2, halfblocks.
+
+```toml
+[graphics]
+enabled = true
+protocol = "auto" # auto | kitty | sixel | iterm2 | halfblocks
+# max height of an image (in rows)
+max_image_rows = 16
+```
 
 
 ## 2026-11-10 v1.23.0

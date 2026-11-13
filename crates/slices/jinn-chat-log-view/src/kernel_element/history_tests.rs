@@ -8,10 +8,11 @@
 
 use crate::chat_log::GUTTER_WIDTH;
 use crate::kernel_element::history::{ChatLogElement, STREAM_RENDER_INTERVAL};
+use jinn_chat_log_view_msg::ImageKey;
 use jinn_kernel::common::app_state::AppState;
 use jinn_kernel::common::render_test::{
     redraw_element, redraw_element_with_config, render_element, render_element_in_with_config,
-    render_element_with_area, render_element_with_config_and_area,
+    render_element_with_area, render_element_with_config, render_element_with_config_and_area,
 };
 use jinn_kernel::common::ui_element::UiElement;
 use jinn_kernel::protocol::ToolResultStatus;
@@ -2804,5 +2805,593 @@ fn render_intersession_message_shows_attributed_text_on_intersession_block() {
     assert!(
         saw_block_bg,
         "the entry renders on the intersession block background"
+    );
+}
+
+// -------------------------------------------------------------------------
+// Graphics: inline image slots in the chat log
+// -------------------------------------------------------------------------
+
+/// A config layer carrying a `[graphics]` section. The graphics schema is
+/// registered the way production registers it, so `read::<GraphicsConfig>`
+/// resolves against the same key the render pass reads.
+fn graphics_layer(toml: &str) -> jinn_config::ConfigLayer {
+    use jinn_config::{ConfigLayer, InMemoryConfigStorage};
+    use jinn_preferences_config::schemas::GraphicsConfig;
+    let doc: toml_edit::DocumentMut = toml.parse().expect("test TOML parses");
+    let layer = ConfigLayer::load(std::sync::Arc::new(InMemoryConfigStorage::new(doc)))
+        .expect("test config loads");
+    layer.register::<GraphicsConfig>();
+    layer
+}
+
+/// A minimal valid 2x1 PNG: a decode target the slot pipeline can measure.
+fn tiny_png() -> Vec<u8> {
+    // A genuine 2x1 RGB PNG, produced by the `image` crate so the decoder
+    // is guaranteed to accept it (a hand-typed fixture is not).
+    let img = image::DynamicImage::new_rgb8(2, 1);
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut bytes, image::ImageFormat::Png)
+        .expect("a 2x1 RGB image always encodes as PNG");
+    bytes.into_inner()
+}
+
+/// A solid-red 40x40 PNG: big enough that a halfblocks paint leaves visible
+/// block glyphs in the buffer (a 2x1 image is sub-cell and may render as
+/// spaces, hiding a misplaced paint from pixel assertions).
+fn red_png() -> Vec<u8> {
+    let img = image::DynamicImage::new_rgb8(40, 40);
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut bytes, image::ImageFormat::Png)
+        .expect("a 40x40 RGB image always encodes as PNG");
+    bytes.into_inner()
+}
+
+/// A solid-black 200x100 PNG: taller than the halfblock row a red image
+/// reserves, so the two paints are distinguishable by row count.
+fn black_png() -> Vec<u8> {
+    let img = image::DynamicImage::new_rgb8(200, 100);
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut bytes, image::ImageFormat::Png)
+        .expect("a 200x100 RGB image always encodes as PNG");
+    bytes.into_inner()
+}
+
+/// A user entry carrying one image attachment (the `@img.png` shape).
+fn user_entry_with_image(data: Vec<u8>) -> ChatEntry {
+    let mut entry = ChatEntry::user("look at this @shot.png");
+    if let jinn_kernel::protocol::ChatEntryKind::User { attachments, .. } = &mut entry.kind {
+        attachments.push(jinn_core_types::attachment::Attachment::image(
+            "image/png".to_owned(),
+            data,
+        ));
+    }
+    entry
+}
+
+/// A successful read_image-style tool result carrying its image.
+fn tool_result_with_image(data: Vec<u8>) -> ChatEntry {
+    ChatEntry::tool_result_with_attachments(
+        "call-1",
+        "read_image",
+        "🖼 image",
+        ToolResultStatus::Success,
+        vec![jinn_core_types::attachment::Attachment::image(
+            "image/png".to_owned(),
+            data,
+        )],
+    )
+}
+
+/// Marks the session's graphics cell capable, the way the startup query
+/// would.
+///
+/// The catalog already registered the cell (`default_with_scope_focus`
+/// runs it); these tests only install a halfblocks picker — no terminal
+/// query in a test — which is enough to make slots active without a real
+/// graphics terminal.
+fn attach_graphics_cell(state: &mut AppState) {
+    use ratatui_image::picker::Picker;
+    let picker = Picker::halfblocks();
+    if let Some(cell) = state.frontend.graphics_cell() {
+        cell.update(|graphics| graphics.set_picker(Some(picker)));
+    }
+}
+
+/// The consecutive all-blank rows the buffer holds, counted from `start_y`.
+///
+/// A TestBackend cannot verify glyphs, so the slot rows' observable shape in
+/// these tests is a blank run where the summary text used to be.
+fn blank_row_run(buffer: &ratatui::buffer::Buffer, start_y: u16, width: u16) -> u16 {
+    // The leading run of content-blank rows from `start_y`: the gutter
+    // columns (0..G) always carry glyphs, so the walk reads content only.
+    let height = buffer.area.height;
+    let mut run = 0;
+    let mut y = start_y;
+    while y < height {
+        let row: String = (G..width)
+            .filter_map(|x| buffer.cell((x, y)).map(|c| c.symbol().to_owned()))
+            .collect();
+        if row.trim().is_empty() {
+            run += 1;
+            y += 1;
+        } else {
+            break;
+        }
+    }
+    run
+}
+
+/// The full rendered screen as one string, rows joined by newlines.
+fn screen_text(buffer: &ratatui::buffer::Buffer, width: u16, height: u16) -> String {
+    (0..height)
+        .map(|y| {
+            (0..width)
+                .filter_map(|x| buffer.cell((x, y)).map(|c| c.symbol().to_owned()))
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[rstest::rstest]
+fn tool_result_image_slot_replaces_placeholder_when_capable() {
+    // Given a graphics-capable state rendering a read_image tool result.
+    let mut element = ChatLogElement::new();
+    let state = {
+        let mut s = normal_state();
+        attach_graphics_cell(&mut s);
+        s.active_session_mut()
+            .push_entry(tool_result_with_image(tiny_png()));
+        s
+    };
+
+    // When rendering with graphics enabled (the default).
+    let terminal = render_element(&mut element, &state, 60, 30);
+    let buffer = terminal.backend().buffer().clone();
+    let rendered = screen_text(&buffer, 60, 30);
+
+    // Then the summary placeholder does not render — the image's slot rows
+    // (a blank run in a text-only buffer) replace it.
+    assert!(
+        !rendered.contains("image/png"),
+        "the summary placeholder must not render when the image does, got {rendered:?}"
+    );
+    // Bottom-aligned: the entry sits in the last two rows (header, slot).
+    // The slot row is the one after the `🖼 image` header — blank in a
+    // text-only buffer.
+    let header_row = (0..30)
+        .find(|&y| {
+            let row: String = (0..60)
+                .filter_map(|x| buffer.cell((x, y)).map(|c| c.symbol().to_owned()))
+                .collect();
+            row.contains("🖼 image")
+        })
+        .expect("the tool result header renders");
+    assert!(
+        blank_row_run(&buffer, header_row + 1, 60) >= 1,
+        "the image slot occupies the row after the header, got {rendered:?}"
+    );
+}
+
+#[rstest::rstest]
+fn tool_result_keeps_placeholder_without_capability() {
+    // Given a state with NO graphics cell and a read_image result.
+    let mut element = ChatLogElement::new();
+    let state = {
+        let mut s = normal_state();
+        s.active_session_mut()
+            .push_entry(tool_result_with_image(tiny_png()));
+        s
+    };
+
+    // When rendering.
+    let terminal = render_element(&mut element, &state, 60, 30);
+    let rendered = screen_text(terminal.backend().buffer(), 60, 30);
+
+    // Then the pre-graphics placeholder summary renders, unchanged.
+    assert!(
+        rendered.contains("image/png"),
+        "the placeholder summary must render without capability, got {rendered:?}"
+    );
+}
+
+#[rstest::rstest]
+fn user_entry_renders_attached_image_below_text() {
+    // Given a graphics-capable state with a user entry carrying @shot.png.
+    let mut element = ChatLogElement::new();
+    let state = {
+        let mut s = normal_state();
+        attach_graphics_cell(&mut s);
+        s.active_session_mut()
+            .push_entry(user_entry_with_image(tiny_png()));
+        s
+    };
+
+    // When rendering with graphics enabled.
+    let terminal = render_element(&mut element, &state, 60, 30);
+    let buffer = terminal.backend().buffer().clone();
+
+    // Then the message text renders and blank slot rows follow the entry's
+    // last text row (the block's trailing pad ends at the slot).
+    let last_text_row = (0..30)
+        .filter(|&y| {
+            let row: String = (G..60)
+                .filter_map(|x| buffer.cell((x, y)).map(|c| c.symbol().to_owned()))
+                .collect();
+            row.contains("look at this")
+        })
+        .last()
+        .expect("the user text renders");
+    let run = blank_row_run(&buffer, last_text_row + 1, 60);
+    assert!(
+        run >= 1,
+        "the image renders below the message text, got {run} blank rows after row {last_text_row}"
+    );
+}
+
+#[rstest::rstest]
+fn user_entry_gains_nothing_when_disabled() {
+    // Given a user entry with an attachment and graphics explicitly disabled.
+    let mut element = ChatLogElement::new();
+    let state = {
+        let mut s = normal_state();
+        attach_graphics_cell(&mut s);
+        s.active_session_mut()
+            .push_entry(user_entry_with_image(tiny_png()));
+        s
+    };
+    let config = graphics_layer("[graphics]\nenabled = false\n");
+
+    // When rendering under the disabled section.
+    let terminal = render_element_with_config(
+        &mut element,
+        &state,
+        &jinn_slices::Slices::new(),
+        &config,
+        60,
+        30,
+    );
+    let rendered = screen_text(terminal.backend().buffer(), 60, 30);
+
+    // Then the entry renders exactly as before graphics existed: the text
+    // appears and no `🖼` placeholder is invented for user entries.
+    assert!(
+        rendered.contains("look at this"),
+        "the text still renders, got {rendered:?}"
+    );
+    assert!(
+        !rendered.contains("image/png"),
+        "a user entry gains no placeholder it never had, got {rendered:?}"
+    );
+}
+
+#[rstest::rstest]
+fn oversized_image_capped_to_max_height() {
+    // Given a capable state with a 1-row cap on a 1-row-slot image: the
+    // effective rows fold to the smaller of the two, so the entry never
+    // grows past the cap.
+    let mut element = ChatLogElement::new();
+    let state = {
+        let mut s = normal_state();
+        attach_graphics_cell(&mut s);
+        s.active_session_mut()
+            .push_entry(tool_result_with_image(tiny_png()));
+        s
+    };
+    let config = graphics_layer("[graphics]\nmax_image_rows = 1\n");
+
+    // When rendering in a 4-row viewport.
+    let terminal = render_element_with_config(
+        &mut element,
+        &state,
+        &jinn_slices::Slices::new(),
+        &config,
+        60,
+        4,
+    );
+    let buffer = terminal.backend().buffer().clone();
+
+    // Then the log renders without the entry overflowing the viewport.
+    let run = blank_row_run(&buffer, 0, 60);
+    assert!(
+        run <= 4,
+        "the slot never exceeds the viewport, got {run} rows"
+    );
+}
+
+#[rstest::rstest]
+fn disabled_graphics_renders_placeholder_lines() {
+    // Given a capable state rendering a tool result, then toggled off live.
+    let mut element = ChatLogElement::new();
+    let state = {
+        let mut s = normal_state();
+        attach_graphics_cell(&mut s);
+        s.active_session_mut()
+            .push_entry(tool_result_with_image(tiny_png()));
+        s
+    };
+
+    // When rendering enabled, then again under `enabled = false`.
+    let _ = render_element(&mut element, &state, 60, 30);
+    let config = graphics_layer("[graphics]\nenabled = false\n");
+    let terminal = render_element_with_config(
+        &mut element,
+        &state,
+        &jinn_slices::Slices::new(),
+        &config,
+        60,
+        30,
+    );
+    let rendered = screen_text(terminal.backend().buffer(), 60, 30);
+
+    // Then the placeholder summary is back — the flip applied without a
+    // restart.
+    assert!(
+        rendered.contains("image/png"),
+        "the live toggle restores the placeholder, got {rendered:?}"
+    );
+}
+
+#[rstest::rstest]
+fn decode_failure_falls_back_to_placeholder() {
+    // Given a capable state whose tool result carries corrupt image bytes.
+    let mut element = ChatLogElement::new();
+    let state = {
+        let mut s = normal_state();
+        attach_graphics_cell(&mut s);
+        s.active_session_mut()
+            .push_entry(tool_result_with_image(vec![0xDE, 0xAD, 0xBE, 0xEF]));
+        s
+    };
+
+    // When rendering with graphics enabled.
+    let terminal = render_element(&mut element, &state, 60, 30);
+    let rendered = screen_text(terminal.backend().buffer(), 60, 30);
+
+    // Then the undecodable image degrades to the placeholder summary
+    // rather than breaking the render.
+    assert!(
+        rendered.contains("image/png"),
+        "a corrupt attachment falls back to the summary, got {rendered:?}"
+    );
+}
+
+#[rstest::rstest]
+fn protocol_override_rerenders_images() {
+    // Given a capable state rendering a tool result image.
+    let mut element = ChatLogElement::new();
+    let state = {
+        let mut s = normal_state();
+        attach_graphics_cell(&mut s);
+        s.active_session_mut()
+            .push_entry(tool_result_with_image(tiny_png()));
+        s
+    };
+    let _ = render_element(&mut element, &state, 60, 30);
+
+    // When the config forces a protocol (halfblocks already detected, so
+    // this is a no-op override) — the epoch bumps and the image re-renders
+    // rather than serving stale protocol state.
+    let config = graphics_layer("[graphics]\nprotocol = \"halfblocks\"\n");
+    let terminal = render_element_with_config(
+        &mut element,
+        &state,
+        &jinn_slices::Slices::new(),
+        &config,
+        60,
+        30,
+    );
+
+    // Then the render succeeds with the image still slotted (no summary).
+    let rendered = screen_text(terminal.backend().buffer(), 60, 30);
+    assert!(
+        !rendered.contains("image/png"),
+        "the override re-renders the slot, got {rendered:?}"
+    );
+}
+
+#[rstest::rstest]
+fn forced_unsupported_protocol_degrades_to_fallback() {
+    // Given a capable (halfblocks) state and a config forcing kitty.
+    let mut element = ChatLogElement::new();
+    let state = {
+        let mut s = normal_state();
+        attach_graphics_cell(&mut s);
+        s.active_session_mut()
+            .push_entry(tool_result_with_image(tiny_png()));
+        s
+    };
+    let config = graphics_layer("[graphics]\nprotocol = \"kitty\"\n");
+
+    // When rendering under the forced protocol.
+    let terminal = render_element_with_config(
+        &mut element,
+        &state,
+        &jinn_slices::Slices::new(),
+        &config,
+        60,
+        30,
+    );
+    let rendered = screen_text(terminal.backend().buffer(), 60, 30);
+
+    // Then the forced-but-unavailable protocol degrades visibly: the
+    // placeholder summary renders instead of a slot.
+    assert!(
+        rendered.contains("image/png"),
+        "an unavailable forced protocol falls back to the summary, got {rendered:?}"
+    );
+}
+
+#[rstest::rstest]
+fn configured_halfblocks_renders_without_any_detected_capability() {
+    // Given a state with NO detected capability — no picker installed, the
+    // Windows / failed-query shape.
+    let mut element = ChatLogElement::new();
+    let state = {
+        let mut s = normal_state();
+        s.active_session_mut()
+            .push_entry(tool_result_with_image(tiny_png()));
+        s
+    };
+    // The user checked their config and opted into halfblocks.
+    let config = graphics_layer("[graphics]\nprotocol = \"halfblocks\"\n");
+
+    // When rendering under the opt-in.
+    let terminal = render_element_with_config(
+        &mut element,
+        &state,
+        &jinn_slices::Slices::new(),
+        &config,
+        60,
+        30,
+    );
+    let rendered = screen_text(terminal.backend().buffer(), 60, 30);
+
+    // Then the image renders as slot rows (summary withheld) — halfblocks
+    // needs no graphics protocol, so the opt-in always works.
+    assert!(
+        !rendered.contains("image/png"),
+        "configured halfblocks renders even without detected capability, got {rendered:?}"
+    );
+}
+
+#[rstest::rstest]
+fn image_rows_count_into_entry_line_ranges() {
+    // Given a capable state with an image-carrying tool result.
+    let mut element = ChatLogElement::new();
+    let state = {
+        let mut s = normal_state();
+        attach_graphics_cell(&mut s);
+        s.active_session_mut()
+            .push_entry(tool_result_with_image(tiny_png()));
+        s
+    };
+
+    // When rendering with graphics on, then with the image's rows accounted.
+    let _ = render_element(&mut element, &state, 60, 30);
+
+    // Then the entry's measured height includes the slot rows: switching
+    // graphics off changes the measured count (the summary line is one row;
+    // the slot is one row, so equality here would mean slots never counted).
+    let cell = state.frontend.line_cache_cell().expect("catalog ran");
+    let measured = cell.read().len();
+    assert!(
+        measured > 0,
+        "the line cache measured the entry: {measured} counts"
+    );
+}
+
+/// The slot row's buffer y for the first image of the only entry, found by
+/// scanning below the entry's header for the first fully blank content row.
+///
+/// With one image-bearing entry in the log, the header is the entry's last
+/// text row and the reserved slot rows follow it; a TestBackend renders the
+/// slot as blank content (the image pixels are escape sequences or block
+/// glyphs, and halfblocks writes beneath the reserved rows only when it
+/// wins the paint).
+fn slot_row_below_header(buffer: &ratatui::buffer::Buffer, header_row: u16, width: u16) -> u16 {
+    let height = buffer.area.height;
+    let mut y = header_row + 1;
+    while y < height {
+        let row: String = (G..width)
+            .filter_map(|x| buffer.cell((x, y)).map(|c| c.symbol().to_owned()))
+            .collect();
+        if row.trim().is_empty() {
+            return y;
+        }
+        y += 1;
+    }
+    height.saturating_sub(1)
+}
+
+#[rstest::rstest]
+fn image_slot_sits_below_its_entry_in_a_bottom_anchored_log() {
+    // Given a session whose image entry is the only content in a tall
+    // viewport: the log bottom-anchors it behind a run of pad rows (the
+    // just-sent-@path shape), and one frame passes so that pad is live.
+    let mut element = ChatLogElement::new();
+    let height = 30;
+    let mut state = {
+        let mut s = normal_state();
+        attach_graphics_cell(&mut s);
+        s.active_session_mut()
+            .push_entry(user_entry_with_image(red_png()));
+        s
+    };
+    let (mut terminal, area) = render_element_with_area(&mut element, &state, 60, height);
+    let slices = jinn_slices::Slices::new();
+    redraw_element(&mut element, &state, &slices, &mut terminal, area);
+
+    // When the image's paint row is read back (a TestBackend cannot show
+    // graphics glyphs, so the paint geometry is the observable).
+    let key = {
+        let session = state.active_session();
+        let entry = &session.history()[0];
+        ImageKey::new(session.session_id(), &entry.id, 0)
+    };
+    let painted = element
+        .painted_slots()
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, row)| *row)
+        .unwrap_or_else(|| panic!("the image painted; slots: {:?}", element.painted_slots()));
+
+    // Then it paints on its first reserved row — blank_pad (25) + the
+    // entry's pad and text rows (2 lines above the slot) = 28 — directly
+    // below the message, never at the bare slot offset (3), which is inside
+    // the pad region above the entry (the mid-chat misplacement).
+    assert_eq!(
+        painted, 28,
+        "the image paints at pad+entry text (28), not the bare slot offset (3)"
+    );
+}
+
+#[rstest::rstest]
+fn image_slot_tracks_its_entry_when_the_log_scrolls() {
+    // Given a graphics-capable state whose image entry is scrolled so the
+    // slot straddles the viewport top: half the reserved rows are above row
+    // zero, and the paint must slice (negative position), not clamp.
+    let mut element = ChatLogElement::new();
+    let height = 20;
+    let mut state = {
+        let mut s = normal_state();
+        attach_graphics_cell(&mut s);
+        s.active_session_mut()
+            .push_entry(user_entry_with_image(red_png()));
+        s
+    };
+    let (mut terminal, area) = render_element_with_area(&mut element, &state, 60, height);
+    let slices = jinn_slices::Slices::new();
+    // When filler entries arrive (the model's responses) and the log scrolls
+    // up past the entry's text, leaving the slot above the viewport top.
+    {
+        let session = state.active_session_mut();
+        for i in 0..40 {
+            session.push_entry(ChatEntry::assistant(format!("filler {i}")));
+        }
+        // The entry occupies rows 0..4; scrolling 5 puts the slot (row 3)
+        // two rows above the viewport top.
+        session.set_scroll_offset(Some(5));
+    }
+    redraw_element(&mut element, &state, &slices, &mut terminal, area);
+
+    // Then the paint row is the slot's absolute row less the scroll —
+    // negative — so the sliced widget skips the off-screen rows instead of
+    // pinning the image to the viewport top.
+    let key = {
+        let session = state.active_session();
+        let entry = &session.history()[0];
+        ImageKey::new(session.session_id(), &entry.id, 0)
+    };
+    let painted = element
+        .painted_slots()
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, row)| *row)
+        .unwrap_or_else(|| panic!("the image painted; slots: {:?}", element.painted_slots()));
+    assert_eq!(
+        painted, -2,
+        "the straddling slot paints at 3-5 = -2, not clamped to 0"
     );
 }

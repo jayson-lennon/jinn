@@ -34,6 +34,12 @@ files (directories with trailing slashes) as you type.
   model, jinn blocks the attachment with an error entry.
 - Images are the entire multimodal surface, and the flow is one-way: from
   your message to the model.
+- **Display**: in graphics-capable terminals (kitty, ghostty, ...) the
+  image also renders in the chat log below the message; `read_image`
+  results render in place of their text summary. Without graphics
+  support, images stay one-line text placeholders. Opt into block-glyph
+  rendering on any terminal with `[graphics] protocol = "halfblocks"`
+  in jinn.toml — it applies live and needs no detection.
 
 ## `/command`: command popup
 

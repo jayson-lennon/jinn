@@ -499,6 +499,8 @@ fn fill_preview_cache(app: &crate::TuiApp) {
         paired_status: None,
         is_streaming: false,
         is_waiting_on_subagent: false,
+        graphics: Default::default(),
+        session_id: jinn_core_types::SessionId::new(),
     };
     let lines = jinn_chat_log_view::kernel_element::render_preview(
         state.active_session().history(),

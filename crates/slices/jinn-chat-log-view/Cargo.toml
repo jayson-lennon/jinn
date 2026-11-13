@@ -26,6 +26,11 @@ jinn-provider = { workspace = true }
 jinn-tools-msg = { workspace = true }
 ratatui = { workspace = true }
 ratatui-markdown = { workspace = true }
+# Drives the picker/protocol state the -msg crate's GraphicsState holds.
+ratatui-image = { workspace = true }
+# Inline image decode for the chat-log image slots (decode cache lives in the
+# -msg crate; this crate calls it per frame).
+image = { workspace = true }
 jiff = { workspace = true }
 serde_json = { workspace = true }
 strip-ansi-escapes = { workspace = true }
@@ -55,6 +60,8 @@ tokio = { workspace = true }
 jinn-preferences-config = { workspace = true }
 jinn-config = { workspace = true }
 jinn-testutil = { workspace = true }
+# `[graphics]` config layers for the image-slot tests parse from TOML text.
+toml_edit = { workspace = true }
 jinn-sidebar-msg = { workspace = true }
 # The cwd-inheritance test derives its fixture from a tempdir, so no absolute
 # path literal ships in test code.

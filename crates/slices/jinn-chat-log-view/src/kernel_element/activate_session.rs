@@ -51,6 +51,15 @@ pub fn activate_session(
     }
     state.session.set_active(target_id.clone());
 
+    // Drop the other sessions' decode/protocol state: image caches are
+    // keyed by session, and the render pass's per-frame
+    // `evict_other_sessions` catches anything that slips (a switch the
+    // frame misses), but doing it at the switch keeps memory bounded
+    // without waiting for the next frame.
+    if let Some(cell) = state.frontend.graphics_cell() {
+        cell.update(|graphics| graphics.evict_other_sessions(&target_id));
+    }
+
     if needs_measurement {
         extra.with_message(SessionLoadRequested {
             session_id: target_id,

@@ -30,7 +30,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::sections::sessions::preview_load::preview_signature;
 #[cfg(test)]
-use jinn_chat_log_view::chat_log::RenderContext;
+use jinn_chat_log_view::chat_log::{EntryGraphics, RenderContext};
 #[cfg(test)]
 use jinn_chat_log_view::kernel_element::render_preview as render_preview_lines;
 #[cfg(test)]
@@ -759,6 +759,8 @@ mod worker_tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: EntryGraphics::default(),
+            session_id: jinn_core_types::SessionId::new(),
         };
         render_preview_lines(
             session.history(),
@@ -847,6 +849,8 @@ mod worker_tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: EntryGraphics::default(),
+            session_id: jinn_core_types::SessionId::new(),
         };
         let from_tail = render_preview_lines(tail, &ctx, PREVIEW_ENTRY_COUNT, PREVIEW_MAX_LINES);
 

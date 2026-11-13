@@ -113,6 +113,8 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: Default::default(),
+            session_id: jinn_core_types::SessionId::new(),
         };
 
         // When rendering.
@@ -144,6 +146,8 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: Default::default(),
+            session_id: jinn_core_types::SessionId::new(),
         };
 
         // When rendering.
@@ -174,6 +178,8 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: Default::default(),
+            session_id: jinn_core_types::SessionId::new(),
         };
         let citations = [
             citation("Source A", "https://example.com/a"),
@@ -204,6 +210,8 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: Default::default(),
+            session_id: jinn_core_types::SessionId::new(),
         };
         let theme = default_theme();
 
@@ -230,6 +238,8 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: Default::default(),
+            session_id: jinn_core_types::SessionId::new(),
         };
         let theme = default_theme();
 
@@ -255,6 +265,8 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: Default::default(),
+            session_id: jinn_core_types::SessionId::new(),
         };
         let theme = default_theme();
 

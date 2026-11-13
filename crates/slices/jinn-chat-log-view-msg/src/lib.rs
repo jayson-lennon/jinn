@@ -6,6 +6,7 @@
 
 pub mod audit_popup_state;
 pub mod chat_log_view_state;
+pub mod graphics;
 pub mod layout;
 pub mod line_cache_cell;
 pub mod line_count_cache;
@@ -14,6 +15,7 @@ pub mod visual_item;
 
 pub use audit_popup_state::{AuditPopupState, audit_popup_slot};
 pub use chat_log_view_state::*;
+pub use graphics::{GraphicsState, ImageKey, ImageSlot, SlotGeometry, chat_log_graphics_slot};
 pub use layout::{
     ArmLayoutDeadline, ArmPreviewDeadline, ChatLogLayoutComputed, Escalated, LayoutChatSession,
     LayoutDeadlineExpired, MeasuredEntryCount, PREVIEW_ENTRY_COUNT, PREVIEW_MARKER_COLUMNS,

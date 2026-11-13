@@ -12,7 +12,7 @@ use crate::sections::sessions::preview::{
     DEFAULT_TOOL_ENTRY_MAX_LINES, render_session_preview, render_session_preview_loading,
     session_preview_popup_rect,
 };
-use jinn_chat_log_view::chat_log::RenderContext;
+use jinn_chat_log_view::chat_log::{EntryGraphics, RenderContext};
 use jinn_chat_log_view::kernel_element::render_preview as render_preview_lines;
 use jinn_chat_log_view_msg::{PREVIEW_ENTRY_COUNT, PREVIEW_MAX_LINES};
 use jinn_core_types::model_selection::ModelSelection;
@@ -83,6 +83,8 @@ fn worker_lines_for(session: &ChatSessionState, popup_area: Rect) -> Vec<Line<'s
         paired_status: None,
         is_streaming: false,
         is_waiting_on_subagent: false,
+        graphics: EntryGraphics::default(),
+        session_id: jinn_core_types::SessionId::new(),
     };
     render_preview_lines(
         session.history(),
@@ -192,6 +194,8 @@ fn render_preview_with_cache(
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: EntryGraphics::default(),
+            session_id: jinn_core_types::SessionId::new(),
         };
         render_preview_lines(
             session.history(),
@@ -314,6 +318,8 @@ fn the_workers_lines_fit_the_popups_content_area() {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: EntryGraphics::default(),
+            session_id: jinn_core_types::SessionId::new(),
         };
         render_preview_lines(
             session.history(),

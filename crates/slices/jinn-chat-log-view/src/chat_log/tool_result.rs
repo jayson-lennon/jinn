@@ -319,7 +319,7 @@ mod tests {
         reason = "test code"
     )]
     use super::*;
-    use crate::chat_log::shared::RenderContext;
+    use crate::chat_log::shared::{EntryGraphics, RenderContext};
     use jinn_core_types::ToolResultStatus;
 
     fn render_context(max_lines: u16, is_expanded: bool) -> RenderContext {
@@ -332,6 +332,8 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: EntryGraphics::default(),
+            session_id: jinn_core_types::SessionId::new(),
         }
     }
 
@@ -345,6 +347,8 @@ mod tests {
             paired_status: status,
             is_streaming: false,
             is_waiting_on_subagent: false,
+            graphics: EntryGraphics::default(),
+            session_id: jinn_core_types::SessionId::new(),
         }
     }
 
