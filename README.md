@@ -141,9 +141,7 @@ Run TUI apps in a separate task that an agent can interact with.
 - Custom prompts inlined with `#prompt-name`
 - [System prompt](#system-prompt) configuration
 - MCP server support (`stdout`, local HTTP, and remote HTTP transports)
-- Concurrent session execution
-- Intersession messaging
-- Usage display (individual session usage and aggregated tree usage)
+- [`smolvm`](https://github.com/smol-machines/smolvm) integration
 - Session search
 - Agent-powered user guide
   - Ask `jinn` anything about a `jinn` feature, or how to do something, or have it update a config, or build a custom workflow
