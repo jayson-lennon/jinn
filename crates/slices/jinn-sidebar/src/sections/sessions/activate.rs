@@ -194,7 +194,7 @@ mod tests {
         // And no commands are emitted: a measured session needs no
         // measurement, and skills/prompts/context-files are ephemeral and
         // were hydrated when the session was created/loaded.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -210,7 +210,7 @@ mod tests {
         let result = handle_session_activate(&mut state);
 
         // Then no commands emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -222,7 +222,7 @@ mod tests {
         let result = handle_session_activate(&mut state);
 
         // Then no commands emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -402,7 +402,16 @@ mod tests {
 
     /// The activation request a result publishes, as the store actor will
     /// decode it.
-    fn load_request(result: IntentResult) -> Option<SessionLoadRequested> {
+    ///
+    /// # Panics
+    ///
+    /// Panics when no `SessionLoadRequested` was published, or its payload
+    /// does not decode — both are fixture bugs the test must not paper over.
+    #[expect(
+        clippy::expect_used,
+        reason = "test helper: a missing or malformed request is a fixture bug, expect is the failure channel"
+    )]
+    fn load_request(result: IntentResult) -> SessionLoadRequested {
         let sink = RecordingSink::default();
         for closure in result.messages {
             closure(&sink);
@@ -412,7 +421,7 @@ mod tests {
             .iter()
             .find(|(id, _)| id.ends_with("SessionLoadRequested"))
             .expect("an activation request is published");
-        Some(serde_json::from_value(payload.clone()).expect("decodes"))
+        serde_json::from_value(payload.clone()).expect("decodes")
     }
 
     #[rstest::rstest]
@@ -433,11 +442,11 @@ mod tests {
         // zero and measure the whole history at a width nothing renders at.
         let request = load_request(result);
         assert_eq!(
-            request.as_ref().and_then(|r| r.content_width),
+            request.content_width,
             Some(72),
             "the request must carry the width read before the switch"
         );
-        assert_eq!(request.map(|r| r.session_id), Some(second));
+        assert_eq!(request.session_id, second);
     }
 
     #[rstest::rstest]

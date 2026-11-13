@@ -57,14 +57,13 @@ fn focused_sidebar_section(state: &AppState) -> Option<SidebarSectionId> {
     if let Some(section) = state.frontend.sidebar_section() {
         return Some(section);
     }
-    state.frontend.scope_parent().and_then(|scope| {
-        let FocusScope::Dynamic(id) = scope else {
-            return None;
-        };
-        (id.slice() == "sidebar")
-            .then(|| SidebarSectionId::from_scope_name(id.name()))
-            .flatten()
-    })
+    let scope = state.frontend.scope_parent()?;
+    let FocusScope::Dynamic(id) = scope else {
+        return None;
+    };
+    (id.slice() == "sidebar")
+        .then(|| SidebarSectionId::from_scope_name(id.name()))
+        .flatten()
 }
 
 /// The idle session under the sessions-section cursor, if any.

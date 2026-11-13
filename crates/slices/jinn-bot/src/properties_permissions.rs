@@ -143,19 +143,16 @@ pub(super) fn permitted_now(
             .collect(),
         SetField::Tool => {
             let provider = session.model_selection().provider_name().to_owned();
-            state
-                .tool_registry()
-                .map(|registry| {
-                    registry
-                        .read()
-                        .tools_for_session(bot_id)
-                        .into_iter()
-                        .filter(|def| session.is_tool_enabled(&def.name))
-                        .filter(|def| def.available_for_provider(&provider))
-                        .map(|def| def.name)
-                        .collect()
-                })
-                .unwrap_or_default()
+            state.tool_registry().map_or_default(|registry| {
+                registry
+                    .read()
+                    .tools_for_session(bot_id)
+                    .into_iter()
+                    .filter(|def| session.is_tool_enabled(&def.name))
+                    .filter(|def| def.available_for_provider(&provider))
+                    .map(|def| def.name)
+                    .collect()
+            })
         }
     }
 }

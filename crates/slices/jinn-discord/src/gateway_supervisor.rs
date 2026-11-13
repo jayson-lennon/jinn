@@ -52,6 +52,15 @@ impl GatewayConfigHandle {
     }
 
     /// Reads a snapshot of the current config.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the config lock is poisoned — a panic while holding it is
+    /// unrecoverable for the supervisor's view of the config.
+    #[expect(
+        clippy::expect_used,
+        reason = "the lock is only ever held across a clone/assign; poisoning means a prior panic already unwound"
+    )]
     #[must_use]
     pub fn read(&self) -> DiscordConfig {
         self.inner
@@ -61,6 +70,15 @@ impl GatewayConfigHandle {
     }
 
     /// Swaps the config whole.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the config lock is poisoned — a panic while holding it is
+    /// unrecoverable for the supervisor's view of the config.
+    #[expect(
+        clippy::expect_used,
+        reason = "the lock is only ever held across a clone/assign; poisoning means a prior panic already unwound"
+    )]
     pub fn replace(&self, config: DiscordConfig) {
         *self
             .inner
@@ -136,7 +154,14 @@ impl std::fmt::Debug for GatewaySupervisor {
         f.debug_struct("GatewaySupervisor")
             .field("gateway", &self.gateway)
             .field("spawner_attached", &self.spawner.is_some())
-            .finish()
+            .field("config_handle", &self.config_handle)
+            .field("parked", &self.parked)
+            .field("shutdown", &self.shutdown)
+            .field("slices", &self.slices)
+            .field("state_handle", &self.state_handle)
+            .field("bus", &self.bus)
+            .field("config_layer", &self.config_layer)
+            .finish_non_exhaustive()
     }
 }
 
@@ -250,8 +275,11 @@ impl GatewaySupervisor {
         // carried inside it, so the handle's snapshot stays consistent.
         self.config_handle.replace(fresh.clone());
         match (self.gateway, fresh.enabled) {
-            (GatewayState::Running, true) | (GatewayState::Dormant, false) => {
-                // No enablement change (or no gateway to change).
+            (GatewayState::Running, true)
+            | (GatewayState::Dormant | GatewayState::PendingDisable, false) => {
+                // No enablement change (or no gateway to change) — and
+                // `PendingDisable` with `enabled: false` is already parked;
+                // the boundary will handle it.
             }
             (GatewayState::Running, false) => {
                 if any_session_busy(&self.state_handle) {
@@ -269,9 +297,6 @@ impl GatewaySupervisor {
             (GatewayState::Dormant, true) => {
                 // Nothing to interrupt; spawn right away.
                 self.apply_enable();
-            }
-            (GatewayState::PendingDisable, false) => {
-                // Already parked; the boundary will handle it.
             }
             (GatewayState::PendingDisable, true) => {
                 // The pending disable is cancelled by re-enabling.
@@ -299,8 +324,7 @@ impl GatewaySupervisor {
     pub fn connection(&self) -> ConnectionState {
         self.slices
             .reader::<ConnectionState>(&discord_connection_slot())
-            .map(|cell| cell.read().clone())
-            .unwrap_or_default()
+            .map_or_default(|cell| cell.read().clone())
     }
 
     /// The state machine's current position — what the dashboard row

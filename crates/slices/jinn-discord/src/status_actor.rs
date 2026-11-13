@@ -36,8 +36,7 @@ pub use jinn_discord_msg::{ConnectionState, discord_connection_slot};
 #[must_use]
 pub fn to_service_update(update: &DiscordStatusUpdate) -> ServiceStatusUpdate {
     let (note_tone, with_description) = match update {
-        DiscordStatusUpdate::Connecting => (None, true),
-        DiscordStatusUpdate::Connected => (None, true),
+        DiscordStatusUpdate::Connecting | DiscordStatusUpdate::Connected => (None, true),
         DiscordStatusUpdate::Error { .. } => (Some(NoteTone::Error), true),
         DiscordStatusUpdate::Disconnected => (None, false),
     };
@@ -117,6 +116,10 @@ impl DiscordStatusActor {
 }
 
 impl ServiceActor for DiscordStatusActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "ServiceActor::init is async by trait contract; this impl never awaits"
+    )]
     async fn init(
         _args: &trouper::json::Json,
     ) -> Result<Self, error_stack::Report<trouper::registry::RegistryError>> {
@@ -255,6 +258,10 @@ mod tests {
     }
 
     impl trouper::actor::ServiceActor for TopicProbe {
+        #[expect(
+            clippy::unused_async_trait_impl,
+            reason = "ServiceActor::init is async by trait contract; this test probe never awaits"
+        )]
         async fn init(
             _args: &trouper::json::Json,
         ) -> Result<Self, error_stack::Report<trouper::registry::RegistryError>> {
@@ -278,6 +285,8 @@ mod tests {
     #[rstest::rstest]
     #[tokio::test]
     async fn drained_update_folds_cell_and_publishes_topic_event() {
+        use jinn_kernel::common::bus::HarnessServices;
+
         // Given a slices registry with the connection cell, a spawned
         // status actor, and a topic probe subscribed to jinn.discord.
         let slices = Slices::new();
@@ -290,7 +299,6 @@ mod tests {
                 },
             )
             .expect("fresh registry");
-        use jinn_kernel::common::bus::HarnessServices;
         let harness = jinn_testutil::bus_harness::TestHarness::new().await;
         let services = harness.services().await;
         let (tx, rx) = kanal::bounded::<DiscordStatusUpdate>(8);

@@ -82,7 +82,8 @@ where
     // A tilde value resolves against home and never needs the cwd.
     if let Some(expanded) = tilde_expansion(raw, home) {
         return expanded
-            .map_err(|_| CliPathError)
+            .map_err(error_stack::Report::from)
+            .change_context(CliPathError)
             .attach_with(|| format!("{flag} tilde value `{}` is unusable", raw.display()))
             .map(|typed| typed.normalize_lexical());
     }
@@ -91,7 +92,8 @@ where
     // (`.`/`..` included) are preserved, and the cwd is never consulted.
     if raw.is_absolute() {
         return MarkedPathBuf::<Absolute>::new(raw.to_owned())
-            .map_err(|_| CliPathError)
+            .map_err(error_stack::Report::from)
+            .change_context(CliPathError)
             .attach_with(|| format!("{flag} value `{}` is not absolute", raw.display()));
     }
 
@@ -107,7 +109,8 @@ where
         })?
         .join(raw);
     MarkedPathBuf::<Absolute>::new(joined)
-        .map_err(|_| CliPathError)
+        .map_err(error_stack::Report::from)
+        .change_context(CliPathError)
         .attach_with(|| format!("{flag} value `{}` is not absolute", raw.display()))
         .map(|typed| typed.normalize_lexical())
 }

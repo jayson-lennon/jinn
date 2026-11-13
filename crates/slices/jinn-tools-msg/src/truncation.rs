@@ -193,10 +193,7 @@ pub fn truncate_tail(content: &str, max_lines: usize, max_bytes: usize) -> Trunc
             format!(
                 "{}\n{}",
                 partial,
-                output_lines_arr
-                    .get(1..)
-                    .map(|s| s.join("\n"))
-                    .unwrap_or_default()
+                output_lines_arr.get(1..).map_or_default(|s| s.join("\n"))
             )
         } else {
             partial

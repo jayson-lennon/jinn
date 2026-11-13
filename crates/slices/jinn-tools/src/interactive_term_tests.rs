@@ -49,7 +49,7 @@ fn ctx_with(
         turn: crate::tool_types::test_turn(),
         cwd: cwd.clone(),
         config: jinn_config::testutil::config_layer(""),
-        shells: Default::default(),
+        shells: jinn_common::shell::ShellsService::default(),
         timeout: None,
         state: None,
         session_id,

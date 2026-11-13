@@ -390,6 +390,10 @@ mod tests {
         note: &str,
     ) -> ratatui::style::Color {
         let buf = terminal.backend().buffer();
+        #[expect(
+            clippy::panic,
+            reason = "test helper: a note no row carries is a fixture bug, panic is the failure channel"
+        )]
         let (y, text) = (1..buf.area.height)
             .map(|y| (y, row_text(terminal, y)))
             .find(|(_, text)| text.contains(note))
@@ -602,6 +606,10 @@ mod tests {
         slice.mark_running("healthy", None);
         slice.select_last();
         let theme = default_theme();
+        #[expect(
+            clippy::unreachable,
+            reason = "each #[case] names one of the three tokens above; the arm is a guard for a future case typo"
+        )]
         let expected = match token {
             "muted_text" => theme.muted_text,
             "warning" => theme.warning,
@@ -1240,10 +1248,16 @@ mod layout_tests {
         let row = (0..WIDTH + 4)
             .map(|x| buf[(x, 3)].symbol())
             .collect::<String>();
-        assert!(
-            row[usize::from(area.x + NAME_X)..].contains(long),
-            "the name starts at the column, not the area edge: {row}"
-        );
+        let name_column = usize::from(area.x + NAME_X);
+        {
+            let (_, after_name_column) = row
+                .split_at_checked(name_column)
+                .expect("the row is WIDTH+4 wide and the name column sits inside it");
+            assert!(
+                after_name_column.contains(long),
+                "the name starts at the column, not the area edge: {row}"
+            );
+        }
     }
 
     #[rstest::rstest]
@@ -1271,6 +1285,8 @@ mod layout_tests {
         // Then the name begins past the highlight symbol, state, and gap.
         assert_eq!(NAME_X, HIGHLIGHT + STATE_COL + COLUMN_SPACING);
         // And it starts on screen in a normal-width terminal.
-        const _: () = assert!(NAME_X < 80, "the name column fits a normal terminal");
+        const {
+            assert!(NAME_X < 80, "the name column fits a normal terminal");
+        }
     }
 }

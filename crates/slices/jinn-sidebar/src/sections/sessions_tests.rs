@@ -8,9 +8,11 @@
 )]
 
 use crate::sections::section_trait::{EnterFrom, SectionNavResult, SidebarIntent, SidebarSection};
+use crate::sections::sessions::receive_cursor;
+use crate::sections::sessions::state::sorted_open_sessions;
 use crate::sections::sessions::{
     SessionCloseError, SessionsSection, handle_session_activate, handle_session_close_arm,
-    navigate, receive_cursor, sorted_open_sessions, validate_session_close,
+    navigate, validate_session_close,
 };
 use crate::sections::testing::{state_with_message_sessions, state_with_session_ids};
 use jinn_kernel::common::app_state::AppState;
@@ -21,13 +23,13 @@ use ratatui::style::Color;
 
 /// Helper: get a session title from the live session map via a tree entry.
 fn complete_removed_session(state: &mut AppState, removed_id: &jinn_core_types::SessionId) {
-    complete_removed_session_from(state, removed_id, false)
+    complete_removed_session_from(state, removed_id, false);
 }
 
 /// As [`complete_removed_session`], for the case where the removed session was
 /// the one the user was reading.
 fn complete_active_session(state: &mut AppState, removed_id: &jinn_core_types::SessionId) {
-    complete_removed_session_from(state, removed_id, true)
+    complete_removed_session_from(state, removed_id, true);
 }
 
 fn complete_removed_session_from(
@@ -38,7 +40,7 @@ fn complete_removed_session_from(
     let removed_parent = state
         .session
         .get(removed_id)
-        .and_then(|session| session.parent_session().as_ref().cloned());
+        .and_then(|session| session.parent_session().clone());
     crate::sections::sessions::update_visual_parents_on_removal(state, removed_id);
     // Recorded the way the pre-render pass does, before the row is gone.
     crate::sections::capture_rows::capture_sessions_cursor_row(state);
@@ -56,17 +58,12 @@ fn entry_title(state: &AppState, id: &jinn_core_types::SessionId) -> String {
     state
         .session
         .get(id)
-        .map(|s| s.title().unwrap_or("Untitled Session").to_owned())
-        .unwrap_or_default()
+        .map_or_default(|s| s.title().unwrap_or("Untitled Session").to_owned())
 }
 
 /// Helper: get a session's created_at from the live session map.
 fn entry_created_at(state: &AppState, id: &jinn_core_types::SessionId) -> jiff::Timestamp {
-    state
-        .session
-        .get(id)
-        .map(|s| *s.created_at())
-        .unwrap_or_default()
+    state.session.get(id).map_or_default(|s| *s.created_at())
 }
 
 /// Helper: check if the session's last entry is an error.
@@ -451,18 +448,15 @@ fn sorted_sessions_orders_by_created_at_descending() {
     let a = state
         .session
         .get(&sessions[0].id)
-        .map(|s| *s.created_at())
-        .unwrap_or_default();
+        .map_or_default(|s| *s.created_at());
     let b = state
         .session
         .get(&sessions[1].id)
-        .map(|s| *s.created_at())
-        .unwrap_or_default();
+        .map_or_default(|s| *s.created_at());
     let c = state
         .session
         .get(&sessions[2].id)
-        .map(|s| *s.created_at())
-        .unwrap_or_default();
+        .map_or_default(|s| *s.created_at());
     assert!(a >= b);
     assert!(b >= c);
 }
@@ -1035,7 +1029,7 @@ fn teardown_only_is_noop_without_lifecycle_teardown() {
     let result = super::sessions::handle_session_teardown(&mut state, &config);
 
     // Then no commands are emitted (no teardown command to run).
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1063,7 +1057,7 @@ fn teardown_only_is_noop_when_session_busy() {
     let result = super::sessions::handle_session_teardown(&mut state, &config);
 
     // Then no commands are emitted (validation gates on busy state).
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1740,11 +1734,11 @@ fn archiving_root_does_not_create_visual_parents_for_orphaned_children() {
         .iter()
         .position(|s| entry_title(&state, &s.id).contains("root a"))
         .expect("root a");
-    let _root_a_id = sessions[root_a_index].id.clone();
+    let root_a_id = sessions[root_a_index].id.clone();
     cursor_to_row(&mut state, root_a_index);
 
     // When closing root_a (no loaded ancestor to reparent to).
-    complete_removed_session(&mut state, &_root_a_id);
+    complete_removed_session(&mut state, &root_a_id);
 
     // Then the visual_parents index should be empty (root has no loaded ancestor).
     assert!(
@@ -2415,7 +2409,7 @@ fn archive_tree_arm_sets_confirm_prompt_with_subtree_count() {
         })
     );
     // And no commands were emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -2444,7 +2438,7 @@ fn archive_tree_arm_sets_busy_prompt_when_subtree_busy() {
         Some(ArchiveTreePrompt::Busy)
     );
     // And no commands were emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -2567,7 +2561,7 @@ fn archive_tree_invalid_context_leaves_no_prompt() {
 
     // Then no prompt is armed and no commands are emitted.
     assert_eq!(state.frontend.archive_tree_prompt, None);
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -2594,7 +2588,7 @@ fn teardown_tree_arm_sets_confirm_prompt_with_action() {
         })
     );
     // And no commands were emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -2623,7 +2617,7 @@ fn teardown_tree_arm_sets_busy_prompt_when_subtree_busy() {
         Some(ArchiveTreePrompt::Busy)
     );
     // And no commands were emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -4066,7 +4060,7 @@ mod navigation_preview_requests {
 
         // Then the sidebar is told the section is exhausted, with nothing to publish.
         assert_eq!(result, SectionNavResult::Exhausted);
-        assert!(emitted.message_names.is_empty());
+        assert_eq!(emitted.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -4364,7 +4358,10 @@ fn remove_from_library_restores_sessions_row() {
     if let Some(session) = state.session.get_mut(&ids[0]) {
         session.set_in_library(true);
     }
-    assert!(sorted_open_sessions(&state).is_empty());
+    assert_eq!(
+        sorted_open_sessions(&state),
+        [] as [jinn_sidebar_msg::SessionEntry; 0]
+    );
 
     // When the library flag is cleared.
     if let Some(session) = state.session.get_mut(&ids[0]) {

@@ -126,69 +126,50 @@ pub async fn run(
     // The supervisor's stop signal, cloned per consumer: the loops
     // spawned inside setup take one, the run select below another.
     let stop_for_loops = std::sync::Arc::clone(&stop_signal);
-    let framework = poise::Framework::builder()
-        .options(poise::FrameworkOptions {
-            commands: vec![
-                commands::new(),
-                commands::prompts(),
-                commands::teardown(),
-                commands::archive(),
-            ],
-            // Plain-message handler: route an inbound Discord message to the
-            // jinn session bound to its thread (resuming/un-archiving first),
-            // then enqueue or steer depending on the current phase.
-            event_handler: |ctx, event, _framework, data| Box::pin(on_event(ctx, event, data)),
-            on_error: |error| {
-                Box::pin(async move {
-                    tracing::error!(?error, "poise framework error");
-                })
-            },
-            ..Default::default()
-        })
-        .setup(move |ctx, _ready, framework| {
-            let data = data.clone();
-            Box::pin(async move {
-                // Spawn the bridge-event drain loop. It owns its own BotData clone
-                // plus the poise http handle so it can post replies back to Discord
-                // without touching the command path.
-                let http = ctx.http.clone();
-                let status_tx = status_tx.clone();
-                let drain_data = drain_data.clone();
-                tokio::spawn(drain_loop(
-                    drain_data,
-                    http.clone(),
-                    rx,
-                    std::sync::Arc::clone(&stop_for_loops),
-                ));
-                // Drain the request channel: domain → gateway do-something
-                // requests (currently only CreateThreadForSession). The loop
-                // creates the Discord thread, records the mapping, and reports
-                // the result back onto the bus.
-                tokio::spawn(request_loop(
-                    data.clone(),
-                    http.clone(),
-                    gw_rx,
-                    std::sync::Arc::clone(&stop_for_loops),
-                ));
-
-                // The bot is online — the setup callback fires after the
-                // gateway's `ready` event, so this is the right place to
-                // signal that the connection succeeded.
-                let _ = status_tx.send(DiscordStatusUpdate::Connected);
-
-                // Register slash commands so /new is reachable in the client.
-                let commands = &framework.options().commands;
-                let register_result = match guild_id {
-                    Some(gid) => poise::builtins::register_in_guild(&http, commands, gid).await,
-                    None => poise::builtins::register_globally(&http, commands).await,
-                };
-                if let Err(e) = register_result {
-                    tracing::warn!(error = ?e, "failed to register slash commands");
-                }
-                Ok(data)
+    let framework = {
+        poise::Framework::builder()
+            .options(poise::FrameworkOptions {
+                commands: vec![
+                    commands::new(),
+                    commands::prompts(),
+                    commands::teardown(),
+                    commands::archive(),
+                ],
+                // Plain-message handler: route an inbound Discord message to the
+                // jinn session bound to its thread (resuming/un-archiving first),
+                // then enqueue or steer depending on the current phase.
+                event_handler: |ctx, event, _framework, data| Box::pin(on_event(ctx, event, data)),
+                on_error: |error| {
+                    Box::pin(async move {
+                        tracing::error!(?error, "poise framework error");
+                    })
+                },
+                ..Default::default()
             })
-        })
-        .build();
+            .setup(move |ctx, _ready, framework| {
+                let data = data.clone();
+                let drain_data = drain_data.clone();
+                let status_tx = status_tx.clone();
+                Box::pin(async move {
+                    setup_ready(
+                        ctx.clone(),
+                        data,
+                        drain_data,
+                        guild_id,
+                        rx,
+                        gw_rx,
+                        stop_for_loops,
+                        status_tx,
+                        framework,
+                    )
+                    .await
+                    .map_err(|report| -> BotError {
+                        Box::new(std::io::Error::other(format!("{report}")))
+                    })
+                })
+            })
+            .build()
+    };
 
     let mut client = serenity::ClientBuilder::new(token, intents)
         .framework(framework)
@@ -225,6 +206,64 @@ pub async fn run(
         }
     };
     outcome
+}
+
+/// The poise setup callback's body: spawn the two background loops, signal
+/// `Connected`, and register slash commands.
+///
+/// Split out of [`run`] so the builder chain stays readable; poise requires
+/// the setup callback to return the framework's user data.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one flat parameter per channel/handle beats a struct that exists for one call site"
+)]
+async fn setup_ready(
+    ctx: serenity::Context,
+    data: BotData,
+    drain_data: BotData,
+    guild_id: Option<serenity::GuildId>,
+    rx: kanal::AsyncReceiver<BridgeEvent>,
+    gw_rx: kanal::AsyncReceiver<GatewayRequest>,
+    stop_for_loops: std::sync::Arc<tokio::sync::Notify>,
+    status_tx: kanal::Sender<DiscordStatusUpdate>,
+    framework: &poise::Framework<BotData, BotError>,
+) -> Result<BotData, Report<SpawnError>> {
+    // Spawn the bridge-event drain loop. It owns its own BotData clone
+    // plus the poise http handle so it can post replies back to Discord
+    // without touching the command path.
+    let http = ctx.http.clone();
+    tokio::spawn(drain_loop(
+        drain_data,
+        http.clone(),
+        rx,
+        std::sync::Arc::clone(&stop_for_loops),
+    ));
+    // Drain the request channel: domain → gateway do-something
+    // requests (currently only CreateThreadForSession). The loop
+    // creates the Discord thread, records the mapping, and reports
+    // the result back onto the bus.
+    tokio::spawn(request_loop(
+        data.clone(),
+        http.clone(),
+        gw_rx,
+        std::sync::Arc::clone(&stop_for_loops),
+    ));
+
+    // The bot is online — the setup callback fires after the
+    // gateway's `ready` event, so this is the right place to
+    // signal that the connection succeeded.
+    let _ = status_tx.send(DiscordStatusUpdate::Connected);
+
+    // Register slash commands so /new is reachable in the client.
+    let commands = &framework.options().commands;
+    let register_result = match guild_id {
+        Some(gid) => poise::builtins::register_in_guild(&http, commands, gid).await,
+        None => poise::builtins::register_globally(&http, commands).await,
+    };
+    if let Err(e) = register_result {
+        tracing::warn!(error = ?e, "failed to register slash commands");
+    }
+    Ok(data)
 }
 
 /// Consume [`GatewayRequest`]s from the bridge actor and execute them.
@@ -407,91 +446,7 @@ async fn drain_loop(
             received = rx.recv() => received,
         };
         match received {
-            Ok(event) => match event {
-                BridgeEvent::SetupCompleted {
-                    session_id,
-                    cwd,
-                    error,
-                } => match resolve_thread(&data, &session_id).await {
-                    Ok(Some(channel_id)) => {
-                        let msg = match &error {
-                            Some(e) => format!("❌ Setup failed: {e}"),
-                            None => format!("✅ Setup complete ({cwd})"),
-                        };
-                        if let Err(e) = post_message(&http, channel_id, &msg).await {
-                            tracing::warn!(error = ?e, "failed to post setup result");
-                        }
-                    }
-                    Ok(None) => {
-                        tracing::debug!(%session_id, "no thread bound to session; dropping setup result");
-                    }
-                    Err(e) => tracing::warn!(error = %e, "thread lookup failed for setup result"),
-                },
-                BridgeEvent::TurnFinished { session_id } => {
-                    match resolve_thread(&data, &session_id).await {
-                        Ok(Some(channel_id)) => {
-                            let reply = read_reply(&data, &session_id);
-                            tracing::info!(
-                                %session_id,
-                                reply_found = reply.is_some(),
-                                "drain: TurnFinished"
-                            );
-                            match reply {
-                                Some(reply) => {
-                                    if let Err(e) = post_reply(&http, channel_id, &reply).await {
-                                        tracing::warn!(error = ?e, "failed to post final reply");
-                                    }
-                                }
-                                None => {
-                                    tracing::debug!(%session_id, "turn finished but no final reply found");
-                                }
-                            }
-                        }
-                        Ok(None) => {
-                            tracing::info!(%session_id, reply_found = false, "drain: TurnFinished (no thread bound)");
-                            tracing::debug!(%session_id, "no thread bound to session; dropping reply");
-                        }
-                        Err(e) => {
-                            tracing::info!(%session_id, reply_found = false, "drain: TurnFinished (thread lookup failed)");
-                            tracing::warn!(error = %e, "thread lookup failed for final reply");
-                        }
-                    }
-                }
-                BridgeEvent::TeardownFinished { session_id, error } => {
-                    match resolve_thread(&data, &session_id).await {
-                        Ok(Some(channel_id)) => {
-                            let msg = match &error {
-                                Some(e) => format!("❌ Teardown failed: {e}"),
-                                None => "✅ Teardown complete".to_owned(),
-                            };
-                            if let Err(e) = post_message(&http, channel_id, &msg).await {
-                                tracing::warn!(error = ?e, "failed to post teardown result");
-                            }
-                        }
-                        Ok(None) => {
-                            tracing::debug!(%session_id, "no thread bound to session; dropping teardown result");
-                        }
-                        Err(e) => {
-                            tracing::warn!(error = %e, "thread lookup failed for teardown result");
-                        }
-                    }
-                }
-                BridgeEvent::Archived { session_id } => {
-                    match resolve_thread(&data, &session_id).await {
-                        Ok(Some(channel_id)) => {
-                            if let Err(e) = post_message(&http, channel_id, "✅ Archived").await {
-                                tracing::warn!(error = ?e, "failed to post archive result");
-                            }
-                        }
-                        Ok(None) => {
-                            tracing::debug!(%session_id, "no thread bound to session; dropping archive result");
-                        }
-                        Err(e) => {
-                            tracing::warn!(error = %e, "thread lookup failed for archive result");
-                        }
-                    }
-                }
-            },
+            Ok(event) => handle_bridge_event(&data, &http, event).await,
             Err(_) => {
                 tracing::debug!("discord bridge channel closed; drain loop exiting");
                 break;
@@ -499,6 +454,93 @@ async fn drain_loop(
         }
     }
     tracing::info!("discord bridge-event drain loop exiting");
+}
+
+/// Handles one bridge event: resolve the session's Discord thread and post
+/// the event's message to it. Unbound sessions drop the message quietly —
+/// the mapping is the only record that a thread ever existed.
+async fn handle_bridge_event(data: &BotData, http: &Arc<serenity::Http>, event: BridgeEvent) {
+    match event {
+        BridgeEvent::SetupCompleted {
+            session_id,
+            cwd,
+            error,
+        } => match resolve_thread(data, &session_id).await {
+            Ok(Some(channel_id)) => {
+                let msg = match &error {
+                    Some(e) => format!("❌ Setup failed: {e}"),
+                    None => format!("✅ Setup complete ({cwd})"),
+                };
+                if let Err(e) = post_message(http, channel_id, &msg).await {
+                    tracing::warn!(error = ?e, "failed to post setup result");
+                }
+            }
+            Ok(None) => {
+                tracing::debug!(%session_id, "no thread bound to session; dropping setup result");
+            }
+            Err(e) => tracing::warn!(error = %e, "thread lookup failed for setup result"),
+        },
+        BridgeEvent::TurnFinished { session_id } => match resolve_thread(data, &session_id).await {
+            Ok(Some(channel_id)) => {
+                let reply = read_reply(data, &session_id);
+                tracing::info!(
+                    %session_id,
+                    reply_found = reply.is_some(),
+                    "drain: TurnFinished"
+                );
+                match reply {
+                    Some(reply) => {
+                        if let Err(e) = post_reply(http, channel_id, &reply).await {
+                            tracing::warn!(error = ?e, "failed to post final reply");
+                        }
+                    }
+                    None => {
+                        tracing::debug!(%session_id, "turn finished but no final reply found");
+                    }
+                }
+            }
+            Ok(None) => {
+                tracing::info!(%session_id, reply_found = false, "drain: TurnFinished (no thread bound)");
+                tracing::debug!(%session_id, "no thread bound to session; dropping reply");
+            }
+            Err(e) => {
+                tracing::info!(%session_id, reply_found = false, "drain: TurnFinished (thread lookup failed)");
+                tracing::warn!(error = %e, "thread lookup failed for final reply");
+            }
+        },
+        BridgeEvent::TeardownFinished { session_id, error } => {
+            match resolve_thread(data, &session_id).await {
+                Ok(Some(channel_id)) => {
+                    let msg = match &error {
+                        Some(e) => format!("❌ Teardown failed: {e}"),
+                        None => "✅ Teardown complete".to_owned(),
+                    };
+                    if let Err(e) = post_message(http, channel_id, &msg).await {
+                        tracing::warn!(error = ?e, "failed to post teardown result");
+                    }
+                }
+                Ok(None) => {
+                    tracing::debug!(%session_id, "no thread bound to session; dropping teardown result");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "thread lookup failed for teardown result");
+                }
+            }
+        }
+        BridgeEvent::Archived { session_id } => match resolve_thread(data, &session_id).await {
+            Ok(Some(channel_id)) => {
+                if let Err(e) = post_message(http, channel_id, "✅ Archived").await {
+                    tracing::warn!(error = ?e, "failed to post archive result");
+                }
+            }
+            Ok(None) => {
+                tracing::debug!(%session_id, "no thread bound to session; dropping archive result");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "thread lookup failed for archive result");
+            }
+        },
+    }
 }
 
 /// Read the final assistant/error reply for a session from shared state.

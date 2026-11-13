@@ -267,7 +267,7 @@ fn parse_status(
         .ok_or_else(|| {
             TaskPayloadError::UnknownStatus {
                 label: label.to_owned(),
-                key: key.to_owned(),
+                key: key.clone(),
             }
             .into()
         })
@@ -508,7 +508,10 @@ mod tests {
         let phase = parse_phase_body(&payload, "phase").expect("parses");
 
         // Then the phase holds no tasks rather than erroring.
-        assert!(phase.tasks.is_empty());
+        assert_eq!(
+            phase.tasks,
+            [] as [(std::string::String, jinn_tools_msg::TaskStatus); 0]
+        );
     }
 
     #[rstest::rstest]

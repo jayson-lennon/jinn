@@ -11,8 +11,6 @@ jinn-chat-log-view = { workspace = true }
 jinn-chat-log-view-msg = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
 jinn-persona-msg = { workspace = true }
-# Opens the persona picker when the sidebar's persona section is active.
-jinn-persona = { workspace = true }
 jinn-sidebar-msg = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-session-history-msg = { workspace = true }
@@ -53,9 +51,10 @@ throbber-widgets-tui = { workspace = true }
 unicode-segmentation = { workspace = true }
 jiff = { workspace = true }
 unicode-width = { workspace = true }
-rstest = { workspace = true }
 
 [dev-dependencies]
+# The section tests stack `#[rstest::rstest]` per the test discipline.
+rstest = { workspace = true }
 async-trait = { workspace = true }
 # The preview tests build typed cwd fixtures and format paths for assertions.
 marked-path = { workspace = true }

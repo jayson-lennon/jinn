@@ -151,7 +151,8 @@ fn format_exit_result(
             .ok()
             .and_then(std::process::ExitStatus::code)
             .map_or_else(|| "unknown (signal)".to_owned(), |code| code.to_string());
-        content.push_str(&format!("Command exited with code {code}"));
+        content.push_str("Command exited with code ");
+        content.push_str(&code);
     }
 
     let truncation_result = truncate_tail(&content, max_lines, max_bytes);

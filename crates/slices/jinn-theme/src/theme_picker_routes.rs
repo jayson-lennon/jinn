@@ -269,8 +269,7 @@ fn open_theme_picker(ctx: &mut ActionCtx<'_>, cell: &ThemePickerCell) -> IntentR
     };
     let scanned = slices
         .reader::<jinn_theme_msg::ThemeEntries>(&theme_entries_slot())
-        .map(|themes| themes.read().entries.clone())
-        .unwrap_or_default();
+        .map_or_default(|themes| themes.read().entries.clone());
     let theme = state.frontend.theme.clone();
     let persisted = state.frontend.app_state.theme_name.clone();
 

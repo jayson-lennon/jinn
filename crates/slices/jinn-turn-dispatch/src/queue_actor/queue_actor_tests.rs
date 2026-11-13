@@ -1359,14 +1359,12 @@ async fn services_pinning(model: &str, tag: Option<&str>) -> Services {
         )]),
         aliases: vec![],
         default_provider: None,
-        endpoint_defaults: tag
-            .map(|tag| {
-                vec![jinn_kernel::EndpointDefault {
-                    model: model.to_owned(),
-                    tag: tag.to_owned(),
-                }]
-            })
-            .unwrap_or_default(),
+        endpoint_defaults: tag.map_or_default(|tag| {
+            vec![jinn_kernel::EndpointDefault {
+                model: model.to_owned(),
+                tag: tag.to_owned(),
+            }]
+        }),
     };
     let (bus, _audit) = jinn_kernel::BusService::new_recording();
     let services = Services::new_fake_with_bus(bus).await;

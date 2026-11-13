@@ -99,7 +99,7 @@ mod tests {
             FocusScope::Dynamic(SidebarSectionId::resize_scope_id())
         );
         // And no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -162,7 +162,7 @@ mod tests {
         // Then sidebar_width stays at minimum.
         assert_eq!(state.frontend.sidebar_width, MIN_SIDEBAR_WIDTH);
         // And no commands are emitted (no change).
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -179,7 +179,7 @@ mod tests {
         // Then scope is back to Normal.
         assert!(matches!(state.frontend.scope(), FocusScope::Normal));
         // And no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]

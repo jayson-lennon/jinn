@@ -15,6 +15,11 @@
 
 //! Tests for the inspector's live tool projection.
 
+#![allow(
+    clippy::indexing_slicing,
+    reason = "test code: fixture vectors with known lengths"
+)]
+
 #[rstest::rstest]
 #[test]
 fn tools_for_collects_only_the_named_servers_tools() {
@@ -46,7 +51,7 @@ fn tools_for_returns_empty_when_no_definition_matches() {
     let tools = super::mcp_picker_actions::tools_for("ghost", &definitions);
 
     // Then no tools are collected.
-    assert!(tools.is_empty());
+    assert_eq!(tools, [] as [(std::string::String, std::string::String); 0]);
 }
 
 /// A minimal tool definition the projection tests only need a shape for.

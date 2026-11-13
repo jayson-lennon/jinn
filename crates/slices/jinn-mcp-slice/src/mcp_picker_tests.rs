@@ -29,7 +29,7 @@ use std::collections::BTreeSet;
 use jinn_mcp_msg::{McpPickerState, McpPreviewMode, mcp_picker_scope, mcp_picker_slot};
 use jinn_slices::cell::TypedCell;
 use jinn_slices::route::{EditIntent, RouteOutcome, ScopeSignal};
-use jinn_slices::{KeyRoutes, SliceHost, SliceScopeId, Slices};
+use jinn_slices::{KeyRoutes, SliceHost, Slices};
 
 /// The inspector wired exactly as composition wires it.
 struct Wired {
@@ -88,12 +88,13 @@ impl Wired {
     fn with_servers(&self, servers: &[(&str, bool)]) -> &Self {
         // The catalog lives in the configuration layer's `[mcp]` section, so a
         // test that wants rows there has to seed the layer.
-        let document: String = servers
+        let document = servers
             .iter()
             .map(|(name, _)| {
                 format!("[mcp.{name}]\ncommand = \"npx\"\nargs = [\"@scope/{name}\"]\n")
             })
-            .collect();
+            .collect::<Vec<_>>()
+            .concat();
         self.config
             .replace(jinn_config::testutil::config_layer(&document));
         {
@@ -602,7 +603,7 @@ async fn backspace_restores_the_rows_the_filter_hid() {
     }
 
     // Then every row is visible again.
-    assert!(wired.filter().is_empty());
+    assert_eq!(wired.filter(), "");
     assert_eq!(wired.names().len(), 3);
 }
 
@@ -618,7 +619,7 @@ async fn ctrl_c_clears_the_filter_without_closing() {
     let result = wired.fire("clear-filter-or-leave-mcp-picker");
 
     // Then the filter is empty and the inspector stays open.
-    assert!(wired.filter().is_empty());
+    assert_eq!(wired.filter(), "");
     assert_eq!(result.scope_signal, None);
 }
 
@@ -685,7 +686,6 @@ async fn ctrl_r_does_not_close_the_inspector() {
 #[case::enter("<enter>")]
 #[case::esc("<esc>")]
 #[tokio::test]
-#[allow(clippy::needless_pass_by_value, reason = "rstest injects the case")]
 async fn every_advertised_key_resolves_to_a_slice_action(#[case] key: &str) {
     // Given the wired inspector.
     let wired = Wired::new().await;
@@ -854,7 +854,7 @@ async fn a_render_shows_the_enabled_count_in_the_status_line() {
 #[tokio::test]
 async fn the_inspector_scope_is_namespaced_by_its_slice() {
     // Given the inspector's scope.
-    let scope: SliceScopeId = mcp_picker_scope();
+    let scope = mcp_picker_scope();
 
     // When naming it.
     let name = scope.to_string();

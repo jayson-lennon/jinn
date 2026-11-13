@@ -5,9 +5,7 @@ edition.workspace = true
 
 [dependencies]
 jinn-core-types = { workspace = true }
-jinn-slices = { workspace = true }
 serde = { workspace = true }
-trouper = { workspace = true }
 
 [dev-dependencies]
 jinn-session-state = { workspace = true }

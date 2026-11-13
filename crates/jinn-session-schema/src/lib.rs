@@ -118,6 +118,10 @@ pub fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), Report<Sche
 ///
 /// Returns an error if the check cannot run or reports violations.
 #[cfg(debug_assertions)]
+#[expect(
+    clippy::print_stderr,
+    reason = "pre-TUI user-facing announcement: migrations run before any tracing subscriber exists"
+)]
 fn debug_fk_check(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     eprintln!("{}", debug_fk_check_line());
     let mut stmt = conn

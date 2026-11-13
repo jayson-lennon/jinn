@@ -74,7 +74,7 @@ impl SessionInitSupervisor {
     /// Panics if the topic subscription fails, which can only happen on
     /// a broken actor system; the activate-before-first-trigger
     /// ordering relies on the cursor being registered.
-    pub fn spawn(system: &ActorSystem, state: State) -> ActorPath {
+    pub fn spawn(system: &ActorSystem, state: &State) -> ActorPath {
         trouper::builder::spawn_service_builder::<Self>(system)
             .at(ActorPath::new(crate::SUPERVISOR_PATH))
             .init_with({
@@ -161,6 +161,10 @@ impl MsgHandler<SessionSetupCompleted> for SessionInitSupervisor {
 }
 
 impl MsgHandler<SessionLoadCompleted> for SessionInitSupervisor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "trait contract: the handler is sync in body (state read + gated_run)"
+    )]
     async fn handle(&mut self, msg: &SessionLoadCompleted, ctx: &mut MsgCtx<'_>) {
         let cwd = self
             .state
@@ -186,6 +190,10 @@ impl MsgHandler<SessionCwdChanged> for SessionInitSupervisor {
 // the same full scan a session's own triggers run, keyed per session,
 // so an in-flight scan for one session never blocks another's.
 impl MsgHandler<ResourcesChanged> for SessionInitSupervisor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "trait contract: the handler is sync in body (state read + gated_run loop)"
+    )]
     async fn handle(&mut self, _msg: &ResourcesChanged, ctx: &mut MsgCtx<'_>) {
         let sessions: Vec<(SessionId, MarkedPathBuf<Absolute>)> = {
             let state = self.state.read();

@@ -101,7 +101,7 @@ fn sidebar_persona_edit_requests_the_persona_picker_scope_when_persona_focused()
     );
     assert!(!state.frontend.is_picker());
     // And no loader command is needed: the picker seeds itself from the slice.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -121,7 +121,7 @@ fn sidebar_persona_edit_noop_when_pins_focused() {
     // Then nothing changed.
     assert!(!state.frontend.is_picker());
     assert!(result.scope_signal.is_none());
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -150,7 +150,7 @@ fn pins_unpin_noop_when_empty() {
     let result = handle_pins_unpin(&mut state);
 
     // Then no commands.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -240,7 +240,7 @@ fn pins_pin_cycle_noop_when_empty() {
     let result = handle_pins_pin_cycle(&mut state);
 
     // Then no commands.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -259,7 +259,7 @@ fn pins_pin_top_noop_when_no_selection() {
     let result = handle_pins_pin(&mut state, PinPosition::Top);
 
     // Then no commands.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]

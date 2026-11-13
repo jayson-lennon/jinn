@@ -448,7 +448,8 @@ mod preview_load_tests {
                 |entry| entry.timing.finished_at().is_none(),
                 |entry| {
                     if let jinn_core_types::ChatEntryKind::Assistant(text) = &mut entry.kind {
-                        text.push_str(&format!(" token{index}"));
+                        use std::fmt::Write as _;
+                        let _ = write!(text, " token{index}");
                     }
                 },
             )

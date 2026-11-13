@@ -144,10 +144,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
         let raw_content = match tokio::fs::read_to_string(&resolved).await {
             Ok(c) => c,
             Err(e) => {
-                return unprefixed_failure(
-                    &call,
-                    format!("failed to read file '{}': {e}", resolved),
-                );
+                return unprefixed_failure(&call, format!("failed to read file '{resolved}': {e}"));
             }
         };
 
@@ -367,7 +364,7 @@ mod tests {
             turn: crate::tool_types::test_turn(),
             cwd: cwd.clone(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -392,7 +389,7 @@ mod tests {
             turn: crate::tool_types::test_turn(),
             cwd,
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state: None,
             session_id: None,

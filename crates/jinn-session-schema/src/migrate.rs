@@ -146,8 +146,14 @@ fn chain_has_pending_in(lower_exclusive: i32, upper_exclusive: i32) -> bool {
 
 /// The chain's entry for `version`.
 ///
+/// # Panics
+///
 /// Panics if the chain has no such entry — a programmer error the
 /// drift-guard tests catch long before any startup.
+#[expect(
+    clippy::panic,
+    reason = "the version is a chain-member constant; a miss is a programmer error the drift-guard tests catch"
+)]
 fn chain_migration(version: i32) -> &'static Migration {
     MIGRATIONS
         .iter()
@@ -198,7 +204,7 @@ fn run_in_transaction(
 pub struct Migration {
     pub version: i32,
     pub name: &'static str,
-    apply: fn(&mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>>,
+    pub apply: fn(&mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>>,
 }
 
 /// The full migration chain, in application order.
@@ -416,8 +422,11 @@ fn apply_migration_range(
 ///
 /// Migrations apply before the TUI launches (terminal still in normal mode),
 /// so plain stderr is visible to the user; this explains an upgrade launch's
-/// startup wait. The tracing log file gets the same event at debug level via
-/// the `tracing` lines this replaces' neighbors (kept in `run_pending`).
+/// startup wait.
+#[expect(
+    clippy::print_stderr,
+    reason = "pre-TUI user-facing announcement: migrations run before any tracing subscriber exists"
+)]
 fn announce_migration(version: i32, name: &str) {
     eprintln!("{}", announcement_line(version, name));
 }
@@ -429,6 +438,10 @@ pub fn announcement_line(version: i32, name: &str) -> String {
 
 /// Wraps the infallible legacy `migrate_v6` so it fits the chain's
 /// Report-bearing signature. It cannot fail, so the error arm is unreachable.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the signature must match every other chain entry's Result-bearing apply"
+)]
 fn migrate_v6_step(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     migrate_v6(conn);
     Ok(())
@@ -441,6 +454,10 @@ fn migrate_v6_step(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
 /// This is the only place `IF NOT EXISTS` is used - the tracking table must
 /// bootstrap itself before version checking can begin. All other migrations
 /// use strict DDL so failures are loud.
+///
+/// # Errors
+///
+/// Returns an error if the tracking table cannot be created.
 pub fn bootstrap_tracking_table(
     conn: &mut rusqlite::Connection,
 ) -> Result<(), Report<SchemaMigrationError>> {
@@ -471,6 +488,10 @@ fn current_version(conn: &mut rusqlite::Connection) -> Result<i32, Report<Schema
 }
 
 /// Records a completed migration in the tracking table.
+///
+/// # Errors
+///
+/// Returns an error if the row cannot be inserted.
 pub fn record_version(
     conn: &mut rusqlite::Connection,
     version: i32,
@@ -652,6 +673,11 @@ pub fn migrate_v9(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMi
 /// and sets `profile.strategy` to `"compaction"` for all sessions.
 /// This prepares the database for the removal of other strategy types
 /// from the Rust codebase.
+///
+/// # Errors
+///
+/// Returns an error if the rows cannot be read or the rewritten JSON
+/// cannot be written back.
 pub fn migrate_v10(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     let rows = query_map_rows(
         conn,
@@ -850,6 +876,10 @@ pub fn migrate_v14(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
 /// Implemented via the SQLite-recommended 12-step table rebuild rather than
 /// `ALTER TABLE ... DROP COLUMN`, because the latter requires SQLite >= 3.35 and
 /// the linked (system) SQLite version is not pinned. The rebuild works on any version.
+///
+/// # Errors
+///
+/// Returns an error if any step of the table rebuild fails.
 pub fn migrate_v15(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     conn.execute_batch(
         "CREATE TABLE sessions_new (\
@@ -896,6 +926,12 @@ pub fn migrate_v15(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
     Ok(())
 }
 
+/// v16: Rebuild `sessions` with `is_automated` + `persist`, replacing
+/// `is_workflow`.
+///
+/// # Errors
+///
+/// Returns an error if any step of the table rebuild fails.
 pub fn migrate_v16(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     conn.execute_batch(
         "CREATE TABLE sessions_new (\
@@ -951,6 +987,11 @@ pub fn migrate_v16(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
 ///
 /// This enables the `ModelSelection` enum to deserialize correctly.
 /// Unparseable JSON is left unchanged.
+///
+/// # Errors
+///
+/// Returns an error if the rows cannot be read, the rewritten JSON cannot
+/// be written back, or the new column cannot be added.
 pub fn migrate_v17(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     let rows = query_map_rows(
         conn,
@@ -990,6 +1031,10 @@ pub fn migrate_v17(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
 /// The column now stores `EntryTiming` JSON (instant or streamed timing data)
 /// rather than a plain timestamp string. The rename aligns the column name
 /// with the Rust field it maps to.
+///
+/// # Errors
+///
+/// Returns an error if the column cannot be renamed.
 pub fn migrate_v18(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     conn.execute_batch("ALTER TABLE entries RENAME COLUMN timestamp TO timing")
         .change_context(SchemaMigrationError)
@@ -1008,6 +1053,11 @@ pub fn migrate_v18(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
 /// embedded `profile` sub-object and applies the same rewrite v17 applied
 /// to the column. Rows with `NULL` metadata (pre-v8 sessions) are skipped;
 /// their column data was already fixed by v17.
+///
+/// # Errors
+///
+/// Returns an error if the rows cannot be read or the rewritten blobs
+/// cannot be written back.
 pub fn migrate_v19(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     let rows = query_map_rows(
         conn,
@@ -1135,6 +1185,10 @@ fn rebuild_sessions_without_zombies(
 /// bot restarts (and auto-un-archive on inbound message). This table is
 /// owned entirely by the discord layer; its columns are independent of the
 /// session schema.
+///
+/// # Errors
+///
+/// Returns an error if the table cannot be created.
 pub fn migrate_v21(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     conn.execute_batch(
         "CREATE TABLE discord_thread (\
@@ -1156,6 +1210,10 @@ pub fn migrate_v21(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
 /// within its parent entry. The `entries.kind` JSON no longer needs to carry
 /// base64 image data, keeping the JSON column lean. Rows cascade with the
 /// parent entry via `ON DELETE CASCADE`.
+///
+/// # Errors
+///
+/// Returns an error if the table cannot be created.
 pub fn migrate_v22(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     conn.execute_batch(
         "CREATE TABLE entry_blobs (\
@@ -1197,6 +1255,12 @@ pub fn migrate_v22(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
 /// Runs under `PRAGMA foreign_keys=OFF` (the runner toggles it), so the
 /// `sessions.id` rewrite does not fire cascades on the child tables — they
 /// are updated explicitly below.
+///
+/// # Errors
+///
+/// Returns an error if any rewrite fails. The JSON blob rewrite is
+/// fault-tolerant by design: an unparseable blob is left unchanged, never
+/// an error.
 pub fn migrate_v23(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     // SQL columns — strip the prefix only where present.
     conn.execute_batch("UPDATE sessions SET id = substr(id, 3) WHERE substr(id, 1, 2) = 's-'")
@@ -1239,6 +1303,11 @@ pub fn migrate_v23(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
 /// local estimate `tokens_sent`) and `cached_tokens` (cache-hit count from
 /// `usage.prompt_tokens_details.cached_tokens`). Both nullable: pre-v24 rows
 /// and turns without provider usage (e.g. cancelled) load as `NULL`.
+///
+/// # Errors
+///
+/// Returns an error if a column cannot be added (a re-run's duplicate
+/// column is tolerated by design).
 pub fn migrate_v24(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     for col in ["prompt_tokens", "cached_tokens"] {
         let sql = format!("ALTER TABLE token_ledger ADD COLUMN {col} INTEGER");
@@ -1263,6 +1332,11 @@ pub fn migrate_v24(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
 /// stored so large sessions don't re-tokenize their whole history on every
 /// load. Nullable: pre-v25 rows load as `NULL` (= "not yet computed") and are
 /// filled lazily by the token count actor, then saved on the next persist.
+///
+/// # Errors
+///
+/// Returns an error if the column cannot be added (a re-run's duplicate
+/// column is tolerated by design).
 pub fn migrate_v25(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     let sql = "ALTER TABLE entries ADD COLUMN token_count INTEGER";
     // Idempotent: ignore "duplicate column" error if migration runs twice.
@@ -1307,6 +1381,11 @@ pub fn migrate_v25(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
 /// backfills the index lazily in the background — startup never blocks on
 /// parsing the full history. Row bodies are written by jinn-kernel (which owns
 /// the `ChatEntryKind` JSON schema); this migration only creates the objects.
+///
+/// # Errors
+///
+/// Returns an error if any of the three objects cannot be created or the
+/// dirty set cannot be seeded.
 pub fn migrate_v26(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     conn.execute_batch(
         "CREATE VIRTUAL TABLE session_fts USING fts5(\
@@ -1436,6 +1515,10 @@ pub fn migrate_v30(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
 /// without either parsing the blob per row or persisting the one bit it
 /// needs. `origin` is immutable after creation, so the column never drifts
 /// from the blob it projects.
+///
+/// # Errors
+///
+/// Returns an error if the column cannot be added.
 pub fn migrate_v31(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     conn.execute_batch("ALTER TABLE sessions ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE")
         .change_context(SchemaMigrationError)
@@ -1457,6 +1540,11 @@ pub fn migrate_v31(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
 /// Incremental auto-vacuum is what lets the session prune actor hand
 /// freed pages back to the filesystem (`PRAGMA incremental_vacuum`) after
 /// prune sweeps, instead of leaving them on a freelist forever.
+///
+/// # Errors
+///
+/// Always succeeds: the real conversion runs in [`run_pending`]'s phase 2
+/// (see [`convert_to_incremental_auto_vacuum`]), outside any transaction.
 pub fn migrate_v32(_conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     Ok(())
 }
@@ -1472,6 +1560,10 @@ pub fn migrate_v32(_conn: &mut rusqlite::Connection) -> Result<(), Report<Schema
 /// write-lock hold and wedged shutdown past the graceful deadline.
 /// `session_id`, the other junction column, has always been indexed via
 /// `idx_session_entries_session`.
+///
+/// # Errors
+///
+/// Returns an error if the index cannot be created.
 pub fn migrate_v33(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaMigrationError>> {
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_session_history_entry ON session_history(entry_id)",
@@ -1494,6 +1586,15 @@ pub fn migrate_v33(conn: &mut rusqlite::Connection) -> Result<(), Report<SchemaM
 /// to the original file, `_migrations` never records v32, and the next
 /// startup redoes the work. A vacuum *failure* propagates like any failed
 /// migration, leaving the database at v31 for a retry.
+///
+/// # Errors
+///
+/// Returns an error if the pragma cannot be set or the `VACUUM` fails (the
+/// database is then left at v31 for a retry).
+#[expect(
+    clippy::print_stderr,
+    reason = "pre-TUI user-facing warning for a long-running rewrite: migrations run before any tracing subscriber exists"
+)]
 fn convert_to_incremental_auto_vacuum(
     conn: &mut rusqlite::Connection,
 ) -> Result<(), Report<SchemaMigrationError>> {
@@ -1649,7 +1750,25 @@ where
 // can stand a DB up at any schema version. It drives [`MIGRATIONS`] directly,
 // so seeding and production application can never drift.
 
+/// Test helper driving [`MIGRATIONS`] directly: applies every migration up
+/// to and including `target`, recording each version.
+///
+/// Mirrors jinn-kernel's test-only helper of the same name so the schema
+/// crate's own tests and (transitively) jinn-kernel's tests can stand a DB
+/// up at any schema version. Seeding and production application can never
+/// drift, because both drive the same chain.
+///
+/// # Panics
+///
+/// Panics if a migration fails or a version record cannot be written —
+/// test seeding has no recovery path, and a failure here invalidates the
+/// whole fixture.
 #[cfg(feature = "testing")]
+#[expect(
+    clippy::panic,
+    clippy::expect_used,
+    reason = "test fixture: panic is the failure channel, there is no recovery path"
+)]
 pub fn apply_migrations_inner(conn: &mut rusqlite::Connection, target: i32) {
     for migration in MIGRATIONS {
         if target >= migration.version {
@@ -1660,26 +1779,11 @@ pub fn apply_migrations_inner(conn: &mut rusqlite::Connection, target: i32) {
     }
 }
 
-/// Test-only: applies migrations up to (and including) `target` on a held
-/// connection, recording each version.
-///
-/// Mirrors jinn-kernel's test-only helper so the schema crate's own tests can
-/// stand up a DB at a specific legacy version. FK=OFF is the caller's job
-/// (the public [`crate::run_migrations`] toggles it; direct test callers
-/// toggle it themselves).
-#[cfg(feature = "testing")]
-#[allow(dead_code)]
-pub fn apply_up_to_no_fk(conn: &mut rusqlite::Connection, target: i32) {
-    bootstrap_tracking_table(conn).expect("bootstrap");
-    apply_migrations_inner(conn, target);
-}
-
 /// Test-only re-exports of individual migrations and helpers.
 ///
 /// Downstream test suites (e.g. jinn-kernel's migrator tests) need to stand a
 /// DB up at a specific version and assert against a single migration's
 #[cfg(feature = "testing")]
-#[allow(unused_imports)]
 pub mod testing {
     pub use super::{
         CHAIN_LATEST_VERSION, LATEST_VERSION, MIGRATIONS, announcement_line,

@@ -91,17 +91,16 @@ pub fn render_session_preview_for_state(
     // popup hangs from: the sessions tree and the library cell order the
     // same sessions differently, so the anchor math runs per section over
     // the section's own row space.
-    let section = match state.frontend.sidebar_section() {
-        Some(
-            id @ (jinn_sidebar_msg::SidebarSectionId::Sessions
-            | jinn_sidebar_msg::SidebarSectionId::Library),
-        ) => id,
-        _ => return,
+    let Some(
+        section @ (jinn_sidebar_msg::SidebarSectionId::Sessions
+        | jinn_sidebar_msg::SidebarSectionId::Library),
+    ) = state.frontend.sidebar_section()
+    else {
+        return;
     };
     let Some(id) = crate::sections::sessions::preview_load::previewed_session_id(state) else {
         return;
     };
-
     // The cursor names a session; the popup needs the row to hang off. The
     // anchor is the same section-relative cursor row the layout math feeds
     // the scroll and the band — `cursor_row_in_section` resolves each
@@ -370,7 +369,8 @@ fn without_trailing_blanks<'a>(lines: &'a [Line<'static>]) -> &'a [Line<'static>
                 .all(|span| span.content.chars().all(char::is_whitespace))
         })
         .map_or(0, |last| last + 1);
-    &lines[..end]
+    let (kept, _trailing) = lines.split_at(end);
+    kept
 }
 
 /// How many rows a line occupies when wrapped to `width`.
@@ -423,12 +423,14 @@ fn trailing_lines<'a>(
     if start == lines.len()
         && let Some(last) = lines.last()
     {
+        // Even the newest line does not fit; take it anyway, clipped to the
+        // budget — a clipped line is still a preview, an empty area is not.
         return (
-            lines.split_at(lines.len() - 1).1,
+            std::slice::from_ref(last),
             rendered_rows(last, width).min(rows),
         );
     }
-    (&lines[start..], used)
+    (lines.get(start..).unwrap_or(&[]), used)
 }
 
 /// Divides the content area into the rectangles a bottom-anchored draw needs.
@@ -536,9 +538,13 @@ fn render_session_preview_inner(
         if !lines.is_empty() {
             let (tail, tail_rows) = trailing_lines(lines, content_area.height, content_area.width);
             let (head, tail_area) = split_content_area(content_area, tail_rows);
+            let head_len = lines.len() - tail.len();
+            let (head_lines, _tail_dup) = lines.split_at(head_len);
             if head.height > 0 {
-                let head_lines = lines[..lines.len() - tail.len()].to_vec();
-                frame.render_widget(Paragraph::new(head_lines).wrap(Wrap { trim: false }), head);
+                frame.render_widget(
+                    Paragraph::new(head_lines.to_vec()).wrap(Wrap { trim: false }),
+                    head,
+                );
             }
             frame.render_widget(
                 Paragraph::new(tail.to_vec()).wrap(Wrap { trim: false }),
@@ -720,6 +726,7 @@ mod worker_tests {
     //! Asserts the worker's own arithmetic — the truncation to the trailing
     //! entries and to the line budget — which the bus test in the sidebar
     //! cannot isolate from delivery.
+    #![allow(clippy::expect_used, clippy::indexing_slicing, reason = "test code")]
 
     use super::*;
     use jinn_kernel::protocol::ChatEntry;
@@ -819,7 +826,7 @@ mod worker_tests {
         let lines = preview(&session);
 
         // Then there is nothing to show, which is complete rather than loading.
-        assert!(lines.is_empty());
+        assert_eq!(lines, [] as [ratatui::prelude::Line<'_>; 0]);
     }
 
     #[rstest::rstest]
@@ -854,7 +861,7 @@ mod worker_tests {
         // if rendered in full.
         let mut session = ChatSessionState::new();
         for i in 0..PREVIEW_ENTRY_COUNT {
-            let text = (0..40).map(|_| "x".to_owned()).collect::<String>();
+            let text = "x".repeat(40);
             session.push_entry(ChatEntry::user(format!("{i} {text}")));
         }
 

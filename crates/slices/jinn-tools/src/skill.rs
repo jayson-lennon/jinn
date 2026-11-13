@@ -229,7 +229,7 @@ mod tests {
             turn: crate::tool_types::test_turn(),
             cwd: cwd.clone(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -261,7 +261,6 @@ mod tests {
     /// A session created in the store, its id, a context bound to it, and the
     /// scratch directory backing the context's cwd. The directory is returned
     /// so the caller keeps it alive: it is deleted on drop.
-    #[allow(clippy::type_complexity, reason = "test harness tuple")]
     fn session_ctx() -> (State, SessionId, ToolContext, jinn_testutil::JinnTempDir) {
         let dir = jinn_testutil::tempdir();
         let state = State::new(AppState::default());
@@ -425,7 +424,7 @@ mod tests {
         assert!(
             result
                 .content
-                .contains(&format!("Base directory: {}", skill_dir)),
+                .contains(&format!("Base directory: {skill_dir}")),
             "tool result header should carry the project skill's base_dir, got: {}",
             &result.content[..result.content.len().min(200)]
         );
@@ -454,7 +453,7 @@ mod tests {
         assert!(
             result
                 .content
-                .contains(&format!("Base directory: {}", skill_dir)),
+                .contains(&format!("Base directory: {skill_dir}")),
             "header should carry the seeded base_dir verbatim, got: {}",
             result.content
         );

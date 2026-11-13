@@ -27,6 +27,60 @@ use jinn_kernel::{AppCore, State};
 use crate::bootstrap::slices::ActivateError;
 use crate::bootstrap::slices::Activated;
 use marked_path::{Absolute, MarkedPathBuf};
+/// Copies the persisted frontend preferences (model, theme, sidebar
+/// width) from the saved app state into the live session state, before
+/// any actor reads them.
+fn seed_frontend_preferences(
+    state: &jinn_kernel::common::state::State,
+    app_state_storage: &jinn_preferences_config::AppStateStorageService,
+) {
+    let app_state = app_state_storage.read();
+    let mut guard = state.write();
+    guard
+        .frontend
+        .app_state
+        .last_model
+        .clone_from(&app_state.last_model);
+    guard
+        .frontend
+        .app_state
+        .theme_name
+        .clone_from(&app_state.theme_name);
+    guard.frontend.app_state.sidebar_width = app_state.sidebar_width;
+}
+
+/// Default CWD for sessions (inherited from the shell).
+///
+/// # Panics
+///
+/// Panics when the process cwd (or its `/` fallback) cannot be typed as an
+/// absolute path — a boot invariant the run cannot continue without.
+#[expect(
+    clippy::disallowed_types,
+    reason = "env seam: std::env::current_dir yields a raw PathBuf; the value is typed (and its absoluteness asserted) below"
+)]
+fn initial_cwd(
+    state: &jinn_kernel::common::state::State,
+) -> (
+    jinn_core_types::SessionId,
+    marked_path::MarkedPathBuf<marked_path::Absolute>,
+) {
+    let cwd = {
+        #[expect(
+            clippy::expect_used,
+            reason = "both the cwd and the `/` fallback are absolute; a miss is filesystem corruption no later step could survive"
+        )]
+        let typed = marked_path::MarkedPathBuf::<marked_path::Absolute>::new(
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")),
+        )
+        .expect("cwd and / are absolute");
+        typed
+    };
+    let mut guard = state.write();
+    guard.session.set_default_cwd(cwd.clone());
+    guard.active_session_mut().set_cwd(cwd.clone());
+    (guard.active_session().session_id().clone(), cwd)
+}
 
 /// The fixed (required) inputs to actor-system construction.
 #[derive(Clone)]
@@ -94,6 +148,12 @@ impl ActorSystemBuilder {
     /// # Errors
     ///
     /// Returns an error if a slice activation fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the process cwd (or its `/` fallback) cannot be typed as
+    /// an absolute path, or the environment-config reply does not decode —
+    /// both are boot invariants the run cannot continue without.
     pub async fn build(
         self,
     ) -> Result<(AppCore, Services, jinn_discord::ActivatedDiscord), ActivateError> {
@@ -123,30 +183,10 @@ impl ActorSystemBuilder {
         let task_spawns = jinn_tools_msg::TaskSpawnRegistry::default();
         state.write().task_spawns = task_spawns.clone();
 
-        {
-            let app_state = app_state_storage.read();
-            let mut guard = state.write();
-            guard.frontend.app_state.last_model = app_state.last_model.clone();
-            guard.frontend.app_state.theme_name = app_state.theme_name.clone();
-            guard.frontend.app_state.sidebar_width = app_state.sidebar_width;
-        }
+        seed_frontend_preferences(&state, &app_state_storage);
 
         // Default CWD for sessions (inherited from the shell).
-        let (initial_session_id, initial_cwd) = {
-            let cwd = {
-                #[expect(
-                    clippy::disallowed_types,
-                    reason = "env seam: std::env::current_dir yields a raw PathBuf; the value is typed (and its absoluteness asserted) on the next line"
-                )]
-                let raw = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
-                marked_path::MarkedPathBuf::<marked_path::Absolute>::new(raw)
-                    .expect("cwd and / are absolute")
-            };
-            let mut guard = state.write();
-            guard.session.set_default_cwd(cwd.clone());
-            guard.active_session_mut().set_cwd(cwd.clone());
-            (guard.active_session().session_id().clone(), cwd)
-        };
+        let (initial_session_id, initial_cwd) = initial_cwd(&state);
 
         // The message fabric: the trouper actor system plus the bridge.
         let (bus, trouper_system) = {
@@ -204,77 +244,7 @@ impl ActorSystemBuilder {
             .attach_slices(services.slices.clone());
         state.read().session.attach_slices(services.slices.clone());
 
-        // ── Startup tail ────────────────────────────────────────────
-        // Runs only after every activation above: each actor's
-        // subscription now exists, so none of these publishes can race
-        // the wiring it is meant to trigger.
-        {
-            let bus = services.bus.clone();
-
-            // Personas: the persona slice scanned at activation; publish
-            // now that every actor (the session actor subscribes to
-            // `PersonasLoaded`) is spawned.
-            if let Some(personas) = services
-                .slices
-                .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
-                && !personas.read().entries.is_empty()
-            {
-                // Clone the entries out before the await: the read guard
-                // must not be held across it.
-                let entries = personas.read().entries.clone();
-                bus.publish(jinn_persona_msg::PersonasLoaded {
-                    personas: entries,
-                    error: None,
-                })
-                .await;
-            }
-
-            // Every subscription above is live, so this signal certifies
-            // the actor system rather than racing it.
-            bus.publish(jinn_boot_msg::AllActorsSpawned).await;
-
-            // Ask EnvInitActor for config and publish EnvironmentLoaded to
-            // trigger the init chain. The trouper ask has a MANDATORY
-            // timeout; this is the one real startup ask path.
-            use jinn_boot_msg::GetEnvironmentConfig;
-            const ENV_ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-            match services
-                .trouper_system
-                .ask(
-                    boot.env_init_path.clone(),
-                    GetEnvironmentConfig,
-                    ENV_ASK_TIMEOUT,
-                )
-                .await
-            {
-                Ok(value) => match value
-                    .decode::<jinn_boot_msg::EnvironmentConfigReply>()
-                    .expect("env reply decodes")
-                    .config
-                {
-                    Some(config) => {
-                        bus.publish(jinn_boot_msg::EnvironmentLoaded { config })
-                            .await;
-                    }
-                    None => {
-                        tracing::warn!("no provider config found — skipping EnvironmentLoaded");
-                    }
-                },
-                Err(e) => {
-                    tracing::error!(err = ?e, "failed to get environment config from EnvInitActor");
-                }
-            }
-
-            // The boot session's cwd is known here; the session-init
-            // supervisor routes from payloads, not shared state. This
-            // publish triggers the initial session's discovery through the
-            // same payload path as every other session.
-            bus.publish(jinn_session_lifecycle_msg::SessionCwdChanged {
-                session_id: initial_session_id.clone(),
-                cwd: initial_cwd,
-            })
-            .await;
-        }
+        publish_startup_signals(&services, &boot, initial_session_id, initial_cwd).await;
 
         // Block until SystemReadyActor confirms readiness.
         let _ = boot.ready_rx.to_async().recv().await;
@@ -286,6 +256,95 @@ impl ActorSystemBuilder {
 
         Ok((core, services, discord))
     }
+}
+/// The post-activation publishes: personas, the readiness signal, the
+/// environment-config ask, and the boot session's cwd.
+///
+/// Runs only after every activation: each actor's subscription exists by
+/// the time this is called, so none of these publishes can race the
+/// wiring they are meant to trigger.
+async fn publish_startup_signals(
+    services: &Services,
+    boot: &jinn_boot::BootHandles,
+    initial_session_id: jinn_core_types::SessionId,
+    initial_cwd: MarkedPathBuf<Absolute>,
+) {
+    // ── Startup tail ────────────────────────────────────────────
+    // Runs only after every activation above: each actor's
+    // subscription now exists, so none of these publishes can race
+    // the wiring it is meant to trigger.
+    use jinn_boot_msg::GetEnvironmentConfig;
+    // The trouper ask has a MANDATORY timeout; this is the one real
+    // startup ask path.
+    const ENV_ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+    let bus = services.bus.clone();
+
+    // Personas: the persona slice scanned at activation; publish
+    // now that every actor (the session actor subscribes to
+    // `PersonasLoaded`) is spawned.
+    if let Some(personas) = services
+        .slices
+        .reader::<jinn_persona_msg::Personas>(&jinn_persona_msg::personas_slot())
+        && !personas.read().entries.is_empty()
+    {
+        // Clone the entries out before the await: the read guard
+        // must not be held across it.
+        let entries = personas.read().entries.clone();
+        bus.publish(jinn_persona_msg::PersonasLoaded {
+            personas: entries,
+            error: None,
+        })
+        .await;
+    }
+
+    // Every subscription above is live, so this signal certifies
+    // the actor system rather than racing it.
+    bus.publish(jinn_boot_msg::AllActorsSpawned).await;
+
+    // Ask EnvInitActor for config and publish EnvironmentLoaded to
+    // trigger the init chain.
+    match services
+        .trouper_system
+        .ask(
+            boot.env_init_path.clone(),
+            GetEnvironmentConfig,
+            ENV_ASK_TIMEOUT,
+        )
+        .await
+    {
+        Ok(value) => {
+            #[expect(
+                clippy::expect_used,
+                reason = "the reply schema is ours and versioned with the actor; a decode miss is a compile-time-preventable protocol bug expect names loudly"
+            )]
+            let decoded = value
+                .decode::<jinn_boot_msg::EnvironmentConfigReply>()
+                .expect("env reply decodes");
+            match decoded.config {
+                Some(config) => {
+                    bus.publish(jinn_boot_msg::EnvironmentLoaded { config })
+                        .await;
+                }
+                None => {
+                    tracing::warn!("no provider config found — skipping EnvironmentLoaded");
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!(err = ?e, "failed to get environment config from EnvInitActor");
+        }
+    }
+
+    // The boot session's cwd is known here; the session-init
+    // supervisor routes from payloads, not shared state. This
+    // publish triggers the initial session's discovery through the
+    // same payload path as every other session.
+    bus.publish(jinn_session_lifecycle_msg::SessionCwdChanged {
+        session_id: initial_session_id.clone(),
+        cwd: initial_cwd,
+    })
+    .await;
 }
 /// The `TermHandle` implementation over the coordinator's trouper path.
 ///

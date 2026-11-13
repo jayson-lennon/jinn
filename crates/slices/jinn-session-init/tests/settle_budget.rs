@@ -4,11 +4,10 @@
 //! late scans still land after the settle, and the per-resource events
 //! cross the schema-named topics the reverse relays subscribe.
 
-#![allow(
+#![expect(
     clippy::expect_used,
     clippy::panic,
-    clippy::unwrap_used,
-    reason = "test code"
+    reason = "test code asserts with expect/panic for clear failures"
 )]
 
 use std::future::Future;
@@ -46,14 +45,14 @@ struct Wired {
 }
 
 impl Wired {
-    async fn wire() -> Self {
-        Self::wire_with_args(trouper::json!({})).await
+    fn wire() -> Self {
+        Self::wire_with_args(trouper::json!({}))
     }
 
     /// Wires with a custom args template (merged with the entity key),
     /// letting tests shorten the settle budget. Spawns the notifier so
     /// settles surface as summary entries.
-    async fn wire_with_args(args_template: trouper::json::Json) -> Self {
+    fn wire_with_args(args_template: trouper::json::Json) -> Self {
         let dir = Box::new(jinn_testutil::tempdir());
         let home = dir.path.clone();
         let project = home.join("proj").expect("temp root joins a bare name");
@@ -142,11 +141,10 @@ impl Wired {
     /// observable side effect).
     fn summary_text(&self) -> Option<String> {
         let guard = self.state.read();
-        guard.session.get(&self.session_id).and_then(|s| {
-            s.history().iter().rev().find_map(|e| match &e.kind {
-                jinn_kernel::protocol::ChatEntryKind::Transient(text) => Some(text.clone()),
-                _ => None,
-            })
+        let s = guard.session.get(&self.session_id)?;
+        s.history().iter().rev().find_map(|e| match &e.kind {
+            jinn_kernel::protocol::ChatEntryKind::Transient(text) => Some(text.clone()),
+            _ => None,
         })
     }
 
@@ -301,11 +299,15 @@ fn mkfifo(path: &MarkedPathBuf<Absolute>) {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt as _;
 
-    let c = CString::new(path.as_os_str().as_bytes()).expect("path has no NUL");
-    // mkfifo(3)'s mode is the permissions; the fifo type is implied.
     unsafe extern "C" {
         fn mkfifo(path: *const std::ffi::c_char, mode: u32) -> i32;
     }
+
+    let c = CString::new(path.as_os_str().as_bytes()).expect("path has no NUL");
+    // mkfifo(3)'s mode is the permissions; the fifo type is implied.
+    // SAFETY: `c` is a live, NUL-terminated CString matching the
+    // `*const c_char` mkfifo(3) expects, and 0o644 is a valid mode_t;
+    // mkfifo only touches the filesystem, writing nothing through the pointer.
     let result = unsafe { mkfifo(c.as_ptr(), 0o644) };
     assert_eq!(result, 0, "mkfifo failed");
 }
@@ -320,8 +322,7 @@ async fn budget_timeout_settles_with_delayed_reason_naming_missing_resources() {
     // have nothing to scan, so they finish fast).
     let wired = Wired::wire_with_args(trouper::json!({
         SETTLE_BUDGET_ARG: TEST_BUDGET_MS,
-    }))
-    .await;
+    }));
     let stalled = StalledScan::new(&wired.project);
 
     // When a full discovery runs and the budget elapses.
@@ -358,8 +359,7 @@ async fn timed_settle_snapshot_counts_finished_resources() {
     // resources, so skills + context finish within the budget.
     let wired = Wired::wire_with_args(trouper::json!({
         SETTLE_BUDGET_ARG: TEST_BUDGET_MS,
-    }))
-    .await;
+    }));
     let stalled = StalledScan::new(&wired.project);
     write_skill(&wired.project, "quick-skill");
     std::fs::write(
@@ -392,8 +392,7 @@ async fn full_discovery_settles_without_a_delay_note() {
     // prompt, and one AGENTS.md — all scans finish inside the budget.
     let wired = Wired::wire_with_args(trouper::json!({
         SETTLE_BUDGET_ARG: TEST_BUDGET_MS,
-    }))
-    .await;
+    }));
     write_skill(&wired.project, "quick-skill");
     let prompts_dir = wired
         .project
@@ -433,7 +432,7 @@ async fn full_discovery_settles_without_a_delay_note() {
 #[tokio::test]
 async fn worker_publishes_onto_schema_named_topics() {
     // Given a wired partition set with one skill on disk.
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
     write_skill(&wired.project, "topic-skill");
 
     // When a full discovery runs.
@@ -461,7 +460,7 @@ async fn worker_publishes_onto_schema_named_topics() {
 async fn worker_scans_command_cwd_not_state() {
     // Given a wired partition set (no cwd seeded into state) with one
     // skill under the project dir.
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
     write_skill(&wired.project, "command-cwd-skill");
 
     // When a RunDiscovery whose command cwd points at that project dir
@@ -485,7 +484,7 @@ async fn worker_scans_command_cwd_not_state() {
 async fn manual_prompt_rescan_settles_with_a_summary() {
     // Given a wired partition set with one prompt under the project
     // dir (the unscanned resources have nothing on disk).
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
     let prompts_dir = wired
         .project
         .join_all([".agents", "prompts"])
@@ -518,8 +517,7 @@ async fn stalled_manual_rescan_settles_at_the_budget() {
     // injected budget.
     let wired = Wired::wire_with_args(trouper::json!({
         SETTLE_BUDGET_ARG: TEST_BUDGET_MS,
-    }))
-    .await;
+    }));
     let stalled = StalledScan::new(&wired.project);
 
     // When a manual prompt rescan runs and the budget elapses.
@@ -581,7 +579,7 @@ async fn worker_live(fabric: &jinn_testutil::TestFabric, session_id: &SessionId)
 async fn idle_worker_passivates_and_reactivates_on_next_trigger() {
     // Given a wired partition set with one skill on disk and a worker
     // that has already run one discovery.
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
     write_skill(&wired.project, "passivate-skill");
     wired.run_discovery().await;
     wait_for_summary(&wired).await;

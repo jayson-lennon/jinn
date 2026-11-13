@@ -6,7 +6,15 @@
 //! groups, the `j`-key E2E through the routed message to the actor, and
 //! rendering against the real dashboard cell (tab highlighting, actor
 //! rows, status messages, placeholder, selection marker).
-
+#![expect(
+    clippy::unused_async_trait_impl,
+    clippy::unused_async,
+    reason = "trouper trait impls and harness fns are async by contract even when nothing awaits"
+)]
+#![allow(
+    clippy::items_after_statements,
+    reason = "test-local probe structs read best beside their use"
+)]
 #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
 
 use crate::common::{composed_keymap, test_app, wait_for, wait_for_bounded};

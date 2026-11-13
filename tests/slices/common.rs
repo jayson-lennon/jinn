@@ -8,7 +8,14 @@
 //! the tui crate) because that is the only place a test may depend on
 //! several slice crates at once: `just check` and IDE analysis never
 //! compile integration targets, so the tui crate stays slice-free.
-
+#![expect(
+    clippy::unused_async,
+    reason = "harness fns stay async so every slice test can .await them uniformly even where nothing awaits inside"
+)]
+#![allow(
+    clippy::print_stderr,
+    reason = "harness diagnostics print before a TUI could exist"
+)]
 #![allow(clippy::expect_used, clippy::panic, reason = "test harness")]
 
 use jinn_kernel::AppCore;

@@ -12,7 +12,10 @@
 //! Hermetic by construction: endpoints are dead URLs (the claim under
 //! test is "subscribed", not "online"), so nothing here depends on the
 //! network being down — or, on a live machine, up.
-
+#![allow(
+    clippy::indexing_slicing,
+    reason = "integration test: fixture vectors with known lengths"
+)]
 #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
 
 use marked_path::MarkedPathAccess;

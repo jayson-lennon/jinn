@@ -8,6 +8,8 @@
 //! broadcast back, and the spawned session actor emitting `SendToLlmProvider`
 //! — so a fabric regression cannot silently reintroduce it.
 
+#![allow(clippy::expect_used, clippy::indexing_slicing, reason = "test code")]
+
 use crate::orchestrator::{ToolOrchestratorActor, ToolOrchestratorActorDeps};
 use jinn_core_types::tool_types::ToolCall;
 use jinn_inference_msg::SendToLlmProvider;
@@ -42,6 +44,10 @@ fn bash_batch_state() -> (State, jinn_core_types::SessionId) {
 /// provider call.
 /// Spawns the session actor over the test's own `services` — its ledger must
 /// be the instance the orchestrator and the fixture see.
+#[expect(
+    clippy::unused_async,
+    reason = "test fixture symmetry; body never awaits"
+)]
 async fn spawn_session_actor_with(
     harness: &TestHarness,
     state: State,
@@ -79,6 +85,10 @@ impl BusPublish for StubProvider {
 }
 
 impl trouper::actor::ServiceActor for StubProvider {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "ServiceActor::init is async by trait contract; this impl never awaits"
+    )]
     async fn init(
         _args: &trouper::json::Json,
     ) -> Result<Self, error_stack::Report<trouper::registry::RegistryError>> {
@@ -155,13 +165,13 @@ async fn register_stub_tool(harness: &TestHarness, session_id: &jinn_core_types:
 #[rstest::rstest]
 #[tokio::test]
 async fn orchestrator_completes_builtin_bash_batch_dispatched_over_the_bus() {
+    use jinn_kernel::common::bus::HarnessServices;
     // The bash builtin runs a real shell command, so the suite's shell
     // requirement is asserted here: the failure names the missing
     // dependency instead of surfacing as a tool-result assertion.
     jinn_testutil::shell_required();
     // Given a spawned orchestrator with the bash builtin registered, over
     // the same services the fixture mints into.
-    use jinn_kernel::common::bus::HarnessServices;
     let harness = TestHarness::new().await;
     let services = harness.services().await;
     let recorder = harness.spawn_recorder::<ToolExecutionCompleted>().await;

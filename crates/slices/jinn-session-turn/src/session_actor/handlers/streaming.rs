@@ -333,8 +333,7 @@ impl SessionPersistenceActor {
         let tool_call_ids = event
             .tool_calls
             .as_ref()
-            .map(|calls| calls.iter().map(|c| c.id.clone()).collect())
-            .unwrap_or_default();
+            .map_or_default(|calls| calls.iter().map(|c| c.id.clone()).collect());
         // A terminal success on a mid-loop handoff recap is a loop round,
         // not a turn boundary: the fold is the live turn's next continuation.
         // Peeking, not taking — the fold (in `continue_tool_loop`) owns both
@@ -4633,25 +4632,19 @@ mod tool_loop_round_order {
         actor: &crate::session_actor::SessionPersistenceActor,
         sid: &jinn_core_types::SessionId,
     ) -> Vec<String> {
-        actor
-            .state
-            .read()
-            .session
-            .get(sid)
-            .map(|s| {
-                s.history()
-                    .iter()
-                    .map(|e| match &e.kind {
-                        ChatEntryKind::User { .. } => "User".into(),
-                        ChatEntryKind::Assistant(t) => format!("Assistant({t})"),
-                        ChatEntryKind::Thinking(t) => format!("Thinking({t})"),
-                        ChatEntryKind::ToolCall { name, .. } => format!("ToolCall({name})"),
-                        ChatEntryKind::ToolResult { name, .. } => format!("ToolResult({name})"),
-                        other => format!("{other:?}"),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+        actor.state.read().session.get(sid).map_or_default(|s| {
+            s.history()
+                .iter()
+                .map(|e| match &e.kind {
+                    ChatEntryKind::User { .. } => "User".into(),
+                    ChatEntryKind::Assistant(t) => format!("Assistant({t})"),
+                    ChatEntryKind::Thinking(t) => format!("Thinking({t})"),
+                    ChatEntryKind::ToolCall { name, .. } => format!("ToolCall({name})"),
+                    ChatEntryKind::ToolResult { name, .. } => format!("ToolResult({name})"),
+                    other => format!("{other:?}"),
+                })
+                .collect()
+        })
     }
 
     #[rstest::rstest]

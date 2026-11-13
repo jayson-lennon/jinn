@@ -17,7 +17,10 @@
 //! see: by the time the error surfaces, the stream the decorator returned is
 //! already being consumed, and the retryability verdict rides the
 //! `StreamCompleted` the inference actor stamps (`true` for a chunk `Err`).
-
+#![allow(
+    clippy::indexing_slicing,
+    reason = "integration test: fixture vectors with known lengths"
+)]
 #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -255,13 +258,12 @@ async fn wait_for_marker(app: &TuiApp, session_id: &SessionId, needle: &str) {
                 .read()
                 .session
                 .get(session_id)
-                .map(|s| {
+                .map_or_default(|s| {
                     s.history()
                         .iter()
-                        .map(|e| (e.kind_str().to_owned(), e.text().to_owned()))
+                        .map(|e| (e.kind_str().to_owned(), e.text().clone()))
                         .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
+                });
             let dead = app.services.trouper_system.dead_letter_count().await;
             panic!(
                 "marker {needle:?} never landed; diagnostics: dead letters = {dead}, \
@@ -282,7 +284,7 @@ async fn wait_until_phase(app: &TuiApp, session_id: &SessionId, wanted: PhaseVie
             .read()
             .session
             .get(session_id)
-            .map(|s| s.phase())
+            .map(jinn_kernel::ChatSessionState::phase)
             == Some(wanted)
         {
             return true;
@@ -330,7 +332,7 @@ async fn a_retryable_error_is_held_then_retried_through_the_real_path() {
         .read()
         .session
         .get(&session_id)
-        .map(|s| s.phase());
+        .map(jinn_kernel::ChatSessionState::phase);
     assert_eq!(
         phase,
         Some(PhaseView::Streaming),
@@ -366,7 +368,7 @@ async fn an_exhausted_schedule_surrenders_and_settles_the_turn() {
             .read()
             .session
             .get(&session_id)
-            .map(|s| s.phase())
+            .map(jinn_kernel::ChatSessionState::phase)
     );
 
     // And exactly one `TurnCompleted(Error)` reported the turn — the
@@ -446,7 +448,7 @@ async fn a_gate_miss_settles_ordinarily_through_the_real_path() {
         .read()
         .session
         .get(&session_id)
-        .map(|s| s.phase());
+        .map(jinn_kernel::ChatSessionState::phase);
     assert_eq!(
         still_idle,
         Some(PhaseView::Idle),
@@ -492,7 +494,7 @@ async fn a_cancel_during_a_hold_settles_and_disarms_the_schedule() {
             .read()
             .session
             .get(&session_id)
-            .map(|s| s.phase())
+            .map(jinn_kernel::ChatSessionState::phase)
     );
 
     // And the cancel reported the turn, exactly once — the terminal
@@ -576,7 +578,7 @@ async fn a_deterministic_error_settles_ordinarily_with_no_retry() {
             .read()
             .session
             .get(&session_id)
-            .map(|s| s.phase())
+            .map(jinn_kernel::ChatSessionState::phase)
     );
     tokio::time::sleep(Duration::from_millis(1500)).await;
     let retried = app

@@ -6,7 +6,7 @@
 //! the same render path the tool calls, against the lifecycle crate's
 //! already-tested implementation.
 
-#![allow(clippy::expect_used, reason = "test code")]
+#![allow(clippy::expect_used, clippy::indexing_slicing, reason = "test code")]
 
 use marked_path::{Absolute, MarkedPathBuf};
 use std::collections::BTreeMap;
@@ -49,6 +49,10 @@ teardown_command = "fossil close && rm -rf <dir>"
 /// Both paths must outlive the returned context — each test owns the
 /// [`jinn_testutil::JinnTempDir`] they are derived from (a temp dir created
 /// inside a helper would delete its tree before the test body ran).
+#[expect(
+    clippy::unused_async,
+    reason = "test fixture symmetry; body never awaits"
+)]
 async fn ctx_with(
     harness: &TestHarness,
     state: &State,
@@ -60,7 +64,7 @@ async fn ctx_with(
         turn: crate::tool_types::test_turn(),
         cwd: cwd.clone(),
         config: jinn_config::testutil::config_layer(SCRIPT_DOC),
-        shells: Default::default(),
+        shells: jinn_common::shell::ShellsService::default(),
         timeout: None,
         state: Some(state.clone()),
         session_id: Some(session_id),

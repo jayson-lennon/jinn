@@ -7,6 +7,7 @@
 
 #![allow(
     clippy::expect_used,
+    clippy::indexing_slicing,
     clippy::panic,
     clippy::unwrap_used,
     reason = "test code"

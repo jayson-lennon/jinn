@@ -31,12 +31,12 @@ pub fn handle_session_rerun_setup(
         let lifecycle_name = session.lifecycle_name().map(String::from);
         let args = session.lifecycle_args().clone();
         let setup = lifecycle_name.as_deref().and_then(|name| {
-            config
+            let lifecycle = config
                 .get_list::<SessionLifecycle>()
                 .unwrap_or_default()
                 .into_iter()
-                .find(|lifecycle| lifecycle.name == name)
-                .and_then(|lifecycle| lifecycle.setup)
+                .find(|lifecycle| lifecycle.name == name)?;
+            lifecycle.setup
         });
         (setup, args)
     };
@@ -76,7 +76,12 @@ fn render_setup(setup: &LifecycleCommand, args: &LifecycleArgs) -> String {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
+    #![allow(
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing,
+        reason = "test code"
+    )]
     use super::*;
 
     fn state_with_selected_session() -> AppState {

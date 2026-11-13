@@ -4,6 +4,11 @@ use clap::Parser;
 use jinn::tracing::{TracingMode, init as init_tracing};
 use jinn_cli::Cli;
 
+#[expect(
+    clippy::print_stderr,
+    clippy::use_debug,
+    reason = "the argv boundary: CLI failures are printed to stderr (with the full report chain) and exited before any TUI exists"
+)]
 fn main() {
     // TLS clients (reqwest) need a rustls provider; `rustls-no-provider` is in
     // effect, so install ring before anything builds a client.
@@ -36,20 +41,22 @@ fn main() {
     };
 
     let mode = match &cli.command {
-        None
-        | Some(jinn_cli::cli::Commands::Tui)
-        | Some(jinn_cli::cli::Commands::Completions { .. }) => TracingMode::Tui { log_path },
-        Some(jinn_cli::cli::Commands::Fetch { .. })
-        | Some(jinn_cli::cli::Commands::Dictation { .. })
-        | Some(jinn_cli::cli::Commands::Config { .. })
-        | Some(jinn_cli::cli::Commands::Install { .. })
-        | Some(jinn_cli::cli::Commands::Mcp { .. })
-        | Some(jinn_cli::cli::Commands::Remote { .. }) => TracingMode::Headless { log_path },
+        None | Some(jinn_cli::cli::Commands::Tui | jinn_cli::cli::Commands::Completions { .. }) => {
+            TracingMode::Tui { log_path }
+        }
+        Some(
+            jinn_cli::cli::Commands::Fetch { .. }
+            | jinn_cli::cli::Commands::Dictation { .. }
+            | jinn_cli::cli::Commands::Config { .. }
+            | jinn_cli::cli::Commands::Install { .. }
+            | jinn_cli::cli::Commands::Mcp { .. }
+            | jinn_cli::cli::Commands::Remote { .. },
+        ) => TracingMode::Headless { log_path },
         #[cfg(debug_assertions)]
         Some(jinn_cli::cli::Commands::Headless { .. }) => TracingMode::Headless { log_path },
     };
 
-    if let Err(e) = init_tracing(cli.verbosity, mode, cli.trace_color, cli.log_tail_lines) {
+    if let Err(e) = init_tracing(cli.verbosity, &mode, cli.trace_color, cli.log_tail_lines) {
         eprintln!("error: {e:?}");
         std::process::exit(1);
     }

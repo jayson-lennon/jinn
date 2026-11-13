@@ -62,11 +62,14 @@ impl DiscordReloadActor {
     /// Spawns the actor at its static path, subscribing to the reload
     /// event and the phase event — the two folds the live `[discord]`
     /// application needs.
-    pub fn spawn(system: &trouper::system::ActorSystem, supervisor: SharedSupervisor) -> ActorPath {
+    pub fn spawn(
+        system: &trouper::system::ActorSystem,
+        supervisor: &SharedSupervisor,
+    ) -> ActorPath {
         trouper::builder::spawn_service_builder::<Self>(system)
             .at(ActorPath::new(RELOAD_PATH))
             .init_with({
-                let supervisor = std::sync::Arc::clone(&supervisor);
+                let supervisor = std::sync::Arc::clone(supervisor);
                 move || Box::pin(async move { Ok(Self { supervisor }) })
             })
             .handles::<jinn_boot_msg::JinnTomlReloaded>()

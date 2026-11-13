@@ -124,20 +124,16 @@ fn draw(
     // consistency; the ghost (when present) renders muted, immediately
     // after the typed text, without moving the cursor.
     let prefix = Span::styled("> ", Style::default().fg(theme.focus_accent));
-    let ghost_text = input_state
-        .ghost
-        .as_ref()
-        .map(|winner| {
-            let before_cursor = input_state
-                .text
-                .input
-                .get(..input_state.text.cursor_pos)
-                .unwrap_or_default();
-            let (_parent, segment) = jinn_cwd_msg::split_at_cursor(before_cursor);
-            let remainder = crate::suggest::ghost_remainder(segment, winner);
-            format!("{remainder}{}", std::path::MAIN_SEPARATOR)
-        })
-        .unwrap_or_default();
+    let ghost_text = input_state.ghost.as_ref().map_or_default(|winner| {
+        let before_cursor = input_state
+            .text
+            .input
+            .get(..input_state.text.cursor_pos)
+            .unwrap_or_default();
+        let (_parent, segment) = jinn_cwd_msg::split_at_cursor(before_cursor);
+        let remainder = crate::suggest::ghost_remainder(segment, winner);
+        format!("{remainder}{}", std::path::MAIN_SEPARATOR)
+    });
     let mut spans = vec![prefix, Span::raw(input_state.text.input.clone())];
     if !ghost_text.is_empty() {
         spans.push(Span::styled(
@@ -267,8 +263,7 @@ mod tests {
             .map(|x| {
                 buffer
                     .cell((x, y))
-                    .map(|c| (c.symbol().to_owned(), c.style().fg))
-                    .unwrap_or_default()
+                    .map_or_default(|c| (c.symbol().to_owned(), c.style().fg))
             })
             .collect()
     }

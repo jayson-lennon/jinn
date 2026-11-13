@@ -5,7 +5,11 @@
 //! and input hook — so a wiring defect fails here instead of at a user's
 //! keypress. The actors are NOT spawned (they belong to T2/T3): every
 //! test seeds the data cell by hand where the table needs rows.
-
+#![allow(
+    clippy::items_after_statements,
+    clippy::string_slice,
+    reason = "integration test: helper structs read best beside their use; slices at fixture-verified offsets"
+)]
 #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
 
 use jinn_kernel::IntentHandler;
@@ -244,7 +248,10 @@ fn cells_resolve_through_real_activation() {
 
     // Then both hold usable defaults.
     assert_eq!(ui.read().sort_col, SortColumn::Proj);
-    assert!(data.read().rows.is_empty());
+    assert_eq!(
+        data.read().rows,
+        [] as [jinn_model_market_msg::MarketRow; 0]
+    );
 }
 
 #[rstest::rstest]
@@ -437,7 +444,7 @@ fn h_l_s_fire_when_the_table_is_focused() {
     assert_eq!(wired.ui().read().sort_col, SortColumn::Proj);
     assert!(wired.ui().read().sort_desc);
     // And none of the letters typed into the filter.
-    assert!(wired.ui().read().filter.is_empty());
+    assert_eq!(wired.ui().read().filter, "");
 }
 
 #[rstest::rstest]
@@ -494,7 +501,7 @@ fn open_resets_ui_state_and_pushes_the_scope() {
     // Then the UI cell is back to the opener defaults: table focused,
     // filter empty, PROJ ascending.
     let ui = wired.ui();
-    assert!(ui.read().filter.is_empty());
+    assert_eq!(ui.read().filter, "");
     assert!(!ui.read().filter_focused);
     assert_eq!(ui.read().sort_col, SortColumn::Proj);
     assert!(!ui.read().sort_desc);
@@ -539,7 +546,7 @@ fn esc_in_filter_mode_clears_the_filter_and_returns_focus_to_the_table() {
     // Then the filter emptied, the selection reset, and focus handed
     // back — the popup stays open.
     let ui = wired.ui();
-    assert!(ui.read().filter.is_empty());
+    assert_eq!(ui.read().filter, "");
     assert!(!ui.read().filter_focused);
     assert_eq!(ui.read().selection, 0);
     assert_eq!(
@@ -566,7 +573,7 @@ fn esc_clearing_a_focused_filter_publishes_nothing() {
     // Then the filter cleared, focus handed back, the selection reset
     // to the widened set's top — and nothing published.
     let ui = wired.ui();
-    assert!(ui.read().filter.is_empty());
+    assert_eq!(ui.read().filter, "");
     assert!(!ui.read().filter_focused);
     assert_eq!(ui.read().selection, 0);
     assert!(result.messages.is_empty());
@@ -587,7 +594,7 @@ fn f_focuses_the_filter_from_the_table() {
     // Then the filter is focused and the character was not inserted.
     let ui = wired.ui();
     assert!(ui.read().filter_focused);
-    assert!(ui.read().filter.is_empty());
+    assert_eq!(ui.read().filter, "");
 }
 
 #[rstest::rstest]
@@ -646,7 +653,7 @@ fn unclaimed_characters_fall_through_the_hook() {
     // Then nothing changed: the hook did not claim it.
     let ui = wired.ui();
     assert!(!ui.read().filter_focused);
-    assert!(ui.read().filter.is_empty());
+    assert_eq!(ui.read().filter, "");
 }
 
 #[rstest::rstest]
@@ -699,7 +706,7 @@ fn paste_while_the_table_is_focused_is_declined() {
     // unfocused — the text belongs to the next surface, not the table.
     let ui = wired.ui();
     assert!(!ui.read().filter_focused);
-    assert!(ui.read().filter.is_empty());
+    assert_eq!(ui.read().filter, "");
 }
 
 // ── ENTER: drill-in + detail confirm ────────────────────────────────────
@@ -1438,7 +1445,7 @@ fn clock_renders_from_stamp_without_network() {
         .buffer()
         .content
         .iter()
-        .map(|cell| cell.symbol())
+        .map(ratatui::buffer::Cell::symbol)
         .collect();
     assert!(
         text.contains("models updated 2m ago"),
@@ -1995,7 +2002,7 @@ fn mix_source_word_wears_success_green_numbers_stay_muted() {
         .expect("the mix label renders");
     let word: Vec<(u16, ratatui::buffer::Cell)> = (mix_x..popup.x + popup.width)
         .filter_map(|x| buffer.cell((x, status_row)).map(|c| (x, c.clone())))
-        .take_while(|(_, c)| c.symbol() != "\u{b7}" || true)
+        .take_while(|(_, c)| c.symbol() != "\u{b7}")
         .collect();
     let fixed_start = word
         .iter()

@@ -189,8 +189,7 @@ impl SidebarSection for McpServersSection {
             let statuses = ctx
                 .slices()
                 .reader::<jinn_mcp_msg::McpRuntimeState>(&jinn_mcp_msg::mcp_runtime_slot())
-                .map(|runtime| runtime.read().effective_statuses(&session_id))
-                .unwrap_or_default();
+                .map_or_default(|runtime| runtime.read().effective_statuses(&session_id));
             // Only enabled servers are surfaced; disabled ones are omitted entirely.
             let configured = ctx.config().get::<McpServersConfig>().unwrap_or_default();
             let servers: Vec<(String, McpServerConfig)> = configured
@@ -320,10 +319,11 @@ mod tests {
     /// A layer whose `[mcp]` section configures the given servers — the
     /// section the section reads enabled names from.
     fn config_with_servers(servers: &[(String, McpServerConfig)]) -> ConfigLayer {
-        let document: String = servers
+        let document = servers
             .iter()
             .map(|(name, _)| format!("[mcp.{name}]\ncommand = \"echo\"\n"))
-            .collect();
+            .collect::<Vec<_>>()
+            .concat();
         jinn_config::testutil::config_layer(&document)
     }
 

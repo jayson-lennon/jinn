@@ -215,7 +215,7 @@ mod tests {
             turn: crate::tool_types::test_turn(),
             cwd: volume_root(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state,
             session_id,
@@ -254,7 +254,7 @@ mod tests {
     }
 
     /// Builds a `todo_set_list` call carrying a raw `phases` value.
-    fn set_list_call(phases: serde_json::Value) -> ToolCall {
+    fn set_list_call(phases: &serde_json::Value) -> ToolCall {
         ToolCall {
             id: "call-1".into(),
             name: "todo_set_list".into(),
@@ -275,7 +275,7 @@ mod tests {
         // Given the exact payload shape a model emitted: a single phase
         // object wrapped in an `item` envelope with an empty tasks field.
         let (state, session_id) = setup_with_existing_list();
-        let call = set_list_call(serde_json::json!({
+        let call = set_list_call(&serde_json::json!({
             "item": { "tasks": "", "description": "Probe" }
         }));
 
@@ -295,7 +295,7 @@ mod tests {
     fn set_list_accepts_items_envelope_around_array() {
         // Given a payload wrapping the array in an `items` envelope.
         let (state, session_id) = setup_with_existing_list();
-        let call = set_list_call(serde_json::json!({
+        let call = set_list_call(&serde_json::json!({
             "items": [
                 { "description": "Research" },
                 { "description": "Build" }
@@ -319,7 +319,7 @@ mod tests {
     fn set_list_accepts_json_encoded_array() {
         // Given a payload that JSON-encodes the whole array into a string.
         let (state, session_id) = setup_with_existing_list();
-        let call = set_list_call(serde_json::json!("[{\"description\": \"A\"}]"));
+        let call = set_list_call(&serde_json::json!("[{\"description\": \"A\"}]"));
 
         // When executing the tool.
         let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
@@ -337,7 +337,7 @@ mod tests {
     fn set_list_empty_string_clears_list() {
         // Given a session with an existing list and an empty-string payload.
         let (state, session_id) = setup_with_existing_list();
-        let call = set_list_call(serde_json::json!(""));
+        let call = set_list_call(&serde_json::json!(""));
 
         // When executing the tool.
         let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
@@ -353,7 +353,7 @@ mod tests {
     fn set_list_empty_string_tasks_renders_no_tasks() {
         // Given a phase whose tasks field is an empty string.
         let (state, session_id) = setup_with_existing_list();
-        let call = set_list_call(serde_json::json!([
+        let call = set_list_call(&serde_json::json!([
             { "description": "Planning", "tasks": "" }
         ]));
 
@@ -371,7 +371,7 @@ mod tests {
     fn set_list_unrecoverable_phases_shape_reports_worked_example() {
         // Given a phases value with no recoverable array.
         let (state, session_id) = setup_with_existing_list();
-        let call = set_list_call(serde_json::json!(42));
+        let call = set_list_call(&serde_json::json!(42));
 
         // When executing the tool.
         let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
@@ -448,7 +448,7 @@ mod tests {
     fn set_list_malformed_phase_leaves_list_intact() {
         // Given a payload whose first phases are valid but whose last is not.
         let (state, session_id) = setup_with_existing_list();
-        let call = set_list_call(serde_json::json!([
+        let call = set_list_call(&serde_json::json!([
             { "description": "Research" },
             { "tasks": ["no description here"] }
         ]));
@@ -469,7 +469,7 @@ mod tests {
     fn set_list_object_task_without_status_defaults_to_pending() {
         // Given an object task that omits 'status'.
         let (state, session_id) = setup_with_existing_list();
-        let call = set_list_call(serde_json::json!([
+        let call = set_list_call(&serde_json::json!([
             { "description": "Build", "tasks": [{ "description": "x" }] }
         ]));
 
@@ -921,14 +921,14 @@ mod tests {
         // once with the declared statuses.
         let (alias_state, alias_session) = setup_with_existing_list();
         let (declared_state, declared_session) = setup_with_existing_list();
-        let alias_call = set_list_call(serde_json::json!([
+        let alias_call = set_list_call(&serde_json::json!([
             { "description": "Build", "tasks": [
                 { "description": "One", "status": "in_progress" },
                 { "description": "Two", "status": "done" },
                 { "description": "Three", "status": "skipped" }
             ]}
         ]));
-        let declared_call = set_list_call(serde_json::json!([
+        let declared_call = set_list_call(&serde_json::json!([
             { "description": "Build", "tasks": [
                 { "description": "One", "status": "pending" },
                 { "description": "Two", "status": "completed" },
@@ -960,7 +960,7 @@ mod tests {
     fn set_list_unknown_status_aborts_the_whole_write() {
         // Given a payload whose phases are valid until one task's status is not.
         let (state, session_id) = setup_with_existing_list();
-        let call = set_list_call(serde_json::json!([
+        let call = set_list_call(&serde_json::json!([
             { "description": "Research" },
             { "description": "Build", "tasks": [
                 { "description": "Fine", "status": "done" },

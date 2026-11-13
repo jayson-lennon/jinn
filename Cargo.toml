@@ -154,7 +154,6 @@ nu-ansi-term = { workspace = true }
 clap = { workspace = true }
 clap-verbosity-flag = { workspace = true }
 ratatui-which-key = { workspace = true }
-ratatui-spatial-splits = { workspace = true }
 
 dotenvy = { workspace = true }
 
@@ -394,7 +393,6 @@ ratatui = { version = "0.30.0", default-features = false, features = [
 ] }
 crossterm = { version = "0.29", features = ["event-stream"] }
 ratatui-which-key = "0.14.0"
-ratatui-spatial-splits = "0.2.0"
 throbber-widgets-tui = "0.11"
 
 

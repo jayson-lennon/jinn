@@ -66,6 +66,16 @@ pub enum TracingMode {
 /// `jinn.log` -> `jinn-panic.log` in the same directory. The only absolute
 /// path with no parent is the filesystem root itself; the panic log then
 /// lands at the root beside it.
+///
+/// # Panics
+///
+/// Panics if the sibling join fails — the suffix is a bare filename and
+/// the parent is absolute by construction, so a failure is path
+/// corruption no later step could survive.
+#[expect(
+    clippy::expect_used,
+    reason = "the suffix is a bare filename and the parent absolute; a join failure is corruption the panic hook itself could not survive"
+)]
 #[must_use]
 fn panic_log_path(log_path: &MarkedPathBuf<Absolute>) -> MarkedPathBuf<Absolute> {
     match log_path.parent() {
@@ -125,7 +135,7 @@ fn install_panic_hook(panic_path: MarkedPathBuf<Absolute>) {
 ///   (`error,jinn=error`); at `-qq` the filter is `off` entirely.
 /// * Any `RUST_LOG` value → used verbatim as the entire filter; the user has
 ///   taken manual control of everything.
-fn build_filter(rust_log: Option<&str>, verbosity: &Verbosity<WarnLevel>) -> String {
+fn build_filter(rust_log: Option<&str>, verbosity: Verbosity<WarnLevel>) -> String {
     let Some(log) = rust_log else {
         return format_from_verbosity(verbosity);
     };
@@ -134,7 +144,7 @@ fn build_filter(rust_log: Option<&str>, verbosity: &Verbosity<WarnLevel>) -> Str
 
 /// Renders the automatic (no-`RUST_LOG`) filter for the CLI verbosity: a
 /// global floor for third-party crates plus the `jinn={v}` directive.
-fn format_from_verbosity(verbosity: &Verbosity<WarnLevel>) -> String {
+fn format_from_verbosity(verbosity: Verbosity<WarnLevel>) -> String {
     match verbosity.filter() {
         VerbosityFilter::Off => "off".to_owned(),
         VerbosityFilter::Error => format!("error,{APP_NAME}=error"),
@@ -162,17 +172,10 @@ fn format_from_verbosity(verbosity: &Verbosity<WarnLevel>) -> String {
 /// When [`CompactSpans::color`] is set, the timestamp, level, depth marker,
 /// span name, and target segments are wrapped in ANSI styles (via
 /// `nu-ansi-term`); when unset, output is plain text with no escapes.
+#[derive(Clone, Copy)]
 struct CompactSpans {
     color: bool,
 }
-
-impl Clone for CompactSpans {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl Copy for CompactSpans {}
 
 impl<S, N> FormatEvent<S, N> for CompactSpans
 where
@@ -200,7 +203,7 @@ where
         let level: &Level = event.metadata().level();
         let padded = format!("{level:>5}");
         if self.color {
-            write!(writer, "{} ", level_color(level).bold().paint(&padded))?;
+            write!(writer, "{} ", level_color(*level).bold().paint(&padded))?;
         } else {
             write!(writer, "{padded} ")?;
         }
@@ -257,9 +260,9 @@ const BOLD: nu_ansi_term::Style = nu_ansi_term::Style {
 };
 
 /// Maps a tracing level to its conventional terminal color.
-const fn level_color(level: &Level) -> nu_ansi_term::Style {
+const fn level_color(level: Level) -> nu_ansi_term::Style {
     use nu_ansi_term::Color;
-    match *level {
+    match level {
         Level::ERROR => nu_ansi_term::Style {
             foreground: Some(Color::Red),
             ..UNSET
@@ -306,7 +309,7 @@ fn owning_writer(sink: &mut String) -> Writer<'_> {
 impl CompactSpans {
     /// Writes the `…×N innermost_span{fields}: ` portion of an event line.
     fn write_span_context<S, N>(
-        &self,
+        self,
         ctx: &FmtContext<'_, S, N>,
         writer: &mut Writer<'_>,
     ) -> fmt::Result
@@ -380,14 +383,14 @@ impl CompactSpans {
 /// Panics if called more than once or if another tracer has already been set.
 pub fn init(
     verbosity: Verbosity<WarnLevel>,
-    mode: TracingMode,
+    mode: &TracingMode,
     trace_color: bool,
     log_tail_lines: Option<usize>,
 ) -> Result<(), Report<TracingInitError>> {
     let rust_log = env::var("RUST_LOG").ok();
-    let filter = build_filter(rust_log.as_deref(), &verbosity);
+    let filter = build_filter(rust_log.as_deref(), verbosity);
 
-    let log_path = match &mode {
+    let log_path = match mode {
         TracingMode::Tui { log_path } | TracingMode::Headless { log_path } => log_path.clone(),
     };
 
@@ -402,9 +405,15 @@ pub fn init(
     // user set RUST_LOG expecting to watch startup, point them at the file or the
     // --log-file flag. (Headless mode already prints to the terminal.)
     if matches!(mode, TracingMode::Tui { .. }) && rust_log.is_some() {
-        eprintln!("RUST_LOG is set, but TUI mode writes traces to a file, not the terminal.");
-        eprintln!("  run tail -f '{log_path}' in another term");
-        eprintln!("  or rerun with --log-file <path> to choose a different file.");
+        #[expect(
+            clippy::print_stderr,
+            reason = "pre-TUI notice printed before raw mode; the file is not yet the only channel"
+        )]
+        let () = {
+            eprintln!("RUST_LOG is set, but TUI mode writes traces to a file, not the terminal.");
+            eprintln!("  run tail -f '{log_path}' in another term");
+            eprintln!("  or rerun with --log-file <path> to choose a different file.");
+        };
     }
 
     let formatter = CompactSpans { color: trace_color };
@@ -534,11 +543,8 @@ fn truncate_log_to_tail_lines(
     };
     let len = file.metadata()?.len();
 
-    let start = find_tail_start(
-        &mut file,
-        len,
-        u64::try_from(keep_lines).expect("line counts fit u64") + 1,
-    )?;
+    let keep_split_on = u64::try_from(keep_lines).map_or(u64::MAX, |n| n.saturating_add(1));
+    let start = find_tail_start(&mut file, len, keep_split_on)?;
     if start == len {
         return Ok(()); // at or under the limit; leave the file byte-identical
     }
@@ -553,9 +559,11 @@ fn truncate_log_to_tail_lines(
         // The parent exists (the file was opened from it) and the suffix is a
         // bare name, so the join cannot fail.
         path.parent()
-            .expect("trim only runs on a log with a parent directory")
+            .ok_or_else(|| {
+                std::io::Error::other("trim only runs on a log with a parent directory")
+            })?
             .join(name)
-            .expect("bare-name join onto an existing parent cannot fail")
+            .map_err(|e| std::io::Error::other(format!("sibling join failed: {e:?}")))?
     };
     // Write the tail to a sibling temp file, then swap it into place. The
     // remove-then-rename order is for Windows, where rename fails when the
@@ -564,7 +572,9 @@ fn truncate_log_to_tail_lines(
     {
         let mut tmp = File::create(&tmp_path)?;
         tmp.write_all(&tail)?;
-        tmp.sync_all().ok();
+        // Best-effort flush: a failed sync still leaves a complete write,
+        // and a trim that aborts here must not fail the whole call.
+        let _ = tmp.sync_all();
     }
     match std::fs::remove_file(path) {
         Ok(()) => {}
@@ -646,6 +656,14 @@ fn read_chunk(file: &mut File, offset: u64, len: u64) -> std::io::Result<Vec<u8>
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::string_slice,
+        clippy::panic,
+        clippy::unwrap_in_result,
+        reason = "test code: fixture setup failures and exact-slice assertions are the test's own failure channel"
+    )]
     use super::*;
     use std::sync::Mutex;
 
@@ -900,7 +918,7 @@ mod tests {
         let verbosity = Verbosity::new(0, 0);
 
         // When building the filter.
-        let filter = build_filter(None, &verbosity);
+        let filter = build_filter(None, verbosity);
 
         // Then third-party crates sit on the warn floor and jinn is at the CLI level.
         assert_eq!(filter, "warn,jinn=warn");
@@ -913,7 +931,7 @@ mod tests {
         let verbosity = Verbosity::new(2, 0);
 
         // When building the filter.
-        let filter = build_filter(None, &verbosity);
+        let filter = build_filter(None, verbosity);
 
         // Then jinn rises to debug while the third-party floor stays at warn.
         assert_eq!(filter, "warn,jinn=debug");
@@ -926,7 +944,7 @@ mod tests {
         let verbosity = Verbosity::new(0, 1);
 
         // When building the filter.
-        let filter = build_filter(None, &verbosity);
+        let filter = build_filter(None, verbosity);
 
         // Then the floor steps down to error so quiet quiets dependencies too.
         assert_eq!(filter, "error,jinn=error");
@@ -939,7 +957,7 @@ mod tests {
         let verbosity = Verbosity::new(0, 2);
 
         // When building the filter.
-        let filter = build_filter(None, &verbosity);
+        let filter = build_filter(None, verbosity);
 
         // Then the whole filter is off — silence was requested.
         assert_eq!(filter, "off");
@@ -952,7 +970,7 @@ mod tests {
         let verbosity = Verbosity::new(1, 0);
 
         // When building the filter.
-        let filter = build_filter(Some("debug"), &verbosity);
+        let filter = build_filter(Some("debug"), verbosity);
 
         // Then it is used verbatim — no jinn directive appended, no floor injected.
         assert_eq!(filter, "debug");
@@ -965,7 +983,7 @@ mod tests {
         let verbosity = Verbosity::new(0, 0);
 
         // When building the filter.
-        let filter = build_filter(Some("jinn_tui=trace"), &verbosity);
+        let filter = build_filter(Some("jinn_tui=trace"), verbosity);
 
         // Then it is used verbatim — the user took control.
         assert_eq!(filter, "jinn_tui=trace");
@@ -1104,8 +1122,9 @@ mod tests {
             .path
             .join("jinn.log")
             .expect("temp root joins a bare name");
-        let lines: Vec<String> = (0..25).map(|i| format!("line-{i:02}")).collect();
-        std::fs::write(&log_path, lines.join("\n") + "\n").expect("seed log file");
+        let mut lines: Vec<String> = (0..25).map(|i| format!("line-{i:02}")).collect();
+        lines.push(String::new());
+        std::fs::write(&log_path, lines.join("\n")).expect("seed log file");
 
         // When trimming to the last 10 lines.
         truncate_log_to_tail_lines(&log_path, 10).expect("trim succeeds");

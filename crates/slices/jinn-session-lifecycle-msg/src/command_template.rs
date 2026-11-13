@@ -303,16 +303,13 @@ impl CommandTemplate {
 
         // Replace $@ and $* with remaining args (those not consumed by non-splat params).
         if self.has_splat() {
-            let joined = args
-                .get(arg_idx..)
-                .map(|remaining| {
-                    remaining
-                        .iter()
-                        .map(|a| shell_quote(a))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
-                .unwrap_or_default();
+            let joined = args.get(arg_idx..).map_or_default(|remaining| {
+                remaining
+                    .iter()
+                    .map(|a| shell_quote(a))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            });
             result = result.replace("$@", &joined);
             result = result.replace("$*", &joined);
         }
@@ -368,7 +365,7 @@ impl CommandTemplate {
                         Param::Positional(n) => args.get(&format!("${n}")),
                         Param::Splat => None,
                     };
-                    let quoted = value.map(|v| shell_quote(v)).unwrap_or_default();
+                    let quoted = value.map_or_default(|v| shell_quote(v));
                     (quoted, width)
                 });
             match substituted {
@@ -577,10 +574,9 @@ fn substitute_spans(spans: Vec<Span>, params: &[Param], args: &[String]) -> Vec<
                     Some((_, param_idx, arg_off)) => {
                         let display_text = if *arg_off < args.len() {
                             match params.get(*param_idx) {
-                                Some(Param::Splat) => args
-                                    .get(*arg_off..)
-                                    .map(|s| s.join(" "))
-                                    .unwrap_or_default(),
+                                Some(Param::Splat) => {
+                                    args.get(*arg_off..).map_or_default(|s| s.join(" "))
+                                }
                                 _ => args.get(*arg_off).cloned().unwrap_or_default(),
                             }
                         } else {

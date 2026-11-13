@@ -54,12 +54,15 @@ jinn-llm-support = { workspace = true }
 # vision gate against models.dev reference data.
 jinn-provider = { workspace = true }
 jinn-provider-config = { workspace = true }
-jinn-context-assembly = { workspace = true }
-jinn-session-turn = { workspace = true }
 
 jinn-session-init-msg = { workspace = true }
 
 [dev-dependencies]
+# The actor tests activate `jinn-session-turn` against the shared registry
+# to seed the session state the orchestrator's handlers read, and call the
+# assembly service's `ensure_spawned` to make sure it exists.
+jinn-session-turn = { workspace = true }
+jinn-context-assembly = { workspace = true }
 # `spawned_shell_runs_in_new_session` reads the shell's session id with
 # `getsid(2)` — the one portable way, since `ps` session keywords differ
 # between procps (`sid`) and BSD (`sess`, which reports 0).

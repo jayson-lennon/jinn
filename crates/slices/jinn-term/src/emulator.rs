@@ -501,7 +501,7 @@ mod tests {
 
         // When reading the transcript tail before any sync.
         // Then the transcript tail is empty.
-        assert!(emu.transcript_tail(10).is_empty());
+        assert_eq!(emu.transcript_tail(10), "");
     }
 
     #[rstest::rstest]

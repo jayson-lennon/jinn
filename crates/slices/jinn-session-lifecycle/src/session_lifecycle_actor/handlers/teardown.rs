@@ -311,8 +311,7 @@ impl SessionLifecycleActor {
             state
                 .session
                 .get(session_id)
-                .map(|session| session.lifecycle_args().clone())
-                .unwrap_or_default()
+                .map_or_default(|session| session.lifecycle_args().clone())
         };
         if handler.teardown(session_id, &args.values()) {
             self.state.with_session(|view| {

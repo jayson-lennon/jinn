@@ -55,7 +55,7 @@ impl HeadlessApp {
             .bridge
             .send(Bridge::publish_closure(EnqueueUserMessage {
                 session_id,
-                entry: ChatEntry::user(message.to_string()),
+                entry: ChatEntry::user(message.to_owned()),
             }))
             .change_context(HeadlessError)
             .attach("failed to send chat command")
@@ -164,7 +164,7 @@ pub fn parse_script(
 ) -> Vec<Vec<jinn_kernel::KeyEvent>> {
     content
         .lines()
-        .map(|line| line.trim())
+        .map(str::trim)
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .map(|line| ratatui_which_key::parse_key_sequence(line, leader))
         .collect()
@@ -172,6 +172,11 @@ pub fn parse_script(
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::indexing_slicing,
+        reason = "test code: fixture vectors with known lengths"
+    )]
+
     use jinn_kernel::{Key, KeyEvent, Modifiers};
 
     use super::*;

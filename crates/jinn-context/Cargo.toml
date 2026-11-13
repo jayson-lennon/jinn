@@ -8,7 +8,6 @@ description = "Portable prompt-template, attachment-path, and project-context mo
 [dependencies]
 marked-path = { workspace = true }
 jinn-slices = { workspace = true }
-jinn-persona-msg = { workspace = true }
 error-stack = { workspace = true }
 fuzzy-matcher = { workspace = true }
 regex = { workspace = true }

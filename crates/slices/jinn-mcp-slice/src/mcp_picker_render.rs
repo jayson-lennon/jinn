@@ -41,7 +41,7 @@ use ratatui::text::{Line, Span};
 use crate::mcp_picker_actions;
 
 /// The inspector's cell — the single home for what it shows.
-#[allow(dead_code, reason = "documents the cell type the render reads")]
+#[expect(dead_code, reason = "documents the cell type the render reads")]
 type McpPickerCell = TypedCell<jinn_mcp_msg::McpPickerState>;
 
 /// The popup rect for the inspector.

@@ -577,7 +577,7 @@ mod tests {
             turn: crate::tool_types::test_turn(),
             cwd: cwd.clone(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -736,7 +736,7 @@ mod tests {
                 turn: crate::tool_types::test_turn(),
                 cwd: dir.path.clone(),
                 config: jinn_config::testutil::config_layer(""),
-                shells: Default::default(),
+                shells: jinn_common::shell::ShellsService::default(),
                 timeout: None,
                 state: None,
                 session_id: None,
@@ -860,8 +860,11 @@ mod tests {
         // via libc. `ps` cannot be used here: procps has `sid`, BSD ps has
         // no working equivalent (`sess` reports 0), and `getsid(2)` needs
         // neither.
+        // SAFETY: `getsid` reads the session id of a live process id; 0 is
+        // this process and `child_pid` the spawned shell, both alive here.
         let own_sid = unsafe { libc::getsid(0) };
         let child_pid = child.id().expect("child is alive") as libc::pid_t;
+        // SAFETY: `child_pid` names the live shell child spawned above.
         let child_sid = unsafe { libc::getsid(child_pid) };
 
         // Then the shell runs in a different session from the test process.

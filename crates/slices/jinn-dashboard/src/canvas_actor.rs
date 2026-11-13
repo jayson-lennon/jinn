@@ -57,6 +57,10 @@ pub struct DashboardCanvasActor {
 }
 
 impl ServiceActor for DashboardCanvasActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "ServiceActor::init is async by trait contract; this impl never awaits"
+    )]
     async fn init(_args: &trouper::json::Json) -> Result<Self, error_stack::Report<RegistryError>> {
         // Never called: the spawn helper injects the cell via `init_with`.
         Err(
@@ -143,6 +147,10 @@ impl DashboardCanvasActor {
     }
 
     /// Folds a [`DashboardNav`] into the cell.
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "&self signature is the established helper shape; DashboardNav is 1 byte"
+    )]
     fn apply_nav(&self, msg: &DashboardNav) {
         self.cell.update(|s| match msg {
             DashboardNav::Up => s.select_prev(),
@@ -272,6 +280,10 @@ mod tests {
         fn manifest() -> trouper::schema::ActorManifest {
             trouper::schema::ActorManifest::new()
         }
+        #[expect(
+            clippy::unused_async_trait_impl,
+            reason = "ServiceActor::init is async by trait contract; this probe never awaits"
+        )]
         async fn init(
             _args: &trouper::json::Json,
         ) -> Result<Self, error_stack::Report<trouper::registry::RegistryError>> {

@@ -72,10 +72,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
         {
             return unprefixed_failure(
                 &call,
-                format!(
-                    "failed to create parent directories for '{}': {e}",
-                    resolved
-                ),
+                format!("failed to create parent directories for '{resolved}': {e}"),
             );
         }
 
@@ -90,9 +87,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
                 pin_position: Some(ToolResultPinPosition::Relative),
                 attachments: Vec::new(),
             },
-            Err(e) => {
-                unprefixed_failure(&call, format!("failed to write file '{}': {e}", resolved))
-            }
+            Err(e) => unprefixed_failure(&call, format!("failed to write file '{resolved}': {e}")),
         }
     })
 }
@@ -132,7 +127,7 @@ mod tests {
             turn: crate::tool_types::test_turn(),
             cwd: cwd.clone(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -419,7 +414,7 @@ mod tests {
             turn: crate::tool_types::test_turn(),
             cwd: dir.path.clone(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state: None,
             session_id: None,

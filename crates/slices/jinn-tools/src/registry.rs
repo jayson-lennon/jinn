@@ -36,7 +36,35 @@ pub type BuiltinToolEntry = (
 /// publish — see [`BuiltinToolEntry`]'s live definition slot — so a reload
 /// changes the schema the model actually sees.
 pub fn builtin_tools(default_timeout_secs: u64) -> Vec<BuiltinToolEntry> {
-    let mut entries = vec![
+    let mut entries = core_entries(default_timeout_secs);
+
+    // The PowerShell tool is Windows-only: on Linux and macOS the model
+    // must not see a tool it cannot run.
+    #[cfg(windows)]
+    entries.push((
+        crate::powershell::definition(default_timeout_secs),
+        crate::powershell::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
+        false,
+    ));
+
+    entries.extend(crate::todo_tools::tool_entries());
+
+    entries
+}
+
+/// The file- and session-facing built-in entries, in registration order.
+///
+/// Split from [`builtin_tools`] so each function stays under the line
+/// budget; the order here is the order the model sees.
+fn core_entries(default_timeout_secs: u64) -> Vec<BuiltinToolEntry> {
+    let mut entries = file_entries(default_timeout_secs);
+    entries.extend(session_entries());
+    entries
+}
+
+/// The file- and output-facing tools: read/write/edit, search, capture.
+fn file_entries(default_timeout_secs: u64) -> Vec<BuiltinToolEntry> {
+    vec![
         (
             get_time::definition(),
             get_time::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
@@ -98,6 +126,32 @@ pub fn builtin_tools(default_timeout_secs: u64) -> Vec<BuiltinToolEntry> {
             false,
         ),
         (
+            grep::definition(),
+            grep::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
+            false,
+        ),
+        (
+            interactive_term::definition(),
+            interactive_term::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
+            false,
+        ),
+        (
+            interactive_term_send::definition(),
+            interactive_term_send::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
+            false,
+        ),
+        (
+            interactive_term_kill::definition(),
+            interactive_term_kill::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
+            false,
+        ),
+    ]
+}
+
+/// The session-orchestration tools: capabilities, bot wiring, subagents.
+fn session_entries() -> Vec<BuiltinToolEntry> {
+    vec![
+        (
             capabilities::query_definition(),
             capabilities::query_execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
             false,
@@ -141,40 +195,7 @@ pub fn builtin_tools(default_timeout_secs: u64) -> Vec<BuiltinToolEntry> {
             // outer timeout would abort that wait mid-script.
             true,
         ),
-        (
-            grep::definition(),
-            grep::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
-            false,
-        ),
-        (
-            interactive_term::definition(),
-            interactive_term::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
-            false,
-        ),
-        (
-            interactive_term_send::definition(),
-            interactive_term_send::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
-            false,
-        ),
-        (
-            interactive_term_kill::definition(),
-            interactive_term_kill::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
-            false,
-        ),
-    ];
-
-    // The PowerShell tool is Windows-only: on Linux and macOS the model
-    // must not see a tool it cannot run.
-    #[cfg(windows)]
-    entries.push((
-        crate::powershell::definition(default_timeout_secs),
-        crate::powershell::execute as fn(ToolCall, ToolContext) -> BoxedToolFuture,
-        false,
-    ));
-
-    entries.extend(crate::todo_tools::tool_entries());
-
-    entries
+    ]
 }
 
 #[cfg(test)]

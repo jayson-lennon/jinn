@@ -269,10 +269,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
 
         succeeded(
             call,
-            &format!(
-                "Attached bot \"{}\" as {bot_id} (loaded from {source}).",
-                display_name
-            ),
+            &format!("Attached bot \"{display_name}\" as {bot_id} (loaded from {source})."),
         )
     })
 }
@@ -303,10 +300,11 @@ fn load_from_file(raw_path: &str, ctx: &ToolContext) -> Result<(String, BotEntry
     let path = {
         let candidate = std::path::Path::new(raw_path);
         if candidate.is_absolute() {
-            MarkedPathBuf::<Absolute>::new(candidate).expect("checked absolute above")
+            MarkedPathBuf::<Absolute>::new(candidate)
+                .map_err(|error| format!("{raw_path}: {error}"))?
         } else {
             cwd.join(candidate)
-                .expect("absolute parent joins a bare candidate")
+                .map_err(|error| format!("{raw_path}: {error}"))?
         }
     };
     let source = path.to_string();
@@ -358,16 +356,6 @@ pub enum BotParseError {
 pub(crate) fn parse_bot_entry(
     text: &str,
 ) -> Result<BotEntryConfig, error_stack::Report<BotParseError>> {
-    if let Ok(entry) = toml::from_str::<BotEntryConfig>(text) {
-        if entry.name.trim().is_empty() {
-            return Err(BotParseError::NoName.into());
-        }
-        return Ok(entry);
-    }
-    #[derive(serde::Deserialize)]
-    struct Document {
-        bot: Section,
-    }
     /// The pre-rename section key, still read so shipped workflow files
     /// keep loading. A file carrying both keys resolves through the
     /// [`Document`] shape above — `bot` wins on collision.
@@ -379,15 +367,25 @@ pub(crate) fn parse_bot_entry(
     struct Section {
         entry: Vec<BotEntryConfig>,
     }
+    #[derive(serde::Deserialize)]
+    struct Document {
+        bot: Section,
+    }
+    #[derive(serde::Deserialize)]
+    struct Wrapped {
+        entry: Vec<BotEntryConfig>,
+    }
+    if let Ok(entry) = toml::from_str::<BotEntryConfig>(text) {
+        if entry.name.trim().is_empty() {
+            return Err(BotParseError::NoName.into());
+        }
+        return Ok(entry);
+    }
     if let Ok(doc) = toml::from_str::<Document>(text) {
         return one_entry(&doc.bot.entry);
     }
     if let Ok(doc) = toml::from_str::<LegacyDocument>(text) {
         return one_entry(&doc.attendant.entry);
-    }
-    #[derive(serde::Deserialize)]
-    struct Wrapped {
-        entry: Vec<BotEntryConfig>,
     }
     match toml::from_str::<Wrapped>(text) {
         Ok(wrapped) => one_entry(&wrapped.entry),

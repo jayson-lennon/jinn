@@ -343,10 +343,9 @@ fn extract_reasoning(delta: &serde_json::Value) -> Option<StreamEvent> {
         }
     }
     if emitted.is_none() {
-        let delta_keys: Vec<&str> = delta
-            .as_object()
-            .map(|o| o.keys().map(std::string::String::as_str).collect())
-            .unwrap_or_default();
+        let delta_keys: Vec<&str> = delta.as_object().map_or_else(Vec::new, |o| {
+            o.keys().map(std::string::String::as_str).collect()
+        });
         tracing::trace!(
             delta_keys = ?delta_keys,
             "response parser: no reasoning field found in delta"

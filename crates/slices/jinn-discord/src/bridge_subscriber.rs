@@ -111,6 +111,10 @@ impl DiscordBridgeSubscriber {
 }
 
 impl ServiceActor for DiscordBridgeSubscriber {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "ServiceActor::init is async by trait contract; this impl never awaits"
+    )]
     async fn init(_args: &trouper::json::Json) -> Result<Self, error_stack::Report<RegistryError>> {
         // Never called: the spawn helper injects the channels and state
         // via `init_with`.
@@ -739,7 +743,7 @@ mod tests {
             for _ in 0..200 {
                 let guard = state.read();
                 if let Some(entry) = guard.session(&sid).history().last() {
-                    found = Some(entry.text().to_owned());
+                    found = Some(entry.text().clone());
                     break;
                 }
                 drop(guard);

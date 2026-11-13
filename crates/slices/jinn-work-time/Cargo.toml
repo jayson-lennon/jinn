@@ -11,7 +11,6 @@ trouper = { workspace = true }
 # The event the monitor folds, and the shared interval vocabulary it stores.
 jinn-session-msg = { workspace = true }
 jinn-core-types = { workspace = true }
-jinn-kernel = { workspace = true }
 jinn-slices = { workspace = true }
 error-stack = { workspace = true }
 jiff = { workspace = true }

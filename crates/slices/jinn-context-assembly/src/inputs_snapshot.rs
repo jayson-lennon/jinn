@@ -33,8 +33,7 @@ pub fn build_assembly_inputs(state: &AppState, session_id: &SessionId) -> Assemb
 
     let tools = state
         .tool_registry()
-        .map(|cell| cell.read().tools_for_session(session_id))
-        .unwrap_or_default();
+        .map_or_default(|cell| cell.read().tools_for_session(session_id));
 
     AssemblyInputs {
         session_id: session_id.clone(),

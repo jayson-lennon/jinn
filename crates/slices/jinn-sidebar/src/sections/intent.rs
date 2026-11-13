@@ -142,7 +142,7 @@ mod tests {
 
         // Then Sidebar is on the scope stack.
         assert!(state.frontend.is_sidebar());
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -205,7 +205,7 @@ mod tests {
 
         // Then scope is back to Normal.
         assert_eq!(state.frontend.scope(), FocusScope::Normal);
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -238,7 +238,7 @@ mod tests {
 
         // Then no cancel prompt is set.
         assert!(!state.frontend.cancel_stream_prompt);
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         // And scope is back to Normal.
         assert_eq!(state.frontend.scope(), FocusScope::Normal);
     }
@@ -384,7 +384,7 @@ mod tests {
                 .with_sections(|s| s.sessions.selected_id.clone(), || None),
             Some(active)
         );
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]

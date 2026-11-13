@@ -111,7 +111,7 @@ mod tests {
         let result = handle_session_continue(&mut state);
 
         // Then no commands are returned.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -126,7 +126,7 @@ mod tests {
         let result = handle_session_continue(&mut state);
 
         // Then no commands are returned.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]

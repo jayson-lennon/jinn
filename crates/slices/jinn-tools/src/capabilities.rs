@@ -410,8 +410,7 @@ fn compose_buffer(
 
     let tool_defs = app
         .tool_registry()
-        .map(|cell| cell.read().tools_for_session(session.session_id()))
-        .unwrap_or_default();
+        .map_or_default(|cell| cell.read().tools_for_session(session.session_id()));
     for def in &tool_defs {
         entries.push(CapabilityEntry {
             kind: CapabilityKind::Tool,

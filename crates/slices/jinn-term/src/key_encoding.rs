@@ -681,7 +681,7 @@ mod key_event_tests {
 
         // Then the byte sequences are identical.
         assert_eq!(from_event, from_name);
-        assert!(!from_event.is_empty());
+        assert_ne!(from_event, [] as [u8; 0]);
     }
 
     /// The same agreement must hold once modifiers are involved: a modified
@@ -724,7 +724,7 @@ mod key_event_tests {
 
         // Then both spellings produce the same bytes.
         assert_eq!(a, b);
-        assert!(!a.is_empty());
+        assert_ne!(a, [] as [u8; 0]);
     }
 
     #[rstest::rstest]

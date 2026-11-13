@@ -600,9 +600,9 @@ async fn live_disable_cycle_call_succeeds_before_teardown() {
 async fn disable_cycle_calls_fail_fast_after_teardown() {
     // Given a running McpActor wired to the stub server, its tools registered
     // for the session, and the session marked enabled + Running.
-    let (harness, session_id, _results, _state) = {
+    let (harness, session_id, results, _state) = {
         let harness = TestHarness::new().await;
-        let _results = harness.spawn_recorder::<ToolExecutionCompleted>().await;
+        let results = harness.spawn_recorder::<ToolExecutionCompleted>().await;
         let session_id = SessionId::new();
         let state = jinn_kernel::common::state::State::new(
             jinn_kernel::common::app_state::AppState::default_with_scope_focus(),
@@ -628,7 +628,7 @@ async fn disable_cycle_calls_fail_fast_after_teardown() {
             .expect("session")
             .disable_mcp_server("stub");
 
-        (harness, session_id, _results, state)
+        (harness, session_id, results, state)
     };
 
     // When calling the echo tool again after teardown (actor stopped, registry
@@ -656,7 +656,7 @@ async fn disable_cycle_calls_fail_fast_after_teardown() {
     // race with the dispatch. A fixed sleep would pass on a slow host
     // simply because the dispatch had not been processed yet.
     let completions = jinn_testutil::wait::await_settled_messages(
-        &_results,
+        &results,
         Duration::from_millis(300),
         Duration::from_secs(5),
     )

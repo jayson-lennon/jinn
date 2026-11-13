@@ -40,8 +40,7 @@ pub fn read_rules(
 
     let disabled = config
         .get::<StreamRulesConfig>()
-        .map(|section| section.disabled_rules)
-        .unwrap_or_default();
+        .map_or_default(|section| section.disabled_rules);
     // Silent skip on purpose: a deliberate disable is the requested
     // behaviour, so a name that matches nothing is inert rather than a
     // warning the user would see on every read.

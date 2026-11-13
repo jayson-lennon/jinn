@@ -24,7 +24,7 @@ pub struct ThreadId(String);
 impl ThreadId {
     /// Wraps a raw Discord thread id.
     #[must_use]
-    pub fn new(raw: impl Into<String>) -> Self {
+    pub fn new<S: Into<String>>(raw: S) -> Self {
         Self(raw.into())
     }
 

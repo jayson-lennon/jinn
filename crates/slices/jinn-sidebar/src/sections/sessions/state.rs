@@ -44,8 +44,17 @@ impl SessionListKey {
     fn title_digest(title: &str) -> (usize, u64, u64) {
         const EDGE: usize = 8;
         let bytes = title.as_bytes();
-        let head = &bytes[..bytes.len().min(EDGE)];
-        let tail = &bytes[bytes.len().saturating_sub(EDGE)..];
+        // ASCII titles split exactly at `EDGE`; a multi-byte title splits at
+        // the boundary byte, which the fold treats as opaque bytes — the
+        // digest is a cache key, never rendered.
+        let head_end = bytes.len().min(EDGE);
+        let tail_start = bytes.len().saturating_sub(EDGE);
+        let (head, rest) = bytes.split_at(head_end);
+        let tail = if tail_start <= head_end {
+            &[]
+        } else {
+            rest.split_at(tail_start - head_end).1
+        };
         (bytes.len(), fold_bytes(head), fold_bytes(tail))
     }
 

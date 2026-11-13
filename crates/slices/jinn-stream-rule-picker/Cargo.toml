@@ -9,7 +9,6 @@ marked-path = { workspace = true }
 wherror = { workspace = true }
 jinn-config = { workspace = true }
 jinn-core-types = { workspace = true }
-jinn-kernel = { workspace = true }
 jinn-picker = { workspace = true }
 jinn-preferences-config = { workspace = true }
 jinn-selection-widget = { workspace = true }
@@ -28,6 +27,9 @@ error-stack = { workspace = true }
 ratatui = { workspace = true }
 
 [dev-dependencies]
+# Test-only kernel edge: the dispatch tests drive `IntentHandler::handle`
+# and read `KernelIntent`/`Services::new_fake` directly.
+jinn-kernel = { workspace = true }
 # `activate` resolves the picker cell the catalog owns, so the tests seed
 # their registry through the same list production boot uses.
 jinn-cell-catalog = { workspace = true }

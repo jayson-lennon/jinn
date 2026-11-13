@@ -194,7 +194,7 @@ mod tests {
 
         // Then nothing is synthesized: we report no version, and programs
         // time out gracefully on an unanswered DA2 rather than hanging.
-        assert!(reply.is_empty());
+        assert_eq!(reply, [] as [u8; 0]);
     }
 
     #[rstest::rstest]
@@ -227,7 +227,7 @@ mod tests {
         let reply = respond_to_queries(raw, (0, 0));
 
         // Then nothing is synthesized.
-        assert!(reply.is_empty());
+        assert_eq!(reply, [] as [u8; 0]);
     }
 
     #[rstest::rstest]
@@ -247,6 +247,6 @@ mod tests {
         let reply = respond_to_queries(b"\x1b[1", (0, 0));
 
         // Then nothing is synthesized and nothing panics.
-        assert!(reply.is_empty());
+        assert_eq!(reply, [] as [u8; 0]);
     }
 }

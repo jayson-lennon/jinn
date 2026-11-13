@@ -60,7 +60,10 @@ pub fn failed_result(tool_call_id: &ToolCallId, name: &str, msg: &str) -> ToolRe
 /// caller that omits `Error: ` ships a failure the model reads as a plain
 /// result string. Use [`tool_error`] unless the tool owns its phrasing.
 #[must_use]
-pub fn unprefixed_failure(call: &ToolCall, content: impl Into<String>) -> ToolResult {
+pub fn unprefixed_failure<T>(call: &ToolCall, content: T) -> ToolResult
+where
+    T: Into<String>,
+{
     failed(call.id.clone(), call.name.clone(), content)
 }
 
@@ -72,11 +75,12 @@ pub fn unprefixed_failure(call: &ToolCall, content: impl Into<String>) -> ToolRe
 /// its failure text is built from a coordinator reply it has already
 /// destructured.
 #[must_use]
-pub fn failed(
-    tool_call_id: impl Into<jinn_core_types::ToolCallId>,
-    name: impl Into<String>,
-    content: impl Into<String>,
-) -> ToolResult {
+pub fn failed<I, N, C>(tool_call_id: I, name: N, content: C) -> ToolResult
+where
+    I: Into<jinn_core_types::ToolCallId>,
+    N: Into<String>,
+    C: Into<String>,
+{
     ToolResult {
         tool_call_id: tool_call_id.into(),
         name: name.into(),
@@ -221,7 +225,7 @@ mod tests {
             timeout: Some(std::time::Duration::from_secs(30)),
             state: None,
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             session_id: Some(jinn_core_types::SessionId::new()),
             app_paths: jinn_common::app_paths::AppPaths::default(),
             bus: None,

@@ -61,6 +61,10 @@ pub struct LifecycleCompletionListenerActor {
 }
 
 impl ServiceActor for LifecycleCompletionListenerActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "ServiceActor::init is async by trait contract; this impl never awaits"
+    )]
     async fn init(_args: &trouper::json::Json) -> Result<Self, error_stack::Report<RegistryError>> {
         // Never called: spawned via `init_with` (typed deps cannot ride
         // JSON args).
@@ -72,7 +76,7 @@ impl ServiceActor for LifecycleCompletionListenerActor {
 impl LifecycleCompletionListenerActor {
     /// Spawns the listener onto the trouper system, returning only after
     /// the subscription is live.
-    pub async fn spawn(deps: LifecycleCompletionListenerDeps) -> ActorPath {
+    pub fn spawn(deps: LifecycleCompletionListenerDeps) -> ActorPath {
         use std::sync::atomic::{AtomicU64, Ordering};
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let path = ActorPath::new(format!(
@@ -116,6 +120,10 @@ impl LifecycleCompletionListenerActor {
 }
 
 impl MsgHandler<SessionSetupCompleted> for LifecycleCompletionListenerActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "MsgHandler::handle is async by trait contract; this impl never awaits"
+    )]
     async fn handle(&mut self, msg: &SessionSetupCompleted, ctx: &mut MsgCtx<'_>) {
         if msg.session_id == self.session_id && self.kind == AwaitKind::Setup {
             self.complete(
@@ -131,6 +139,10 @@ impl MsgHandler<SessionSetupCompleted> for LifecycleCompletionListenerActor {
 }
 
 impl MsgHandler<SessionTeardownFinished> for LifecycleCompletionListenerActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "MsgHandler::handle is async by trait contract; this impl never awaits"
+    )]
     async fn handle(&mut self, msg: &SessionTeardownFinished, ctx: &mut MsgCtx<'_>) {
         if msg.session_id == self.session_id && self.kind == AwaitKind::Teardown {
             self.complete(

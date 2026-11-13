@@ -298,6 +298,11 @@ pub(crate) fn spawn_screen_task(
 impl ScreenWiring {
     /// Updates the `term/tabs` cell (slice-owned terminal mirrors).
     fn with_tabs<R>(&self, f: impl FnOnce(&mut jinn_term_msg::TerminalTabState) -> R) -> R {
+        #[expect(
+            clippy::expect_used,
+            reason = "composition attaches the shared state before the screen task spawns; \
+                      missing slices is a wiring bug, not a runtime condition"
+        )]
         let slices = self
             .state
             .read()
@@ -305,6 +310,10 @@ impl ScreenWiring {
             .slices()
             .cloned()
             .expect("term cell missing: slices not attached");
+        #[expect(
+            clippy::expect_used,
+            reason = "the cell catalog registers the term/tabs cell before any slice activates"
+        )]
         let cell = slices
             .reader::<jinn_term_msg::TerminalTabState>(&jinn_term_msg::term_tabs_slot())
             .expect("term/tabs cell missing: slice not registered");

@@ -27,6 +27,10 @@ pub struct DiscoveryNotifier {
 }
 
 impl ServiceActor for DiscoveryNotifier {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "trait contract: init is never called (spawn uses init_with)"
+    )]
     async fn init(_args: &trouper::json::Json) -> Result<Self, error_stack::Report<RegistryError>> {
         // The state handle cannot ride JSON args; spawn injects it via
         // `init_with` (see `spawn`).

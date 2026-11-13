@@ -838,7 +838,7 @@ fn insert_char_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_insert_char('x', &mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -867,7 +867,7 @@ fn delete_grapheme_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_delete_grapheme(&mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -898,7 +898,7 @@ fn delete_grapheme_forward_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_delete_grapheme_forward(&mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -951,7 +951,7 @@ fn submit_message_noop_with_empty_buffer() {
     );
 
     // Then no commands are returned.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1098,7 +1098,7 @@ fn steer_submit_while_busy_routes_to_steer(
     match phase {
         PhaseView::Streaming => state.session.active_session_mut().begin_streaming(),
         PhaseView::Working | PhaseView::Cancelling => {
-            state.session.active_session_mut().begin_sending()
+            state.session.active_session_mut().begin_sending();
         }
         PhaseView::Idle => unreachable!("Idle is the fall-through case, tested separately"),
     }
@@ -1177,7 +1177,7 @@ fn autocomplete_confirm_no_op_when_no_autocomplete() {
     let result = jinn_chat_input::intent::handle_autocomplete_confirm(&mut state);
 
     // Then nothing changes and no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1223,7 +1223,7 @@ fn move_cursor_left_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_move_cursor_left(&mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1257,7 +1257,7 @@ fn move_cursor_right_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_move_cursor_right(&mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1289,7 +1289,7 @@ fn move_cursor_to_start_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_move_cursor_to_start(&mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1323,7 +1323,7 @@ fn move_cursor_to_end_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_move_cursor_to_end(&mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1355,7 +1355,7 @@ fn move_cursor_word_left_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_move_cursor_word_left(&mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1389,7 +1389,7 @@ fn move_cursor_word_right_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_move_cursor_word_right(&mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1427,7 +1427,7 @@ fn cursor_left_reactivates_autocomplete_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_move_cursor_left(&mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1459,7 +1459,7 @@ fn backspace_reactivates_autocomplete_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_delete_grapheme(&mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1503,7 +1503,7 @@ fn cursor_move_away_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_move_cursor_left(&mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1516,7 +1516,7 @@ fn move_cursor_up_delegates_to_state() {
     let result = jinn_chat_input::intent::handle_move_cursor_up(&mut state);
 
     // Then no crash and no commands.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1529,7 +1529,7 @@ fn move_cursor_down_delegates_to_state() {
     let result = jinn_chat_input::intent::handle_move_cursor_down(&mut state);
 
     // Then no crash and no commands.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1556,7 +1556,7 @@ fn enter_insert_mode_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_enter_insert_mode(&mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1616,7 +1616,7 @@ fn enter_normal_mode_from_input_emits_no_commands() {
     );
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1655,7 +1655,7 @@ fn enter_normal_mode_from_picker_emits_no_commands() {
     );
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1696,7 +1696,7 @@ fn enter_normal_mode_from_sidebar_input_emits_no_commands() {
     );
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1838,7 +1838,7 @@ fn slash_at_position_0_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_insert_char('/', &mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1870,7 +1870,7 @@ fn slash_with_content_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_insert_char('/', &mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -1953,7 +1953,7 @@ fn slash_autocomplete_tab_confirm_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_autocomplete_confirm(&mut state);
 
     // Then no commands were emitted (autocomplete confirm doesn't execute).
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -2026,7 +2026,7 @@ fn slash_autocomplete_cursor_reentry_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_move_cursor_left(&mut state); // on 'n'
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -2064,7 +2064,7 @@ fn slash_autocomplete_cursor_leaves_token_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_move_cursor_left(&mut state); // space
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -2450,7 +2450,7 @@ fn paste_text_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_paste_text("hello\nworld", &mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -2492,7 +2492,7 @@ fn paste_text_at_cursor_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_paste_text("XY", &mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -2525,7 +2525,7 @@ fn hash_after_newline_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_insert_char('#', &mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -2557,7 +2557,7 @@ fn hash_after_newline_start_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_insert_char('#', &mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -2589,7 +2589,7 @@ fn hash_after_non_boundary_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_insert_char('#', &mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -2623,7 +2623,7 @@ fn hash_cursor_reentry_emits_no_commands() {
     let result = jinn_chat_input::intent::handle_move_cursor_left(&mut state);
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 /// A "#code hello" state with hash autocomplete active at token_start=0 and
@@ -2829,7 +2829,7 @@ fn enter_normal_mode_dismissing_autocomplete_emits_no_commands() {
     );
 
     // Then no commands are emitted.
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 #[rstest::rstest]
@@ -3339,10 +3339,9 @@ fn backspace_deleting_at_removes_it() {
     }
 
     // Then the buffer is empty.
-    assert!(
-        state
-            .with_active_input(|i| i.text().to_owned(), String::new)
-            .is_empty()
+    assert_eq!(
+        state.with_active_input(|i| i.text().to_owned(), String::new),
+        ""
     );
     // And the popup is not active.
     assert!(
@@ -4113,7 +4112,7 @@ fn enter_normal_mode_dismisses_active_autocomplete_without_scope_change() {
         FocusScope::Input,
         "first ESC should stay in Input, not switch to Normal"
     );
-    assert!(result.message_names.is_empty());
+    assert_eq!(result.message_names, [] as [&str; 0]);
 }
 
 use ratatui::layout::Rect;

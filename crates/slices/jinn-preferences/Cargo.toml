@@ -13,9 +13,7 @@ jinn-config = { workspace = true }
 # actor": these are the authoritative writers for those fields.
 jinn-kernel = { workspace = true }
 jinn-preferences-config = { workspace = true }
-jinn-boot-msg = { workspace = true }
 jinn-preferences-msg = { workspace = true }
-jinn-project = { workspace = true }
 jinn-project-msg = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-core-types = { workspace = true }
@@ -36,9 +34,10 @@ serde_json = { workspace = true }
 error-stack = { workspace = true }
 tracing = { workspace = true }
 ratatui = { workspace = true }
-rstest = { workspace = true }
 
 [dev-dependencies]
+# The actor/render tests stack `#[rstest::rstest]` per the test discipline.
+rstest = { workspace = true }
 dirs = { workspace = true }
 tokio = { workspace = true }
 

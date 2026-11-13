@@ -160,7 +160,37 @@ subagent; on expiry the subagent is cancelled and a failure is returned.
             .to_owned(),
     ),
 
-    prompt_guidelines: vec![
+    prompt_guidelines: spawn_subagent_prompt_guidelines(),
+    parameters: spawn_subagent_parameters(),
+    server_tool_type: None,
+    }
+}
+
+/// The JSON schema for `spawn_subagent`'s arguments.
+fn spawn_subagent_parameters() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "prompt": {
+                "type": "string",
+                "description": "Self-contained brief for the subagent. It sees nothing else — no conversation history, no user intent."
+            },
+            "description": {
+                "type": "string",
+                "description": "A 3-5 word summary of the task, shown as the subagent session's title in the sidebar."
+            },
+            "model": {
+                "type": "string",
+                "description": "Optional model override for the subagent. The value must name an expanded provider/model id (e.g. \"openrouter/anthropic/claude-sonnet-4\") or a configured alias name (e.g. \"fast\"); anything else fails the call before any subagent is created. Defaults to this session's model. Do not provide empty strings or use 'inherit' as the model. Use this field only when the user explicitly instructs a model for the subagent — you almost never need to do this."
+            },
+        },
+        "required": ["prompt"]
+    })
+}
+
+/// The per-call guidelines the model sees for `spawn_subagent`.
+fn spawn_subagent_prompt_guidelines() -> Vec<String> {
+    vec![
        r#"Before delegating, identify independent workstreams and their dependencies. If two or more workstreams can proceed without waiting for each other, launch them concurrently as separate spawn_subagent calls in the same assistant turn."#
             .to_owned(),
 
@@ -184,27 +214,7 @@ subagent; on expiry the subagent is cancelled and a failure is returned.
 
        r#"The model argument is only for when the user explicitly instructs a model for a subagent — you almost never need it. Its value must be an expanded provider/model id or a configured alias name; an unknown name fails the call without spawning anything."#
             .to_owned(),
-    ],
-        parameters: serde_json::json!({
-            "type": "object",
-            "properties": {
-                "prompt": {
-                    "type": "string",
-                    "description": "Self-contained brief for the subagent. It sees nothing else — no conversation history, no user intent."
-                },
-                "description": {
-                    "type": "string",
-                    "description": "A 3-5 word summary of the task, shown as the subagent session's title in the sidebar."
-                },
-                "model": {
-                    "type": "string",
-                    "description": "Optional model override for the subagent. The value must name an expanded provider/model id (e.g. \"openrouter/anthropic/claude-sonnet-4\") or a configured alias name (e.g. \"fast\"); anything else fails the call before any subagent is created. Defaults to this session's model. Do not provide empty strings or use 'inherit' as the model. Use this field only when the user explicitly instructs a model for the subagent — you almost never need to do this."
-                },
-            },
-            "required": ["prompt"]
-        }),
-        server_tool_type: None,
-    }
+    ]
 }
 
 /// Parsed `spawn_subagent` tool arguments.
@@ -279,6 +289,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
 }
 
 /// How the awaited child run ended.
+#[derive(Debug, Clone, Copy)]
 enum ChildOutcome {
     /// The child reached `Idle` — read its last entry.
     Finished,
@@ -379,10 +390,16 @@ pub(crate) async fn await_discovery_settlement(
         child_id: child_id.clone(),
         expected_servers: expected_servers.clone(),
         settled: settled_tx,
-    })
-    .await;
+    });
     settle_on_quorum(listener, settled_rx, budget, system.clone()).await;
 }
+
+/// The subscription and settlement halves of a settle-gate wait.
+#[cfg(test)]
+type SettleGateHalves = (
+    std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+    std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+);
 
 /// Spawns the settle listener and returns the handle that awaits its
 /// quorum, plus the point at which the listener's subscriptions are live.
@@ -396,16 +413,13 @@ pub(crate) async fn await_discovery_settlement(
 /// events, and then awaits `settled`. The production path
 /// ([`await_discovery_settlement`]) does both in one call.
 #[cfg(test)]
-pub(crate) async fn spawn_discovery_settle_listener(
+pub(crate) fn spawn_discovery_settle_listener(
     system: &trouper::system::ActorSystem,
     bus: &jinn_kernel::common::services::bus_service::BusService,
     child_id: &SessionId,
     expected_servers: &std::collections::BTreeSet<String>,
     budget: Duration,
-) -> (
-    std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
-    std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
-) {
+) -> SettleGateHalves {
     let (settled_tx, settled_rx) = tokio::sync::oneshot::channel();
     let listener = SubagentSettleListenerActor::spawn(SubagentSettleListenerDeps {
         system: system.clone(),
@@ -413,8 +427,7 @@ pub(crate) async fn spawn_discovery_settle_listener(
         child_id: child_id.clone(),
         expected_servers: expected_servers.clone(),
         settled: settled_tx,
-    })
-    .await;
+    });
     // `spawn` returns only after the four subscriptions are registered, so
     // the subscription point is right here.
     let subscribed =
@@ -547,29 +560,8 @@ async fn run(call: ToolCall, ctx: ToolContext) -> ToolResult {
     // are the servers whose terminal statuses the gate waits on.
     let expected_servers = child.enabled_mcp_servers().clone();
 
-    // Insert the child before any event flies. Every later writer (session
-    // actor on EnqueueUserMessage, MCP coordinator on SessionCreated) looks
-    // the session up by id — insertion must precede publication or they
-    // would each `get_or_create` a bare session over the real child.
-    state.with_session(|view| {
-        let map = view.session.map();
-        map.insert(child);
-        // Stamp the parent's tool-call entry with the child link. The UI
-        // reads the entry to offer "open subagent session" and to show the
-        // waiting line. The tool-call entry exists by the time this future
-        // runs (the executor only starts after the provider finished
-        // streaming the call); a missing entry is a defensive no-op.
-        if let Some(parent) = map.get_mut(&parent_id) {
-            parent.edit_history().with_last_matching_mut(
-                |entry| matches!(&entry.kind, ChatEntryKind::ToolCall { id, .. } if id == &call.id),
-                |entry| {
-                    if let ChatEntryKind::ToolCall { child_session, .. } = &mut entry.kind {
-                        *child_session = Some(child_id.clone());
-                    }
-                },
-            );
-        }
-    });
+    // Insert the child before any event flies.
+    insert_child_session(&state, child, &parent_id, &call.id);
 
     // Register the in-flight pair before blocking so the stall watchdog sees
     // the suspended parent. The guard covers success, failure, and abort
@@ -588,12 +580,10 @@ async fn run(call: ToolCall, ctx: ToolContext) -> ToolResult {
         bus: bus.clone(),
         child_id: child_id.clone(),
         completion: completion_tx,
-    })
-    .await;
+    });
 
-    // Publish: lifecycle actors react to SessionCreated (MCP reconcile,
-    // scans, persistence); the session actor turns EnqueueUserMessage into
-    // the child's first dispatch.
+    // Publish the child's creation, settle discovery, then dispatch its
+    // first (and only) user turn.
     bus.publish(SessionCreated {
         session_id: child_id.clone(),
         cwd: child_cwd,
@@ -614,13 +604,59 @@ async fn run(call: ToolCall, ctx: ToolContext) -> ToolResult {
     let outcome = await_child(&bus, completion_rx, child_id.clone(), deadline).await;
     guard.defuse();
 
+    finish_spawn(call, &state, &child_id, outcome)
+}
+
+/// Inserts the built child session and stamps the parent's tool-call entry
+/// with the child link.
+///
+/// Insertion must precede publication: every later writer (session actor on
+/// `EnqueueUserMessage`, MCP coordinator on `SessionCreated`) looks the
+/// session up by id, and a miss would `get_or_create` a bare session over
+/// the real child. The tool-call entry exists by the time this future runs
+/// (the executor only starts after the provider finished streaming the
+/// call); a missing entry is a defensive no-op.
+fn insert_child_session(
+    state: &jinn_kernel::common::state::State,
+    child: ChatSessionState,
+    parent_id: &SessionId,
+    tool_call_id: &jinn_core_types::ToolCallId,
+) {
+    state.with_session(|view| {
+        let child_id = child.session_id().clone();
+        let map = view.session.map();
+        map.insert(child);
+        // The UI reads the entry to offer "open subagent session" and to show
+        // the waiting line.
+        if let Some(parent) = map.get_mut(parent_id) {
+            parent.edit_history().with_last_matching_mut(
+                |entry| {
+                    matches!(&entry.kind, ChatEntryKind::ToolCall { id, .. } if id == tool_call_id)
+                },
+                |entry| {
+                    if let ChatEntryKind::ToolCall { child_session, .. } = &mut entry.kind {
+                        child_session.replace(child_id.clone());
+                    }
+                },
+            );
+        }
+    });
+}
+
+/// Turns the awaited child outcome into the forwarded tool result.
+fn finish_spawn(
+    call: ToolCall,
+    state: &jinn_kernel::common::state::State,
+    child_id: &SessionId,
+    outcome: ChildOutcome,
+) -> ToolResult {
     match outcome {
         ChildOutcome::Finished => {
             let (success, content) = {
                 let snapshot = state.read();
                 snapshot
                     .session
-                    .get(&child_id)
+                    .get(child_id)
                     .and_then(|child| child.history().last())
                     .map_or_else(
                         || (false, "subagent produced no output".to_owned()),

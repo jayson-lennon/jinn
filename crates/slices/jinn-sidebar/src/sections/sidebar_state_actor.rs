@@ -76,6 +76,10 @@ pub struct SidebarStateActor {
 }
 
 impl ServiceActor for SidebarStateActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "ServiceActor::init is async by trait contract; this impl never awaits"
+    )]
     async fn init(_args: &trouper::json::Json) -> Result<Self, error_stack::Report<RegistryError>> {
         // Never called: the spawn helper injects the state handle via
         // `init_with`.
@@ -161,6 +165,10 @@ impl SidebarStateActor {
     }
 
     /// Completes a preview render, ignoring a result for a superseded request.
+    #[expect(
+        clippy::rc_buffer,
+        reason = "Arc keeps cloning a rendered preview's line buffer O(1); the type is fixed by the preview store in jinn-sidebar-msg"
+    )]
     fn complete_preview(
         &self,
         session_id: jinn_core_types::SessionId,
@@ -407,7 +415,7 @@ mod tests {
         removed_id: &jinn_core_types::SessionId,
         was_active: bool,
         retarget_to_row: Option<usize>,
-    ) -> Option<jinn_core_types::SessionId> {
+    ) -> jinn_core_types::SessionId {
         {
             let mut state = actor.state.write();
             state.session.remove_without_replacement(removed_id);
@@ -426,7 +434,7 @@ mod tests {
             was_active,
         });
         let state = actor.state.read();
-        Some(state.session.active_session_id().clone())
+        state.session.active_session_id().clone()
     }
 
     #[rstest::rstest]
@@ -487,7 +495,7 @@ mod tests {
         let cursor = state
             .frontend
             .with_sections(|s| s.sessions.selected_id.clone(), || None);
-        assert_eq!(active, cursor, "the cursor's new row becomes active");
+        assert_eq!(Some(active), cursor, "the cursor's new row becomes active");
     }
 
     #[rstest::rstest]
@@ -509,7 +517,7 @@ mod tests {
 
         // Then the user stays in the conversation they were reading, even
         // though the cursor sits somewhere else.
-        assert_eq!(active, Some(ids[0].clone()));
+        assert_eq!(active, ids[0].clone());
     }
 
     #[rstest::rstest]

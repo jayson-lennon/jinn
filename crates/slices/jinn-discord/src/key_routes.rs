@@ -155,7 +155,7 @@ mod tests {
             .expect("to-thread row attached");
 
         // Then no bus command was emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         // And the failure landed as an error entry in the active session.
         let entry = state
             .active_session()

@@ -211,12 +211,11 @@ fn tool_definition_to_json(def: &ToolDefinition) -> serde_json::Value {
         .parameters
         .get("required")
         .and_then(|v| v.as_array())
-        .map(|arr| {
+        .map_or_else(Vec::new, |arr| {
             arr.iter()
                 .filter_map(|v| v.as_str().map(std::borrow::ToOwned::to_owned))
                 .collect::<Vec<String>>()
-        })
-        .unwrap_or_default();
+        });
 
     serde_json::json!({
         "name": def.name,

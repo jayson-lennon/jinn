@@ -34,8 +34,7 @@ pub fn handle_rename_session_enter(state: &mut AppState) -> IntentResult {
     let title = state
         .session
         .get(&session_id)
-        .map(|s| s.title().unwrap_or("Untitled Session").to_owned())
-        .unwrap_or_default();
+        .map_or_default(|s| s.title().unwrap_or("Untitled Session").to_owned());
     let cursor_pos = title.len();
 
     state.frontend.update_sections(|s| {
@@ -297,7 +296,7 @@ mod tests {
             state.frontend.sidebar_section(),
             Some(jinn_sidebar_msg::SidebarSectionId::Sessions)
         );
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]
@@ -366,7 +365,7 @@ mod tests {
         let result = handle_rename_session_confirm(&mut state);
 
         // Then no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         // And scope is NOT popped (user stays in popup).
         assert!(matches!(
             state.frontend.scope(),
@@ -504,7 +503,7 @@ mod tests {
         // And session title is unchanged.
         assert_eq!(state.session_mut(&session_id).title(), Some("Original"));
         // And no commands are emitted.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
     }
 
     #[rstest::rstest]

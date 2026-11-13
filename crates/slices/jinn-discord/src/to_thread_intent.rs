@@ -38,12 +38,7 @@ use jinn_slices::Slices;
 /// This function never returns `Err` — failures push a `ChatEntry::error`
 /// into the active session and yield an empty `IntentResult`.
 pub fn handle_to_discord_thread(ctx: ActionCtx<'_>) -> IntentResult {
-    let ActionCtx {
-        state,
-        slices,
-        config: _,
-        key_bytes: _,
-    } = ctx;
+    let ActionCtx { state, slices, .. } = ctx;
     // Precondition 1: title exists. The session title is `None` until the first
     // user message is sent, so this also gates the "empty session" case.
     let Some(title) = state.active_session_title() else {
@@ -204,7 +199,7 @@ mod tests {
         let result = handle_to_discord_thread(ctx(&mut state, &slices));
 
         // Then no command is emitted — the gateway is never reached.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         // And an error ChatEntry was pushed into the session.
         assert!(matches!(last_entry_kind(&state), ChatEntryKind::Error(_)));
     }
@@ -219,7 +214,7 @@ mod tests {
         let result = handle_to_discord_thread(ctx(&mut state, &slices));
 
         // Then no command is emitted, and an error entry is pushed.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         assert!(matches!(last_entry_kind(&state), ChatEntryKind::Error(_)));
     }
 
@@ -237,7 +232,7 @@ mod tests {
         let result = handle_to_discord_thread(ctx(&mut state, &slices));
 
         // Then no command is emitted, and an error entry is pushed.
-        assert!(result.message_names.is_empty());
+        assert_eq!(result.message_names, [] as [&str; 0]);
         assert!(matches!(last_entry_kind(&state), ChatEntryKind::Error(_)));
     }
 }

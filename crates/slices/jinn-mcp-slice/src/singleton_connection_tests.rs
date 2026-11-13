@@ -106,11 +106,11 @@ async fn singleton_actor_serves_a_session_that_never_spawned_it() {
     // Given a singleton actor spawned by session A.
     let harness = TestHarness::new().await;
     let recorder = harness.spawn_recorder::<ToolExecutionCompleted>().await;
-    let (_services, _path) = spawn_singleton_actor(&harness, &SessionId::new()).await;
+    let (_services, path) = spawn_singleton_actor(&harness, &SessionId::new()).await;
     // The actor must have subscribed to ExecuteTool before the dispatch
     // below, or the call would find no subscriber and the test would
     // prove nothing. A fixed sleep could let the dispatch happen first.
-    jinn_testutil::wait::await_inbox_drained(harness.system(), &_path, Duration::from_secs(10))
+    jinn_testutil::wait::await_inbox_drained(harness.system(), &path, Duration::from_secs(10))
         .await;
 
     // When session B — a different session — dispatches an ExecuteTool.

@@ -31,7 +31,10 @@
 //! after. Each is demonstrated failing against the pre-change tree and
 //! paired with a mutation that breaks it again (recorded in the task's
 //! final report).
-
+#![allow(
+    clippy::indexing_slicing,
+    reason = "integration test: fixture vectors with known lengths"
+)]
 #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
 
 use std::time::Duration;
@@ -235,7 +238,7 @@ fn phase_of(app: &TuiApp, session_id: &SessionId) -> Option<PhaseView> {
         .read()
         .session
         .get(session_id)
-        .map(|s| s.phase())
+        .map(jinn_kernel::ChatSessionState::phase)
 }
 
 /// Polls until the session's phase equals `wanted` or the wait expires.
@@ -424,8 +427,7 @@ async fn cancel_then_racing_dispatch_arms_no_stall_timer() {
                 .read()
                 .session
                 .get(&session_id)
-                .map(|s| s.history().len())
-                .unwrap_or_default()
+                .map_or_default(|s| s.history().len())
         },
     )
     .await;
