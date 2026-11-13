@@ -3224,6 +3224,39 @@ fn forced_unsupported_protocol_degrades_to_fallback() {
 }
 
 #[rstest::rstest]
+fn configured_halfblocks_renders_without_any_detected_capability() {
+    // Given a state with NO detected capability — no picker installed, the
+    // Windows / failed-query shape.
+    let mut element = ChatLogElement::new();
+    let state = {
+        let mut s = normal_state();
+        s.active_session_mut()
+            .push_entry(tool_result_with_image(tiny_png()));
+        s
+    };
+    // The user checked their config and opted into halfblocks.
+    let config = graphics_layer("[graphics]\nprotocol = \"halfblocks\"\n");
+
+    // When rendering under the opt-in.
+    let terminal = render_element_with_config(
+        &mut element,
+        &state,
+        &jinn_slices::Slices::new(),
+        &config,
+        60,
+        30,
+    );
+    let rendered = screen_text(terminal.backend().buffer(), 60, 30);
+
+    // Then the image renders as slot rows (summary withheld) — halfblocks
+    // needs no graphics protocol, so the opt-in always works.
+    assert!(
+        !rendered.contains("image/png"),
+        "configured halfblocks renders even without detected capability, got {rendered:?}"
+    );
+}
+
+#[rstest::rstest]
 fn image_rows_count_into_entry_line_ranges() {
     // Given a capable state with an image-carrying tool result.
     let mut element = ChatLogElement::new();

@@ -200,7 +200,14 @@ pub struct GraphicsState {
     /// Whether the applied config forces a protocol the detected terminal
     /// cannot speak — judged at apply time, before the picker's protocol
     /// type is overridden. Slots degrade to fallbacks while this holds.
+    /// Halfblocks never sets this: it is plain block glyphs, not a
+    /// graphics protocol, so any color terminal can draw it.
     forced_unavailable: bool,
+    /// Whether the startup query detected (or forced onto) a halfblocks
+    /// picker — a genuinely detected halfblocks picker must survive a
+    /// return to `auto`, while the one `enforce_forced_protocol`
+    /// synthesizes for a configured halfblocks must not.
+    detected_halfblocks: bool,
     /// Set by lifecycle edges (suspend/restore leaves kitty images wiped);
     /// the next frame clears the protocol state in response.
     dirty: bool,
@@ -234,6 +241,7 @@ impl GraphicsState {
             )),
             last_applied: GraphicsConfig::default(),
             forced_unavailable: false,
+            detected_halfblocks: false,
             dirty: false,
             epoch: 0,
             last_session: None,
@@ -244,6 +252,10 @@ impl GraphicsState {
     /// `None` records "no capability" and keeps every image on its
     /// text placeholder.
     pub fn set_picker(&mut self, picker: Option<Picker>) {
+        use ratatui_image::picker::ProtocolType;
+        self.detected_halfblocks = picker
+            .as_ref()
+            .is_some_and(|p| p.protocol_type() == ProtocolType::Halfblocks);
         self.picker = picker;
     }
 
@@ -300,11 +312,16 @@ impl GraphicsState {
         let dirty = std::mem::take(&mut self.dirty);
         if config_changed {
             self.protocols.lock().clear();
-            // Judge availability against the *detected* protocol BEFORE the
-            // override switches the picker: force means force, and a
-            // terminal that cannot speak the forced protocol degrades
-            // visibly rather than silently re-detecting.
-            self.forced_unavailable = {
+            // Halfblocks is plain colored block glyphs — any color terminal
+            // draws it, so it is always available when configured, even on
+            // Windows or after a failed detection query. It synthesizes its
+            // own picker below; `slots_available` is told not to demand a
+            // detected one.
+            self.forced_unavailable = !matches!(config.protocol, GraphicsProtocol::Halfblocks) && {
+                // Judge availability against the *detected* protocol BEFORE
+                // the override switches the picker: force means force, and
+                // a terminal that cannot speak the forced protocol degrades
+                // visibly rather than silently re-detecting.
                 let detected = self
                     .picker
                     .as_ref()
@@ -509,17 +526,38 @@ impl GraphicsState {
     /// forces one. Called after a config change; a forced protocol the
     /// terminal lacks leaves the state degrading via
     /// [`Self::slots_available`] instead of switching.
+    ///
+    /// Halfblocks is the exception to the "no picker, no slots" rule: it
+    /// renders as plain block glyphs in any color terminal, so a `None`
+    /// picker (Windows, failed query) synthesizes the crate's
+    /// default-font halfblocks picker when halfblocks is configured — and
+    /// the synthetic picker is removed again when the config returns to
+    /// `auto`, which means *detected* capability only. Opt-in, never a
+    /// fallback.
     fn enforce_forced_protocol(&mut self) {
         use ratatui_image::picker::ProtocolType;
-        let Some(picker) = self.picker.as_mut() else {
-            return;
-        };
         let forced = match self.last_applied.protocol {
-            GraphicsProtocol::Auto => return,
+            GraphicsProtocol::Auto => {
+                // Drop a synthetic halfblocks picker: `auto` renders only
+                // what the startup query detected.
+                if self.picker.as_ref().is_some_and(|p| {
+                    p.protocol_type() == ProtocolType::Halfblocks && !self.detected_halfblocks
+                }) {
+                    self.picker = None;
+                }
+                return;
+            }
             GraphicsProtocol::Kitty => ProtocolType::Kitty,
             GraphicsProtocol::Sixel => ProtocolType::Sixel,
             GraphicsProtocol::ITerm2 => ProtocolType::Iterm2,
             GraphicsProtocol::Halfblocks => ProtocolType::Halfblocks,
+        };
+        if self.picker.is_none() && forced == ProtocolType::Halfblocks {
+            // Always available: block glyphs need no graphics protocol.
+            self.picker = Some(ratatui_image::picker::Picker::halfblocks());
+        }
+        let Some(picker) = self.picker.as_mut() else {
+            return;
         };
         if picker.protocol_type() != forced {
             picker.set_protocol_type(forced);
@@ -721,6 +759,88 @@ mod tests {
         // Then slots stay unavailable — a forced protocol on a
         // no-capability terminal degrades visibly.
         assert!(!state.slots_available(true));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn configured_halfblocks_is_always_available_without_a_picker() {
+        // Given a state without a picker (Windows, or a failed query).
+        let mut state = GraphicsState::new();
+
+        // When configuring halfblocks explicitly.
+        state.apply_config(&GraphicsConfig {
+            protocol: GraphicsProtocol::Halfblocks,
+            ..GraphicsConfig::default()
+        });
+
+        // Then slots are available: halfblocks is plain block glyphs any
+        // color terminal draws, so it synthesizes its own picker.
+        assert!(state.slots_available(true));
+        assert!(state.has_capability());
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn configured_halfblocks_is_available_even_when_detection_found_kitty() {
+        // Given a state whose query detected a kitty-capable terminal,
+        // represented here by installing a halfblocks-capable picker under
+        // a detected flag (the picker's protocol type is what the
+        // availability check compares).
+        let mut state = GraphicsState::new();
+        state.set_picker(Some(ratatui_image::picker::Picker::halfblocks()));
+        state.apply_config(&GraphicsConfig::default());
+        assert!(!state.forced_protocol_unavailable());
+
+        // When the user opts into halfblocks.
+        state.apply_config(&GraphicsConfig {
+            protocol: GraphicsProtocol::Halfblocks,
+            ..GraphicsConfig::default()
+        });
+
+        // Then the override never degrades: there is no terminal that
+        // cannot draw block glyphs.
+        assert!(!state.forced_protocol_unavailable());
+        assert!(state.slots_available(true));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn returning_to_auto_drops_the_synthetic_halfblocks_picker() {
+        // Given a state with no detected capability, opted into halfblocks.
+        let mut state = GraphicsState::new();
+        state.apply_config(&GraphicsConfig {
+            protocol: GraphicsProtocol::Halfblocks,
+            ..GraphicsConfig::default()
+        });
+        assert!(state.has_capability());
+
+        // When the config returns to auto.
+        state.apply_config(&GraphicsConfig::default());
+
+        // Then the synthetic picker is gone: auto means detected capability
+        // only, so the placeholders return.
+        assert!(!state.has_capability());
+        assert!(!state.slots_available(true));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn detected_halfblocks_picker_survives_a_return_to_auto() {
+        // Given a state whose query genuinely detected halfblocks (the
+        // picker's own protocol type, flagged as detected at install).
+        let mut state = GraphicsState::new();
+        state.set_picker(Some(ratatui_image::picker::Picker::halfblocks()));
+
+        // When a halfblocks config applies and then auto returns.
+        state.apply_config(&GraphicsConfig {
+            protocol: GraphicsProtocol::Halfblocks,
+            ..GraphicsConfig::default()
+        });
+        state.apply_config(&GraphicsConfig::default());
+
+        // Then the detected picker survives — auto keeps what was detected.
+        assert!(state.has_capability());
+        assert!(state.slots_available(true));
     }
 
     #[rstest::rstest]

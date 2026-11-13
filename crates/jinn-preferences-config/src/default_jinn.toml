@@ -120,7 +120,10 @@ enabled = true
 # > For when detection lies (tmux, ssh, odd terminal configs). One of:
 # > "auto" (trust detection), "kitty", "sixel", "iterm2", "halfblocks".
 # > Forcing a protocol the terminal cannot actually speak degrades to
-# > the plain-text placeholders — force means force.
+# > the plain-text placeholders — force means force. The exception is
+# > "halfblocks": images render as colored block glyphs (plain text),
+# > which every color terminal draws, so opting in always works — at
+# > default font size on terminals where detection found nothing.
 # > Behavior: Event-Dependent — edits apply live; only the startup
 # > capability query is fixed (a terminal swap mid-session needs a
 # > restart to re-detect).
