@@ -198,11 +198,16 @@ pub struct GraphicsState {
     /// the next comparison clears the protocol state and bumps the epoch.
     last_applied: GraphicsConfig,
     /// Whether the applied config forces a protocol the detected terminal
-    /// cannot speak — judged at apply time, before the picker's protocol
-    /// type is overridden. Slots degrade to fallbacks while this holds.
+    /// cannot speak — judged at apply time against the *startup-detected*
+    /// protocol, never the picker's current type (a previous force
+    /// mutates it). Slots degrade to fallbacks while this holds.
     /// Halfblocks never sets this: it is plain block glyphs, not a
     /// graphics protocol, so any color terminal can draw it.
     forced_unavailable: bool,
+    /// The protocol the startup query detected, frozen at install time.
+    /// Availability judgments and `auto` restoration read this, not the
+    /// picker's live protocol type, which config forces mutate.
+    detected_protocol: Option<ratatui_image::picker::ProtocolType>,
     /// Whether the startup query detected (or forced onto) a halfblocks
     /// picker — a genuinely detected halfblocks picker must survive a
     /// return to `auto`, while the one `enforce_forced_protocol`
@@ -241,6 +246,7 @@ impl GraphicsState {
             )),
             last_applied: GraphicsConfig::default(),
             forced_unavailable: false,
+            detected_protocol: None,
             detected_halfblocks: false,
             dirty: false,
             epoch: 0,
@@ -253,9 +259,10 @@ impl GraphicsState {
     /// text placeholder.
     pub fn set_picker(&mut self, picker: Option<Picker>) {
         use ratatui_image::picker::ProtocolType;
-        self.detected_halfblocks = picker
-            .as_ref()
-            .is_some_and(|p| p.protocol_type() == ProtocolType::Halfblocks);
+        self.detected_protocol = picker.as_ref().map(Picker::protocol_type);
+        self.detected_halfblocks = self
+            .detected_protocol
+            .is_some_and(|p| p == ProtocolType::Halfblocks);
         self.picker = picker;
     }
 
@@ -314,28 +321,24 @@ impl GraphicsState {
             self.protocols.lock().clear();
             // Halfblocks is plain colored block glyphs — any color terminal
             // draws it, so it is always available when configured, even on
-            // Windows or after a failed detection query. It synthesizes its
-            // own picker below; `slots_available` is told not to demand a
-            // detected one.
-            self.forced_unavailable = !matches!(config.protocol, GraphicsProtocol::Halfblocks) && {
-                // Judge availability against the *detected* protocol BEFORE
-                // the override switches the picker: force means force, and
-                // a terminal that cannot speak the forced protocol degrades
-                // visibly rather than silently re-detecting.
-                let detected = self
-                    .picker
-                    .as_ref()
-                    .map(ratatui_image::picker::Picker::protocol_type);
+            // Windows or after a failed detection query (it synthesizes its
+            // own picker below). Every other forced protocol is judged
+            // against the *startup-detected* protocol, never the picker's
+            // live type: a previous force has already mutated it, so
+            // kitty → halfblocks → kitty would otherwise compare a
+            // halfblocks picker against "kitty" and degrade permanently.
+            self.forced_unavailable = {
                 let forced = match config.protocol {
                     GraphicsProtocol::Auto => None,
                     GraphicsProtocol::Kitty => Some(ratatui_image::picker::ProtocolType::Kitty),
                     GraphicsProtocol::Sixel => Some(ratatui_image::picker::ProtocolType::Sixel),
                     GraphicsProtocol::ITerm2 => Some(ratatui_image::picker::ProtocolType::Iterm2),
-                    GraphicsProtocol::Halfblocks => {
-                        Some(ratatui_image::picker::ProtocolType::Halfblocks)
-                    }
+                    GraphicsProtocol::Halfblocks => None,
                 };
-                matches!((detected, forced), (Some(d), Some(f)) if d != f)
+                matches!(
+                    (self.detected_protocol, forced),
+                    (Some(d), Some(f)) if d != f
+                )
             };
             self.last_applied = config.clone();
             self.enforce_forced_protocol();
@@ -538,11 +541,17 @@ impl GraphicsState {
         use ratatui_image::picker::ProtocolType;
         let forced = match self.last_applied.protocol {
             GraphicsProtocol::Auto => {
-                // Drop a synthetic halfblocks picker: `auto` renders only
-                // what the startup query detected.
-                if self.picker.as_ref().is_some_and(|p| {
-                    p.protocol_type() == ProtocolType::Halfblocks && !self.detected_halfblocks
-                }) {
+                // A picker whose detected protocol is recorded is the real
+                // query result; restore its type — a previous force may have
+                // switched it away from what the terminal actually speaks.
+                // A picker with no recorded detection is the synthetic
+                // halfblocks one; drop it — `auto` renders only what the
+                // startup query detected.
+                if let Some(detected) = self.detected_protocol {
+                    if let Some(picker) = self.picker.as_mut() {
+                        picker.set_protocol_type(detected);
+                    }
+                } else {
                     self.picker = None;
                 }
                 return;
@@ -841,6 +850,76 @@ mod tests {
         // Then the detected picker survives — auto keeps what was detected.
         assert!(state.has_capability());
         assert!(state.slots_available(true));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn kitty_detected_switching_to_halfblocks_and_back_stays_available() {
+        // Given a state whose query detected a kitty-capable terminal.
+        // (Protocol type is the detection surface the state reads; the
+        // font size is what a real query provides.)
+        let mut state = GraphicsState::new();
+        state.set_picker(Some(kitty_picker()));
+
+        // When opting into halfblocks live.
+        let halfblocks = GraphicsConfig {
+            protocol: GraphicsProtocol::Halfblocks,
+            ..GraphicsConfig::default()
+        };
+        state.apply_config(&halfblocks);
+
+        // Then slots stay available — halfblocks never degrades.
+        assert!(state.slots_available(true));
+
+        // When returning to auto.
+        state.apply_config(&GraphicsConfig::default());
+
+        // Then the detected kitty picker is restored, not destroyed: the
+        // crisp images come back without a restart.
+        assert!(state.slots_available(true));
+        assert!(state.has_capability());
+        assert_eq!(
+            state.detected_protocol,
+            Some(ratatui_image::picker::ProtocolType::Kitty)
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn kitty_detected_forcing_sixel_then_back_to_auto_recovers_kitty() {
+        // Given a kitty-detected state.
+        let mut state = GraphicsState::new();
+        state.set_picker(Some(kitty_picker()));
+
+        // When forcing sixel (the terminal likely cannot speak it) and
+        // then returning to auto.
+        state.apply_config(&GraphicsConfig {
+            protocol: GraphicsProtocol::Sixel,
+            ..GraphicsConfig::default()
+        });
+        assert!(state.forced_protocol_unavailable());
+
+        state.apply_config(&GraphicsConfig::default());
+
+        // Then auto recovers the detected kitty rendering: the degrade
+        // clears and the picker's protocol returns to the detected one.
+        assert!(!state.forced_protocol_unavailable());
+        assert!(state.slots_available(true));
+        assert_eq!(
+            state
+                .picker
+                .as_ref()
+                .map(ratatui_image::picker::Picker::protocol_type),
+            Some(ratatui_image::picker::ProtocolType::Kitty)
+        );
+    }
+
+    /// A picker shaped like a real kitty detection: kitty protocol with a
+    /// query-provided font size.
+    fn kitty_picker() -> ratatui_image::picker::Picker {
+        let mut picker = ratatui_image::picker::Picker::halfblocks();
+        picker.set_protocol_type(ratatui_image::picker::ProtocolType::Kitty);
+        picker
     }
 
     #[rstest::rstest]
