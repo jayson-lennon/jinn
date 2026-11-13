@@ -51,6 +51,9 @@ args = ["mcp", "smolvm", "--cwd", "<session_cwd>"]
 auto_enable = false
 ```
 
+- Add embedded `luau` support, invoked with `jinn luau`.
+
+
 
 ## 2026-11-10 v1.23.0
 
