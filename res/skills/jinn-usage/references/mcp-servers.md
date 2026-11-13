@@ -105,8 +105,12 @@ while writes to the mounted session directory persist on the host.
 
 Requirements: hardware virtualization (KVM on Linux, HVF on macOS). First
 boot needs the network (packages install from Alpine's index) and downloads
-the VM engine once; progress lands in the dead-server stderr in the picker.
-Machine manifests seed into `~/.config/jinn/smolvm/` (`alpine.toml`
+the VM engine once. Boot progress streams live into the server's stderr
+tail in the picker preview while it connects — one line per phase (engine
+download, machine create, guest boot, first-boot package install) with a
+running elapsed-seconds heartbeat, ending in `ready — serving vm_run and
+vm_info`. Machine manifests seed into `~/.config/jinn/smolvm/`
+(`alpine.toml`
 ships; your edits are never overwritten) and every boot reads the file
 from disk — the server refuses to start without it. To boot a different
 manifest, add your own entry:
