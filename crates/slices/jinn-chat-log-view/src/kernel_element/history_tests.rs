@@ -8,6 +8,7 @@
 
 use crate::chat_log::GUTTER_WIDTH;
 use crate::kernel_element::history::{ChatLogElement, STREAM_RENDER_INTERVAL};
+use jinn_chat_log_view_msg::ImageKey;
 use jinn_kernel::common::app_state::AppState;
 use jinn_kernel::common::render_test::{
     redraw_element, redraw_element_with_config, render_element, render_element_in_with_config,
@@ -2835,6 +2836,27 @@ fn tiny_png() -> Vec<u8> {
     bytes.into_inner()
 }
 
+/// A solid-red 40x40 PNG: big enough that a halfblocks paint leaves visible
+/// block glyphs in the buffer (a 2x1 image is sub-cell and may render as
+/// spaces, hiding a misplaced paint from pixel assertions).
+fn red_png() -> Vec<u8> {
+    let img = image::DynamicImage::new_rgb8(40, 40);
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut bytes, image::ImageFormat::Png)
+        .expect("a 40x40 RGB image always encodes as PNG");
+    bytes.into_inner()
+}
+
+/// A solid-black 200x100 PNG: taller than the halfblock row a red image
+/// reserves, so the two paints are distinguishable by row count.
+fn black_png() -> Vec<u8> {
+    let img = image::DynamicImage::new_rgb8(200, 100);
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut bytes, image::ImageFormat::Png)
+        .expect("a 200x100 RGB image always encodes as PNG");
+    bytes.into_inner()
+}
+
 /// A user entry carrying one image attachment (the `@img.png` shape).
 fn user_entry_with_image(data: Vec<u8>) -> ChatEntry {
     let mut entry = ChatEntry::user("look at this @shot.png");
@@ -3224,5 +3246,119 @@ fn image_rows_count_into_entry_line_ranges() {
     assert!(
         measured > 0,
         "the line cache measured the entry: {measured} counts"
+    );
+}
+
+/// The slot row's buffer y for the first image of the only entry, found by
+/// scanning below the entry's header for the first fully blank content row.
+///
+/// With one image-bearing entry in the log, the header is the entry's last
+/// text row and the reserved slot rows follow it; a TestBackend renders the
+/// slot as blank content (the image pixels are escape sequences or block
+/// glyphs, and halfblocks writes beneath the reserved rows only when it
+/// wins the paint).
+fn slot_row_below_header(buffer: &ratatui::buffer::Buffer, header_row: u16, width: u16) -> u16 {
+    let height = buffer.area.height;
+    let mut y = header_row + 1;
+    while y < height {
+        let row: String = (G..width)
+            .filter_map(|x| buffer.cell((x, y)).map(|c| c.symbol().to_owned()))
+            .collect();
+        if row.trim().is_empty() {
+            return y;
+        }
+        y += 1;
+    }
+    height.saturating_sub(1)
+}
+
+#[rstest::rstest]
+fn image_slot_sits_below_its_entry_in_a_bottom_anchored_log() {
+    // Given a session whose image entry is the only content in a tall
+    // viewport: the log bottom-anchors it behind a run of pad rows (the
+    // just-sent-@path shape), and one frame passes so that pad is live.
+    let mut element = ChatLogElement::new();
+    let height = 30;
+    let mut state = {
+        let mut s = normal_state();
+        attach_graphics_cell(&mut s);
+        s.active_session_mut()
+            .push_entry(user_entry_with_image(red_png()));
+        s
+    };
+    let (mut terminal, area) = render_element_with_area(&mut element, &state, 60, height);
+    let slices = jinn_slices::Slices::new();
+    redraw_element(&mut element, &state, &slices, &mut terminal, area);
+
+    // When the image's paint row is read back (a TestBackend cannot show
+    // graphics glyphs, so the paint geometry is the observable).
+    let key = {
+        let session = state.active_session();
+        let entry = &session.history()[0];
+        ImageKey::new(session.session_id(), &entry.id, 0)
+    };
+    let painted = element
+        .painted_slots()
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, row)| *row)
+        .unwrap_or_else(|| panic!("the image painted; slots: {:?}", element.painted_slots()));
+
+    // Then it paints on its first reserved row — blank_pad (25) + the
+    // entry's pad and text rows (2 lines above the slot) = 28 — directly
+    // below the message, never at the bare slot offset (3), which is inside
+    // the pad region above the entry (the mid-chat misplacement).
+    assert_eq!(
+        painted, 28,
+        "the image paints at pad+entry text (28), not the bare slot offset (3)"
+    );
+}
+
+#[rstest::rstest]
+fn image_slot_tracks_its_entry_when_the_log_scrolls() {
+    // Given a graphics-capable state whose image entry is scrolled so the
+    // slot straddles the viewport top: half the reserved rows are above row
+    // zero, and the paint must slice (negative position), not clamp.
+    let mut element = ChatLogElement::new();
+    let height = 20;
+    let mut state = {
+        let mut s = normal_state();
+        attach_graphics_cell(&mut s);
+        s.active_session_mut()
+            .push_entry(user_entry_with_image(red_png()));
+        s
+    };
+    let (mut terminal, area) = render_element_with_area(&mut element, &state, 60, height);
+    let slices = jinn_slices::Slices::new();
+    // When filler entries arrive (the model's responses) and the log scrolls
+    // up past the entry's text, leaving the slot above the viewport top.
+    {
+        let session = state.active_session_mut();
+        for i in 0..40 {
+            session.push_entry(ChatEntry::assistant(format!("filler {i}")));
+        }
+        // The entry occupies rows 0..4; scrolling 5 puts the slot (row 3)
+        // two rows above the viewport top.
+        session.set_scroll_offset(Some(5));
+    }
+    redraw_element(&mut element, &state, &slices, &mut terminal, area);
+
+    // Then the paint row is the slot's absolute row less the scroll —
+    // negative — so the sliced widget skips the off-screen rows instead of
+    // pinning the image to the viewport top.
+    let key = {
+        let session = state.active_session();
+        let entry = &session.history()[0];
+        ImageKey::new(session.session_id(), &entry.id, 0)
+    };
+    let painted = element
+        .painted_slots()
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, row)| *row)
+        .unwrap_or_else(|| panic!("the image painted; slots: {:?}", element.painted_slots()));
+    assert_eq!(
+        painted, -2,
+        "the straddling slot paints at 3-5 = -2, not clamped to 0"
     );
 }

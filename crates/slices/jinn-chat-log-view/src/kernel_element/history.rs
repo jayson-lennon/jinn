@@ -216,6 +216,12 @@ impl LayoutInputs {
 pub struct ChatLogElement {
     /// The loading status line shown while a session loads.
     loading: LoadingIndicator,
+    /// The terminal row each image slot painted at last frame, keyed by
+    /// image key. Test observation only — the real paint target is the
+    /// terminal, which a `TestBackend` cannot capture for graphics
+    /// protocols (the glyphs/escapes a real terminal shows never appear in
+    /// the test buffer), so placement asserts against this instead.
+    painted_slots: Vec<(ImageKey, i16)>,
     /// The streaming entry's previous rendering, carried between frames so a
     /// throttled frame can paint the previous text instead of re-deriving it.
     ///
@@ -252,6 +258,7 @@ impl ChatLogElement {
         Self {
             loading: LoadingIndicator::default(),
             stream_lines: None,
+            painted_slots: Vec::new(),
         }
     }
 
@@ -325,6 +332,15 @@ impl UiElement for ChatLogElement {
 }
 
 impl ChatLogElement {
+    /// The terminal rows image slots painted at last frame — test
+    /// observation of the paint geometry, which a `TestBackend` buffer
+    /// cannot capture for graphics protocols.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn painted_slots(&self) -> &[(ImageKey, i16)] {
+        &self.painted_slots
+    }
+
     /// Paints the conversation history into `area`.
     ///
     /// The registered draw function calls this against the slice's one
@@ -341,7 +357,14 @@ impl ChatLogElement {
             return;
         }
 
-        let mut render = HistoryRender::new(state, area, ctx.config());
+        let painted_slots: std::rc::Rc<std::cell::RefCell<Vec<(ImageKey, i16)>>> =
+            std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut render = HistoryRender::new(
+            state,
+            area,
+            ctx.config(),
+            std::rc::Rc::clone(&painted_slots),
+        );
         render.prepare_graphics(state);
         render.compute_visual_items();
         render.build_tool_result_map();
@@ -398,6 +421,7 @@ impl ChatLogElement {
             }
         }
         render.paint(frame);
+        self.painted_slots = painted_slots.borrow().clone();
     }
 }
 
@@ -755,6 +779,10 @@ struct HistoryRender<'a> {
     /// The `[graphics]` config read with the snapshot, for the live-apply
     /// compare and the paint pass's slot gating.
     graphics_config: GraphicsConfig,
+    /// Shared sink the image paint appends computed rows to; the element
+    /// owns the same handle and reads it after `paint` for test
+    /// observation.
+    painted_slots: std::rc::Rc<std::cell::RefCell<Vec<(ImageKey, i16)>>>,
     /// Whether a forced protocol degrades this frame to fallbacks (the
     /// config's `protocol` override names something the terminal lacks).
     /// Slots stay inactive; the paint pass skips them.
@@ -772,6 +800,10 @@ struct HistoryRender<'a> {
     content_lines: Vec<Line<'static>>,
     gutter_lines: Vec<Line<'static>>,
     lines_before_viewport: u32,
+    /// Rows of blank pad `build_blank_lines` prepended to the paragraph this
+    /// frame (the bottom-anchored spacer above short history). The image
+    /// paint adds it to slot positions so reserved rows and glyphs agree.
+    blank_pad: u32,
     /// The streaming entry's rendering, set only on a frame that actually
     /// rendered it. Read back by [`Self::stream_rendered`] so the caller can
     /// carry it into the next frame.
@@ -783,7 +815,12 @@ struct HistoryRender<'a> {
 }
 
 impl<'a> HistoryRender<'a> {
-    fn new(state: &'a AppState, area: Rect, config: &jinn_config::ConfigLayer) -> Self {
+    fn new(
+        state: &'a AppState,
+        area: Rect,
+        config: &jinn_config::ConfigLayer,
+        painted_slots: std::rc::Rc<std::cell::RefCell<Vec<(ImageKey, i16)>>>,
+    ) -> Self {
         let gutter_area = Rect {
             x: area.x,
             y: area.y,
@@ -815,6 +852,7 @@ impl<'a> HistoryRender<'a> {
             entry_line_ranges: Vec::new(),
             miss_lines: HashMap::new(),
             image_slots: HashMap::new(),
+            painted_slots,
             frame_graphics: None,
             graphics_config: GraphicsConfig::default(),
             forced_protocol_unavailable: false,
@@ -830,6 +868,7 @@ impl<'a> HistoryRender<'a> {
             content_lines: Vec::new(),
             gutter_lines: Vec::new(),
             lines_before_viewport: 0,
+            blank_pad: 0,
             visual_items: Vec::new(),
             stream_rendered: None,
         }
@@ -1075,6 +1114,12 @@ impl<'a> HistoryRender<'a> {
                         };
                         let mut slots = Vec::new();
                         let lines = entry_to_lines_with_slots(entry, &ctx, &mut slots);
+                        // Convert to wrapped offsets here too: this pass
+                        // renders entries the paint pass never revisits
+                        // (outside `visible_indices`), and paint slices by
+                        // these indices — an unwrapped index paints the
+                        // image mid-entry when the body wraps.
+                        wrapped_slot_offsets(&lines, &mut slots, self.content_width);
                         if !slots.is_empty() {
                             new_slots.insert(vi_idx, slots);
                         }
@@ -1198,7 +1243,7 @@ impl<'a> HistoryRender<'a> {
         let blank_count = self.scroll.blank_count;
         let viewport_top = self.scroll.clamped;
 
-        if blank_count > 0 && viewport_top < blank_count as u32 {
+        self.blank_pad = if blank_count > 0 && viewport_top < blank_count as u32 {
             for _ in 0..blank_count {
                 self.content_lines.push(Line::from(""));
             }
@@ -1208,7 +1253,10 @@ impl<'a> HistoryRender<'a> {
                 GUTTER_STR,
             ));
             self.lines_before_viewport = viewport_top;
-        }
+            blank_count as u32
+        } else {
+            0
+        };
     }
 
     // -----------------------------------------------------------------------
@@ -1344,6 +1392,10 @@ impl<'a> HistoryRender<'a> {
                         build_entry_gutter_lines(&entry_content_lines, &gutter_ctx);
 
                     // Track lines above viewport for scroll calculation.
+                    // The clamped difference is how many rows of this entry
+                    // sit above the viewport; a negative raw value means the
+                    // entry straddles the top, which contributes nothing.
+                    // `saturating_sub` is exact here, never a clamp artifact.
                     if abs_entry_start < viewport_top {
                         self.lines_before_viewport += viewport_top.saturating_sub(abs_entry_start);
                     }
@@ -1394,6 +1446,11 @@ impl<'a> HistoryRender<'a> {
             return;
         };
         let scroll = self.scroll.clamped;
+        // The blank pad `build_blank_lines` prepended to the paragraph: the
+        // reserved slot rows sit below it, so the paint must count it or
+        // images draw too high in a bottom-anchored log (the mid-chat
+        // misplacement until content scrolls the pad away).
+        let blank_pad = self.blank_pad;
         let area = self.content_area;
         let forced_unavailable = self.forced_protocol_unavailable;
         // Attachment bytes by slot key, resolved once for this pass.
@@ -1424,9 +1481,18 @@ impl<'a> HistoryRender<'a> {
             };
             for slot in entry_slots {
                 // The slot's first row within the viewport: its absolute row
-                // (entry start + line index) less the scrolled-off top.
-                let slot_top = i64::from(start) + i64::from(slot.line_index) - i64::from(scroll);
-                let position = i16::try_from(slot_top).unwrap_or(0);
+                // (blank pad + entry start + line index) less the
+                // scrolled-off top. Negative when the slot straddles the
+                // viewport top; the sliced widget skips that many of the
+                // image's own rows, so the sign must survive the i16
+                // boundary (`unwrap_or(0)` would pin a half-scrolled image
+                // to the viewport top).
+                let slot_top = i64::from(blank_pad) + i64::from(start) + i64::from(slot.line_index)
+                    - i64::from(scroll);
+                let position = i16::try_from(slot_top).unwrap_or(i16::MIN);
+                self.painted_slots
+                    .borrow_mut()
+                    .push((slot.key.clone(), position));
                 let bytes = attachments.get(&slot.key).cloned();
                 let holder = cell.update(|graphics| {
                     graphics
