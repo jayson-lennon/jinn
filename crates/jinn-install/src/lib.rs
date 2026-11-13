@@ -155,7 +155,7 @@ fn seed_once(
 /// one [`ExpectedFile`] per bundled file, keyed by its `res/`-relative
 /// path with the compile-time-embedded bytes.
 ///
-/// Editing, adding, or removing files under the five `res/` families ships
+/// Editing, adding, or removing files under the six `res/` families ships
 /// through this derivation with zero code changes: the catalogue is walked
 /// fresh on every call.
 ///
@@ -181,8 +181,8 @@ pub fn expected_catalogue() -> Result<Vec<ExpectedFile<'static>>, Report<Install
 }
 
 /// Builds a [`Destinations`] from the standard [`AppPaths`]-derived roots:
-/// themes/personas/prompts/workflows under the config dir, skills under the
-/// agent dir.
+/// themes/personas/prompts/workflows/smolvm under the config dir, skills
+/// under the agent dir.
 ///
 /// The composition layer and both commands use this so there is exactly one
 /// spelling of "where bundled resources live on this machine".
@@ -194,14 +194,15 @@ pub fn destinations_from_paths(app_paths: &jinn_common::app_paths::AppPaths) -> 
         app_paths.prompts_dir().as_marked_path(),
         app_paths.workflows_dir().as_marked_path(),
         app_paths.skills_dir().as_marked_path(),
+        app_paths.smolvm_dir().as_marked_path(),
     )
 }
 
-/// Relative destinations for the five resource kinds.
+/// Relative destinations for the six resource kinds.
 ///
-/// Each field is a root directory: themes/personas/prompts/workflows live
-/// under the config dir (`~/.config/jinn`), skills live under the agent dir
-/// (`~/.agents/skills`). Passed by value into the reconciler so tests can
+/// Each field is a root directory: themes/personas/prompts/workflows/smolvm
+/// live under the config dir (`~/.config/jinn`), skills live under the agent
+/// dir (`~/.agents/skills`). Passed by value into the reconciler so tests can
 /// point at temp dirs.
 #[derive(Debug, Clone)]
 pub struct Destinations {
@@ -210,10 +211,11 @@ pub struct Destinations {
     prompts: MarkedPathBuf<Absolute>,
     workflows: MarkedPathBuf<Absolute>,
     skills: MarkedPathBuf<Absolute>,
+    smolvm: MarkedPathBuf<Absolute>,
 }
 
 impl Destinations {
-    /// Creates a destination set from the five root directories.
+    /// Creates a destination set from the six root directories.
     #[must_use]
     pub fn new(
         themes: MarkedPath<Absolute>,
@@ -221,6 +223,7 @@ impl Destinations {
         prompts: MarkedPath<Absolute>,
         workflows: MarkedPath<Absolute>,
         skills: MarkedPath<Absolute>,
+        smolvm: MarkedPath<Absolute>,
     ) -> Self {
         Self {
             themes: themes.to_owned(),
@@ -228,6 +231,7 @@ impl Destinations {
             prompts: prompts.to_owned(),
             workflows: workflows.to_owned(),
             skills: skills.to_owned(),
+            smolvm: smolvm.to_owned(),
         }
     }
 
@@ -255,6 +259,11 @@ impl Destinations {
     /// The root directory skills install into.
     pub(crate) fn skills(&self) -> MarkedPath<'_, Absolute> {
         self.skills.as_marked_path()
+    }
+
+    /// The root directory smolvm machine manifests install into.
+    pub(crate) fn smolvm(&self) -> MarkedPath<'_, Absolute> {
+        self.smolvm.as_marked_path()
     }
 }
 

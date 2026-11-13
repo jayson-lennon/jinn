@@ -1,0 +1,39 @@
+# smolvm machine manifest — the Alpine profile jinn ships.
+#
+# This file is seeded into ~/.config/jinn/smolvm/ at jinn startup. The
+# `smolvm` bundled MCP server reads it from disk when it boots a machine;
+# it never launches from in-memory config, so this file must exist for
+# the server to start at all.
+#
+# Edit freely: your copy is protected — jinn never overwrites a manifest
+# you have modified (reconcile keeps user-owned files). Restore the
+# shipped default with `jinn install --builtins`.
+#
+# To boot a machine from a different manifest, add a second server entry
+# to jinn.toml pointing at it:
+#
+#     [mcp.smolvm_custom]
+#     command = "<jinn>"
+#     args = ["mcp", "smolvm", "--cwd", "<session_cwd>", "--smolfile",
+#             "/home/me/.config/jinn/smolvm/my-profile.toml"]
+#
+# Field reference (unknown keys are refused, so a typo fails at boot
+# with the key named in the error):
+#
+#   image   the OCI image the machine boots (string, required)
+#   cpus    virtual CPU count (integer, required)
+#   memory  guest memory in MiB (integer, required)
+#   net     whether the guest gets network access (bool, required) —
+#           the `init` list needs it on to install packages
+#   init    shell commands run once as root on the machine's first
+#           start, before tools are served (list of strings, optional)
+
+# Alpine is small and boots fast; the init pass installs the toolchain
+# agents expect (bash for `vm_run`'s shell wrapping, git and python3 for
+# everyday work). First boot needs the network; after it, the packages
+# are baked into the machine's disk image and later boots start fast.
+image = "alpine:latest"
+cpus = 2
+memory = 2048
+net = true
+init = ["apk update", "apk add bash git python3"]

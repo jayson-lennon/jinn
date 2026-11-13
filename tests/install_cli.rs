@@ -485,7 +485,7 @@ fn boot_reconcile_writes_bundled_files_and_a_complete_manifest() {
             .into_owned();
         let rest = components.as_path().to_owned();
         let root = match kind_dir.as_str() {
-            "themes" | "personas" | "prompts" | "workflows" => root.config.join("jinn"),
+            "themes" | "personas" | "prompts" | "workflows" | "smolvm" => root.config.join("jinn"),
             "skills" => home.join(".agents"),
             other => panic!("unexpected manifest entry kind: {other:?}"),
         }

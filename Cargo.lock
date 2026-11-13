@@ -3145,6 +3145,7 @@ dependencies = [
  "jinn-mcp-msg",
  "jinn-mcp-overgraph",
  "jinn-mcp-slice",
+ "jinn-mcp-smolvm",
  "jinn-model-market",
  "jinn-model-market-msg",
  "jinn-persona",
@@ -4343,6 +4344,26 @@ dependencies = [
  "tracing",
  "trouper",
  "unicode-segmentation",
+ "wherror",
+]
+
+[[package]]
+name = "jinn-mcp-smolvm"
+version = "1.23.0"
+dependencies = [
+ "error-stack",
+ "jinn-common",
+ "jinn-testutil",
+ "marked-path",
+ "rmcp",
+ "rstest",
+ "serde",
+ "serde_json",
+ "smolmachines",
+ "tempfile",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
  "wherror",
 ]
 
@@ -7805,6 +7826,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2",
@@ -8712,6 +8734,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 
 [[package]]
+name = "smol-cloud"
+version = "1.32.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dfdf99625055d7fda2640c7ee30d91e909862ca8b9ca92e9922573f97de1042"
+dependencies = [
+ "base64 0.22.1",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "smolmachines"
+version = "1.32.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d18d0ff4f7a5f5028a9ef0736d164b4ac52ac38da4493eeac0bd2cc38d723fa4"
+dependencies = [
+ "flate2",
+ "futures-util",
+ "reqwest 0.12.28",
+ "rustls 0.23.45",
+ "serde_json",
+ "sha2 0.10.9",
+ "smol-cloud",
+ "tar",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite 0.28.0",
+ "webpki-roots 1.0.9",
+]
+
+[[package]]
 name = "socket2"
 version = "0.5.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9338,6 +9393,22 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.25.0",
  "tungstenite 0.21.0",
+ "webpki-roots 0.26.11",
+]
+
+[[package]]
+name = "tokio-tungstenite"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d25a406cddcc431a75d3d9afc6a7c0f7428d4891dd973e4d54c56b46127bf857"
+dependencies = [
+ "futures-util",
+ "log",
+ "rustls 0.23.45",
+ "rustls-pki-types",
+ "tokio",
+ "tokio-rustls 0.26.6",
+ "tungstenite 0.28.0",
  "webpki-roots 0.26.11",
 ]
 
@@ -10057,6 +10128,25 @@ dependencies = [
  "sha1 0.10.7",
  "thiserror 1.0.69",
  "url",
+ "utf-8",
+]
+
+[[package]]
+name = "tungstenite"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8628dcc84e5a09eb3d8423d6cb682965dea9133204e8fb3efee74c2a0c259442"
+dependencies = [
+ "bytes",
+ "data-encoding",
+ "http",
+ "httparse",
+ "log",
+ "rand 0.9.5",
+ "rustls 0.23.45",
+ "rustls-pki-types",
+ "sha1 0.10.7",
+ "thiserror 2.0.20",
  "utf-8",
 ]
 

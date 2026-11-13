@@ -712,6 +712,7 @@ mod tests {
             let prompts = jinn_testutil::tempdir();
             let workflows = jinn_testutil::tempdir();
             let skills = jinn_testutil::tempdir();
+            let smolvm = jinn_testutil::tempdir();
             let state = jinn_testutil::tempdir();
             let manifest_path = state
                 .path
@@ -723,13 +724,14 @@ mod tests {
                 prompts.path.as_marked_path(),
                 workflows.path.as_marked_path(),
                 skills.path.as_marked_path(),
+                smolvm.path.as_marked_path(),
             );
             Self {
                 themes_root: themes.path.clone(),
                 skills_root: skills.path.clone(),
                 destinations,
                 manifest_path,
-                _temps: vec![themes, personas, prompts, workflows, skills, state],
+                _temps: vec![themes, personas, prompts, workflows, skills, smolvm, state],
             }
         }
 

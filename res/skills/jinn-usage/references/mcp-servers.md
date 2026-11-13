@@ -58,9 +58,11 @@ the entry as configured.
 
 ## Bundled servers
 
-jinn ships one builtin server: **overgraph**, an embedded graph database
-speaking GQL. Its `[mcp.*]` block ships in `default_jinn.toml`, and the
-session starts with it disabled until you enable it in the picker:
+jinn ships two builtin servers: **overgraph** and **smolvm**. Their
+`[mcp.*]` blocks ship in `default_jinn.toml`, and each session starts with
+them disabled until you enable them in the picker.
+
+### Overgraph — embedded graph database
 
 ```toml
 [mcp.overgraph]        # shipped in default_jinn.toml; shown here for reference
@@ -79,6 +81,38 @@ jinn-managed directory across sessions. To work against a different graph
 database, add your own entry with
 `args = ["mcp", "overgraph", "--db", "/path/to/dir"]`. For usage patterns,
 worked examples, and batch ingestion, see `graph-database.md`.
+
+### Smolvm — a sandboxed Linux VM per session
+
+```toml
+[mcp.smolvm]           # shipped in default_jinn.toml; shown here for reference
+command = "<jinn>"
+args = ["mcp", "smolvm", "--cwd", "<session_cwd>"]
+auto_enable = false
+```
+
+Enabling it boots **one ephemeral Alpine Linux microVM for this session
+only** — not a singleton. The session's working directory is mounted
+read-write at `/workspace` inside the guest, which is also the default
+working directory, so `vm_run` edits the session's real tree. Two tools:
+`vm_run` (run a shell command via `bash -lc`; the guest has bash, git, and
+python3; returns stdout/stderr/exit code; a command killed at the timeout —
+default 60s, max 600s — returns its partial output with exit code 124) and
+`vm_info` (the machine manifest plus live guest facts: distro, kernel,
+CPUs, memory, the mount, uptime). The VM lives and dies with the server
+process: disabling the server or quitting jinn discards the guest disk,
+while writes to the mounted session directory persist on the host.
+
+Requirements: hardware virtualization (KVM on Linux, HVF on macOS). First
+boot needs the network (packages install from Alpine's index) and downloads
+the VM engine once; progress lands in the dead-server stderr in the picker.
+Machine manifests seed into `~/.config/jinn/smolvm/` (`alpine.toml`
+ships; your edits are never overwritten) and every boot reads the file
+from disk — the server refuses to start without it. To boot a different
+manifest, add your own entry:
+`args = ["mcp", "smolvm", "--cwd", "<session_cwd>", "--smolfile",
+"/path/to/profile.toml"]` — each `[mcp.<name>]` entry is its own
+per-session machine.
 
 ## Enable for a session
 

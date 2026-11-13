@@ -376,6 +376,38 @@ fn template_ships_overgraph_as_a_disabled_singleton_builtin() {
     );
 }
 
+/// The shipped `[mcp.smolvm]` entry is the builtin microVM server: one
+/// ephemeral machine per enabling session (not `singleton` — a shared
+/// process cannot answer "which session's directory is /workspace"),
+/// served by jinn itself (`<jinn>` token), pinned to the enabling
+/// session's working directory through the `<session_cwd>` token, and
+/// disabled per session by default.
+#[rstest::rstest]
+#[test]
+fn template_ships_smolvm_as_a_disabled_per_session_builtin() {
+    // Given the shipped template parsed as a config layer.
+    let config = jinn_config::testutil::config_layer(DEFAULT_CONFIG);
+    register_all_sections(&config);
+
+    // When reading the mcp section.
+    let mcp = config
+        .get::<McpServersConfig>()
+        .expect("mcp section parses");
+
+    // Then the smolvm entry exists with the builtin's exact shape.
+    let smolvm = mcp
+        .get("smolvm")
+        .expect("shipped template configures the builtin smolvm server");
+    assert_eq!(smolvm.command.as_deref(), Some("<jinn>"));
+    assert_eq!(smolvm.args, ["mcp", "smolvm", "--cwd", "<session_cwd>"]);
+    assert!(
+        !smolvm.singleton,
+        "one VM per session: a shared process cannot answer which session's directory to mount"
+    );
+    assert!(!smolvm.auto_enable, "sessions opt in through the picker");
+    assert!(smolvm.url.is_none(), "stdio server needs no url");
+}
+
 /// The shipped `[canvas]` section is active and binds loopback port 0:
 /// an OS-assigned ephemeral port per running jinn instance, so two
 /// instances never fight over one fixed port (end state: multi-instance

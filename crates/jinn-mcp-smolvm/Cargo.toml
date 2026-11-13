@@ -1,0 +1,33 @@
+[package]
+name = "jinn-mcp-smolvm"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+marked-path = { workspace = true }
+rmcp = { workspace = true, features = ["server", "transport-io"] }
+smolmachines = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros", "io-std"] }
+serde_json = { workspace = true }
+serde = { workspace = true }
+wherror = { workspace = true }
+error-stack = { workspace = true }
+tracing = { workspace = true }
+jinn-common = { workspace = true }
+toml = { workspace = true }
+
+[features]
+# Compiles AND enables the live boot test (`tests/live_boot.rs`), which
+# boots a real machine and needs a hypervisor (KVM/HVF) and, on first
+# run, the engine download. Run with:
+#   cargo test -p jinn-mcp-smolvm --features live-vm live_boot -- --ignored
+live-vm = []
+
+[dev-dependencies]
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tempfile = { workspace = true }
+jinn-testutil = { workspace = true }
+
+[lints]
+workspace = true
