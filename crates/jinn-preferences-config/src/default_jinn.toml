@@ -116,18 +116,11 @@ min_collapse_count = 3
 # > this setting.
 enabled = true
 #
-# > Force a specific graphics protocol instead of trusting detection.
-# > For when detection lies (tmux, ssh, odd terminal configs). One of:
-# > "auto" (trust detection), "kitty", "sixel", "iterm2", "halfblocks".
-# > Forcing a protocol the terminal cannot actually speak degrades to
-# > the plain-text placeholders — force means force. The exception is
-# > "halfblocks": images render as colored block glyphs (plain text),
-# > which every color terminal draws, so opting in always works — at
-# > default font size on terminals where detection found nothing.
-# > Behavior: Event-Dependent — edits apply live; only the startup
-# > capability query is fixed (a terminal swap mid-session needs a
-# > restart to re-detect).
-# protocol = "auto"
+# > Force a specific graphics protocol instead of trusting detection. One of:
+# > "auto" (trust detection), "kitty", "sixel", "iterm2", "halfblocks". Forcing
+# > a protocol the terminal cannot actually speak degrades to the plain-text
+# > placeholders.
+protocol = "auto"
 #
 # > Absolute cap on the rows one image may occupy in the chat log.
 # > Default 16; additionally clamped to half the viewport height,

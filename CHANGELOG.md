@@ -36,6 +36,8 @@ kiosk_command = 'chromium --kiosk --app="{url}" --user-data-dir="{profile}"'
 [graphics]
 enabled = true
 protocol = "auto" # auto | kitty | sixel | iterm2 | halfblocks
+# max height of an image (in rows)
+max_image_rows = 16
 ```
 
 
