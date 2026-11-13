@@ -19,11 +19,14 @@
 //! Every SDK call blocks, so the async server drives it through
 //! `spawn_blocking`.
 
+use std::time::Instant;
+
 use error_stack::{Report, ResultExt};
 use marked_path::{Absolute, MarkedPath, MarkedPathAccess};
 use smolmachines::{Machine, Mount, RuntimeAssets, configure_runtime_assets, local_availability};
 use wherror::Error;
 
+use crate::boot_log;
 use crate::manifest::MachineManifest;
 
 /// The fixed guest path the enabling session's working directory mounts at.
@@ -134,7 +137,9 @@ impl SmolMachineBackend {
         cwd: &MarkedPath<Absolute>,
         manifest: &MachineManifest,
     ) -> Result<Self, Report<BackendError>> {
+        let boot_started = Instant::now();
         availability_gate()?;
+        resolve_engine()?;
 
         let machine = {
             // Per-session, collision-free: the server process id makes the
@@ -143,7 +148,9 @@ impl SmolMachineBackend {
             let name = format!("jinn-smolvm-{}", std::process::id());
             let mount = Mount::new(cwd.as_path().to_string_lossy(), GUEST_WORKSPACE);
 
-            Machine::builder(name)
+            boot_log::machine_creating(&manifest.image);
+            let created = Instant::now();
+            let machine = Machine::builder(name)
                 .image(&manifest.image)
                 .cpus(manifest.cpus)
                 .memory_mib(manifest.memory)
@@ -151,16 +158,22 @@ impl SmolMachineBackend {
                 .mount(mount)
                 .create()
                 .change_context(BackendError)
-                .attach("failed to create the machine")?
+                .attach("failed to create the machine")?;
+            boot_log::machine_created(created);
+            machine
         };
 
+        boot_log::machine_starting();
+        let start_started = Instant::now();
         machine
             .start()
             .change_context(BackendError)
             .attach("failed to start the machine")?;
+        boot_log::machine_started(start_started);
 
         run_first_boot_init(&machine, manifest)?;
 
+        boot_log::ready(boot_started);
         Ok(Self {
             machine,
             image: manifest.image.clone(),
@@ -224,11 +237,15 @@ fn run_first_boot_init(
     machine: &Machine,
     manifest: &MachineManifest,
 ) -> Result<(), Report<BackendError>> {
-    for command in &manifest.init {
+    boot_log::init_starting(manifest.init.len());
+    for (index, command) in manifest.init.iter().enumerate() {
+        boot_log::init_command_starting(command, index + 1, manifest.init.len());
+        let command_started = Instant::now();
         let result = machine
             .exec(["sh", "-c", command.as_str()])
             .change_context(BackendError)
             .attach(format!("init command failed: {command}"))?;
+        boot_log::init_command_done(command, index + 1, manifest.init.len(), command_started);
         if result.exit_code != 0 {
             return Err(Report::new(BackendError)
                 .attach(format!(
@@ -254,11 +271,49 @@ fn run_first_boot_init(
 ///
 /// Returns [`Report<BackendError>`] when the asset configuration itself
 /// fails (unresolvable or wrong-shaped paths).
-pub fn borrow_engine_assets() -> Result<(), Report<BackendError>> {
-    if let Some(assets) = RuntimeAssets::from_path_lookup() {
-        configure_runtime_assets(assets)
-            .change_context(BackendError)
-            .attach("failed to configure the engine's runtime assets")?;
+pub fn borrow_engine_assets() -> Result<bool, Report<BackendError>> {
+    match RuntimeAssets::from_path_lookup() {
+        Some(assets) => {
+            configure_runtime_assets(assets)
+                .change_context(BackendError)
+                .attach("failed to configure the engine's runtime assets")?;
+            Ok(true)
+        }
+        None => Ok(false),
     }
+}
+
+/// Resolves the engine binary before the machine is created: a compatible
+/// install on `PATH` wins; otherwise the SDK's pinned release is fetched
+/// into its cache now — inside an announced phase, with a heartbeat, so
+/// the picker preview shows the download rather than a silent hang.
+///
+/// # Errors
+///
+/// Returns [`Report<BackendError>`] when the SDK's engine resolution or
+/// fetch fails (network unreachable, release missing for this platform).
+fn resolve_engine() -> Result<(), Report<BackendError>> {
+    if borrow_engine_assets()? {
+        boot_log::engine_on_path();
+        return Ok(());
+    }
+
+    // Not on PATH: the SDK will fetch its pinned release. The SDK caches
+    // after one fetch, so this phase runs once per machine; the heartbeat
+    // keeps the picker alive across the ~37 MB download.
+    boot_log::engine_fetching();
+    let started = Instant::now();
+    let mut heartbeat = boot_log::heartbeat(format!(
+        "downloading VM engine smolvm {} (~37 MB, first run only)",
+        smolmachines::VERSION
+    ));
+    let fetched = smolmachines::engine_cli()
+        .change_context(BackendError)
+        .attach("failed to resolve the VM engine (fetch or lookup)");
+    // Stop the heartbeat before announcing the outcome, so the completion
+    // line is the tail the picker shows.
+    heartbeat.stop_and_take_ticker();
+    fetched?;
+    boot_log::engine_fetched(started);
     Ok(())
 }

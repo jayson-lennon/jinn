@@ -40,6 +40,17 @@ protocol = "auto" # auto | kitty | sixel | iterm2 | halfblocks
 max_image_rows = 16
 ```
 
+- Add `smolvm` builtin MCP server, defaulting to Alpine Linux.
+  - Primary use-case is to ship a stable environment across multiple platforms.
+  - You can use it as a loose isolation boundary by disabling most of the builtin tools and relying just on VM tool calls.
+
+```toml
+[mcp.smolvm]
+command = "<jinn>"
+args = ["mcp", "smolvm", "--cwd", "<session_cwd>"]
+auto_enable = false
+```
+
 
 ## 2026-11-10 v1.23.0
 

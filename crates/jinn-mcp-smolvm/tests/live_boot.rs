@@ -48,6 +48,8 @@ fn live_boot_execs_uname_in_a_real_guest() {
             return;
         }
         jinn_mcp_smolvm::backend::borrow_engine_assets().expect("configure engine assets");
+        // (returns whether the engine came from PATH; the fetch path is the
+        // production boot sequence's job, tested through SmolMachineBackend::boot)
         jinn_mcp_smolvm::backend::SmolMachineBackend::boot(&cwd.as_marked_path(), &manifest)
             .expect("boot a real machine")
     };

@@ -44,6 +44,7 @@
 #![warn(missing_docs)]
 
 pub mod backend;
+pub mod boot_log;
 pub mod manifest;
 pub mod server;
 pub mod tools;
@@ -135,6 +136,14 @@ pub async fn serve(args: SmolvmServeArgs) -> Result<(), Report<ServeError>> {
             wrapped
         })?;
 
+    // The boot progress lines go to stderr from here on; the picker's
+    // stderr debounce picks them up live while the connection is coming up.
+    boot_log::phase(&format!(
+        "mounting {} at /workspace (manifest {})",
+        cwd.as_marked_path().as_path().display(),
+        manifest_path.as_marked_path().as_path().display()
+    ));
+
     tracing::info!(
         manifest = %manifest_path.as_marked_path().as_path().display(),
         image = %manifest.image,
@@ -197,12 +206,7 @@ pub async fn serve(args: SmolvmServeArgs) -> Result<(), Report<ServeError>> {
 /// Renders a fatal startup failure to stderr — the only feedback channel
 /// of a spawned child before the transport exists.
 fn emit_fatal(report: &Report<ServeError>) {
-    #[expect(
-        clippy::print_stderr,
-        clippy::use_debug,
-        reason = "fatal startup failure before the transport starts; stderr is the only feedback channel of a spawned child, and the debug render carries the full attachment chain"
-    )]
-    let () = {
-        eprintln!("smolvm: {report:?}");
-    };
+    // Rendered via format! into boot_log::fatal: the debug render carries
+    // the full attachment chain — the only place the cause names itself.
+    boot_log::fatal(&format!("{report:?}"));
 }
