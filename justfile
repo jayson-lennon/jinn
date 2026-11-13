@@ -187,8 +187,8 @@ lint-path-guard:
    ALLOWLIST = set()
    SKIP_DIRS = {"target", "vendor"}
 
-   # The five shipped res/ kind directories.
-   KIND = r"(themes|personas|prompts|workflows|skills)"
+   # The six shipped res/ kind directories.
+   KIND = r"(themes|personas|prompts|workflows|skills|smolvm)"
 
    # 1. Lookup/comparison positions: the kind-slash literal sits directly
    #    inside a string-keyed lookup or comparison call. The `(`-adjacent

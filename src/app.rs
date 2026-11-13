@@ -221,6 +221,17 @@ impl App {
                     .change_context(AppError)
                     .attach("overgraph MCP server failed")
             }
+            // The smolvm child: same stdio-until-disconnect contract as the
+            // overgraph child above. Its boot sequence (manifest resolve,
+            // availability gate, engine, machine) renders its own fatal
+            // failures to stderr — the spawned child's only feedback.
+            bootstrap::config::Prepared::ServeSmolvm { cwd, smolfile } => {
+                let args = jinn_mcp_smolvm::SmolvmServeArgs { cwd, smolfile };
+                self.runtime()
+                    .block_on(jinn_mcp_smolvm::serve(args))
+                    .change_context(AppError)
+                    .attach("smolvm MCP server failed")
+            }
             bootstrap::config::Prepared::Handled => Ok(()),
             bootstrap::config::Prepared::Ready(services) => {
                 let LaunchServices {
