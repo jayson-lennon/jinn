@@ -114,6 +114,10 @@ pub struct McpCoordinatorActorDeps {
 }
 
 impl ServiceActor for McpCoordinatorActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "ServiceActor::init is async by trait contract; this impl never awaits"
+    )]
     async fn init(_args: &trouper::json::Json) -> Result<Self, error_stack::Report<RegistryError>> {
         // Never called: spawned via `init_with` (typed deps cannot ride
         // JSON args).
@@ -128,6 +132,18 @@ impl McpCoordinatorActor {
     /// Returns only after all subscriptions are live, so composition's
     /// orchestrator-before-coordinator and coordinator-before-EnvironmentLoaded
     /// contracts hold by construction.
+    //
+    // The `async` stays even though nothing awaits: composition and the
+    // crate's tests `.await` this method, and keeping the signature spares
+    // them churn when the spawn grows an await.
+    #[expect(
+        clippy::unused_async,
+        reason = "signature symmetry: callers await McpCoordinatorActor::spawn"
+    )]
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "signature symmetry: callers await McpCoordinatorActor::spawn"
+    )]
     pub async fn spawn(
         system: &trouper::system::ActorSystem,
         deps: McpCoordinatorActorDeps,
@@ -250,7 +266,7 @@ impl McpCoordinatorActor {
         // what the session *sees*: the singleton registers globally, so a
         // session that disabled it needs its view of that provider withheld
         // (and a session that re-enabled it needs the view restored).
-        for name in singleton_names.iter() {
+        for name in &singleton_names {
             if desired.contains(*name) {
                 let _ = self
                     .spawn_singleton_if_absent(configs.as_slice(), name)
@@ -509,8 +525,7 @@ impl McpCoordinatorActor {
         let connected = match reply {
             Ok(value) => value
                 .decode::<McpConnectionStateReply>()
-                .map(|r| r.connected)
-                .unwrap_or(false),
+                .is_ok_and(|r| r.connected),
             Err(_) => return Err(RestartError::Timeout),
         };
 
@@ -569,8 +584,7 @@ impl MsgHandler<SessionCreated> for McpCoordinatorActor {
             .read()
             .session
             .get(&msg.session_id)
-            .map(|s| s.enabled_mcp_servers().clone())
-            .unwrap_or_default();
+            .map_or_default(|s| s.enabled_mcp_servers().clone());
         self.reconcile(&msg.session_id, &enabled).await;
     }
 }
@@ -686,7 +700,12 @@ impl MsgHandler<JinnTomlReloaded> for McpCoordinatorActor {
             }
         }
 
-        let (note, tone) = if !failed.is_empty() {
+        let (note, tone) = if failed.is_empty() {
+            (
+                format!("config reload: restarted {}", restarted.join(", ")),
+                NoteTone::Muted,
+            )
+        } else {
             (
                 format!(
                     "config reload: restarted {}; restart failed for {} (kept running)",
@@ -694,11 +713,6 @@ impl MsgHandler<JinnTomlReloaded> for McpCoordinatorActor {
                     failed.join(", ")
                 ),
                 NoteTone::Error,
-            )
-        } else {
-            (
-                format!("config reload: restarted {}", restarted.join(", ")),
-                NoteTone::Muted,
             )
         };
         self.publish(ServiceStatusUpdate {
@@ -1382,18 +1396,9 @@ mod lifecycle_tests {
 
     // ── The reload auto-restart (entry-hash diff) ────────────────────────
 
-    /// Spawns the coordinator and enables `server` for a fresh session so
-    /// its entry hash is seeded by the spawn. Returns the harness, the
-    /// services (for config writes and inbox drains), the state, the
-    /// session id, the actor path, and the two pre-spawned recorders —
-    /// a `McpServerStatus` tap and a `ServiceStatusUpdate` tap, both live
-    /// before any publish so the baseline spawn and any reload note land
-    /// in them.
-    #[allow(clippy::type_complexity, reason = "test fixture tuple")]
-    async fn spawned_server_fixture(
-        servers: &[(&str, McpServerConfig)],
-        server: &str,
-    ) -> (
+    /// What [`spawned_server_fixture`] hands back, named so no caller
+    /// repeats the seven-component tuple.
+    type SpawnedServerFixture = (
         TestHarness,
         jinn_kernel::Services,
         jinn_kernel::common::state::State,
@@ -1401,7 +1406,19 @@ mod lifecycle_tests {
         trouper::actor::ActorPath,
         jinn_testutil::bus_harness::Recorder<McpServerStatus>,
         jinn_testutil::bus_harness::Recorder<ServiceStatusUpdate>,
-    ) {
+    );
+
+    /// Spawns the coordinator and enables `server` for a fresh session so
+    /// its entry hash is seeded by the spawn. Returns the harness, the
+    /// services (for config writes and inbox drains), the state, the
+    /// session id, the actor path, and the two pre-spawned recorders —
+    /// a `McpServerStatus` tap and a `ServiceStatusUpdate` tap, both live
+    /// before any publish so the baseline spawn and any reload note land
+    /// in them.
+    async fn spawned_server_fixture(
+        servers: &[(&str, McpServerConfig)],
+        server: &str,
+    ) -> SpawnedServerFixture {
         let harness = TestHarness::new().await;
         let recorder = harness.spawn_recorder::<McpServerStatus>().await;
         let notes = harness.spawn_recorder::<ServiceStatusUpdate>().await;
@@ -1633,7 +1650,7 @@ mod lifecycle_tests {
         // When the entry is deleted from the config and the reload lands.
         services
             .config
-            .put::<McpServersConfig>(&McpServersConfig(Default::default()))
+            .put::<McpServersConfig>(&McpServersConfig::default())
             .expect("delete the entry");
         harness.publish(JinnTomlReloaded).await;
         jinn_testutil::wait::await_inbox_drained(

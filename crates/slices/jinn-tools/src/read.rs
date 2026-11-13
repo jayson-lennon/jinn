@@ -67,10 +67,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
         let content = match tokio::fs::read_to_string(&resolved).await {
             Ok(c) => c,
             Err(e) => {
-                return unprefixed_failure(
-                    &call,
-                    format!("failed to read file '{}': {e}", resolved),
-                );
+                return unprefixed_failure(&call, format!("failed to read file '{resolved}': {e}"));
             }
         };
 
@@ -301,7 +298,7 @@ mod tests {
         crate::tool_types::ToolContext {
             turn: crate::tool_types::test_turn(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             cwd: cwd.clone(),
             timeout: None,
             state: None,
@@ -413,7 +410,7 @@ mod tests {
             turn: crate::tool_types::test_turn(),
             cwd: dir.path.clone(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -508,7 +505,7 @@ mod tests {
             turn: crate::tool_types::test_turn(),
             cwd: dir.path.clone(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -563,7 +560,7 @@ mod tests {
             turn: crate::tool_types::test_turn(),
             cwd: dir.path.clone(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state: None,
             session_id: None,

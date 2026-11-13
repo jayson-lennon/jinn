@@ -78,7 +78,10 @@ pub fn run(
 ) -> Result<(), Report<RemoteClientError>> {
     let paths = AppPaths::default();
     match subcommand {
-        RemoteCommands::Instances => list_instances(&paths),
+        RemoteCommands::Instances => {
+            list_instances(&paths);
+            Ok(())
+        }
         RemoteCommands::Send {
             session,
             queue,
@@ -90,11 +93,15 @@ pub fn run(
 }
 
 /// `jinn remote instances` — one row per live instance.
-fn list_instances(paths: &AppPaths) -> Result<(), Report<RemoteClientError>> {
+#[expect(
+    clippy::print_stdout,
+    reason = "the `jinn remote instances` subcommand IS the process: it prints the table and exits; no TUI exists"
+)]
+fn list_instances(paths: &AppPaths) {
     let entries = registry::read_live(&paths.remote_instances_path().into_inner());
     if entries.is_empty() {
         println!("no running jinn instances");
-        return Ok(());
+        return;
     }
     println!("{:<8} {:<6} {:<20} CWD", "PID", "PORT", "STARTED");
     for entry in &entries {
@@ -106,7 +113,6 @@ fn list_instances(paths: &AppPaths) -> Result<(), Report<RemoteClientError>> {
             entry.cwd(),
         );
     }
-    Ok(())
 }
 
 /// Epoch millis to a `YYYY-MM-DD HH:MM UTC` rendering; a zero or
@@ -115,12 +121,14 @@ fn format_started(started_at: u64) -> String {
     let Ok(secs) = i64::try_from(started_at / 1000) else {
         return "unknown".to_owned();
     };
-    jiff::Timestamp::from_second(secs)
-        .map(|t| t.to_string())
-        .unwrap_or_else(|_| "unknown".to_owned())
+    jiff::Timestamp::from_second(secs).map_or_else(|_| "unknown".to_owned(), |t| t.to_string())
 }
 
 /// `jinn remote send` — resolve the instance, POST, print the outcome.
+#[expect(
+    clippy::print_stdout,
+    reason = "the `jinn remote send` subcommand IS the process: it prints the ack outcome and exits; no TUI exists"
+)]
 async fn send(
     paths: &AppPaths,
     session: String,
@@ -140,9 +148,13 @@ async fn send(
     let mode = match (queue, steer) {
         // clap's conflict group makes both-flags unparseable; this arm
         // is the type-level echo of that rule.
+        #[expect(
+            clippy::unreachable,
+            reason = "clap's conflict group rejects --queue with --steer; this arm is the type-level echo of that rule, not a runtime path"
+        )]
         (true, true) => unreachable!("clap rejects --queue with --steer"),
         (false, true) => Some(SendMode::Steer),
-        (true, false) | (false, false) => Some(SendMode::Queue),
+        (true | false, false) => Some(SendMode::Queue),
     };
     let request = SendRequest {
         session_id: session,
@@ -179,8 +191,7 @@ async fn send(
         let sentence = response
             .json::<ErrorBody>()
             .await
-            .map(|body| body.error)
-            .unwrap_or_else(|_| format!("HTTP {status}"));
+            .map_or_else(|_| format!("HTTP {status}"), |body| body.error);
         return Err(Report::new(RemoteClientError::Rejected {
             status: status.as_u16(),
             sentence,
@@ -242,7 +253,7 @@ mod tests {
         // is the user-facing path a fresh machine hits first).
         for error in &errors {
             let sentence = error.sentence();
-            assert!(!sentence.is_empty());
+            assert_ne!(sentence, "");
         }
         assert!(errors[0].sentence().contains("no running jinn instances"));
         assert!(errors[1].sentence().contains("42"));

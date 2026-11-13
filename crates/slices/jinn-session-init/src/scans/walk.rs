@@ -45,7 +45,18 @@ use marked_path::{Absolute, MarkedPath, MarkedPathAccess, MarkedPathBuf};
 /// - `cwd` outside `home` and under no VCS → walks to the filesystem root.
 /// - Canonicalization failure (e.g. cwd does not exist) falls back to the input
 ///   path; the walk proceeds against the literal input.
+///
+/// # Panics
+///
+/// Panics if a typed join or a `MarkedPathBuf::<Absolute>::new` rebuild fails.
+/// Neither can happen: every path in the walk is `Absolute` and is only ever
+/// joined with bare components, so joins stay absolute and rebuilt absolutes
+/// remain absolute.
 #[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "absolute paths joined with bare components / rebuilt as absolutes cannot fail; the Err is unreachable"
+)]
 pub fn project_dirs(
     cwd: &MarkedPathBuf<Absolute>,
     home: &MarkedPathBuf<Absolute>,
@@ -68,6 +79,10 @@ pub fn project_dirs(
 /// Returns dirs in **walk order (cwd → ancestor)**; the public [`project_dirs`]
 /// reverses to ancestor → cwd. Collecting in walk order keeps the boundary logic
 /// linear (one loop) per the one-loop-per-function rule.
+#[expect(
+    clippy::expect_used,
+    reason = "parent of an absolute path is absolute; the typed rebuild's Err is unreachable"
+)]
 fn collect_bounded(
     cwd: &MarkedPathBuf<Absolute>,
     home: &MarkedPathBuf<Absolute>,
@@ -151,6 +166,10 @@ pub fn project_prompts_dirs(
 /// Joining a multi-segment suffix (`.agents/skills`) as a single string
 /// would bake `/` separators into a `\`-separated Windows path; folding
 /// one segment per [`Path::join`] keeps every separator native.
+#[expect(
+    clippy::expect_used,
+    reason = "absolute dir joined one bare segment at a time cannot fail; the typed join's Err is unreachable"
+)]
 fn join_segments(base: &MarkedPathBuf<Absolute>, segments: &[&str]) -> MarkedPathBuf<Absolute> {
     segments.iter().fold(base.clone(), |path, segment| {
         path.join(segment)
@@ -182,6 +201,10 @@ pub fn project_context_files(
 ///
 /// [`CONTEXT_FILE_CANDIDATES`] is checked in order; the first file that
 /// exists wins for this directory. Returns `None` if no candidate exists.
+#[expect(
+    clippy::expect_used,
+    reason = "absolute dir joined with a bare candidate filename cannot fail; the typed join's Err is unreachable"
+)]
 fn first_existing_context_candidate(
     dir: &MarkedPath<'_, Absolute>,
 ) -> Option<MarkedPathBuf<Absolute>> {
@@ -512,7 +535,10 @@ mod tests {
         let files = project_context_files(&tree.leaf, &far_away_home());
 
         // Then no dirs contribute (all filtered out).
-        assert!(files.is_empty());
+        assert_eq!(
+            files,
+            [] as [marked_path::MarkedPathBuf<marked_path::Absolute>; 0]
+        );
     }
 
     #[rstest::rstest]

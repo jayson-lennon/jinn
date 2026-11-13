@@ -10,6 +10,8 @@
 //! The refusal is asserted on the observable result the model receives, not on
 //! whether a task was spawned: the point is what the model is told.
 
+#![allow(clippy::expect_used, clippy::indexing_slicing, reason = "test code")]
+
 use crate::orchestrator::{ToolOrchestratorActor, ToolOrchestratorActorDeps};
 use jinn_core_types::tool_types::{ToolCall, ToolResult};
 use jinn_core_types::{FilterMode, NameFilter, SessionId};
@@ -34,6 +36,10 @@ fn state_filtering(filter: NameFilter) -> (State, SessionId) {
 
 /// Spawns the orchestrator over `state` with the test's own `services`, so
 /// the actor's turn ledger is the same instance the test minted into.
+#[expect(
+    clippy::unused_async,
+    reason = "test fixture symmetry; body never awaits"
+)]
 async fn spawn(harness: &TestHarness, state: State, services: Services) {
     ToolOrchestratorActor::spawn(
         harness.system(),

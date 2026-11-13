@@ -380,11 +380,8 @@ impl OriginalValues {
     /// and is distinct from `None`, which says the row is Live.
     #[must_use]
     pub fn names_of(filter: Option<&NameFilter>) -> Option<BTreeSet<String>> {
-        (Self::mode_of(filter) == SetMode::Frozen).then(|| {
-            filter
-                .map(|filter| filter.names.clone())
-                .unwrap_or_default()
-        })
+        (Self::mode_of(filter) == SetMode::Frozen)
+            .then(|| filter.map_or_default(|filter| filter.names.clone()))
     }
 }
 

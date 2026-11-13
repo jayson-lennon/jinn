@@ -5,11 +5,9 @@
 //! never seed a cwd into shared state, mirroring the supervisor's own
 //! payload-only routing.
 
-#![allow(
+#![expect(
     clippy::expect_used,
-    clippy::panic,
-    clippy::unwrap_used,
-    reason = "test code"
+    reason = "test code asserts with expect for clear failures"
 )]
 
 use std::time::Duration;
@@ -49,14 +47,14 @@ struct Wired {
 impl Wired {
     /// Spawns the supervisor on a fresh fabric over a real temp home.
     /// The session's cwd lives only in test payloads — no state seeding.
-    async fn wire() -> Self {
+    fn wire() -> Self {
         let dir = Box::new(jinn_testutil::tempdir());
         let home = dir.path.clone();
         let paths = AppPaths::new_in(&home.as_marked_path());
         let state = State::new(AppState::default());
         let session_id = state.read().session.active_session_id().clone();
         let fabric = jinn_testutil::TestFabric::new();
-        jinn_session_init::install_actors(fabric.system(), paths, state.clone())
+        jinn_session_init::install_actors(fabric.system(), &paths, state.clone())
             .expect("install session-init actors");
         Self {
             fabric,
@@ -90,7 +88,7 @@ impl Wired {
 #[tokio::test]
 async fn session_created_triggers_discovery_for_that_session() {
     // Given a wired supervisor whose payload cwd's home contains one skill.
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
     write_skill(&wired.home, "test-skill");
 
     // When SessionCreated carrying that cwd crosses on the trigger topic.
@@ -117,7 +115,7 @@ async fn session_created_triggers_discovery_for_that_session() {
 #[tokio::test]
 async fn scan_skills_command_threads_cwd_to_the_worker() {
     // Given a wired supervisor whose home contains one skill.
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
     write_skill(&wired.home, "threaded-skill");
 
     // When ScanSkills carrying that cwd crosses on the trigger topic.
@@ -145,7 +143,7 @@ async fn scan_skills_command_threads_cwd_to_the_worker() {
 #[tokio::test]
 async fn manual_rescan_reaches_only_the_addressed_session() {
     // Given a wired supervisor with a second session whose home has a skill.
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
     write_skill(&wired.home, "only-skill");
     let other = SessionId::new();
     {
@@ -169,7 +167,7 @@ async fn manual_rescan_reaches_only_the_addressed_session() {
     .await;
     let guard = wired.state.read();
     let other_session = guard.session.get(&other).expect("other session");
-    assert!(other_session.discovered_skills().is_empty());
+    assert_eq!(other_session.discovered_skills(), []);
 }
 
 #[rstest::rstest]
@@ -177,7 +175,7 @@ async fn manual_rescan_reaches_only_the_addressed_session() {
 async fn worker_settles_and_notifier_writes_the_summary_entry() {
     // Given a wired supervisor + notifier whose payload cwd's home
     // contains one skill.
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
     write_skill(&wired.home, "test-skill");
 
     // When a full discovery runs via the partition path.
@@ -201,7 +199,7 @@ async fn worker_settles_and_notifier_writes_the_summary_entry() {
 async fn rescan_into_empty_dir_clears_stale_discovered_skills() {
     // Given a wired supervisor whose session discovered a skill, and the
     // skill file then removed from disk.
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
     write_skill(&wired.home, "stale-skill");
     wired
         .send_run_discovery(&wired.session_id, &wired.home)
@@ -247,7 +245,7 @@ async fn rescan_into_empty_dir_clears_stale_discovered_skills() {
 async fn resources_changed_re_runs_discovery_for_every_live_session() {
     // Given a wired supervisor with a second live session, and a home
     // that initially contains no skills.
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
     let other = SessionId::new();
     {
         let mut guard = wired.state.write();

@@ -333,7 +333,7 @@ mod tests {
                     ScreenCells::default(),
                     cursor,
                     cursor_hidden,
-                )
+                );
             });
         let mut facts = RenderFacts::new(default_theme(), &slices);
         facts.set_facts([

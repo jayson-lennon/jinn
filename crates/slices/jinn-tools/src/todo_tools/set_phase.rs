@@ -124,7 +124,7 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             let next_block = list.render_next_block();
             let rendered = list.render_text_with_blockers();
             let verdict = if replaced {
-                format!("Phase \"{}\" replaced.", phase_description)
+                format!("Phase \"{phase_description}\" replaced.")
             } else {
                 format!("No phase matched \"{phase_description}\" - appended as a new phase.")
             };
@@ -204,7 +204,7 @@ mod tests {
             trouper_system: None,
             model_name_resolver: None,
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
         }
     }
 
@@ -235,7 +235,7 @@ mod tests {
         (state, session_id)
     }
 
-    fn set_phase_call(description: &str, tasks: serde_json::Value) -> ToolCall {
+    fn set_phase_call(description: &str, tasks: &serde_json::Value) -> ToolCall {
         ToolCall {
             id: "call-1".into(),
             name: "todo_set_phase".to_owned(),
@@ -254,7 +254,7 @@ mod tests {
         // When writing the phase.
         let call = set_phase_call(
             "Theme vocabulary",
-            serde_json::json!({ "item": "first task" }),
+            &serde_json::json!({ "item": "first task" }),
         );
         let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
         let result = futures::executor::block_on(execute(call, ctx));
@@ -281,7 +281,7 @@ mod tests {
         let (state, session_id) = setup_with_two_phases();
 
         // When writing the phase.
-        let call = set_phase_call("Build", serde_json::json!(42));
+        let call = set_phase_call("Build", &serde_json::json!(42));
         let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
         let result = futures::executor::block_on(execute(call, ctx));
 
@@ -306,7 +306,7 @@ mod tests {
         let (state, session_id) = setup_with_two_phases();
 
         // When writing the phase.
-        let call = set_phase_call("Build", serde_json::json!(42));
+        let call = set_phase_call("Build", &serde_json::json!(42));
         let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
         let result = futures::executor::block_on(execute(call, ctx));
 
@@ -393,7 +393,7 @@ mod tests {
         // When writing the entire Build phase (one dropped, one completed, one added).
         let call = set_phase_call(
             "Build",
-            serde_json::json!([
+            &serde_json::json!([
                 { "description": "Write code", "status": "completed" },
                 { "description": "Ship it" }
             ]),
@@ -420,7 +420,7 @@ mod tests {
         let (state, session_id) = setup_with_two_phases();
 
         // When rewriting only Build.
-        let call = set_phase_call("Build", serde_json::json!(["a", "b"]));
+        let call = set_phase_call("Build", &serde_json::json!(["a", "b"]));
         let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
         let result = futures::executor::block_on(execute(call, ctx));
         assert!(result.success);
@@ -441,7 +441,7 @@ mod tests {
         let (state, session_id) = setup_with_two_phases();
 
         // When writing a phase named Deploy.
-        let call = set_phase_call("Deploy", serde_json::json!(["Push"]));
+        let call = set_phase_call("Deploy", &serde_json::json!(["Push"]));
         let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
         let result = futures::executor::block_on(execute(call, ctx));
         assert!(result.success, "expected success: {:?}", result.content);
@@ -487,7 +487,7 @@ mod tests {
         }
 
         // When writing to the duplicated description.
-        let call = set_phase_call("Build", serde_json::json!(["rewritten"]));
+        let call = set_phase_call("Build", &serde_json::json!(["rewritten"]));
         let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
         let result = futures::executor::block_on(execute(call, ctx));
         assert!(result.success);
@@ -511,7 +511,7 @@ mod tests {
         // When flipping two tasks to completed and one to cancelled in one call.
         let call = set_phase_call(
             "Build",
-            serde_json::json!([
+            &serde_json::json!([
                 { "description": "Write code", "status": "completed" },
                 { "description": "Review code", "status": "completed" },
                 { "description": "Ship it", "status": "cancelled" }
@@ -541,7 +541,7 @@ mod tests {
         // When executing the tool.
         let call = set_phase_call(
             "Build",
-            serde_json::json!([{ "description": "t", "status": status }]),
+            &serde_json::json!([{ "description": "t", "status": status }]),
         );
         let ctx = make_context(Some(state.clone()), Some(session_id.clone()));
         let result = futures::executor::block_on(execute(call, ctx));
@@ -576,7 +576,7 @@ mod tests {
         let (state, session_id) = setup_with_two_phases();
         let call = set_phase_call(
             "Build",
-            serde_json::json!([
+            &serde_json::json!([
                 { "description": "Write code", "status": "in_progress" },
                 { "description": "Review code", "status": "done" }
             ]),
@@ -603,7 +603,7 @@ mod tests {
         let (state, session_id) = setup_with_two_phases();
 
         // When rewriting it.
-        let call = set_phase_call("Build", serde_json::json!(["x"]));
+        let call = set_phase_call("Build", &serde_json::json!(["x"]));
         let ctx = make_context(Some(state), Some(session_id));
         let result = futures::executor::block_on(execute(call, ctx));
         assert!(result.success);
@@ -623,7 +623,7 @@ mod tests {
         let (state, session_id) = setup_with_two_phases();
 
         // When rewriting it.
-        let call = set_phase_call("Build", serde_json::json!(["x"]));
+        let call = set_phase_call("Build", &serde_json::json!(["x"]));
         let ctx = make_context(Some(state), Some(session_id));
         let result = futures::executor::block_on(execute(call, ctx));
         assert!(result.success);
@@ -649,7 +649,7 @@ mod tests {
         ctx.bus = Some(harness.bus());
 
         // When writing a phase.
-        let call = set_phase_call("Build", serde_json::json!(["x"]));
+        let call = set_phase_call("Build", &serde_json::json!(["x"]));
         let result = execute(call, ctx).await;
         assert!(result.success, "expected success: {:?}", result.content);
 
@@ -668,7 +668,7 @@ mod tests {
     #[test]
     fn set_phase_requires_state() {
         // Given no application state in the context.
-        let call = set_phase_call("Build", serde_json::json!(["x"]));
+        let call = set_phase_call("Build", &serde_json::json!(["x"]));
 
         // When executing the tool.
         let ctx = make_context(None, Some(SessionId::new()));

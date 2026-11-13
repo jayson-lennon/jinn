@@ -1,4 +1,9 @@
 //! Session-lifecycle slice-composition tests.
+#![expect(
+    clippy::unused_async_trait_impl,
+    clippy::unused_async,
+    reason = "trouper trait impls and harness constructors are async by contract even when nothing awaits"
+)]
 
 use jinn_kernel::common::state::State;
 use jinn_session_lifecycle_msg::arg_input_scope;

@@ -145,8 +145,7 @@ async fn connect_lists_tools_advertising_echo() {
     // Then `tools/list` advertises exactly the `echo` tool.
     let tool_name = tools
         .first()
-        .map(|t| t.name.as_ref().to_owned())
-        .unwrap_or_default();
+        .map_or_else(String::new, |t| t.name.as_ref().to_owned());
     assert_eq!(tools.len(), 1, "stub advertises exactly one tool");
     assert_eq!(tool_name, "echo");
 

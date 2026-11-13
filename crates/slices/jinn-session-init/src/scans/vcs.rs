@@ -29,7 +29,17 @@ pub const VCS_MARKERS: &[&str] = &[".git", ".hg", ".fslckout", ".fossil", ".jj"]
 /// Uses [`std::fs::metadata`] (follows symlinks). A nonexistent directory, or one
 /// that cannot be stat'd, returns `false` rather than panicking — discovery must
 /// be robust to transient/missing directories during a walk.
+///
+/// # Panics
+///
+/// Panics if the typed join of `dir` with a bare marker name fails. This
+/// cannot happen: `dir` is `Absolute` and every [`VCS_MARKERS`] entry is a
+/// bare component, so the join always stays absolute.
 #[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "absolute dir joined with a bare marker name cannot fail; the typed join's Err is unreachable"
+)]
 pub fn is_vcs_root(dir: &MarkedPathBuf<Absolute>) -> bool {
     VCS_MARKERS.iter().any(|marker| {
         dir.join(marker)

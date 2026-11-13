@@ -99,10 +99,7 @@ fn sort_children(
 }
 
 fn created_at(entries: &HashMap<SessionId, SessionEntry>, id: &SessionId) -> jiff::Timestamp {
-    entries
-        .get(id)
-        .map(|entry| entry.created_at)
-        .unwrap_or_default()
+    entries.get(id).map_or_default(|entry| entry.created_at)
 }
 
 fn flatten_tree(tree: &SessionTree) -> Vec<SessionEntry> {

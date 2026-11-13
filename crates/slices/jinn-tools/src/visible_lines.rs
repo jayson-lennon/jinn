@@ -40,7 +40,7 @@ mod tests {
         // Given empty text.
         // When splitting into visible lines.
         // Then there are none.
-        assert!(get_visible_lines("").is_empty());
+        assert_eq!(get_visible_lines(""), [] as [&str; 0]);
     }
 
     #[rstest::rstest]

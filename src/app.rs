@@ -86,6 +86,10 @@ impl App {
     ///
     /// Panics if called after [`App::run_and_shutdown`], the one
     /// consumer, has already taken it.
+    #[expect(
+        clippy::expect_used,
+        reason = "the runtime is consumed only by the final shutdown; a second take is a lifecycle bug the panic names"
+    )]
     fn runtime(&self) -> &Runtime {
         self.runtime
             .as_ref()
@@ -186,8 +190,6 @@ impl App {
     /// Returns an error if the runner fails.
     pub fn dispatch(&mut self, cli: Cli) -> Result<(), Report<AppError>> {
         use jinn_cli::cli::Commands;
-        #[cfg(debug_assertions)]
-        use jinn_cli::cli::HeadlessCommands;
 
         // Read config and build every service the actors will hold. This
         // also runs the recovery subcommands (`config init`,
@@ -233,13 +235,14 @@ impl App {
                     shells,
                     resolved_config_path,
                 } = services;
+                let dump_requests = resolve_dump_requests(cli.dump_requests.as_deref())?;
                 #[cfg(debug_assertions)]
                 let _db_path = cli.db_path_opt().cloned();
                 match cli.command.unwrap_or(Commands::Tui) {
                     Commands::Completions { shell } => {
                         use clap::CommandFactory;
                         let mut cmd = Cli::command();
-                        let name = cmd.get_name().to_string();
+                        let name = cmd.get_name().to_owned();
                         clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
                         return Ok(());
                     }
@@ -250,146 +253,41 @@ impl App {
                     // unreachable for them. `jinn remote …` is intercepted
                     // in `prepare` too — it never reaches a startup path.
                     Commands::Tui | Commands::Mcp { .. } | Commands::Remote { .. } => {
-                        let dump_requests = resolve_dump_requests(cli.dump_requests.as_deref())?;
-                        let app_paths = jinn_kernel::AppPaths::default();
-                        let handoff_prompt = jinn_tui::load_handoff_prompt(
-                            &app_paths.prompts_dir().as_marked_path(),
-                        )
-                        .change_context(AppError)?;
-                        let (core, services, discord_activated) = self
-                            .runtime()
-                            .block_on(async {
-                                actor_wiring::ActorSystemBuilder::new(
-                                    actor_wiring::ActorSystemBuilderArgs {
-                                        handle: self.handle(),
-                                        llm_service: llm_service.clone(),
-                                        provider_registry: provider_registry.clone(),
-                                        api_keys: resolved_api_keys.clone(),
-                                        config_storage: config_storage.clone(),
-                                        session_store: session_store.clone(),
-                                        config: config.clone(),
-                                        app_state_storage: app_state_storage.clone(),
-                                        shells: shells.clone(),
-                                        resolved_config_path: resolved_config_path.clone(),
-                                        paths: jinn_kernel::AppPaths::default(),
-                                        dump_requests: dump_requests.clone(),
-                                        handoff_prompt,
-                                    },
-                                )
-                                .build()
-                                .await
-                            })
-                            .change_context(AppError)
-                            .attach("slice activation failed")?;
-
-                        // The discord frontend attaches its spawn hook to
-                        // the activation's supervisor: an enabled config
-                        // spawns immediately, a live enablement flip
-                        // spawns later through the same hook.
-                        {
-                            let spawner = jinn_discord::backend::spawn::gateway_spawner(
-                                &self.handle(),
-                                &core,
-                                &services,
-                                session_pool.clone(),
-                                discord_activated.parked.clone(),
-                            );
-                            let mut supervisor = tokio::task::block_in_place(|| {
-                                discord_activated.supervisor.blocking_lock()
-                            });
-                            supervisor.attach_spawner(Box::new(spawner));
-                        }
-
-                        let app =
-                            jinn_tui::launch(core, services, bootstrap::ui::build_ui_registry())
-                                .change_context(AppError)?;
-                        let runner = Runner::Tui(Box::new(app));
-                        self.run_and_shutdown(runner, &session_store)?;
+                        self.run_tui_command(
+                            dump_requests,
+                            llm_service,
+                            provider_registry,
+                            resolved_api_keys,
+                            config_storage,
+                            &session_store,
+                            config,
+                            app_state_storage,
+                            shells,
+                            resolved_config_path,
+                            session_pool,
+                        )?;
                     }
                     #[cfg(debug_assertions)]
                     Commands::Headless { command, .. } => {
-                        let store_for_shutdown = session_store.clone();
-                        let dump_requests = resolve_dump_requests(cli.dump_requests.as_deref())?;
-                        let app_paths = jinn_kernel::AppPaths::default();
-                        let handoff_prompt = jinn_tui::load_handoff_prompt(
-                            &app_paths.prompts_dir().as_marked_path(),
-                        )
-                        .change_context(AppError)?;
-                        let (core, services, _discord_activated) = self
-                            .runtime()
-                            .block_on(async {
-                                actor_wiring::ActorSystemBuilder::new(
-                                    actor_wiring::ActorSystemBuilderArgs {
-                                        handle: self.handle(),
-                                        llm_service: llm_service.clone(),
-                                        provider_registry,
-                                        api_keys: resolved_api_keys,
-                                        config_storage,
-                                        session_store,
-                                        config: config.clone(),
-                                        app_state_storage,
-                                        shells,
-                                        resolved_config_path,
-                                        paths: jinn_kernel::AppPaths::default(),
-                                        dump_requests,
-                                        handoff_prompt,
-                                    },
-                                )
-                                .build()
-                                .await
-                            })
-                            .change_context(AppError)
-                            .attach("slice activation failed")?;
-
-                        jinn_tui::load_theme(
-                            &core.state,
-                            &services.paths.themes_dir().as_marked_path(),
-                        );
-                        let mut headless = HeadlessApp::new(core, services);
-                        match command {
-                            Some(HeadlessCommands::SendChat { message }) => {
-                                headless.send_chat(&message).change_context(AppError)?;
-                            }
-                            Some(HeadlessCommands::Script { path }) => {
-                                let file = std::fs::File::open(&path)
-                                    .change_context(AppError)
-                                    .attach("failed to open script file")?;
-                                headless.run_script(file).change_context(AppError)?;
-                            }
-                            None => {}
-                        }
-                        let runner = Runner::Headless(Box::new(headless));
-                        self.run_and_shutdown(runner, &store_for_shutdown)?;
+                        self.run_headless_command(
+                            dump_requests,
+                            llm_service,
+                            provider_registry,
+                            resolved_api_keys,
+                            config_storage,
+                            &session_store,
+                            config,
+                            app_state_storage,
+                            shells,
+                            resolved_config_path,
+                            command,
+                        )?;
                     }
                     Commands::Fetch { subcommand } => {
-                        use jinn_cli::cli::FetchCommands;
-
-                        match subcommand {
-                            FetchCommands::Models => {
-                                self.runtime()
-                                    .block_on(async { fetch_models().await })
-                                    .change_context(AppError)?;
-                            }
-                            FetchCommands::DictationModel => {
-                                // A dedicated exit path: a platform
-                                // without a real backend prints and
-                                // exits non-zero here.
-                                fetch_dictation_model(self.runtime());
-                            }
-                        }
+                        run_fetch_subcommand(self.runtime(), &subcommand)?;
                     }
                     Commands::Dictation { subcommand } => {
-                        use jinn_cli::cli::DictationCommands;
-
-                        match subcommand {
-                            DictationCommands::ListDevices => {
-                                // A dedicated exit path, the same
-                                // contract as the fetch runner: a
-                                // platform without a real backend
-                                // prints and exits non-zero here.
-                                list_dictation_devices();
-                            }
-                        }
+                        run_dictation_subcommand(&subcommand);
                     }
                     // Config subcommands are dispatched above, before the early
                     // preferences parse. Reaching this match arm is impossible.
@@ -403,7 +301,231 @@ impl App {
     }
 }
 
+/// The `jinn fetch` subcommands: model downloads and listings.
+///
+/// # Errors
+///
+/// Returns an error when the models listing fails.
+fn run_fetch_subcommand(
+    runtime: &Runtime,
+    subcommand: &jinn_cli::cli::FetchCommands,
+) -> Result<(), Report<AppError>> {
+    use jinn_cli::cli::FetchCommands;
+
+    match *subcommand {
+        FetchCommands::Models => {
+            runtime
+                .block_on(async { fetch_models().await })
+                .change_context(AppError)?;
+        }
+        FetchCommands::DictationModel => {
+            // A dedicated exit path: a platform
+            // without a real backend prints and
+            // exits non-zero here.
+            fetch_dictation_model(runtime);
+        }
+    }
+    Ok(())
+}
+
+/// The `jinn dictation` subcommands: device listing.
+fn run_dictation_subcommand(subcommand: &jinn_cli::cli::DictationCommands) {
+    use jinn_cli::cli::DictationCommands;
+
+    match *subcommand {
+        DictationCommands::ListDevices => {
+            // A dedicated exit path, the same
+            // contract as the fetch runner: a
+            // platform without a real backend
+            // prints and exits non-zero here.
+            list_dictation_devices();
+        }
+    }
+}
+
+impl App {
+    /// The `jinn` (TUI) command: activate the actor system, attach the
+    /// discord gateway spawner, and hand the TUI to the runner.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if activation or the TUI launch fails.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one parameter per destructured `LaunchServices` field; a struct would only rename the field list"
+    )]
+    fn run_tui_command(
+        &mut self,
+        dump_requests: Option<MarkedPathBuf<Absolute>>,
+        llm_service: jinn_kernel::LlmServiceFactoryService,
+        provider_registry: jinn_kernel::ProviderRegistryService,
+        api_keys: jinn_kernel::ApiKeysService,
+        config_storage: jinn_kernel::ConfigStorageService,
+        session_store: &jinn_session_state::SessionStoreService,
+        config: jinn_config::ConfigLayer,
+        app_state_storage: jinn_preferences_config::AppStateStorageService,
+        shells: jinn_common::shell::Shells,
+        resolved_config_path: MarkedPathBuf<Absolute>,
+        session_pool: jinn_discord::backend::spawn::SessionPool,
+    ) -> Result<(), Report<AppError>> {
+        let (core, services, discord_activated) = self.activate_system(
+            llm_service,
+            provider_registry,
+            api_keys,
+            config_storage,
+            session_store.clone(),
+            config,
+            app_state_storage,
+            shells,
+            resolved_config_path,
+            dump_requests,
+        )?;
+
+        // The discord frontend attaches its spawn hook to the activation's
+        // supervisor: an enabled config spawns immediately, a live
+        // enablement flip spawns later through the same hook.
+        {
+            let spawner = jinn_discord::backend::spawn::gateway_spawner(
+                &self.handle(),
+                &core,
+                &services,
+                session_pool,
+                discord_activated.parked.clone(),
+            );
+            let mut supervisor =
+                tokio::task::block_in_place(|| discord_activated.supervisor.blocking_lock());
+            supervisor.attach_spawner(Box::new(spawner));
+        }
+
+        let app = jinn_tui::launch(core, services, bootstrap::ui::build_ui_registry())
+            .change_context(AppError)?;
+        let runner = Runner::Tui(Box::new(app));
+        self.run_and_shutdown(runner, session_store)
+    }
+
+    /// The `jinn headless` command: activate, run the requested headless
+    /// command (send one chat, run a script), and shut down.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if activation or the headless command fails.
+    #[cfg(debug_assertions)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the builder args are destructured at the call site; re-wrapping them in a struct would just move the field list"
+    )]
+    fn run_headless_command(
+        &mut self,
+        dump_requests: Option<MarkedPathBuf<Absolute>>,
+        llm_service: jinn_kernel::LlmServiceFactoryService,
+        provider_registry: jinn_kernel::ProviderRegistryService,
+        api_keys: jinn_kernel::ApiKeysService,
+        config_storage: jinn_kernel::ConfigStorageService,
+        session_store: &jinn_session_state::SessionStoreService,
+        config: jinn_config::ConfigLayer,
+        app_state_storage: jinn_preferences_config::AppStateStorageService,
+        shells: jinn_common::shell::Shells,
+        resolved_config_path: MarkedPathBuf<Absolute>,
+        command: Option<jinn_cli::cli::HeadlessCommands>,
+    ) -> Result<(), Report<AppError>> {
+        use jinn_cli::cli::HeadlessCommands;
+
+        let (core, services, _discord_activated) = self.activate_system(
+            llm_service,
+            provider_registry,
+            api_keys,
+            config_storage,
+            session_store.clone(),
+            config,
+            app_state_storage,
+            shells,
+            resolved_config_path,
+            dump_requests,
+        )?;
+
+        jinn_tui::load_theme(&core.state, &services.paths.themes_dir().as_marked_path());
+        let mut headless = HeadlessApp::new(core, services);
+        match command {
+            Some(HeadlessCommands::SendChat { message }) => {
+                headless.send_chat(&message).change_context(AppError)?;
+            }
+            Some(HeadlessCommands::Script { path }) => {
+                let file = std::fs::File::open(&path)
+                    .change_context(AppError)
+                    .attach("failed to open script file")?;
+                headless.run_script(file).change_context(AppError)?;
+            }
+            None => {}
+        }
+        let runner = Runner::Headless(Box::new(headless));
+        self.run_and_shutdown(runner, session_store)
+    }
+
+    /// Builds the actor system: the one `ActorSystemBuilder` call both
+    /// command runners share, plus the handoff prompt it needs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if slice activation fails.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one parameter per destructured `LaunchServices` field; a struct would only rename the field list"
+    )]
+    fn activate_system(
+        &self,
+        llm_service: jinn_kernel::LlmServiceFactoryService,
+        provider_registry: jinn_kernel::ProviderRegistryService,
+        api_keys: jinn_kernel::ApiKeysService,
+        config_storage: jinn_kernel::ConfigStorageService,
+        session_store: jinn_session_state::SessionStoreService,
+        config: jinn_config::ConfigLayer,
+        app_state_storage: jinn_preferences_config::AppStateStorageService,
+        shells: jinn_common::shell::Shells,
+        resolved_config_path: MarkedPathBuf<Absolute>,
+        dump_requests: Option<MarkedPathBuf<Absolute>>,
+    ) -> Result<
+        (
+            jinn_kernel::common::core::AppCore,
+            jinn_kernel::Services,
+            jinn_discord::ActivatedDiscord,
+        ),
+        Report<AppError>,
+    > {
+        let app_paths = jinn_kernel::AppPaths::default();
+        let handoff_prompt =
+            jinn_tui::load_handoff_prompt(&app_paths.prompts_dir().as_marked_path())
+                .change_context(AppError)?;
+        let handle = self.handle();
+        self.runtime()
+            .block_on(async {
+                actor_wiring::ActorSystemBuilder::new(actor_wiring::ActorSystemBuilderArgs {
+                    handle,
+                    llm_service,
+                    provider_registry,
+                    api_keys,
+                    config_storage,
+                    session_store,
+                    config,
+                    app_state_storage,
+                    shells,
+                    resolved_config_path,
+                    paths: app_paths,
+                    dump_requests,
+                    handoff_prompt,
+                })
+                .build()
+                .await
+            })
+            .change_context(AppError)
+            .attach("slice activation failed")
+    }
+}
+
 impl Default for App {
+    #[expect(
+        clippy::expect_used,
+        reason = "Default for App aborts on a broken runtime/services setup rather than returning a useless value"
+    )]
     fn default() -> Self {
         Self::new().expect("failed to create default App")
     }
@@ -416,13 +538,22 @@ impl Default for App {
 /// with. Aborts the process on failure — a config file that cannot be
 /// written leaves the run with no coherent source of truth, which is not
 /// a state worth launching into.
+#[expect(
+    clippy::print_stderr,
+    clippy::exit,
+    reason = "top-level CLI failure before any TUI exists; the process exits with the error printed"
+)]
 pub(crate) fn seed_config_template(path: &MarkedPathBuf<Absolute>) {
     use jinn_preferences_config::create_default_preferences_to;
 
     if let Err(report) = create_default_preferences_to(path) {
         tracing::error!(path = %path, "failed to seed jinn.toml from the template");
         eprintln!("error: failed to create {path} from the default template:");
-        eprintln!("  {report:?}");
+        #[expect(
+            clippy::use_debug,
+            reason = "the report's full chain is the only diagnostics this early path can give"
+        )]
+        let () = eprintln!("  {report:?}");
         std::process::exit(1);
     }
 }
@@ -434,6 +565,12 @@ pub(crate) fn seed_config_template(path: &MarkedPathBuf<Absolute>) {
 /// decision. On a platform without a real backend it prints the
 /// unavailability sentence and exits non-zero: the null backend has
 /// nothing to fetch, and a silent zero exit would look like success.
+#[expect(
+    clippy::print_stderr,
+    clippy::print_stdout,
+    clippy::exit,
+    reason = "the `jinn fetch dictation-model` subcommand IS the process: it prints its result and exits; no TUI ever starts"
+)]
 fn fetch_dictation_model(runtime: &tokio::runtime::Runtime) -> ! {
     if !jinn_dictation::platform_supports_real_backend() {
         eprintln!("dictation backend unavailable on this platform");
@@ -448,7 +585,11 @@ fn fetch_dictation_model(runtime: &tokio::runtime::Runtime) -> ! {
             println!("dictation model fetched into the jinn cache");
         }
         Ok(Err(report)) => {
-            eprintln!("dictation model fetch failed: {report:?}");
+            #[expect(
+                clippy::use_debug,
+                reason = "the report's full chain is the only diagnostics this early path can give"
+            )]
+            let () = eprintln!("dictation model fetch failed: {report:?}");
             std::process::exit(1);
         }
         Err(join_error) => {
@@ -468,6 +609,12 @@ fn fetch_dictation_model(runtime: &tokio::runtime::Runtime) -> ! {
 /// unset `device` resolves to it. On a platform without a real
 /// backend it prints the unavailability sentence and exits non-zero,
 /// the same contract as [`fetch_dictation_model`].
+#[expect(
+    clippy::print_stderr,
+    clippy::print_stdout,
+    clippy::exit,
+    reason = "the `jinn dictation list-devices` subcommand IS the process: it prints the device list and exits"
+)]
 fn list_dictation_devices() -> ! {
     if !jinn_dictation::platform_supports_real_backend() {
         eprintln!("dictation backend unavailable on this platform");
@@ -572,13 +719,23 @@ async fn fetch_models_from_url(
         .change_context(AppError)
         .attach("failed to write models.dev.json")?;
 
-    println!("Fetched {model_count} models from {provider_count} providers to {output_path}");
+    #[expect(
+        clippy::print_stdout,
+        reason = "the `jinn fetch models` subcommand reports its result on stdout; no TUI exists"
+    )]
+    let () =
+        println!("Fetched {model_count} models from {provider_count} providers to {output_path}");
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::panic,
+        reason = "test code: fixture failures and error assertions are the test's own failure channel"
+    )]
     use jinn_kernel::{AppState, State};
     use jinn_tui::load_theme;
     use std::sync::Arc;

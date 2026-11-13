@@ -82,8 +82,7 @@ fn edit_intent_for(intent: &KernelIntent) -> Option<jinn_slices::EditIntent> {
         "move-cursor-end" => jinn_slices::EditIntent::CursorEnd,
         jinn_chat_input_msg::PASTE_TEXT_ACTION => jinn_slices::EditIntent::Paste(
             std::str::from_utf8(&dynamic.bytes)
-                .map(std::borrow::ToOwned::to_owned)
-                .unwrap_or_default(),
+                .map_or_else(|_invalid| String::new(), std::borrow::ToOwned::to_owned),
         ),
         _ => return None,
     })

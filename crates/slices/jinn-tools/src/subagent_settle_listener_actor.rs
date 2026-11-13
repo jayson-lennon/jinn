@@ -71,6 +71,10 @@ pub struct SubagentSettleListenerActor {
 }
 
 impl ServiceActor for SubagentSettleListenerActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "ServiceActor::init is async by trait contract; this impl never awaits"
+    )]
     async fn init(_args: &trouper::json::Json) -> Result<Self, error_stack::Report<RegistryError>> {
         // Never called: spawned via `init_with` (typed deps cannot ride
         // JSON args).
@@ -85,7 +89,7 @@ impl SubagentSettleListenerActor {
     /// Returns only after all four subscriptions are live: the `spawn_subagent` tool
     /// guarantees `SessionCreated` is published after this call, closing
     /// the event-ordering race.
-    pub async fn spawn(deps: SubagentSettleListenerDeps) -> ActorPath {
+    pub fn spawn(deps: SubagentSettleListenerDeps) -> ActorPath {
         use std::sync::atomic::{AtomicU64, Ordering};
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let path = ActorPath::new(format!(

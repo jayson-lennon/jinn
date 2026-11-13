@@ -7,10 +7,6 @@ edition.workspace = true
 clap = { workspace = true }
 clap-verbosity-flag = { workspace = true }
 clap_complete = { workspace = true }
-error-stack = { workspace = true }
-serde_json = { workspace = true }
-toml = { workspace = true }
-tokio = { workspace = true }
 wherror = { workspace = true }
 
 [dev-dependencies]

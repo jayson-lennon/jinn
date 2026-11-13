@@ -17,7 +17,6 @@ use std::time::Duration;
 
 use crate::channels::DiscordGatewayChannels;
 use jinn_cell_catalog::register_all_cells;
-use jinn_kernel::Services;
 use jinn_kernel::common::app_state::AppState;
 use jinn_kernel::common::state::State;
 use jinn_preferences_config::schemas::discord::DiscordConfig;
@@ -51,7 +50,7 @@ impl Fixture {
     async fn new(starting: DiscordConfig) -> Self {
         let temp = tempdir();
         let harness = TestHarness::new().await;
-        let services: Services = jinn_kernel::TestServices::builder()
+        let services = jinn_kernel::TestServices::builder()
             .paths(jinn_kernel::common::app_paths::AppPaths::new_in(
                 &temp.path.as_marked_path(),
             ))

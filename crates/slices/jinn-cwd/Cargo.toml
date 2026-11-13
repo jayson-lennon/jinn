@@ -18,9 +18,11 @@ unicode-segmentation = { workspace = true }
 wherror = { workspace = true }
 error-stack = { workspace = true }
 tokio = { workspace = true }
-rstest = { workspace = true }
 
 [dev-dependencies]
+# The render/intent/actor tests stack `#[rstest::rstest]` per the test
+# discipline.
+rstest = { workspace = true }
 jinn-testutil = { workspace = true }
 
 dirs = { workspace = true }

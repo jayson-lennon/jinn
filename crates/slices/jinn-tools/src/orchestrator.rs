@@ -212,6 +212,10 @@ fn build_openrouter_web_search_definition(config: &WebSearchConfig) -> ToolDefin
 pub const ORCHESTRATOR_PATH: &str = "jinn.tools.orchestrator";
 
 impl ServiceActor for ToolOrchestratorActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "ServiceActor::init is async by trait contract; this impl never awaits"
+    )]
     async fn init(_args: &trouper::json::Json) -> Result<Self, error_stack::Report<RegistryError>> {
         // Never called: spawned via `init_with` (typed deps cannot ride
         // JSON args).
@@ -226,6 +230,10 @@ impl ToolOrchestratorActor {
     /// Registration of builtins happens in
     /// [`initialize`](Self::initialize); the spawn returns once the actor
     /// is subscribed, so composition can order MCP-after-orchestrator.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "actor spawn consumes its deps per the codebase's spawn convention; the init closure receives a clone"
+    )]
     pub fn spawn(system: &trouper::system::ActorSystem, deps: ToolOrchestratorActorDeps) {
         let path = ActorPath::new(ORCHESTRATOR_PATH);
         trouper::builder::spawn_service_builder::<Self>(system)
@@ -388,8 +396,7 @@ impl MsgHandler<CancelToolBatch> for ToolOrchestratorActor {
 
 impl MsgHandler<ToolExecutionCompleted> for ToolOrchestratorActor {
     async fn handle(&mut self, msg: &ToolExecutionCompleted, _ctx: &mut MsgCtx<'_>) {
-        self.handle_tool_execution_completed(msg.session_id.clone(), msg.result.clone(), msg.turn)
-            .await;
+        Self::handle_tool_execution_completed(&msg.session_id, &msg.result, msg.turn);
     }
 }
 
@@ -427,6 +434,10 @@ impl MsgHandler<ToolsUnregistered> for ToolOrchestratorActor {
 }
 
 impl MsgHandler<ProviderVisibilityChanged> for ToolOrchestratorActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "MsgHandler::handle is async by trait contract; this impl never awaits"
+    )]
     async fn handle(&mut self, msg: &ProviderVisibilityChanged, _ctx: &mut MsgCtx<'_>) {
         // Given a session's view of a globally-registered provider changing
         // (a singleton the session disabled or re-enabled).
@@ -1155,10 +1166,12 @@ impl ToolOrchestratorActor {
     /// actor — the consumer that acts on the close's settlement. This
     /// actor's remaining job is the `pending` map's abort handles, which
     /// `handle_cancel_tool_batch` drains.
-    async fn handle_tool_execution_completed(
-        &mut self,
-        session_id: SessionId,
-        result: ToolResult,
+    ///
+    /// An associated function: it reads no actor state, so it takes no
+    /// receiver.
+    fn handle_tool_execution_completed(
+        session_id: &SessionId,
+        result: &ToolResult,
         turn: jinn_core_types::turn_identity::TurnToken,
     ) {
         tracing::debug!(
@@ -1319,7 +1332,7 @@ mod timeout_tests {
             turn: crate::tool_types::test_turn(),
             cwd: dir.clone(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -1649,7 +1662,7 @@ mod panic_safety_tests {
                 turn: crate::tool_types::test_turn(),
                 cwd: dir.path.clone(),
                 config: jinn_config::testutil::config_layer(""),
-                shells: Default::default(),
+                shells: jinn_common::shell::ShellsService::default(),
                 timeout: None,
                 state: None,
                 session_id: None,
@@ -2145,6 +2158,7 @@ mod mcp_dispatch_gate_tests {
         // configured singleton, and its status written to the singleton
         // bucket — not under this session's id.
         let (harness, services, session_id, dispatched) = {
+            use jinn_preferences_config::schemas::McpServersConfig as SeedConfig;
             let state = State::new(AppState::default());
             let session_id = SessionId::new();
             state
@@ -2152,10 +2166,9 @@ mod mcp_dispatch_gate_tests {
                 .session
                 .get_or_create(&session_id)
                 .enable_mcp_server("stub");
-            let (harness, services) = spawn_orchestrator(&state).await;
             // The gate reads singleton-ness from the config layer, so the seed
             // goes through the same path production reads.
-            use jinn_preferences_config::schemas::McpServersConfig as SeedConfig;
+            let (harness, services) = spawn_orchestrator(&state).await;
             services
                 .config
                 .put::<SeedConfig>(&SeedConfig(

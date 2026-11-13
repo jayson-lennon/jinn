@@ -16,6 +16,12 @@
 //! reads them directly, and `JINN_PATHS_ROOT` wins over both, so one code
 //! path covers every platform. On Windows `dirs` ignores `XDG_*` entirely,
 //! which is exactly why the root override exists.
+#![allow(
+    clippy::expect_used,
+    clippy::format_collect,
+    clippy::panic,
+    reason = "integration test: fixture failures and assertion helpers are the test's failure channel"
+)]
 
 use marked_path::{Absolute, MarkedPathAccess, MarkedPathBuf, Relative};
 use sha2::Digest;

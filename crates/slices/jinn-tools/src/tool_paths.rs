@@ -19,8 +19,16 @@ use marked_path::{Absolute, MarkedPathBuf};
 pub(crate) fn resolve_path(path: &str, cwd: &MarkedPathBuf<Absolute>) -> MarkedPathBuf<Absolute> {
     let p = std::path::Path::new(path);
     if p.is_absolute() {
+        #[expect(
+            clippy::expect_used,
+            reason = "infallible: the branch above checked the path is absolute, the only failure this constructor has"
+        )]
         MarkedPathBuf::<Absolute>::new(p).expect("checked absolute above")
     } else {
+        #[expect(
+            clippy::expect_used,
+            reason = "infallible: joining onto an absolute parent keeps the result absolute — PathError has no other variant"
+        )]
         cwd.join(p).expect("absolute parent joins a bare candidate")
     }
 }

@@ -244,21 +244,15 @@ fn alias_entry(
     let is_available = resolved.is_some_and(|r| registry.is_available(&r.id.clone(), api_keys));
 
     ProviderPickerEntry {
-        provider_id: resolved.map(|r| r.id.to_string()).unwrap_or_default(),
+        provider_id: resolved.map_or_default(|r| r.id.to_string()),
         name: alias.name.clone(),
-        provider_name: resolved.map(|r| r.name.clone()).unwrap_or_default(),
-        backend: resolved.map(|r| r.backend.clone()).unwrap_or_default(),
-        model: resolved.map(|r| r.model.clone()).unwrap_or_default(),
+        provider_name: resolved.map_or_default(|r| r.name.clone()),
+        backend: resolved.map_or_default(|r| r.backend.clone()),
+        model: resolved.map_or_default(|r| r.model.clone()),
         search_text: format!(
             "{} {}",
-            resolved
-                .as_ref()
-                .map(|r| r.model.as_str())
-                .unwrap_or_default(),
-            resolved
-                .as_ref()
-                .map(|r| r.name.as_str())
-                .unwrap_or_default()
+            resolved.as_ref().map_or_default(|r| r.model.as_str()),
+            resolved.as_ref().map_or_default(|r| r.name.as_str())
         ),
         is_alias: true,
         alias_target: resolved.map(|r| r.id.to_string()),

@@ -283,10 +283,6 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
 /// lifecycle state must fail without stamping anything — a stamp onto a
 /// session that already ran setup would corrupt the coordinates its
 /// teardown will replay.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the execute split passes the validated call pieces through"
-)]
 async fn run_setup(
     call: ToolCall,
     ctx: ToolContext,
@@ -388,8 +384,7 @@ async fn run_setup(
         session_id: target_id.clone(),
         kind: AwaitKind::Setup,
         completion: tx,
-    })
-    .await;
+    });
 
     // The actor honors the command we publish: it spawns the rendered
     // command terminal-isolated in the session's cwd and adopts the last
@@ -415,10 +410,6 @@ async fn run_setup(
 /// session that has not run setup, or a recorded lifecycle that no longer
 /// resolves fails naming the session or source — fast, without spending
 /// the wait budget on a silent no-op.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the execute split passes the validated call pieces through"
-)]
 async fn run_teardown(
     call: ToolCall,
     ctx: ToolContext,
@@ -451,10 +442,7 @@ async fn run_teardown(
             &ctx.config,
         ) {
             Some(Ok(replayed)) => {
-                let name = session
-                    .lifecycle_name()
-                    .map(str::to_owned)
-                    .unwrap_or_default();
+                let name = session.lifecycle_name().map_or_default(str::to_owned);
                 (replayed, name)
             }
             Some(Err(failure)) => {
@@ -483,8 +471,7 @@ async fn run_teardown(
         session_id: target_id.clone(),
         kind: AwaitKind::Teardown,
         completion: tx,
-    })
-    .await;
+    });
 
     // The actor ignores the published command and args — it re-resolves
     // and re-renders from the session's stored coordinates, which this
@@ -519,8 +506,7 @@ async fn await_completion(
                 let where_to = match kind {
                     AwaitKind::Setup => done
                         .cwd
-                        .map(|cwd| format!(" Session cwd: {cwd}."))
-                        .unwrap_or_default(),
+                        .map_or_default(|cwd| format!(" Session cwd: {cwd}.")),
                     AwaitKind::Teardown => String::new(),
                 };
                 succeeded(
@@ -595,7 +581,7 @@ fn resolve_from_path(
         jinn_preferences_config::schemas::session_lifecycle::parse_lifecycle_document(&text)
             .map_err(|error| LifecycleError::Malformed {
                 file: source.clone(),
-                detail: error.to_string(),
+                detail: error.clone(),
             })?;
     let Some(script) = scripts.iter().find(|s| s.name == script_name) else {
         return Err(LifecycleError::ScriptNotInFile {

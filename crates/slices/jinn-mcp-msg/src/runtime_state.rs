@@ -61,8 +61,7 @@ impl McpRuntimeState {
     pub fn statuses(&self, session_id: &SessionId) -> BTreeMap<String, McpConnectionStatus> {
         self.sessions
             .get(session_id)
-            .map(|session| session.status.clone())
-            .unwrap_or_default()
+            .map_or_default(|session| session.status.clone())
     }
 
     /// Returns the status projection a session actually observes: its own
@@ -104,8 +103,7 @@ impl McpRuntimeState {
         let mut merged = self
             .sessions
             .get(session_id)
-            .map(|session| session.stderr.clone())
-            .unwrap_or_default();
+            .map_or_default(|session| session.stderr.clone());
         for (server, state) in &self.singletons {
             if let Some(tail) = state.stderr.get(server) {
                 merged.insert(server.clone(), tail.clone());
@@ -128,8 +126,7 @@ impl McpRuntimeState {
     pub fn stderr_tails(&self, session_id: &SessionId) -> BTreeMap<String, String> {
         self.sessions
             .get(session_id)
-            .map(|session| session.stderr.clone())
-            .unwrap_or_default()
+            .map_or_default(|session| session.stderr.clone())
     }
 
     /// Removes all runtime data for one server in one session.

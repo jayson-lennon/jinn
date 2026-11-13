@@ -359,12 +359,12 @@ pub fn shell_command(substituted: &str) -> Vec<String> {
 ///
 /// Returns [`KioskLaunchError`] when the spawn itself fails.
 fn spawn_detached(argv: &[String]) -> Result<KioskChild, Report<KioskLaunchError>> {
-    let Some((program, args)) = argv.split_first() else {
+    let Some((program, launch_args)) = argv.split_first() else {
         // Unreachable by construction: both builders produce non-empty
         // argv. Handled anyway so the function is total.
         return Err(Report::new(KioskLaunchError).attach("the kiosk launch command was empty"));
     };
-    match detached_command(program).args(args).spawn() {
+    match detached_command(program).args(launch_args).spawn() {
         Ok(child) => Ok(KioskChild::new(child)),
         Err(error) => Err(Report::new(KioskLaunchError)
             .attach(error.to_string())
@@ -962,15 +962,11 @@ mod tests {
             probe.consulted.lock().expect("probe lock").is_empty(),
             "binary resolution must not run when a template is set"
         );
+        let substituted = format!("chromium --kiosk --app={}", request.url);
+        #[cfg(target_os = "windows")]
+        assert_eq!(argv, ["cmd", "/C", substituted.as_str()]);
         #[cfg(not(target_os = "windows"))]
-        assert_eq!(
-            argv,
-            [
-                "sh",
-                "-c",
-                format!("chromium --kiosk --app={}", request.url).as_str()
-            ]
-        );
+        assert_eq!(argv, ["sh", "-c", substituted.as_str()]);
     }
 
     #[rstest::rstest]

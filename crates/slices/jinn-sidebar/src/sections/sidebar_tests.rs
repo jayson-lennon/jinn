@@ -1571,7 +1571,7 @@ fn cursor_row_is_middle_of_viewport_when_the_document_has_slack() {
     // Then the cursor lands on the middle row of the column.
     let row = selected_row(&terminal, width, height).expect("a row is highlighted");
     assert!(
-        (row as i32 - height as i32 / 2).abs() <= 1,
+        (i32::from(row) - i32::from(height) / 2).abs() <= 1,
         "cursor should sit near the vertical middle ({height}/2), got row {row}"
     );
 }
@@ -1746,6 +1746,8 @@ fn move_up_from_a_populated_bots_section_at_its_top_row_enters_persona() {
 
 #[rstest::rstest]
 fn repeated_move_up_walks_every_populated_section_up_to_persona() {
+    use jinn_sidebar_msg::SidebarSectionId;
+
     // Given Sessions focused — the lowest populated section — with pins and
     // a bot so Sessions → Pins → Bots → Persona all have
     // content, and TaskList and McpServers empty in between.
@@ -1786,7 +1788,6 @@ fn repeated_move_up_walks_every_populated_section_up_to_persona() {
     // Then the walk visits every populated section in draw order and
     // stops at Persona: the bots section must hand the cursor up
     // rather than trapping it.
-    use jinn_sidebar_msg::SidebarSectionId;
     assert_eq!(
         visited,
         vec![

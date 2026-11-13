@@ -28,7 +28,7 @@
 
 use std::path::{Path, PathBuf};
 
-use error_stack::Report;
+use error_stack::{Report, ResultExt};
 use marked_path::{Absolute, MarkedPathAccess, MarkedPathBuf};
 use wherror::Error;
 
@@ -91,11 +91,29 @@ fn resolve_override(path: &Path) -> Result<ConfigPathResolution, Report<ConfigPa
             path.to_path_buf()
         } else {
             let cwd = std::env::current_dir()
-                .expect("current directory is readable for a relative --config");
+                .map_err(error_stack::Report::from)
+                .change_context(ConfigPathError {
+                    path: path.to_path_buf(),
+                })
+                .attach_with(|| {
+                    format!(
+                        "cannot resolve the relative --config value `{}`: process cwd is unavailable",
+                        path.display()
+                    )
+                })?;
             cwd.join(path)
         };
-        let typed =
-            MarkedPathBuf::<Absolute>::new(absolute).expect("resolved --config path is absolute");
+        let typed = MarkedPathBuf::<Absolute>::new(absolute)
+            .map_err(error_stack::Report::from)
+            .change_context(ConfigPathError {
+                path: path.to_path_buf(),
+            })
+            .attach_with(|| {
+                format!(
+                    "resolved --config value `{}` is not absolute",
+                    path.display()
+                )
+            })?;
         return Ok(ConfigPathResolution {
             path: typed,
             seed_template: false,
@@ -116,8 +134,15 @@ fn resolve_override(path: &Path) -> Result<ConfigPathResolution, Report<ConfigPa
 /// That is also why this cannot reuse [`resolve_config_path`], whose
 /// existence check is correct for a run that intends to *read* the file.
 ///
-/// Infallible: there is no override to reject, and the default path is
-/// always a legitimate thing to create.
+/// Infallible in its choice: there is no override to reject, and the
+/// default path is always a legitimate thing to create.
+///
+/// # Panics
+///
+/// Panics when a relative override cannot be resolved (no readable
+/// process cwd) or the resolved path is not absolute — both mean the
+/// platform cannot host a config file at all, and `config init` has no
+/// coherent target to write to.
 #[must_use]
 pub fn config_init_target(
     override_path: Option<&Path>,
@@ -128,11 +153,21 @@ pub fn config_init_target(
             let absolute = if path.is_absolute() {
                 path.to_path_buf()
             } else {
+                #[expect(
+                    clippy::expect_used,
+                    reason = "config init cannot proceed without a cwd; a panic here is the documented failure for an unresolvable target"
+                )]
                 let cwd = std::env::current_dir()
                     .expect("current directory is readable for a relative --config");
                 cwd.join(path)
             };
-            MarkedPathBuf::<Absolute>::new(absolute).expect("resolved --config path is absolute")
+            #[expect(
+                clippy::expect_used,
+                reason = "the resolution above is absolute by construction; a miss is platform corruption the command cannot survive"
+            )]
+            let typed = MarkedPathBuf::<Absolute>::new(absolute)
+                .expect("resolved --config path is absolute");
+            typed
         }
         None => default_path.clone(),
     }
@@ -148,6 +183,10 @@ fn resolve_default(default_path: &MarkedPathBuf<Absolute>) -> ConfigPathResoluti
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::expect_used,
+        reason = "test code: a failed setup step is a fixture bug, expect is the failure channel"
+    )]
     use super::*;
 
     /// The default location for a test: a `jinn.toml` that does not exist.

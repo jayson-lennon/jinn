@@ -83,16 +83,13 @@ fn render_canvas_metrics_block(events: &[jinn_canvas_msg::CanvasMetricEvent]) ->
 /// artifact. Falls back to the full string when the path carries no
 /// file name (`file_name()` is `None` on empty and odd strings).
 fn render_artifact_tag(events: &[jinn_canvas_msg::CanvasMetricEvent]) -> String {
-    events
-        .last()
-        .map(|event| {
-            std::path::Path::new(&event.artifact)
-                .file_name()
-                .map_or(event.artifact.clone(), |name| {
-                    name.to_string_lossy().into_owned()
-                })
-        })
-        .unwrap_or_default()
+    events.last().map_or_default(|event| {
+        std::path::Path::new(&event.artifact)
+            .file_name()
+            .map_or(event.artifact.clone(), |name| {
+                name.to_string_lossy().into_owned()
+            })
+    })
 }
 
 /// One numbered line, oldest first: `N. name`, plus the event's props

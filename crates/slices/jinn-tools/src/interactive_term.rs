@@ -65,13 +65,12 @@ pub(crate) mod parse {
         };
         v.get(field)
             .and_then(Value::as_array)
-            .map(|arr| {
+            .map_or_default(|arr| {
                 arr.iter()
                     .filter_map(Value::as_str)
                     .map(str::to_owned)
                     .collect()
             })
-            .unwrap_or_default()
     }
 }
 
@@ -273,18 +272,15 @@ pub(crate) fn success_result(
     exited: Option<&jinn_term_msg::TermExitInfo>,
     killed_previous: Option<&jinn_term_msg::command::KilledPrevious>,
 ) -> ToolResult {
-    let exit_line = exited
-        .map(|info| format!("\n\nThe program has {0}.", info.summary()))
-        .unwrap_or_default();
-    let kill_line = killed_previous
-        .map(|killed| {
-            format!(
-                "\n\nNOTE: This session already had a live terminal, which was \
+    let exit_line =
+        exited.map_or_default(|info| format!("\n\nThe program has {0}.", info.summary()));
+    let kill_line = killed_previous.map_or_default(|killed| {
+        format!(
+            "\n\nNOTE: This session already had a live terminal, which was \
                  killed to start this one ({}).",
-                killed.exited.summary()
-            )
-        })
-        .unwrap_or_default();
+            killed.exited.summary()
+        )
+    });
     let body = format!("{screen}{exit_line}{kill_line}\n\n{}", usage_footer());
     let truncated = truncate_tail(&body, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
     let full_content = truncated.truncated.then_some(body);

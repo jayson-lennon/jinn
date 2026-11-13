@@ -19,9 +19,7 @@ where
     S: std::hash::BuildHasher,
 {
     let own_session = sessions.get(session_id);
-    let own = own_session
-        .map(|session| TokenStats::from_ledger(session.token_ledger()))
-        .unwrap_or_default();
+    let own = own_session.map_or_default(|session| TokenStats::from_ledger(session.token_ledger()));
     let children = aggregate_children(sessions, session_id);
     let own_cost = own_session.map_or(0.0, |session| {
         TokenStats::total_cost(session.token_ledger())

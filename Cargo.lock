@@ -3148,7 +3148,6 @@ dependencies = [
  "mockito",
  "nu-ansi-term",
  "ratatui",
- "ratatui-spatial-splits",
  "ratatui-which-key",
  "reqwest 0.13.3",
  "rmcp",
@@ -3183,7 +3182,6 @@ dependencies = [
  "jinn-preferences-config",
  "jinn-project-msg",
  "jinn-provider-selection-msg",
- "jinn-session-history-msg",
  "jinn-session-lifecycle-msg",
  "jinn-session-msg",
  "jinn-session-state",
@@ -3563,13 +3561,9 @@ dependencies = [
  "clap 4.5.61",
  "clap-verbosity-flag",
  "clap_complete",
- "error-stack",
  "jinn-testutil",
  "marked-path",
  "rstest",
- "serde_json",
- "tokio",
- "toml 0.8.23",
  "wherror",
 ]
 
@@ -3645,7 +3639,6 @@ version = "1.23.0"
 dependencies = [
  "error-stack",
  "fuzzy-matcher",
- "jinn-persona-msg",
  "jinn-slices",
  "jinn-testutil",
  "marked-path",
@@ -3747,11 +3740,9 @@ version = "1.23.0"
 dependencies = [
  "jinn-core-types",
  "jinn-session-state",
- "jinn-slices",
  "rstest",
  "serde",
  "serde_json",
- "trouper",
 ]
 
 [[package]]
@@ -3815,13 +3806,9 @@ dependencies = [
  "error-stack",
  "jinn-core-types",
  "jinn-dashboard-msg",
- "jinn-mcp-msg",
- "jinn-sidebar-msg",
  "jinn-slices",
- "jinn-status-bar-msg",
  "jinn-testutil",
  "jinn-theme",
- "jinn-theme-msg",
  "marked-path",
  "ratatui",
  "rstest",
@@ -3892,7 +3879,6 @@ dependencies = [
  "jinn-common",
  "jinn-dictation-backend",
  "marked-path",
- "nnnoiseless",
  "parking_lot",
  "rstest",
  "sherpa-onnx",
@@ -4104,7 +4090,6 @@ dependencies = [
  "jinn-config",
  "jinn-context",
  "jinn-context-assembly",
- "jinn-context-assembly-msg",
  "jinn-context-curation",
  "jinn-context-curation-msg",
  "jinn-core-types",
@@ -4262,6 +4247,7 @@ dependencies = [
  "jiff",
  "jinn-boot-msg",
  "jinn-cell-catalog",
+ "jinn-common",
  "jinn-config",
  "jinn-core-types",
  "jinn-kernel",
@@ -4414,7 +4400,6 @@ version = "1.23.0"
 dependencies = [
  "dirs",
  "error-stack",
- "jinn-boot-msg",
  "jinn-chat-log-view-msg",
  "jinn-config",
  "jinn-core-types",
@@ -4422,7 +4407,6 @@ dependencies = [
  "jinn-persona-msg",
  "jinn-preferences-config",
  "jinn-preferences-msg",
- "jinn-project",
  "jinn-project-msg",
  "jinn-selection-widget",
  "jinn-skills-msg",
@@ -4502,7 +4486,6 @@ version = "1.23.0"
 dependencies = [
  "dirs",
  "jinn-common",
- "jinn-cwd-msg",
  "jinn-picker",
  "jinn-preferences-config",
  "jinn-selection-widget",
@@ -4818,7 +4801,6 @@ dependencies = [
  "jinn-picker",
  "jinn-preferences-config",
  "jinn-selection-widget",
- "jinn-session-store-msg",
  "jinn-slices",
  "jinn-testutil",
  "jinn-theme",
@@ -4840,8 +4822,6 @@ version = "1.23.0"
 dependencies = [
  "jiff",
  "jinn-core-types",
- "jinn-session-msg",
- "jinn-session-store-msg",
  "rstest",
 ]
 
@@ -4872,7 +4852,6 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "tracing",
  "wherror",
 ]
 
@@ -5046,7 +5025,6 @@ dependencies = [
  "jinn-core-types",
  "jinn-kernel",
  "jinn-mcp-msg",
- "jinn-persona",
  "jinn-persona-msg",
  "jinn-picker",
  "jinn-preferences-config",
@@ -5532,7 +5510,6 @@ dependencies = [
  "jinn-config",
  "jinn-core-types",
  "jinn-picker",
- "jinn-preferences-config",
  "jinn-selection-widget",
  "jinn-slices",
  "jinn-testutil",
@@ -5670,7 +5647,6 @@ dependencies = [
  "jiff",
  "jinn-cell-catalog",
  "jinn-core-types",
- "jinn-kernel",
  "jinn-session-msg",
  "jinn-slices",
  "jinn-work-time-msg",
@@ -7482,15 +7458,6 @@ dependencies = [
  "tree-sitter-yaml",
  "tree-sitter-zig",
  "unicode-width 0.2.2",
-]
-
-[[package]]
-name = "ratatui-spatial-splits"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ffd4000350aea2f266b8c05ed1695a077d9f32b64ae193b9a8dd779ea188207"
-dependencies = [
- "ratatui",
 ]
 
 [[package]]

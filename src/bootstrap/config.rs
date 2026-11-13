@@ -115,7 +115,7 @@ pub fn prepare(
 
     reconcile_bundled_resources();
 
-    let (config_storage, config, app_state_storage, resolved_config_path) = read_config(cli)?;
+    let (config_storage, config, app_state_storage, resolved_config_path) = read_config(cli);
     let shells = resolve_shells(&config);
     let (session_store, session_pool) = open_session_store(cli, runtime)?;
 
@@ -225,6 +225,11 @@ fn reconcile_bundled_resources() {
 ///
 /// The environment is probed here, at launch, and never again: the
 /// resolved value is carried on [`jinn_kernel::Services`] from here on.
+#[expect(
+    clippy::print_stderr,
+    clippy::exit,
+    reason = "a broken shell config is a fatal launch failure printed before any TUI exists"
+)]
 fn resolve_shells(config: &jinn_config::ConfigLayer) -> jinn_common::shell::Shells {
     // A malformed `[shell]` section is a broken file, not a broken
     // machine: it stops the launch the same way a broken `jinn.toml`
@@ -252,71 +257,98 @@ fn resolve_shells(config: &jinn_config::ConfigLayer) -> jinn_common::shell::Shel
     shells
 }
 
+/// The `jinn config init` arm: write jinn.toml (honoring `--config`),
+/// then seed the stream-rules file beside it.
+///
+/// The recovery tool for a missing or broken config, so it must not be
+/// guarded by the parsing that auto-creates the file on first run — and
+/// it needs no session store.
+///
+/// # Errors
+///
+/// Returns the seed failure for the caller to render, matching how any
+/// other recovery failure is reported.
+#[expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::use_debug,
+    reason = "`config init` prints its per-file outcomes (and full report chains); it is the process at that point"
+)]
+fn run_config_init(cli: &jinn_cli::cli::Cli, force: bool) -> Result<(), Report<AppError>> {
+    use jinn_preferences_config::{
+        InitOutcome, StreamRulesSeedOutcome, init_default_config_to, init_stream_rules_to,
+        preferences_path,
+    };
+
+    let path = config_init_target(cli.config.as_deref(), &preferences_path());
+    match init_default_config_to(&path, force) {
+        Ok(InitOutcome::Created) => {
+            println!("Created {path}");
+        }
+        Ok(InitOutcome::Overwritten) => {
+            println!("Overwrote {path}");
+        }
+        Err(report) => {
+            eprintln!("{report:?}");
+            return Err(report.change_context(AppError));
+        }
+    }
+
+    // The stream-rules file lives beside `jinn.toml`, wherever
+    // this command just put that document. `--force` overwrites
+    // it too — that is the supported path for pulling in an
+    // updated shipped set. Without `--force` an existing file is
+    // left alone and reported as skipped, not failed: the
+    // command's primary target (`jinn.toml`) already succeeded.
+    let view = path.as_marked_path();
+    let rules_path = {
+        // `parent()` is `None` only for the filesystem root,
+        // which is then its own parent.
+        let base = view.parent().unwrap_or(view);
+        base.join(jinn_preferences_config::STREAM_RULES_FILE_NAME)
+            .map_err(error_stack::Report::from)
+            .change_context(AppError)
+            .attach("failed to join the stream-rules filename beside jinn.toml")?
+    };
+    match init_stream_rules_to(&rules_path, force) {
+        Ok(StreamRulesSeedOutcome::Created(p)) => {
+            println!("Created {p}");
+        }
+        Ok(StreamRulesSeedOutcome::Overwritten(p)) => {
+            println!("Overwrote {p}");
+        }
+        Ok(StreamRulesSeedOutcome::Untouched(p)) => {
+            println!("Already present, skipped {p}");
+        }
+        Err(report) => {
+            eprintln!("{report:?}");
+            return Err(report.change_context(AppError));
+        }
+    }
+    Ok(())
+}
+
 /// The subcommands that must run before anything is parsed or opened.
 ///
-/// `jinn config init` is the recovery tool for a missing or broken config,
-/// so it must not be guarded by the parsing that auto-creates the file on
-/// first run — and it needs no session store.
+/// `jinn config init` and `jinn install` are the recovery tools for a
+/// missing or broken config, so they must not be guarded by the parsing
+/// that auto-creates the file on first run — and they need no session
+/// store.
+#[expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::use_debug,
+    reason = "recovery subcommands (`config init`, `config providers`, `install`) ARE the process: they print their per-file outcomes (and full report chains) and exit; no TUI exists"
+)]
 fn run_recovery_subcommand(cli: &jinn_cli::cli::Cli) -> Result<Option<Prepared>, Report<AppError>> {
     use jinn_cli::cli::Commands;
 
     if let Some(Commands::Config { subcommand }) = &cli.command {
         use jinn_cli::cli::ConfigCommands;
-        use jinn_preferences_config::{
-            InitOutcome, StreamRulesSeedOutcome, init_default_config_to, init_stream_rules_to,
-            preferences_path,
-        };
 
         match subcommand {
             ConfigCommands::Init { force } => {
-                // Honor --config here: the user naming a path is asking
-                // for the file to land there. Deliberately skips the
-                // existence check the runtime resolver applies, since
-                // creating the file is what this command is for.
-                let path = config_init_target(cli.config.as_deref(), &preferences_path());
-                let force = *force;
-                match init_default_config_to(&path, force) {
-                    Ok(InitOutcome::Created) => {
-                        println!("Created {path}");
-                    }
-                    Ok(InitOutcome::Overwritten) => {
-                        println!("Overwrote {path}");
-                    }
-                    Err(report) => {
-                        eprintln!("{report:?}");
-                        return Err(report.change_context(AppError));
-                    }
-                }
-
-                // The stream-rules file lives beside `jinn.toml`, wherever
-                // this command just put that document. `--force` overwrites
-                // it too — that is the supported path for pulling in an
-                // updated shipped set. Without `--force` an existing file is
-                // left alone and reported as skipped, not failed: the
-                // command's primary target (`jinn.toml`) already succeeded.
-                let view = path.as_marked_path();
-                let rules_path = {
-                    // `parent()` is `None` only for the filesystem root,
-                    // which is then its own parent.
-                    let base = view.parent().unwrap_or(view);
-                    base.join(jinn_preferences_config::STREAM_RULES_FILE_NAME)
-                        .expect("absolute parent joins a bare filename")
-                };
-                match init_stream_rules_to(&rules_path, force) {
-                    Ok(StreamRulesSeedOutcome::Created(p)) => {
-                        println!("Created {p}");
-                    }
-                    Ok(StreamRulesSeedOutcome::Overwritten(p)) => {
-                        println!("Overwrote {p}");
-                    }
-                    Ok(StreamRulesSeedOutcome::Untouched(p)) => {
-                        println!("Already present, skipped {p}");
-                    }
-                    Err(report) => {
-                        eprintln!("{report:?}");
-                        return Err(report.change_context(AppError));
-                    }
-                }
+                run_config_init(cli, *force)?;
                 return Ok(Some(Prepared::Handled));
             }
             ConfigCommands::Providers { force } => {
@@ -341,88 +373,9 @@ fn run_recovery_subcommand(cli: &jinn_cli::cli::Cli) -> Result<Option<Prepared>,
         }
     }
 
-    // `install` seeds the three config files, write-once, and — with
-    // `--builtins` — force-restores the bundled resources. Like `config`,
-    // it must run before any actor wiring — and it needs no preferences/DB,
-    // so it dispatches before the session store is opened.
     if let Some(Commands::Install { builtins }) = &cli.command {
-        use jinn_install::{
-            SeedOutcome, destinations_from_paths, expected_catalogue, restore_builtins,
-            seed_configs_to,
-        };
-        use jinn_kernel::AppPaths;
-        use jinn_preferences_config::StreamRulesSeedOutcome;
-
-        let app_paths = AppPaths::default();
-        let destinations = destinations_from_paths(&app_paths);
-
-        // `--builtins` is the explicit reclaim: overwrite every bundled
-        // resource from the embed (including user edits), then exit. It
-        // touches no config file.
-        if *builtins {
-            let expected = expected_catalogue().map_err(|report| {
-                eprintln!("error: failed to enumerate bundled resources:");
-                eprintln!("  {report:?}");
-                report.change_context(AppError)
-            })?;
-            match restore_builtins(
-                &destinations,
-                &expected,
-                &app_paths.bundled_files_manifest_path(),
-            ) {
-                Ok(report) => {
-                    for action in &report.actions {
-                        println!("Restored {}", action.path());
-                    }
-                    for warning in &report.warnings {
-                        eprintln!("warning: {warning}");
-                    }
-                }
-                Err(report) => {
-                    eprintln!("error: failed to restore bundled resources:");
-                    eprintln!("  {report:?}");
-                    return Err(report.change_context(AppError));
-                }
-            }
-            return Ok(Some(Prepared::Handled));
-        }
-
-        // Plain install: config files only, each created only when missing.
-        // An existing file is never read or modified — never an error.
-        let prefs_path = app_paths.preferences_path();
-        let providers_path = jinn_kernel::config_path();
-        match seed_configs_to(&prefs_path, &providers_path) {
-            Ok(report) => {
-                for (name, outcome) in [
-                    ("jinn.toml", &report.jinn_toml),
-                    ("providers.toml", &report.providers_toml),
-                ] {
-                    match outcome {
-                        SeedOutcome::Created(path) => println!("Created {path}"),
-                        SeedOutcome::Untouched(path) => {
-                            println!("Already present, skipped {path} ({name})");
-                        }
-                    }
-                }
-                match &report.stream_rules {
-                    StreamRulesSeedOutcome::Created(path) => {
-                        println!("Created {path}");
-                    }
-                    // Install never modifies an existing rules file, so
-                    // Untouched is the only other reachable variant here.
-                    StreamRulesSeedOutcome::Untouched(path)
-                    | StreamRulesSeedOutcome::Overwritten(path) => {
-                        println!("Already present, skipped {path}");
-                    }
-                }
-                return Ok(Some(Prepared::Handled));
-            }
-            Err(report) => {
-                eprintln!("error: failed to install defaults:");
-                eprintln!("  {report:?}");
-                return Err(report.change_context(AppError));
-            }
-        }
+        run_install_subcommand(*builtins)?;
+        return Ok(Some(Prepared::Handled));
     }
 
     // The bundled MCP servers (`jinn mcp overgraph`) are child-process
@@ -474,6 +427,100 @@ fn run_recovery_subcommand(cli: &jinn_cli::cli::Cli) -> Result<Option<Prepared>,
     Ok(None)
 }
 
+/// The `jinn install` subcommand: seeds the three config files,
+/// write-once, and — with `--builtins` — force-restores the bundled
+/// resources. Like `config`, it must run before any actor wiring — and it
+/// needs no preferences/DB, so it dispatches before the session store is
+/// opened.
+///
+/// # Errors
+///
+/// Returns an error when the embed enumeration, restore, or seeding fails;
+/// the caller renders it like any other launch failure.
+#[expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::use_debug,
+    reason = "install prints its per-file outcomes (and full report chains); it is the process at that point"
+)]
+fn run_install_subcommand(builtins: bool) -> Result<(), Report<AppError>> {
+    use jinn_install::{
+        SeedOutcome, destinations_from_paths, expected_catalogue, restore_builtins, seed_configs_to,
+    };
+    use jinn_kernel::AppPaths;
+    use jinn_preferences_config::StreamRulesSeedOutcome;
+
+    let app_paths = AppPaths::default();
+    let destinations = destinations_from_paths(&app_paths);
+
+    // `--builtins` is the explicit reclaim: overwrite every bundled
+    // resource from the embed (including user edits), then exit. It
+    // touches no config file.
+    if builtins {
+        let expected = expected_catalogue().map_err(|report| {
+            eprintln!("error: failed to enumerate bundled resources:");
+            eprintln!("  {report:?}");
+            report.change_context(AppError)
+        })?;
+        match restore_builtins(
+            &destinations,
+            &expected,
+            &app_paths.bundled_files_manifest_path(),
+        ) {
+            Ok(report) => {
+                for action in &report.actions {
+                    println!("Restored {}", action.path());
+                }
+                for warning in &report.warnings {
+                    eprintln!("warning: {warning}");
+                }
+            }
+            Err(report) => {
+                eprintln!("error: failed to restore bundled resources:");
+                eprintln!("  {report:?}");
+                return Err(report.change_context(AppError));
+            }
+        }
+    }
+
+    // Plain install: config files only, each created only when missing.
+    // An existing file is never read or modified — never an error.
+    let prefs_path = app_paths.preferences_path();
+    let providers_path = jinn_kernel::config_path();
+    match seed_configs_to(&prefs_path, &providers_path) {
+        Ok(report) => {
+            for (name, outcome) in [
+                ("jinn.toml", &report.jinn_toml),
+                ("providers.toml", &report.providers_toml),
+            ] {
+                match outcome {
+                    SeedOutcome::Created(path) => println!("Created {path}"),
+                    SeedOutcome::Untouched(path) => {
+                        println!("Already present, skipped {path} ({name})");
+                    }
+                }
+            }
+            match &report.stream_rules {
+                StreamRulesSeedOutcome::Created(path) => {
+                    println!("Created {path}");
+                }
+                // Install never modifies an existing rules file, so
+                // Untouched is the only other reachable variant here.
+                StreamRulesSeedOutcome::Untouched(path)
+                | StreamRulesSeedOutcome::Overwritten(path) => {
+                    println!("Already present, skipped {path}");
+                }
+            }
+        }
+        Err(report) => {
+            eprintln!("error: failed to install defaults:");
+            eprintln!("  {report:?}");
+            return Err(report.change_context(AppError));
+        }
+    }
+    Ok(())
+}
+
 /// Checks that `providers.toml` loads and parses, producing a fail-fast report.
 ///
 /// A missing file is not an error here — the loader auto-creates the default
@@ -498,7 +545,13 @@ type ConfigTriple = (
     MarkedPathBuf<Absolute>,
 );
 
-fn read_config(cli: &jinn_cli::cli::Cli) -> Result<ConfigTriple, Report<AppError>> {
+#[expect(
+    clippy::print_stderr,
+    clippy::use_debug,
+    clippy::exit,
+    reason = "launch-time config failures are fatal and printed before any TUI exists; exiting here is the documented contract"
+)]
+fn read_config(cli: &jinn_cli::cli::Cli) -> ConfigTriple {
     let config_storage =
         ConfigStorageService::new(Arc::new(FilesystemConfigStorage::default_path()));
 
@@ -579,7 +632,7 @@ fn read_config(cli: &jinn_cli::cli::Cli) -> Result<ConfigTriple, Report<AppError
         svc
     };
 
-    Ok((config_storage, config, app_state_storage, config_path))
+    (config_storage, config, app_state_storage, config_path)
 }
 
 /// Resolves a `--db-path` CLI value into a typed absolute path.

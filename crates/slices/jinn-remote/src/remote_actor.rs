@@ -125,13 +125,10 @@ impl RemoteListenerActor {
         let entry = registry::InstanceEntry::new(
             deps.pid,
             resolved,
-            std::env::current_dir()
-                .map(|cwd| cwd.to_string_lossy().into_owned())
-                .unwrap_or_default(),
+            std::env::current_dir().map_or_default(|cwd| cwd.to_string_lossy().into_owned()),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| u64::try_from(d.as_millis()).unwrap_or_default())
-                .unwrap_or_default(),
+                .map_or_default(|d| u64::try_from(d.as_millis()).unwrap_or_default()),
         );
         registry::register(deps.registry_path.as_path(), entry).map_err(|e| {
             error_stack::Report::new(RegistryError::InvalidSpec).attach(format!(
@@ -250,17 +247,14 @@ impl MsgHandler<JinnTomlReloaded> for RemoteListenerActor {
         // Registry write while BOTH listeners are up: the entry names
         // the new port and the old one still serves, so discovery can
         // never land on a dead port at any instant.
-        let cwd = std::env::current_dir()
-            .map(|cwd| cwd.to_string_lossy().into_owned())
-            .unwrap_or_default();
+        let cwd = std::env::current_dir().map_or_default(|cwd| cwd.to_string_lossy().into_owned());
         let entry = registry::InstanceEntry::new(
             self.pid,
             resolved,
             cwd,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| u64::try_from(d.as_millis()).unwrap_or_default())
-                .unwrap_or_default(),
+                .map_or_default(|d| u64::try_from(d.as_millis()).unwrap_or_default()),
         );
         if let Err(e) = registry::register(self.registry_path.as_path(), entry) {
             self.note(

@@ -12,7 +12,10 @@
 //!
 //! It lives in the root crate's `tests/` because it is the only place a test
 //! may depend on the session-turn slice and the chat-log slice at once.
-
+#![allow(
+    clippy::indexing_slicing,
+    reason = "integration test: buffer rows asserted at known fixture offsets"
+)]
 #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
 
 use std::time::Duration;

@@ -164,7 +164,13 @@ fn emit_tree_command(
     members: &[SessionId],
 ) -> IntentResult {
     mark_in_flight(state, members);
-    command_for(action, members[0].clone())
+    // The closure always contains the root (see `archive_tree_members`), so
+    // the head is the tree's root session; the empty arm is a guard that
+    // keeps the function total.
+    let Some((root, _rest)) = members.split_first() else {
+        return IntentResult::empty();
+    };
+    command_for(action, root.clone())
 }
 
 fn command_for(action: TreePromptAction, root: SessionId) -> IntentResult {

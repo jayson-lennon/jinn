@@ -32,8 +32,7 @@ pub fn entries(state: &AppState) -> Vec<SessionSummary> {
         .frontend
         .slices()
         .and_then(|slices| slices.reader::<LibraryState>(&library_slot()))
-        .map(|cell| cell.read().entries.clone())
-        .unwrap_or_default()
+        .map_or_default(|cell| cell.read().entries.clone())
 }
 
 /// The row the cursor is drawn on, or `None` when it names no listed member.
@@ -406,7 +405,7 @@ impl SidebarSection for LibrarySection {
                 Style::default().fg(theme.muted_text),
             )]));
         }
-        for member in members.iter() {
+        for member in &members {
             let is_selected = section_focused && cursor.as_ref() == Some(&member.session_id);
             // The in-memory session's title wins when one exists: the rename
             // confirm writes the map synchronously, while the cell's summary
@@ -469,7 +468,8 @@ impl SidebarSection for LibrarySection {
                     usize::from(area.width),
                     theme,
                 ));
-            } else if status.is_in_flight {
+            }
+            if status.is_in_flight {
                 // The in-flight wash runs the full width of the row, the same
                 // as the sessions rows, so the row reads as one tinted block.
                 let wash = Style::default()

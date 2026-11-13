@@ -33,7 +33,7 @@ fn bare_ctx(cwd: &MarkedPathBuf<Absolute>) -> ToolContext {
         turn: crate::tool_types::test_turn(),
         cwd: cwd.clone(),
         config: jinn_config::testutil::config_layer(""),
-        shells: Default::default(),
+        shells: jinn_common::shell::ShellsService::default(),
         timeout: None,
         state: None,
         session_id: None,
@@ -53,7 +53,7 @@ fn bare_ctx(cwd: &MarkedPathBuf<Absolute>) -> ToolContext {
 }
 
 /// A tool call for one of the two tools with JSON arguments.
-fn call(name: &str, args: serde_json::Value) -> ToolCall {
+fn call(name: &str, args: &serde_json::Value) -> ToolCall {
     ToolCall {
         id: jinn_core_types::ToolCallId::from(format!("call_{name}")),
         name: name.to_owned(),
@@ -63,14 +63,14 @@ fn call(name: &str, args: serde_json::Value) -> ToolCall {
 
 /// A `capabilities_query` call.
 fn query_call() -> ToolCall {
-    call("capabilities_query", serde_json::json!({}))
+    call("capabilities_query", &serde_json::json!({}))
 }
 
 /// A `capabilities_apply` call carrying `mask` under `capabilities`.
-fn apply_call(mask: serde_json::Value) -> ToolCall {
+fn apply_call(mask: &serde_json::Value) -> ToolCall {
     call(
         "capabilities_apply",
-        serde_json::json!({ "capabilities": mask }),
+        &serde_json::json!({ "capabilities": mask }),
     )
 }
 
@@ -82,7 +82,7 @@ struct Harness {
     audit: BusAudit,
     ctx: ToolContext,
     /// Held so the temp project dir outlives the seeded skill paths.
-    _tmp: jinn_testutil::JinnTempDir,
+    tmp_dir: jinn_testutil::JinnTempDir,
 }
 
 impl Harness {
@@ -124,7 +124,7 @@ impl Harness {
             session_id,
             audit,
             ctx,
-            _tmp: tmp,
+            tmp_dir: tmp,
         }
     }
 
@@ -182,12 +182,12 @@ impl Harness {
                 description: String::new(),
                 body: String::new(),
                 file_path: self
-                    ._tmp
+                    .tmp_dir
                     .path
                     .join_all([first, "SKILL.md"])
                     .expect("temp root joins a bare name"),
                 base_dir: self
-                    ._tmp
+                    .tmp_dir
                     .path
                     .join(first)
                     .expect("temp root joins a bare name"),
@@ -198,12 +198,12 @@ impl Harness {
                 description: String::new(),
                 body: String::new(),
                 file_path: self
-                    ._tmp
+                    .tmp_dir
                     .path
                     .join_all([second, "SKILL.md"])
                     .expect("temp root joins a bare name"),
                 base_dir: self
-                    ._tmp
+                    .tmp_dir
                     .path
                     .join(second)
                     .expect("temp root joins a bare name"),
@@ -309,7 +309,7 @@ async fn query_reports_server_state_from_the_session_set_not_config_presence() {
     // commit).
     let h = Harness::with_config(&["excalimate", "context7"]);
     h.edit_session(|s| {
-        s.set_enabled_mcp_servers(std::collections::BTreeSet::from(["excalimate".to_owned()]))
+        s.set_enabled_mcp_servers(std::collections::BTreeSet::from(["excalimate".to_owned()]));
     });
 
     // When querying capabilities.
@@ -337,7 +337,7 @@ async fn an_allow_filter_session_reports_unlisted_entries_as_off() {
         s.set_tool_filter(Some(NameFilter {
             mode: FilterMode::Allow,
             names: ["read".to_owned()].into_iter().collect(),
-        }))
+        }));
     });
 
     // When querying capabilities.
@@ -388,7 +388,7 @@ async fn apply_writes_the_tool_deny_filter() {
     });
 
     // When applying.
-    let result = apply_execute(apply_call(mask), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&mask), h.ctx.clone()).await;
 
     // Then the session's tool filter is a deny filter naming exactly the off
     // tool.
@@ -416,7 +416,7 @@ async fn apply_writes_the_skill_deny_filter() {
     });
 
     // When applying.
-    let result = apply_execute(apply_call(mask), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&mask), h.ctx.clone()).await;
 
     // Then the session's skill filter is a deny filter naming exactly the
     // off skill.
@@ -437,7 +437,7 @@ async fn apply_writes_the_enabled_server_set() {
     // flipping which one is on.
     let h = Harness::with_config(&["excalimate", "context7"]);
     h.edit_session(|s| {
-        s.set_enabled_mcp_servers(std::collections::BTreeSet::from(["excalimate".to_owned()]))
+        s.set_enabled_mcp_servers(std::collections::BTreeSet::from(["excalimate".to_owned()]));
     });
     let mask = serde_json::json!({
         "tools": {},
@@ -446,7 +446,7 @@ async fn apply_writes_the_enabled_server_set() {
     });
 
     // When applying.
-    let result = apply_execute(apply_call(mask), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&mask), h.ctx.clone()).await;
 
     // Then the session's enabled set is exactly the mask's on servers.
     assert!(result.success, "apply should succeed: {}", result.content);
@@ -471,7 +471,7 @@ async fn a_successful_apply_publishes_both_messages() {
     });
 
     // When applying.
-    let result = apply_execute(apply_call(mask), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&mask), h.ctx.clone()).await;
 
     // Then McpEnablementChanged carries the full desired set and
     // PersistSession names the session — both messages, on an unchanged
@@ -500,7 +500,7 @@ async fn a_rejected_apply_publishes_nothing() {
     });
 
     // When applying.
-    let result = apply_execute(apply_call(mask), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&mask), h.ctx.clone()).await;
 
     // Then the bus recorded nothing: rejection is whole, not partial.
     assert!(!result.success);
@@ -531,7 +531,7 @@ async fn an_incomplete_mask_is_rejected_whole_with_fields_untouched() {
     });
 
     // When applying.
-    let result = apply_execute(apply_call(mask), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&mask), h.ctx.clone()).await;
 
     // Then the apply is rejected and every field still reads as before.
     assert!(!result.success);
@@ -557,7 +557,7 @@ async fn an_unknown_entry_is_rejected_whole() {
     });
 
     // When applying.
-    let result = apply_execute(apply_call(mask), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&mask), h.ctx.clone()).await;
 
     // Then the apply is rejected with the stale name in the message and no
     // field moved.
@@ -580,7 +580,7 @@ async fn an_entry_in_the_wrong_family_is_rejected() {
     });
 
     // When applying.
-    let result = apply_execute(apply_call(mask), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&mask), h.ctx.clone()).await;
 
     // Then the mask is rejected: kinds are matched exactly, and a tool
     // named `excalimate` does not exist even though the server does.
@@ -601,7 +601,7 @@ async fn a_mask_with_a_non_boolean_state_is_rejected() {
     });
 
     // When applying.
-    let result = apply_execute(apply_call(mask), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&mask), h.ctx.clone()).await;
 
     // Then the apply fails at parse time and nothing changed.
     assert!(!result.success);
@@ -621,7 +621,7 @@ async fn a_mask_missing_a_section_is_rejected() {
     });
 
     // When applying.
-    let result = apply_execute(apply_call(mask), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&mask), h.ctx.clone()).await;
 
     // Then the apply fails and nothing changed: the buffer is all three
     // families or it is nothing.
@@ -645,7 +645,7 @@ async fn an_apply_demotes_an_allow_mode_tool_filter_to_the_mask_s_deny_list() {
         s.set_tool_filter(Some(NameFilter {
             mode: FilterMode::Allow,
             names: ["read".to_owned()].into_iter().collect(),
-        }))
+        }));
     });
     // The mask reads the allow-mode truth: bash is off, read is on.
     let mask = serde_json::json!({
@@ -655,7 +655,7 @@ async fn an_apply_demotes_an_allow_mode_tool_filter_to_the_mask_s_deny_list() {
     });
 
     // When applying.
-    let result = apply_execute(apply_call(mask), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&mask), h.ctx.clone()).await;
 
     // Then the committed filter is deny-mode naming bash, replacing the
     // allow filter entirely.
@@ -690,7 +690,7 @@ async fn a_mask_may_turn_the_adjustment_tools_themselves_off() {
     });
 
     // When applying.
-    let result = apply_execute(apply_call(mask), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&mask), h.ctx.clone()).await;
 
     // Then the mask's word is final: the apply succeeds and the filter
     // withholds all three, no special case.
@@ -718,7 +718,7 @@ async fn entries_already_withheld_before_apply_round_trip_as_off_and_stay_off() 
     // When querying and then applying the query's own buffer unchanged.
     let query = query_execute(query_call(), h.ctx.clone()).await;
     let buffer: serde_json::Value = serde_json::from_str(&query.content).expect("json");
-    let result = apply_execute(apply_call(buffer), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&buffer), h.ctx.clone()).await;
 
     // Then the round trip succeeds and bash is still withheld — the mask
     // echoed the withheld entry as off and it landed as off.
@@ -742,7 +742,7 @@ async fn query_output_flipped_off_feeds_a_valid_full_shutdown_apply() {
     h.register_tool("read");
     h.seed_two_skills("rust-programming", "unused-second");
     h.edit_session(|s| {
-        s.set_enabled_mcp_servers(std::collections::BTreeSet::from(["excalimate".to_owned()]))
+        s.set_enabled_mcp_servers(std::collections::BTreeSet::from(["excalimate".to_owned()]));
     });
 
     // When querying, flipping every state off, and applying.
@@ -756,7 +756,7 @@ async fn query_output_flipped_off_feeds_a_valid_full_shutdown_apply() {
             *state = serde_json::Value::Bool(false);
         }
     }
-    let result = apply_execute(apply_call(mask), h.ctx.clone()).await;
+    let result = apply_execute(apply_call(&mask), h.ctx.clone()).await;
 
     // Then everything is off: no tool or skill is permitted, the enabled
     // set is empty, and the coordinator's message carries that empty set.
@@ -792,7 +792,7 @@ async fn apply_fails_gracefully_without_the_bus() {
     });
 
     // When applying.
-    let result = apply_execute(apply_call(mask), ctx).await;
+    let result = apply_execute(apply_call(&mask), ctx).await;
 
     // Then the tool fails with a message and nothing was written — a
     // capability change must never commit without its delivery path.

@@ -212,7 +212,7 @@ async fn environment_loaded_is_no_longer_a_slice_trigger() {
         "EnvironmentLoaded must not trigger slice discovery: {skills:?}"
     );
     // And the assertion is meaningful only if the session id is real.
-    assert!(!session_id.to_string().is_empty());
+    assert_ne!(session_id.to_string(), "");
 }
 
 #[rstest::rstest]

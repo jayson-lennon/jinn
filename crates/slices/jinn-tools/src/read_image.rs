@@ -351,7 +351,7 @@ mod tests {
         crate::tool_types::ToolContext {
             turn: crate::tool_types::test_turn(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             cwd: cwd.clone(),
             timeout: None,
             state: None,

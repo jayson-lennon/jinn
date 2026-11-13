@@ -82,7 +82,7 @@ pub fn notify_parent_definition() -> ToolDefinition {
 pub fn conclude_execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
     Box::pin(async move {
         let Some(body) = argument(&call, "body") else {
-            return missing_argument(call, "body");
+            return missing_argument(&call, "body");
         };
         let Some(state) = ctx.state.clone() else {
             return tool_error(&call, "conclude is unavailable without shared state");
@@ -127,7 +127,7 @@ pub fn conclude_execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
 pub fn notify_parent_execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
     Box::pin(async move {
         let Some(message) = argument(&call, "message") else {
-            return missing_argument(call, "message");
+            return missing_argument(&call, "message");
         };
         let Some(state) = ctx.state.clone() else {
             return tool_error(&call, "notify_parent is unavailable without shared state");
@@ -200,8 +200,8 @@ fn argument(call: &ToolCall, key: &str) -> Option<String> {
 }
 
 /// Builds a failed result for a missing argument, naming the schema slot.
-fn missing_argument(call: ToolCall, key: &str) -> ToolResult {
-    tool_error(&call, &format!("missing required argument: {key}"))
+fn missing_argument(call: &ToolCall, key: &str) -> ToolResult {
+    tool_error(call, &format!("missing required argument: {key}"))
 }
 
 /// Builds a successful result.

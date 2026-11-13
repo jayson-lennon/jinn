@@ -29,9 +29,10 @@ where
         if let Some(value) = read() {
             return value;
         }
-        if tokio::time::Instant::now() >= deadline {
-            panic!("condition not observed within {timeout:?}");
-        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "condition not observed within {timeout:?}"
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }

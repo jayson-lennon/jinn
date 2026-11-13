@@ -148,10 +148,13 @@ impl InteractiveTermActor {
 }
 
 impl ServiceActor for InteractiveTermActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "ServiceActor::init is async by trait contract; this impl never awaits"
+    )]
     async fn init(_args: &trouper::json::Json) -> Result<Self, Report<RegistryError>> {
         // Never called: spawned via `spawn`'s init_with (typed deps can't
         // ride the JSON args).
-        let _ = _args;
         Err(Report::new(RegistryError::InvalidSpec)
             .attach("InteractiveTermActor is spawned via init_with with typed deps"))
     }
@@ -164,6 +167,18 @@ impl InteractiveTermActor {
     /// path) and the shared control registry (hand the clone to the
     /// takeover UI wiring). Subscriptions are live when this returns: the
     /// builder's start handshake completes before `subscribe` runs.
+    //
+    // The `async` stays even though nothing awaits: composition (and the
+    // in-crate harnesses) await this method, and keeping the signature
+    // matches the other coordinator actors' spawn shape.
+    #[expect(
+        clippy::unused_async,
+        reason = "signature symmetry: composition awaits spawn, matching the other coordinator actors"
+    )]
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "signature symmetry: composition awaits spawn, matching the other coordinator actors"
+    )]
     pub async fn spawn(
         system: &trouper::system::ActorSystem,
         deps: InteractiveTermActorDeps,
@@ -518,27 +533,31 @@ struct RemovedSession {
 }
 
 impl MsgHandler<SpawnTerm> for InteractiveTermActor {
-    async fn handle(&mut self, msg: &SpawnTerm, _ctx: &mut MsgCtx<'_>) {
+    async fn handle(&mut self, msg: &SpawnTerm, ctx: &mut MsgCtx<'_>) {
         let reply = self.handle_spawn(msg).await;
-        _ctx.reply(reply);
+        ctx.reply(reply);
     }
 }
 
 impl MsgHandler<SendTermInput> for InteractiveTermActor {
-    async fn handle(&mut self, msg: &SendTermInput, _ctx: &mut MsgCtx<'_>) {
+    async fn handle(&mut self, msg: &SendTermInput, ctx: &mut MsgCtx<'_>) {
         let reply = self.handle_send(msg).await;
-        _ctx.reply(reply);
+        ctx.reply(reply);
     }
 }
 
 impl MsgHandler<KillTerm> for InteractiveTermActor {
-    async fn handle(&mut self, msg: &KillTerm, _ctx: &mut MsgCtx<'_>) {
+    async fn handle(&mut self, msg: &KillTerm, ctx: &mut MsgCtx<'_>) {
         let reply = self.handle_kill(msg).await;
-        _ctx.reply(reply);
+        ctx.reply(reply);
     }
 }
 
 impl MsgHandler<SendTermKey> for InteractiveTermActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "MsgHandler::handle is async by trait contract; this impl never awaits"
+    )]
     async fn handle(&mut self, msg: &SendTermKey, _ctx: &mut MsgCtx<'_>) {
         // User keystrokes bypass the settle wait entirely: the user is
         // driving, so there is nothing to report back to an agent.
@@ -594,7 +613,7 @@ impl InteractiveTermActor {
                 guard.emulator().cursor_hidden(),
             )
         };
-        session.last_screen = screen.clone();
+        session.last_screen.clone_from(&screen);
         self.write_mirror(&chat, screen.clone(), cells.clone(), cursor, hidden);
         self.bus
             .publish(TermScreenUpdated {
@@ -609,6 +628,10 @@ impl InteractiveTermActor {
 }
 
 impl MsgHandler<jinn_session_msg::SessionClosed> for InteractiveTermActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "MsgHandler::handle is async by trait contract; this impl never awaits"
+    )]
     async fn handle(&mut self, msg: &jinn_session_msg::SessionClosed, _ctx: &mut MsgCtx<'_>) {
         // `remove_session` clears the live flag before dropping the session
         // (a screen task killed before observing EOF can't clear it itself),
@@ -626,6 +649,11 @@ impl MsgHandler<jinn_session_msg::SessionClosed> for InteractiveTermActor {
 impl InteractiveTermActor {
     /// Updates the `term/tabs` cell (the slice-owned terminal mirrors).
     fn with_tabs<R>(&self, f: impl FnOnce(&mut jinn_term_msg::TerminalTabState) -> R) -> R {
+        #[expect(
+            clippy::expect_used,
+            reason = "composition attaches the shared state before the actor spawns; \
+                      missing slices is a wiring bug, not a runtime condition"
+        )]
         let slices = self
             .state
             .read()
@@ -633,6 +661,10 @@ impl InteractiveTermActor {
             .slices()
             .cloned()
             .expect("term cell missing: slices not attached");
+        #[expect(
+            clippy::expect_used,
+            reason = "the cell catalog registers the term/tabs cell before any slice activates"
+        )]
         let cell = slices
             .reader::<jinn_term_msg::TerminalTabState>(&jinn_term_msg::term_tabs_slot())
             .expect("term/tabs cell missing: slice not registered");
@@ -666,9 +698,8 @@ mod tests {
         guard: &jinn_kernel::common::state::StateReadGuard<'_>,
         chat: &jinn_core_types::SessionId,
     ) -> Option<jinn_term_msg::TerminalMirror> {
-        guard
-            .term_tabs()
-            .and_then(|c| c.read().mirror(chat).cloned())
+        let c = guard.term_tabs()?;
+        c.read().mirror(chat).cloned()
     }
 
     /// Whether a session has a live terminal (from the term/tabs cell).
@@ -678,8 +709,7 @@ mod tests {
     ) -> bool {
         guard
             .term_tabs()
-            .map(|c| c.read().live_terms.contains(chat))
-            .unwrap_or(false)
+            .is_some_and(|c| c.read().live_terms.contains(chat))
     }
     use jinn_kernel::common::bus::HarnessServices;
     use jinn_testutil::bus_harness::TestHarness;

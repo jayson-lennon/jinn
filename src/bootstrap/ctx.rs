@@ -79,11 +79,20 @@ impl<'a> Ctx<'a> {
     /// The three producers at the top of the boot list register these
     /// cells, so a missing one means a consumer ran before its producer —
     /// a wiring bug, not a runtime condition.
-    pub(crate) fn cell<T>(&self, slot: jinn_slices::SlotKey) -> jinn_slices::cell::TypedCell<T>
+    ///
+    /// # Panics
+    ///
+    /// Panics when the cell was not registered at boot — a wiring bug,
+    /// not a runtime condition, and one a silent `Option` would hide.
+    #[expect(
+        clippy::panic,
+        reason = "a missing boot cell is a wiring bug; failing loudly here beats an Option every caller must unwrap"
+    )]
+    pub(crate) fn cell<T>(&self, slot: &jinn_slices::SlotKey) -> jinn_slices::cell::TypedCell<T>
     where
         T: Send + Sync + 'static,
     {
-        match self.services.slices.reader::<T>(&slot) {
+        match self.services.slices.reader::<T>(slot) {
             Some(cell) => cell,
             None => {
                 panic!("cell not registered at boot: {slot}");
@@ -107,6 +116,12 @@ impl<'a> Ctx<'a> {
             ReadEditAutoPruneWorker, RegexAutoPruneWorker, TodoAutoPruneWorker,
             ToolAgeWindowAutoPruneWorker, TrivialAssistantAutoPruneWorker,
         };
+        use jinn_preferences_config::schemas::auto_prune::{
+            AnchoredAssistantAutoPruneConfig, BrokenEditAutoPruneConfig,
+            ConsecutiveReadsAutoPruneConfig, DoubleEditAutoPruneConfig, EditReadAutoPruneConfig,
+            ReadEditAutoPruneConfig, TodoAutoPruneConfig, ToolAgeWindowAutoPruneConfig,
+            TrivialAssistantAutoPruneConfig,
+        };
         use jinn_token_count_msg::HistoryWorkerChatEntryTokenCache;
 
         let config = self.services.config.clone();
@@ -115,35 +130,35 @@ impl<'a> Ctx<'a> {
         vec![
             Box::new(ReadEditAutoPruneWorker {
                 layer: config.clone(),
-                config: Default::default(),
+                config: ReadEditAutoPruneConfig::default(),
             }),
             Box::new(EditReadAutoPruneWorker {
                 layer: config.clone(),
-                config: Default::default(),
+                config: EditReadAutoPruneConfig::default(),
             }),
             Box::new(BrokenEditAutoPruneWorker {
                 layer: config.clone(),
-                config: Default::default(),
+                config: BrokenEditAutoPruneConfig::default(),
             }),
             Box::new(DoubleEditAutoPruneWorker {
                 layer: config.clone(),
-                config: Default::default(),
+                config: DoubleEditAutoPruneConfig::default(),
             }),
             Box::new(ConsecutiveReadsAutoPruneWorker {
                 layer: config.clone(),
-                config: Default::default(),
+                config: ConsecutiveReadsAutoPruneConfig::default(),
             }),
             Box::new(ToolAgeWindowAutoPruneWorker {
                 layer: config.clone(),
-                config: Default::default(),
+                config: ToolAgeWindowAutoPruneConfig::default(),
             }),
             Box::new(TodoAutoPruneWorker {
                 layer: config.clone(),
-                config: Default::default(),
+                config: TodoAutoPruneConfig::default(),
             }),
             Box::new(TrivialAssistantAutoPruneWorker {
                 layer: config.clone(),
-                config: Default::default(),
+                config: TrivialAssistantAutoPruneConfig::default(),
                 token_cache: entry_token_cache.clone(),
                 counter: self.token_counter,
             }),
@@ -151,7 +166,7 @@ impl<'a> Ctx<'a> {
                 // The anchor radius and the trivial-assistant floor are
                 // both read live; this seed only describes the shape.
                 layer: config.clone(),
-                config: Default::default(),
+                config: AnchoredAssistantAutoPruneConfig::default(),
                 token_cache: entry_token_cache,
                 counter: self.token_counter,
             }),
@@ -179,9 +194,7 @@ impl<'a> Ctx<'a> {
             },
             state: self.state.clone(),
             counter: self.token_counter,
-            token_cache: token_cache
-                .map(|cell| cell.read().clone())
-                .unwrap_or_default(),
+            token_cache: token_cache.map_or_default(|cell| cell.read().clone()),
             image_converter: self.image_converter.clone(),
             handoff_prompt: self.handoff_prompt.clone(),
         }

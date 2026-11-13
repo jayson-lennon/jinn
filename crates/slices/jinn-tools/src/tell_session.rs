@@ -169,68 +169,81 @@ pub fn execute(call: ToolCall, ctx: ToolContext) -> BoxedToolFuture {
             delivery
         };
 
-        match outcome {
-            Delivery::Run { entry, reset } => {
-                // Persist a reset that actually excluded something, or a
-                // restarted bot would regain the full history.
-                if !reset.is_empty() {
-                    bus.publish(jinn_session_store_msg::PersistSession {
-                        session_id: target_id.clone(),
-                    })
-                    .await;
-                }
-                bus.publish(EnqueueUserMessage {
-                    session_id: target_id.clone(),
-                    entry,
-                })
-                .await;
-                succeeded(
-                    call,
-                    &format!("Message delivered to bot {target_id}; run dispatched."),
-                )
-            }
-            Delivery::QueuedRun { entry } => {
-                bus.publish(EnqueueUserMessage {
-                    session_id: target_id.clone(),
-                    entry,
-                })
-                .await;
-                succeeded(
-                    call,
-                    &format!(
-                        "Message delivered to bot {target_id}; queued behind its \
-                         current turn."
-                    ),
-                )
-            }
-            Delivery::Turn(entry) => {
-                bus.publish(EnqueueUserMessage {
-                    session_id: target_id.clone(),
-                    entry,
-                })
-                .await;
-                succeeded(
-                    call,
-                    &format!("Message delivered to session {target_id} as a user turn."),
-                )
-            }
-            Delivery::Interrupt(text) => {
-                bus.publish(SubmitSteeringMessage {
-                    session_id: target_id.clone(),
-                    text,
-                })
-                .await;
-                succeeded(
-                    call,
-                    &format!(
-                        "Message steered into session {target_id}'s current turn; \
-                         it lands at the next prompt-assembly boundary."
-                    ),
-                )
-            }
-            Delivery::Refused(reason) => tool_error(&call, &format!("{target_id}: {reason}")),
-        }
+        publish_delivery(&bus, &target_id, outcome, call).await
     })
+}
+
+/// Publishes a computed delivery onto the bus and renders the tool result.
+///
+/// One arm per [`Delivery`] kind; each publishes the messages that kind
+/// carries and phrases the success the way the wire contract expects.
+async fn publish_delivery(
+    bus: &jinn_kernel::common::services::bus_service::BusService,
+    target_id: &SessionId,
+    outcome: Delivery,
+    call: ToolCall,
+) -> ToolResult {
+    match outcome {
+        Delivery::Run { entry, reset } => {
+            // Persist a reset that actually excluded something, or a
+            // restarted bot would regain the full history.
+            if !reset.is_empty() {
+                bus.publish(jinn_session_store_msg::PersistSession {
+                    session_id: target_id.clone(),
+                })
+                .await;
+            }
+            bus.publish(EnqueueUserMessage {
+                session_id: target_id.clone(),
+                entry,
+            })
+            .await;
+            succeeded(
+                call,
+                &format!("Message delivered to bot {target_id}; run dispatched."),
+            )
+        }
+        Delivery::QueuedRun { entry } => {
+            bus.publish(EnqueueUserMessage {
+                session_id: target_id.clone(),
+                entry,
+            })
+            .await;
+            succeeded(
+                call,
+                &format!(
+                    "Message delivered to bot {target_id}; queued behind its \
+                     current turn."
+                ),
+            )
+        }
+        Delivery::Turn(entry) => {
+            bus.publish(EnqueueUserMessage {
+                session_id: target_id.clone(),
+                entry,
+            })
+            .await;
+            succeeded(
+                call,
+                &format!("Message delivered to session {target_id} as a user turn."),
+            )
+        }
+        Delivery::Interrupt(text) => {
+            bus.publish(SubmitSteeringMessage {
+                session_id: target_id.clone(),
+                text,
+            })
+            .await;
+            succeeded(
+                call,
+                &format!(
+                    "Message steered into session {target_id}'s current turn; \
+                     it lands at the next prompt-assembly boundary."
+                ),
+            )
+        }
+        Delivery::Refused(reason) => tool_error(&call, &format!("{target_id}: {reason}")),
+    }
 }
 
 /// The delivery a target session takes for an inbound message.

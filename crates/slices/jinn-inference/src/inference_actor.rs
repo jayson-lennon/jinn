@@ -1183,8 +1183,7 @@ impl InferenceActor {
         let model_id = payload
             .provider_id
             .as_deref()
-            .map(std::borrow::ToOwned::to_owned)
-            .unwrap_or_default();
+            .map_or_default(std::borrow::ToOwned::to_owned);
         let bus = self.services.bus.clone();
         let sid = session_id.clone();
         let dispatched_at = payload.dispatched_at;

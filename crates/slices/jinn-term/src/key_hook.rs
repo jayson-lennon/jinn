@@ -99,7 +99,10 @@ mod tests {
             key: Key::F(13),
             modifiers: Modifiers::none(),
         };
-        assert!(crate::key_encoding::encode_key_event(&unencodable).is_empty());
+        assert_eq!(
+            crate::key_encoding::encode_key_event(&unencodable),
+            [] as [u8; 0]
+        );
 
         // When encoding it.
         let intent = hook(&unencodable);

@@ -236,7 +236,7 @@ mod tests {
             turn: crate::tool_types::test_turn(),
             cwd: cwd.clone(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -260,7 +260,7 @@ mod tests {
             turn: crate::tool_types::test_turn(),
             cwd,
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state: None,
             session_id: None,
@@ -448,7 +448,7 @@ mod tests {
 
         // Then rg exit code 1 is treated as success with empty content.
         assert!(result.success);
-        assert!(result.content.is_empty());
+        assert_eq!(result.content, "");
     }
 
     #[rstest::rstest]

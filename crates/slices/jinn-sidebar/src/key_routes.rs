@@ -38,6 +38,16 @@ pub fn rename_scope() -> SliceScopeId {
 /// Downcasts the action context's state to the kernel's application
 /// state. Sidebar actions drive concrete session behavior (activate,
 /// close, archive), which needs the full state surface.
+///
+/// # Panics
+///
+/// Panics when the context's state is not an `AppState` — the sidebar
+/// never registers a row against a foreign state, so a miss is a wiring
+/// bug, not a runtime condition.
+#[expect(
+    clippy::expect_used,
+    reason = "the sidebar dispatches only against AppState; a downcast miss is a wiring bug expect names loudly"
+)]
 fn app<'a>(ctx: &'a mut ActionCtx<'_>) -> &'a mut AppState {
     ctx.state
         .as_any_mut()
@@ -119,9 +129,26 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         mcp.clone(),
         library_scope.clone(),
     ];
+    attach_shared_base_rows(routes, &sections);
+    attach_persona_rows(routes, persona);
+    attach_pins_rows(routes, &pins_scope);
+    attach_sessions_rows(routes, &sessions_scope);
+    attach_session_action_rows(routes, &sessions_scope);
+    attach_session_bot_rows(routes, &sessions_scope);
+    attach_rename_popup_rows(routes);
+    attach_bots_rows(routes, &bot_scope);
+    attach_library_rows(routes);
+    attach_task_list_rows(routes, &task_list_scope);
+    attach_resize_rows(routes, &resize);
+    attach_entry_rows(routes, sessions_scope);
+}
 
-    // ---- Shared base keys (every section) ----
-    for scope in &sections {
+/// The shared base keys every sidebar section answers: navigation, leave,
+/// quit/clear/which-key, and the resize-mode entry. Attached once per
+/// section scope — the route table dispatches on `(scope, action)`, so the
+/// same key in seven scopes is seven independent rows.
+fn attach_shared_base_rows(routes: &KeyRoutes, sections: &[jinn_slices::SliceScopeId]) {
+    for scope in sections {
         routes.attach(row(
             "move-down",
             scope.clone(),
@@ -218,8 +245,10 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
             }),
         ));
     }
+}
 
-    // ---- Persona section ----
+/// The persona section's one row: opening the persona picker.
+fn attach_persona_rows(routes: &KeyRoutes, persona: jinn_slices::SliceScopeId) {
     routes.attach(row(
         "persona-edit",
         persona,
@@ -228,8 +257,10 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "change persona",
         sync(pins::handle_sidebar_persona_edit),
     ));
+}
 
-    // ---- Pins section ----
+/// The pins section's rows: unpin, pin to a position, cycle, and leave.
+fn attach_pins_rows(routes: &KeyRoutes, pins_scope: &jinn_slices::SliceScopeId) {
     routes.attach(row(
         "unpin",
         pins_scope.clone(),
@@ -278,8 +309,12 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "return to chat",
         sync(sidebar_intent::handle_sidebar_leave),
     ));
+}
 
-    // ---- Sessions section ----
+/// The sessions section's rows: everything a user does to one session —
+/// open, close, rename, archive, continue, bot actions, and the rename
+/// popup's own scope keys.
+fn attach_sessions_rows(routes: &KeyRoutes, sessions_scope: &jinn_slices::SliceScopeId) {
     routes.attach(RouteRow {
         route_id: RouteId::new("sidebar:load-subagent"),
         scope: sessions_scope.clone(),
@@ -339,31 +374,11 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         // The enter handler pushes the popup's dynamic scope itself.
         sync(rename::handle_rename_session_enter),
     ));
+}
 
-    routes.attach(row(
-        "rename-confirm",
-        rename_scope(),
-        "<enter>",
-        "input",
-        "rename the session",
-        sync(rename::handle_rename_session_confirm),
-    ));
-    routes.attach(row(
-        "rename-leave",
-        rename_scope(),
-        "<esc>",
-        "general",
-        "cancel rename",
-        sync(rename::handle_rename_session_leave),
-    ));
-    routes.attach(row(
-        "rename-clear-or-leave",
-        rename_scope(),
-        "<c-c>",
-        "general",
-        "clear the title, or leave when already empty",
-        sync(rename::handle_rename_session_clear_or_leave),
-    ));
+/// The session action rows: archive (and the tree arm), continue, rerun
+/// setup, the bot actions, and yank.
+fn attach_session_action_rows(routes: &KeyRoutes, sessions_scope: &jinn_slices::SliceScopeId) {
     routes.attach(row(
         "session-archive",
         sessions_scope.clone(),
@@ -400,6 +415,11 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
             sessions::handle_session_rerun_setup(state, jinn_slices::empty_config_layer())
         }),
     ));
+}
+
+/// The bot rows the sessions section binds: creating, re-running,
+/// properties, the cross-slice terminal toggle, and yank.
+fn attach_session_bot_rows(routes: &KeyRoutes, sessions_scope: &jinn_slices::SliceScopeId) {
     routes.attach(row(
         "session-new-bot-of-session",
         sessions_scope.clone(),
@@ -482,8 +502,42 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "yank session id",
         sync(sessions::handle_session_yank_id),
     ));
+}
 
-    // ---- Bots section ----
+/// The rename popup's own scope keys: confirm, cancel, and clear-or-leave.
+fn attach_rename_popup_rows(routes: &KeyRoutes) {
+    routes.attach(row(
+        "rename-confirm",
+        rename_scope(),
+        "<enter>",
+        "input",
+        "rename the session",
+        sync(rename::handle_rename_session_confirm),
+    ));
+    routes.attach(row(
+        "rename-leave",
+        rename_scope(),
+        "<esc>",
+        "general",
+        "cancel rename",
+        sync(rename::handle_rename_session_leave),
+    ));
+    routes.attach(row(
+        "rename-clear-or-leave",
+        rename_scope(),
+        "<c-c>",
+        "general",
+        "clear the title, or leave when already empty",
+        sync(rename::handle_rename_session_clear_or_leave),
+    ));
+}
+
+/// The bots section's rows. Most bind the same handlers the sessions
+/// section binds at the same keys: the route table dispatches on
+/// `(scope, action)`, and the handler resolves whichever cursor belongs to
+/// the focused section, so identical keys across the sections are free and
+/// the sections' shared definitions cannot drift.
+fn attach_bots_rows(routes: &KeyRoutes, bot_scope: &jinn_slices::SliceScopeId) {
     routes.attach(row(
         "bot-open-reports",
         bot_scope.clone(),
@@ -576,8 +630,11 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "yank session id",
         sync(sessions::handle_session_yank_id),
     ));
+}
 
-    // ---- Library section ----
+/// The library section's rows: activation, archive/remove membership, and
+/// the same bot actions the sessions and bots sections bind.
+fn attach_library_rows(routes: &KeyRoutes) {
     routes.attach(row(
         "library-activate",
         jinn_sidebar_msg::SidebarSectionId::Library.scope_id(),
@@ -666,8 +723,10 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "activate + insert",
         sync(sessions::handle_session_activate_insert),
     ));
+}
 
-    // ---- Task list section ----
+/// The task-list section's rows: opening the picker and scrolling the preview.
+fn attach_task_list_rows(routes: &KeyRoutes, task_list_scope: &jinn_slices::SliceScopeId) {
     routes.attach(row(
         "task-open-picker",
         task_list_scope.clone(),
@@ -697,8 +756,10 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
         "preview down",
         sync(task_list::handle_preview_scroll_down),
     ));
+}
 
-    // ---- Resize mode ----
+/// The resize mode's rows: widen, narrow, and the two leaves.
+fn attach_resize_rows(routes: &KeyRoutes, resize: &jinn_slices::SliceScopeId) {
     routes.attach(row(
         "resize-expand",
         resize.clone(),
@@ -729,14 +790,17 @@ pub fn attach_sidebar_rows(routes: &KeyRoutes) {
     ));
     routes.attach(row(
         "resize-clear-or-leave",
-        resize,
+        resize.clone(),
         "<c-c>",
         "general",
         "leave resize",
         sync(resize::handle_resize_leave),
     ));
+}
 
-    // ---- Entry keys (Normal + Input scopes) ----
+/// The entry keys bound across the Normal and Input static scopes: focusing
+/// the sidebar and entering resize mode from anywhere in the chat surface.
+fn attach_entry_rows(routes: &KeyRoutes, sessions_scope: jinn_slices::SliceScopeId) {
     routes.attach(RouteRow {
         route_id: RouteId::new("sidebar:focus"),
         scope: sessions_scope.clone(),

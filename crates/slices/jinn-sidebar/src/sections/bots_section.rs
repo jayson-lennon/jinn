@@ -351,7 +351,12 @@ fn truncate_report(body: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used, clippy::unwrap_used, reason = "test code")]
+    #![allow(
+        clippy::expect_used,
+        clippy::unwrap_used,
+        clippy::panic,
+        reason = "test code"
+    )]
     use jinn_kernel::common::render_test::render_draw;
 
     use super::{BotsSection, has_content};

@@ -9,7 +9,10 @@
 //!
 //! Boot's provider-init actor gets its own test in `boot.rs` (it needs
 //! the boot trio's `EnvironmentLoaded` trigger).
-
+#![allow(
+    clippy::indexing_slicing,
+    reason = "integration test: fixture vectors with known lengths"
+)]
 #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
 
 use std::time::Duration;

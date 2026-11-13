@@ -54,8 +54,7 @@ impl TaskSpawnRegistry {
         self.inner
             .lock()
             .get(parent)
-            .map(|children| children.iter().cloned().collect())
-            .unwrap_or_default()
+            .map_or_default(|children| children.iter().cloned().collect())
     }
 }
 

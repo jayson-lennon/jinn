@@ -79,8 +79,7 @@ fn find_token_at_cursor(
             if cursor >= i && cursor <= token_end {
                 let filter: String = graphemes
                     .get((i + 1)..cursor)
-                    .map(|s| s.join(""))
-                    .unwrap_or_default();
+                    .map_or_default(|s| s.join(""));
                 return Some((i, filter));
             }
             return None;
@@ -196,10 +195,7 @@ pub(crate) fn find_slash_token_at_cursor(input: &ChatInputBoxState) -> Option<(u
 
     // The cursor must be >= 0 and <= token_end.
     if cursor <= token_end {
-        let filter: String = graphemes
-            .get(1..cursor)
-            .map(|s| s.join(""))
-            .unwrap_or_default();
+        let filter: String = graphemes.get(1..cursor).map_or_default(|s| s.join(""));
         return Some((0, filter));
     }
     None

@@ -4,6 +4,10 @@
 //! under a temp root (`JINN_PATHS_ROOT`), passes a *relative* `--log-file`,
 //! and asserts the log file lands in the spawn cwd — the resolution the
 //! shared CLI path resolver promises at the process boundary.
+#![allow(
+    clippy::expect_used,
+    reason = "integration test: a failed spawn or IO step is the test's failure channel"
+)]
 
 use marked_path::MarkedPathAccess;
 

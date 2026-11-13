@@ -53,6 +53,17 @@ use jinn_term_msg::{control_scope, is_overlay_scope, view_scope};
 /// state. Term actions drive concrete kernel behavior (scope stack,
 /// control registry, session-phase routing), which needs the full
 /// state surface — the sidebar's precedent for the sanctioned downcast.
+///
+/// # Panics
+///
+/// Panics if the dispatched state is not the kernel's `AppState`. Every
+/// term row binds in a term scope, so a mismatch is a route-table
+/// wiring bug.
+#[expect(
+    clippy::expect_used,
+    reason = "every term row binds in a term scope, so the state is always AppState; \
+              a mismatch is a route-table wiring bug"
+)]
 fn app<'a>(ctx: &'a mut ActionCtx<'_>) -> &'a mut AppState {
     ctx.state
         .as_any_mut()
@@ -147,8 +158,7 @@ pub fn handle_toggle_overlay(state: &mut AppState, slices: &jinn_slices::Slices)
     let target = state.session.active_session_id().clone();
     let live = state
         .term_tabs()
-        .map(|cell| cell.read().live_terms.contains(&target))
-        .unwrap_or(false);
+        .is_some_and(|cell| cell.read().live_terms.contains(&target));
     if !live {
         if let Some(status) = slices.reader::<StatusBarState>(&status_bar_slot()) {
             status.update(|state| {
@@ -237,9 +247,8 @@ pub fn push_screen_text(screen: &str) -> String {
 /// The visible screen of the active session's terminal, if any.
 fn active_screen(state: &AppState) -> Option<String> {
     let chat = state.session.active_session_id();
-    state
-        .term_tabs()
-        .and_then(|cell| cell.read().mirror(chat).map(|m| m.screen.clone()))
+    let cell = state.term_tabs()?;
+    cell.read().mirror(chat).map(|m| m.screen.clone())
 }
 
 /// Handles the `yank-screen` action (`y` in `term:view`).
@@ -437,6 +446,21 @@ pub fn attach_rows(routes: &KeyRoutes, toggle_key: &'static str) {
         }),
     ));
 
+    // The keyless capture-mode delivery rows: keystrokes + pastes.
+    attach_capture_rows(routes, &control);
+
+    // Shared chrome: quit + which-key popup.
+    routes.attach(chrome_row(view.clone(), "q", "term:quit"));
+    routes.attach(chrome_row(view, "?", "term:which-key"));
+}
+
+/// Attaches the two keyless capture-mode delivery rows onto the route
+/// table: `send-key` (the key hook's target, per keystroke) and
+/// `send-paste` (a bracketed paste). Both deliver `ctx.key_bytes` to the
+/// pty through `handle_send_key` so the control-holder check stays the
+/// single gate — a paste must not be a second, unchecked way to write to
+/// the terminal.
+fn attach_capture_rows(routes: &KeyRoutes, control: &SliceScopeId) {
     // The key hook's target: publishes `ctx.key_bytes` to the pty. Bound
     // with an empty key (bind-inert) — the hook's catch-all mints this
     // intent per keystroke; the row is the dispatch target.
@@ -474,10 +498,6 @@ pub fn attach_rows(routes: &KeyRoutes, toggle_key: &'static str) {
             handle_send_key(app(&mut ctx), bytes)
         }),
     ));
-
-    // Shared chrome: quit + which-key popup.
-    routes.attach(chrome_row(view.clone(), "q", "term:quit"));
-    routes.attach(chrome_row(view, "?", "term:which-key"));
 }
 
 /// The dynamic intent the sidebar's `T` row publishes: toggles the
@@ -569,7 +589,7 @@ mod tests {
                 ScreenCells::default(),
                 (0, 0),
                 false,
-            )
+            );
         });
     }
 

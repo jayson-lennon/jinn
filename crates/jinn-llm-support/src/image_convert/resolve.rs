@@ -299,8 +299,7 @@ mod tests {
         let abs = path.into();
         let raw = abs
             .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|n| n.to_string_lossy().into_owned());
         PendingPath { raw, abs }
     }
     #[rstest::rstest]

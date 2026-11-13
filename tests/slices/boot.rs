@@ -4,7 +4,10 @@
 //! config through the env-init actor, and `EnvironmentLoaded` fans out
 //! to a probe subscriber — the production startup shape from
 //! `actor_wiring.rs`, exercised against a fresh trouper system.
-
+#![allow(
+    clippy::indexing_slicing,
+    reason = "integration test: fixture vectors with known lengths"
+)]
 #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
 
 use std::collections::BTreeMap;

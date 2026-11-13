@@ -639,10 +639,13 @@ fn preview_never_shows_a_transient_hint_in_place_of_the_model() {
 /// are marked [`TaskStatus::Completed`].
 fn session_with_tasks(completed: usize, total: usize) -> ChatSessionState {
     let mut session = ChatSessionState::new();
-    let tasks = (0..completed)
-        .map(|_| ("done".to_owned(), TaskStatus::Completed))
-        .chain((completed..total).map(|_| ("todo".to_owned(), TaskStatus::Pending)))
-        .collect();
+    let done = std::iter::repeat("done".to_owned())
+        .map(|name| (name, TaskStatus::Completed))
+        .take(completed);
+    let todo = std::iter::repeat("todo".to_owned())
+        .map(|name| (name, TaskStatus::Pending))
+        .take(total.saturating_sub(completed));
+    let tasks = done.chain(todo).collect();
     session.task_list_mut().set_from_inputs(&[PhaseInput {
         description: "Build".to_owned(),
         tasks,

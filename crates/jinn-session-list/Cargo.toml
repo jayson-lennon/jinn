@@ -8,8 +8,6 @@ description = "Owner-neutral session-list projections and visible-tree algorithm
 [dependencies]
 jiff = { workspace = true }
 jinn-core-types = { workspace = true }
-jinn-session-msg = { workspace = true }
-jinn-session-store-msg = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

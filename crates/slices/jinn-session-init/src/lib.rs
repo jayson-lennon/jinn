@@ -66,7 +66,7 @@ pub fn activate(
     state: State,
 ) -> Result<(), error_stack::Report<SliceActivateError>> {
     let system = services.trouper_system.clone();
-    install_actors(&system, services.paths.clone(), state)?;
+    install_actors(&system, &services.paths, state)?;
 
     Ok(())
 }
@@ -85,7 +85,7 @@ pub fn activate(
 /// shard-key declaration is validated at install.
 pub fn install_actors(
     system: &trouper::system::ActorSystem,
-    paths: jinn_kernel::common::app_paths::AppPaths,
+    paths: &jinn_kernel::common::app_paths::AppPaths,
     state: State,
 ) -> Result<(), error_stack::Report<SliceActivateError>> {
     use error_stack::ResultExt;
@@ -106,11 +106,11 @@ pub fn install_actors(
     // Partition set before any send: the supervisor addresses its
     // public path, and install validates the shard-key contract.
     system
-        .install_partition_set(partition_spec(system, &paths, &state))
+        .install_partition_set(partition_spec(system, paths, &state))
         .change_context(SliceActivateError)
         .attach("installing the jinn.discovery partition set")?;
 
-    supervisor::SessionInitSupervisor::spawn(system, state.clone());
+    supervisor::SessionInitSupervisor::spawn(system, &state);
     notifier::DiscoveryNotifier::spawn(system, state);
 
     Ok(())

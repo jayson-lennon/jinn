@@ -111,10 +111,10 @@ pub struct ActivatedDiscord {
     clippy::expect_used,
     reason = "bootstrap assertion: broken slice wiring must abort launch, not continue degraded"
 )]
-pub async fn activate(
+pub fn activate(
     host: &mut jinn_slices::AppSliceHost<'_>,
     services: &jinn_kernel::Services,
-    state: jinn_kernel::common::state::State,
+    state: &jinn_kernel::common::state::State,
 ) -> Result<ActivatedDiscord, jinn_config::ConfigSectionError> {
     // Config: read through the layer at the point of use. A stock
     // `jinn.toml` carries no `[discord]` table, so absence must be a
@@ -186,7 +186,7 @@ pub async fn activate(
             services.config.clone(),
         ),
     ));
-    reload_actor::DiscordReloadActor::spawn(&services.trouper_system, supervisor.clone());
+    reload_actor::DiscordReloadActor::spawn(&services.trouper_system, &supervisor);
 
     Ok(ActivatedDiscord {
         parked,
@@ -254,9 +254,8 @@ mod activate_tests {
         );
 
         // When activating the slice through the real path.
-        let activated = activate(&mut host, &services, state)
-            .await
-            .expect("activation resolves the section");
+        let activated =
+            activate(&mut host, &services, &state).expect("activation resolves the section");
 
         // Then the resolved config carries the document value, not defaults.
         assert!(activated.config.enabled, "config.enabled from the document");
@@ -285,8 +284,7 @@ mod activate_tests {
         );
 
         // When activating the slice through the real path.
-        let activated = activate(&mut host, &services, state)
-            .await
+        let activated = activate(&mut host, &services, &state)
             .expect("an absent section is a normal configuration");
 
         // Then the slice activates disabled rather than aborting the launch.
@@ -316,7 +314,7 @@ mod activate_tests {
         );
 
         // When activating.
-        let result = activate(&mut host, &services, state).await;
+        let result = activate(&mut host, &services, &state);
 
         // Then activation is the fail-fast gate: a section that is
         // present but malformed errors instead of proceeding on

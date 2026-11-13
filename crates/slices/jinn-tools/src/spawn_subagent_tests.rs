@@ -74,7 +74,7 @@ async fn spawn_subagent_ctx_with(
         turn: crate::tool_types::test_turn(),
         cwd: paths_root.clone(),
         config: jinn_config::testutil::config_layer(""),
-        shells: Default::default(),
+        shells: jinn_common::shell::ShellsService::default(),
         timeout: None,
         state: Some(state.clone()),
         session_id: Some(session_id),
@@ -1157,8 +1157,7 @@ async fn listener_signals_on_idle_to_idle_transition() {
             child_id: child_id.clone(),
             completion: tx,
         },
-    )
-    .await;
+    );
 
     // When a force-published Idle→Idle transition arrives (the cancel path).
     harness
@@ -1201,8 +1200,7 @@ async fn spawned_settle_wait(
     let servers = servers.clone();
     let (subscribed, settled) = crate::spawn_subagent::spawn_discovery_settle_listener(
         &system, &bus, &child_id, &servers, budget,
-    )
-    .await;
+    );
     // The listener is subscribed by now; the test may publish.
     subscribed.await;
     tokio::spawn(settled)
@@ -1465,8 +1463,7 @@ async fn listener_stops_on_channel_close() {
             expected_servers: servers,
             settled: settled_tx,
         },
-    )
-    .await;
+    );
 
     // When a matching discovery event arrives (the abort check fires).
     harness

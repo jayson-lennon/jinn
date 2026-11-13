@@ -150,10 +150,7 @@ impl DecodeSession<'_> {
         let stream = self.recognizer.create_stream();
         stream.accept_waveform(16_000, audio.as_samples());
         self.recognizer.decode(&stream);
-        stream
-            .get_result()
-            .map(|result| result.text)
-            .unwrap_or_default()
+        stream.get_result().map_or_default(|result| result.text)
     }
 }
 

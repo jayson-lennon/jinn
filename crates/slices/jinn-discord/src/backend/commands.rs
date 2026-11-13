@@ -108,33 +108,7 @@ pub async fn new(ctx: BotContext<'_>) -> Result<(), BotError> {
 
     let new_session_id = {
         let mut state = data.state.write();
-        // Stash the chosen project so the lifecycle handler consumes it as the
-        // new session's starting CWD and project stamp (same convention as the
-        // project picker). Without this the handler falls back to inheriting
-        // the currently-active session's CWD, which is unrelated to the pick.
-        // The schema field is the user-editable TOML form; expand and
-        // validate it into the typed value the kernel state carries.
-        let expanded = match chosen.path.strip_prefix("~") {
-            Ok(rest) => dirs::home_dir().expect("home dir exists").join(rest),
-            Err(_) => chosen.path.clone(),
-        };
-        let typed = marked_path::MarkedPathBuf::<marked_path::Absolute>::new(expanded)
-            .expect("configured project path is absolute or ~-prefixed");
-        state.frontend.pending_creation =
-            Some(jinn_kernel::state::frontend_state::PendingSessionCreation {
-                project_dir: typed.clone(),
-                starting_cwd: typed,
-            });
-        let result = jinn_kernel::session_lifecycle::intent::handle_session_lifecycle_setup(
-            &mut state,
-            &lifecycle,
-            &args,
-            None,
-            &data.services.config,
-        );
-        for closure in result.messages {
-            let _ = data.bridge.send(closure);
-        }
+        stash_project_and_run_setup(&mut state, chosen, &lifecycle, &args, data);
         state.session.active_session_id().clone()
     };
 
@@ -172,6 +146,57 @@ pub async fn new(ctx: BotContext<'_>) -> Result<(), BotError> {
     ))
     .await?;
     Ok(())
+}
+
+/// Expands the picked project's `~`, stashes the pending creation so the
+/// lifecycle handler consumes it as the new session's starting CWD and
+/// project stamp, runs the setup, and forwards the result's publish
+/// closures through the bridge.
+///
+/// Stash first, run second — the same convention as the project picker.
+/// Without the stash the handler falls back to inheriting the
+/// currently-active session's CWD, which is unrelated to the pick.
+fn stash_project_and_run_setup(
+    state: &mut jinn_kernel::common::state::StateWriteGuard<'_>,
+    chosen: &ProjectConfig,
+    lifecycle: &str,
+    args: &[String],
+    data: &BotData,
+) {
+    // The schema field is the user-editable TOML form; expand and
+    // validate it into the typed value the kernel state carries.
+    let expanded = match chosen.path.strip_prefix("~") {
+        Ok(rest) => {
+            #[expect(
+                clippy::expect_used,
+                reason = "Discord cannot run without a resolvable home dir; failing loudly beats a misexpanded ~ path"
+            )]
+            let home = dirs::home_dir().expect("home dir exists");
+            home.join(rest)
+        }
+        Err(_) => chosen.path.clone(),
+    };
+    #[expect(
+        clippy::expect_used,
+        reason = "a configured project path is absolute or ~-prefixed by validation; a miss is config corruption expect names loudly"
+    )]
+    let typed = marked_path::MarkedPathBuf::<marked_path::Absolute>::new(expanded)
+        .expect("configured project path is absolute or ~-prefixed");
+    state.frontend.pending_creation =
+        Some(jinn_kernel::state::frontend_state::PendingSessionCreation {
+            project_dir: typed.clone(),
+            starting_cwd: typed,
+        });
+    let result = jinn_kernel::session_lifecycle::intent::handle_session_lifecycle_setup(
+        state,
+        lifecycle,
+        args,
+        None,
+        &data.services.config,
+    );
+    for closure in result.messages {
+        let _ = data.bridge.send(closure);
+    }
 }
 
 /// Re-run the lifecycle teardown script for the session bound to this thread.

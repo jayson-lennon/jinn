@@ -99,7 +99,7 @@ mod tests {
             turn: crate::tool_types::test_turn(),
             cwd: volume_root(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state,
             session_id,

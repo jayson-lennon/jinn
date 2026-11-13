@@ -223,7 +223,7 @@ fn tool_ctx(
         turn: crate::tool_types::test_turn(),
         cwd: paths_root.clone(),
         config: jinn_config::testutil::config_layer(""),
-        shells: Default::default(),
+        shells: jinn_common::shell::ShellsService::default(),
         timeout: None,
         state: None,
         session_id,
@@ -671,7 +671,7 @@ async fn missing_session_store_fails_gracefully() {
     );
     let ctx = ToolContext {
         config: jinn_config::testutil::config_layer(""),
-        shells: Default::default(),
+        shells: jinn_common::shell::ShellsService::default(),
         session_store: None,
         trouper_system: None,
         model_name_resolver: None,

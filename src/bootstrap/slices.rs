@@ -65,18 +65,11 @@ pub struct Activated {
 /// Returns an error if a fallible slice activation fails. Callers abort
 /// launch: a slice that cannot register its cell is a broken wiring, not
 /// a degraded mode to run in.
-pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError> {
-    // ── Block 0: the cell catalog ────────────────────────────────────
-    // Every slice cell, registered in one place. No slice registers its
-    // own cell from `activate()` — the activations below all resolve
-    // their handles from the registry by slot key, which is why this
-    // must run before any of them. See constraint 0.
-    jinn_cell_catalog::register_all_cells(&ctx.services().slices);
-
-    // ── Block 1: producers ───────────────────────────────────────────
-    // These three register cells that later activations read by slot key.
-    // They run before the consumers below resolve their cells.
-
+/// ── Block 1: producers ───────────────────────────────────────────
+///
+/// These three register cells that later activations read by slot key.
+/// They run before the consumers in `activate_all` resolve their cells.
+fn activate_producer_slices(ctx: &mut Ctx<'_>) {
     // provides: provider_state_slot
     //   consumed by: jinn_boot (provider-init) below, which reads it from
     //   the registry rather than receiving it from this call
@@ -91,12 +84,12 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
     // these the keys resolve to nothing.
     jinn_provider_selection::activate_picker(&mut ctx.host());
     let provider_picker_cell = ctx.cell::<jinn_provider_selection_msg::ProviderPickerState>(
-        jinn_provider_selection_msg::provider_picker_slot(),
+        &jinn_provider_selection_msg::provider_picker_slot(),
     );
     jinn_provider_selection::activate_provider_picker(&mut ctx.host(), &provider_picker_cell);
     let endpoint_picker_cell = ctx
         .cell::<jinn_provider_selection_msg::endpoint::EndpointPickerState>(
-            jinn_provider_selection_msg::endpoint_picker_slot(),
+            &jinn_provider_selection_msg::endpoint_picker_slot(),
         );
     jinn_provider_selection::activate_endpoint_picker(&mut ctx.host(), &endpoint_picker_cell);
 
@@ -112,11 +105,17 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
     let services_snapshot = ctx.services().clone();
     let state_snapshot = ctx.state().clone();
     jinn_session_store::activate(&mut ctx.host(), &services_snapshot, state_snapshot);
+}
 
-    // ── Block 2: independents ───────────────────────────────────────
-    // Nothing here provides a value another activation reads. Order is
-    // free within the block, subject to the constraints noted inline.
-
+/// ── Block 2: independents ───────────────────────────────────────
+///
+/// Nothing here provides a value another activation reads. Order is free
+/// within the block, subject to the constraints noted inline.
+///
+/// # Errors
+///
+/// Returns an error if a fallible independent activation fails.
+async fn activate_independent_slices(ctx: &mut Ctx<'_>) -> Result<(), ActivateError> {
     // MUST BE FIRST in this block: the census subscription must exist
     // before any other actor spawns. See constraint 1.
     jinn_dashboard::activate(&mut ctx.host())?;
@@ -293,8 +292,20 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
         services_snapshot,
         state_snapshot,
     );
+    Ok(())
+}
 
-    // ── The system-level actors ─────────────────────────────────────
+/// ── The system-level actors ─────────────────────────────────────
+///
+/// Spawned last: they consume cells the blocks above minted and
+/// subscribe to events those actors emit.
+///
+/// # Errors
+///
+/// Returns an error if a fallible system-level activation fails.
+async fn activate_system_actors(
+    ctx: &mut Ctx<'_>,
+) -> Result<(jinn_boot::BootHandles, jinn_discord::ActivatedDiscord), ActivateError> {
     // These five have no cells of their own, so they are spawned here
     // rather than inside their owning slice's activation. The order
     // between them is behavioural: see constraints 3 and 4.
@@ -303,7 +314,7 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
     // back from the registry by slot key, not handed over by the call
     // above.
     let provider_cell = ctx.cell::<jinn_provider_selection_msg::ProviderCell>(
-        jinn_provider_selection_msg::provider_state_slot(),
+        &jinn_provider_selection_msg::provider_state_slot(),
     );
     let boot = jinn_boot::install_actors(
         &ctx.services().trouper_system,
@@ -398,6 +409,16 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
     ));
     let _ = jinn_term_msg::TERM_CONTROLS.set(term_controls);
 
+    install_maintenance_actors(ctx);
+
+    activate_auxiliary_slices(ctx, boot).await
+}
+/// ── Maintenance actors ──────────────────────────────────────────
+///
+/// The search-index reindexer, the session pruner, and the session
+/// lifecycle slice: background maintenance that must exist before the
+/// first turn can run, but that nothing above reads.
+fn install_maintenance_actors(ctx: &mut Ctx<'_>) {
     // The search-index maintenance actor: a message-driven reindex state
     // machine. The dashboard learns it exists from the runtime's spawn
     // announcement, not from a publish here.
@@ -453,10 +474,25 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
         shell,
     );
     jinn_session_lifecycle::activate_picker(&mut ctx.host());
+}
+
+/// ── The remaining auxiliaries ───────────────────────────────────
+///
+/// Pickers, dormant servers (canvas, remote, applets), discord,
+/// dictation, and the config watcher that must be last. Each comment
+/// names the constraint its position satisfies.
+///
+/// # Errors
+///
+/// Returns an error if a fallible auxiliary activation fails.
+async fn activate_auxiliary_slices(
+    ctx: &mut Ctx<'_>,
+    boot: jinn_boot::BootHandles,
+) -> Result<(jinn_boot::BootHandles, jinn_discord::ActivatedDiscord), ActivateError> {
     // The session picker resolves its cell by slot key: `jinn_store` minted
     // it in Block 1, and the store actor publishes loaded rows into it.
     let session_picker_cell = ctx.cell::<jinn_session_store_msg::SessionPickerState>(
-        jinn_session_store_msg::session_picker_slot(),
+        &jinn_session_store_msg::session_picker_slot(),
     );
     jinn_session_store::activate_session_picker(&mut ctx.host(), &session_picker_cell);
 
@@ -521,8 +557,7 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
     // section) and parks the gateway channels for the frontend spawn.
     let services_snapshot = ctx.services().clone();
     let state_snapshot = ctx.state().clone();
-    let discord =
-        jinn_discord::activate(&mut ctx.host(), &services_snapshot, state_snapshot).await?;
+    let discord = jinn_discord::activate(&mut ctx.host(), &services_snapshot, &state_snapshot)?;
 
     // The dictation slice is an independent: its cells came from the
     // catalog (Block 0), it reads `[dictation]` and the shared state
@@ -579,6 +614,42 @@ pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError>
     let state_snapshot = ctx.state().clone();
     jinn_config_watch::activate(&mut ctx.host(), &services_snapshot, &state_snapshot)
         .map_err(|report| ActivateError::ConfigWatch(format!("{report:?}")))?;
+
+    Ok((boot, discord))
+}
+
+/// Activates every slice, in boot order: the cell catalog, then the
+/// producers, then the independents, then the system-level actors.
+/// The order is behavioural — each block's comment names the constraint
+/// that forces it.
+///
+/// # Errors
+///
+/// Returns an error if a fallible slice activation fails. Callers abort
+/// launch: a slice that cannot register its cell is a broken wiring, not
+/// a degraded mode to run in.
+pub async fn activate_all(ctx: &mut Ctx<'_>) -> Result<Activated, ActivateError> {
+    // ── Block 0: the cell catalog ────────────────────────────────────
+    // Every slice cell, registered in one place. No slice registers its
+    // own cell from `activate()` — the activations below all resolve
+    // their handles from the registry by slot key, which is why this
+    // must run before any of them. See constraint 0.
+    jinn_cell_catalog::register_all_cells(&ctx.services().slices);
+
+    // ── Block 1: producers ───────────────────────────────────────────
+    // These three register cells that later activations read by slot key.
+    // They run before the consumers below resolve their cells.
+    activate_producer_slices(ctx);
+
+    // ── Block 2: independents ───────────────────────────────────────
+    // Nothing here provides a value another activation reads. Order is
+    // free within the block, subject to the constraints noted inline.
+    activate_independent_slices(ctx).await?;
+
+    // ── The system-level actors ─────────────────────────────────────
+    // Spawned last: they consume cells the blocks above minted and
+    // subscribe to events those actors emit.
+    let (boot, discord) = activate_system_actors(ctx).await?;
 
     Ok(Activated { boot, discord })
 }

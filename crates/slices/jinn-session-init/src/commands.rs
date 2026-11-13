@@ -80,6 +80,10 @@ impl jinn_slices::BusMessage for RescanWorkflows {}
 
 #[cfg(test)]
 mod tests {
+    #![expect(
+        clippy::indexing_slicing,
+        reason = "test code indexes the collected shard-key field for a clear failure"
+    )]
     #![allow(clippy::expect_used, reason = "test code")]
 
     use super::*;

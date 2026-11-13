@@ -163,13 +163,12 @@ async fn wait_for_stall_marker(app: &TuiApp, session_id: &SessionId) -> bool {
                 .read()
                 .session
                 .get(session_id)
-                .map(|s| {
+                .map_or_default(|s| {
                     s.history()
                         .iter()
                         .map(|e| e.kind_str().to_owned())
                         .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
+                });
             let dead = app.services.trouper_system.dead_letter_count().await;
             panic!(
                 "marker never landed; diagnostics: dead letters = {dead}, \

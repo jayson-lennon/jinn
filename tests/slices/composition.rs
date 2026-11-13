@@ -5,7 +5,11 @@
 //! composed route table carries every in-tree slice's rows. A missing
 //! slice here means its `activate()` never attached rows, so nothing
 //! downstream (keymap, which-key, rendering) can see it.
-
+#![allow(
+    clippy::indexing_slicing,
+    clippy::needless_pass_by_value,
+    reason = "integration test: fixture vectors with known lengths; rstest-injected params"
+)]
 #![allow(clippy::expect_used, clippy::panic, reason = "test code")]
 
 use crate::common::{composed_keymap, composition_routes, test_app};

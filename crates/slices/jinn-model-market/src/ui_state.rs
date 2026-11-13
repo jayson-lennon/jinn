@@ -864,8 +864,7 @@ mod filter_tests {
 
         // When the highlight ranges resolve.
         let starts: Vec<usize> = match_ranges(&row, &ui)
-            .map(|ranges| ranges.iter().map(|r| r.start).collect())
-            .unwrap_or_default();
+            .map_or_default(|ranges| ranges.iter().map(|r| r.start).collect());
 
         // Then the union is ascending and carries BOTH terms' glyphs —
         // more than either term alone highlights.

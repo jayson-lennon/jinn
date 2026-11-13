@@ -35,7 +35,6 @@ jinn-session-history-msg = { workspace = true }
 jinn-context = { workspace = true }
 jinn-picker = { workspace = true }
 jinn-context-curation-msg = { workspace = true }
-jinn-context-assembly-msg = { workspace = true }
 jinn-tools-msg = { workspace = true }
 jinn-slices = { workspace = true }
 jinn-testutil = { workspace = true }

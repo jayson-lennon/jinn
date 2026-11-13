@@ -185,7 +185,7 @@ fn ctx_with(
         turn: crate::tool_types::test_turn(),
         cwd: paths_root.clone(),
         config: jinn_config::testutil::config_layer(""),
-        shells: Default::default(),
+        shells: jinn_common::shell::ShellsService::default(),
         timeout: None,
         state: None,
         session_id: Some(
@@ -404,7 +404,7 @@ async fn no_session_and_no_current_is_an_error() {
         turn: crate::tool_types::test_turn(),
         cwd: dir.path.clone(),
         config: jinn_config::testutil::config_layer(""),
-        shells: Default::default(),
+        shells: jinn_common::shell::ShellsService::default(),
         timeout: None,
         state: None,
         session_id: None,
@@ -462,7 +462,7 @@ async fn outer_truncated_result_carries_full_content() {
             turn: crate::tool_types::test_turn(),
             cwd: dir.path.clone(),
             config: jinn_config::testutil::config_layer(""),
-            shells: Default::default(),
+            shells: jinn_common::shell::ShellsService::default(),
             timeout: None,
             state: None,
             session_id: Some(

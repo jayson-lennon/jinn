@@ -271,7 +271,7 @@ fn open_tool_picker(ctx: &mut ActionCtx<'_>, cell: &ToolPickerCell) -> IntentRes
             &seed.definitions,
             seed.tool_filter.as_ref(),
             &seed.theme,
-        )
+        );
     });
 
     state
@@ -317,9 +317,8 @@ fn seed_from_session(state: &jinn_kernel::AppState) -> Seed {
     // parent to wake.
     let is_bot = active_session.is_bot();
     let bot_has_parent = active_session.parent_session().is_some();
-    let mut definitions: Vec<jinn_core_types::tool_types::ToolDefinition> = state
-        .tool_registry()
-        .map(|registry| {
+    let mut definitions: Vec<jinn_core_types::tool_types::ToolDefinition> =
+        state.tool_registry().map_or_default(|registry| {
             registry
                 .read()
                 .tools_for_session(&session_id)
@@ -327,8 +326,7 @@ fn seed_from_session(state: &jinn_kernel::AppState) -> Seed {
                 .filter(|def| def.available_for_provider(&provider_name))
                 .filter(|def| bot_sees_tool(is_bot, bot_has_parent, def))
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     definitions.sort_by_key(|def| def.name.to_lowercase());
 
     Seed {

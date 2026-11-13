@@ -1,6 +1,6 @@
 //! Tests for the `load_bot` tool and the workflow-source save-block.
 
-#![allow(clippy::expect_used, reason = "test code")]
+#![allow(clippy::expect_used, clippy::indexing_slicing, reason = "test code")]
 
 use std::time::Duration;
 
@@ -30,6 +30,10 @@ fn call(arguments: &str) -> ToolCall {
 
 /// Builds a tool context wired to the harness bus and shared state, rooted at
 /// `paths_root` — a directory the calling test owns for its whole run.
+#[expect(
+    clippy::unused_async,
+    reason = "test fixture symmetry; body never awaits"
+)]
 async fn ctx(
     harness: &TestHarness,
     state: &State,
@@ -40,7 +44,7 @@ async fn ctx(
         turn: crate::tool_types::test_turn(),
         cwd: paths_root.clone(),
         config: jinn_config::testutil::config_layer(""),
-        shells: Default::default(),
+        shells: jinn_common::shell::ShellsService::default(),
         timeout: None,
         state: Some(state.clone()),
         session_id: Some(session_id),

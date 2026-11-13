@@ -28,11 +28,8 @@ use super::sessions::state::{sorted_open_sessions_split, visible_row_of};
 pub fn capture_sessions_cursor_row(state: &AppState) {
     let row = state.frontend.with_sections(
         |sections| {
-            sections
-                .sessions
-                .selected_id
-                .clone()
-                .and_then(|id| visible_row_of(state, &id))
+            let id = sections.sessions.selected_id.clone()?;
+            visible_row_of(state, &id)
         },
         || None,
     );
@@ -47,11 +44,8 @@ pub fn capture_sessions_cursor_row(state: &AppState) {
 pub fn capture_bot_cursor_row(state: &AppState) {
     let row = state.frontend.with_sections(
         |sections| {
-            sections
-                .bot
-                .selected_id
-                .clone()
-                .and_then(|id| super::bots_section::row_of(state, &id))
+            let id = sections.bot.selected_id.clone()?;
+            super::bots_section::row_of(state, &id)
         },
         || None,
     );
@@ -66,11 +60,8 @@ pub fn capture_bot_cursor_row(state: &AppState) {
 pub fn capture_library_cursor_row(state: &AppState) {
     let row = state.frontend.with_sections(
         |sections| {
-            sections
-                .library
-                .selected_id
-                .clone()
-                .and_then(|id| super::library_section::row_of(state, &id))
+            let id = sections.library.selected_id.clone()?;
+            super::library_section::row_of(state, &id)
         },
         || None,
     );

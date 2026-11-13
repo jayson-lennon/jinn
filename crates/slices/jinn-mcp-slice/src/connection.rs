@@ -517,6 +517,10 @@ fn format_result_content(result: &CallToolResult) -> String {
 }
 
 impl ServiceActor for McpActor {
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "ServiceActor::init is async by trait contract; this impl never awaits"
+    )]
     async fn init(_args: &trouper::json::Json) -> Result<Self, error_stack::Report<RegistryError>> {
         // Never called: spawned via `init_with` (typed deps cannot ride
         // JSON args).
@@ -539,8 +543,7 @@ impl ServiceActor for McpActor {
         let tail = self
             .client
             .as_ref()
-            .map(jinn_mcp::McpClient::stderr_tail)
-            .unwrap_or_default();
+            .map_or_default(jinn_mcp::McpClient::stderr_tail);
         if let Some(client) = self.client.as_mut() {
             client.shutdown().await;
         }
@@ -876,6 +879,18 @@ impl McpActor {
     ///
     /// Returns only after the `ExecuteTool` subscription is live, so an
     /// early tool dispatch cannot race the spawn.
+    //
+    // The `async` stays even though nothing awaits: callers (composition
+    // and tests) `.await` this method, and keeping the signature spares
+    // them churn when the spawn grows an await.
+    #[expect(
+        clippy::unused_async,
+        reason = "signature symmetry: callers await McpActor::spawn"
+    )]
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "signature symmetry: callers await McpActor::spawn"
+    )]
     pub async fn spawn(system: &trouper::system::ActorSystem, deps: McpActorDeps) -> ActorPath {
         use std::sync::atomic::{AtomicU64, Ordering};
         static SEQ: AtomicU64 = AtomicU64::new(0);

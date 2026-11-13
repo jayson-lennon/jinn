@@ -1,11 +1,9 @@
 //! The discovery notifier: a settled event produces one transient
 //! summary entry matching the recorded `build_summary` shape.
 
-#![allow(
-    clippy::expect_used,
-    clippy::panic,
-    clippy::unwrap_used,
-    reason = "test code"
+#![expect(
+    clippy::indexing_slicing,
+    reason = "test code indexes the recorded transient texts for a clear failure"
 )]
 
 use std::time::Duration;
@@ -23,7 +21,7 @@ struct Wired {
 }
 
 impl Wired {
-    async fn wire() -> Self {
+    fn wire() -> Self {
         let state = State::new(AppState::default());
         let session_id = state.read().session.active_session_id().clone();
         let fabric = jinn_testutil::TestFabric::new();
@@ -38,21 +36,15 @@ impl Wired {
     /// The session's transient history texts.
     fn transient_texts(&self) -> Vec<String> {
         let guard = self.state.read();
-        guard
-            .session
-            .get(&self.session_id)
-            .map(|s| {
-                s.history()
-                    .iter()
-                    .filter_map(|e| match &e.kind {
-                        jinn_kernel::protocol::ChatEntryKind::Transient(text) => {
-                            Some(text.to_string())
-                        }
-                        _ => None,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+        guard.session.get(&self.session_id).map_or_default(|s| {
+            s.history()
+                .iter()
+                .filter_map(|e| match &e.kind {
+                    jinn_kernel::protocol::ChatEntryKind::Transient(text) => Some(text.clone()),
+                    _ => None,
+                })
+                .collect()
+        })
     }
 }
 
@@ -60,7 +52,7 @@ impl Wired {
 #[tokio::test]
 async fn settled_event_posts_one_transient_summary_entry() {
     // Given a notifier wired on the fabric.
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
 
     // When a settled event with discovered resources crosses.
     wired
@@ -93,7 +85,7 @@ async fn settled_event_posts_one_transient_summary_entry() {
 #[tokio::test]
 async fn empty_discovery_says_no_resources() {
     // Given a notifier wired on the fabric.
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
 
     // When a settled event with an empty snapshot crosses.
     wired
@@ -117,7 +109,7 @@ async fn empty_discovery_says_no_resources() {
 #[tokio::test]
 async fn delayed_reason_surfaces_in_summary() {
     // Given a notifier wired on the fabric.
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
 
     // When a settled event carries a delayed reason.
     wired
@@ -144,7 +136,7 @@ async fn delayed_reason_surfaces_in_summary() {
 #[tokio::test]
 async fn failed_scan_notes_error_in_summary() {
     // Given a notifier wired on the fabric.
-    let wired = Wired::wire().await;
+    let wired = Wired::wire();
 
     // When a settled event carries a skills scan error.
     wired

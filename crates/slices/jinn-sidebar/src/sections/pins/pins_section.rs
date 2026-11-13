@@ -383,17 +383,20 @@ fn verbatim_prefix_and_content(kind: &ChatEntryKind) -> (&'static str, String) {
         // Inter-session mail is self-describing: the text already carries the
         // sender's attribution, so the preview is the text alone.
         ChatEntryKind::Intersession { text, .. } => ("", truncate_str(text, 25)),
-        // Table entries and annotations are not shown in the pinned panel summary.
-        ChatEntryKind::Compaction { .. } | ChatEntryKind::Annotation { .. } => ("", String::new()),
+        // Table entries, annotations, and tool kinds are not shown in the
+        // pinned panel summary. Tool kinds on a Verbatim row cannot occur:
+        // the projection labels every tool result/call with a tool label
+        // variant.
+        ChatEntryKind::Compaction { .. }
+        | ChatEntryKind::Annotation { .. }
+        | ChatEntryKind::ToolCall { .. }
+        | ChatEntryKind::ToolResult { .. } => ("", String::new()),
         // Rule guidance shows the rule that fired, not the guidance body.
         ChatEntryKind::RuleInterrupt { rule, .. } => ("\u{26a1} ", truncate_str(rule, 40)),
         // Thinking entries are not shown in the pinned panel summary.
         ChatEntryKind::Thinking(text) => ("", truncate_str(text, 40)),
 
         ChatEntryKind::Transient(s) => ("\u{2139} ", truncate_str(s, 40)),
-        // Tool kinds on a Verbatim row cannot occur: the projection labels
-        // every tool result/call with a tool label variant.
-        ChatEntryKind::ToolCall { .. } | ChatEntryKind::ToolResult { .. } => ("", String::new()),
     }
 }
 

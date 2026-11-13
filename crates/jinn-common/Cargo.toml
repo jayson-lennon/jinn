@@ -15,10 +15,8 @@ serde_json = { workspace = true }
 # marked-path, so the workspace has one implementation of that rewrite.
 marked-path = { workspace = true }
 # Not unix-only: `process_kill::kill_process_tree` takes a
-# `&mut tokio::process::Child` on every platform, and the Windows branch of
-# `kill_process_group_by_pid` logs through `tracing`.
+# `&mut tokio::process::Child` on every platform.
 tokio = { workspace = true }
-tracing = { workspace = true }
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 
@@ -38,6 +36,9 @@ rstest = { workspace = true }
 # Unix's process-group kill. Only the default `blocking` feature is needed:
 # kill-on-drop runs synchronously from a `Drop` impl (no async runtime).
 kill_tree = "0.2"
+# Windows-only logging: the `kill_tree` failure report in `process_kill`
+# is the crate's only `tracing` call site.
+tracing = { workspace = true }
 
 [lints]
 workspace = true

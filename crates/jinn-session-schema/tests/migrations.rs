@@ -1,5 +1,13 @@
 //! Verifies the schema crate produces the expected post-v20 shape standalone.
 
+#![expect(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::items_after_statements,
+    clippy::redundant_type_annotations,
+    reason = "test code asserts with expect and indexes fixtures for clear failures"
+)]
+
 use jinn_session_schema::run_migrations;
 
 /// `_migrations` tracking row at v25.
@@ -728,7 +736,7 @@ fn count_fk_violations(conn: &rusqlite::Connection) -> usize {
         .expect("prepare foreign_key_check")
         .query_map([], |row| row.get::<_, String>(0))
         .expect("query foreign_key_check")
-        .filter(|r| r.is_ok())
+        .filter_map(std::result::Result::ok)
         .count()
 }
 

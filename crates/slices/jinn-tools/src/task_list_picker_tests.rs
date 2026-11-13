@@ -20,6 +20,8 @@
 //! registry than production, so they passed with the production registration
 //! deleted. These would not have caught that.
 
+#![allow(clippy::expect_used, clippy::panic, reason = "test code")]
+
 use jinn_kernel::AppState;
 use jinn_selection_widget::TreeItem;
 use jinn_slices::DynamicIntent;
@@ -289,7 +291,7 @@ async fn open_over_an_empty_task_list_still_opens() {
     h.open();
 
     // Then it opens, showing no rows — "nothing to do" is a thing to look at.
-    assert!(h.labels().is_empty());
+    assert_eq!(h.labels(), [] as [std::string::String; 0]);
 }
 
 #[rstest::rstest]
@@ -602,7 +604,7 @@ async fn the_picker_has_no_central_intent_names() {
 
     // Then none of them is a kernel intent, and each names the slice.
     for id in &ids {
-        assert!(!id.is_empty());
+        assert_ne!(id, "");
     }
 }
 
