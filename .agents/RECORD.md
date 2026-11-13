@@ -642,7 +642,7 @@ Entries are added or amended **only with human approval**.
 - (skills) The canvas skill teaches the write-serve-edit workflow (file tools, then the `canvas` tool, then free editing) and which vendored library fits a given visual.
 - (tools) The `canvas` tool is a built-in that reaches the canvas actor through a handle stored in `Services.canvas_server`; the actor answers the serve ask with the resolved URL, and a missing path resolves against the session's working directory.
 - (arch) A slice is an integration unit with an activate or actor-install invoked by composition, and every slice implementation crate lives under crates/slices/\*.
-- (arch) jinn-cli, jinn-install, jinn-mcp-overgraph, and jinn-tui are entrypoint infrastructure at the crates/\* level, not slices: composition never integrates them.
+- (arch) jinn-cli, jinn-install, jinn-luau, jinn-mcp-overgraph, and jinn-tui are entrypoint infrastructure at the crates/\* level, not slices: composition never integrates them. BECAUSE: jinn-luau joins the same shape — a subcommand runtime with no cell, routes, or view.
 - (arch) jinn-session-history is shared library code at the crates/\* level: HistoryEditor has no actor, cell, or activate, and jinn-session-state imports it directly.
 - (arch) Every production lock is a parking_lot primitive; std::sync::{RwLock, Mutex} survive only in test code.
 - (canvas) Canvas artifact paths are canonicalized through `server::canonical_artifact` (marked-path's `CanonicalPath`), so the canvas tool result and dashboard row never carry a Windows verbatim prefix and always agree.
@@ -687,6 +687,11 @@ Entries are added or amended **only with human approval**.
 - (dictation) No workspace test opens a real capture device; dictation actor tests inject a scripted CaptureOpener fake. BECAUSE: a test-suite run on a mic-equipped host opened the user's input device.
 - (cli) jinn fetch downloads the configured dictation model into the jinn-managed cache and exits non-zero on platforms without a real backend.
 - (cli) jinn dictation list-devices prints the capture input devices one per line, marking the system default; the printed names are exactly what a [dictation] device value must equal, and the command exits non-zero on platforms without a real backend or with no devices.
+- (luau) jinn embeds the Luau VM (mlua's vendored C++ build) and exposes it as the `jinn luau` subcommand family. BECAUSE: the feature exists for hosts lacking any scripting runtime, so the interpreter must ride in the binary.
+- (luau) `jinn luau` runs with no config, no session store, and no running instance, intercepted before any config read like `jinn remote`. BECAUSE: a lean-host scripting fallback must not depend on jinn's own configuration.
+- (luau) Scripts reach capabilities only through the injected `jinn` table (fs, env, http, process, stdio, json, toml, sleep, exit) plus file-based require rooted at the script's directory. BECAUSE: maximum capability was chosen deliberately, and explicit injection keeps the surface auditable without pretending to be a sandbox.
+- (luau) `jinn luau check` syntax-checks scripts through the vendored Luau compiler without executing them. BECAUSE: the agent's write-check-run loop needs a fail-fast gate, and the Luau type checker (Analysis library) is deferred out of this feature.
+- (luau) Luau scripts run under a default wall-clock timeout and a fixed memory cap, present only as hang/crash guardrails. BECAUSE: they kill agent-written runaway scripts, not untrusted code — no security boundary was wanted.
 - (build) Native dictation dependencies compile only inside the parakeet backend crate and the slice's linux+windows target tables; exactly one cfg module pair in jinn-dictation holds the platform split.
 - (build) The Windows release binary statically links the CRT (crt-static via RUSTFLAGS in the build-release-tarball recipe), matching the /MT sherpa-onnx prebuilt libraries; jinn.exe needs no VC++ redistributable.
 - (dictation) Voice-activity state resets at every dictation session boundary, on arm and on disarm, so no VAD counters survive between recording sessions.

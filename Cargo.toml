@@ -97,6 +97,7 @@ jinn-applets-msg = { workspace = true }
 jinn-remote = { workspace = true }
 jinn-remote-msg = { workspace = true }
 jinn-mcp-overgraph = { workspace = true }
+jinn-luau = { workspace = true }
 jinn-chat-input = { workspace = true }
 jinn-chat-log-view = { workspace = true }
 jinn-scope-focus = { workspace = true }
@@ -297,6 +298,11 @@ jinn-dictation = { path = "crates/slices/jinn-dictation" }
 jinn-theme = { path = "crates/jinn-theme" }
 jinn-mcp = { path = "crates/jinn-mcp" }
 jinn-mcp-overgraph = { path = "crates/jinn-mcp-overgraph" }
+jinn-luau = { path = "crates/jinn-luau" }
+# Embedded Luau scripting behind `jinn luau`. `default-features = false`
+# drops mlua's async + macos-event features so exactly one VM (the vendored
+# Luau) enters the graph; the runtime is sync and blocking by design.
+mlua = { version = "0.12", default-features = false, features = ["luau"] }
 jinn-mcp-slice = { path = "crates/slices/jinn-mcp-slice" }
 jinn-chat-input-msg = { path = "crates/slices/jinn-chat-input-msg" }
 jinn-chat-log-view-msg = { path = "crates/slices/jinn-chat-log-view-msg" }

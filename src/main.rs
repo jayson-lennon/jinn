@@ -50,7 +50,8 @@ fn main() {
             | jinn_cli::cli::Commands::Config { .. }
             | jinn_cli::cli::Commands::Install { .. }
             | jinn_cli::cli::Commands::Mcp { .. }
-            | jinn_cli::cli::Commands::Remote { .. },
+            | jinn_cli::cli::Commands::Remote { .. }
+            | jinn_cli::cli::Commands::Luau { .. },
         ) => TracingMode::Headless { log_path },
         #[cfg(debug_assertions)]
         Some(jinn_cli::cli::Commands::Headless { .. }) => TracingMode::Headless { log_path },

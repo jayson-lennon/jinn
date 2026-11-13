@@ -81,6 +81,7 @@ the current truth) and echo that.
 | `references/workflows.md`              | Workflows: running them, building one by asking, the bundled `autodev` loop                 |
 | `references/models-and-providers.md`   | Model/provider pickers, alloys, endpoint pinning, reasoning effort                         |
 | `references/remote.md`                  | `jinn remote`: messaging a running instance from outside (CLI + curl HTTP surface)         |
+| `references/luau.md`                    | `jinn luau`: the embedded Luau scripting runtime — run/eval/check/version, the `jinn` capability table, exit codes |
 | `references/canvas-and-applets.md`     | The canvas "show me" surface (live reload, click metrics) and saved applets (`<leader>sa`) |
 | `references/configuration.md`          | Config file map, snippets, apply-to-user-config protocol                                   |
 | `references/extending-jinn.md`         | Adding capabilities or extending jinn: MCP servers, skills, prompts, personas, themes, etc |

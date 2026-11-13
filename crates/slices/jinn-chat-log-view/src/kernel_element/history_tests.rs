@@ -2849,6 +2849,10 @@ fn red_png() -> Vec<u8> {
 
 /// A solid-black 200x100 PNG: taller than the halfblock row a red image
 /// reserves, so the two paints are distinguishable by row count.
+#[expect(
+    dead_code,
+    reason = "kept for the two-image comparison tests planned next"
+)]
 fn black_png() -> Vec<u8> {
     let img = image::DynamicImage::new_rgb8(200, 100);
     let mut bytes = std::io::Cursor::new(Vec::new());
@@ -3290,6 +3294,10 @@ fn image_rows_count_into_entry_line_ranges() {
 /// slot as blank content (the image pixels are escape sequences or block
 /// glyphs, and halfblocks writes beneath the reserved rows only when it
 /// wins the paint).
+#[expect(
+    dead_code,
+    reason = "a geometry helper kept while its consumer test is reworked"
+)]
 fn slot_row_below_header(buffer: &ratatui::buffer::Buffer, header_row: u16, width: u16) -> u16 {
     let height = buffer.area.height;
     let mut y = header_row + 1;
@@ -3312,7 +3320,7 @@ fn image_slot_sits_below_its_entry_in_a_bottom_anchored_log() {
     // just-sent-@path shape), and one frame passes so that pad is live.
     let mut element = ChatLogElement::new();
     let height = 30;
-    let mut state = {
+    let state = {
         let mut s = normal_state();
         attach_graphics_cell(&mut s);
         s.active_session_mut()

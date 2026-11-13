@@ -113,6 +113,16 @@ pub fn prepare(
         return Ok(Prepared::Handled);
     }
 
+    // The Luau runner intercepts for the same reason, and never returns:
+    // it owns the process exit code (the script's own code, 124 on
+    // timeout, 2 on harness trouble), so it prints, flushes, and exits
+    // inline instead of coming back through dispatch. No config, no
+    // session store, no running instance — a lean host with no jinn.toml
+    // must be able to run a script.
+    if let Some(command @ jinn_cli::cli::Commands::Luau { .. }) = &cli.command {
+        crate::luau_cli::run(command);
+    }
+
     reconcile_bundled_resources();
 
     let (config_storage, config, app_state_storage, resolved_config_path) = read_config(cli);
