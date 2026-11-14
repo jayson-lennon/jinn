@@ -5,11 +5,13 @@
 - Add autocomplete to CWD picker (`cd`) using fuzzy matching. Press `TAB` to complete the proposed directory.
 - Personas now carry their own compaction prompts enclosed in a `<compaction></compaction>` block.
   - Compaction blocks are now required for all personas.
-- Add new "handoff compaction" automated compaction method:
+- Add new "handoff compaction" automated compaction method. Compaction will now occur occasionally (versus almost never).
 
 ```toml
 [context_curation.handoff_compaction]
 enabled = true
+# Triggers when the _chat context_ (workset) is at 200000.
+# This ignores system prompt length.
 workset_trigger_tokens = 200000
 ```
 
