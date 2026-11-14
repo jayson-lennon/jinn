@@ -238,6 +238,11 @@ impl ChatSessionState {
         &self.core.ephemeral.discovered_context_files
     }
 
+    /// Returns the static system-prompt section discovered for this session.
+    pub fn discovered_static_section(&self) -> Option<&str> {
+        self.core.ephemeral.discovered_static_section.as_deref()
+    }
+
     /// Returns the workflows discovered for this session (launch-global).
     pub fn discovered_workflows(&self) -> &[Workflow] {
         &self.core.ephemeral.discovered_workflows
@@ -256,6 +261,12 @@ impl ChatSessionState {
     /// Replaces the discovered context files for this session.
     pub fn set_discovered_context_files(&mut self, files: Vec<jinn_context::ContextFile>) {
         self.core.ephemeral.discovered_context_files = files;
+    }
+
+    /// Replaces the static system-prompt section for this session
+    /// (scan-actor write path). `None` clears the section.
+    pub fn set_discovered_static_section(&mut self, section: Option<String>) {
+        self.core.ephemeral.discovered_static_section = section;
     }
 
     /// Replaces the discovered workflows set for this session (scan-actor write path).

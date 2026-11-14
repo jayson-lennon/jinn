@@ -93,9 +93,10 @@ impl Cli {
     /// Debug-build guard: `--db-path` is required unless the command is a
     /// bundled MCP server (`jinn mcp …`, which never opens the session
     /// store), the external-remote client (`jinn remote …`, an HTTP
-    /// client that needs no session store), or a dictation utility
-    /// (`jinn dictation …`, which reads the audio host, not the store).
-    /// Release builds always pass.
+    /// client that needs no session store), a dictation utility
+    /// (`jinn dictation …`, which reads the audio host, not the store),
+    /// or the Luau runner (`jinn luau …`, a scripting runtime that needs
+    /// no session store). Release builds always pass.
     ///
     /// # Errors
     ///
@@ -105,7 +106,12 @@ impl Cli {
             && self.db_path.is_none()
             && !matches!(
                 self.command,
-                Some(Commands::Mcp { .. } | Commands::Remote { .. } | Commands::Dictation { .. })
+                Some(
+                    Commands::Mcp { .. }
+                        | Commands::Remote { .. }
+                        | Commands::Dictation { .. }
+                        | Commands::Luau { .. }
+                )
             )
         {
             return Err(DebugDbPathError);
@@ -199,6 +205,66 @@ pub enum Commands {
         #[command(subcommand)]
         subcommand: RemoteCommands,
     },
+
+    /// Run an embedded Luau script.
+    ///
+    /// jinn carries its own Lua interpreter (the vendored Luau VM), so a
+    /// script can run on a host with no python, node, or jq — and with no
+    /// jinn config, session store, or running instance. Scripts reach
+    /// capabilities through the injected `jinn` table (`jinn.fs`,
+    /// `jinn.env`, `jinn.http`, `jinn.proc`, `jinn.stdio`, `jinn.json`,
+    /// `jinn.toml`, `jinn.sleep`, `jinn.exit`, `jinn.args`) plus
+    /// file-based `require` rooted at the script's directory. Not a TUI
+    /// command.
+    ///
+    /// Trailing arguments after `--` become the script's `jinn.args`.
+    Luau {
+        /// Evaluate a code string instead of running a script file.
+        ///
+        /// A subcommand given alongside wins (files-win ordering is decided
+        /// in the runner, not the parser — clap cannot name a subcommand
+        /// field in `conflicts_with`).
+        #[arg(long)]
+        eval: Option<String>,
+
+        /// Wall-clock budget for the script, in seconds. 0 disables the
+        /// timeout entirely; the default is 30.
+        #[arg(long)]
+        timeout: Option<u64>,
+
+        /// The luau subcommand to run (run/check/version). When given,
+        /// `--eval` is ignored (they are mutually exclusive by the
+        /// conflict group; the group exists so the help says so).
+        #[command(subcommand)]
+        subcommand: Option<LuauCommands>,
+    },
+}
+
+/// Embedded-Luau subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum LuauCommands {
+    /// Run a Luau script file; everything after `--` becomes `jinn.args`.
+    Run {
+        /// The script to run.
+        script: PathBuf,
+
+        /// Trailing arguments handed to the script through `jinn.args`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Syntax-check script files without executing them.
+    ///
+    /// Prints `path:line: message` per failure and exits non-zero when
+    /// any file fails to compile. Syntax only — the Luau type checker is
+    /// not part of this gate.
+    Check {
+        /// The scripts to check.
+        scripts: Vec<PathBuf>,
+    },
+
+    /// Print the jinn and vendored Luau versions.
+    Version,
 }
 
 /// External-remote client subcommands.
@@ -941,5 +1007,124 @@ mod tests {
         // When the debug-build guard runs.
         // Then it passes: dictation joins the MCP/remote exemption.
         cli.debug_db_path_required().expect("dictation is exempt");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn luau_version_parses() {
+        // Given the luau version argv shape.
+        // When parsing.
+        let cli = Cli::parse_from(["jinn", "luau", "version"]);
+
+        // Then the variant matches with no subcommand fields set.
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Luau {
+                eval: None,
+                timeout: None,
+                subcommand: Some(LuauCommands::Version)
+            })
+        ));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn luau_run_parses_with_trailing_args() {
+        // Given a luau run argv with script args after the separator.
+        // When parsing.
+        let cli = Cli::parse_from(["jinn", "luau", "run", "s.luau", "--", "--flag", "value"]);
+
+        // Then the script and the post-`--` argv both land.
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Luau {
+                subcommand: Some(LuauCommands::Run { args, .. }),
+                ..
+            }) if args == vec!["--flag".to_owned(), "value".to_owned()]
+        ));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn luau_eval_parses_with_a_timeout() {
+        // Given a luau --eval argv carrying a timeout.
+        // When parsing.
+        let cli = Cli::parse_from(["jinn", "luau", "--timeout", "5", "--eval", "return 1"]);
+
+        // Then the eval string and the explicit timeout both land.
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Luau {
+                eval: Some(source),
+                timeout: Some(5),
+                subcommand: None,
+            }) if source == "return 1"
+        ));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn luau_check_parses_multiple_scripts() {
+        // Given a luau check argv naming two scripts.
+        // When parsing.
+        let cli = Cli::parse_from(["jinn", "luau", "check", "a.luau", "b.luau"]);
+
+        // Then both scripts land in the check subcommand.
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Luau {
+                subcommand: Some(LuauCommands::Check { scripts }),
+                ..
+            }) if scripts.len() == 2
+        ));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn luau_bare_parses_with_no_subcommand_and_no_eval() {
+        // Given a bare `jinn luau` (an error exit is the runner's choice,
+        // not the parser's).
+        // When parsing.
+        let cli = Cli::parse_from(["jinn", "luau"]);
+
+        // Then the variant matches with everything unset.
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Luau {
+                eval: None,
+                timeout: None,
+                subcommand: None,
+            })
+        ));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn luau_command_needs_no_db_path() {
+        // Given a luau command with no --db-path (a scripting runtime
+        // that never opens the session store).
+        let cli = Cli::parse_from(["jinn", "luau", "version"]);
+
+        // When the debug-build guard runs.
+        // Then it passes: luau joins the MCP/remote/dictation exemption.
+        cli.debug_db_path_required().expect("luau is exempt");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn luau_eval_with_a_subcommand_parses_and_the_subcommand_wins_at_the_runner() {
+        // Given both --eval and a subcommand on one argv.
+        // When parsing.
+        let cli = Cli::parse_from(["jinn", "luau", "--eval", "return 1", "version"]);
+
+        // Then the parse succeeds; files-win ordering is the runner's call.
+        let Some(Commands::Luau {
+            eval, subcommand, ..
+        }) = cli.command
+        else {
+            panic!("luau variant expected");
+        };
+        assert_eq!(eval.as_deref(), Some("return 1"));
+        assert!(matches!(subcommand, Some(LuauCommands::Version)));
     }
 }

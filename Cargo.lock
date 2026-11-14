@@ -3141,6 +3141,7 @@ dependencies = [
  "jinn-install",
  "jinn-kernel",
  "jinn-llm-support",
+ "jinn-luau",
  "jinn-mcp",
  "jinn-mcp-msg",
  "jinn-mcp-overgraph",
@@ -4233,6 +4234,23 @@ dependencies = [
  "unicode-segmentation",
  "wherror",
  "which 7.0.3",
+]
+
+[[package]]
+name = "jinn-luau"
+version = "1.23.0"
+dependencies = [
+ "error-stack",
+ "jinn-testutil",
+ "marked-path",
+ "mlua",
+ "mockito",
+ "reqwest 0.13.3",
+ "rstest",
+ "rustls 0.23.45",
+ "serde_json",
+ "toml 0.8.23",
+ "wherror",
 ]
 
 [[package]]
@@ -6115,6 +6133,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
+name = "luau0-src"
+version = "0.22.0+luau740"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ea012e8a8aaff2f7b6c788fad41a60630003b6a0932bcf045f7d14952c9bd31"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "lzma-rust2"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6279,6 +6306,34 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mlua"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a7ae6b65bf54b7fdd4cf5b6f44f60862350ebf3fe3779b3a9cc005e7fa14f81"
+dependencies = [
+ "bstr",
+ "either",
+ "libc",
+ "mlua-sys",
+ "num-traits",
+ "parking_lot",
+ "rustc-hash 2.1.1",
+]
+
+[[package]]
+name = "mlua-sys"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1631cda17bd6486410ab751d91f5fd4484f441589278cdad879eb3afc721a285"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "luau0-src",
+ "pkg-config",
 ]
 
 [[package]]
@@ -7874,6 +7929,7 @@ checksum = "62e0021ea2c22aed41653bc7e1419abb2c97e038ff2c33d0e1309e49a97deec0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "http",

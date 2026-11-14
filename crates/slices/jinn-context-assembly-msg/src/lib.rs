@@ -51,6 +51,11 @@ pub struct AssemblyInputs {
     /// handoff recap and what a recap must carry.
     #[serde(default)]
     pub handoff_enabled: bool,
+    /// The static system-prompt section (`_static.md`), discovered with
+    /// the session's resources. `None` renders no section. The serde
+    /// default keeps older serialized inputs deserializing.
+    #[serde(default)]
+    pub static_section: Option<String>,
 }
 
 /// Ask message: assemble a prompt from these inputs.

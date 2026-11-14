@@ -1,9 +1,10 @@
 //! Environment context sections - per-section builders for the system prompt.
 //!
 //! Each builder renders exactly one environment section of the assembled
-//! system prompt: the active persona, project context files
-//! (AGENTS.md/CLAUDE.md), current date, and working directory. Sections that
-//! have no content return an empty string so the assembler can omit them.
+//! system prompt: the static `_static.md` section, the active persona,
+//! project context files (AGENTS.md/CLAUDE.md), current date, and working
+//! directory. Sections that have no content return an empty string so the
+//! assembler can omit them.
 
 // The context-file loaders join a fixed candidate filename onto a directory
 // already typed `Absolute`; a bare-name join cannot make the result
@@ -20,6 +21,20 @@ use marked_path::{Absolute, MarkedPath, MarkedPathAccess, MarkedPathBuf};
 
 /// Candidates for project context files, checked in order.
 const CONTEXT_FILE_CANDIDATES: &[&str] = &["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
+
+/// Renders the static system-prompt section: the user's `_static.md`
+/// content under a `# jinn` heading, verbatim.
+///
+/// This is where harness facts reach every prompt without a skill load.
+/// Empty string when there is no content (`None`) or it is blank, so the
+/// assembler omits the section entirely.
+#[must_use]
+pub fn static_section(content: Option<&str>) -> String {
+    let Some(content) = content.map(str::trim).filter(|c| !c.is_empty()) else {
+        return String::new();
+    };
+    format!("# jinn\n\n{content}")
+}
 
 /// Renders the persona section: the active persona body (identity + guidelines).
 ///
@@ -254,6 +269,48 @@ mod tests {
             body: body.to_owned(),
             handoff_prompt: String::new(),
         }
+    }
+
+    #[rstest::rstest]
+    fn static_section_renders_content_under_jinn_heading() {
+        // Given static section content from `_static.md`.
+        let content = "jinn carries its own Luau runtime (`jinn luau`).";
+
+        // When building the static section.
+        let result = static_section(Some(content));
+
+        // Then the content is rendered verbatim under the `# jinn` heading.
+        assert_eq!(result, format!("# jinn\n\n{content}"));
+    }
+
+    #[rstest::rstest]
+    fn static_section_is_empty_without_content() {
+        // Given no static section content.
+        // When building the static section.
+        let result = static_section(None);
+
+        // Then no section is rendered.
+        assert_eq!(result, "");
+    }
+
+    #[rstest::rstest]
+    fn static_section_is_empty_when_content_blank() {
+        // Given blank static section content.
+        // When building the static section.
+        let result = static_section(Some("  \n\t "));
+
+        // Then no section is rendered — blank is absent, never a bare heading.
+        assert_eq!(result, "");
+    }
+
+    #[rstest::rstest]
+    fn static_section_trims_surrounding_whitespace_only() {
+        // Given static content with surrounding padding but real body text.
+        // When building the static section.
+        let result = static_section(Some("\n  body line  \n"));
+
+        // Then only the outer padding is trimmed; the body stays verbatim.
+        assert_eq!(result, "# jinn\n\nbody line");
     }
 
     #[rstest::rstest]

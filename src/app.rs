@@ -257,13 +257,21 @@ impl App {
                         clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
                         return Ok(());
                     }
+                    // The luau runner never reaches dispatch (prepare
+                    // intercepts it and exits the process), but the match
+                    // must stay exhaustive over the parse surface. Routing
+                    // it to the TUI arm like the other intercepted commands
+                    // documents that no startup path exists for it.
                     // `jinn mcp noop` falls through to a normal startup: the
                     // variant remains for argv-shape compatibility; the real
                     // bundled servers were intercepted in `prepare`. Canvas
                     // commands are intercepted the same way; this arm is
                     // unreachable for them. `jinn remote …` is intercepted
                     // in `prepare` too — it never reaches a startup path.
-                    Commands::Tui | Commands::Mcp { .. } | Commands::Remote { .. } => {
+                    Commands::Luau { .. }
+                    | Commands::Tui
+                    | Commands::Mcp { .. }
+                    | Commands::Remote { .. } => {
                         self.run_tui_command(
                             dump_requests,
                             llm_service,

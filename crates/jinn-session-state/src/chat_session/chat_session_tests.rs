@@ -5741,6 +5741,50 @@ fn discovered_context_files_round_trip_empty_after_serialization() {
     );
 }
 
+#[rstest::rstest]
+fn set_discovered_static_section_replaces_the_value() {
+    // Given a session with no static section.
+    let mut session = ChatSessionState::new();
+    assert_eq!(session.discovered_static_section(), None);
+
+    // When a section is discovered and written.
+    session.set_discovered_static_section(Some("static body".to_owned()));
+
+    // Then the getter returns it.
+    assert_eq!(session.discovered_static_section(), Some("static body"));
+}
+
+#[rstest::rstest]
+fn set_discovered_static_section_none_clears_the_value() {
+    // Given a session whose static section was already discovered.
+    let mut session = ChatSessionState::new();
+    session.set_discovered_static_section(Some("static body".to_owned()));
+
+    // When the file's disappearance is written as `None`.
+    session.set_discovered_static_section(None);
+
+    // Then the section is cleared — deletion silences it on the next turn.
+    assert_eq!(session.discovered_static_section(), None);
+}
+
+#[rstest::rstest]
+fn discovered_static_section_round_trip_empty_after_serialization() {
+    // Given a session with a static section populated in ephemeral state.
+    let mut session = ChatSessionState::new();
+    session.set_discovered_static_section(Some("should not persist".to_owned()));
+
+    // When serialized then deserialized (ephemeral fields are not persisted).
+    let json = serde_json::to_string(&session).expect("serialize");
+    let restored: ChatSessionState = serde_json::from_str(&json).expect("deserialize");
+
+    // Then the section is `None` after round-trip (transient).
+    assert_eq!(
+        restored.discovered_static_section(),
+        None,
+        "the static section must not be persisted"
+    );
+}
+
 /// Helper: build a pinned skill-shaped ToolResult entry and add it.
 fn push_pinned_tool_result(
     session: &mut super::ChatSessionState,

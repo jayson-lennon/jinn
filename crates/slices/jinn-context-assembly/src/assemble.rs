@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 
 use jinn_context::env_context::{
     context_files_section, cwd_section, date_section, handoff_resume_section, persona_section,
+    static_section,
 };
 use jinn_context_assembly_msg::AssemblyInputs;
 use jinn_core_types::LlmMessage;
@@ -59,6 +60,7 @@ pub fn assemble(inputs: &AssemblyInputs, counter: &dyn TokenCounter) -> Assemble
         skill_filter,
         loaded_skills,
         context_files,
+        static_section: static_section_content,
         handoff_enabled,
     } = inputs;
 
@@ -96,10 +98,12 @@ pub fn assemble(inputs: &AssemblyInputs, counter: &dyn TokenCounter) -> Assemble
         .collect();
     let skills_block = format_skills_for_prompt(&filtered, loaded_skills);
 
-    // Compose environment sections. Builders returning an empty section are
-    // omitted entirely.
+    // Compose environment sections. The static section comes first: harness
+    // facts precede persona and project context. Builders returning an empty
+    // section are omitted entirely.
     let env_sections = {
         vec![
+            static_section(static_section_content.as_deref()),
             persona_section(persona),
             context_files_section(context_files),
         ]
@@ -1130,6 +1134,76 @@ mod tests {
         // Then the function tool is still present despite the non-openrouter model.
         assert_eq!(result.tool_definitions.len(), 1);
         assert_eq!(result.tool_definitions[0].name, "bash");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn assemble_prompt_renders_static_section_first_before_persona_and_context() {
+        // Given a state with a discovered static section, an active persona
+        // with a body, and a project context file. The persona cell is
+        // updated before the state write guard is taken: the two locks are
+        // not reentrant.
+        let (state, session_id) = state_with_history(vec![]);
+        {
+            let cell = {
+                state
+                    .read()
+                    .persona_selection()
+                    .expect("persona cell attached")
+            };
+            let () = cell.update(|p| {
+                p.entries.push(jinn_slices::Persona {
+                    name: jinn_core_types::DEFAULT_PERSONA_NAME.to_owned(),
+                    description: "Test persona".to_owned(),
+                    body: "PERSONA MARKER".to_owned(),
+                    handoff_prompt: String::new(),
+                });
+            });
+        }
+        {
+            let mut guard = state.write();
+            guard
+                .active_session_mut()
+                .set_discovered_static_section(Some("STATIC MARKER".to_owned()));
+            guard
+                .active_session_mut()
+                .set_discovered_context_files(vec![ContextFile {
+                    path: jinn_testutil::volume_root()
+                        .join_all(["proj", "AGENTS.md"])
+                        .expect("bare-name join keeps the root absolute"),
+                    content: "CONTEXT MARKER".to_owned(),
+                }]);
+        }
+
+        // When assembling the prompt.
+        let guard = state.read();
+        let result = assemble_prompt(&guard, &session_id, &counter());
+
+        // Then the system prompt contains all three sections.
+        let system = result.system_prompt.to_string();
+        assert!(system.contains("STATIC MARKER"));
+        assert!(system.contains("PERSONA MARKER"));
+        assert!(system.contains("CONTEXT MARKER"));
+        // And the static section appears first.
+        let static_at = system.find("STATIC MARKER").expect("static present");
+        let persona_at = system.find("PERSONA MARKER").expect("persona present");
+        let context_at = system.find("CONTEXT MARKER").expect("context present");
+        assert!(static_at < persona_at && static_at < context_at);
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn assemble_prompt_omits_static_section_when_none_discovered() {
+        // Given a state with no discovered static section.
+        let (state, session_id) = state_with_history(vec![]);
+
+        // When assembling the prompt.
+        let guard = state.read();
+        let result = assemble_prompt(&guard, &session_id, &counter());
+
+        // Then the system prompt renders no `# jinn` section at all.
+        let system = result.system_prompt.to_string();
+        assert!(!system.contains("# jinn"));
     }
 
     #[rstest::rstest]

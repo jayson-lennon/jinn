@@ -39,6 +39,9 @@ pub struct AssemblySessionProjection {
     pub loaded_skills: HashSet<String>,
     /// Project context files discovered for the session.
     pub context_files: Vec<ContextFile>,
+    /// The static system-prompt section discovered for the session;
+    /// `None` renders no section.
+    pub static_section: Option<String>,
 
     /// Whether this session is a bot, which decides whether it is
     /// offered the bot-only tools.
@@ -64,6 +67,7 @@ impl AssemblySessionProjection {
             skill_filter: session.skill_filter().cloned(),
             loaded_skills: session.loaded_skills(),
             context_files: session.discovered_context_files().to_vec(),
+            static_section: session.discovered_static_section().map(str::to_owned),
             is_bot: session.is_bot(),
             bot_has_parent: session.parent_session().is_some(),
         }
