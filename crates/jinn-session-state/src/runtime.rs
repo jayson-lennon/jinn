@@ -119,6 +119,10 @@ pub struct SessionCoreEphemeral {
     /// Project context files discovered for this session's working directory.
     #[serde(skip)]
     pub discovered_context_files: Vec<ContextFile>,
+    /// The static system-prompt section (`_static.md`) discovered for this
+    /// session; `None` renders no section.
+    #[serde(skip)]
+    pub discovered_static_section: Option<String>,
     /// Workflows discovered for this session (launch-global, config dir).
     #[serde(skip)]
     pub discovered_workflows: Vec<Workflow>,

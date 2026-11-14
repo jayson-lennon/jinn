@@ -77,6 +77,7 @@ pub fn build_assembly_inputs(
         skill_filter: session.skill_filter,
         loaded_skills: session.loaded_skills,
         context_files: session.context_files,
+        static_section: session.static_section,
         handoff_enabled,
     }
 }

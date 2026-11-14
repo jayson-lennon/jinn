@@ -47,6 +47,7 @@ pub fn build_assembly_inputs(state: &AppState, session_id: &SessionId) -> Assemb
         skill_filter: session.skill_filter().cloned(),
         loaded_skills: session.loaded_skills(),
         context_files: session.discovered_context_files().to_vec(),
+        static_section: session.discovered_static_section().map(str::to_owned),
         handoff_enabled: false,
     }
 }

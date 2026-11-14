@@ -299,9 +299,10 @@ enters context when you send it.
 
 ### System prompt assembly
 
-Every session's system prompt is built from six blocks, in order:
+Every session's system prompt is built from seven blocks, in order:
 
 ```
+<static>        # the user's _static.md — harness facts, under # jinn (omit if absent)
 <persona>       # the active persona — every session has one
 <AGENTS.md>     # discovered project-context files, under # Project Context
 <tool context>  # available tools + tool guidelines
@@ -371,6 +372,7 @@ workflows the agent follows.
 | MCP      | `~/.config/jinn/jinn.toml`        | config edit    | at once (an edited entry reconnects that server; `auto_enable` stamps new sessions) |
 | Skill    | `~/.agents/skills/<n>/`           | copy directory | at once (`<c-r>` rescan) |
 | Prompt   | `~/.config/jinn/prompts/*.md`     | write file     | at once (re-read at next use) |
+| Static system section | `~/.config/jinn/prompts/_static.md` | write file (bundled with the `# jinn` Luau blurb; delete or empty it to silence) | at once (re-scanned with the prompts, rendered on the next turn) |
 | Persona  | `~/.config/jinn/personas/*.md`    | write file     | at once (re-read at next use) |
 | Theme    | `~/.config/jinn/themes/*.toml`    | write file     | at once (re-read at next use) |
 | Workflow | `~/.config/jinn/workflows/<n>/`   | ask jinn, or write the files | at once (`<c-r>` rescan) |

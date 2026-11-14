@@ -92,3 +92,100 @@ pub fn load_prompts(
 ) -> Result<PromptTemplateStore, error_stack::Report<jinn_context::PromptTemplateStoreError>> {
     PromptTemplateStore::load_from_dirs_ordered(user_dir, project_dirs)
 }
+
+/// Loads the static system-prompt section from the user prompts dir.
+///
+/// The user-dir system resource `_static.md`; missing or blank means no
+/// section. The file is a single small read, riding the prompts scan so an
+/// edit reaches the next turn through the same `ResourcesChanged` re-scan
+/// that refreshes the template store.
+#[must_use]
+pub fn load_static_section(user_dir: &MarkedPathBuf<Absolute>) -> Option<String> {
+    let content = jinn_common::system_resource::try_load_system_resource(
+        "_static.md",
+        &user_dir.as_marked_path(),
+    )?;
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
+}
+
+#[cfg(test)]
+mod static_section_tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unwrap_used,
+        reason = "test code"
+    )]
+
+    use super::*;
+
+    #[rstest::rstest]
+    fn load_static_section_returns_trimmed_file_content() {
+        // Given a user prompts dir with a padded `_static.md`.
+        let root = jinn_testutil::tempdir();
+        let prompts = root
+            .path
+            .join("prompts")
+            .expect("temp root joins a bare name");
+        std::fs::create_dir_all(&prompts).expect("create prompts dir");
+        std::fs::write(
+            prompts
+                .join("_static.md")
+                .expect("typed parent joins a bare name"),
+            "\n  static body  \n",
+        )
+        .expect("write");
+
+        // When loading the static section.
+        let section = load_static_section(&prompts);
+
+        // Then the content is returned trimmed.
+        assert_eq!(section, Some("static body".to_owned()));
+    }
+
+    #[rstest::rstest]
+    fn load_static_section_is_none_when_file_missing() {
+        // Given a user prompts dir with no `_static.md`.
+        let root = jinn_testutil::tempdir();
+        let prompts = root
+            .path
+            .join("prompts")
+            .expect("temp root joins a bare name");
+        std::fs::create_dir_all(&prompts).expect("create prompts dir");
+
+        // When loading the static section.
+        let section = load_static_section(&prompts);
+
+        // Then there is no section.
+        assert_eq!(section, None);
+    }
+
+    #[rstest::rstest]
+    fn load_static_section_is_none_when_file_blank() {
+        // Given a user prompts dir whose `_static.md` holds only whitespace.
+        let root = jinn_testutil::tempdir();
+        let prompts = root
+            .path
+            .join("prompts")
+            .expect("temp root joins a bare name");
+        std::fs::create_dir_all(&prompts).expect("create prompts dir");
+        std::fs::write(
+            prompts
+                .join("_static.md")
+                .expect("typed parent joins a bare name"),
+            "  \n\t\n",
+        )
+        .expect("write");
+
+        // When loading the static section.
+        let section = load_static_section(&prompts);
+
+        // Then there is no section — blank is absent, never an empty render.
+        assert_eq!(section, None);
+    }
+}

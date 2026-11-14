@@ -261,6 +261,37 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
+    fn bundled_static_prompt_ships_with_luau_blurb() {
+        // Given the derived catalogue.
+        let catalogue = bundled_catalogue().expect("derive catalogue");
+
+        // When finding the bundled `_static.md` prompt.
+        let entry = catalogue
+            .iter()
+            .find(|b| {
+                b.kind == Kind::Prompt && b.relative.as_path().to_string_lossy() == "_static.md"
+            })
+            .expect("prompts/_static.md must ship in the catalogue");
+
+        // Then its content is non-empty, body-only, and names the Luau
+        // runtime — the harness fact the static section exists to carry.
+        let content = std::str::from_utf8(entry.contents).expect("bundled resources are utf-8");
+        assert!(
+            !content.trim().is_empty(),
+            "static prompt must not be empty"
+        );
+        assert!(
+            !content.trim_start().starts_with("+++"),
+            "static prompt must stay body-only (no frontmatter)"
+        );
+        assert!(
+            content.contains("jinn luau"),
+            "static prompt must name the `jinn luau` runtime"
+        );
+    }
+
+    #[rstest::rstest]
+    #[test]
     fn catalogue_is_ordered_by_kind_then_path() {
         // Given the derived catalogue.
 

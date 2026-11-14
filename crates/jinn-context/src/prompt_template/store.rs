@@ -397,4 +397,30 @@ mod tests {
         assert_eq!(templates.len(), 1);
         assert_eq!(templates[0].name, "visible");
     }
+
+    #[rstest::rstest]
+    #[test]
+    fn scan_dir_skips_the_static_section_file() {
+        // Given a scanned prompts dir that also carries the system resource
+        // `_static.md` — markdown, underscore-prefixed, never a template.
+        let dir = jinn_testutil::tempdir();
+        write_template(&dir.path, "visible.md", "visible", "Should load");
+        std::fs::write(
+            dir.path
+                .join("_static.md")
+                .expect("temp root joins a bare name"),
+            "jinn carries its own Luau runtime.",
+        )
+        .expect("write static resource");
+
+        // When scanning the directory.
+        let mut templates = Vec::new();
+        let mut seen_names = std::collections::HashSet::new();
+        PromptTemplateStore::scan_dir(&dir.path, &mut templates, &mut seen_names).expect("scan");
+
+        // Then the static resource never appears as a template — it must
+        // not show up in slash-command autocomplete.
+        assert_eq!(templates.len(), 1);
+        assert_eq!(templates[0].name, "visible");
+    }
 }

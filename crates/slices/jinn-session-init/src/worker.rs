@@ -344,6 +344,20 @@ impl SessionDiscoveryWorker {
         let session_id = self.session_id.clone();
         let user_dir = self.user_prompts_dir.clone();
         tokio::spawn(async move {
+            // The static section rides this scan: one small read from the
+            // same user prompts dir the watcher covers, written before the
+            // store handling so a broken template store never swallows it.
+            let static_section = tokio::task::spawn_blocking({
+                let user_dir = user_dir.clone();
+                move || scans::load_static_section(&user_dir)
+            })
+            .await
+            .unwrap_or_else(|join_error| {
+                tracing::error!("static-section read panicked: {join_error}");
+                None
+            });
+            write_static_section(&state, &session_id, static_section);
+
             let joined =
                 tokio::task::spawn_blocking(move || scans::load_prompts(&user_dir, &project_dirs))
                     .await;
@@ -715,6 +729,18 @@ fn write_prompts(state: &State, session_id: &SessionId, store: &PromptTemplateSt
     state.with_session(|view| {
         if let Some(session) = view.session.map().get_mut(session_id) {
             session.set_discovered_prompt_templates(store.clone());
+        }
+    });
+}
+
+/// Writes the static system-prompt section into the session.
+///
+/// Same write family as [`write_prompts`]; `None` clears the section (the
+/// file was deleted or emptied — omission, not an error).
+fn write_static_section(state: &State, session_id: &SessionId, section: Option<String>) {
+    state.with_session(|view| {
+        if let Some(session) = view.session.map().get_mut(session_id) {
+            session.set_discovered_static_section(section);
         }
     });
 }
