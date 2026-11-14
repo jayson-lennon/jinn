@@ -3,6 +3,7 @@
 ## (development)
 
 - Add autocomplete to CWD picker (`cd`) using fuzzy matching. Press `TAB` to complete the proposed directory.
+- Removed background compactor.
 - Personas now carry their own compaction prompts enclosed in a `<compaction></compaction>` block.
   - Compaction blocks are now required for all personas.
 - Add new "handoff compaction" automated compaction method. Compaction will now occur occasionally (versus almost never).
@@ -17,7 +18,6 @@ workset_trigger_tokens = 200000
 
 - (`jinn.toml`): `workset_trigger_tokens` triggers an error if less than `accumulation_threshold_tokens`.
 - Set default `accumulation_threshold_tokens` to 170k (up from 150k).
-- Removed background compactor.
 - Update `learning-tutor` persona:
   - Now maintains a glossary
   - Provides a primary source at session end for further exploration
@@ -44,7 +44,6 @@ max_image_rows = 16
 
 - Add `smolvm` builtin MCP server, defaulting to Alpine Linux.
   - Primary use-case is to ship a stable environment across multiple platforms.
-  - You can use it as a loose isolation boundary by disabling most of the builtin tools and relying just on VM tool calls.
 
 ```toml
 [mcp.smolvm]
