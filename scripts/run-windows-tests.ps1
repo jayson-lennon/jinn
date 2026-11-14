@@ -51,7 +51,7 @@ $ErrorActionPreference = 'Stop'
 # Stamp every run with the script text's version: over a VBoxSF share the
 # guest can serve a stale cached copy of this file, and a confusing run is
 # unreadable without knowing WHICH text executed. Bump on every edit.
-$ScriptVersion = '2026-11-05.5 raw-process-dotnet'
+$ScriptVersion = '2026-11-13.1 closed-stdin'
 
 # --- Resolve the repo root and escape any UNC location -----------------------
 #
@@ -208,6 +208,11 @@ foreach ($suite in $suites) {
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
+    # RedirectStandardInput with no writer: the suite sees EOF immediately.
+    # Left open (inherited from PowerShell's console), a test that reads
+    # stdin to the end (jinn luau's jinn.stdio.read) blocks forever and
+    # burns the whole suite's wall clock.
+    $psi.RedirectStandardInput = $true
     $psi.WorkingDirectory = $repo
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi

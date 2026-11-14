@@ -1577,9 +1577,12 @@ mod timeout_tests {
             .expect("dump file written");
         assert_eq!(written, "done");
 
-        // And the in-context result is a pointer stub carrying the meta.
+        // And the in-context result is a pointer stub carrying the meta
+        // (the stub spells the path with native separators).
         assert!(
-            result.content.contains("research/page.md"),
+            result
+                .content
+                .contains(&"research/page.md".replace('/', std::path::MAIN_SEPARATOR_STR)),
             "{}",
             result.content
         );

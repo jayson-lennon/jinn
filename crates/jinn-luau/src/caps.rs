@@ -186,6 +186,7 @@ mod tests {
     #[test]
     fn inject_all_builds_the_jinn_table_with_every_family() {
         // Given a context and a fresh unsandboxed VM.
+        crate::install_crypto_provider();
         let dir = jinn_testutil::tempdir();
         let caps = Rc::new(Caps::with_http(
             vec!["one".to_owned(), "two".to_owned()],

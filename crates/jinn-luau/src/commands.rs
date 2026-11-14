@@ -297,13 +297,6 @@ mod tests {
 
     use super::*;
 
-    /// Installs the ring TLS provider once per process, the same one-line
-    /// install `main` runs — reqwest's blocking client panics at
-    /// construction without it.
-    fn install_crypto_provider() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-    }
-
     /// Writes one script file into a fresh temp dir, returning the dir.
     fn script_file(
         contents: &str,
@@ -311,7 +304,7 @@ mod tests {
         jinn_testutil::temp::JinnTempDir,
         marked_path::MarkedPathBuf<marked_path::Absolute>,
     ) {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         let dir = jinn_testutil::tempdir();
         let path = {
             dir.path.join_relative(
@@ -327,7 +320,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn run_maps_an_integer_chunk_return_to_the_exit_code() {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         // Given a script returning 3.
         let (_dir, path) = script_file("return 3");
 
@@ -342,7 +335,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn run_maps_a_nil_return_to_success() {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         // Given a script returning nothing.
         let (_dir, path) = script_file("print('side effect')");
 
@@ -357,7 +350,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn run_sees_the_caller_supplied_args() {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         // Given a script that fails unless jinn.args carries the probe word.
         let (_dir, path) =
             script_file("assert(jinn.args[1] == 'probe-arg', 'missing arg') return 0");
@@ -377,7 +370,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn run_of_a_syntax_error_names_the_position() {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         // Given a script with a syntax error on line 2.
         let (_dir, path) = script_file("local ok = 1\nlocal x = = 2");
 
@@ -394,7 +387,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn run_maps_a_runtime_error_to_one() {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         // Given a script that raises at runtime.
         let (_dir, path) = script_file("error('script-side failure')");
 
@@ -411,7 +404,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn run_kills_a_runaway_loop_at_the_timeout() {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         // Given an infinite-loop script and a one-second budget.
         let (_dir, path) = script_file("while true do end");
 
@@ -429,7 +422,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn run_kills_an_allocation_hog_at_the_cap() {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         // Given an unbounded allocation script (integer pushes grow the
         // table fast without multi-megabyte memcpy churn, so the cap fires
         // in about a second — string-rep variants take minutes to wedge
@@ -451,7 +444,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn run_with_a_timeout_zero_budget_runs_bounded_work() {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         // Given a bounded script under `--timeout 0` semantics.
         // (`Timeout::Secs(0)` floors to the default 30s; `Disabled` is the
         // unbounded spelling — this test pins that bounded work completes
@@ -473,7 +466,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn eval_prints_the_integer_result_and_maps_the_code() {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         // Given an eval string returning 5.
         // When evaluating.
         let outcome = eval("return 5".to_owned(), Timeout::Default).expect("evaluates");
@@ -486,7 +479,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn eval_prints_a_string_result_with_success() {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         // Given an eval string returning a string.
         // When evaluating.
         let outcome = eval("return 'hello'".to_owned(), Timeout::Default).expect("evaluates");
@@ -499,7 +492,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn eval_with_no_return_is_silent_success() {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         // Given an eval string that assigns without returning.
         // When evaluating.
         let outcome = eval("local x = 1".to_owned(), Timeout::Default).expect("evaluates");
@@ -511,7 +504,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn eval_reports_a_syntax_error_with_the_eval_chunk_name() {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         // Given a broken eval string.
         // When evaluating.
         let report = eval("return =".to_owned(), Timeout::Default).expect_err("syntax");
@@ -528,7 +521,7 @@ mod tests {
     #[rstest::rstest]
     #[test]
     fn eval_sees_the_jinn_table() {
-        install_crypto_provider();
+        crate::install_crypto_provider();
         // Given an eval string that reads the capability table.
         // When evaluating a json roundtrip.
         let outcome = eval(
@@ -545,7 +538,7 @@ mod tests {
     #[test]
     fn check_passes_a_valid_script_and_fails_a_broken_one_with_position() {
         // Given one valid script and one with a syntax error on line 3.
-        install_crypto_provider();
+        crate::install_crypto_provider();
         let dir = jinn_testutil::tempdir();
         let good: marked_path::MarkedPathBuf<marked_path::Absolute> = {
             dir.path.join_relative(
@@ -581,7 +574,7 @@ mod tests {
     #[test]
     fn check_all_valid_reports_ok_and_success() {
         // Given two valid scripts.
-        install_crypto_provider();
+        crate::install_crypto_provider();
         let dir = jinn_testutil::tempdir();
         let one: marked_path::MarkedPathBuf<marked_path::Absolute> = {
             dir.path.join_relative(
@@ -611,7 +604,7 @@ mod tests {
     #[test]
     fn check_of_a_missing_file_is_a_read_error() {
         // Given a path naming no file.
-        install_crypto_provider();
+        crate::install_crypto_provider();
         let dir = jinn_testutil::tempdir();
         let absent: marked_path::MarkedPathBuf<marked_path::Absolute> = {
             dir.path.join_relative(
@@ -632,7 +625,7 @@ mod tests {
     #[test]
     fn check_executes_nothing() {
         // Given a script whose side effect would create a file.
-        install_crypto_provider();
+        crate::install_crypto_provider();
         let dir = jinn_testutil::tempdir();
         let side_effect: marked_path::MarkedPathBuf<marked_path::Absolute> = {
             dir.path.join_relative(
@@ -674,7 +667,7 @@ mod tests {
     #[test]
     fn require_resolves_a_sibling_module_from_the_script_directory() {
         // Given a script and a sibling module in the same directory.
-        install_crypto_provider();
+        crate::install_crypto_provider();
         let dir = jinn_testutil::tempdir();
         let module = dir.path.join("helper.luau").expect("joins").into_inner();
         let script: marked_path::MarkedPathBuf<marked_path::Absolute> = {

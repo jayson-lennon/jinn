@@ -113,6 +113,10 @@ mod tests {
 
     /// A VM with the fs family injected, against a fresh temp cwd.
     fn fs_vm() -> (Lua, Rc<Caps>, jinn_testutil::temp::JinnTempDir) {
+        // The Caps constructor builds a reqwest blocking client, which
+        // panics without the process-default TLS provider — this module's
+        // tests never touch the network but still pay the install.
+        crate::install_crypto_provider();
         let dir = jinn_testutil::tempdir();
         let caps = Rc::new(Caps::with_http(
             Vec::new(),

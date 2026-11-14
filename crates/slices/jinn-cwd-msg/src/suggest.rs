@@ -271,9 +271,15 @@ mod tests {
         // Given a base under the temp root.
         let (base, home) = base_and_home();
 
-        // When resolving `..`s that outnumber the base's components (three
-        // ups from root/first/second/work).
-        let ups = format!("../..{}..", std::path::MAIN_SEPARATOR);
+        // When resolving `..`s that outnumber the base's components — one
+        // `..` per normal component above the root, derived from the base
+        // itself so the fixture holds at any temp-dir depth (the temp dir
+        // is one component under the root on Linux but several on Windows).
+        let depth = base
+            .components()
+            .filter(|component| matches!(component, std::path::Component::Normal(_)))
+            .count();
+        let ups = vec![".."; depth].join(std::path::MAIN_SEPARATOR_STR);
         let dir = resolve_parent_dir(&ups, &base.as_marked_path(), &home);
 
         // Then it clamps at the root instead of panicking.

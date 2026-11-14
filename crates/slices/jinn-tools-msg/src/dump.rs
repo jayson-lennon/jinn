@@ -233,6 +233,13 @@ mod tests {
         }
     }
 
+    /// The stub spells the target path with native separators (the typed
+    /// path join normalizes), so assertions on stub content must spell the
+    /// dump path the same way.
+    fn native(path: &str) -> String {
+        path.replace('/', std::path::MAIN_SEPARATOR_STR)
+    }
+
     #[rstest::rstest]
     fn dump_writes_original_and_stubs_content() {
         // Given a successful text result and a dump path.
@@ -249,7 +256,7 @@ mod tests {
         assert_eq!(written, "the full page text");
 
         // And the in-context result names the file and preserves the original.
-        assert!(result.content.contains("out/page.md"));
+        assert!(result.content.contains(&native("out/page.md")));
         assert!(result.content.contains("the full page text"));
         assert_eq!(result.full_content.as_deref(), Some("the full page text"));
         let meta = result.truncation.expect("dump meta");
