@@ -52,8 +52,9 @@ auto_enable = false
 ```
 
 - Add embedded `luau` support, invoked with `jinn luau`.
-
-
+- Add new `_static.md` prompt to the system prompt to instruct about the builtin Lua engine.
+  - This is used to carry additional always-available information.
+  - Editing it is OK. `jinn` will not overwrite your edits.
 
 ## 2026-11-10 v1.23.0
 
