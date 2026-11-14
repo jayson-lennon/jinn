@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn request_returns_status_and_body_from_a_mock_server() {
         // Given a mock server answering 200 with a fixed body.
-        jinn::install_crypto_provider();
+        install_crypto_provider();
         let mut server = mockito::Server::new();
         let mock = server
             .mock("GET", "/thing")
@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn request_sends_the_declared_method_and_header() {
         // Given a mock server matching POST plus one header.
-        jinn::install_crypto_provider();
+        install_crypto_provider();
         let mut server = mockito::Server::new();
         let mock = server
             .mock("POST", "/submit")
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn an_unknown_method_is_a_script_error() {
         // Given the http capability.
-        jinn::install_crypto_provider();
+        install_crypto_provider();
         let (caps, _dir) = http_caps();
         let lua = Lua::new();
         let jinn = lua.create_table().expect("table");
@@ -260,12 +260,7 @@ mod tests {
     }
 }
 
-/// The root crate's crypto-provider installer is unavailable from a
-/// library crate's unit tests; this module re-derives the same one-line
-/// install (ring provider, no-op when already installed) that `main` runs.
+/// The root crate's crypto-provider installer, reachable from this
+/// module's tests.
 #[cfg(test)]
-mod jinn {
-    pub fn install_crypto_provider() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-    }
-}
+use crate::install_crypto_provider;

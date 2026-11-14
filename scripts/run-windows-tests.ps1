@@ -51,7 +51,7 @@ $ErrorActionPreference = 'Stop'
 # Stamp every run with the script text's version: over a VBoxSF share the
 # guest can serve a stale cached copy of this file, and a confusing run is
 # unreadable without knowing WHICH text executed. Bump on every edit.
-$ScriptVersion = '2026-11-05.5 raw-process-dotnet'
+$ScriptVersion = '2026-11-13.2 close-stdin-write-end'
 
 # --- Resolve the repo root and escape any UNC location -----------------------
 #
@@ -208,10 +208,17 @@ foreach ($suite in $suites) {
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
+    # RedirectStandardInput with the write end closed immediately: the
+    # suite sees EOF at once. Redirecting alone is not enough — the parent
+    # holds the pipe open for writing, so a test that reads stdin to the
+    # end (jinn luau's jinn.stdio.read) blocks forever inside CreateProcess's
+    # wake; only an explicit Close() delivers the EOF.
+    $psi.RedirectStandardInput = $true
     $psi.WorkingDirectory = $repo
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
     [void]$proc.Start()
+    $proc.StandardInput.Close()
     $outTask = $proc.StandardOutput.ReadToEndAsync()
     $errTask = $proc.StandardError.ReadToEndAsync()
 

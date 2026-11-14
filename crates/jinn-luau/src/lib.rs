@@ -41,6 +41,19 @@ use wherror::Error;
 pub use commands::RunMode;
 pub use commands::{check, eval, run, version};
 
+/// Installs the process-default rustls crypto provider (ring), no-op when
+/// another installer won the race.
+///
+/// The workspace pins `rustls-no-provider` so every entry point that may
+/// build a reqwest client installs the provider first — `main` in the
+/// binary, and every test that constructs a [`crate::caps::Caps`] (whose
+/// constructor spawns reqwest's blocking event loop, which panics without
+/// a provider). Public so library-crate test modules can call one shared
+/// installer instead of re-deriving it.
+pub fn install_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 /// How a luau subcommand failed before or during execution.
 ///
 /// Every variant renders a single-sentence user-facing message; the caller

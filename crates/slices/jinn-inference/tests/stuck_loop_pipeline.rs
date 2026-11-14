@@ -361,8 +361,22 @@ async fn three_loops_surrender_with_a_marker_then_a_cancel() {
     // Three loop completions produce two retry outcomes plus a third from
     // the racing retry (the retry that beat the cancel to the ledger also
     // reports LoopRetried before the cancel settles), so: exactly one
-    // terminal outcome, everything else LoopRetried.
-    let outcomes = await_recorded(&outcomes, 3, std::time::Duration::from_secs(5)).await;
+    // terminal outcome, everything else LoopRetried. The await targets the
+    // terminal itself rather than a fixed batch size: on a loaded runner
+    // the racing retry's outcome can drain ahead of the terminal, and a
+    // count-based await would time out before the settle ever published.
+    let outcomes = {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut collected = drain_all(&outcomes);
+        loop {
+            let has_terminal = collected.iter().any(|t| t.outcome.is_terminal());
+            if has_terminal || std::time::Instant::now() >= deadline {
+                break collected;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            collected.extend(drain_all(&outcomes));
+        }
+    };
     assert!(
         outcomes.len() >= 3,
         "two retries then the surrender's settle, got: {:?}",

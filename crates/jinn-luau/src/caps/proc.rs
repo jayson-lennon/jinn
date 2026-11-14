@@ -92,6 +92,9 @@ mod tests {
     /// family lands on `globals().proc` here (the test passes `globals()`
     /// as the registration table) so `run_fn` can fetch `proc.run`.
     fn proc_vm() -> (Lua, Rc<Caps>, jinn_testutil::temp::JinnTempDir) {
+        // The Caps constructor builds a reqwest blocking client, which
+        // panics without the process-default TLS provider.
+        crate::install_crypto_provider();
         let dir = jinn_testutil::tempdir();
         let caps = Rc::new(Caps::with_http(
             Vec::new(),

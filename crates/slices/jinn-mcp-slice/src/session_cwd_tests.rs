@@ -23,10 +23,19 @@ use std::collections::BTreeMap;
 
 use crate::connection::{connect_for_transport, expand_server_env, server_command};
 use jinn_kernel::Services;
-use marked_path::{Absolute, MarkedPathBuf};
+use marked_path::{Absolute, MarkedPathAccess as _, MarkedPathBuf};
 
-fn cwd(root: &str) -> MarkedPathBuf<Absolute> {
-    let path = std::path::Path::new(root);
+/// A fake absolute cwd for token-expansion assertions, shaped for the
+/// target platform: `MarkedPathBuf<Absolute>` rejects a POSIX-only path on
+/// Windows, where absolute means a drive prefix. The expected expansions
+/// below derive from this same helper, so fixture and assertion cannot
+/// drift.
+fn cwd(name: &str) -> MarkedPathBuf<Absolute> {
+    let path = if cfg!(windows) {
+        format!(r"C:\worktrees\{name}")
+    } else {
+        format!("/tmp/{name}")
+    };
     MarkedPathBuf::<Absolute>::new(path).expect("absolute cwd")
 }
 
@@ -36,7 +45,7 @@ fn cwd(root: &str) -> MarkedPathBuf<Absolute> {
 #[test]
 fn session_cwd_token_expands_in_args() {
     // Given a config whose arg carries the token and an attached cwd.
-    let session_cwd = cwd("/tmp/worktree-a");
+    let session_cwd = cwd("worktree-a");
     let config = jinn_preferences_config::schemas::mcp::McpServerConfig {
         command: Some("echo".to_owned()),
         args: vec!["--project=<session_cwd>".to_owned()],
@@ -47,14 +56,17 @@ fn session_cwd_token_expands_in_args() {
     let cmd = server_command(&config, Some(&session_cwd));
 
     // Then the arg carries the absolute session cwd.
-    assert_eq!(cmd.args, vec!["--project=/tmp/worktree-a"]);
+    assert_eq!(
+        cmd.args,
+        vec![format!("--project={}", session_cwd.to_string_lossy())]
+    );
 }
 
 #[rstest::rstest]
 #[test]
 fn jinn_only_entries_are_untouched_by_the_session_cwd_expansion() {
     // Given a <jinn>-only config and an attached cwd.
-    let session_cwd = cwd("/tmp/worktree-b");
+    let session_cwd = cwd("worktree-b");
     let config = jinn_preferences_config::schemas::mcp::McpServerConfig {
         command: Some("<jinn>".to_owned()),
         args: vec!["--parent=<jinn>".to_owned()],
@@ -99,7 +111,7 @@ async fn session_cwd_token_expands_in_env_values() {
     // Given an env map with one token-carrying value, resolved against a
     // fresh key store.
     let services = Services::new_fake().await;
-    let session_cwd = cwd("/tmp/worktree-c");
+    let session_cwd = cwd("worktree-c");
     let server = jinn_preferences_config::schemas::mcp::McpServerConfig {
         command: Some("echo".to_owned()),
         env: BTreeMap::from([("GDA_PROJECT".to_owned(), "<session_cwd>".to_owned())]),
@@ -112,7 +124,10 @@ async fn session_cwd_token_expands_in_env_values() {
     // Then the value carries the absolute session cwd.
     assert_eq!(
         env,
-        vec![("GDA_PROJECT".to_owned(), "/tmp/worktree-c".to_owned())]
+        vec![(
+            "GDA_PROJECT".to_owned(),
+            session_cwd.to_string_lossy().into_owned()
+        )]
     );
 }
 
@@ -237,7 +252,7 @@ async fn per_session_entry_with_token_attempts_the_spawn() {
     // Given a per-session entry (singleton = false) carrying the token and
     // an attached cwd, whose command cannot spawn.
     let services = Services::new_fake().await;
-    let session_cwd = cwd("/tmp/worktree-d");
+    let session_cwd = cwd("worktree-d");
     let server = jinn_preferences_config::schemas::mcp::McpServerConfig {
         command: Some("definitely-not-a-real-binary-xyzzy".to_owned()),
         args: vec!["--project=<session_cwd>".to_owned()],

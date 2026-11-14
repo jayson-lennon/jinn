@@ -115,6 +115,7 @@ mod tests {
 
     /// A `Caps` with no deadline, built against a temp root cwd.
     fn caps_no_deadline() -> Rc<Caps> {
+        crate::install_crypto_provider();
         Rc::new(Caps::with_http(
             Vec::new(),
             jinn_testutil::tempdir().path.clone(),
@@ -174,6 +175,7 @@ mod tests {
     #[test]
     fn a_runaway_loop_dies_at_the_deadline() {
         // Given a VM built with a one-second deadline.
+        crate::install_crypto_provider();
         let dir = jinn_testutil::tempdir();
         let caps = Rc::new(Caps::with_http(
             Vec::new(),

@@ -219,7 +219,7 @@ pub fn resolve_kiosk_binary(probe: &dyn BinaryProbe) -> Option<MarkedPathBuf<Abs
     PATH_CANDIDATES
         .iter()
         .find_map(|name| probe.resolve_name(name))
-        .or_else(resolve_kiosk_binary_from_install_paths)
+        .or_else(|| resolve_kiosk_binary_from_install_paths(probe))
 }
 
 /// Windows install-path candidates as `{env}\<suffix>` pairs, tried in
@@ -255,9 +255,13 @@ const MACOS_INSTALL_PATHS: &[&str] = &[
 
 /// The install-path stage of [`resolve_kiosk_binary`]: every candidate
 /// is typed `MarkedPathBuf<Absolute>` as it is built; an env-less or
-/// non-absolute candidate is skipped, never owned raw.
+/// non-absolute candidate is skipped, never owned raw. Existence is
+/// asked of the injected probe, never the real filesystem — the seam
+/// holds on every platform.
 #[cfg(target_os = "windows")]
-fn resolve_kiosk_binary_from_install_paths() -> Option<MarkedPathBuf<Absolute>> {
+fn resolve_kiosk_binary_from_install_paths(
+    probe: &dyn BinaryProbe,
+) -> Option<MarkedPathBuf<Absolute>> {
     let candidates = WINDOWS_ENV_CANDIDATES
         .iter()
         .filter_map(|(env_var, suffix)| {
@@ -268,22 +272,28 @@ fn resolve_kiosk_binary_from_install_paths() -> Option<MarkedPathBuf<Absolute>> 
         .chain(WINDOWS_EDGE_FALLBACKS.iter().map(|path| (*path).to_owned()));
     candidates
         .filter_map(|candidate| MarkedPathBuf::<Absolute>::new(candidate).ok())
-        .find(|path| WhichProbe.path_exists(path.as_path()))
+        .find(|path| probe.path_exists(path.as_path()))
 }
 
 /// The install-path stage of [`resolve_kiosk_binary`].
 #[cfg(target_os = "macos")]
-fn resolve_kiosk_binary_from_install_paths() -> Option<MarkedPathBuf<Absolute>> {
+fn resolve_kiosk_binary_from_install_paths(
+    probe: &dyn BinaryProbe,
+) -> Option<MarkedPathBuf<Absolute>> {
     MACOS_INSTALL_PATHS
         .iter()
         .filter_map(|candidate| MarkedPathBuf::<Absolute>::new(*candidate).ok())
-        .find(|path| WhichProbe.path_exists(path.as_path()))
+        .find(|path| probe.path_exists(path.as_path()))
 }
 
 /// The install-path stage of [`resolve_kiosk_binary`]: none on Linux and
-/// other targets — distro packages land on PATH.
+/// other targets — distro packages land on PATH. The probe parameter
+/// keeps the signature uniform across the platform `cfg`s; nothing here
+/// has a path to check.
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn resolve_kiosk_binary_from_install_paths() -> Option<MarkedPathBuf<Absolute>> {
+fn resolve_kiosk_binary_from_install_paths(
+    _probe: &dyn BinaryProbe,
+) -> Option<MarkedPathBuf<Absolute>> {
     None
 }
 
@@ -723,6 +733,18 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
 
+    /// The fake PATH hit the recording probe answers with, shaped for
+    /// the target platform: `MarkedPathBuf<Absolute>` rejects a
+    /// POSIX-only path on Windows, where absolute means a drive prefix.
+    /// Probe and assertions share this so they cannot drift.
+    fn fake_binary(name: &str) -> String {
+        if cfg!(target_os = "windows") {
+            format!(r"C:\bin\{name}.exe")
+        } else {
+            format!("/usr/bin/{name}")
+        }
+    }
+
     /// A probe recording every consulted candidate, answering only for
     /// its scripted name — the filesystem is never touched.
     struct RecordingProbe {
@@ -752,7 +774,7 @@ mod tests {
                 .expect("probe lock")
                 .push(name.to_owned());
             if name == self.answers_for {
-                return MarkedPathBuf::<Absolute>::new(format!("/usr/bin/{name}")).ok();
+                return MarkedPathBuf::<Absolute>::new(fake_binary(name)).ok();
             }
             None
         }
@@ -837,7 +859,7 @@ mod tests {
         // Then the first resolved candidate wins and the probe stopped
         // asking — PATH-first preference holds.
         let binary = binary.expect("a candidate resolved");
-        assert!(binary.starts_with("/usr/bin/chromium"));
+        assert_eq!(binary.to_string_lossy(), fake_binary("chromium"));
         let consulted = probe.consulted.lock().expect("probe lock");
         assert_eq!(
             consulted.as_slice(),
@@ -867,7 +889,7 @@ mod tests {
     #[test]
     fn kiosk_argv_carries_the_jinn_owned_flags_and_profile() {
         // Given a resolved binary and a launch request.
-        let binary = MarkedPathBuf::<Absolute>::new("/usr/bin/chromium").expect("absolute");
+        let binary = MarkedPathBuf::<Absolute>::new(fake_binary("chromium")).expect("absolute");
         let request = launch_request();
 
         // When assembling the built-in argv.
@@ -876,7 +898,10 @@ mod tests {
         // Then the binary leads, followed by the jinn-owned flags: the
         // kiosk mode, the applet URL, and jinn's own profile dir (the
         // flag that keeps kiosk alive beside a running browser).
-        assert_eq!(argv.first().map(String::as_str), Some("/usr/bin/chromium"));
+        assert_eq!(
+            argv.first().map(String::as_str),
+            Some(fake_binary("chromium").as_str())
+        );
         assert!(argv.contains(&"--kiosk".to_owned()));
         assert!(argv.contains(&format!("--app={}", request.url)));
         assert!(

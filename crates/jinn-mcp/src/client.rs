@@ -892,7 +892,8 @@ mod tests {
     /// labeled, so a real spawned child reports what it actually saw.
     fn echo_command(env: Vec<(String, String)>) -> ServerCommand {
         let shell = jinn_testutil::shell_required();
-        let script = "printf 'A=%s\\nB=%s\\nPATH=%s\\n' \"$JINN_TEST_MCP_ENV_A\" \"$JINN_TEST_MCP_ENV_B\" \"$PATH\"";
+        let script = "printf 'A=%s\\nB=%s\\nI=%s\\n' \"$JINN_TEST_MCP_ENV_A\" \
+           \"$JINN_TEST_MCP_ENV_B\" \"$JINN_TEST_MCP_ENV_INHERITED\"";
         ServerCommand {
             program: shell,
             args: vec!["-c".to_owned(), script.to_owned()],
@@ -900,17 +901,17 @@ mod tests {
         }
     }
 
-    /// The process environment always carries PATH on a spawnable host; use
-    /// it as the stand-in "inherited variable" in additive-merge assertions.
-    fn path_value() -> String {
-        std::env::var("PATH").unwrap_or_default()
-    }
-
     #[rstest::rstest]
     #[tokio::test]
     async fn spawned_child_sees_configured_env_additively() {
         // Given the stdio spawn command carrying one configured env pair,
-        // with the inherited PATH deliberately left unconfigured.
+        // with a parent-set inherited variable deliberately left
+        // unconfigured. A test-set stand-in keeps the assertion portable:
+        // PATH would work on Unix, but an msys2 bash child on Windows
+        // reports its own POSIX-mangled PATH, which asserts nothing about
+        // the merge.
+        // SAFETY: single-threaded test setup; unique var name avoids races.
+        unsafe { std::env::set_var("JINN_TEST_MCP_ENV_INHERITED", "inherited-value") };
         let cmd = echo_command(vec![(
             "JINN_TEST_MCP_ENV_A".to_owned(),
             "configured-a".to_owned(),
@@ -922,7 +923,7 @@ mod tests {
             .await
             .expect("child runs");
 
-        // Then the child saw the configured variable AND the inherited PATH —
+        // Then the child saw the configured variable AND the inherited one —
         // additive merge, nothing cleared.
         let seen = String::from_utf8_lossy(&output.stdout);
         assert!(
@@ -930,9 +931,11 @@ mod tests {
             "configured var visible: {seen}"
         );
         assert!(
-            seen.contains(&format!("PATH={}", path_value())),
-            "inherited PATH visible: {seen}"
+            seen.contains("I=inherited-value"),
+            "inherited var visible: {seen}"
         );
+        // SAFETY: removing the test-only var set above; no concurrent readers.
+        unsafe { std::env::remove_var("JINN_TEST_MCP_ENV_INHERITED") };
     }
 
     #[rstest::rstest]
