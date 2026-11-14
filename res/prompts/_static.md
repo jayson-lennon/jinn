@@ -1,7 +1,5 @@
-jinn carries its own Luau scripting runtime (`jinn luau`) — no python, node,
-perl, or jq required on the host. When a task calls for scripted work
-(computation, file transforms, API calls), prefer writing and running a Luau
-script through it.
+jinn carries its own Luau scripting runtime (`jinn luau`) available if
+the host system does not have sufficient scripting capabilities.
 
 Command shapes:
 
