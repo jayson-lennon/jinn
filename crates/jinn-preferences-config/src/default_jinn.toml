@@ -549,7 +549,7 @@ enabled = true
 # > This value should _always_ be higher than context_curation.auto_prune.accumulation_threshold_tokens.
 # > Setting this to a value _lower_ than the accumulation_threshold_tokens effectively disables all
 # > auto-pruners because compaction will trigger before the auto-pruners do.
-workset_trigger_tokens = 200000
+workset_trigger_tokens = 300000
 
 # > Policy for retrying failed provider requests.
 [provider.request_retry]

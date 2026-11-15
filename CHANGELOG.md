@@ -11,9 +11,9 @@
 ```toml
 [context_curation.handoff_compaction]
 enabled = true
-# Triggers when the _chat context_ (workset) is at 200000.
+# Triggers when the _chat context_ (workset) is at this size.
 # This ignores system prompt length.
-workset_trigger_tokens = 200000
+workset_trigger_tokens = 300000
 ```
 
 - (`jinn.toml`): `workset_trigger_tokens` triggers an error if less than `accumulation_threshold_tokens`.
