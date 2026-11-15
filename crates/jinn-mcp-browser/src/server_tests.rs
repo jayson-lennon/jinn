@@ -450,3 +450,30 @@ fn tool_description(server: &BrowserMcpServer, name: &str) -> String {
         .unwrap_or_else(|| panic!("{name} is advertised"));
     found.description.clone().unwrap_or_default().to_string()
 }
+
+#[rstest::rstest]
+#[test]
+fn building_the_server_inside_a_runtime_panics_but_serve_does_not_build_there() {
+    // The first cut built `BrowserMcpServer` — and with it the reqwest
+    // blocking client — inside `block_on`, and the child died at startup
+    // with tokio's "Cannot drop a runtime in a context where blocking is
+    // not allowed" panic. The regression seam reproduces that exact
+    // shape: the panic is expected, the public entry point's build order
+    // (server off-runtime, then runtime) is what the fix guarantees.
+    install_crypto_provider();
+
+    // Given the first cut's construction shape.
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+
+    // When building the server inside the runtime's async context.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runtime.block_on(crate::test_only::serve_built_inside_runtime())
+    }));
+
+    // Then the shape panics (proving the seam still exercises the bug),
+    // while `serve()` itself builds off-runtime and would not.
+    assert!(
+        result.is_err(),
+        "building the blocking client inside a runtime must stay broken in the seam"
+    );
+}

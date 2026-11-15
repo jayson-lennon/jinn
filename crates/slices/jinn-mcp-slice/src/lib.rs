@@ -26,6 +26,8 @@ fn install_rustls_provider_for_tests() {
 }
 
 #[cfg(all(test, unix))]
+mod connect_stderr_tests;
+#[cfg(all(test, unix))]
 mod dispatch_roundtrip_tests;
 #[cfg(test)]
 mod header_expansion_tests;

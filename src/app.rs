@@ -262,10 +262,12 @@ impl App {
             }
             // The browser MCP child: stdio until disconnect, holding only
             // a daemon client. Its refusals are tool-level content the
-            // model reads; a serve failure is protocol-fatal.
-            bootstrap::config::Prepared::ServeMcpBrowser => self
-                .runtime()
-                .block_on(jinn_mcp_browser::serve())
+            // model reads; a serve failure is protocol-fatal. The sync
+            // `serve` builds the blocking client off the runtime and only
+            // then enters it (a blocking client constructed inside
+            // `block_on` panics — the child died at startup before the
+            // fix).
+            bootstrap::config::Prepared::ServeMcpBrowser => jinn_mcp_browser::serve()
                 .change_context(AppError)
                 .attach("browser MCP server failed"),
             // The browser daemon child: resolve the binary, launch headed
