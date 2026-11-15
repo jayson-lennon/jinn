@@ -126,6 +126,11 @@ impl RequestApplying for reqwest::blocking::RequestBuilder {
     }
 }
 
+/// The root crate's crypto-provider installer, reachable from this
+/// module's tests.
+#[cfg(test)]
+use crate::install_crypto_provider;
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -259,8 +264,3 @@ mod tests {
         assert!(message.contains("NOTAMETHOD"), "got {message}");
     }
 }
-
-/// The root crate's crypto-provider installer, reachable from this
-/// module's tests.
-#[cfg(test)]
-use crate::install_crypto_provider;

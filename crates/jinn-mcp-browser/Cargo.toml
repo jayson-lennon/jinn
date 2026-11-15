@@ -1,0 +1,35 @@
+[package]
+name = "jinn-mcp-browser"
+version.workspace = true
+edition.workspace = true
+description = "The bundled browser MCP server: a thin stdio client of the browser daemon holding no Chrome connection."
+
+[dependencies]
+# The daemon client arrives with the browser tool surface; the client-only
+# build (default-features = false) carries no chaser-oxide, axum, or tokio
+# daemon stack into this process.
+jinn-browser = { workspace = true, default-features = false }
+jinn-common = { workspace = true }
+marked-path = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wherror = { workspace = true }
+error-stack = { workspace = true }
+tracing = { workspace = true }
+rmcp = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+jinn-testutil = { workspace = true }
+jinn-common = { workspace = true }
+jinn-browser = { workspace = true, default-features = false }
+marked-path = { workspace = true }
+rstest = { workspace = true }
+mockito = { workspace = true }
+# The tool-surface tests install the ring provider (workspace pins
+# `rustls-no-provider` on reqwest; `jinn-mcp`'s transport tests are the
+# precedent).
+rustls = { workspace = true }
+
+[lints]
+workspace = true

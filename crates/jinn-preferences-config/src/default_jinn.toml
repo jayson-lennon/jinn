@@ -184,6 +184,21 @@ bind = "127.0.0.1:0"
 # kiosk_command = 'chromium --kiosk --app="{url}" --user-data-dir="{profile}"'
 
 # ###########################################################################
+# Browser daemon (agent-driven Chrome)
+# ###########################################################################
+[browser]
+# > The browser daemon is the one process that owns the single headed
+# > Chrome window the browser tools drive. It starts on its own the first
+# > time a browser tool runs, and it keeps running after jinn exits, so
+# > logins and open tabs survive restarts. Stop it with
+# > `jinn browser stop`.
+# >
+# > Path to the browser executable the daemon launches. Leave unset to
+# > let jinn find one: PATH first, then the usual install locations,
+# > branded Google Chrome preferred, Chromium as the fallback.
+# binary = "/usr/bin/google-chrome-stable"
+
+# ###########################################################################
 # Dictation (local voice input)
 # ###########################################################################
 [dictation]
@@ -509,6 +524,19 @@ teardown_command = """[ -z "$(git status --porcelain)" ] || { echo "TEARDOWN-DIR
 [mcp.overgraph]
 command = "<jinn>"
 args = ["mcp", "overgraph"]
+singleton = true
+auto_enable = false
+
+# > Browser tools: eleven tools (open_tab, list_tabs, navigate, snapshot,
+# > click, type, press, evaluate, screenshot, wait, close_tab) driving
+# > the single headed Chrome the browser daemon owns. The MCP server is
+# > a thin client of that daemon — it holds no Chrome connection, so a
+# > config-edit restart of this server never recycles the browser.
+# > Singleton: state-bearing servers that several sessions must see
+# > identically need this, and the daemon is machine-global.
+[mcp.browser]
+command = "<jinn>"
+args = ["mcp", "browser"]
 singleton = true
 auto_enable = false
 

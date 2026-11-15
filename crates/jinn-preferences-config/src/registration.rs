@@ -14,7 +14,7 @@
 use jinn_config::ConfigLayer;
 
 use crate::schemas::{
-    AppletsConfig, AutoPruneConfig, CanvasConfig, ChatLogConfig, CwdSelectorConfig,
+    AppletsConfig, AutoPruneConfig, BrowserConfig, CanvasConfig, ChatLogConfig, CwdSelectorConfig,
     DictationConfig, DiscordConfig, GraphicsConfig, HandoffCompactionConfig, InteractiveTermPrefs,
     MaintenanceConfig, McpServersConfig, MinimapConfig, ProviderErrorWatchdogConfig, RemoteConfig,
     RequestRetryConfig, ShellConfig, SkillsConfig, StallWatchdogConfig, StreamRuleWatchdogConfig,
@@ -57,6 +57,7 @@ pub fn register_all_sections(config: &ConfigLayer) {
     config.register::<SkillsConfig>();
     config.register::<CanvasConfig>();
     config.register::<AppletsConfig>();
+    config.register::<BrowserConfig>();
     config.register::<RemoteConfig>();
     config.register::<HandoffCompactionConfig>();
     config.register::<RequestRetryConfig>();

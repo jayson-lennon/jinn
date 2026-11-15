@@ -11,30 +11,6 @@
 use crate::app_info::APP_NAME;
 use marked_path::{Absolute, MarkedPath, MarkedPathBuf};
 
-/// Browser profile mode: one persistent profile per mode.
-///
-/// `headless` and `headed` each get their own profile subdir so a single
-/// warmed headed profile can be shared by both `web-fetch` and `web-search`
-/// without colliding on Chromium's singleton lock.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BrowserProfileMode {
-    /// Headless profile (no visible window).
-    Headless,
-    /// Headed profile (visible window, manually warmable).
-    Headed,
-}
-
-impl BrowserProfileMode {
-    /// Returns the subdirectory name for this mode.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Headless => "headless",
-            Self::Headed => "headed",
-        }
-    }
-}
-
 /// Application filesystem paths.
 ///
 /// Stores app-specific directories (not platform directories). For production,
@@ -216,30 +192,6 @@ impl AppPaths {
             .expect("name joins keep the base absolute")
     }
 
-    /// Base directory for persistent browser profiles (`~/.local/share/jinn/browser-profile`).
-    ///
-    /// Per-mode profiles live under subdirs (`browser-profile/headless`,
-    /// `browser-profile/headed`) so a single warmed headed profile is shared by
-    /// both `web-fetch` and `web-search` when they select `headed-chrome`.
-    /// Use [`Self::browser_profile_dir_for_mode`] to resolve a concrete path.
-    #[must_use]
-    pub fn browser_profile_base_dir(&self) -> MarkedPathBuf<Absolute> {
-        self.data_dir
-            .join_all([APP_NAME, "browser-profile"])
-            .expect("name joins keep the base absolute")
-    }
-
-    /// Persistent browser profile for a given mode (`headless` or `headed`).
-    #[must_use]
-    pub fn browser_profile_dir_for_mode(
-        &self,
-        mode: BrowserProfileMode,
-    ) -> MarkedPathBuf<Absolute> {
-        self.browser_profile_base_dir()
-            .join(mode.as_str())
-            .expect("name join keeps the base absolute")
-    }
-
     /// Kiosk browser profile directory (`~/.local/share/jinn/kiosk-profile`).
     ///
     /// The kiosk launcher's `--user-data-dir`: one jinn-owned Chromium
@@ -253,6 +205,60 @@ impl AppPaths {
     pub fn kiosk_profile_dir(&self) -> MarkedPathBuf<Absolute> {
         self.data_dir
             .join_all([APP_NAME, "kiosk-profile"])
+            .expect("name joins keep the base absolute")
+    }
+
+    /// Browser-daemon profile directory
+    /// (`~/.local/share/jinn/browser-daemon-profile`).
+    ///
+    /// The browser daemon's `--user-data-dir`: persistent so logins
+    /// survive daemon restarts. A fresh name, deliberately distinct from
+    /// the retired `browser-profile` tree the removed
+    /// web-fetch/web-search tooling warmed, so the daemon's profile
+    /// never collides with whatever that tooling left behind.
+    #[must_use]
+    pub fn browser_daemon_profile_dir(&self) -> MarkedPathBuf<Absolute> {
+        self.data_dir
+            .join_all([APP_NAME, "browser-daemon-profile"])
+            .expect("name joins keep the base absolute")
+    }
+
+    /// Browser-daemon registry
+    /// (`~/.local/state/jinn/browser-daemons.json`).
+    ///
+    /// Where the running browser daemon advertises itself (pid, port,
+    /// start time). Machine-local bookkeeping like
+    /// [`Self::remote_instances_path`]: readers prune dead entries by TCP
+    /// port probe, so the file never needs manual curation. The file name
+    /// is owned by `jinn-browser`'s registry module; keep the two in step.
+    #[must_use]
+    pub fn browser_daemons_path(&self) -> MarkedPathBuf<Absolute> {
+        self.state_dir
+            .join_all([APP_NAME, "browser-daemons.json"])
+            .expect("name joins keep the base absolute")
+    }
+
+    /// Browser-daemon log file
+    /// (`~/.local/state/jinn/browser-daemon.log`).
+    ///
+    /// The daemon appends its startup lines and Chrome's stderr here;
+    /// `jinn browser stop` failures point at this file.
+    #[must_use]
+    pub fn browser_daemon_log_path(&self) -> MarkedPathBuf<Absolute> {
+        self.state_dir
+            .join_all([APP_NAME, "browser-daemon.log"])
+            .expect("name joins keep the base absolute")
+    }
+
+    /// Screenshots directory (`~/.local/state/jinn/browser-screenshots`).
+    ///
+    /// Where the daemon saves `screenshot` PNGs. The agent views them via
+    /// jinn's image-attachment path — an MCP image content block would be
+    /// flattened to a placeholder before ever reaching the model.
+    #[must_use]
+    pub fn browser_screenshots_dir(&self) -> MarkedPathBuf<Absolute> {
+        self.state_dir
+            .join_all([APP_NAME, "browser-screenshots"])
             .expect("name joins keep the base absolute")
     }
 
@@ -809,31 +815,6 @@ mod tests {
 
         // Then it is jinn.log.
         assert_eq!(filename, Some("jinn.log"));
-    }
-
-    #[rstest::rstest]
-    fn browser_profile_dir_for_mode_lands_under_data_base() {
-        // Given an AppPaths rooted at a temp dir.
-        let root = jinn_testutil::tempdir();
-        let paths = AppPaths::new_in(&root.path.as_marked_path());
-
-        // When resolving the headed profile dir.
-        let headed = paths.browser_profile_dir_for_mode(BrowserProfileMode::Headed);
-        let headless = paths.browser_profile_dir_for_mode(BrowserProfileMode::Headless);
-
-        // Then both land under data/jinn/browser-profile/<mode>.
-        assert_eq!(
-            headed,
-            root.path
-                .join("data/jinn/browser-profile/headed")
-                .expect("temp root joins a bare name")
-        );
-        assert_eq!(
-            headless,
-            root.path
-                .join("data/jinn/browser-profile/headless")
-                .expect("temp root joins a bare name")
-        );
     }
 
     #[rstest::rstest]

@@ -524,6 +524,23 @@ powershell_path = "..."  # the powershell tool's executable
 launch.** Write Windows paths with forward slashes; a backslash is a
 TOML escape, and it fails the whole file.
 
+**Browser executable** (optional; absolute path):
+
+```toml
+[browser]
+# binary = "/usr/bin/google-chrome-stable"
+```
+
+The browser daemon's Chrome. Unset = auto-detect (PATH first, then
+platform install paths; branded Google Chrome preferred, Chromium
+fallback). A set path that does not resolve refuses the **daemon start**
+(not jinn's launch) — the browser is optional tooling, and every tool
+call's error names the configured path. Resolution happens once at
+daemon startup, whichever client (MCP tool, luau script, `jinn browser
+start`) triggered it; `jinn browser status` shows the resolved binary
+and `jinn browser restart` applies an edit. Feature guide: the Browser
+section of `mcp-servers.md`.
+
 **Session retention** (database maintenance; every knob defaults to a
 no-op):
 

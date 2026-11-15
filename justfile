@@ -184,7 +184,7 @@ lint-path-guard:
    import re
    import sys
 
-   ALLOWLIST = set()
+   ALLOWLIST = {".plans"}
    SKIP_DIRS = {"target", "vendor"}
 
    # The six shipped res/ kind directories.
@@ -217,7 +217,7 @@ lint-path-guard:
                continue
            fpath = os.path.join(dirpath, fn)
            rel = os.path.normpath(os.path.relpath(fpath, os.getcwd()))
-           if rel in ALLOWLIST:
+           if any(rel == a or rel.startswith(a + os.sep) for a in ALLOWLIST):
                continue
            with open(fpath, encoding="utf-8") as f:
                for i, line in enumerate(f, start=1):
@@ -254,7 +254,7 @@ lint-testattr:
    import re
    import sys
 
-   ALLOWLIST = set()
+   ALLOWLIST = {".plans"}
    SKIP_DIRS = {"target", "vendor"}
 
    def is_test_attr(s):
@@ -270,7 +270,7 @@ lint-testattr:
                continue
            fpath = os.path.join(dirpath, fn)
            rel = os.path.normpath(os.path.relpath(fpath, os.getcwd()))
-           if rel in ALLOWLIST:
+           if any(rel == a or rel.startswith(a + os.sep) for a in ALLOWLIST):
                continue
            with open(fpath, encoding="utf-8") as f:
                lines = f.readlines()

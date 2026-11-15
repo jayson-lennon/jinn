@@ -15,6 +15,7 @@
 //! execution is single-threaded and mlua's `create_function` accepts
 //! non-`Send` captures, so no locking exists anywhere on this path.
 
+pub mod browser;
 pub mod env;
 pub mod fs;
 pub mod http;
@@ -127,6 +128,7 @@ pub fn inject_all(lua: &Lua, caps: &Rc<Caps>) -> mlua::Result<()> {
     fs::inject(lua, &jinn, caps)?;
     env::inject(lua, &jinn)?;
     http::inject(lua, &jinn, caps)?;
+    browser::inject(lua, &jinn, caps)?;
     proc::inject(lua, &jinn, caps)?;
     stdio::inject(lua, &jinn)?;
     json::inject(lua, &jinn)?;
@@ -136,6 +138,9 @@ pub fn inject_all(lua: &Lua, caps: &Rc<Caps>) -> mlua::Result<()> {
     lua.globals().raw_set("jinn", jinn)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod browser_tests;
 
 #[cfg(test)]
 mod tests {

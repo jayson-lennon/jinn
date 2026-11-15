@@ -14,6 +14,8 @@ serde_json = { workspace = true }
 # The shell resolver normalizes a configured path's separators through
 # marked-path, so the workspace has one implementation of that rewrite.
 marked-path = { workspace = true }
+# `binary_detect`'s WhichProbe resolves PATH names for browser binaries.
+which = { workspace = true }
 # Not unix-only: `process_kill::kill_process_tree` takes a
 # `&mut tokio::process::Child` on every platform.
 tokio = { workspace = true }
