@@ -1,5 +1,9 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## 2026-11-14 v1.24.1
+
+- Change `workset_trigger_tokens` default to 300k.
+
 ## 2026-11-14 v1.24.0
 
 - Add autocomplete to CWD picker (`cd`) using fuzzy matching. Press `TAB` to complete the proposed directory.
