@@ -3578,7 +3578,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-browser"
-version = "1.24.0"
+version = "1.24.1"
 dependencies = [
  "async-trait",
  "axum",
@@ -4467,7 +4467,7 @@ dependencies = [
 
 [[package]]
 name = "jinn-mcp-browser"
-version = "1.24.0"
+version = "1.24.1"
 dependencies = [
  "error-stack",
  "jinn-browser",
