@@ -263,7 +263,7 @@ its own thresholds):
 
 ```toml
 [context_curation.auto_prune]
-accumulation_threshold_tokens = 150000   # batch context-mutations to protect prefix cache
+accumulation_threshold_tokens = 170000   # batch context-mutations to protect prefix cache
 
 [context_curation.auto_prune.regex]
 enabled = true
@@ -271,7 +271,7 @@ enabled = true
 pattern = "cargo test"
 tool_name = "bash"
 keep_last = 2
-min_age = 50
+min_age = 100
 ```
 
 Strategies: `edit_read`, `read_edit`, `double_edit`, `consecutive_reads`,

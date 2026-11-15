@@ -350,7 +350,7 @@ mod tests {
         // Then the write is refused: the section keeps its default.
         let auto_prune = config.get::<AutoPruneConfig>().expect("section reads");
         assert_eq!(
-            auto_prune.accumulation_threshold_tokens, 150_000,
+            auto_prune.accumulation_threshold_tokens, 170_000,
             "a threshold at or above the trigger must not be written"
         );
         // And the popup stays open, input intact.
