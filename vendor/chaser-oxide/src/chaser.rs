@@ -472,6 +472,31 @@ impl ChaserPage {
             .execute(params)
             .await
             .map_err(|e| anyhow!("{}", e))?;
+
+        // jinn fork (E1): an exception inside the evaluated script (a
+        // SyntaxError from `return …` outside a function, a thrown error,
+        // a thrown selector SyntaxError) arrives in `exceptionDetails`,
+        // NOT as a transport error. Upstream only read
+        // `res.result.result.value`, so every failing script surfaced as
+        // a silent `None` — indistinguishable from a script that
+        // legitimately evaluated to null/undefined. Surface the
+        // exception text instead.
+        if let Some(exception) = res.result.exception_details {
+            // Prefer the exception object's description (the JS-side
+            // message, e.g. "SyntaxError: Unexpected token 'return'");
+            // fall back to its value, its class name, then the CDP-side
+            // text ("Uncaught").
+            let text = exception
+                .exception
+                .and_then(|d| {
+                    d.description
+                        .or_else(|| d.value.map(|v| v.to_string()))
+                        .or(d.class_name)
+                })
+                .unwrap_or(exception.text);
+            return Err(anyhow!("script exception: {text}"));
+        }
+
         Ok(res.result.result.value)
     }
 

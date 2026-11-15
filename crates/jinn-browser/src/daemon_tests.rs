@@ -264,7 +264,7 @@ fn the_spawned_daemon_takes_over_its_spawner_fresh_lock() {
     let root = TestRoot::new();
     let lock_path = root.path().as_path().join("browser-daemon.lock");
     #[cfg(unix)]
-    let parent = u32::from(std::os::unix::process::parent_id());
+    let parent = std::os::unix::process::parent_id();
     #[cfg(not(unix))]
     let parent = 0u32;
     let now = std::time::SystemTime::now()

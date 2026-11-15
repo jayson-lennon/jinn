@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use crate::backend::{
     BackendError, BrowserBackend, ChaserBackend, DeathSignal, EngineHandle, EngineLauncher,
-    LiveEngine, PageHandle,
+    LiveEngine, PageHandle, script_looks_like_statements,
 };
 use tokio::sync::Mutex;
 
@@ -34,6 +34,9 @@ enum PageMode {
     Sleeps,
     /// Records the script and returns `"ok"`.
     Records,
+    /// Returns `None` for every script (a swallowed script exception —
+    /// the pre-E1-fix shape).
+    ReturnsNull,
 }
 
 struct FakePage {
@@ -79,6 +82,7 @@ impl PageHandle for FakePage {
                 self.seen_scripts.lock().await.push(script.to_owned());
                 Ok(Some(serde_json::Value::String("ok".to_owned())))
             }
+            PageMode::ReturnsNull => Ok(None),
             PageMode::Ok => Ok(Some(serde_json::Value::String("ok".to_owned()))),
         }
     }
@@ -426,6 +430,99 @@ async fn evaluate_is_the_only_eval_and_it_rides_the_stealth_path() {
     assert_eq!(
         seen.first().map(String::as_str),
         Some("navigator.userAgent")
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_return_script_gets_wrapped_in_an_iife() {
+    // Recorded failure mode: `return document.title` is a SyntaxError
+    // in the expression eval mode, and it surfaced as a silent null —
+    // an agent burned six calls before discovering the expression form.
+    // The backend now wraps statement-shaped scripts in an IIFE.
+    //
+    // Given a backend whose pages record scripts.
+    let fixture = Fixture::with_mode(PageMode::Records);
+    let backend = fixture.backend();
+    let tab = backend
+        .open_tab(Some("https://fake.test/"))
+        .await
+        .expect("open");
+
+    // When evaluating the documented `return` shape…
+    backend
+        .evaluate(&tab.tab, "return document.title")
+        .await
+        .expect("eval");
+
+    // …and a bare expression.
+    backend
+        .evaluate(&tab.tab, "document.title")
+        .await
+        .expect("eval");
+
+    // Then the return-script arrived wrapped (making its `return`
+    // legal) while the bare expression arrived untouched (so its value
+    // survives the function boundary).
+    let seen = fixture.seen_scripts.lock().await;
+    assert_eq!(seen.len(), 2, "one script per call");
+    assert_eq!(
+        seen.first().map(String::as_str),
+        Some("(() => {\nreturn document.title\n})()"),
+        "return-scripts are IIFE-wrapped"
+    );
+    assert_eq!(
+        seen.get(1).map(String::as_str),
+        Some("document.title"),
+        "bare expressions pass through unwrapped"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_statement_detector_ignores_return_inside_strings_and_comments() {
+    // Given scripts whose only "return" appears inside a string literal
+    // or a comment (and one that genuinely returns).
+    // Then only the genuine one is detected as statement-shaped.
+    assert!(script_looks_like_statements("return document.title"));
+    assert!(script_looks_like_statements("const x = 1; return x;"));
+    assert!(script_looks_like_statements("throw new Error('boom')"));
+    assert!(!script_looks_like_statements(
+        r#"document.title.includes("return")"#
+    ));
+    assert!(!script_looks_like_statements(
+        "// return nothing here\ndocument.title"
+    ));
+    assert!(!script_looks_like_statements("document.title"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_snapshot_whose_script_yields_no_result_is_an_error_not_an_empty_page() {
+    // Recorded failure mode: a null script result mapped to `Vec::new()`
+    // and the tool reported an empty tree — indistinguishable from an
+    // empty page, so the agent never suspected the tool. Now the null
+    // result is an engine error.
+    //
+    // Given a backend whose page returns null for every script.
+    let fixture = Fixture::with_mode(PageMode::ReturnsNull);
+    let backend = fixture.backend();
+    let tab = backend
+        .open_tab(Some("https://fake.test/"))
+        .await
+        .expect("open");
+
+    // When snapshotting.
+    let result = backend.snapshot(&tab.tab).await;
+
+    // Then the snapshot fails naming the cause instead of returning an
+    // empty page.
+    let Err(BackendError::Engine(message)) = result else {
+        panic!("a null snapshot result must be an error, got {result:?}");
+    };
+    assert!(
+        message.contains("produced no result"),
+        "message names the failure: {message}"
     );
 }
 

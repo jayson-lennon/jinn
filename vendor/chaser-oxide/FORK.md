@@ -60,6 +60,17 @@ evaluate_stealth`; never `raw_page().evaluate`, which triggers
    `the_upstream_default_viewport_is_the_800x600_pin` in
    `tests/fork_invariants.rs`, so an upstream default change surfaces.
 
+6. **`evaluate_stealth` surfaces script exceptions (E1 leak).**
+   `src/chaser.rs`: upstream read only `res.result.result.value`, so a
+   script that threw — a `SyntaxError` from `return …` outside a
+   function, a thrown error, a thrown selector error — surfaced as a
+   silent `None`, indistinguishable from a legitimate null result.
+   Recorded failure: an agent burned six `evaluate` calls on silent
+   nulls before discovering the expression form. Now the
+   `exceptionDetails` payload is checked and its description (falling
+   back through value → class name → CDP text) is returned as an
+   `Err("script exception: …")`.
+
 ## Tests
 
 `tests/fork_invariants.rs` (registered as the `fork_invariants` test

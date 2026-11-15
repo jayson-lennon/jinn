@@ -259,7 +259,7 @@ impl StartLock {
         // that pid is the spawner's own serialization lock, not a
         // competing starter.
         #[cfg(unix)]
-        let parent_pid = u32::from(std::os::unix::process::parent_id());
+        let parent_pid = std::os::unix::process::parent_id();
         #[cfg(not(unix))]
         let parent_pid = u32::try_from(
             std::env::var("JINN_BROWSER_STARTER_PID")
@@ -317,7 +317,8 @@ fn read_lock(path: &std::path::Path) -> Option<LockHolder> {
     for line in raw.lines() {
         if let Some(v) = line.strip_prefix("pid=") {
             pid = v.parse().ok();
-        } else if let Some(v) = line.strip_prefix("started=") {
+        }
+        if let Some(v) = line.strip_prefix("started=") {
             started = v.parse().ok();
         }
     }

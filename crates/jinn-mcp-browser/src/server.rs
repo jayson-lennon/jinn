@@ -247,14 +247,19 @@ impl BrowserMcpServer {
             "evaluate",
             "Evaluate JavaScript in a tab and return its JSON result. The \
              script rides the stealth evaluation path (no Runtime.enable \
-             domain, an isolated on-demand world); wrap the value in an \
-             expression, e.g. `return document.title`.",
+             domain, an isolated on-demand world). Both shapes work: a \
+             multi-statement body with `return document.title`, or a bare \
+             expression like `document.title` (its value is returned \
+             directly). Script exceptions surface as tool errors naming \
+             the JS error.",
             Arc::new(to_schema(with_tab(json!({
                 "type": "object",
                 "properties": {
                     "script": {
                         "type": "string",
-                        "description": "The JavaScript to evaluate. Its \
+                        "description": "The JavaScript to evaluate: either \
+                                       statements ending in `return <value>`, \
+                                       or a single bare expression. Its \
                                        JSON-serializable value is returned."
                     }
                 },

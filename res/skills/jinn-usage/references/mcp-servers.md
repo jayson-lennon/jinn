@@ -133,7 +133,9 @@ Eleven tools for driving a real headed Chrome: `open_tab` (returns a tab
 id), `list_tabs`, `navigate`, `snapshot` (readable page tree with `e<n>`
 refs over the interactive elements), `click` (by `tab` + `ref`),
 `type`, `press` (key names like `"Enter"`, `"Tab"`), `evaluate` (stealth
-JS eval), `screenshot` (returns a saved PNG **path** — view it with the
+JS eval: statements with `return x`, or a bare expression — script
+exceptions surface as readable tool errors, never silent nulls),
+`screenshot` (returns a saved PNG **path** — view it with the
 image-attachment built-in), `wait` (`"navigation"`, `"network_idle"`,
 `{text = "…"}`, or `{ms = n}`), and `close_tab`. **Every tool except
 `open_tab`/`list_tabs` requires the `tab` id** — there is no "whatever

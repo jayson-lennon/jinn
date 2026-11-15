@@ -612,8 +612,84 @@ struct ScriptedRef {
     visible: bool,
 }
 
-/// The element selector the snapshot and the click path share.
+/// The element selector the snapshot and the click path share. The
+/// attribute values are double-quoted to sit inside the scripts'
+/// single-quoted `querySelectorAll('…')` string literals; the earlier
+/// single-quoted form collided with those literals and made every
+/// snapshot a `SyntaxError` (recorded failure mode).
 const INTERACTIVE_SELECTOR: &str = "a, button, input, textarea, select, [role], [onclick], [contenteditable=\"true\"], [contenteditable=\"\"]";
+
+/// Whether a script is statement-shaped (needs the IIFE wrap) rather
+/// than a bare expression. Conservative by design: only an explicit
+/// `return` (or `throw`) outside string literals triggers the wrap — a
+/// false positive costs nothing for `return`-scripts (the wrap is what
+/// makes them legal) but would swallow an expression's value.
+#[must_use]
+pub(crate) fn script_looks_like_statements(script: &str) -> bool {
+    // Walk with a tiny state machine: track string/template/comment
+    // context so "returned" inside a string literal doesn't match.
+    let chars: Vec<char> = script.chars().collect();
+    let mut i = 0usize;
+    let mut in_string: Option<char> = None;
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+    let mut prev_word_boundary = true;
+    while let Some(&c) = chars.get(i) {
+        if let Some(q) = in_string {
+            if c == '\\' {
+                i += 2;
+                continue;
+            }
+            if c == q {
+                in_string = None;
+            }
+            i += 1;
+            continue;
+        }
+        if in_line_comment {
+            if c == '\n' {
+                in_line_comment = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_block_comment {
+            if c == '*' && chars.get(i + 1) == Some(&'/') {
+                in_block_comment = false;
+                i += 2;
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            '"' | '\'' | '`' => in_string = Some(c),
+            '/' if chars.get(i + 1) == Some(&'/') => in_line_comment = true,
+            '/' if chars.get(i + 1) == Some(&'*') => in_block_comment = true,
+            _ => {
+                let is_word = c.is_alphanumeric() || c == '_' || c == '$';
+                if is_word && prev_word_boundary {
+                    // Candidate keyword start: read the word.
+                    let word: String = chars
+                        .get(i..)
+                        .unwrap_or(&[])
+                        .iter()
+                        .take_while(|ch| ch.is_alphanumeric() || **ch == '_' || **ch == '$')
+                        .collect();
+                    if word == "return" || word == "throw" {
+                        return true;
+                    }
+                    i += word.chars().count();
+                    prev_word_boundary = false;
+                    continue;
+                }
+                prev_word_boundary = !is_word;
+            }
+        }
+        i += 1;
+    }
+    false
+}
 
 /// Whether an engine error text names a dead transport (a death verdict)
 /// rather than an ordinary command failure.
@@ -701,7 +777,7 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
         // payload), so decode the string, then the refs.
         let script = format!(
             r#"(() => {{
-                const nodes = Array.from(document.querySelectorAll('{sel}'));
+                const nodes = Array.from(document.querySelectorAll('{INTERACTIVE_SELECTOR}'));
                 return JSON.stringify(nodes.slice(0, 400).map((el) => {{
                     const r = el.getBoundingClientRect();
                     return {{
@@ -715,12 +791,21 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
                     }};
                 }}));
             }})()"#,
-            sel = INTERACTIVE_SELECTOR.replace('"', "'"),
         );
         let raw = self.run(page.evaluate_stealth(&script)).await?;
         let entries: Vec<ScriptedRef> = match raw {
             Some(serde_json::Value::String(encoded)) => serde_json::from_str(&encoded)
                 .map_err(|e| BackendError::Engine(format!("snapshot decode failed: {e}")))?,
+            // A non-string result means the script itself failed (an
+            // exception now surfaces as Engine, but a silent null —
+            // e.g. a torn-down execution context — must not masquerade
+            // as "the page has no interactive elements").
+            None => {
+                return Err(BackendError::Engine(
+                    "snapshot script produced no result (the page may have navigated mid-read; retry)"
+                        .to_owned(),
+                ));
+            }
             _ => Vec::new(),
         };
 
@@ -804,15 +889,13 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
             .ok_or_else(|| BackendError::StaleRef(reference.to_owned()))?;
         let scroll_script = format!(
             r#"(() => {{
-                const els = document.querySelectorAll('{sel}');
+                const els = document.querySelectorAll('{INTERACTIVE_SELECTOR}');
                 const el = els[{index}];
                 if (!el) return 'missing';
                 el.scrollIntoView({{block: 'center'}});
                 const r = el.getBoundingClientRect();
                 return JSON.stringify({{x: Math.round(r.x + r.width/2), y: Math.round(r.y + r.height/2)}});
             }})()"#,
-            sel = INTERACTIVE_SELECTOR.replace('"', "'"),
-            index = index,
         );
         let fresh = self.run(page.evaluate_stealth(&scroll_script)).await?;
         let center = match fresh {
@@ -855,8 +938,21 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
         script: &str,
     ) -> Result<Option<serde_json::Value>, BackendError> {
         let page = self.page_for(tab).await?;
-        let script = script.to_owned();
-        self.run(async move { page.evaluate_stealth(&script).await })
+        // The eval mode is a bare expression in an isolated world, but
+        // the documented ergonomics (and every agent's instinct) are
+        // `return …`. A top-level `return` outside a function is a
+        // SyntaxError — recorded failure mode: an agent burned six tool
+        // calls on silent nulls before discovering the expression form.
+        // A script containing `return` is therefore wrapped in an IIFE,
+        // which both makes the `return` legal and allows multi-statement
+        // bodies; expression-only scripts evaluate as-is so their value
+        // survives (an IIFE would swallow a bare expression's value).
+        let wrapped = if script_looks_like_statements(script) {
+            format!("(() => {{\n{script}\n}})()")
+        } else {
+            script.to_owned()
+        };
+        self.run(async move { page.evaluate_stealth(&wrapped).await })
             .await
     }
 
