@@ -1,5 +1,9 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## 2026-11-14 v1.24.1
+
+- Change `workset_trigger_tokens` default to 300k.
+
 ## 2026-11-14 v1.24.0
 
 - Add autocomplete to CWD picker (`cd`) using fuzzy matching. Press `TAB` to complete the proposed directory.
@@ -11,9 +15,9 @@
 ```toml
 [context_curation.handoff_compaction]
 enabled = true
-# Triggers when the _chat context_ (workset) is at this size.
+# Triggers when the _chat context_ (workset) is at 200000.
 # This ignores system prompt length.
-workset_trigger_tokens = 300000
+workset_trigger_tokens = 200000
 ```
 
 - (`jinn.toml`): `workset_trigger_tokens` triggers an error if less than `accumulation_threshold_tokens`.
