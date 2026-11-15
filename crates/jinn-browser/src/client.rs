@@ -113,7 +113,7 @@ impl DaemonClient {
             return Ok(entry);
         }
 
-        let spawned = spawn_daemon_detached().map_err(|e| {
+        let spawned = spawn_daemon_detached(std::process::id()).map_err(|e| {
             Report::new(ClientError::Unavailable(format!(
                 "could not spawn `jinn browser daemon`: {e}"
             )))
@@ -489,10 +489,14 @@ enum Envelope<T> {
 /// stdio on every platform, a new session on unix (so the daemon
 /// outlives the terminal and its process group), and the detached
 /// creation flags on Windows.
-fn spawn_daemon_detached() -> std::io::Result<std::process::Child> {
+fn spawn_daemon_detached(starter_pid: u32) -> std::io::Result<std::process::Child> {
     let exe = std::env::current_exe()?;
     let mut command = std::process::Command::new(exe);
     command.args(["browser", "daemon"]);
+    // The daemon child takes over the fresh lock this spawner holds by
+    // recognizing the recorded pid (parent on Unix; this env var is the
+    // portable fallback where getppid is unavailable).
+    command.env("JINN_BROWSER_STARTER_PID", starter_pid.to_string());
     command.stdin(std::process::Stdio::null());
     command.stdout(std::process::Stdio::null());
     // Chrome's diagnostics and the daemon's startup lines belong in the

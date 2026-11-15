@@ -8,7 +8,7 @@ use jinn_preferences_config::schemas::mcp::McpServerConfig;
 use rstest::rstest;
 
 #[rstest]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_child_that_dies_at_startup_leaves_its_stderr_in_the_connect_failure() {
     // Given a stdio server whose command writes one stderr line and exits.
     let services = Services::new_fake().await;

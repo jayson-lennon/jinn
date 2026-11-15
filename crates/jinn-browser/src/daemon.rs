@@ -237,31 +237,59 @@ pub enum LockError {
 impl StartLock {
     /// Acquires the lock at `path`, taking over a stale one.
     ///
+    /// A fresh lock whose recorded pid is this process's **parent** is
+    /// taken over: the auto-start spawner holds the lock across spawn +
+    /// registration-wait, so the daemon child it spawned would otherwise
+    /// see its own spawner's fresh lock and refuse to start — every
+    /// auto-start killing itself. Any other fresh holder is refused.
+    ///
     /// # Errors
     ///
-    /// [`LockError::Held`] when a fresh lock exists; [`LockError::Io`]
-    /// when the filesystem objects.
+    /// [`LockError::Held`] when a fresh, unrelated lock exists;
+    /// [`LockError::Io`] when the filesystem objects.
     pub fn acquire(path: std::path::PathBuf) -> Result<Self, Report<LockError>> {
         use error_stack::Report;
         use std::io::Write as _;
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        if path.exists() {
-            let stale = match std::fs::metadata(&path) {
-                // Unreadable metadata reads as stale (the takeover
-                // fallback: a wedged lock must not block starts).
-                Ok(meta) => meta
-                    .modified()
-                    .map_or(true, |m| m.elapsed().unwrap_or_default() > LOCK_STALENESS),
-                Err(_) => true,
-            };
-            if !stale {
+        let my_pid = std::process::id();
+        // The auto-start spawner is this process's parent (client.rs
+        // spawns `current_exe browser daemon`). A fresh lock held by
+        // that pid is the spawner's own serialization lock, not a
+        // competing starter.
+        #[cfg(unix)]
+        let parent_pid = u32::from(std::os::unix::process::parent_id());
+        #[cfg(not(unix))]
+        let parent_pid = u32::try_from(
+            std::env::var("JINN_BROWSER_STARTER_PID")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0),
+        )
+        .unwrap_or(0);
+        if let Some(holder) = read_lock(path.as_path()) {
+            let stale_by_age = holder.age > LOCK_STALENESS;
+            // Parent-takeover: the auto-start spawner (this child's
+            // parent) holds the serialization lock across the spawn;
+            // without the takeover the child refuses and every
+            // auto-start kills itself. A lock recording this own pid is
+            // NOT a takeover case — a second acquire in the same
+            // process must still be refused (that is the double-start
+            // guard within one process, and the daemon never re-acquires
+            // its own lock).
+            let parent_holds = holder.pid == parent_pid;
+            if !(stale_by_age || parent_holds) {
                 return Err(Report::new(LockError::Held {
                     path: path.to_string_lossy().into_owned(),
                 }));
             }
-            tracing::info!("taking over a stale browser-daemon start lock");
+            tracing::info!(
+                holder = holder.pid,
+                mine = my_pid,
+                parent = parent_pid,
+                "taking over the browser-daemon start lock (stale, self, or spawner)"
+            );
         }
         let mut file = std::fs::OpenOptions::new()
             .write(true)
@@ -269,9 +297,35 @@ impl StartLock {
             .truncate(true)
             .open(&path)
             .map_err(|e| Report::new(LockError::Io(e.to_string())))?;
-        let _ = writeln!(file, "pid={}\nstarted={}", std::process::id(), now_millis());
+        let _ = writeln!(file, "pid={}\nstarted={}", my_pid, now_millis());
         Ok(Self { path })
     }
+}
+
+/// A start lock's recorded holder.
+struct LockHolder {
+    pid: u32,
+    age: std::time::Duration,
+}
+
+/// Reads a start lock's holder, if the file parses. An unreadable or
+/// malformed lock reads as absent (the open() below then overwrites it).
+fn read_lock(path: &std::path::Path) -> Option<LockHolder> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let mut pid = None;
+    let mut started = None;
+    for line in raw.lines() {
+        if let Some(v) = line.strip_prefix("pid=") {
+            pid = v.parse().ok();
+        } else if let Some(v) = line.strip_prefix("started=") {
+            started = v.parse().ok();
+        }
+    }
+    let (pid, started) = (pid?, started?);
+    let age = now_millis()
+        .checked_sub(started)
+        .map_or(std::time::Duration::ZERO, std::time::Duration::from_millis);
+    Some(LockHolder { pid, age })
 }
 
 impl Drop for StartLock {

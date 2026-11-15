@@ -111,6 +111,7 @@ impl Cli {
                         | Commands::Remote { .. }
                         | Commands::Dictation { .. }
                         | Commands::Luau { .. }
+                        | Commands::Browser { .. }
                 )
             )
         {

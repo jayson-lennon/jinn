@@ -252,6 +252,64 @@ fn two_concurrent_auto_starters_produce_one_registration_attempt() {
 
 #[rstest::rstest]
 #[test]
+fn the_spawned_daemon_takes_over_its_spawner_fresh_lock() {
+    // The auto-start spawner holds the start lock across spawn +
+    // registration-wait; the daemon child it spawned used to see that
+    // fresh lock, refuse, and die — every auto-start killed itself
+    // (recorded failure mode of the first cut). The fix: a fresh lock
+    // held by this process's parent (the spawner) is taken over.
+    //
+    // Given a fresh lock whose recorded pid is this test process's
+    // parent (the shape the real spawner leaves).
+    let root = TestRoot::new();
+    let lock_path = root.path().as_path().join("browser-daemon.lock");
+    #[cfg(unix)]
+    let parent = u32::from(std::os::unix::process::parent_id());
+    #[cfg(not(unix))]
+    let parent = 0u32;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    std::fs::write(&lock_path, format!("pid={parent}\nstarted={now}\n"))
+        .expect("write spawner lock");
+
+    // When the daemon child acquires.
+    let acquired = daemon::StartLock::acquire(lock_path);
+
+    // Then the spawner's lock does not block its own child.
+    assert!(
+        acquired.is_ok(),
+        "the daemon must take over the lock its spawner holds: {:?}",
+        acquired.err()
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn a_fresh_unrelated_lock_still_refuses() {
+    // The parent-takeover must not open the door to genuine double
+    // starts: a fresh lock held by anyone else is still refused.
+    //
+    // Given a fresh lock held by an unrelated pid.
+    let root = TestRoot::new();
+    let lock_path = root.path().as_path().join("browser-daemon.lock");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    std::fs::write(&lock_path, format!("pid=999999\nstarted={now}\n"))
+        .expect("write unrelated lock");
+
+    // When acquiring.
+    let acquired = daemon::StartLock::acquire(lock_path);
+
+    // Then it is refused.
+    assert!(acquired.is_err(), "a fresh unrelated lock must refuse");
+}
+
+#[rstest::rstest]
+#[test]
 fn a_stale_start_lock_is_taken_over() {
     // Given a start lock file left behind long ago (a crashed starter).
     let root = TestRoot::new();
