@@ -84,3 +84,15 @@ pub enum WaitCondition {
     /// This many milliseconds.
     Ms(u64),
 }
+
+/// One live target from the browser's target inventory. Internal to the
+/// frame-target path (target enumeration + matching); not a wire type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetInfo {
+    /// The CDP target id.
+    pub target_id: String,
+    /// The CDP target type string (`page`, `iframe`, `background_page`, …).
+    pub r#type: String,
+    /// The target's current URL.
+    pub url: String,
+}

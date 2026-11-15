@@ -89,7 +89,7 @@ impl PageInner {
         let mut params =
             DispatchMouseEventParams::new(DispatchMouseEventType::MouseMoved, point.x, point.y);
         params.pointer_type = Some(DispatchMouseEventPointerType::Mouse);
-        let mut fut = self.command_future(params)?;
+        let fut = self.command_future(params)?;
         // Poll the future until the message is queued (the sender capacity
         // is 1, so at most one extra turn); the response is never awaited.
         use std::future::Future;
@@ -246,13 +246,9 @@ impl PageInner {
         point: Point,
         options: chromiumoxide_types::ClickOptions,
     ) -> Result<&Self> {
-        let cmd = DispatchMouseEventParams::builder()
-            .x(point.x)
-            .y(point.y)
-            .button(MouseButton::Left)
-            .click_count(options.click_count)
-            .pointer_type(DispatchMouseEventPointerType::Mouse);
-
+        // chaser-oxide-jinn fork (hover-ack pipelining): press/release only —
+        // the pre-click hover await was a 5s pipeline flusher on windowed
+        // Chromium (see move_mouse_nowait); the arc already queued the moves.
         self.click_events_only(point, options).await
     }
 

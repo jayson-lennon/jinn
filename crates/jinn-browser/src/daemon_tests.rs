@@ -444,6 +444,19 @@ impl BrowserBackend for StubBackend {
         Ok(Some(serde_json::Value::String("ran".to_owned())))
     }
 
+    async fn evaluate_in_frame(
+        &self,
+        tab: &str,
+        frame: &str,
+        script: &str,
+    ) -> Result<Option<serde_json::Value>, BackendError> {
+        if tab != "t1" {
+            return Err(BackendError::UnknownTab(tab.to_owned()));
+        }
+        let _ = (frame, script);
+        Ok(Some(serde_json::Value::String("ran".to_owned())))
+    }
+
     async fn screenshot(&self, tab: &str) -> Result<Vec<u8>, BackendError> {
         if tab != "t1" {
             return Err(BackendError::UnknownTab(tab.to_owned()));

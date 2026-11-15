@@ -100,7 +100,7 @@ impl Browser {
                     } else {
                         format!(
                             "{}{}json/version",
-                            &debug_ws_url,
+                            debug_ws_url,
                             if debug_ws_url.ends_with('/') { "" } else { "/" }
                         )
                     },

@@ -135,18 +135,23 @@ refs over the interactive elements — including same-origin iframe
 content as `f<k>:e<n>` refs and shadow-DOM content as ordinary refs;
 every `iframe` appears as a non-clickable `<iframe>` row with its id/src
 and rect center), `click` (by `tab` + `ref`), `click_at` (by `tab` +
-viewport CSS-px `x`/`y` — for elements with no ref, e.g. inside
-cross-origin iframes: read the frame row's rect or measure a screenshot,
-then click there; coordinates are clamped to the viewport),
+viewport CSS-px `x`/`y` — fallback for elements no ref names; prefer
+refs whenever a snapshot shows them; coordinates are clamped),
 `type`, `press` (key names like `"Enter"`, `"Tab"`), `evaluate` (stealth
-JS eval: statements with `return x`, or a bare expression — script
-exceptions surface as readable tool errors, never silent nulls),
-`screenshot` (returns a saved PNG **path** — view it with the
-image-attachment built-in), `wait` (`"navigation"`, `"network_idle"`,
-`{text = "…"}`, or `{ms = n}`), and `close_tab`. **Every tool except
-`open_tab`/`list_tabs` requires the `tab` id** — there is no "whatever
-tab is live" fallback. A stale `f<k>:e<n>` ref (frame navigated away or
-went cross-origin) errors with a re-snapshot hint.
+JS eval: the value of the script's **last top-level expression** is
+returned — statement-shaped scripts like `const x = …` return null, so
+end with an expression or a `return`; script exceptions surface as
+readable tool errors, never silent nulls; pass `frame = "g1"` to
+evaluate inside a cross-origin frame), `screenshot` (returns a saved
+PNG **path** — view it with the image-attachment built-in), `wait`
+(`"navigation"`, `"network_idle"`, `{text = "…"}`, or `{ms = n}`), and
+`close_tab`. **Every tool except `open_tab`/`list_tabs` requires the
+`tab` id** — there is no "whatever tab is live" fallback. Cross-origin
+iframes (consent banners, embedded widgets) appear as `[g1] <iframe>`
+rows with their own `g1:e1`-style refs — clickable/typable by ref like
+any top-frame element. Same-origin iframes carry `f<k>:e<n>` refs. A
+stale ref (frame navigated away or re-created) errors with a
+re-snapshot hint.
 
 The Chrome window is owned by a separate **browser daemon** (`jinn
 browser daemon`), not by jinn or this server: the first tool call

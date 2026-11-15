@@ -353,6 +353,34 @@ impl DaemonClient {
         )
     }
 
+    /// Evaluates a script inside a cross-origin frame (`g<k>` from the
+    /// latest snapshot), on that frame's own CDP session.
+    ///
+    /// # Errors
+    /// Tool errors carry the daemon's message.
+    pub fn evaluate_in_frame(
+        &self,
+        tab: &str,
+        frame: &str,
+        script: &str,
+    ) -> Result<Option<serde_json::Value>, error_stack::Report<ClientError>> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            script: String,
+            frame: &'a str,
+        }
+        let entry = self.ensure_daemon()?;
+        self.call(
+            &entry,
+            reqwest::Method::POST,
+            &format!("/tabs/{tab}/evaluate"),
+            Some(&Body {
+                script: script.to_owned(),
+                frame,
+            }),
+        )
+    }
+
     /// Screenshots a tab; the daemon saves a PNG and returns its path.
     ///
     /// # Errors

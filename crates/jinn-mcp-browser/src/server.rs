@@ -170,9 +170,13 @@ impl BrowserMcpServer {
             "Capture a readable snapshot of a tab's page: an accessibility- \
              oriented tree plus element refs (e1, e2, …) for every \
              interactive element (links, buttons, inputs, selects, \
-             contenteditable, ARIA roles). Pass a ref to click or type; \
-             refs are valid until the DOM changes — take a fresh snapshot \
-             when one goes stale.",
+             contenteditable, ARIA roles). Cross-origin iframes appear as \
+             [g1] <iframe> rows followed by their own refs (g1:e1, g1:e2, \
+             …) — consent banners and embedded widgets are clickable by \
+             ref like any top-frame element. Same-origin iframes use \
+             f1:e1-style refs. Pass a ref to click or type; refs are \
+             valid until the DOM changes — take a fresh snapshot when one \
+             goes stale.",
             Arc::new(to_schema(with_tab(json!({
                 "type": "object",
                 "properties": {},
@@ -193,7 +197,9 @@ impl BrowserMcpServer {
                     "ref": {
                         "type": "string",
                         "description": "The element ref from the latest \
-                                       snapshot of this tab (e1, e2, …)."
+                                       snapshot of this tab (e1, e2, …; \
+                                       g1:e3 inside a cross-origin frame; \
+                                       f1:e2 inside a same-origin frame)."
                     }
                 },
                 "required": ["ref"]
@@ -205,10 +211,9 @@ impl BrowserMcpServer {
         Tool::new(
             "click_at",
             "Click at viewport CSS-pixel coordinates (trusted, human-paced \
-             input). Coordinates are clamped to the viewport. Use for \
-             elements with no snapshot ref — e.g. inside cross-origin \
-             iframes: measure the point from a screenshot or the iframe \
-             placeholder's rect in the snapshot, then click there.",
+             input). Coordinates are clamped to the viewport. Fallback for \
+             elements no snapshot ref names — prefer refs (e/f/g refs) \
+             whenever a snapshot shows them.",
             Arc::new(to_schema(with_tab(json!({
                 "type": "object",
                 "properties": {
@@ -273,12 +278,16 @@ impl BrowserMcpServer {
         Tool::new(
             "evaluate",
             "Evaluate JavaScript in a tab and return its JSON result. The \
-             script rides the stealth evaluation path (no Runtime.enable \
-             domain, an isolated on-demand world). Both shapes work: a \
-             multi-statement body with `return document.title`, or a bare \
-             expression like `document.title` (its value is returned \
-             directly). Script exceptions surface as tool errors naming \
-             the JS error.",
+             value of the script's last top-level expression is returned; \
+             statements like `const x = …` return null — end with an \
+             expression or a `return`. The script rides the stealth \
+             evaluation path (no Runtime.enable domain, an isolated \
+             on-demand world). Both shapes work: a multi-statement body \
+             with `return document.title`, or a bare expression like \
+             `document.title` (its value is returned directly). Script \
+             exceptions surface as tool errors naming the JS error. Pass \
+             `frame` (`g1`, `g2`, … from the latest snapshot) to evaluate \
+             inside a cross-origin frame — e.g. a consent banner.",
             Arc::new(to_schema(with_tab(json!({
                 "type": "object",
                 "properties": {
@@ -288,6 +297,13 @@ impl BrowserMcpServer {
                                        statements ending in `return <value>`, \
                                        or a single bare expression. Its \
                                        JSON-serializable value is returned."
+                    },
+                    "frame": {
+                        "type": "string",
+                        "description": "Optional cross-origin frame ref \
+                                       (g1, g2, …) from the latest snapshot; \
+                                       evaluates inside that frame instead of \
+                                       the top frame."
                     }
                 },
                 "required": ["script"]
@@ -579,8 +595,12 @@ impl BrowserMcpServer {
     ) -> Result<CallToolResponse, ErrorData> {
         let tab = Self::required_string(args, "tab")?.to_owned();
         let script = Self::required_string(args, "script")?.to_owned();
+        let frame = args.get("frame").and_then(Value::as_str).map(str::to_owned);
         Ok(self
-            .daemon_call("evaluate", move |client| client.evaluate(&tab, &script))
+            .daemon_call("evaluate", move |client| match frame.as_deref() {
+                Some(frame) => client.evaluate_in_frame(&tab, frame, &script),
+                None => client.evaluate(&tab, &script),
+            })
             .await)
     }
 

@@ -104,7 +104,21 @@ pub fn inject(lua: &Lua, jinn: &Table, _caps: &Rc<Caps>) -> mlua::Result<()> {
     browser_fn!("evaluate", caps, |lua, client, arg| {
         let tab: String = required_field(arg, "tab")?;
         let script: String = required_field(arg, "script")?;
-        let value = client.evaluate(&tab, &script).map_err(|e| to_lua(&e))?;
+        // Optional cross-origin frame (`g1` from the latest snapshot):
+        // the script evaluates inside that frame's own session.
+        let frame: Option<String> = match arg.get("frame") {
+            Ok(mlua::Value::Nil) | Err(_) => None,
+            Ok(mlua::Value::String(s)) => Some(s.to_str()?.to_owned()),
+            Ok(_) => {
+                return Err(mlua::Error::runtime("frame must be a string (e.g. \"g1\")"));
+            }
+        };
+        let value = match frame.as_deref() {
+            Some(frame) => client
+                .evaluate_in_frame(&tab, frame, &script)
+                .map_err(|e| to_lua(&e))?,
+            None => client.evaluate(&tab, &script).map_err(|e| to_lua(&e))?,
+        };
         from_json(lua, &value.unwrap_or(Json::Null))
     });
     browser_fn!("screenshot", caps, |lua, client, arg| {

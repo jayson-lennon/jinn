@@ -130,3 +130,50 @@ upstream defaults). Risk accepted.
 
 **Pinned by:** `fork_invariants::launch_args_exclude_automation_tells` asserts the
 `disable-features` arg contains `CalculateNativeWinOcclusion`.
+
+## Fork patch 8 — OOPIF (cross-origin iframe) target support
+
+**What this enables:** snapshot/evaluate/click inside out-of-process iframes (OOPIF) —
+consent banners (Sourcepoint/OneTrust), embedded payment widgets, ad frames. Upstream
+chaser-oxide only ever drives page targets; everything inside a cross-origin frame was
+invisible, and top-frame trusted mouse dispatch does not route into an OOPIF's process
+(proven at CDP level: the event dies at the `<iframe>` element in the parent).
+
+**Four source patches, all in `src/handler/`:**
+
+1. `mod.rs` `on_attached_to_target` — create the targets-map entry from the attach
+   event's `TargetInfo` when it is missing. This build's event path delivers
+   `Target.targetCreated` for OOPIFs *after* auto-attach (or not at all), so the map
+   otherwise has no entry when the session arrives and `get_page` on the child 404s
+   forever.
+2. `mod.rs` `on_target_created` — do not clobber an attach-bootstrapped target.
+   Upstream inserted unconditionally, which dropped the already-registered session and
+   pushed a duplicate id into `target_ids`; the poll loop then removed/polled the same
+   target several times per pass (verified: duplicated poll-loop entries, orphaned
+   `PageHandle` → every command on the parent page failing "receiver is gone"). A
+   duplicate creation now refreshes the stored `TargetInfo` only (`Target::set_info`).
+3. `mod.rs` `on_detached_from_target` — clear the target's session only when it is the
+   detaching one. Auto-attach re-attaches on every OOPIF navigation; a stale detach for
+   the old session must not wipe a freshly attached session.
+4. `target.rs` `poll` — a target created from its own `attachedToTarget` event already
+   has a session (flatten auto-attach); skip the `AttachToTarget` init stage (which
+   would mint a second session and orphan the first) and go straight to frame init.
+   Also: iframe (`type: "iframe"`) targets are polled like pages so their init chain
+   runs at all.
+
+`frame.rs` already carried the earlier fork patch bootstrapping an OOPIF main frame
+from a frame-tree root that carries a `parentId` (the embedding page's frame).
+
+**Stealth posture:** OOPIF targets ride the same frame-init chain (no `Runtime.enable`,
+no init-path `Network.enable`); evals go through `evaluate_stealth` in the isolated
+world; input through `click_human` trusted dispatch on the iframe's own session.
+The `wait_for_debugger_on_start` auto-attach pause is released by the existing
+`RunIfWaitingForDebugger` handling in `target.rs::on_event`.
+
+**jinn-side wiring** (`crates/jinn-browser/src/backend.rs`): snapshot enumerates
+iframe targets, matches them to top-level iframe placeholders by scheme+host+path
+(query ignored, src-equal groups in order), walks the interactive elements inside each
+matched target, and mints `g<k>:e<n>` refs; `click` dispatches trusted input on the
+iframe's own session at iframe-local coordinates; `evaluate` accepts `frame: "g<k>"`.
+Every use re-resolves the target live (no caching across navigations); a dead or
+re-created frame surfaces as a stale ref with re-snapshot guidance.

@@ -130,6 +130,11 @@ pub struct PressRequest {
 pub struct EvaluateRequest {
     /// The script (rides the stealth path only).
     pub script: String,
+    /// A cross-origin frame ref (`g1`, `g2`, …) from the latest
+    /// snapshot: the script evaluates inside that frame, on its own
+    /// CDP session. Absent means the tab's top frame.
+    #[serde(default)]
+    pub frame: Option<String>,
 }
 
 /// `POST /tabs/{tab}/wait` body.
@@ -266,7 +271,16 @@ async fn evaluate(
     axum::extract::Path(tab): axum::extract::Path<String>,
     Json(req): Json<EvaluateRequest>,
 ) -> (StatusCode, Json<Envelope>) {
-    match state.backend.evaluate(&tab, &req.script).await {
+    let result = match req.frame.as_deref() {
+        Some(frame) => {
+            state
+                .backend
+                .evaluate_in_frame(&tab, frame, &req.script)
+                .await
+        }
+        None => state.backend.evaluate(&tab, &req.script).await,
+    };
+    match result {
         Ok(value) => ok(value),
         Err(e) => err(&e),
     }

@@ -479,3 +479,74 @@ fn building_the_server_inside_a_runtime_panics_but_serve_does_not_build_there() 
         "building the blocking client inside a runtime must stay broken in the seam"
     );
 }
+
+#[rstest::rstest]
+#[test]
+fn the_evaluate_tool_states_the_last_expression_return_contract() {
+    install_crypto_provider();
+    // Given the evaluate tool's description.
+    let server = BrowserMcpServer::new();
+    let description = tool_description(&server, "evaluate");
+
+    // Then it tells the agent the value of the last top-level
+    // expression is returned and statement-shaped scripts return null
+    // (the recorded failure mode: statement-shaped scripts read as
+    // broken tools instead of wrong-shaped scripts).
+    assert!(
+        description.contains("last top-level expression"),
+        "evaluate description must state the return contract: {description}"
+    );
+    assert!(
+        description.to_lowercase().contains("null"),
+        "evaluate description must name the null outcome: {description}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_evaluate_tool_describes_the_cross_origin_frame_parameter() {
+    // Given the evaluate tool's description and schema.
+    let server = BrowserMcpServer::new();
+    let description = tool_description(&server, "evaluate");
+
+    // Then it names the `frame` parameter for evaluating inside a
+    // cross-origin frame (g refs).
+    assert!(
+        description.contains("g1"),
+        "evaluate description must name the frame parameter: {description}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_snapshot_tool_describes_cross_origin_frame_refs() {
+    install_crypto_provider();
+    // Given the snapshot tool's description.
+    let server = BrowserMcpServer::new();
+    let description = tool_description(&server, "snapshot");
+
+    // Then it tells the agent cross-origin frames carry g refs that
+    // click like any top-frame element (the consent-banner failure
+    // mode: no ref existed, so the agent fell back to pixel math).
+    assert!(
+        description.contains("g1:e1"),
+        "snapshot description must name g refs: {description}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn the_click_tool_describes_g_ref_acceptance() {
+    install_crypto_provider();
+    // Given the click tool's schema (the ref parameter's description
+    // carries the accepted ref shapes).
+    let server = BrowserMcpServer::new();
+    let result = server.test_list_tools().expect("tools/list succeeds");
+    let encoded = serde_json::to_string(&result).expect("tools encode");
+
+    // Then it names g refs as valid click targets.
+    assert!(
+        encoded.contains("g1:e3"),
+        "click tool must advertise g ref acceptance: {encoded}"
+    );
+}

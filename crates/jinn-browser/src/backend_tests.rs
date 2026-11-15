@@ -253,6 +253,13 @@ impl EngineHandle for FakeEngine {
         Ok(Arc::new(page))
     }
 
+    async fn list_targets(&self) -> Result<Vec<crate::TargetInfo>, BackendError> {
+        // The fake reports no iframe targets: cross-origin resolution
+        // degrades to placeholder rows, which is exactly what the
+        // snapshot tests assert against.
+        Ok(Vec::new())
+    }
+
     async fn try_wait(&self) -> std::io::Result<Option<String>> {
         if *self.try_wait_io_error.lock().await {
             return Err(std::io::Error::other("child state unreadable"));
@@ -866,7 +873,7 @@ async fn placeholder_rows_carry_the_rect_center_for_click_at() {
     assert!(!row.clickable);
     assert_eq!(row.x, Some(1912.0));
     assert_eq!(row.y, Some(1908.0));
-    assert!(row.html_id.as_deref() == Some("sp_message_iframe_8"));
+    assert_eq!(row.html_id.as_deref(), Some("sp_message_iframe_8"));
     // And the tree names the frame for the agent's frame discovery.
     assert!(snap.tree.contains("sp_message_iframe_8"));
 }
@@ -988,4 +995,37 @@ async fn an_input_success_resets_the_watchdog_streak() {
         backend.is_live().await,
         "a reset streak must not recycle on one timeout"
     );
+}
+
+#[rstest::rstest]
+#[test]
+fn urls_share_path_matches_by_path_and_ignores_query() {
+    // Given a target URL with a mutated query string against a
+    // placeholder src (the Sourcepoint shape: query mutates per load).
+    let target = "https://cdn.privacy-mgmt.com/us_pm/index.html?hasCsp=true&uuid=1";
+    let src = "https://cdn.privacy-mgmt.com/us_pm/index.html";
+
+    // Then the URLs share a path (prefix, query ignored).
+    assert!(crate::backend::urls_share_path(target, src));
+    // And a different path does not match.
+    assert!(!crate::backend::urls_share_path(
+        "https://other.example/widget",
+        src
+    ));
+    // And an empty srcdoc placeholder never matches anything.
+    assert!(!crate::backend::urls_share_path(target, ""));
+}
+
+#[rstest::rstest]
+#[test]
+fn a_script_with_return_wraps_but_a_bare_expression_does_not() {
+    // Given the two documented eval shapes.
+    let statement = "return document.title";
+    let expression = "document.title";
+
+    // Then the statement shape wraps (its `return` must become legal)
+    // and the expression shape passes through untouched (an IIFE would
+    // swallow its value).
+    assert!(crate::backend::script_looks_like_statements(statement));
+    assert!(!crate::backend::script_looks_like_statements(expression));
 }

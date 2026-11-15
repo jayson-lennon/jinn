@@ -417,6 +417,18 @@ impl Handler {
             }
         }
 
+        // chaser-oxide fork (OOPIF): `Target.attachedToTarget` fired by a
+        // PAGE-scoped auto-attach carries the page's session id, so the
+        // routing block below hands it to the page target's pump and the
+        // child session never registers in `self.sessions` — making
+        // `get_page` on the child (an OOPIF iframe target) fail with
+        // NotFound forever. Register the child session for EVERY
+        // `Target.attachedToTarget`, whatever its scope, before routing.
+        // Idempotent: on_attached_to_target overwrites the map entry.
+        if let CdpEvent::TargetAttachedToTarget(ref ev) = event.params {
+            self.on_attached_to_target(ev.clone());
+        }
+
         if let Some(ref session_id) = event.session_id {
             if let Some(session) = self.sessions.get(session_id.as_str()) {
                 if let Some(target) = self.targets.get_mut(session.target_id()) {
@@ -443,6 +455,16 @@ impl Handler {
     ///
     /// Creates a new `Target` instance and keeps track of it
     fn on_target_created(&mut self, event: EventTargetCreated) {
+        // chaser-oxide fork (OOPIF): when the attach-event bootstrap (see
+        // `on_attached_to_target`) already created this target, do NOT
+        // clobber it — that would drop the session already registered on
+        // it and push a duplicate id into `target_ids` (the poll loop
+        // then removes/polls the same target several times per pass).
+        // Refresh the stored TargetInfo instead; keep the live Target.
+        if let Some(existing) = self.targets.get_mut(&event.target_info.target_id) {
+            existing.set_info(event.target_info.clone());
+            return;
+        }
         let browser_ctx = event
             .target_info
             .browser_context_id
@@ -467,7 +489,39 @@ impl Handler {
 
     /// A new session is attached to a target
     fn on_attached_to_target(&mut self, event: Box<EventAttachedToTarget>) {
-        let session = Session::new(event.session_id.clone(), event.target_info.target_id);
+        let session = Session::new(
+            event.session_id.clone(),
+            event.target_info.target_id.clone(),
+        );
+        // chaser-oxide fork (OOPIF): `Target.targetCreated` never reaches
+        // the browser handler for out-of-process iframe targets (this
+        // build's event path delivers it nowhere), so the targets map
+        // has no entry when the auto-attach session arrives — and
+        // `get_page` on the child 404s forever. Create the entry from
+        // the attach event's TargetInfo if it is missing.
+        if !self.targets.contains_key(session.target_id()) {
+            let target_info = event.target_info.clone();
+            let browser_ctx = target_info
+                .browser_context_id
+                .clone()
+                .map(BrowserContext::from)
+                .filter(|id| self.browser_contexts.contains(id))
+                .unwrap_or_else(|| self.default_browser_context.clone());
+            let target = Target::new(
+                target_info,
+                TargetConfig {
+                    ignore_https_errors: self.config.ignore_https_errors,
+                    request_timeout: self.config.request_timeout,
+                    viewport: self.config.viewport.clone(),
+                    request_intercept: self.config.request_intercept,
+                    cache_enabled: self.config.cache_enabled,
+                },
+                browser_ctx,
+            );
+            let target_id = target.target_id().clone();
+            self.target_ids.push(target_id.clone());
+            self.targets.insert(target_id, target);
+        }
         if let Some(target) = self.targets.get_mut(session.target_id()) {
             target.set_session_id(session.session_id().clone())
         }
@@ -481,7 +535,16 @@ impl Handler {
         // remove the session
         if let Some(session) = self.sessions.remove(&event.session_id) {
             if let Some(target) = self.targets.get_mut(session.target_id()) {
-                target.session_id_mut().take();
+                // chaser-oxide fork (OOPIF): only clear the target's
+                // session when it is the detaching one. Auto-attach
+                // re-attaches on every OOPIF navigation, so a stale
+                // `detachedFromTarget` for the old session must not
+                // wipe a freshly attached session — that left the
+                // target sessionless and `get_page` on it NotFound.
+                let same = target.session_id() == Some(&session.session_id().clone());
+                if same {
+                    target.session_id_mut().take();
+                }
             }
         }
     }

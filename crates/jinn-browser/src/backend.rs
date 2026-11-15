@@ -141,6 +141,15 @@ pub trait EngineHandle: Send + Sync {
     /// A target that no longer exists maps onto [`BackendError::Engine`].
     async fn get_page(&self, target: &TargetId) -> Result<Arc<dyn PageHandle>, BackendError>;
 
+    /// Lists every live target id with its type and URL — the raw
+    /// target inventory the OOPIF frame path filters. Includes
+    /// `type: "iframe"` (out-of-process) targets that `pages()` hides.
+    ///
+    /// # Errors
+    ///
+    /// Engine failures map onto [`BackendError`].
+    async fn list_targets(&self) -> Result<Vec<crate::surface::TargetInfo>, BackendError>;
+
     /// Polls the browser child without blocking: `Some(status)` when the
     /// child has exited.
     ///
@@ -242,6 +251,19 @@ pub trait BrowserBackend: Send + Sync {
     async fn evaluate(
         &self,
         tab: &str,
+        script: &str,
+    ) -> Result<Option<serde_json::Value>, BackendError>;
+
+    /// Evaluates a script inside a cross-origin frame ref (`g<k>`) of
+    /// the tab, on that frame's own CDP session (stealth path).
+    ///
+    /// # Errors
+    ///
+    /// Backend errors name the failure for tool-level rendering.
+    async fn evaluate_in_frame(
+        &self,
+        tab: &str,
+        frame: &str,
         script: &str,
     ) -> Result<Option<serde_json::Value>, BackendError>;
 
@@ -374,6 +396,10 @@ struct RefEntry {
     /// the viewport-absolute rect of the iframe element in the parent —
     /// the click path re-resolves the in-frame node and adds the rect.
     frame: Option<FrameAnchor>,
+    /// The owning cross-origin iframe target: `Some` for `g<k>` refs.
+    /// The click dispatches on the iframe's own CDP session (a top-frame
+    /// dispatch never routes into an out-of-process frame).
+    target_frame: Option<FrameTarget>,
 }
 
 /// The parent-side anchor of a same-origin iframe: the iframe element's
@@ -383,6 +409,25 @@ struct RefEntry {
 #[derive(Clone, Copy)]
 struct FrameAnchor {
     /// Index into `document.querySelectorAll("iframe,frame")` order.
+    iframe_index: usize,
+}
+
+/// The anchor of a cross-origin (OOPIF) frame ref: the `g<k>` label and
+/// the CDP target id it resolved to at snapshot time. The target id is
+/// re-validated at click time — OOPIF targets die and re-create on every
+/// navigation, so a cached id is a hint, never a truth.
+#[derive(Debug, Clone)]
+struct FrameTarget {
+    /// The `g<k>` label minted by the snapshot.
+    label: String,
+    /// The CDP target id at snapshot time.
+    target_id: String,
+    /// The iframe element's index into the top document's frame list —
+    /// how a `g<k>` on screen maps to the target whose URL matches the
+    /// placeholder's src (src-equal groups match by order). Kept for
+    /// future parent-rect remapping; target-session dispatch needs only
+    /// the target id.
+    #[allow(dead_code, reason = "reserved for parent-rect remapping")]
     iframe_index: usize,
 }
 
@@ -692,6 +737,32 @@ fn default_clickable() -> bool {
 /// snapshot a `SyntaxError` (recorded failure mode).
 const INTERACTIVE_SELECTOR: &str = "a, button, input, textarea, select, [role], [onclick], [contenteditable=\"true\"], [contenteditable=\"\"]";
 
+/// The in-frame interactive walk the snapshot runs inside a matched
+/// OOPIF target and the click path re-runs for a fresh center. Returns
+/// a JSON array of the same row shape the main snapshot script emits,
+/// with viewport-geometry already iframe-local (the dispatcher on the
+/// iframe's session takes iframe-viewport coordinates directly).
+const OOPIF_WALK_TAIL: &str = r#"
+                const els = document.querySelectorAll(SEL);
+                const out = [];
+                let n = 0;
+                for (const el of els) {
+                    n += 1;
+                    const r = el.getBoundingClientRect();
+                    if (r.width <= 0 || r.height > 20000) continue;
+                    out.push({
+                        tag: el.tagName.toLowerCase(),
+                        id: el.id || null,
+                        text: (el.innerText || el.value || el.placeholder || el.getAttribute('aria-label') || '').trim().slice(0, 120) || null,
+                        value: (el.value !== undefined && el.tagName === 'INPUT') ? String(el.value).slice(0, 120) : null,
+                        eid: 'e' + n,
+                        x: Math.round(r.x + r.width / 2),
+                        y: Math.round(r.y + r.height / 2),
+                        visible: r.width > 0 && r.height > 0,
+                    });
+                }
+                return JSON.stringify(out);"#;
+
 /// Whether a script is statement-shaped (needs the IIFE wrap) rather
 /// than a bare expression. Conservative by design: only an explicit
 /// `return` (or `throw`) outside string literals triggers the wrap — a
@@ -772,6 +843,35 @@ fn is_death_text(text: &str) -> bool {
         || lowered.contains("disconnected")
         || lowered.contains("websocket")
         || lowered.contains("no response")
+}
+
+/// Whether a placeholder src and a target URL name the same document:
+/// scheme+host+path equality, query ignored (consent frames ride URLs
+/// whose query string mutates per page load; the path identifies the
+/// frame). An empty src (srcdoc) never matches.
+#[must_use]
+pub(crate) fn urls_share_path(target_url: &str, placeholder_src: &str) -> bool {
+    let path_of = |u: &str| -> Option<String> {
+        let rest = u.split_once("://")?.1;
+        let after = match rest.split_once('/') {
+            Some((_, tail)) => tail,
+            None => "",
+        };
+        Some(after.split('?').next().unwrap_or(after).to_owned())
+    };
+    match (path_of(target_url), path_of(placeholder_src)) {
+        // An authority-only src ("https://cdn.example") has an empty
+        // path and matches the target's root "/" — an entirely empty
+        // path pair never matches.
+        (Some(a), Some(b)) => {
+            if b.is_empty() {
+                a == "/"
+            } else {
+                a.starts_with(b.as_str())
+            }
+        }
+        _ => false,
+    }
 }
 
 /// Maps a chaser engine error onto the seam's error type, judging death
@@ -919,8 +1019,12 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
                             const frRect = fr.getBoundingClientRect();
                             // Placeholder row: every frame is visible to
                             // the snapshot even when cross-origin (content
-                            // then unreachable — click_at at the rect is
-                            // the path).
+                            // then unreachable — a matched OOPIF target
+                            // carries the cross-origin refs). The row's
+                            // iframe_index names THIS document's frame
+                            // list position when the placeholder itself
+                            // is top-level (its parent anchor is null) —
+                            // the cross-origin resolver keys off it.
                             out.push({{
                                 tag: 'iframe',
                                 id: fr.id || null,
@@ -928,7 +1032,7 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
                                 value: null,
                                 frame: frame,
                                 eid: null,
-                                iframe_index: iframeIndex,
+                                iframe_index: (iframeIndex === null) ? frames.indexOf(fr) : iframeIndex,
                                 x: Math.round(ox + frRect.x + frRect.width / 2),
                                 y: Math.round(oy + frRect.y + frRect.height / 2),
                                 visible: frRect.width > 0 && frRect.height > 0,
@@ -1026,6 +1130,15 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
         let url = page.url().await.ok().flatten();
         let title = page.title().await.ok().flatten();
 
+        // Cross-origin (OOPIF) frames: match each top-level iframe
+        // placeholder against the live `type: "iframe"` targets by src
+        // prefix (src-equal groups match by placeholder order), then walk
+        // inside the matched target — same interactive script, iframe-
+        // local geometry — emitting `g<k>:e<n>` refs. Enumeration and
+        // matching happen per snapshot: OOPIF targets re-create on every
+        // navigation, so nothing here is cached across commands.
+        let (entries, mut oopif_frames) = self.resolve_oopif_frames(tab, entries).await;
+
         // Mint refs, cache geometry, render the tree. Frame rows carry
         // their `f<k>:e<n>` label; iframe placeholders render as
         // non-clickable frame rows with the src.
@@ -1045,10 +1158,19 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
                 (None, true) => entry.eid.clone().unwrap_or_default(),
                 // Frame element: `f<k>:<eid>`.
                 (Some(frame), true) => format!("{frame}:{}", entry.eid.clone().unwrap_or_default()),
-                // Iframe placeholder: no ref, an informational row.
+                // Iframe placeholder: no ref, an informational row. A
+                // matched cross-origin frame names its `g<k>` label so
+                // the agent can see the frame is walkable/clickable by
+                // ref (its rows follow) or evaluate inside it.
                 (_, false) => {
                     let src = text.clone().unwrap_or_else(|| "(srcdoc)".to_owned());
-                    tree.push_str("- <iframe>");
+                    tree.push_str("- ");
+                    if let Some(label) = entry.frame.as_ref().filter(|f| f.starts_with('g')) {
+                        tree.push('[');
+                        tree.push_str(label);
+                        tree.push_str("] ");
+                    }
+                    tree.push_str("<iframe>");
                     if let Some(id) = entry.html_id.as_ref() {
                         tree.push_str(" #");
                         tree.push_str(id);
@@ -1060,6 +1182,23 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
                     } else {
                         tree.push_str(" [hidden]\n");
                     }
+                    // A matched cross-origin frame is addressable even
+                    // when its walk found no interactive elements:
+                    // mint the placeholder's frame binding so `evaluate`
+                    // (and click_at-style use) can resolve `g<k>`.
+                    // Peek, don't consume: child refs below share the
+                    // same binding.
+                    let target_frame = entry.frame.as_ref().and_then(|f| {
+                        f.starts_with('g')
+                            .then(|| oopif_frames.get(f).cloned())
+                            .flatten()
+                    });
+                    ref_entries.push(RefEntry {
+                        id: String::new(),
+                        center: (entry.x, entry.y),
+                        frame: None,
+                        target_frame,
+                    });
                     refs.push(SnapshotRef {
                         id: String::new(),
                         tag: entry.tag.clone(),
@@ -1095,6 +1234,11 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
                 frame: entry.frame.as_ref().map(|_| FrameAnchor {
                     iframe_index: entry.iframe_index.unwrap_or_default(),
                 }),
+                target_frame: entry
+                    .frame
+                    .as_ref()
+                    .and_then(|f| f.starts_with('g').then(|| oopif_frames.remove(f)))
+                    .flatten(),
             });
             refs.push(SnapshotRef {
                 id: eid,
@@ -1123,15 +1267,26 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
 
     async fn click(&self, tab: &str, reference: &str) -> Result<(), BackendError> {
         let page = self.page_for(tab).await?;
-        let (center, frame) = {
+        let (center, frame, target_frame) = {
             let state = self.inner.lock().await;
             let entry = state
                 .refs
                 .get(tab)
                 .and_then(|refs| refs.iter().find(|r| r.id == reference))
                 .ok_or_else(|| BackendError::StaleRef(reference.to_owned()))?;
-            (entry.center, entry.frame)
+            (
+                entry.center,
+                entry.frame.clone(),
+                entry.target_frame.clone(),
+            )
         };
+
+        if let Some(anchor) = target_frame {
+            tracing::debug!(tab, reference, "click: cross-origin frame path");
+            let result = ChaserBackend::click_in_target_frame(self, &anchor, reference).await;
+            self.observe_input_result(&result).await;
+            return result;
+        }
 
         if let Some(anchor) = frame {
             tracing::debug!(tab, reference, "click: frame path");
@@ -1208,10 +1363,10 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
             })
             .await?
         } {
-            Some(v) => {
-                let w = v.get("w").and_then(serde_json::Value::as_f64);
-                let h = v.get("h").and_then(serde_json::Value::as_f64);
-                match (w, h) {
+            Some(viewport) => {
+                let width = viewport.get("w").and_then(serde_json::Value::as_f64);
+                let height = viewport.get("h").and_then(serde_json::Value::as_f64);
+                match (width, height) {
                     (Some(w), Some(h)) if w > 0.0 && h > 0.0 => (
                         x.clamp(0.0, (w - 1.0).max(0.0)),
                         y.clamp(0.0, (h - 1.0).max(0.0)),
@@ -1255,21 +1410,36 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
         script: &str,
     ) -> Result<Option<serde_json::Value>, BackendError> {
         let page = self.page_for(tab).await?;
-        // The eval mode is a bare expression in an isolated world, but
-        // the documented ergonomics (and every agent's instinct) are
-        // `return …`. A top-level `return` outside a function is a
-        // SyntaxError — recorded failure mode: an agent burned six tool
-        // calls on silent nulls before discovering the expression form.
-        // A script containing `return` is therefore wrapped in an IIFE,
-        // which both makes the `return` legal and allows multi-statement
-        // bodies; expression-only scripts evaluate as-is so their value
-        // survives (an IIFE would swallow a bare expression's value).
-        let wrapped = if script_looks_like_statements(script) {
-            format!("(() => {{\n{script}\n}})()")
-        } else {
-            script.to_owned()
-        };
+        let wrapped = Self::prepare_eval_script(script);
         self.run(async move { page.evaluate_stealth(wrapped).await })
+            .await
+    }
+
+    async fn evaluate_in_frame(
+        &self,
+        tab: &str,
+        frame: &str,
+        script: &str,
+    ) -> Result<Option<serde_json::Value>, BackendError> {
+        // `tab` scopes the ref table; the frame label picks the target.
+        let _ = tab;
+        let anchor = {
+            let state = self.inner.lock().await;
+            state
+                .refs
+                .get(tab)
+                .and_then(|refs| refs.iter().find_map(|r| r.target_frame.as_ref()))
+                .filter(|t| t.label == frame)
+                .cloned()
+                .ok_or_else(|| {
+                    BackendError::StaleRef(format!(
+                        "{frame} (no such cross-origin frame in the latest snapshot; re-snapshot)"
+                    ))
+                })?
+        };
+        let frame_page = self.page_in_target_frame(&anchor).await?;
+        let wrapped = Self::prepare_eval_script(script);
+        self.run(async move { frame_page.evaluate_stealth(wrapped).await })
             .await
     }
 
@@ -1362,11 +1532,302 @@ impl<L: EngineLauncher> ChaserBackend<L> {
                 );
                 Self::clear_dead(&mut state);
             }
-        } else if result.is_ok() {
+        }
+        if result.is_ok() {
             state.input_timeouts = 0;
         }
     }
 
+    /// Cross-origin frame resolution: matches the snapshot's top-level
+    /// iframe placeholders against live `type: "iframe"` CDP targets and
+    /// walks inside each matched target. Returns the (possibly extended)
+    /// entries plus a map of ref id → [`FrameTarget`] for the `g<k>` rows.
+    ///
+    /// Matching: a placeholder whose src is a prefix of the target's URL
+    /// (query strings differ; the path identifies the frame). Src-equal
+    /// groups match in order — two ads from one URL bind the first
+    /// placeholder to the first target, and a count mismatch degrades to
+    /// leaving the extras as placeholders (a StaleRef at click time, never
+    /// a wrong-frame click). Only top-level placeholders (no `f<k>` parent)
+    /// participate: nested OOPIFs are rare and the parent-projected frame
+    /// tree makes their target attribution ambiguous.
+    ///
+    /// Every failure inside a matched frame (target gone mid-walk, eval
+    /// error, no result) leaves that frame's rows as plain placeholders —
+    /// degraded, never fatal: the main-frame snapshot must still land.
+    async fn resolve_oopif_frames(
+        &self,
+        tab: &str,
+        mut entries: Vec<ScriptedRef>,
+    ) -> (Vec<ScriptedRef>, HashMap<String, FrameTarget>) {
+        // Collect top-level cross-origin placeholders in document order.
+        let placeholders: Vec<(usize, String)> = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                // Placeholder rows: tag iframe, not clickable, top-level
+                // (`f<k>` parents are same-origin — already walked), and
+                // carrying their frame-list index.
+                !e.clickable && e.tag == "iframe" && e.frame.is_none() && e.iframe_index.is_some()
+            })
+            .map(|(i, e)| (i, e.text.clone().unwrap_or_default()))
+            .collect();
+        tracing::debug!(count = placeholders.len(), srcs = ?placeholders, "oopif: placeholders");
+        if placeholders.is_empty() {
+            return (entries, HashMap::new());
+        }
+
+        // Enumerate the live iframe targets. An enumeration failure is
+        // degraded (placeholder-only snapshot), not fatal. The state
+        // guard is held across the engine call: engine-handle methods
+        // never lock backend state, so there is no re-entrancy, and
+        // `Box<dyn EngineHandle>` cannot be cloned out of the engine.
+        let targets = {
+            let state = self.inner.lock().await;
+            let Some(engine) = state.engine.as_ref() else {
+                return (entries, HashMap::new());
+            };
+            match engine.handle.list_targets().await {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::debug!(tab, error = %e, "oopif: target enumeration failed");
+                    return (entries, HashMap::new());
+                }
+            }
+        };
+        let mut iframe_targets: Vec<&crate::surface::TargetInfo> =
+            targets.iter().filter(|t| t.r#type == "iframe").collect();
+        // Stable order: browser enumeration order is already creation
+        // order; sort by url so src-equal groups bind deterministically.
+        iframe_targets.sort_by(|a, b| a.url.cmp(&b.url));
+
+        let mut matched: Vec<(usize, String, &crate::surface::TargetInfo)> = Vec::new();
+        let mut available: Vec<&crate::surface::TargetInfo> = iframe_targets;
+        for (entry_index, src) in placeholders {
+            let bind = available.iter().position(|t| urls_share_path(&t.url, &src));
+            if let Some(pos) = bind {
+                let target = available.remove(pos);
+                matched.push((entry_index, src, target));
+            }
+        }
+        tracing::debug!(matched = matched.len(), targets = ?matched.iter().map(|(_,_,t)| t.url.clone()).collect::<Vec<_>>(), "oopif: matched");
+        if matched.is_empty() {
+            return (entries, HashMap::new());
+        }
+
+        // Walk inside each matched target and label its rows.
+        let mut ref_frame: HashMap<String, FrameTarget> = HashMap::new();
+        let mut appended: Vec<(usize, ScriptedRef)> = Vec::new();
+        for (g_number, (entry_index, _src, target)) in matched.iter().enumerate() {
+            let label = format!("g{}", g_number + 1);
+            let target_id = target.target_id.clone();
+            let frame_page = {
+                let state = self.inner.lock().await;
+                let Some(engine) = state.engine.as_ref() else {
+                    continue;
+                };
+                let target_id =
+                    chaser_oxide::cdp::browser_protocol::target::TargetId::from(target_id.clone());
+                // First-touch race: chaser's handler only drains queued
+                // `Target.attachedToTarget` events when polled, so a frame
+                // that committed microseconds ago may have no session yet
+                // (get_page → NotFound) even though the attach is imminent.
+                // One short bounce lets the next poll register it.
+                let mut attempt = 0;
+                loop {
+                    match engine.handle.get_page(&target_id).await {
+                        Ok(p) => break Some(p),
+                        Err(e) if attempt == 0 => {
+                            attempt = 1;
+                            tracing::debug!(error = %e, "oopif: get_page first attempt failed; retrying after settle");
+                            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+                        }
+                        Err(e) => {
+                            tracing::debug!(error = %e, "oopif: get_page failed");
+                            break None;
+                        }
+                    }
+                }
+            };
+            let Some(frame_page) = frame_page else {
+                continue;
+            };
+            // The in-frame walk: the same selector, iframe-local geometry.
+            let script = format!(
+                "(() => {{ const SEL = '{INTERACTIVE_SELECTOR}'; {} }})()",
+                OOPIF_WALK_TAIL
+            );
+            let rows = {
+                let frame_page = frame_page.clone();
+                match self
+                    .run(async move { frame_page.evaluate_stealth(script).await })
+                    .await
+                {
+                    Ok(Some(serde_json::Value::String(encoded))) => {
+                        serde_json::from_str::<Vec<ScriptedRef>>(&encoded).ok()
+                    }
+                    _ => None,
+                }
+            };
+            let Some(rows) = rows else {
+                tracing::debug!(target_id, "oopif: in-frame walk failed or empty");
+                continue;
+            };
+            // Rewrite the placeholder row to name its frame, and record
+            // the binding so the click path (and evaluate's `frame`) can
+            // resolve the target live. Placeholder keeps clickable=false
+            // (the frame is not a button) but gains the g-label.
+            if let Some(placeholder) = entries.get_mut(*entry_index) {
+                placeholder.frame = Some(label.clone());
+            }
+            let frame_target = FrameTarget {
+                label: label.clone(),
+                target_id,
+                iframe_index: entries
+                    .get(*entry_index)
+                    .and_then(|e| e.iframe_index)
+                    .unwrap_or_default(),
+            };
+            ref_frame.insert(label.clone(), frame_target);
+            // The in-frame rows: tag each with the frame label; the
+            // minting loop prefixes their eid with `g<k>`. iframe_index
+            // stays None — it only anchors same-origin `f<k>` clicks.
+            for mut row in rows {
+                row.iframe_index = None;
+                appended.push((*entry_index, row));
+            }
+        }
+
+        // Splice appended rows after their placeholder, in placeholder
+        // order (iterate reversed so earlier indices stay valid).
+        for (entry_index, mut row) in appended {
+            row.frame = entries
+                .get(entry_index)
+                .and_then(|e| e.frame.clone())
+                .or_else(|| row.frame.take());
+            entries.insert(entry_index + 1, row);
+        }
+        (entries, ref_frame)
+    }
+
+    /// Resolves the live page handle for a `g<k>` frame target. The
+    /// snapshot's target id is a hint: the target list is re-read and a
+    /// target with the same id is required to still exist and still be
+    /// type iframe (OOPIF targets re-create per navigation with fresh
+    /// ids, so a stale hint falls through to src re-matching).
+    async fn page_in_target_frame(
+        &self,
+        anchor: &FrameTarget,
+    ) -> Result<Arc<dyn PageHandle>, BackendError> {
+        // The state guard is held across the engine calls (no re-entrancy:
+        // engine-handle methods never lock backend state).
+        let state = self.inner.lock().await;
+        let Some(engine) = state.engine.as_ref() else {
+            return Err(BackendError::DeadBrowser("no live browser".to_owned()));
+        };
+        let targets = engine.handle.list_targets().await?;
+        let live = targets.iter().find(|t| t.target_id == anchor.target_id);
+        match live {
+            Some(t) if t.r#type == "iframe" => {
+                let tid = chaser_oxide::cdp::browser_protocol::target::TargetId::from(
+                    t.target_id.clone(),
+                );
+                engine.handle.get_page(&tid).await
+            }
+            _ => Err(BackendError::StaleRef(format!(
+                "{} (cross-origin frame re-created; re-snapshot)",
+                anchor.label
+            ))),
+        }
+    }
+
+    /// The eval-mode rewrite: a bare expression evaluates as-is (its
+    /// value survives); a statement-shaped script (contains `return`/
+    /// `throw` outside strings) is wrapped in an IIFE, which makes the
+    /// `return` legal. Shared by the top-frame and in-frame evaluate
+    /// paths.
+    fn prepare_eval_script(script: &str) -> String {
+        if script_looks_like_statements(script) {
+            format!("(() => {{\n{script}\n}})()")
+        } else {
+            script.to_owned()
+        }
+    }
+
+    /// Clicks a `g<k>:e<n>` ref: resolve the iframe target's page, run
+    /// the scroll/center walk inside it (iframe-local coordinates), and
+    /// dispatch the trusted click on the iframe's own session — a
+    /// top-frame dispatch never routes into an out-of-process frame
+    /// (CDP-proven failure mode).
+    async fn click_in_target_frame(
+        &self,
+        anchor: &FrameTarget,
+        reference: &str,
+    ) -> Result<(), BackendError> {
+        let (_label, eid) = reference
+            .split_once(':')
+            .ok_or_else(|| BackendError::StaleRef(reference.to_owned()))?;
+        let index = eid
+            .trim_start_matches('e')
+            .parse::<usize>()
+            .map_err(|e| BackendError::Engine(format!("bad ref `{reference}`: {e}")))?
+            .checked_sub(1)
+            .ok_or_else(|| BackendError::StaleRef(reference.to_owned()))?;
+        let frame_page = self.page_in_target_frame(anchor).await?;
+        let script = format!(
+            r#"(() => {{
+                const SEL = '{INTERACTIVE_SELECTOR}';
+                const els = document.querySelectorAll(SEL);
+                const el = els[{index}];
+                if (!el) return 'missing';
+                el.scrollIntoView({{block: 'center'}});
+                const r = el.getBoundingClientRect();
+                return JSON.stringify({{x: Math.round(r.x + r.width/2), y: Math.round(r.y + r.height/2)}});
+            }})()"#,
+        );
+        let fresh = {
+            let frame_page = frame_page.clone();
+            self.run(async move { frame_page.evaluate_stealth(script).await })
+                .await?
+        };
+        let center = match fresh {
+            Some(serde_json::Value::String(encoded)) => {
+                serde_json::from_str::<serde_json::Value>(&encoded)
+                    .ok()
+                    .map(|p| {
+                        (
+                            p.get("x").and_then(serde_json::Value::as_f64),
+                            p.get("y").and_then(serde_json::Value::as_f64),
+                        )
+                    })
+                    .unwrap_or((None, None))
+            }
+            _ => (None, None),
+        };
+        let (x, y) = match center {
+            (Some(x), Some(y)) => (x, y),
+            _ => {
+                return Err(BackendError::StaleRef(format!(
+                    "{reference} (element moved inside the frame; re-snapshot)"
+                )));
+            }
+        };
+        tracing::debug!(x, y, "click_in_target_frame: dispatching on iframe session");
+        let result = {
+            let frame_page = frame_page.clone();
+            self.run(async move { frame_page.click_human(x, y).await })
+                .await
+        };
+        self.observe_input_result(&result).await;
+        result
+    }
+
+    /// Clicks a frame ref (`f<k>:e<n>`): re-resolve the iframe element
+    /// in the parent document (its viewport rect is the offset), run
+    /// the scroll/center script inside the child document (same-origin
+    /// access), sum the two, trusted-click at the viewport point. A
+    /// frame that navigated away or went cross-origin surfaces as a
+    /// stale ref — re-snapshot is the recovery.
     /// Clicks a frame ref (`f<k>:e<n>`): re-resolve the iframe element
     /// in the parent document (its viewport rect is the offset), run
     /// the scroll/center script inside the child document (same-origin
@@ -1493,6 +1954,19 @@ mod chaser {
                 .await
                 .map_err(map_engine_error)?;
             Ok(Arc::new(ChaserPageHandle::new(page)))
+        }
+
+        async fn list_targets(&self) -> Result<Vec<crate::surface::TargetInfo>, BackendError> {
+            let mut browser = self.browser.lock().await;
+            let targets = browser.fetch_targets().await.map_err(map_engine_error)?;
+            Ok(targets
+                .into_iter()
+                .map(|t| crate::surface::TargetInfo {
+                    target_id: t.target_id.as_ref().to_owned(),
+                    r#type: t.r#type.clone(),
+                    url: t.url,
+                })
+                .collect())
         }
 
         async fn try_wait(&self) -> std::io::Result<Option<String>> {

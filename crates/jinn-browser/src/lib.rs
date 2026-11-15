@@ -36,7 +36,7 @@ pub mod daemon;
 pub mod registry;
 pub mod surface;
 
-pub use surface::{Snapshot, SnapshotRef, TabInfo, WaitCondition};
+pub use surface::{Snapshot, SnapshotRef, TabInfo, TargetInfo, WaitCondition};
 
 #[cfg(all(test, feature = "daemon"))]
 mod backend_tests;

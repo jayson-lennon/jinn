@@ -131,6 +131,13 @@ impl Target {
         self.session_id.as_ref()
     }
 
+    /// chaser-oxide fork (OOPIF): refresh the TargetInfo without touching
+    /// session or init state (used when `Target.targetCreated` arrives for
+    /// a target the attach-event bootstrap already created).
+    pub fn set_info(&mut self, info: TargetInfo) {
+        self.info = info;
+    }
+
     pub fn browser_context(&self) -> &BrowserContext {
         &self.browser_context
     }
@@ -320,12 +327,29 @@ impl Target {
 
     /// Advance that target's state
     pub(crate) fn poll(&mut self, cx: &mut Context<'_>, now: Instant) -> Option<TargetEvent> {
-        if !self.is_page() {
-            // can only poll pages
+        // chaser-oxide fork (OOPIF): iframe (OOPIF) targets are renderer
+        // processes with their own frames and sessions — they need the
+        // same init pipeline as pages or their Page never initializes and
+        // every command on it hangs. Poll them like pages.
+        if !self.is_page() && *self.r#type() != TargetType::Iframe {
+            // can only poll pages and iframe (OOPIF) targets
             return None;
         }
         match &mut self.init_state {
             TargetInit::AttachToTarget => {
+                // chaser-oxide fork (OOPIF): a target created from its
+                // own `Target.attachedToTarget` event (auto-attach,
+                // flatten) already HAS a session — issuing AttachToTarget
+                // again would mint a second session and orphan the one
+                // every future command uses. Skip straight to frame init.
+                if self.session_id.is_some() {
+                    self.init_state = TargetInit::InitializingFrame(FrameManager::init_commands(
+                        self.config.request_timeout,
+                    ));
+                    // fall through to InitializingFrame handling below on
+                    // the next poll; nothing to send this round.
+                    return None;
+                }
                 self.init_state = TargetInit::InitializingFrame(FrameManager::init_commands(
                     self.config.request_timeout,
                 ));
@@ -625,6 +649,8 @@ pub enum TargetType {
     Other,
     Browser,
     Webview,
+    /// chaser-oxide fork (OOPIF): out-of-process iframe target.
+    Iframe,
     Unknown(String),
 }
 
@@ -638,6 +664,9 @@ impl TargetType {
             "other" => TargetType::Other,
             "browser" => TargetType::Browser,
             "webview" => TargetType::Webview,
+            // chaser-oxide fork (OOPIF): out-of-process iframe targets.
+            // Distinct variant so the poll gate can include them.
+            "iframe" => TargetType::Iframe,
             s => TargetType::Unknown(s.to_string()),
         }
     }

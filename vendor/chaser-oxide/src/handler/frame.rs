@@ -353,6 +353,20 @@ impl FrameManager {
     }
 
     pub fn on_frame_tree(&mut self, frame_tree: FrameTree) {
+        // chaser-oxide fork (OOPIF): the tree ROOT of an out-of-process
+        // iframe target carries the embedding page's frame as parentId, so
+        // the attached/navigated pair below (written for page targets)
+        // skips it and `main_frame` stays unset forever — every
+        // evaluate on the iframe then fails with "No main frame
+        // available". Bootstrap: the root becomes the main frame of THIS
+        // manager regardless of its parent projection.
+        if self.main_frame.is_none() && !self.frames.contains_key(&frame_tree.frame.id) {
+            let mut root = Frame::new(frame_tree.frame.id.clone());
+            root.navigated(&frame_tree.frame);
+            self.main_frame = Some(root.id.clone());
+            self.frames.insert(root.id.clone(), root);
+            return;
+        }
         self.on_frame_attached(
             frame_tree.frame.id.clone(),
             frame_tree.frame.parent_id.clone(),
