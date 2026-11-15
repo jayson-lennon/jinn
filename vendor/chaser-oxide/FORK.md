@@ -98,3 +98,35 @@ leaks accepted at fork time: mouse presses carry no `force` (fine unless
 a target scores pressure); the inherited chromiumoxide layer is
 hang-prone, which is why jinn wraps it behind its own liveness/recycle
 supervision rather than trusting it.
+
+## Fork patch 7 — CalculateNativeWinOcclusion disabled (input pacing on native Wayland)
+
+**Symptom this fixes:** `Input.dispatchMouseEvent` acks take exactly ~5.0s when the
+automation window is not the active window (and ack in ~0.04s when it is). A single
+humanized click (9-26 bezier points, each a full CDP round-trip) then takes 45-130s,
+blowing the daemon's 10s per-command budget on every mouse command — while `evaluate`
+stays instant (it does not wait on the compositor frame pipeline).
+
+**Root cause:** on native Wayland (`--ozone-platform` unset → native backend), Chromium's
+`CalculateNativeWinOcclusion` feature marks the window occluded/backgrounded from the
+compositor's state and applies the browser's background frame throttle: one frame
+wakeup per 5 seconds (`kBackgroundFrameInterval`). Input event dispatch acks are gated
+on that frame pipeline. Upstream's default args include
+`--disable-backgrounding-occluded-windows` and `--disable-renderer-backgrounding`, but
+those flags cover the *renderer* throttles, not the native-window occlusion *tracker*
+that decides the browser process itself is backgrounded on Wayland.
+
+**Patch:** `DEFAULT_ARGS` now passes
+`--disable-features=TranslateUI,CalculateNativeWinOcclusion`.
+`--disable-backgrounding-occluded-windows` (already present) keeps renderer-side
+behavior; the feature disable stops the Wayland occlusion tracker from ever marking
+the automation window occluded, so input acks ride the normal frame pipeline.
+
+**Stealth assessment:** occlusion reporting is a window-manager-side signal, not
+page-observable; a real user on a multi-window desktop commonly has backgrounded
+windows, and this flag family is already part of the standard automation/UserAgent
+field-tooling arg vocabulary (`disable-backgrounding-occluded-windows` ships in
+upstream defaults). Risk accepted.
+
+**Pinned by:** `fork_invariants::launch_args_exclude_automation_tells` asserts the
+`disable-features` arg contains `CalculateNativeWinOcclusion`.

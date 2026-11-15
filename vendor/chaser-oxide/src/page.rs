@@ -676,6 +676,14 @@ impl Page {
         Ok(self)
     }
 
+    /// Press+release without the internal pre-press hover move.
+    ///
+    /// chaser-oxide-jinn fork: see `PageInner::click_no_move`.
+    pub async fn click_no_move(&self, point: Point) -> Result<&Self> {
+        self.inner.click_no_move(point).await?;
+        Ok(self)
+    }
+
     /// Performs a mouse click event at the point's location using the provided
     /// [`ClickOptions`].
     ///
@@ -722,6 +730,13 @@ impl Page {
     pub async fn move_mouse(&self, point: Point) -> Result<&Self> {
         self.inner.move_mouse(point).await?;
         Ok(self)
+    }
+
+    /// Queue a hover `mouseMoved` without awaiting its ack.
+    ///
+    /// chaser-oxide-jinn fork: see `PageInner::move_mouse_nowait`.
+    pub fn move_mouse_nowait(&self, point: Point) -> Result<()> {
+        self.inner.move_mouse_nowait(point)
     }
 
     /// Take a screenshot of the current page

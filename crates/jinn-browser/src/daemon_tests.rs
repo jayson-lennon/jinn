@@ -391,6 +391,10 @@ impl BrowserBackend for StubBackend {
                 text: Some("link".to_owned()),
                 html_id: None,
                 value: None,
+                frame: None,
+                clickable: true,
+                x: Some(10.0),
+                y: Some(20.0),
             }],
             tree: "e1: a \"link\"".to_owned(),
         })
@@ -401,6 +405,14 @@ impl BrowserBackend for StubBackend {
             return Err(BackendError::UnknownTab(tab.to_owned()));
         }
         let _ = reference;
+        Ok(())
+    }
+
+    async fn click_at(&self, tab: &str, x: f64, y: f64) -> Result<(), BackendError> {
+        if tab != "t1" {
+            return Err(BackendError::UnknownTab(tab.to_owned()));
+        }
+        let _ = (x, y);
         Ok(())
     }
 

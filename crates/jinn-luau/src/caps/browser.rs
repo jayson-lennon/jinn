@@ -79,6 +79,13 @@ pub fn inject(lua: &Lua, jinn: &Table, _caps: &Rc<Caps>) -> mlua::Result<()> {
         client.click(&tab, &reference).map_err(|e| to_lua(&e))?;
         from_json(lua, &Json::Null)
     });
+    browser_fn!("click_at", caps, |lua, client, arg| {
+        let tab: String = required_field(arg, "tab")?;
+        let x: f64 = required_number(arg, "x")?;
+        let y: f64 = required_number(arg, "y")?;
+        client.click_at(&tab, x, y).map_err(|e| to_lua(&e))?;
+        from_json(lua, &Json::Null)
+    });
     browser_fn!("type", caps, |lua, client, arg| {
         let tab: String = required_field(arg, "tab")?;
         let reference: String = required_field(arg, "ref")?;
@@ -139,6 +146,12 @@ where
 /// boundary.
 fn required_field(arg: &Table, field: &'static str) -> mlua::Result<String> {
     arg.get::<Option<String>>(field)?
+        .ok_or_else(|| mlua::Error::runtime(format!("missing required field `{field}`")))
+}
+
+/// A required numeric field (`click_at`'s coordinates).
+fn required_number(arg: &Table, field: &'static str) -> mlua::Result<f64> {
+    arg.get::<Option<f64>>(field)?
         .ok_or_else(|| mlua::Error::runtime(format!("missing required field `{field}`")))
 }
 

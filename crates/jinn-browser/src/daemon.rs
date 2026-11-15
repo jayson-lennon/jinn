@@ -429,6 +429,7 @@ pub async fn serve(
         port = entry.port(),
         "browser daemon serving"
     );
+    tracing::debug!("daemon: debug-level telemetry probe (filter check)");
 
     // The registry path outlives the borrow of `paths`; clone it for the
     // cleanup task.

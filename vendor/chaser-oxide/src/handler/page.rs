@@ -74,6 +74,37 @@ pub(crate) struct PageInner {
 }
 
 impl PageInner {
+    /// Queue a hover `mouseMoved` without awaiting its ack.
+    ///
+    /// chaser-oxide-jinn fork (hover-ack pipelining): windowed Chromium
+    /// acks hover moves only when the deferred hover pipeline flushes
+    /// (observed: exactly 5.0s per move on a KWin/Wayland desktop,
+    /// Chromium 156, independent of focus, ozone backend, or occlusion
+    /// flags; pipelined moves ack in ~40ms with only the batch flush at
+    /// 5s). Humanized arcs send all but the final point through this
+    /// fire-and-forget path and await only the final point's ack via
+    /// `execute`. The message is driven synchronously into the page's
+    /// command queue here; its response is dropped on the floor.
+    pub(crate) fn move_mouse_nowait(&self, point: Point) -> Result<()> {
+        let mut params =
+            DispatchMouseEventParams::new(DispatchMouseEventType::MouseMoved, point.x, point.y);
+        params.pointer_type = Some(DispatchMouseEventPointerType::Mouse);
+        let mut fut = self.command_future(params)?;
+        // Poll the future until the message is queued (the sender capacity
+        // is 1, so at most one extra turn); the response is never awaited.
+        use std::future::Future;
+        let waker = std::task::Waker::noop();
+        let mut cx = std::task::Context::from_waker(waker);
+        let mut fut = std::pin::pin!(fut);
+        for _ in 0..8 {
+            match fut.as_mut().poll(&mut cx) {
+                std::task::Poll::Pending => continue,
+                _ => break,
+            }
+        }
+        Ok(())
+    }
+
     /// Execute a PDL command and return its response
     pub(crate) async fn execute<T: Command>(&self, cmd: T) -> Result<CommandResponse<T::Response>> {
         execute(cmd, self.sender.clone(), Some(self.session_id.clone())).await
@@ -186,7 +217,9 @@ impl PageInner {
         let mut params =
             DispatchMouseEventParams::new(DispatchMouseEventType::MouseMoved, point.x, point.y);
         params.pointer_type = Some(DispatchMouseEventPointerType::Mouse);
+        tracing::debug!(?params, "page: dispatch MouseMoved sent");
         self.execute(params).await?;
+        tracing::debug!(x = point.x, y = point.y, "page: dispatch MouseMoved acked");
         Ok(self)
     }
 
@@ -194,6 +227,17 @@ impl PageInner {
     pub async fn click(&self, point: Point) -> Result<&Self> {
         let default_opts = chromiumoxide_types::ClickOptions::default();
         self.click_with(point, default_opts).await
+    }
+
+    /// Press+release without the internal pre-press hover move.
+    ///
+    /// chaser-oxide-jinn fork (hover-ack pipelining): the caller has
+    /// already queued the arc through `move_mouse_nowait`; a further
+    /// awaited hover move here would stall on the deferred hover flush
+    /// (5s). Press and release ack immediately and flush the queue.
+    pub async fn click_no_move(&self, point: Point) -> Result<&Self> {
+        let default_opts = chromiumoxide_types::ClickOptions::default();
+        self.click_events_only(point, default_opts).await
     }
 
     /// Performs a mouse click event at the point's location with custom options
@@ -209,15 +253,30 @@ impl PageInner {
             .click_count(options.click_count)
             .pointer_type(DispatchMouseEventPointerType::Mouse);
 
-        self.move_mouse(point)
-            .await?
-            .execute(
-                cmd.clone()
-                    .r#type(DispatchMouseEventType::MousePressed)
-                    .build()
-                    .unwrap(),
-            )
-            .await?;
+        self.click_events_only(point, options).await
+    }
+
+    /// The press+release pair without any leading hover move.
+    async fn click_events_only(
+        &self,
+        point: Point,
+        options: chromiumoxide_types::ClickOptions,
+    ) -> Result<&Self> {
+        let cmd = DispatchMouseEventParams::builder()
+            .x(point.x)
+            .y(point.y)
+            .button(MouseButton::Left)
+            .click_count(options.click_count)
+            .pointer_type(DispatchMouseEventPointerType::Mouse);
+
+        self.execute(
+            cmd.clone()
+                .r#type(DispatchMouseEventType::MousePressed)
+                .build()
+                .unwrap(),
+        )
+        .await?;
+        tracing::debug!(x = point.x, y = point.y, "page: press acked");
 
         self.execute(
             cmd.r#type(DispatchMouseEventType::MouseReleased)
@@ -225,6 +284,7 @@ impl PageInner {
                 .unwrap(),
         )
         .await?;
+        tracing::debug!(x = point.x, y = point.y, "page: release acked");
         Ok(self)
     }
 

@@ -494,7 +494,17 @@ static DEFAULT_ARGS: [ArgConst; 17] = [
     ArgConst::key("disable-client-side-phishing-detection"),
     ArgConst::key("disable-default-apps"),
     ArgConst::key("disable-dev-shm-usage"),
-    ArgConst::values("disable-features", &["TranslateUI"]),
+    // chaser-oxide-jinn fork (native-wayland input pacing): the
+    // CalculateNativeWinOcclusion feature tracks occlusion for native
+    // windows on Wayland; a window the compositor reports occluded is
+    // frame-throttled to one wakeup per 5s, which gates every
+    // Input.dispatchMouseEvent ack. Disabling the feature keeps
+    // dispatches frame-unthrottled when the automation window is not
+    // the active window.
+    ArgConst::values(
+        "disable-features",
+        &["TranslateUI", "CalculateNativeWinOcclusion"],
+    ),
     ArgConst::key("disable-hang-monitor"),
     ArgConst::key("disable-popup-blocking"),
     ArgConst::key("disable-prompt-on-repost"),

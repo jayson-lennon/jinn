@@ -129,9 +129,15 @@ singleton = true       # one daemon client per machine; the Chrome window itself
 auto_enable = false
 ```
 
-Eleven tools for driving a real headed Chrome: `open_tab` (returns a tab
+Twelve tools for driving a real headed Chrome: `open_tab` (returns a tab
 id), `list_tabs`, `navigate`, `snapshot` (readable page tree with `e<n>`
-refs over the interactive elements), `click` (by `tab` + `ref`),
+refs over the interactive elements — including same-origin iframe
+content as `f<k>:e<n>` refs and shadow-DOM content as ordinary refs;
+every `iframe` appears as a non-clickable `<iframe>` row with its id/src
+and rect center), `click` (by `tab` + `ref`), `click_at` (by `tab` +
+viewport CSS-px `x`/`y` — for elements with no ref, e.g. inside
+cross-origin iframes: read the frame row's rect or measure a screenshot,
+then click there; coordinates are clamped to the viewport),
 `type`, `press` (key names like `"Enter"`, `"Tab"`), `evaluate` (stealth
 JS eval: statements with `return x`, or a bare expression — script
 exceptions surface as readable tool errors, never silent nulls),
@@ -139,7 +145,8 @@ exceptions surface as readable tool errors, never silent nulls),
 image-attachment built-in), `wait` (`"navigation"`, `"network_idle"`,
 `{text = "…"}`, or `{ms = n}`), and `close_tab`. **Every tool except
 `open_tab`/`list_tabs` requires the `tab` id** — there is no "whatever
-tab is live" fallback.
+tab is live" fallback. A stale `f<k>:e<n>` ref (frame navigated away or
+went cross-origin) errors with a re-snapshot hint.
 
 The Chrome window is owned by a separate **browser daemon** (`jinn
 browser daemon`), not by jinn or this server: the first tool call

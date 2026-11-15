@@ -255,6 +255,31 @@ impl DaemonClient {
         .map(|_| ())
     }
 
+    /// Clicks at viewport CSS-pixel coordinates (the daemon clamps).
+    ///
+    /// # Errors
+    /// Tool errors carry the daemon's message.
+    pub fn click_at(
+        &self,
+        tab: &str,
+        x: f64,
+        y: f64,
+    ) -> Result<(), error_stack::Report<ClientError>> {
+        #[derive(Serialize)]
+        struct Body {
+            x: f64,
+            y: f64,
+        }
+        let entry = self.ensure_daemon()?;
+        self.call::<serde_json::Value>(
+            &entry,
+            reqwest::Method::POST,
+            &format!("/tabs/{tab}/click_at"),
+            Some(&Body { x, y }),
+        )
+        .map(|_| ())
+    }
+
     /// Types into a ref.
     ///
     /// # Errors

@@ -86,4 +86,14 @@ fn launch_args_exclude_automation_tells() {
             .any(|a| a.contains("disable-blink-features=AutomationControlled")),
         "expected the AutomationControlled hiding flag; got {args:?}"
     );
+
+    // And the native-wayland occlusion tracker stays off: an occlusion
+    // verdict frame-throttles Input.dispatchMouseEvent acks to one per
+    // 5s, which is the input-wedge signature.
+    assert!(
+        args.iter().any(|a| {
+            a.contains("disable-features") && a.contains("CalculateNativeWinOcclusion")
+        }),
+        "expected CalculateNativeWinOcclusion disabled; got {args:?}"
+    );
 }

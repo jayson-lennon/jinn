@@ -32,27 +32,51 @@ enum PageMode {
     Died,
     /// Sleeps past any command timeout.
     Sleeps,
+    /// Evaluates answer quickly (snapshot/viewport reads work) but the
+    /// mouse dispatch hangs — a wedged Chromium input path.
+    ClickSleeps,
     /// Records the script and returns `"ok"`.
     Records,
     /// Returns `None` for every script (a swallowed script exception —
     /// the pre-E1-fix shape).
     ReturnsNull,
+    /// Answers snapshot-shaped scripts with the fixture's scripted
+    /// payload string; other scripts return `"ok"`.
+    Scripted,
 }
-
 struct FakePage {
     mode: Arc<Mutex<PageMode>>,
     seen_scripts: Arc<Mutex<Vec<String>>>,
+    clicked_at: Arc<Mutex<Vec<(f64, f64)>>>,
+    viewport: Arc<Mutex<Option<(f64, f64)>>>,
+    scripted_payload: Arc<Mutex<Option<String>>>,
 }
 
 impl FakePage {
-    fn new(mode: Arc<Mutex<PageMode>>, seen_scripts: Arc<Mutex<Vec<String>>>) -> Self {
-        Self { mode, seen_scripts }
+    fn new(
+        mode: Arc<Mutex<PageMode>>,
+        seen_scripts: Arc<Mutex<Vec<String>>>,
+        clicked_at: Arc<Mutex<Vec<(f64, f64)>>>,
+        viewport: Arc<Mutex<Option<(f64, f64)>>>,
+    ) -> Self {
+        Self {
+            mode,
+            seen_scripts,
+            clicked_at,
+            viewport,
+            scripted_payload: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn with_payload(mut self, payload: Arc<Mutex<Option<String>>>) -> Self {
+        self.scripted_payload = payload;
+        self
     }
 }
 
 #[async_trait::async_trait]
 impl PageHandle for FakePage {
-    async fn goto(&self, _url: &str) -> Result<(), BackendError> {
+    async fn goto(&self, _url: String) -> Result<(), BackendError> {
         Ok(())
     }
 
@@ -66,7 +90,7 @@ impl PageHandle for FakePage {
 
     async fn evaluate_stealth(
         &self,
-        script: &str,
+        _script: String,
     ) -> Result<Option<serde_json::Value>, BackendError> {
         match *self.mode.lock().await {
             PageMode::Died => Err(BackendError::DeadBrowser("transport closed".to_owned())),
@@ -78,16 +102,85 @@ impl PageHandle for FakePage {
                     tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
                 }
             }
+            PageMode::ClickSleeps => {
+                if _script.contains("collectAll") {
+                    let payload = self.scripted_payload.lock().await.clone();
+                    return Ok(payload.map(serde_json::Value::String));
+                }
+                if _script.contains("innerWidth") {
+                    let vp = *self.viewport.lock().await;
+                    return Ok(vp.map(|(w, h)| serde_json::json!({"w": w, "h": h})));
+                }
+                if _script.contains("scrollIntoView") {
+                    // The click path's scroll/center probe: answer with a
+                    // point so the flow reaches the (hanging) dispatch.
+                    return Ok(Some(serde_json::Value::String(
+                        r#"{"x":12,"y":12}"#.to_owned(),
+                    )));
+                }
+                Ok(Some(serde_json::Value::String("ok".to_owned())))
+            }
             PageMode::Records => {
-                self.seen_scripts.lock().await.push(script.to_owned());
+                self.seen_scripts.lock().await.push(_script.clone());
                 Ok(Some(serde_json::Value::String("ok".to_owned())))
             }
             PageMode::ReturnsNull => Ok(None),
-            PageMode::Ok => Ok(Some(serde_json::Value::String("ok".to_owned()))),
+            PageMode::Scripted => {
+                let script: String = _script;
+                if script.contains("collectAll") {
+                    let payload = self.scripted_payload.lock().await.clone();
+                    return Ok(payload.map(serde_json::Value::String));
+                }
+                if script.contains("frame missing") {
+                    // The frame click path's scroll/center probe: answer
+                    // with the JSON.stringify'd viewport-absolute center
+                    // (iframe offset + in-frame rect already summed by
+                    // the script) — the double-encoded wire shape the
+                    // real isolated-world eval returns.
+                    return Ok(Some(serde_json::Value::String(
+                        r#"{"x":248.0,"y":322.0}"#.to_owned(),
+                    )));
+                }
+                Ok(Some(serde_json::Value::String("ok".to_owned())))
+            }
+            PageMode::Ok => {
+                // The click_at clamp reads the viewport with a bare
+                // object expression; answer it from the fake viewport.
+                if _script.contains("innerWidth") {
+                    let vp = *self.viewport.lock().await;
+                    return Ok(vp.map(|(w, h)| serde_json::json!({"w": w, "h": h})));
+                }
+                if _script.contains("scrollIntoView") {
+                    // A frame probe (contentDocument present) answers a
+                    // marker — the stale-ref shape; a top-frame probe
+                    // answers a point so the flow reaches the dispatch.
+                    if _script.contains("contentDocument") {
+                        return Ok(Some(serde_json::Value::String("missing".to_owned())));
+                    }
+                    return Ok(Some(serde_json::Value::String(
+                        r#"{"x":12,"y":12}"#.to_owned(),
+                    )));
+                }
+                Ok(Some(serde_json::Value::String("ok".to_owned())))
+            }
         }
     }
 
-    async fn click_human(&self, _x: f64, _y: f64) -> Result<(), BackendError> {
+    async fn click_human(&self, x: f64, y: f64) -> Result<(), BackendError> {
+        // Entry record = the press dispatched. In a sleep mode the
+        // dispatch then hangs past the command timeout before the exit
+        // record (= the release) lands — mirroring a wedged input path
+        // whose press/release pair is in flight when the awaiting
+        // command gives up.
+        let hung = matches!(
+            *self.mode.lock().await,
+            PageMode::Sleeps | PageMode::ClickSleeps
+        );
+        self.clicked_at.lock().await.push((x, y));
+        if hung {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            self.clicked_at.lock().await.push((x, y));
+        }
         Ok(())
     }
 
@@ -113,13 +206,16 @@ struct FakeEngine {
     try_wait_io_error: Arc<Mutex<bool>>,
     page_mode: Arc<Mutex<PageMode>>,
     seen_scripts: Arc<Mutex<Vec<String>>>,
+    clicked_at: Arc<Mutex<Vec<(f64, f64)>>>,
+    viewport: Arc<Mutex<Option<(f64, f64)>>>,
+    scripted_payload: Arc<Mutex<Option<String>>>,
 }
 
 #[async_trait::async_trait]
 impl EngineHandle for FakeEngine {
     async fn new_page(
         &self,
-        _url: &str,
+        _url: String,
     ) -> Result<
         (
             chaser_oxide::cdp::browser_protocol::target::TargetId,
@@ -133,7 +229,13 @@ impl EngineHandle for FakeEngine {
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let target =
             chaser_oxide::cdp::browser_protocol::target::TargetId::new(format!("fake-target-{n}"));
-        let page = FakePage::new(self.page_mode.clone(), self.seen_scripts.clone());
+        let page = FakePage::new(
+            self.page_mode.clone(),
+            self.seen_scripts.clone(),
+            self.clicked_at.clone(),
+            self.viewport.clone(),
+        )
+        .with_payload(self.scripted_payload.clone());
         Ok((target, Arc::new(page)))
     }
 
@@ -141,7 +243,13 @@ impl EngineHandle for FakeEngine {
         &self,
         _target: &chaser_oxide::cdp::browser_protocol::target::TargetId,
     ) -> Result<Arc<dyn PageHandle>, BackendError> {
-        let page = FakePage::new(self.page_mode.clone(), self.seen_scripts.clone());
+        let page = FakePage::new(
+            self.page_mode.clone(),
+            self.seen_scripts.clone(),
+            self.clicked_at.clone(),
+            self.viewport.clone(),
+        )
+        .with_payload(self.scripted_payload.clone());
         Ok(Arc::new(page))
     }
 
@@ -163,6 +271,9 @@ struct Fixture {
     try_wait_io_error: Arc<Mutex<bool>>,
     page_mode: Arc<Mutex<PageMode>>,
     seen_scripts: Arc<Mutex<Vec<String>>>,
+    clicked_at: Arc<Mutex<Vec<(f64, f64)>>>,
+    viewport: Arc<Mutex<Option<(f64, f64)>>>,
+    scripted_payload: Arc<Mutex<Option<String>>>,
     launches: Arc<std::sync::atomic::AtomicU32>,
 }
 
@@ -177,6 +288,9 @@ impl Fixture {
             try_wait_io_error: Arc::new(Mutex::new(false)),
             page_mode: Arc::new(Mutex::new(mode)),
             seen_scripts: Arc::new(Mutex::new(Vec::new())),
+            clicked_at: Arc::new(Mutex::new(Vec::new())),
+            viewport: Arc::new(Mutex::new(None)),
+            scripted_payload: Arc::new(Mutex::new(None)),
             launches: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         }
     }
@@ -221,6 +335,9 @@ impl EngineLauncher for FixtureLauncher {
                 try_wait_io_error: self.inner.try_wait_io_error.clone(),
                 page_mode: self.inner.page_mode.clone(),
                 seen_scripts: self.inner.seen_scripts.clone(),
+                clicked_at: self.inner.clicked_at.clone(),
+                viewport: self.inner.viewport.clone(),
+                scripted_payload: self.inner.scripted_payload.clone(),
             }),
             death: death_rx,
         })
@@ -558,4 +675,317 @@ impl EngineLauncher for FailingLauncher {
     ) -> Result<LiveEngine, BackendError> {
         Err(BackendError::Engine("no such binary".to_owned()))
     }
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn click_at_clamps_coordinates_to_the_live_viewport() {
+    // Given a healthy backend whose fake page reports a 800x600 viewport.
+    let fixture = Fixture::healthy();
+    let backend = fixture.backend();
+    let tab = backend
+        .open_tab(Some("https://fake.test/"))
+        .await
+        .expect("open");
+    *fixture.viewport.lock().await = Some((800.0, 600.0));
+
+    // When clicking far outside the viewport.
+    backend
+        .click_at(&tab.tab, 5000.0, -40.0)
+        .await
+        .expect("click_at");
+
+    // Then the dispatched click was clamped inside the viewport.
+    let clicks = fixture.clicked_at.lock().await;
+    assert_eq!(clicks.as_slice(), &[(799.0, 0.0)]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn click_at_passes_through_when_the_viewport_read_fails() {
+    // Given a healthy backend whose fake page answers no viewport read.
+    let fixture = Fixture::healthy();
+    let backend = fixture.backend();
+    let tab = backend
+        .open_tab(Some("https://fake.test/"))
+        .await
+        .expect("open");
+
+    // When clicking at an arbitrary coordinate.
+    backend
+        .click_at(&tab.tab, 123.5, 88.25)
+        .await
+        .expect("click_at");
+
+    // Then the coordinate rode the trusted click path unchanged.
+    let clicks = fixture.clicked_at.lock().await;
+    assert_eq!(clicks.as_slice(), &[(123.5, 88.25)]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn snapshot_parses_frame_refs_and_placeholder_rows() {
+    // Given a fake page whose snapshot answer is a scripted payload:
+    // a top-frame element, a cross-origin iframe placeholder, and one
+    // element inside a same-origin frame (labelled f1 by the script).
+    let scripted = Fixture::with_mode(PageMode::Scripted);
+    *scripted.scripted_payload.lock().await = Some(
+        r#"[{"tag":"a","id":null,"text":"Top link","value":null,"frame":null,"eid":"e1","x":10,"y":10,"visible":true,"clickable":true},
+{"tag":"iframe","id":"sp_banner","text":"https://cdn.example/banner","value":null,"frame":null,"eid":null,"x":200,"y":300,"visible":true,"clickable":false},
+{"tag":"button","id":null,"text":"Close","value":null,"frame":"f1","eid":"e1","x":250,"y":320,"visible":true,"clickable":true}]"#.to_owned(),
+    );
+    let backend = scripted.backend();
+    let tab = backend
+        .open_tab(Some("https://fake.test/"))
+        .await
+        .expect("open");
+
+    // When snapshotting.
+    let snap = backend.snapshot(&tab.tab).await.expect("snapshot");
+
+    // Then the top element keeps an e-ref, the iframe is a
+    // non-clickable placeholder, and the frame element is f-prefixed.
+    let ids: Vec<&str> = snap.refs.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids, vec!["e1", "", "f1:e1"]);
+    let placeholder = snap.refs.get(1).expect("iframe row");
+    assert!(!placeholder.clickable);
+    assert_eq!(placeholder.tag, "iframe");
+    let framed = snap.refs.get(2).expect("frame element row");
+    assert!(framed.id.starts_with("f1:"));
+    assert!(snap.tree.contains("<iframe>"));
+    assert!(snap.tree.contains("f1:e1"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_frame_ref_click_resolves_through_the_frame_and_clicks_the_summed_point() {
+    // Given a backend whose snapshot reported an element inside a
+    // same-origin iframe (ref f1:e1) and whose frame probe answers the
+    // viewport-absolute center.
+    let scripted = Fixture::with_mode(PageMode::Scripted);
+    *scripted.scripted_payload.lock().await = Some(
+        r#"[{"tag":"button","id":null,"text":"Close","value":null,"frame":"f1","eid":"e1","x":250,"y":320,"visible":true,"clickable":true}]"#.to_owned(),
+    );
+    let backend = scripted.backend();
+    let tab = backend
+        .open_tab(Some("https://fake.test/"))
+        .await
+        .expect("open");
+    backend.snapshot(&tab.tab).await.expect("snapshot");
+
+    // When clicking the frame ref.
+    backend.click(&tab.tab, "f1:e1").await.expect("frame click");
+
+    // Then the trusted click landed at the summed viewport point.
+    let clicks = scripted.clicked_at.lock().await;
+    assert_eq!(clicks.as_slice(), &[(248.0, 322.0)]);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_frame_ref_click_reports_stale_when_the_frame_answer_is_not_a_point() {
+    // Given a backend whose frame probe answers the 'cross-origin'
+    // marker (the frame went cross-origin after the snapshot).
+    let scripted = Fixture::with_mode(PageMode::Scripted);
+    *scripted.scripted_payload.lock().await = Some(
+        r#"[{"tag":"button","id":null,"text":"Close","value":null,"frame":"f1","eid":"e1","x":250,"y":320,"visible":true,"clickable":true}]"#.to_owned(),
+    );
+    let backend = scripted.backend();
+    let tab = backend
+        .open_tab(Some("https://fake.test/"))
+        .await
+        .expect("open");
+    backend.snapshot(&tab.tab).await.expect("snapshot");
+    // Flip the probe's answer: the fixture's Ok-mode viewport handling
+    // is bypassed by returning a plain string that is not a point.
+    // The Scripted mode's frame-probe arm answers a point; emulate the
+    // stale case by pointing the payload at a marker the probe arm
+    // does not match — here, by switching the mode to plain Ok, whose
+    // answer ("ok") is not a point and not 'missing'.
+    *scripted.page_mode.lock().await = PageMode::Ok;
+
+    // When clicking the frame ref.
+    let result = backend.click(&tab.tab, "f1:e1").await;
+
+    // Then the click reports a stale ref naming the re-snapshot path.
+    let Err(BackendError::StaleRef(message)) = result else {
+        panic!("expected a stale ref, got {result:?}");
+    };
+    assert!(message.contains("re-snapshot"), "got: {message}");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn shadow_dom_rows_are_regular_refs_in_their_frame() {
+    // Given a snapshot whose script surfaced a button inside a shadow
+    // root (same frame as the host — the script walks roots in-frame).
+    let scripted = Fixture::with_mode(PageMode::Scripted);
+    *scripted.scripted_payload.lock().await = Some(
+        r#"[{"tag":"a","id":null,"text":"Host link","value":null,"frame":null,"eid":"e1","x":5,"y":5,"visible":true,"clickable":true},
+{"tag":"button","id":null,"text":"Shadow button","value":null,"frame":null,"eid":"e2","x":8,"y":8,"visible":true,"clickable":true}]"#.to_owned(),
+    );
+    let backend = scripted.backend();
+    let tab = backend
+        .open_tab(Some("https://fake.test/"))
+        .await
+        .expect("open");
+
+    // When snapshotting.
+    let snap = backend.snapshot(&tab.tab).await.expect("snapshot");
+
+    // Then both rows are ordinary clickable top-frame refs — shadow
+    // content needs no special ref notation, only the script walk.
+    let ids: Vec<&str> = snap.refs.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids, vec!["e1", "e2"]);
+    assert!(snap.refs.iter().all(|r| r.clickable));
+    assert!(snap.tree.contains("Shadow button"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn placeholder_rows_carry_the_rect_center_for_click_at() {
+    // Given a snapshot with a cross-origin iframe placeholder (the
+    // recorded Guardian banner shape).
+    let scripted = Fixture::with_mode(PageMode::Scripted);
+    *scripted.scripted_payload.lock().await = Some(
+        r#"[{"tag":"iframe","id":"sp_message_iframe_8","text":"https://cdn-sp.example/messaging","value":null,"frame":null,"eid":null,"x":1912,"y":1908,"visible":true,"clickable":false}]"#.to_owned(),
+    );
+    let backend = scripted.backend();
+    let tab = backend
+        .open_tab(Some("https://fake.test/"))
+        .await
+        .expect("open");
+
+    // When snapshotting.
+    let snap = backend.snapshot(&tab.tab).await.expect("snapshot");
+
+    // Then the placeholder carries the viewport-absolute center the
+    // agent feeds click_at, and no ref id (it is not clickable).
+    let row = snap.refs.first().expect("placeholder row");
+    assert_eq!(row.id, "");
+    assert!(!row.clickable);
+    assert_eq!(row.x, Some(1912.0));
+    assert_eq!(row.y, Some(1908.0));
+    assert!(row.html_id.as_deref() == Some("sp_message_iframe_8"));
+    // And the tree names the frame for the agent's frame discovery.
+    assert!(snap.tree.contains("sp_message_iframe_8"));
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_timed_out_click_still_releases_the_press() {
+    // Given a backend whose snapshot works but whose mouse dispatch
+    // hangs past a short command timeout — a wedged Chromium input path.
+    let fixture = Fixture::with_mode(PageMode::ClickSleeps);
+    fixture.scripted_payload.lock().await.replace(
+        r#"[{"eid":"e1","tag":"button","text":"b","x":12,"y":12,"visible":true}]"#.to_owned(),
+    );
+    let backend = fixture
+        .backend()
+        .with_command_timeout(std::time::Duration::from_millis(150));
+    let tab = backend
+        .open_tab(Some("https://fake.test/"))
+        .await
+        .expect("open");
+    backend.snapshot(&tab.tab).await.expect("snapshot");
+
+    // When a click times out.
+    let result = backend.click(&tab.tab, "e1").await;
+    assert!(matches!(result, Err(BackendError::Timeout)));
+
+    // Then the dispatch task was NOT dropped mid-sequence: the spawned
+    // click completes in the background and the fake records the click
+    // despite the awaiting command having timed out. (The real dispatch
+    // always runs press+release to completion; dropping the future used
+    // to strand the press.)
+    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    let clicks = fixture.clicked_at.lock().await;
+    assert_eq!(
+        clicks.len(),
+        2,
+        "the dispatch must run to completion (press AND release records) even though the command timed out"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn two_consecutive_input_timeouts_recycle_the_engine() {
+    // Given a backend whose mouse dispatch hangs past the command
+    // timeout while everything else is healthy.
+    let fixture = Fixture::with_mode(PageMode::ClickSleeps);
+    fixture.scripted_payload.lock().await.replace(
+        r#"[{"eid":"e1","tag":"button","text":"b","x":12,"y":12,"visible":true}]"#.to_owned(),
+    );
+    let backend = fixture
+        .backend()
+        .with_command_timeout(std::time::Duration::from_millis(150));
+    let tab = backend
+        .open_tab(Some("https://fake.test/"))
+        .await
+        .expect("open");
+    backend.snapshot(&tab.tab).await.expect("snapshot");
+
+    // When two consecutive input commands time out.
+    assert!(matches!(
+        backend.click(&tab.tab, "e1").await,
+        Err(BackendError::Timeout)
+    ));
+    assert!(
+        backend.is_live().await,
+        "first timeout alone is not a verdict"
+    );
+    assert!(
+        matches!(
+            backend.click(&tab.tab, "e1").await,
+            Err(BackendError::Timeout)
+        ),
+        "second click reports timeout"
+    );
+
+    // Then the watchdog marks the engine dead for recycle.
+    assert!(
+        !backend.is_live().await,
+        "reaching the wedge limit is a death verdict"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn an_input_success_resets_the_watchdog_streak() {
+    // Given a backend whose first click hangs but whose later clicks
+    // are healthy.
+    let fixture = Fixture::with_mode(PageMode::ClickSleeps);
+    fixture.scripted_payload.lock().await.replace(
+        r#"[{"eid":"e1","tag":"button","text":"b","x":12,"y":12,"visible":true}]"#.to_owned(),
+    );
+    let backend = fixture
+        .backend()
+        .with_command_timeout(std::time::Duration::from_millis(150));
+    let tab = backend
+        .open_tab(Some("https://fake.test/"))
+        .await
+        .expect("open");
+    backend.snapshot(&tab.tab).await.expect("snapshot");
+
+    // When one input command times out, the mode flips healthy, and a
+    // click succeeds.
+    assert!(matches!(
+        backend.click(&tab.tab, "e1").await,
+        Err(BackendError::Timeout)
+    ));
+    *fixture.page_mode.lock().await = PageMode::Ok;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    backend.click(&tab.tab, "e1").await.expect("healthy click");
+
+    // Then a subsequent timeout does NOT recycle on the first strike —
+    // only consecutive timeouts reach the wedge limit.
+    *fixture.page_mode.lock().await = PageMode::ClickSleeps;
+    assert!(matches!(
+        backend.click(&tab.tab, "e1").await,
+        Err(BackendError::Timeout)
+    ));
+    assert!(
+        backend.is_live().await,
+        "a reset streak must not recycle on one timeout"
+    );
 }

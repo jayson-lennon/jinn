@@ -1,4 +1,4 @@
-//! The `jinn.browser` family's observable surface: all eleven names are
+//! The `jinn.browser` family's observable surface: all twelve names are
 //! injected, the tab-taking functions require their `tab` field, the
 //! wait condition parses its four shapes, and daemon failures surface
 //! as Lua errors carrying the daemon's message.
@@ -27,6 +27,9 @@ use marked_path::MarkedPathAccess as _;
 /// Caps with a plain blocking client (the family builds its own client,
 /// so only the deadline/cwd context matters here).
 fn browser_caps() -> Rc<Caps> {
+    // The blocking reqwest client needs a TLS provider installed before
+    // construction (recorded elsewhere as install_crypto_provider).
+    crate::install_crypto_provider();
     let dir = jinn_testutil::tempdir();
     let client = reqwest::blocking::Client::new();
     Rc::new(Caps::with_http(Vec::new(), dir.path.clone(), None, client))
@@ -139,7 +142,7 @@ fn run_script(lua: &Lua, script: &str) -> mlua::Result<mlua::Value> {
 
 #[rstest::rstest]
 #[test]
-fn inject_all_exposes_the_eleven_family_names() {
+fn inject_all_exposes_the_twelve_family_names() {
     // Given an injected VM.
     let lua = Lua::new();
     let caps = browser_caps();
@@ -149,13 +152,14 @@ fn inject_all_exposes_the_eleven_family_names() {
     // When reading the browser family table.
     let family = jinn.get::<mlua::Table>("browser").expect("family");
 
-    // Then all eleven function names exist.
+    // Then all twelve function names exist.
     for name in [
         "open_tab",
         "list_tabs",
         "navigate",
         "snapshot",
         "click",
+        "click_at",
         "type",
         "press",
         "evaluate",

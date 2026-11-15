@@ -24,15 +24,16 @@ use std::sync::Arc;
 use jinn_browser::WaitCondition;
 use jinn_browser::client::{ClientError, DaemonClient};
 
-/// The eleven tool names, in declaration order — the schema-audit test
-/// walks this list, so a new tool added without updating the audit (or
-/// vice versa) fails the suite.
-pub const TOOL_NAMES: [&str; 11] = [
+/// The tool names, in declaration order — the schema-audit test walks
+/// this list, so a new tool added without updating the audit (or vice
+/// versa) fails the suite.
+pub const TOOL_NAMES: [&str; 12] = [
     "open_tab",
     "list_tabs",
     "navigate",
     "snapshot",
     "click",
+    "click_at",
     "type",
     "press",
     "evaluate",
@@ -43,10 +44,11 @@ pub const TOOL_NAMES: [&str; 11] = [
 
 /// Tools that name a tab explicitly. Everything else in [`TOOL_NAMES`]
 /// (exactly `open_tab` and `list_tabs`) must not require one.
-pub(crate) const TAB_TOOLS: [&str; 9] = [
+pub(crate) const TAB_TOOLS: [&str; 10] = [
     "navigate",
     "snapshot",
     "click",
+    "click_at",
     "type",
     "press",
     "evaluate",
@@ -195,6 +197,31 @@ impl BrowserMcpServer {
                     }
                 },
                 "required": ["ref"]
+            })))),
+        )
+    }
+
+    pub(crate) fn click_at_tool() -> Tool {
+        Tool::new(
+            "click_at",
+            "Click at viewport CSS-pixel coordinates (trusted, human-paced \
+             input). Coordinates are clamped to the viewport. Use for \
+             elements with no snapshot ref — e.g. inside cross-origin \
+             iframes: measure the point from a screenshot or the iframe \
+             placeholder's rect in the snapshot, then click there.",
+            Arc::new(to_schema(with_tab(json!({
+                "type": "object",
+                "properties": {
+                    "x": {
+                        "type": "number",
+                        "description": "Viewport CSS-pixel x."
+                    },
+                    "y": {
+                        "type": "number",
+                        "description": "Viewport CSS-pixel y."
+                    }
+                },
+                "required": ["x", "y"]
             })))),
         )
     }
@@ -355,6 +382,15 @@ impl BrowserMcpServer {
         })
     }
 
+    fn required_number(
+        args: &serde_json::Map<String, Value>,
+        field: &str,
+    ) -> Result<f64, ErrorData> {
+        args.get(field).and_then(Value::as_f64).ok_or_else(|| {
+            ErrorData::invalid_params(format!("missing number field `{field}`"), None)
+        })
+    }
+
     fn optional_string<'a>(
         args: &'a serde_json::Map<String, Value>,
         field: &str,
@@ -500,6 +536,18 @@ impl BrowserMcpServer {
             .await)
     }
 
+    pub(crate) async fn run_click_at(
+        &self,
+        args: &serde_json::Map<String, Value>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        let tab = Self::required_string(args, "tab")?.to_owned();
+        let x = Self::required_number(args, "x")?;
+        let y = Self::required_number(args, "y")?;
+        Ok(self
+            .daemon_call("click_at", move |client| client.click_at(&tab, x, y))
+            .await)
+    }
+
     pub(crate) async fn run_type(
         &self,
         args: &serde_json::Map<String, Value>,
@@ -592,6 +640,7 @@ impl ServerHandler for BrowserMcpServer {
             Self::navigate_tool(),
             Self::snapshot_tool(),
             Self::click_tool(),
+            Self::click_at_tool(),
             Self::type_tool(),
             Self::press_tool(),
             Self::evaluate_tool(),
@@ -614,6 +663,7 @@ impl ServerHandler for BrowserMcpServer {
             "navigate" => self.run_navigate(Self::args(&request)?).await,
             "snapshot" => self.run_snapshot(Self::args(&request)?).await,
             "click" => self.run_click(Self::args(&request)?).await,
+            "click_at" => self.run_click_at(Self::args(&request)?).await,
             "type" => self.run_type(Self::args(&request)?).await,
             "press" => self.run_press(Self::args(&request)?).await,
             "evaluate" => self.run_evaluate(Self::args(&request)?).await,
@@ -643,6 +693,7 @@ impl BrowserMcpServer {
             "navigate" => Self::navigate_tool(),
             "snapshot" => Self::snapshot_tool(),
             "click" => Self::click_tool(),
+            "click_at" => Self::click_at_tool(),
             "type" => Self::type_tool(),
             "press" => Self::press_tool(),
             "evaluate" => Self::evaluate_tool(),
@@ -666,8 +717,8 @@ impl BrowserMcpServer {
 /// declared tool list — a compile-time canary for the test below.
 const _: () = {
     assert!(
-        TOOL_NAMES.len() == 11,
-        "the browser surface is eleven tools"
+        TOOL_NAMES.len() == 12,
+        "the browser surface is twelve tools"
     );
-    assert!(TAB_TOOLS.len() == 9, "nine of the eleven tools name a tab");
+    assert!(TAB_TOOLS.len() == 10, "ten of the twelve tools name a tab");
 };

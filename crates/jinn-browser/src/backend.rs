@@ -56,7 +56,7 @@ pub trait PageHandle: Send + Sync {
     /// # Errors
     ///
     /// Engine failures map onto [`BackendError`].
-    async fn goto(&self, url: &str) -> Result<(), BackendError>;
+    async fn goto(&self, url: String) -> Result<(), BackendError>;
 
     /// The page's current URL.
     ///
@@ -81,7 +81,7 @@ pub trait PageHandle: Send + Sync {
     /// Engine failures map onto [`BackendError`].
     async fn evaluate_stealth(
         &self,
-        script: &str,
+        script: String,
     ) -> Result<Option<serde_json::Value>, BackendError>;
 
     /// Moves the mouse along a human curve and clicks.
@@ -132,7 +132,7 @@ pub trait EngineHandle: Send + Sync {
     /// # Errors
     ///
     /// Engine failures map onto [`BackendError`].
-    async fn new_page(&self, url: &str) -> Result<(TargetId, Arc<dyn PageHandle>), BackendError>;
+    async fn new_page(&self, url: String) -> Result<(TargetId, Arc<dyn PageHandle>), BackendError>;
 
     /// Resolves (or re-attaches) the page handle for a target id.
     ///
@@ -207,6 +207,15 @@ pub trait BrowserBackend: Send + Sync {
     ///
     /// Backend errors name the failure for tool-level rendering.
     async fn click(&self, tab: &str, reference: &str) -> Result<(), BackendError>;
+
+    /// Human-clicks at viewport CSS-pixel coordinates. Coordinates are
+    /// clamped to the page viewport before dispatch; the click rides the
+    /// same trusted-input path as ref clicks.
+    ///
+    /// # Errors
+    ///
+    /// Backend errors name the failure for tool-level rendering.
+    async fn click_at(&self, tab: &str, x: f64, y: f64) -> Result<(), BackendError>;
 
     /// Human-types text into the element a ref names (click to focus,
     /// then per-key typing).
@@ -323,7 +332,20 @@ struct BackendState {
     next_tab: u64,
     /// The ref tables, per tab id, latest snapshot wins.
     refs: HashMap<String, Vec<RefEntry>>,
+    /// Consecutive input-class command timeouts. Chromium's Input domain
+    /// can wedge (stop acking dispatches) with no death signal anywhere —
+    /// evaluate keeps working, only mouse commands hang — so consecutive
+    /// input timeouts are the only observable wedge signature, and the
+    /// watchdog treats reaching [`INPUT_TIMEOUT_WEDGE_LIMIT`] as a death
+    /// verdict: recycle instead of hanging forever.
+    input_timeouts: u32,
 }
+
+/// Consecutive input-class command timeouts that count as a wedged Input
+/// domain. Two, not one: a single slow dispatch (a 5s renderer stall under
+/// a 10s budget) recovers on its own; a second means the input path is
+/// stuck, not slow.
+const INPUT_TIMEOUT_WEDGE_LIMIT: u32 = 2;
 
 struct Engine {
     handle: Box<dyn EngineHandle>,
@@ -342,11 +364,26 @@ struct MintedTab {
     target: TargetId,
 }
 
-/// One cached interactive element: the center coordinates the click path
-/// needs. Display metadata lives in the snapshot response, not here.
+/// One cached interactive element: what the click path needs. Display
+/// metadata lives in the snapshot response, not here.
 struct RefEntry {
     id: String,
+    /// Viewport-absolute center.
     center: (f64, f64),
+    /// The owning same-origin iframe: `Some("f1")` for frame refs, and
+    /// the viewport-absolute rect of the iframe element in the parent —
+    /// the click path re-resolves the in-frame node and adds the rect.
+    frame: Option<FrameAnchor>,
+}
+
+/// The parent-side anchor of a same-origin iframe: the iframe element's
+/// index into the main-frame frame-element list (document order — the
+/// same order the snapshot walked), which the click path re-resolves
+/// live (rect and same-origin access happen at click time).
+#[derive(Clone, Copy)]
+struct FrameAnchor {
+    /// Index into `document.querySelectorAll("iframe,frame")` order.
+    iframe_index: usize,
 }
 
 /// How long a single backend command may run.
@@ -369,6 +406,7 @@ impl<L: EngineLauncher> ChaserBackend<L> {
                 tabs: Vec::new(),
                 next_tab: 1,
                 refs: HashMap::new(),
+                input_timeouts: 0,
             }),
             command_timeout: COMMAND_TIMEOUT,
         }
@@ -492,17 +530,29 @@ impl<L: EngineLauncher> ChaserBackend<L> {
     /// engine, not just the command. A timeout does not.
     async fn run<T, F>(&self, command: F) -> Result<T, BackendError>
     where
-        F: std::future::Future<Output = Result<T, BackendError>> + Send,
+        F: std::future::Future<Output = Result<T, BackendError>> + Send + 'static,
+        T: Send + 'static,
     {
-        let result = tokio::time::timeout(self.command_timeout, command).await;
+        // The future is spawned, never dropped: a timeout abandons the
+        // *await*, not the dispatch. Dropping a mouse click mid-sequence
+        // strands Chromium with a pressed button and wedges all further
+        // input (the diagnosed wedge in the input-wedge investigation),
+        // so input commands in particular must always run to completion.
+        let handle = tokio::spawn(command);
+        let result = match tokio::time::timeout(self.command_timeout, handle).await {
+            Ok(joined) => joined
+                .unwrap_or_else(|e| Err(BackendError::Engine(format!("command task failed: {e}")))),
+            Err(_) => Err(BackendError::Timeout),
+        };
         match result {
-            Ok(Err(BackendError::DeadBrowser(reason))) => {
+            Ok(value) => Ok(value),
+            Err(BackendError::DeadBrowser(reason)) => {
                 let mut state = self.inner.lock().await;
                 tracing::warn!(%reason, "command reported dead transport; marking dead");
                 Self::clear_dead(&mut state);
                 Err(BackendError::DeadBrowser(reason))
             }
-            other => other.unwrap_or(Err(BackendError::Timeout)),
+            Err(e) => Err(e),
         }
     }
 
@@ -599,7 +649,9 @@ impl<L: EngineLauncher> ChaserBackend<L> {
     }
 }
 
-/// The script-side shape a snapshot's evaluate returns.
+/// The script-side shape a snapshot's evaluate returns. Frame nodes
+/// carry the frame label and their in-frame eid; iframe placeholder
+/// rows carry `clickable:false` and the iframe element's list index.
 #[derive(Debug, Deserialize)]
 struct ScriptedRef {
     tag: String,
@@ -607,9 +659,30 @@ struct ScriptedRef {
     html_id: Option<String>,
     text: Option<String>,
     value: Option<String>,
+    /// The ref id within its frame (`e12`); the backend prefixes frame
+    /// rows as `f<k>:e12`.
+    #[serde(default)]
+    eid: Option<String>,
+    /// The frame label the script assigned (`f1`), or `null` on top.
+    #[serde(default)]
+    frame: Option<String>,
+    /// The iframe element's index into the frame list (placeholder rows).
+    #[serde(default)]
+    iframe_index: Option<usize>,
+    /// Viewport-absolute center x.
     x: f64,
+    /// Viewport-absolute center y.
     y: f64,
     visible: bool,
+    /// `false` only for iframe placeholder rows.
+    #[serde(default = "default_clickable")]
+    clickable: bool,
+}
+
+/// Serde default for the script's clickable flag (element rows are
+/// clickable by default; only placeholders set it false).
+fn default_clickable() -> bool {
+    true
 }
 
 /// The element selector the snapshot and the click path share. The
@@ -728,11 +801,13 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
                 .engine
                 .as_ref()
                 .ok_or_else(|| BackendError::DeadBrowser("no live browser".to_owned()))?;
-            engine.handle.new_page("about:blank").await?
+            engine.handle.new_page("about:blank".to_owned()).await?
         };
         let public = self.register_tab(target, page.clone()).await;
         if let Some(url) = url {
-            self.run(page.goto(url)).await?;
+            let page = page.clone();
+            let url = url.to_owned();
+            self.run(async move { page.goto(url).await }).await?;
         }
         let info_url = page.url().await.ok().flatten();
         let info_title = page.title().await.ok().flatten();
@@ -758,10 +833,12 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
     async fn navigate(&self, tab: &str, url: &str) -> Result<TabInfo, BackendError> {
         let page = self.page_for(tab).await?;
         let url = url.to_owned();
-        self.run(async {
-            page.goto(&url).await?;
+        let tab_label = tab.to_owned();
+        let page = page.clone();
+        self.run(async move {
+            page.goto(url.clone()).await?;
             Ok(TabInfo {
-                tab: tab.to_owned(),
+                tab: tab_label,
                 url: Some(url),
                 title: None,
             })
@@ -771,28 +848,165 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
 
     async fn snapshot(&self, tab: &str) -> Result<Snapshot, BackendError> {
         let page = self.page_for(tab).await?;
-        // One script does everything: refs from the live DOM with geometry,
-        // via the fork's isolated-world path (no Runtime.enable). The
-        // result arrives double-encoded (the script JSON.stringify's its
-        // payload), so decode the string, then the refs.
+        // One script does everything: refs from the live DOM with
+        // geometry, same-origin iframe recursion (depth-capped), shadow
+        // DOM piercing, and iframe placeholder rows for frame discovery
+        // — all via the fork's isolated-world path (no Runtime.enable).
+        // The result arrives double-encoded (the script JSON.stringify's
+        // its payload), so decode the string, then the rows.
         let script = format!(
             r#"(() => {{
-                const nodes = Array.from(document.querySelectorAll('{INTERACTIVE_SELECTOR}'));
-                return JSON.stringify(nodes.slice(0, 400).map((el) => {{
-                    const r = el.getBoundingClientRect();
-                    return {{
-                        tag: el.tagName.toLowerCase(),
-                        id: el.id || null,
-                        text: (el.innerText || el.value || el.placeholder || el.getAttribute('aria-label') || '').trim().slice(0, 120) || null,
-                        value: (el.value !== undefined && el.tagName === 'INPUT') ? String(el.value).slice(0, 120) : null,
-                        x: Math.round(r.x + r.width / 2),
-                        y: Math.round(r.y + r.height / 2),
-                        visible: r.width > 0 && r.height > 0,
-                    }};
-                }}));
+                const SEL = '{INTERACTIVE_SELECTOR}';
+                const MAX_DEPTH = 3;
+                const out = [];
+
+                function collect(doc, ox, oy, frame, iframeIndex) {{
+                    // Interactive elements of this document, in document
+                    // order, then its shadow roots. The row cap only
+                    // bounds element rows; frame discovery happens in
+                    // collectAll regardless of this cap.
+                    let nodes = [];
+                    try {{ nodes = Array.from(doc.querySelectorAll(SEL)); }} catch (e) {{ nodes = []; }}
+                    for (const el of nodes) {{
+                        if (out.length >= 400) return;
+                        const r = el.getBoundingClientRect();
+                        out.push({{
+                            tag: el.tagName.toLowerCase(),
+                            id: el.id || null,
+                            text: (el.innerText || el.value || el.placeholder || el.getAttribute('aria-label') || '').trim().slice(0, 120) || null,
+                            value: (el.value !== undefined && el.tagName === 'INPUT') ? String(el.value).slice(0, 120) : null,
+                            frame: frame,
+                            eid: null,
+                            iframe_index: iframeIndex,
+                            x: Math.round(ox + r.x + r.width / 2),
+                            y: Math.round(oy + r.y + r.height / 2),
+                            visible: r.width > 0 && r.height > 0,
+                            clickable: true,
+                        }});
+                    }}
+
+                    // Shadow DOM: a shadow root is a DocumentFragment
+                    // whose querySelectorAll covers slotted content;
+                    // fragment rects are already viewport-relative, so
+                    // the frame's ox/oy passes straight through.
+                    let hosts = [];
+                    try {{ hosts = Array.from(doc.querySelectorAll('*')); }} catch (e) {{ hosts = []; }}
+                    for (const host of hosts) {{
+                        if (host.shadowRoot) {{
+                            collect(host.shadowRoot, ox, oy, frame, iframeIndex);
+                            if (out.length >= 400) return;
+                        }}
+                    }}
+                }}
+
+                // Each same-origin child frame gets a label (`c1`, `c2`,
+                // … by discovery order), carried on its rows so ref ids
+                // group per frame; the child's click anchor is the index
+                // of its iframe element in the TOP document's frame list
+                // (nested frames resolve through the top list too —
+                // `contentDocument` chains from the top document).
+                const childAnchor = {{}};
+
+                function collectAll(doc, ox, oy, frame, iframeIndex, depth) {{
+                    // Frame discovery first — placeholders and same-origin
+                    // recursion happen even when this document's element
+                    // rows hit the cap — then this document's elements.
+                    if (depth >= MAX_DEPTH) return;
+                    let frames = [];
+                    try {{ frames = Array.from(doc.querySelectorAll('iframe, frame')); }} catch (e) {{ frames = []; }}
+                    if (out.length < 400) {{
+                        for (const fr of frames) {{
+                            const frRect = fr.getBoundingClientRect();
+                            // Placeholder row: every frame is visible to
+                            // the snapshot even when cross-origin (content
+                            // then unreachable — click_at at the rect is
+                            // the path).
+                            out.push({{
+                                tag: 'iframe',
+                                id: fr.id || null,
+                                text: (fr.getAttribute('src') || '(srcdoc)').slice(0, 120),
+                                value: null,
+                                frame: frame,
+                                eid: null,
+                                iframe_index: iframeIndex,
+                                x: Math.round(ox + frRect.x + frRect.width / 2),
+                                y: Math.round(oy + frRect.y + frRect.height / 2),
+                                visible: frRect.width > 0 && frRect.height > 0,
+                                clickable: false,
+                            }});
+                        }}
+                    }}
+                    collect(doc, ox, oy, frame, iframeIndex);
+                    // No cap check here: the recursion below must run
+                    // even when this document saturated the element cap
+                    // (collect re-checks the cap per push, so the worst
+                    // case is bounded work, not unbounded rows).
+                    for (const fr of frames) {{
+                        // Same-origin recursion: cross-origin access throws.
+                        const frRect = fr.getBoundingClientRect();
+                        let child = null;
+                        try {{ child = fr.contentDocument; }} catch (e) {{ child = null; }}
+                        if (child && depth + 1 < MAX_DEPTH) {{
+                            // The click anchor of a top-level child frame
+                            // is its index in this document's frame list;
+                            // nested frames keep their top-level ancestor's
+                            // anchor (the chain walks contentDocument from
+                            // the top).
+                            const anchor = (iframeIndex === null) ? frames.indexOf(fr) : iframeIndex;
+                            const label = 'c' + (Object.keys(childAnchor).length + 1);
+                            childAnchor[label] = anchor;
+                            const childFrame = (iframeIndex === null) ? label : frame;
+                            collectAll(child, ox + frRect.x, oy + frRect.y, childFrame, anchor, depth + 1);
+                        }}
+                    }}
+                }}
+
+                collectAll(document, 0, 0, null, null, 0);
+
+                // Assign ref ids per frame: top-frame rows become e1..;
+                // rows inside a same-origin child frame become f<k>:e1..
+                // (k by first mention) and carry the frame's click anchor
+                // — the iframe element's index in the TOP document's
+                // frame list, which the click path re-resolves.
+                const counters = {{}};
+                const frameNumbers = {{}};
+                let topCount = 0;
+                for (const row of out) {{
+                    if (!row.clickable) {{
+                        row.eid = null;
+                        continue;
+                    }}
+                    if (row.frame === null || row.frame === undefined) {{
+                        topCount += 1;
+                        row.eid = 'e' + topCount;
+                        row.iframe_index = null;
+                        continue;
+                    }}
+                    // Assign each distinct frame label a number by first
+                    // element-row mention order.
+                    if (!(row.frame in frameNumbers)) {{
+                        frameNumbers[row.frame] = Object.keys(frameNumbers).length + 1;
+                    }}
+                    const k = frameNumbers[row.frame];
+                    counters[row.frame] = (counters[row.frame] || 0) + 1;
+                    // Read the counter BEFORE rewriting row.frame, and
+                    // look the anchor up by the original label too —
+                    // both keyed by 'c<n>', not the 'f<n>' this loop
+                    // is about to write.
+                    const n = counters[row.frame];
+                    const anchor = childAnchor[row.frame];
+                    row.frame = 'f' + k;
+                    row.eid = 'e' + n;
+                    row.iframe_index = anchor ?? row.iframe_index;
+                }}
+                return JSON.stringify(out);
             }})()"#,
         );
-        let raw = self.run(page.evaluate_stealth(&script)).await?;
+        let raw = {
+            let page = page.clone();
+            self.run(async move { page.evaluate_stealth(script).await })
+                .await?
+        };
         let entries: Vec<ScriptedRef> = match raw {
             Some(serde_json::Value::String(encoded)) => serde_json::from_str(&encoded)
                 .map_err(|e| BackendError::Engine(format!("snapshot decode failed: {e}")))?,
@@ -812,7 +1026,9 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
         let url = page.url().await.ok().flatten();
         let title = page.title().await.ok().flatten();
 
-        // Mint refs, cache geometry, render the tree.
+        // Mint refs, cache geometry, render the tree. Frame rows carry
+        // their `f<k>:e<n>` label; iframe placeholders render as
+        // non-clickable frame rows with the src.
         let mut refs = Vec::with_capacity(entries.len());
         let mut ref_entries = Vec::with_capacity(entries.len());
         let mut tree = String::new();
@@ -822,11 +1038,44 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
         tree.push_str("# ");
         tree.push_str(url.as_deref().unwrap_or(""));
         tree.push_str("\n\n");
-        for (i, entry) in entries.iter().enumerate() {
-            let id = format!("e{}", i + 1);
+        for entry in &entries {
             let text = entry.text.clone().filter(|t| !t.is_empty());
+            let eid = match (&entry.frame, entry.clickable) {
+                // Top-frame element: the script assigned `e<n>`.
+                (None, true) => entry.eid.clone().unwrap_or_default(),
+                // Frame element: `f<k>:<eid>`.
+                (Some(frame), true) => format!("{frame}:{}", entry.eid.clone().unwrap_or_default()),
+                // Iframe placeholder: no ref, an informational row.
+                (_, false) => {
+                    let src = text.clone().unwrap_or_else(|| "(srcdoc)".to_owned());
+                    tree.push_str("- <iframe>");
+                    if let Some(id) = entry.html_id.as_ref() {
+                        tree.push_str(" #");
+                        tree.push_str(id);
+                    }
+                    tree.push(' ');
+                    tree.push_str(&src);
+                    if entry.visible {
+                        tree.push('\n');
+                    } else {
+                        tree.push_str(" [hidden]\n");
+                    }
+                    refs.push(SnapshotRef {
+                        id: String::new(),
+                        tag: entry.tag.clone(),
+                        text: entry.text.clone(),
+                        html_id: entry.html_id.clone(),
+                        value: None,
+                        frame: entry.frame.clone(),
+                        clickable: false,
+                        x: Some(entry.x),
+                        y: Some(entry.y),
+                    });
+                    continue;
+                }
+            };
             tree.push_str("- [");
-            tree.push_str(&id);
+            tree.push_str(&eid);
             tree.push_str("] <");
             tree.push_str(&entry.tag);
             let anchor = entry
@@ -836,21 +1085,27 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
             tree.push_str(&anchor);
             tree.push_str("> ");
             tree.push_str(text.as_deref().unwrap_or(""));
-            if entry.visible {
-                tree.push('\n');
-            } else {
-                tree.push_str(" [hidden]\n");
+            if !entry.visible {
+                tree.push_str(" [hidden]");
             }
+            tree.push('\n');
             ref_entries.push(RefEntry {
-                id: id.clone(),
+                id: eid.clone(),
                 center: (entry.x, entry.y),
+                frame: entry.frame.as_ref().map(|_| FrameAnchor {
+                    iframe_index: entry.iframe_index.unwrap_or_default(),
+                }),
             });
             refs.push(SnapshotRef {
-                id,
+                id: eid,
                 tag: entry.tag.clone(),
                 text: entry.text.clone(),
                 html_id: entry.html_id.clone(),
                 value: entry.value.clone(),
+                frame: entry.frame.clone(),
+                clickable: true,
+                x: Some(entry.x),
+                y: Some(entry.y),
             });
         }
         {
@@ -868,15 +1123,23 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
 
     async fn click(&self, tab: &str, reference: &str) -> Result<(), BackendError> {
         let page = self.page_for(tab).await?;
-        let center = {
+        let (center, frame) = {
             let state = self.inner.lock().await;
             let entry = state
                 .refs
                 .get(tab)
                 .and_then(|refs| refs.iter().find(|r| r.id == reference))
                 .ok_or_else(|| BackendError::StaleRef(reference.to_owned()))?;
-            entry.center
+            (entry.center, entry.frame)
         };
+
+        if let Some(anchor) = frame {
+            tracing::debug!(tab, reference, "click: frame path");
+            let result = ChaserBackend::click_in_frame(self, &page, &anchor, reference).await;
+            self.observe_input_result(&result).await;
+            return result;
+        }
+
         // Scroll the element into view first and re-read its center: the
         // cached geometry is from snapshot time and may have shifted.
         // The index positions into the same selector order the snapshot
@@ -897,9 +1160,16 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
                 return JSON.stringify({{x: Math.round(r.x + r.width/2), y: Math.round(r.y + r.height/2)}});
             }})()"#,
         );
-        let fresh = self.run(page.evaluate_stealth(&scroll_script)).await?;
+        tracing::debug!(tab, reference, "click: dispatching scroll/center probe");
+        let fresh = {
+            let page = page.clone();
+            self.run(async move { page.evaluate_stealth(scroll_script).await })
+                .await?
+        };
+        tracing::debug!(tab, reference, ?fresh, "click: probe returned");
         let center = match fresh {
             Some(serde_json::Value::String(encoded)) => {
+                tracing::debug!(tab, reference, "click: probe answer decoded as point");
                 let parsed: serde_json::Value = serde_json::from_str(&encoded)
                     .map_err(|e| BackendError::Engine(format!("scroll decode failed: {e}")))?;
                 let x = parsed
@@ -915,7 +1185,54 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
             // 'missing' (or a null): the DOM shifted under the ref.
             _ => return Err(BackendError::StaleRef(reference.to_owned())),
         };
-        self.run(page.click_human(center.0, center.1)).await
+        tracing::debug!(tab, reference, ?center, "click: dispatching click_human");
+        let result = {
+            let page = page.clone();
+            self.run(async move { page.click_human(center.0, center.1).await })
+                .await
+        };
+        self.observe_input_result(&result).await;
+        result
+    }
+
+    async fn click_at(&self, tab: &str, x: f64, y: f64) -> Result<(), BackendError> {
+        let page = self.page_for(tab).await?;
+        // Clamp to the live viewport so a stale measured coordinate
+        // cannot click outside the window. The read failing must never
+        // fail the click: pass the coordinate through unclamped then.
+        let clamped = match {
+            let page = page.clone();
+            self.run(async move {
+                page.evaluate_stealth("({w: window.innerWidth, h: window.innerHeight})".to_owned())
+                    .await
+            })
+            .await?
+        } {
+            Some(v) => {
+                let w = v.get("w").and_then(serde_json::Value::as_f64);
+                let h = v.get("h").and_then(serde_json::Value::as_f64);
+                match (w, h) {
+                    (Some(w), Some(h)) if w > 0.0 && h > 0.0 => (
+                        x.clamp(0.0, (w - 1.0).max(0.0)),
+                        y.clamp(0.0, (h - 1.0).max(0.0)),
+                    ),
+                    _ => (x, y),
+                }
+            }
+            None => (x, y),
+        };
+        tracing::debug!(
+            x = clamped.0,
+            y = clamped.1,
+            "click_at: dispatching click_human"
+        );
+        let result = {
+            let page = page.clone();
+            self.run(async move { page.click_human(clamped.0, clamped.1).await })
+                .await
+        };
+        self.observe_input_result(&result).await;
+        result
     }
 
     async fn type_text(&self, tab: &str, reference: &str, text: &str) -> Result<(), BackendError> {
@@ -952,13 +1269,13 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
         } else {
             script.to_owned()
         };
-        self.run(async move { page.evaluate_stealth(&wrapped).await })
+        self.run(async move { page.evaluate_stealth(wrapped).await })
             .await
     }
 
     async fn screenshot(&self, tab: &str) -> Result<Vec<u8>, BackendError> {
         let page = self.page_for(tab).await?;
-        self.run(page.screenshot()).await
+        self.run(async move { page.screenshot().await }).await
     }
 
     async fn wait(&self, tab: &str, condition: &WaitCondition) -> Result<(), BackendError> {
@@ -970,7 +1287,9 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
                 // watcher reads Network events the fork no longer enables.
                 self.run(async move {
                     loop {
-                        let ready = page.evaluate_stealth("document.readyState").await?;
+                        let ready = page
+                            .evaluate_stealth("document.readyState".to_owned())
+                            .await?;
                         if ready == Some(serde_json::Value::String("complete".to_owned())) {
                             return Ok(());
                         }
@@ -988,7 +1307,7 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
                 );
                 self.run(async move {
                     loop {
-                        let found = page.evaluate_stealth(&script).await?;
+                        let found = page.evaluate_stealth(script.clone()).await?;
                         if found == Some(serde_json::Value::Bool(true)) {
                             return Ok(());
                         }
@@ -1011,13 +1330,120 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
 
     async fn close_tab(&self, tab: &str) -> Result<(), BackendError> {
         let page = self.page_for(tab).await?;
-        self.run(page.close()).await?;
+        self.run(async move { page.close().await }).await?;
         self.forget_tab(tab).await;
         Ok(())
     }
 
     async fn is_live(&self) -> bool {
         ChaserBackend::has_live_engine(self).await
+    }
+}
+
+impl<L: EngineLauncher> ChaserBackend<L> {
+    /// Watchdog bookkeeping for input-class commands: a timeout is the only
+    /// observable signature of a wedged Input domain, so consecutive
+    /// timeouts past [`INPUT_TIMEOUT_WEDGE_LIMIT`] count as a death verdict
+    /// and clear the engine (the next command lazily relaunches). Any
+    /// successful input command resets the streak.
+    async fn observe_input_result(&self, result: &Result<(), BackendError>) {
+        let wedged = matches!(result, Err(BackendError::Timeout));
+        let mut state = self.inner.lock().await;
+        if wedged {
+            state.input_timeouts += 1;
+            tracing::warn!(
+                streak = state.input_timeouts,
+                limit = INPUT_TIMEOUT_WEDGE_LIMIT,
+                "input command timed out"
+            );
+            if state.input_timeouts >= INPUT_TIMEOUT_WEDGE_LIMIT {
+                tracing::warn!(
+                    "input watchdog: consecutive timeouts reached; marking browser dead for recycle"
+                );
+                Self::clear_dead(&mut state);
+            }
+        } else if result.is_ok() {
+            state.input_timeouts = 0;
+        }
+    }
+
+    /// Clicks a frame ref (`f<k>:e<n>`): re-resolve the iframe element
+    /// in the parent document (its viewport rect is the offset), run
+    /// the scroll/center script inside the child document (same-origin
+    /// access), sum the two, trusted-click at the viewport point. A
+    /// frame that navigated away or went cross-origin surfaces as a
+    /// stale ref — re-snapshot is the recovery.
+    async fn click_in_frame(
+        &self,
+        page: &Arc<dyn PageHandle>,
+        anchor: &FrameAnchor,
+        reference: &str,
+    ) -> Result<(), BackendError> {
+        let (_eid, index) = reference
+            .split_once(':')
+            .map(|(_frame, eid)| (eid, eid.trim_start_matches('e').parse::<usize>().ok()))
+            .ok_or_else(|| BackendError::StaleRef(reference.to_owned()))?;
+        let in_frame_index = index
+            .and_then(|n| n.checked_sub(1))
+            .ok_or_else(|| BackendError::StaleRef(reference.to_owned()))?;
+        let iframe_index = anchor.iframe_index;
+        let script = format!(
+            r#"(() => {{
+                const frames = document.querySelectorAll('iframe, frame');
+                const fr = frames[{iframe_index}];
+                if (!fr) return 'frame missing';
+                let doc = null;
+                try {{ doc = fr.contentDocument; }} catch (e) {{ return 'cross-origin'; }}
+                if (!doc || !doc.documentElement) return 'cross-origin';
+                const frRect = fr.getBoundingClientRect();
+                const els = doc.querySelectorAll('{INTERACTIVE_SELECTOR}');
+                const el = els[{in_frame_index}];
+                if (!el) return 'missing';
+                el.scrollIntoView({{block: 'center'}});
+                const r = el.getBoundingClientRect();
+                return JSON.stringify({{x: Math.round(frRect.x + r.x + r.width/2), y: Math.round(frRect.y + r.y + r.height/2)}});
+            }})()"#,
+        );
+        let fresh = {
+            let page = page.clone();
+            self.run(async move { page.evaluate_stealth(script).await })
+                .await?
+        };
+        tracing::debug!(reference, ?fresh, "click_in_frame: probe returned");
+        // A probe answer is either the JSON point or a plain marker
+        // string ('cross-origin' / 'frame missing' / 'missing'); any
+        // non-point answer is the stale path, not an engine error.
+        let center = match fresh {
+            Some(serde_json::Value::String(encoded)) => {
+                serde_json::from_str::<serde_json::Value>(&encoded)
+                    .ok()
+                    .map(|parsed| {
+                        (
+                            parsed.get("x").and_then(serde_json::Value::as_f64),
+                            parsed.get("y").and_then(serde_json::Value::as_f64),
+                        )
+                    })
+                    .unwrap_or((None, None))
+            }
+            _ => (None, None),
+        };
+        let (x, y) = match center {
+            (Some(x), Some(y)) => (x, y),
+            _ => {
+                // 'frame missing' / 'cross-origin' / 'missing' — all are
+                // "the snapshot is stale" for the agent's purposes.
+                return Err(BackendError::StaleRef(format!(
+                    "{reference} (frame changed or went cross-origin; re-snapshot)"
+                )));
+            }
+        };
+        tracing::debug!(x, y, "click_in_frame: dispatching click_human");
+        let result = {
+            let page = page.clone();
+            self.run(async move { page.click_human(x, y).await }).await
+        };
+        self.observe_input_result(&result).await;
+        result
     }
 }
 
@@ -1049,7 +1475,7 @@ mod chaser {
     impl EngineHandle for ChaserEngineHandle {
         async fn new_page(
             &self,
-            url: &str,
+            url: String,
         ) -> Result<(TargetId, Arc<dyn PageHandle>), BackendError> {
             let browser = self.browser.lock().await;
             let page = browser
@@ -1103,9 +1529,9 @@ mod chaser {
 
     #[async_trait::async_trait]
     impl PageHandle for ChaserPageHandle {
-        async fn goto(&self, url: &str) -> Result<(), BackendError> {
+        async fn goto(&self, url: String) -> Result<(), BackendError> {
             self.page
-                .goto(url)
+                .goto(&url)
                 .await
                 .map(drop)
                 .map_err(map_engine_error)
@@ -1129,16 +1555,19 @@ mod chaser {
 
         async fn evaluate_stealth(
             &self,
-            script: &str,
+            script: String,
         ) -> Result<Option<serde_json::Value>, BackendError> {
             self.page
-                .evaluate_stealth(script)
+                .evaluate_stealth(&script)
                 .await
                 .map_err(map_engine_error)
         }
 
         async fn click_human(&self, x: f64, y: f64) -> Result<(), BackendError> {
-            self.page.click_human(x, y).await.map_err(map_engine_error)
+            tracing::debug!(x, y, "chaser click_human: start");
+            let r = self.page.click_human(x, y).await;
+            tracing::debug!(x, y, ok = r.is_ok(), "chaser click_human: done");
+            r.map_err(map_engine_error)
         }
 
         async fn type_text(&self, text: &str) -> Result<(), BackendError> {
@@ -1187,14 +1616,29 @@ impl EngineLauncher for ChaserLauncher {
         executable: &std::path::Path,
         user_data_dir: &std::path::Path,
     ) -> Result<LiveEngine, BackendError> {
-        let config = chaser_oxide::BrowserConfig::builder()
-            .user_data_dir(user_data_dir)
-            .chrome_executable(executable)
-            .viewport(None)
-            // Headed — never headless (S1–S7 signals, focus texture).
-            .with_head()
-            .build()
-            .map_err(|e| BackendError::Engine(format!("browser config rejected: {e}")))?;
+        // Native Wayland pacing: on a Wayland compositor Chromium prefers
+        // its native backend, whose window-occlusion tracker frame-throttles
+        // a non-active window to one wakeup per 5s — exactly 5s per
+        // Input.dispatchMouseEvent ack. Forcing the XWayland backend keeps
+        // input dispatches frame-unthrottled regardless of window focus
+        // (the X11 path has no native occlusion tracker to fight).
+        let ozone_platform = std::env::var("WAYLAND_DISPLAY")
+            .is_ok()
+            .then_some(("OZONE_PLATFORM", "x11".to_owned()));
+        let config = {
+            let mut builder = chaser_oxide::BrowserConfig::builder()
+                .user_data_dir(user_data_dir)
+                .chrome_executable(executable)
+                .viewport(None)
+                // Headed — never headless (S1–S7 signals, focus texture).
+                .with_head();
+            if let Some((key, value)) = ozone_platform {
+                builder = builder.env(key, value);
+            }
+            builder
+                .build()
+                .map_err(|e| BackendError::Engine(format!("browser config rejected: {e}")))?
+        };
 
         let (browser, handler) = chaser_oxide::Browser::launch(config)
             .await

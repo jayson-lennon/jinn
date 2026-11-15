@@ -130,8 +130,8 @@ fn every_tool_schema_requires_tab_except_open_list() {
     // Then every schema exists, the audit lists match the surface, and
     // the tab rule holds per tool.
     assert_eq!(schemas.len(), TOOL_NAMES.len());
-    assert_eq!(TOOL_NAMES.len(), 11);
-    assert_eq!(TAB_TOOLS.len(), 9);
+    assert_eq!(TOOL_NAMES.len(), 12);
+    assert_eq!(TAB_TOOLS.len(), 10);
 
     for name in TAB_TOOLS {
         let schema = schemas.get(name).expect("declared schema");
@@ -187,6 +187,7 @@ impl BrowserMcpServer {
             Self::navigate_tool(),
             Self::snapshot_tool(),
             Self::click_tool(),
+            Self::click_at_tool(),
             Self::type_tool(),
             Self::press_tool(),
             Self::evaluate_tool(),
@@ -230,14 +231,15 @@ impl BrowserMcpServer {
 
 #[rstest::rstest]
 #[test]
-fn list_tools_advertises_exactly_the_eleven_surface() {
+fn list_tools_advertises_exactly_the_twelve_surface() {
     // Given the browser MCP server.
+    install_crypto_provider();
     let server = BrowserMcpServer::new();
 
     // When listing tools through the dispatch the trait arm runs.
     let result = server.test_list_tools().expect("tools/list succeeds");
 
-    // Then exactly the eleven names are advertised, in order.
+    // Then exactly the twelve names are advertised, in order.
     let names: Vec<String> = result
         .tools
         .iter()

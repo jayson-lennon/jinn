@@ -8,9 +8,9 @@
 //! engine failure. Loopback only by construction: the daemon binds
 //! `127.0.0.1:0` and nothing else.
 //!
-//! Endpoints (mirroring the eleven-tool surface exactly):
+//! Endpoints (mirroring the tool surface exactly):
 //! `POST /tabs` (open), `GET /tabs` (list), `POST /tabs/{tab}/navigate`
-//! | `/snapshot` | `/click` | `/type` | `/press` | `/evaluate` |
+//! | `/snapshot` | `/click` | `/click_at` | `/type` | `/press` | `/evaluate` |
 //! `/screenshot` | `/wait`, `DELETE /tabs/{tab}`, `GET /health`,
 //! `POST /shutdown`.
 
@@ -109,6 +109,15 @@ pub struct ClickRequest {
     pub reference: String,
 }
 
+/// `POST /tabs/{tab}/click_at` body.
+#[derive(Debug, Deserialize)]
+pub struct ClickAtRequest {
+    /// Viewport CSS-pixel x (clamped to the live viewport).
+    pub x: f64,
+    /// Viewport CSS-pixel y (clamped to the live viewport).
+    pub y: f64,
+}
+
 /// `POST /tabs/{tab}/press` body.
 #[derive(Debug, Deserialize)]
 pub struct PressRequest {
@@ -153,6 +162,7 @@ pub fn router(state: DaemonState) -> Router {
         .route("/tabs/{tab}/navigate", post(navigate))
         .route("/tabs/{tab}/snapshot", post(snapshot))
         .route("/tabs/{tab}/click", post(click))
+        .route("/tabs/{tab}/click_at", post(click_at))
         .route("/tabs/{tab}/type", post(type_text))
         .route("/tabs/{tab}/press", post(press))
         .route("/tabs/{tab}/evaluate", post(evaluate))
@@ -209,6 +219,17 @@ async fn click(
     Json(req): Json<ClickRequest>,
 ) -> (StatusCode, Json<Envelope>) {
     match state.backend.click(&tab, &req.reference).await {
+        Ok(()) => ok(serde_json::json!({"done": true})),
+        Err(e) => err(&e),
+    }
+}
+
+async fn click_at(
+    State(state): State<Arc<DaemonState>>,
+    axum::extract::Path(tab): axum::extract::Path<String>,
+    Json(req): Json<ClickAtRequest>,
+) -> (StatusCode, Json<Envelope>) {
+    match state.backend.click_at(&tab, req.x, req.y).await {
         Ok(()) => ok(serde_json::json!({"done": true})),
         Err(e) => err(&e),
     }

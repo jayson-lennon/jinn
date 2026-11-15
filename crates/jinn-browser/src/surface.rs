@@ -18,10 +18,11 @@ pub struct TabInfo {
 }
 
 /// One interactive element from a snapshot.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SnapshotRef {
-    /// The ref id (`e1`, `e2`, …), stable within the tab until the next
-    /// snapshot.
+    /// The ref id — `e1` for the top frame, `f1:e5` for the fifth node
+    /// of the first same-origin iframe — stable within the tab until
+    /// the next snapshot.
     pub id: String,
     /// The tag name, lowercased.
     pub tag: String,
@@ -31,10 +32,32 @@ pub struct SnapshotRef {
     pub html_id: Option<String>,
     /// Input value, when the element is an input carrying one.
     pub value: Option<String>,
+    /// The owning frame: `null` for the top frame, `f<k>` for a
+    /// same-origin iframe's document.
+    #[serde(default)]
+    pub frame: Option<String>,
+    /// Whether a ref click can act on this row. Iframe placeholder rows
+    /// (frame discovery, any origin) are `false`: they describe the
+    /// frame — for cross-origin frames the coordinates are the element
+    /// center, for use with `click_at` — but cannot be clicked by ref.
+    #[serde(default = "default_true")]
+    pub clickable: bool,
+    /// The element's viewport-absolute center x, CSS px (iframe content
+    /// already offset by its ancestor frame rects).
+    #[serde(default)]
+    pub x: Option<f64>,
+    /// The element's viewport-absolute center y, CSS px.
+    #[serde(default)]
+    pub y: Option<f64>,
+}
+
+/// Serde default for the clickable flag (absent in older payloads).
+fn default_true() -> bool {
+    true
 }
 
 /// The result of one snapshot.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
     /// The tab snapshotted.
     pub tab: String,
