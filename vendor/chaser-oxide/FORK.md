@@ -46,6 +46,20 @@ evaluate_stealth`; never `raw_page().evaluate`, which triggers
    `launch` calls; `tests/fork_invariants.rs` asserts the flag list
    without spawning a browser.
 
+5. **Viewport emulation disabled at the jinn call site (not a source
+   patch).** Upstream's `BrowserConfig::default` pins
+   `viewport: Some(Viewport::default())` — a hardcoded 800x600 — which
+   fires `Emulation.setDeviceMetricsOverride` on every target init and
+   shrinks the page renderer to an 800x600 box inside the real window
+   (observed live: `outerWidth=3840` but `innerWidth=800, innerHeight=
+   600`). The jinn daemon passes `.viewport(None)`, which takes the
+   `None => TargetInit::Initialized` path in `target.rs` — no emulation
+   override is ever sent and the page fills the window. An 800x600
+   viewport on a large display is itself a bot signal, so this is both
+   a correctness and a stealth fix. Pinned by
+   `the_upstream_default_viewport_is_the_800x600_pin` in
+   `tests/fork_invariants.rs`, so an upstream default change surfaces.
+
 ## Tests
 
 `tests/fork_invariants.rs` (registered as the `fork_invariants` test
@@ -56,6 +70,9 @@ target, no browser needed):
 - `launch_args_exclude_automation_tells` — no `--enable-automation`, no
   F1/V1 flags, and `--disable-blink-features=AutomationControlled`
   present (the `hidden: true` default).
+- `the_upstream_default_viewport_is_the_800x600_pin` — the upstream
+  default viewport the jinn daemon's `viewport(None)` works around; the
+  assertion documents why the daemon disables emulation.
 
 The upstream live-browser tests (`tests/lib.rs` target) are untouched
 and are not run by jinn's suite; the jinn workspace's own test discipline

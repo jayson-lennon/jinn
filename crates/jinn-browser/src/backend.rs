@@ -1094,6 +1094,7 @@ impl EngineLauncher for ChaserLauncher {
         let config = chaser_oxide::BrowserConfig::builder()
             .user_data_dir(user_data_dir)
             .chrome_executable(executable)
+            .viewport(None)
             // Headed — never headless (S1–S7 signals, focus texture).
             .with_head()
             .build()

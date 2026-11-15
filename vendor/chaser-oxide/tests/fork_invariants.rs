@@ -12,6 +12,26 @@ use chaser_oxide::handler::frame::FrameManager;
 const FORBIDDEN_INIT_METHODS: [&str; 2] = ["Runtime.enable", "Network.enable"];
 
 #[test]
+fn the_upstream_default_viewport_is_the_800x600_pin() {
+    // The upstream `BrowserConfig::default` sets
+    // `viewport: Some(Viewport::default())` — a hardcoded 800x600 —
+    // which fires `Emulation.setDeviceMetricsOverride` on every target
+    // init and pins the page renderer to an 800x600 box inside the real
+    // window (observed live: outerWidth 3840, innerWidth 800). An
+    // 800x600 viewport on a 4K display is itself a bot signal, so jinn
+    // disables the emulation (`viewport(None)`) and lets the page fill
+    // the window. This test pins the upstream default the choice works
+    // around: if Viewport::default() ever stops being 800x600, this
+    // assertion breaks and the fork-side decision should be revisited.
+    let viewport = chaser_oxide::handler::viewport::Viewport::default();
+    assert_eq!(
+        (viewport.width, viewport.height),
+        (800, 600),
+        "upstream default viewport changed; re-evaluate the daemon's viewport(None)"
+    );
+}
+
+#[test]
 fn init_sends_no_runtime_or_network_enable() {
     // Given the frame manager's init command chain (the per-target init
     // sequence every page target runs on attach).
