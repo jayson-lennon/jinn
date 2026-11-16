@@ -60,11 +60,7 @@ fn launch_args_exclude_automation_tells() {
     let config = BrowserConfig::builder().build().unwrap();
 
     // When rendering the args the child will receive.
-    let args: Vec<String> = config
-        .build_args(&["about:blank".to_owned()])
-        .into_iter()
-        .map(Into::into)
-        .collect();
+    let args: Vec<String> = config.build_args(&["about:blank".to_owned()]);
 
     // Then no automation-telling flag survives: dropped upstream
     // (--enable-automation) and dropped by this fork (F1/V1).

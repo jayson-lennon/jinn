@@ -144,16 +144,11 @@ impl RequestIdExt for network::RequestId {
 }
 
 fn is_navigation(event: &EventRequestWillBeSent) -> bool {
-    if event.request_id.inner() == event.loader_id.inner()
+    event.request_id.inner() == event.loader_id.inner()
         && event
             .r#type
             .as_ref()
-            .map(|t| *t == ResourceType::Document)
-            .unwrap_or(false)
-    {
-        return true;
-    }
-    false
+            .is_some_and(|t| *t == ResourceType::Document)
 }
 
 async fn resolve(

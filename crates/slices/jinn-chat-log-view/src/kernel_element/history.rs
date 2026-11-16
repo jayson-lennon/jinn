@@ -120,6 +120,18 @@ pub(crate) struct LayoutInputs {
     graphics_rows: HashMap<ChatEntryId, Vec<u16>>,
 }
 
+/// The per-entry render key for one visible entry, copied out of the
+/// entry before the `&mut self` render helpers run (they re-resolve the
+/// entry from its history index; these fields are the borrowed reads).
+struct EntryRenderInputs {
+    is_selected: bool,
+    is_expanded: bool,
+    max_lines: u16,
+    variant: u64,
+    is_pinned: bool,
+    is_included_in_context: bool,
+}
+
 impl LayoutInputs {
     /// Snapshots the layout inputs for one session.
     pub(crate) fn snapshot(state: &AppState, session_id: &SessionId) -> Self {
@@ -421,7 +433,7 @@ impl ChatLogElement {
             }
         }
         render.paint(frame);
-        self.painted_slots = painted_slots.borrow().clone();
+        self.painted_slots.clone_from(&painted_slots.borrow());
     }
 }
 
@@ -768,6 +780,11 @@ struct HistoryRender<'a> {
     /// Per-visual-item wrapped line ranges: `entry_line_ranges[vi_idx] = (start, end)`.
     entry_line_ranges: Vec<(u32, u32)>,
     miss_lines: HashMap<usize, Vec<Line<'static>>>,
+    /// Image slots produced by `render_miss_entry` for the entry it just
+    /// rendered. `render_miss_entry` borrows `self` mutably, so it cannot
+    /// take the caller's local `new_slots` map; it parks its slots here and
+    /// the caller drains them into `new_slots`.
+    miss_slots: HashMap<usize, Vec<ImageSlot>>,
     /// Image slots recorded this frame, keyed by visual-item index. Consumed
     /// by the paint step to draw the images over their reserved rows.
     image_slots: HashMap<usize, Vec<ImageSlot>>,
@@ -851,6 +868,7 @@ impl<'a> HistoryRender<'a> {
             running_children,
             entry_line_ranges: Vec::new(),
             miss_lines: HashMap::new(),
+            miss_slots: HashMap::new(),
             image_slots: HashMap::new(),
             painted_slots,
             frame_graphics: None,
@@ -1027,6 +1045,86 @@ impl<'a> HistoryRender<'a> {
     /// present, that entry is painted from the previous rendering instead of
     /// being re-rendered: its line range is still recorded, so scroll state,
     /// the minimap, and the scrollbar stay in step with the entries around it.
+    ///
+    /// Renders one entry that missed the line cache: builds the render
+    /// context, produces the entry's lines and image slots, records the
+    /// throttle hand-back and the cache insert, and returns the wrapped
+    /// row count plus the rendered lines.
+    #[expect(clippy::expect_used, reason = "infallible")]
+    #[expect(
+        clippy::rc_buffer,
+        reason = "Arc keeps cloning a rendered entry's line buffer O(1) where a plain Vec would deep-copy every line on each cache hit"
+    )]
+    fn render_miss_entry(
+        &mut self,
+        cache: &mut EntryLineCache,
+        hist_idx: usize,
+        vi_idx: usize,
+        probe_content: jinn_chat_log_view_msg::ContentIdentity,
+        is_expanded: bool,
+    ) -> (u32, Arc<Vec<Line<'static>>>) {
+        let entry = self
+            .history
+            .get(hist_idx)
+            .expect("hist_idx from visual_items");
+        let is_selected = self.selected_idx == Some(vi_idx);
+        let max_lines = self
+            .config
+            .tool_entry_max_lines
+            .unwrap_or(DEFAULT_TOOL_ENTRY_MAX_LINES);
+        let paired_status = self.paired_status_for_entry(entry);
+        let is_streaming = self.is_streaming_tool_call(entry);
+        let is_waiting_on_subagent = self.is_task_waiting(entry);
+        let graphics = self.entry_graphics(entry);
+        let variant = render_variant(
+            paired_status,
+            is_streaming,
+            is_waiting_on_subagent,
+            &graphics,
+        );
+        let ctx = RenderContext {
+            session_id: self.state.active_session().session_id().clone(),
+            content_width: self.content_width,
+            is_selected,
+            is_expanded,
+            tool_entry_max_lines: max_lines,
+            theme: self.theme.clone(),
+            paired_status,
+            is_streaming,
+            is_waiting_on_subagent,
+            graphics,
+        };
+        let mut slots = Vec::new();
+        let lines = entry_to_lines_with_slots(entry, &ctx, &mut slots);
+        // Convert to wrapped offsets here too: this pass renders entries
+        // the paint pass never revisits (outside `visible_indices`), and
+        // paint slices by these indices — an unwrapped index paints the
+        // image mid-entry when the body wraps.
+        wrapped_slot_offsets(&lines, &mut slots, self.content_width);
+        if !slots.is_empty() {
+            self.miss_slots.insert(vi_idx, slots);
+        }
+        let wrapped_count: u32 = if self.content_width == 0 {
+            lines.len() as u32
+        } else {
+            Paragraph::new(lines.clone())
+                .wrap(Wrap { trim: false })
+                .line_count(self.content_width) as u32
+        };
+
+        cache.insert_with_lines(
+            entry,
+            probe_content,
+            is_expanded,
+            variant,
+            self.content_width,
+            wrapped_count,
+            Arc::new(lines.clone()),
+        );
+
+        (wrapped_count, Arc::new(lines))
+    }
+
     #[expect(clippy::expect_used, reason = "infallible")]
     #[expect(
         clippy::rc_buffer,
@@ -1042,15 +1140,17 @@ impl<'a> HistoryRender<'a> {
         // Slots accumulate here so the loop can keep borrowing self
         // immutably; they merge into self.image_slots after the walk.
         let mut new_slots: HashMap<usize, Vec<ImageSlot>> = HashMap::new();
+        self.miss_slots = HashMap::new();
 
-        for (vi_idx, item) in self.visual_items.iter().enumerate() {
-            match item {
-                VisualItem::Entry(hist_idx) => {
+        for vi_idx in 0..self.visual_items.len() {
+            match self.visual_items.get(vi_idx) {
+                Some(VisualItem::Entry(hist_idx)) => {
                     let entry = self
                         .history
                         .get(*hist_idx)
                         .expect("hist_idx from visual_items");
-                    let is_expanded = self.state.active_session().is_entry_expanded(&entry.id);
+                    let entry_id = entry.id.clone();
+                    let is_expanded = self.state.active_session().is_entry_expanded(&entry_id);
 
                     // Paint the streaming entry from the previous frame rather
                     // than re-rendering it. Checked before the cache probe
@@ -1058,7 +1158,7 @@ impl<'a> HistoryRender<'a> {
                     // did change, which is the whole reason for throttling.
                     if let (Some(throttle_id), Some((wrapped_count, lines))) =
                         (streaming_id, throttled)
-                        && entry.id == *throttle_id
+                        && entry_id == *throttle_id
                     {
                         let start = wrapped_cursor;
                         let end = wrapped_cursor + wrapped_count;
@@ -1073,95 +1173,49 @@ impl<'a> HistoryRender<'a> {
                     // entry's content fingerprint is unchanged.
                     let variant = self.variant_of(entry);
                     let probe = cache.probe(entry, is_expanded, variant, self.content_width);
-                    if let Some(hit) = probe.hit {
+                    let (probe_content, probe_hit) = (probe.content, probe.hit);
+                    if let Some(hit) = probe_hit {
                         let start = wrapped_cursor;
                         let end = wrapped_cursor + hit.wrapped_count;
                         self.entry_line_ranges.push((start, end));
                         wrapped_cursor = end;
                         if let Some(lines) = hit.lines {
-                            if let Some(slots) = self.tail_slots_for(entry, hit.wrapped_count) {
+                            if let Some(slots) = self.tail_slots_for(&entry_id, hit.wrapped_count) {
                                 new_slots.insert(vi_idx, slots);
                             }
                             self.cached_lines.insert(vi_idx, lines);
                         }
                     } else {
-                        let is_selected = self.selected_idx == Some(vi_idx);
-                        let max_lines = self
-                            .config
-                            .tool_entry_max_lines
-                            .unwrap_or(DEFAULT_TOOL_ENTRY_MAX_LINES);
-                        let paired_status = self.paired_status_for_entry(entry);
-                        let is_streaming = self.is_streaming_tool_call(entry);
-                        let is_waiting_on_subagent = self.is_task_waiting(entry);
-                        let graphics = self.entry_graphics(entry);
-                        let variant = render_variant(
-                            paired_status,
-                            is_streaming,
-                            is_waiting_on_subagent,
-                            &graphics,
-                        );
-                        let ctx = RenderContext {
-                            session_id: self.state.active_session().session_id().clone(),
-                            content_width: self.content_width,
-                            is_selected,
-                            is_expanded,
-                            tool_entry_max_lines: max_lines,
-                            theme: self.theme.clone(),
-                            paired_status,
-                            is_streaming,
-                            is_waiting_on_subagent,
-                            graphics,
-                        };
-                        let mut slots = Vec::new();
-                        let lines = entry_to_lines_with_slots(entry, &ctx, &mut slots);
-                        // Convert to wrapped offsets here too: this pass
-                        // renders entries the paint pass never revisits
-                        // (outside `visible_indices`), and paint slices by
-                        // these indices — an unwrapped index paints the
-                        // image mid-entry when the body wraps.
-                        wrapped_slot_offsets(&lines, &mut slots, self.content_width);
-                        if !slots.is_empty() {
-                            new_slots.insert(vi_idx, slots);
-                        }
-                        let wrapped_count: u32 = if self.content_width == 0 {
-                            lines.len() as u32
-                        } else {
-                            Paragraph::new(lines.clone())
-                                .wrap(Wrap { trim: false })
-                                .line_count(self.content_width) as u32
-                        };
-
                         // Handed back to the caller so the next frame has
                         // something to reuse if this one is throttled.
-                        if streaming_id.is_some_and(|id| *id == entry.id) {
-                            self.stream_rendered = Some((wrapped_count, Arc::new(lines.clone())));
-                        }
-
-                        cache.insert_with_lines(
-                            entry,
-                            probe.content,
+                        let (wrapped_count, lines) = self.render_miss_entry(
+                            cache,
+                            *hist_idx,
+                            vi_idx,
+                            probe_content,
                             is_expanded,
-                            variant,
-                            self.content_width,
-                            wrapped_count,
-                            Arc::new(lines.clone()),
                         );
+                        if streaming_id.is_some_and(|id| *id == entry_id) {
+                            self.stream_rendered = Some((wrapped_count, Arc::clone(&lines)));
+                        }
+                        new_slots.extend(self.miss_slots.drain());
 
                         let start = wrapped_cursor;
                         let end = wrapped_cursor + wrapped_count;
                         self.entry_line_ranges.push((start, end));
                         wrapped_cursor = end;
 
-                        self.miss_lines.insert(vi_idx, lines);
+                        self.miss_lines.insert(vi_idx, Arc::unwrap_or_clone(lines));
                     }
                 }
-                VisualItem::CollapsedIgnoredBlock { .. } => {
+                Some(VisualItem::CollapsedIgnoredBlock { .. }) => {
                     // Collapsed block is exactly 1 line.
                     let start = wrapped_cursor;
                     let end = wrapped_cursor + 1;
                     self.entry_line_ranges.push((start, end));
                     wrapped_cursor = end;
                 }
+                None => {}
             }
         }
 
@@ -1295,6 +1349,119 @@ impl<'a> HistoryRender<'a> {
         cache.touch(&entry.id);
     }
 
+    /// Content lines for one visible entry: the cached lines when this
+    /// frame's layout pass rendered it, the miss lines otherwise, and a
+    /// fresh render when neither exists. Each source also feeds the cache
+    /// so a scroll away and back stays cheap.
+    fn entry_content_lines(
+        &mut self,
+        cache: &mut EntryLineCache,
+        entry: &ChatEntry,
+        vi_idx: usize,
+        is_expanded: bool,
+        variant: u64,
+        max_lines: u16,
+        new_slots: &mut HashMap<usize, Vec<ImageSlot>>,
+    ) -> Vec<Line<'static>> {
+        if let Some(lines) = self.cached_lines.remove(&vi_idx) {
+            // Painted from the cache, so this entry counts as used.
+            cache.touch(&entry.id);
+            Arc::unwrap_or_clone(lines)
+        } else if let Some(lines) = self.miss_lines.remove(&vi_idx) {
+            // Freshly rendered during layout this frame; store it so a
+            // scroll away and back can reuse it.
+            self.cache_lines(cache, entry, vi_idx, is_expanded, variant, lines.clone());
+            lines
+        } else {
+            // Nothing available: render, then cache for the next frame.
+            let paired_status = self.paired_status_for_entry(entry);
+            let is_streaming = self.is_streaming_tool_call(entry);
+            let is_waiting_on_subagent = self.is_task_waiting(entry);
+            let ctx = RenderContext {
+                session_id: self.state.active_session().session_id().clone(),
+                content_width: self.content_width,
+                is_selected: self.selected_idx == Some(vi_idx),
+                is_expanded,
+                tool_entry_max_lines: max_lines,
+                theme: self.theme.clone(),
+                paired_status,
+                is_streaming,
+                is_waiting_on_subagent,
+                graphics: self.entry_graphics(entry),
+            };
+            let mut slots = Vec::new();
+            let lines = entry_to_lines_with_slots(entry, &ctx, &mut slots);
+            wrapped_slot_offsets(&lines, &mut slots, self.content_width);
+            if !slots.is_empty() {
+                new_slots.insert(vi_idx, slots);
+            }
+            self.cache_lines(cache, entry, vi_idx, is_expanded, variant, lines.clone());
+            lines
+        }
+    }
+
+    /// Content and gutter lines for one visible entry row, appended to this
+    /// frame's line buffers. `render_inputs` is the per-entry render key
+    /// copied out before the `&mut self` calls (the id, its pin and
+    /// context-inclusion flags, and the variant probe hash).
+    #[expect(clippy::expect_used, reason = "infallible")]
+    fn render_visible_entry(
+        &mut self,
+        cache: &mut EntryLineCache,
+        hist_idx: usize,
+        vi_idx: usize,
+        inputs: &EntryRenderInputs,
+        entry_start: u32,
+        entry_end: u32,
+        abs_entry_start: u32,
+        viewport_top: u32,
+        chat_log_active: bool,
+        cursor_color: ratatui::style::Color,
+        new_slots: &mut HashMap<usize, Vec<ImageSlot>>,
+    ) {
+        let entry = self
+            .history
+            .get(hist_idx)
+            .expect("hist_idx from visual_items");
+        let entry_content_lines = self.entry_content_lines(
+            cache,
+            entry,
+            vi_idx,
+            inputs.is_expanded,
+            inputs.variant,
+            inputs.max_lines,
+            new_slots,
+        );
+
+        // Build gutter lines for this entry.
+        let gutter_ctx = GutterStyle {
+            is_pinned: inputs.is_pinned,
+            is_selected: inputs.is_selected,
+            chat_log_active,
+            content_width: self.content_width,
+            // Pass 1 already measured how many rows this entry
+            // wraps to at this width.
+            wrapped_count: entry_end - entry_start,
+            theme: &self.theme,
+            cursor_color,
+            is_included_in_context: inputs.is_included_in_context,
+            gutter_context_color: self.theme.gutter_context_included,
+        };
+        let entry_gutter_lines = build_entry_gutter_lines(&entry_content_lines, &gutter_ctx);
+
+        // Track lines above viewport for scroll calculation.
+        // The clamped difference is how many rows of this entry
+        // sit above the viewport; a negative raw value means the
+        // entry straddles the top, which contributes nothing.
+        // `saturating_sub` is exact here, never a clamp artifact.
+        if abs_entry_start < viewport_top {
+            self.lines_before_viewport += viewport_top.saturating_sub(abs_entry_start);
+        }
+
+        self.content_lines.extend(entry_content_lines);
+        self.gutter_lines.extend(entry_gutter_lines);
+    }
+
     /// Build content and gutter lines for all visible entries.
     #[expect(clippy::expect_used, reason = "infallible")]
     fn render_visible_entries(&mut self, cache: &mut EntryLineCache) {
@@ -1306,7 +1473,12 @@ impl<'a> HistoryRender<'a> {
         // merge into self.image_slots after the walk.
         let mut new_slots: HashMap<usize, Vec<ImageSlot>> = HashMap::new();
 
-        for &vi_idx in &self.visible_indices {
+        for vi_idx in 0..self.visible_indices.len() {
+            let vi_idx = self
+                .visible_indices
+                .get(vi_idx)
+                .copied()
+                .expect("index from len");
             let (entry_start, entry_end) = self
                 .entry_line_ranges
                 .get(vi_idx)
@@ -1320,88 +1492,39 @@ impl<'a> HistoryRender<'a> {
                         .history
                         .get(*hist_idx)
                         .expect("hist_idx from visual_items");
-                    let is_selected = self.selected_idx == Some(vi_idx);
-                    let is_expanded = self.state.active_session().is_entry_expanded(&entry.id);
-                    let max_lines = self
-                        .config
-                        .tool_entry_max_lines
-                        .unwrap_or(DEFAULT_TOOL_ENTRY_MAX_LINES);
-                    let graphics = self.entry_graphics(entry);
-                    let variant = render_variant(
-                        self.paired_status_for_entry(entry),
-                        self.is_streaming_tool_call(entry),
-                        self.is_task_waiting(entry),
-                        &graphics,
-                    );
-
-                    // Get content lines - cached lines → miss lines → render fresh.
-                    let entry_content_lines = if let Some(lines) = self.cached_lines.remove(&vi_idx)
-                    {
-                        // Painted from the cache, so this entry counts as used.
-                        cache.touch(&entry.id);
-                        Arc::unwrap_or_clone(lines)
-                    } else if let Some(lines) = self.miss_lines.remove(&vi_idx) {
-                        // Freshly rendered during layout this frame; store it so
-                        // a scroll away and back can reuse it.
-                        self.cache_lines(cache, entry, vi_idx, is_expanded, variant, lines.clone());
-                        lines
-                    } else {
-                        // Nothing available: render, then cache for the next frame.
-                        let paired_status = self.paired_status_for_entry(entry);
-                        let is_streaming = self.is_streaming_tool_call(entry);
-                        let is_waiting_on_subagent = self.is_task_waiting(entry);
-                        let ctx = RenderContext {
-                            session_id: self.state.active_session().session_id().clone(),
-                            content_width: self.content_width,
-                            is_selected,
-                            is_expanded,
-                            tool_entry_max_lines: max_lines,
-                            theme: self.theme.clone(),
-                            paired_status,
-                            is_streaming,
-                            is_waiting_on_subagent,
-                            graphics: graphics.clone(),
-                        };
-                        let mut slots = Vec::new();
-                        let lines = entry_to_lines_with_slots(entry, &ctx, &mut slots);
-                        wrapped_slot_offsets(&lines, &mut slots, self.content_width);
-                        if !slots.is_empty() {
-                            new_slots.insert(vi_idx, slots);
-                        }
-                        self.cache_lines(cache, entry, vi_idx, is_expanded, variant, lines.clone());
-                        lines
+                    // The per-entry render key, copied out before the
+                    // &mut self helper calls (the helper re-resolves the
+                    // entry from hist_idx internally).
+                    let inputs = EntryRenderInputs {
+                        is_selected: self.selected_idx == Some(vi_idx),
+                        is_expanded: self.state.active_session().is_entry_expanded(&entry.id),
+                        max_lines: self
+                            .config
+                            .tool_entry_max_lines
+                            .unwrap_or(DEFAULT_TOOL_ENTRY_MAX_LINES),
+                        variant: render_variant(
+                            self.paired_status_for_entry(entry),
+                            self.is_streaming_tool_call(entry),
+                            self.is_task_waiting(entry),
+                            &self.entry_graphics(entry),
+                        ),
+                        is_pinned: entry.pin_position.is_some(),
+                        is_included_in_context: entry.is_in_context(),
                     };
-
-                    // Build gutter lines for this entry.
-                    let is_pinned = entry.pin_position.is_some();
-                    let is_included_in_context = entry.is_in_context();
-                    let gutter_ctx = GutterStyle {
-                        is_pinned,
-                        is_selected,
+                    let hist_idx = *hist_idx;
+                    self.render_visible_entry(
+                        cache,
+                        hist_idx,
+                        vi_idx,
+                        &inputs,
+                        entry_start,
+                        entry_end,
+                        abs_entry_start,
+                        viewport_top,
                         chat_log_active,
-                        content_width: self.content_width,
-                        // Pass 1 already measured how many rows this entry
-                        // wraps to at this width.
-                        wrapped_count: entry_end - entry_start,
-                        theme: &self.theme,
                         cursor_color,
-                        is_included_in_context,
-                        gutter_context_color: self.theme.gutter_context_included,
-                    };
-                    let entry_gutter_lines =
-                        build_entry_gutter_lines(&entry_content_lines, &gutter_ctx);
-
-                    // Track lines above viewport for scroll calculation.
-                    // The clamped difference is how many rows of this entry
-                    // sit above the viewport; a negative raw value means the
-                    // entry straddles the top, which contributes nothing.
-                    // `saturating_sub` is exact here, never a clamp artifact.
-                    if abs_entry_start < viewport_top {
-                        self.lines_before_viewport += viewport_top.saturating_sub(abs_entry_start);
-                    }
-
-                    self.content_lines.extend(entry_content_lines);
-                    self.gutter_lines.extend(entry_gutter_lines);
+                        &mut new_slots,
+                    );
                 }
                 Some(VisualItem::CollapsedIgnoredBlock { count, .. }) => {
                     let is_selected = self.selected_idx == Some(vi_idx);
@@ -1527,9 +1650,9 @@ impl<'a> HistoryRender<'a> {
     /// the first slot's wrapped offset is `wrapped_count − rows_total` and
     /// each later slot follows the previous by its own rows. No re-render,
     /// no second count pass.
-    fn tail_slots_for(&self, entry: &ChatEntry, wrapped_count: u32) -> Option<Vec<ImageSlot>> {
+    fn tail_slots_for(&self, entry_id: &ChatEntryId, wrapped_count: u32) -> Option<Vec<ImageSlot>> {
         let (_, rows) = self.frame_graphics.as_ref()?;
-        let entry_rows = rows.get(&entry.id)?;
+        let entry_rows = rows.get(entry_id)?;
         let rows_total = u32::from(entry_rows.iter().copied().sum::<u16>());
         if rows_total == 0 || rows_total > wrapped_count {
             return None;
@@ -1544,7 +1667,7 @@ impl<'a> HistoryRender<'a> {
             // entry_rows is in image-attachment order, so the enumerate
             // position is the image index the ImageKey counts.
             slots.push(ImageSlot {
-                key: ImageKey::new(&session_id, &entry.id, i),
+                key: ImageKey::new(&session_id, entry_id, i),
                 line_index: cursor,
                 rows: row_count,
             });
