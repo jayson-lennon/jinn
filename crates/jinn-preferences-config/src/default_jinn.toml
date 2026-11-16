@@ -459,6 +459,14 @@ teardown_command = """[ -z "$(git status --porcelain)" ] || { echo "TEARDOWN-DIR
 # >   <port> / <ip>   local_http only — the jinn-allocated port and the
 # >                   bind address parsed from `url`
 # >   <jinn>          the running jinn executable's path
+# >   <scripts>       the universal scripts directory
+# >                   (~/.local/share/jinn/scripts), where reusable
+# >                   Luau scripts live — most usefully `jinn luau
+# >                   serve` scripts, so one entry is an MCP server
+# >                   every session can enable. Expanded at each spawn
+# >                   in args and env values; always resolvable, so it
+# >                   works on singleton and per-session entries alike
+# >                   (no session cwd involved).
 # >   <session_cwd>   the enabling session's working directory, expanded at
 # >                   each per-session spawn — one static entry (e.g.
 # >                   GDA_PROJECT = "<session_cwd>") serves every worktree
