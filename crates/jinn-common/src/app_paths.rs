@@ -460,6 +460,26 @@ impl AppPaths {
             .expect("name joins keep the base absolute")
     }
 
+    /// Universal scripts directory (`~/.local/share/jinn/scripts`).
+    ///
+    /// Where reusable Luau scripts persist — `jinn luau run`/`serve`
+    /// take plain paths, so a stored script is just a path and nothing
+    /// here enforces how it is used; serve-mode scripts (MCP servers
+    /// shared across sessions) are the emphasized use, since those must
+    /// outlive the session whose working directory they were written in.
+    /// Layout is a documentation-taught convention, not an enforced one:
+    /// loose single files, one subdirectory per multi-file script (a
+    /// script `require`s modules rooted at its own directory, so
+    /// subdirectories keep module names from colliding). User data the
+    /// user expects to survive jinn and its sessions, so it lives under
+    /// the data dir, not cache or state.
+    #[must_use]
+    pub fn scripts_dir(&self) -> MarkedPathBuf<Absolute> {
+        self.data_dir
+            .join_all([APP_NAME, "scripts"])
+            .expect("name joins keep the base absolute")
+    }
+
     /// OpenRouter market cache directory (`~/.cache/jinn/openrouter`).
     ///
     /// Holds the model-market's TTL disk caches: the models listing and
@@ -834,6 +854,27 @@ mod tests {
                 .join("data/jinn/applets")
                 .expect("temp root joins a bare name")
         );
+    }
+
+    #[rstest::rstest]
+    fn scripts_dir_sits_beside_applets_under_data() {
+        // Given an AppPaths rooted at a temp dir.
+        let root = jinn_testutil::tempdir();
+        let paths = AppPaths::new_in(&root.path.as_marked_path());
+
+        // When resolving the universal-scripts directory.
+        let dir = paths.scripts_dir();
+
+        // Then it is data/jinn/scripts — the data dir, the same base as
+        // the session store, graph databases, and applets.
+        assert_eq!(
+            dir,
+            root.path
+                .join_all(["data", "jinn", "scripts"])
+                .expect("root joins bare names")
+        );
+        // And it is a sibling of the saved-applets dir.
+        assert_eq!(dir.parent(), paths.applets_dir().parent());
     }
 
     #[rstest::rstest]

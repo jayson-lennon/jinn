@@ -345,6 +345,81 @@ end)
 
 #[rstest::rstest]
 #[test]
+fn a_reply_past_the_shared_deadline_within_the_grace_is_answered_not_poisoned() {
+    // Given a shared deadline that has already expired when the wait
+    // starts — the exact shape a slow handoff produces (the VM arms its
+    // interrupt from the request, the handler's wait reads the same
+    // instant).
+    let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<Result<String, String>>(1);
+    let deadline = std::time::Instant::now();
+
+    // When the VM's reply lands inside the grace drain.
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let _ = reply_tx.send(Ok("{\"ok\":true}".to_owned()));
+    });
+    let outcome = super::wait_for_reply(&reply_rx, Some(deadline));
+
+    // Then the wait returns the reply — answered, not the wedged marker.
+    assert_eq!(outcome.expect("answered"), "{\"ok\":true}");
+}
+
+#[rstest::rstest]
+#[test]
+fn no_reply_past_deadline_and_grace_yields_the_wedged_marker() {
+    // Given a shared deadline that expired long ago and a VM that never
+    // replies.
+    let (_keep_tx, reply_rx) = std::sync::mpsc::sync_channel::<Result<String, String>>(1);
+    let deadline = std::time::Instant::now()
+        .checked_sub(std::time::Duration::from_secs(10))
+        .expect("a past deadline");
+
+    // When waiting past deadline plus the grace drain.
+    let outcome = super::wait_for_reply(&reply_rx, Some(deadline));
+
+    // Then the wait resolves to the wedged marker — the poison path.
+    let Err(marker) = outcome else {
+        panic!("expected the wedged marker");
+    };
+    assert_eq!(marker, super::WEDGED_SENTINEL);
+}
+
+#[rstest::rstest]
+#[test]
+fn a_reply_before_the_deadline_is_answered_normally() {
+    // Given a live deadline and a VM that replies immediately.
+    let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<Result<String, String>>(1);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+
+    // When waiting for the reply.
+    std::thread::spawn(move || {
+        let _ = reply_tx.send(Ok("{\"echo\":1}".to_owned()));
+    });
+    let outcome = super::wait_for_reply(&reply_rx, Some(deadline));
+
+    // Then the wait returns the reply on the first wait, before expiry.
+    assert_eq!(outcome.expect("answered"), "{\"echo\":1}");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_none_deadline_waits_indefinitely_for_the_reply() {
+    // Given budgeting disabled and a VM that replies after a short delay.
+    let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<Result<String, String>>(1);
+
+    // When waiting with no deadline.
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let _ = reply_tx.send(Ok("{\"lazy\":true}".to_owned()));
+    });
+    let outcome = super::wait_for_reply(&reply_rx, None);
+
+    // Then the wait blocks until the reply arrives.
+    assert_eq!(outcome.expect("answered"), "{\"lazy\":true}");
+}
+
+#[rstest::rstest]
+#[test]
 fn a_wedged_call_is_refused_and_later_calls_are_refused() {
     // Given a tool that wedges inside a capability (jinn.sleep — the
     // interrupt cannot unwind a blocked call), under a one-second budget.

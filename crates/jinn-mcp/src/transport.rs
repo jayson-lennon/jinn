@@ -80,6 +80,29 @@ pub fn expand_session_cwd_token(value: &str, session_cwd: &MarkedPathBuf<Absolut
     value.replace("<session_cwd>", &session_cwd.to_string())
 }
 
+/// The literal `<scripts>` replacement token.
+const SCRIPTS_TOKEN: &str = "<scripts>";
+
+/// Expand the `<scripts>` replacement token in one command component (an
+/// argument or an env value): each `<scripts>` substring becomes the
+/// universal scripts directory.
+///
+/// Lets one static `[mcp.<name>]` entry name a reusable Luau script —
+/// most usefully a `jinn luau serve` MCP server — without assuming which
+/// session enabled it or which directory that session ran in: the scripts
+/// directory is a jinn-managed location, so the entry stays machine- and
+/// cwd-portable. Mirrors `<jinn>` and `<session_cwd>`.
+///
+/// Unlike `<session_cwd>`, the directory is always resolvable: it derives
+/// from `AppPaths`, not from the enabling session, so there is no
+/// "caller decides what an unresolvable value means" rule and no singleton
+/// refusal — an entry that references this token simply never references
+/// `<session_cwd>`. Pure and allocation-only.
+#[must_use]
+pub fn expand_scripts_dir_token(value: &str, scripts_dir: &MarkedPathBuf<Absolute>) -> String {
+    value.replace(SCRIPTS_TOKEN, &scripts_dir.to_string())
+}
+
 /// Extracts the host portion from a URL template like `http://127.0.0.1:<port>/mcp`.
 ///
 /// Strips the scheme prefix and takes everything up to the first `:` (port
@@ -313,5 +336,58 @@ mod tests {
         // Then both expand — the two token texts are disjoint, so order is
         // unobservable.
         assert_eq!(out, format!("{exe}:{cwd}"));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn expand_scripts_dir_token_replaces_args_and_env_values() {
+        // Given an absolute scripts dir and values carrying the token.
+        let root = jinn_testutil::paths::TestRoot::new();
+        let scripts = root.join_str("data/jinn/scripts").expect("scripts dir");
+
+        // When expanding an arg and an env value.
+        let arg = expand_scripts_dir_token("<scripts>/foomart.lua", &scripts);
+        let env_value = expand_scripts_dir_token("--script=<scripts>/x.luau", &scripts);
+
+        // Then every occurrence becomes the scripts dir.
+        let scripts_str = scripts.to_string();
+        assert_eq!(arg, format!("{scripts_str}/foomart.lua"));
+        assert_eq!(env_value, format!("--script={scripts_str}/x.luau"));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn expand_scripts_dir_token_passes_through_without_token() {
+        // Given a value with no token.
+        // When expanding.
+        let root = jinn_testutil::paths::TestRoot::new();
+        let scripts = root.join_str("data/jinn/scripts").expect("scripts dir");
+        let out = expand_scripts_dir_token("/absolute/path", &scripts);
+
+        // Then the value passes through unchanged.
+        assert_eq!(out, "/absolute/path");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn expand_scripts_dir_token_is_independent_of_the_other_tokens() {
+        // Given one value carrying all three tokens.
+        let root = jinn_testutil::paths::TestRoot::new();
+        let exe = root.join_str("bin/jinn").expect("executable path");
+        let cwd = root.join_str("worktrees/game-c").expect("session cwd");
+        let scripts = root.join_str("data/jinn/scripts").expect("scripts dir");
+
+        // When expanding jinn, then cwd, then scripts.
+        let out = expand_scripts_dir_token(
+            &expand_session_cwd_token(
+                &expand_jinn_token("<jinn>:<session_cwd>:<scripts>", &exe),
+                &cwd,
+            ),
+            &scripts,
+        );
+
+        // Then all three expand independently — the token texts are
+        // disjoint, so order is unobservable.
+        assert_eq!(out, format!("{exe}:{cwd}:{scripts}"));
     }
 }
