@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    tokio::spawn(async move { while let Some(_) = handler.next().await {} });
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
 
     // Create page with stealth
     let page = browser.new_page("about:blank").await?;

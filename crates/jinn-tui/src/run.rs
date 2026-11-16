@@ -179,7 +179,7 @@ fn install_graphics_picker(app: &TuiApp) {
 /// on expiry, on a query error, or if the helper panicked.
 #[cfg(not(windows))]
 fn query_graphics_within_budget() -> Option<ratatui_image::picker::Picker> {
-    let query = std::thread::spawn(|| ratatui_image::picker::Picker::from_query_stdio());
+    let query = std::thread::spawn(ratatui_image::picker::Picker::from_query_stdio);
     if !wait_until_finished(&query, GRAPHICS_QUERY_BUDGET) {
         tracing::info!(
             budget_ms = GRAPHICS_QUERY_BUDGET.as_millis() as u64,
@@ -794,7 +794,7 @@ mod tests {
     #[cfg(not(windows))]
     fn picker_query_respects_bounded_timeout() {
         // Given a query thread that never finishes.
-        let never = std::thread::spawn(|| std::thread::park());
+        let never = std::thread::spawn(std::thread::park);
 
         // When polling it under a tiny budget.
         let finished = wait_until_finished(&never, Duration::from_millis(20));

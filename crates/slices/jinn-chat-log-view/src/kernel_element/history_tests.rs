@@ -3019,13 +3019,13 @@ fn user_entry_renders_attached_image_below_text() {
     // Then the message text renders and blank slot rows follow the entry's
     // last text row (the block's trailing pad ends at the slot).
     let last_text_row = (0..30)
-        .filter(|&y| {
+        .rev()
+        .find(|&y| {
             let row: String = (G..60)
                 .filter_map(|x| buffer.cell((x, y)).map(|c| c.symbol().to_owned()))
                 .collect();
             row.contains("look at this")
         })
-        .last()
         .expect("the user text renders");
     let run = blank_row_run(&buffer, last_text_row + 1, 60);
     assert!(
@@ -3342,8 +3342,10 @@ fn image_slot_sits_below_its_entry_in_a_bottom_anchored_log() {
         .painted_slots()
         .iter()
         .find(|(k, _)| *k == key)
-        .map(|(_, row)| *row)
-        .unwrap_or_else(|| panic!("the image painted; slots: {:?}", element.painted_slots()));
+        .map_or_else(
+            || panic!("the image painted; slots: {:?}", element.painted_slots()),
+            |(_, row)| *row,
+        );
 
     // Then it paints on its first reserved row — blank_pad (25) + the
     // entry's pad and text rows (2 lines above the slot) = 28 — directly
@@ -3396,8 +3398,10 @@ fn image_slot_tracks_its_entry_when_the_log_scrolls() {
         .painted_slots()
         .iter()
         .find(|(k, _)| *k == key)
-        .map(|(_, row)| *row)
-        .unwrap_or_else(|| panic!("the image painted; slots: {:?}", element.painted_slots()));
+        .map_or_else(
+            || panic!("the image painted; slots: {:?}", element.painted_slots()),
+            |(_, row)| *row,
+        );
     assert_eq!(
         painted, -2,
         "the straddling slot paints at 3-5 = -2, not clamped to 0"

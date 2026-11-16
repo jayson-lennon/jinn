@@ -105,7 +105,7 @@ pub fn wrapped_slot_offsets(lines: &[Line<'static>], slots: &mut [ImageSlot], co
         let wrapped_before = if content_width == 0 {
             before.len() as u32
         } else {
-            Paragraph::new(before.iter().cloned().collect::<Vec<_>>())
+            Paragraph::new(before.to_vec())
                 .wrap(Wrap { trim: false })
                 .line_count(content_width) as u32
         };

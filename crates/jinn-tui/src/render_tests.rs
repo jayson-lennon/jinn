@@ -5,7 +5,7 @@
 )]
 
 use super::render::*;
-use jinn_chat_log_view::chat_log::GUTTER_WIDTH;
+use jinn_chat_log_view::chat_log::{EntryGraphics, GUTTER_WIDTH};
 use jinn_kernel::protocol::ChatEntry;
 use jinn_slices::FocusScope;
 use jinn_testutil::setup_term;
@@ -499,7 +499,7 @@ fn fill_preview_cache(app: &crate::TuiApp) {
         paired_status: None,
         is_streaming: false,
         is_waiting_on_subagent: false,
-        graphics: Default::default(),
+        graphics: EntryGraphics::default(),
         session_id: jinn_core_types::SessionId::new(),
     };
     let lines = jinn_chat_log_view::kernel_element::render_preview(
