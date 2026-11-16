@@ -6,6 +6,7 @@
 //! and the default launch args carry no automation-telling flags.
 
 use chaser_oxide::BrowserConfig;
+use chaser_oxide::browser::HeadlessMode;
 use chaser_oxide::handler::frame::FrameManager;
 
 /// The method identifiers the init chain must never contain.
@@ -60,11 +61,7 @@ fn launch_args_exclude_automation_tells() {
     let config = BrowserConfig::builder().build().unwrap();
 
     // When rendering the args the child will receive.
-    let args: Vec<String> = config
-        .build_args(&["about:blank".to_owned()])
-        .into_iter()
-        .map(Into::into)
-        .collect();
+    let args = config.build_args(&["about:blank".to_owned()]);
 
     // Then no automation-telling flag survives: dropped upstream
     // (--enable-automation) and dropped by this fork (F1/V1).
@@ -95,5 +92,45 @@ fn launch_args_exclude_automation_tells() {
             a.contains("disable-features") && a.contains("CalculateNativeWinOcclusion")
         }),
         "expected CalculateNativeWinOcclusion disabled; got {args:?}"
+    );
+}
+
+#[test]
+fn launch_args_omit_disable_extensions_when_headed() {
+    // Given a headed browser config (the daemon launches with `with_head`
+    // and no configured extensions).
+    let config = BrowserConfig::builder().with_head().build().unwrap();
+
+    // When rendering the args the child will receive.
+    let args = config.build_args(&["about:blank".to_owned()]);
+
+    // Then the extension surface is not stripped: the profile's
+    // registered extensions (installed by the user from the webstore)
+    // must load. Chromium has no inverse flag, so `--disable-extensions`
+    // must simply never appear on a headed launch.
+    assert!(
+        !args.iter().any(|a| a == "--disable-extensions"),
+        "headed launch args must not contain --disable-extensions; got {args:?}"
+    );
+}
+
+#[test]
+fn launch_args_keep_disable_extensions_when_headless() {
+    // Given a headless browser config (HeadlessMode::True — old headless,
+    // which cannot load extensions anyway; set explicitly because this
+    // fork's builder defaults to headful, unlike the enum's #[default]).
+    let config = BrowserConfig::builder()
+        .headless_mode(HeadlessMode::True)
+        .build()
+        .unwrap();
+
+    // When rendering the args the child will receive.
+    let args = config.build_args(&["about:blank".to_owned()]);
+
+    // Then the empty-extensions behavior is preserved in headless mode:
+    // the strip flag is still injected exactly as before this fork patch.
+    assert!(
+        args.iter().any(|a| a == "--disable-extensions"),
+        "headless launch args must keep --disable-extensions; got {args:?}"
     );
 }

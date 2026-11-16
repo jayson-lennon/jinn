@@ -427,7 +427,7 @@ struct FrameTarget {
     /// placeholder's src (src-equal groups match by order). Kept for
     /// future parent-rect remapping; target-session dispatch needs only
     /// the target id.
-    #[allow(dead_code, reason = "reserved for parent-rect remapping")]
+    #[expect(dead_code, reason = "reserved for parent-rect remapping")]
     iframe_index: usize,
 }
 
@@ -799,7 +799,9 @@ pub(crate) fn script_ends_with_iife_call(script: &str) -> bool {
                     return false;
                 }
                 i -= 1;
-            } else if c == q {
+                continue;
+            }
+            if c == q {
                 in_string = None;
             }
             continue;
@@ -954,6 +956,10 @@ fn map_engine_error(e: impl std::fmt::Display) -> BackendError {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one `impl BrowserBackend` block must hold every trait method; splitting it is impossible (coherence) and per-method extraction would scatter the tab-lifecycle flow"
+)]
 #[async_trait::async_trait]
 impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
     async fn open_tab(&self, url: Option<&str>) -> Result<TabInfo, BackendError> {
@@ -1341,11 +1347,7 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
                 .get(tab)
                 .and_then(|refs| refs.iter().find(|r| r.id == reference))
                 .ok_or_else(|| BackendError::StaleRef(reference.to_owned()))?;
-            (
-                entry.center,
-                entry.frame.clone(),
-                entry.target_frame.clone(),
-            )
+            (entry.center, entry.frame, entry.target_frame.clone())
         };
 
         if let Some(anchor) = target_frame {
@@ -1422,14 +1424,15 @@ impl<L: EngineLauncher> BrowserBackend for ChaserBackend<L> {
         // Clamp to the live viewport so a stale measured coordinate
         // cannot click outside the window. The read failing must never
         // fail the click: pass the coordinate through unclamped then.
-        let clamped = match {
+        let viewport = {
             let page = page.clone();
             self.run(async move {
                 page.evaluate_stealth("({w: window.innerWidth, h: window.innerHeight})".to_owned())
                     .await
             })
             .await?
-        } {
+        };
+        let clamped = match viewport {
             Some(viewport) => {
                 let width = viewport.get("w").and_then(serde_json::Value::as_f64);
                 let height = viewport.get("h").and_then(serde_json::Value::as_f64);
@@ -1605,6 +1608,72 @@ impl<L: EngineLauncher> ChaserBackend<L> {
         }
     }
 
+    /// Gathers the snapshot's top-level iframe placeholder rows and binds
+    /// each to a live `type: "iframe"` CDP target whose URL shares its
+    /// path. Returns the matched `(entry index, src, target)` triples in
+    /// placeholder order; src-equal groups bind in enumeration order. An
+    /// empty result means nothing to walk (no placeholders, dead browser,
+    /// enumeration failure, or no URL match) — every caller treats that as
+    /// the degraded placeholder-only snapshot, never an error.
+    async fn match_oopif_placeholders(
+        &self,
+        tab: &str,
+        entries: &[ScriptedRef],
+    ) -> Vec<(usize, String, crate::surface::TargetInfo)> {
+        // Collect top-level cross-origin placeholders in document order.
+        let placeholders: Vec<(usize, String)> = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                // Placeholder rows: tag iframe, not clickable, top-level
+                // (`f<k>` parents are same-origin — already walked), and
+                // carrying their frame-list index.
+                !e.clickable && e.tag == "iframe" && e.frame.is_none() && e.iframe_index.is_some()
+            })
+            .map(|(i, e)| (i, e.text.clone().unwrap_or_default()))
+            .collect();
+        tracing::debug!(count = placeholders.len(), srcs = ?placeholders, "oopif: placeholders");
+        if placeholders.is_empty() {
+            return Vec::new();
+        }
+
+        // Enumerate the live iframe targets. An enumeration failure is
+        // degraded (placeholder-only snapshot), not fatal. The state
+        // guard is held across the engine call: engine-handle methods
+        // never lock backend state, so there is no re-entrancy, and
+        // `Box<dyn EngineHandle>` cannot be cloned out of the engine.
+        let targets = {
+            let state = self.inner.lock().await;
+            let Some(engine) = state.engine.as_ref() else {
+                return Vec::new();
+            };
+            match engine.handle.list_targets().await {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::debug!(tab, error = %e, "oopif: target enumeration failed");
+                    return Vec::new();
+                }
+            }
+        };
+        let mut iframe_targets: Vec<&crate::surface::TargetInfo> =
+            targets.iter().filter(|t| t.r#type == "iframe").collect();
+        // Stable order: browser enumeration order is already creation
+        // order; sort by url so src-equal groups bind deterministically.
+        iframe_targets.sort_by(|a, b| a.url.cmp(&b.url));
+
+        let mut matched = Vec::new();
+        let mut available = iframe_targets;
+        for (entry_index, src) in placeholders {
+            let bind = available.iter().position(|t| urls_share_path(&t.url, &src));
+            if let Some(pos) = bind {
+                let target = available.remove(pos);
+                matched.push((entry_index, src, target.clone()));
+            }
+        }
+        tracing::debug!(matched = matched.len(), targets = ?matched.iter().map(|(_,_,t)| t.url.clone()).collect::<Vec<_>>(), "oopif: matched");
+        matched
+    }
+
     /// Cross-origin frame resolution: matches the snapshot's top-level
     /// iframe placeholders against live `type: "iframe"` CDP targets and
     /// walks inside each matched target. Returns the (possibly extended)
@@ -1627,57 +1696,7 @@ impl<L: EngineLauncher> ChaserBackend<L> {
         tab: &str,
         mut entries: Vec<ScriptedRef>,
     ) -> (Vec<ScriptedRef>, HashMap<String, FrameTarget>) {
-        // Collect top-level cross-origin placeholders in document order.
-        let placeholders: Vec<(usize, String)> = entries
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| {
-                // Placeholder rows: tag iframe, not clickable, top-level
-                // (`f<k>` parents are same-origin — already walked), and
-                // carrying their frame-list index.
-                !e.clickable && e.tag == "iframe" && e.frame.is_none() && e.iframe_index.is_some()
-            })
-            .map(|(i, e)| (i, e.text.clone().unwrap_or_default()))
-            .collect();
-        tracing::debug!(count = placeholders.len(), srcs = ?placeholders, "oopif: placeholders");
-        if placeholders.is_empty() {
-            return (entries, HashMap::new());
-        }
-
-        // Enumerate the live iframe targets. An enumeration failure is
-        // degraded (placeholder-only snapshot), not fatal. The state
-        // guard is held across the engine call: engine-handle methods
-        // never lock backend state, so there is no re-entrancy, and
-        // `Box<dyn EngineHandle>` cannot be cloned out of the engine.
-        let targets = {
-            let state = self.inner.lock().await;
-            let Some(engine) = state.engine.as_ref() else {
-                return (entries, HashMap::new());
-            };
-            match engine.handle.list_targets().await {
-                Ok(t) => t,
-                Err(e) => {
-                    tracing::debug!(tab, error = %e, "oopif: target enumeration failed");
-                    return (entries, HashMap::new());
-                }
-            }
-        };
-        let mut iframe_targets: Vec<&crate::surface::TargetInfo> =
-            targets.iter().filter(|t| t.r#type == "iframe").collect();
-        // Stable order: browser enumeration order is already creation
-        // order; sort by url so src-equal groups bind deterministically.
-        iframe_targets.sort_by(|a, b| a.url.cmp(&b.url));
-
-        let mut matched: Vec<(usize, String, &crate::surface::TargetInfo)> = Vec::new();
-        let mut available: Vec<&crate::surface::TargetInfo> = iframe_targets;
-        for (entry_index, src) in placeholders {
-            let bind = available.iter().position(|t| urls_share_path(&t.url, &src));
-            if let Some(pos) = bind {
-                let target = available.remove(pos);
-                matched.push((entry_index, src, target));
-            }
-        }
-        tracing::debug!(matched = matched.len(), targets = ?matched.iter().map(|(_,_,t)| t.url.clone()).collect::<Vec<_>>(), "oopif: matched");
+        let matched = self.match_oopif_placeholders(tab, &entries).await;
         if matched.is_empty() {
             return (entries, HashMap::new());
         }
@@ -1720,10 +1739,8 @@ impl<L: EngineLauncher> ChaserBackend<L> {
                 continue;
             };
             // The in-frame walk: the same selector, iframe-local geometry.
-            let script = format!(
-                "(() => {{ const SEL = '{INTERACTIVE_SELECTOR}'; {} }})()",
-                OOPIF_WALK_TAIL
-            );
+            let script =
+                format!("(() => {{ const SEL = '{INTERACTIVE_SELECTOR}'; {OOPIF_WALK_TAIL} }})()");
             let rows = {
                 let frame_page = frame_page.clone();
                 match self
@@ -1870,23 +1887,17 @@ impl<L: EngineLauncher> ChaserBackend<L> {
             Some(serde_json::Value::String(encoded)) => {
                 serde_json::from_str::<serde_json::Value>(&encoded)
                     .ok()
-                    .map(|p| {
-                        (
-                            p.get("x").and_then(serde_json::Value::as_f64),
-                            p.get("y").and_then(serde_json::Value::as_f64),
-                        )
+                    .and_then(|p| match (p.get("x"), p.get("y")) {
+                        (Some(x), Some(y)) => Some((x.as_f64()?, y.as_f64()?)),
+                        _ => None,
                     })
-                    .unwrap_or((None, None))
             }
-            _ => (None, None),
+            _ => None,
         };
-        let (x, y) = match center {
-            (Some(x), Some(y)) => (x, y),
-            _ => {
-                return Err(BackendError::StaleRef(format!(
-                    "{reference} (element moved inside the frame; re-snapshot)"
-                )));
-            }
+        let Some((x, y)) = center else {
+            return Err(BackendError::StaleRef(format!(
+                "{reference} (element moved inside the frame; re-snapshot)"
+            )));
         };
         tracing::debug!(x, y, "click_in_target_frame: dispatching on iframe session");
         let result = {
@@ -1898,12 +1909,6 @@ impl<L: EngineLauncher> ChaserBackend<L> {
         result
     }
 
-    /// Clicks a frame ref (`f<k>:e<n>`): re-resolve the iframe element
-    /// in the parent document (its viewport rect is the offset), run
-    /// the scroll/center script inside the child document (same-origin
-    /// access), sum the two, trusted-click at the viewport point. A
-    /// frame that navigated away or went cross-origin surfaces as a
-    /// stale ref — re-snapshot is the recovery.
     /// Clicks a frame ref (`f<k>:e<n>`): re-resolve the iframe element
     /// in the parent document (its viewport rect is the offset), run
     /// the scroll/center script inside the child document (same-origin
@@ -1954,25 +1959,19 @@ impl<L: EngineLauncher> ChaserBackend<L> {
             Some(serde_json::Value::String(encoded)) => {
                 serde_json::from_str::<serde_json::Value>(&encoded)
                     .ok()
-                    .map(|parsed| {
-                        (
-                            parsed.get("x").and_then(serde_json::Value::as_f64),
-                            parsed.get("y").and_then(serde_json::Value::as_f64),
-                        )
+                    .and_then(|parsed| match (parsed.get("x"), parsed.get("y")) {
+                        (Some(x), Some(y)) => Some((x.as_f64()?, y.as_f64()?)),
+                        _ => None,
                     })
-                    .unwrap_or((None, None))
             }
-            _ => (None, None),
+            _ => None,
         };
-        let (x, y) = match center {
-            (Some(x), Some(y)) => (x, y),
-            _ => {
-                // 'frame missing' / 'cross-origin' / 'missing' — all are
-                // "the snapshot is stale" for the agent's purposes.
-                return Err(BackendError::StaleRef(format!(
-                    "{reference} (frame changed or went cross-origin; re-snapshot)"
-                )));
-            }
+        let Some((x, y)) = center else {
+            // 'frame missing' / 'cross-origin' / 'missing' — all are
+            // "the snapshot is stale" for the agent's purposes.
+            return Err(BackendError::StaleRef(format!(
+                "{reference} (frame changed or went cross-origin; re-snapshot)"
+            )));
         };
         tracing::debug!(x, y, "click_in_frame: dispatching click_human");
         let result = {

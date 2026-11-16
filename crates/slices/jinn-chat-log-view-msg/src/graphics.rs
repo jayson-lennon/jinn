@@ -329,11 +329,12 @@ impl GraphicsState {
             // halfblocks picker against "kitty" and degrade permanently.
             self.forced_unavailable = {
                 let forced = match config.protocol {
-                    GraphicsProtocol::Auto => None,
+                    // Auto defers to detection and Halfblocks always draws;
+                    // both force nothing.
+                    GraphicsProtocol::Auto | GraphicsProtocol::Halfblocks => None,
                     GraphicsProtocol::Kitty => Some(ratatui_image::picker::ProtocolType::Kitty),
                     GraphicsProtocol::Sixel => Some(ratatui_image::picker::ProtocolType::Sixel),
                     GraphicsProtocol::ITerm2 => Some(ratatui_image::picker::ProtocolType::Iterm2),
-                    GraphicsProtocol::Halfblocks => None,
                 };
                 matches!(
                     (self.detected_protocol, forced),

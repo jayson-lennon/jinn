@@ -29,6 +29,10 @@ use std::sync::Arc;
 /// The `caps` parameter is the family-injection convention (every
 /// capability family takes it); this family's client needs nothing from
 /// it, so the parameter goes unread.
+#[expect(
+    clippy::too_many_lines,
+    reason = "eleven sibling registrations differing only in name and endpoint; a table-driven form would obscure each function's schema in macro indirection"
+)]
 pub fn inject(lua: &Lua, jinn: &Table, _caps: &Rc<Caps>) -> mlua::Result<()> {
     // The client is cheap to clone and owns no Chrome connection.
     // Script execution is single-threaded, so the client lives behind

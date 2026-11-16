@@ -12,7 +12,9 @@
 //! leaks a chromium instance.
 #![allow(
     clippy::too_many_lines,
-    reason = "manual spike harness, not shipped code"
+    clippy::print_stdout,
+    clippy::use_debug,
+    reason = "manual spike harness; stdout is the harness's report, and debug formats name the values"
 )]
 
 use error_stack::Report;
@@ -52,6 +54,18 @@ fn backstop_kill() {
         .output();
 }
 
+/// Graceful shutdown + backstop on every exit path, panic included.
+/// Lives at module scope so `run` reads as a straight recipe.
+struct Guard(Box<dyn jinn_browser::backend::EngineHandle>);
+impl Drop for Guard {
+    fn drop(&mut self) {
+        let inner = &mut self.0;
+        let _ = futures::executor::block_on(inner.shutdown());
+        backstop_kill();
+        println!("[guard] chromium shut down");
+    }
+}
+
 #[cfg(feature = "daemon")]
 async fn run() -> Result<(), SpikeError> {
     use jinn_browser::backend::{ChaserLauncher, EngineLauncher};
@@ -63,8 +77,7 @@ async fn run() -> Result<(), SpikeError> {
     let candidates: &[&str] = &["chromium", "chromium-browser", "google-chrome"];
     let executable = jinn_common::binary_detect::resolve_browser_binary(&probe, candidates)
         .ok_or(SpikeError::NoBinary)?
-        .into_inner()
-        .to_path_buf();
+        .into_inner();
 
     println!("binary: {}", executable.display());
 
@@ -80,20 +93,9 @@ async fn run() -> Result<(), SpikeError> {
     let handle = live.handle;
     let _death = live.death;
 
-    // The guard: graceful shutdown + backstop on every exit path, panic
-    // included.
-    struct Guard(Box<dyn jinn_browser::backend::EngineHandle>);
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            let inner = &mut self.0;
-            let _ = futures::executor::block_on(inner.shutdown());
-            backstop_kill();
-            println!("[guard] chromium shut down");
-        }
-    }
-    let _guard = Guard(handle);
+    let guard = Guard(handle);
 
-    let (target_id, page) = _guard
+    let (target_id, page) = guard
         .0
         .new_page("https://www.bbc.com/news".to_owned())
         .await
@@ -127,7 +129,7 @@ async fn run() -> Result<(), SpikeError> {
         let id = t.get("id").and_then(|v| v.as_str()).unwrap_or("");
         if ty == "iframe" {
             let head: String = url.chars().take(70).collect();
-            println!("iframe target: {} {head}", id);
+            println!("iframe target: {id} {head}");
             if url.contains("privacy-mgmt") {
                 found = Some(id.to_owned());
             }
@@ -143,7 +145,7 @@ async fn run() -> Result<(), SpikeError> {
     let iframe_target = chaser_oxide::cdp::browser_protocol::target::TargetId::from(iframe_id);
     let mut iframe_page = None;
     for attempt in 0..20 {
-        match _guard.0.get_page(&iframe_target).await {
+        match guard.0.get_page(&iframe_target).await {
             Ok(p) => {
                 println!("get_page(iframe) succeeded on attempt {attempt}");
                 iframe_page = Some(p);
@@ -191,8 +193,8 @@ async fn run() -> Result<(), SpikeError> {
     };
     let v: serde_json::Value =
         serde_json::from_str(encoded).map_err(|e| SpikeError::Other(e.to_string()))?;
-    let x = v.get("x").and_then(|v| v.as_f64());
-    let y = v.get("y").and_then(|v| v.as_f64());
+    let x = v.get("x").and_then(serde_json::Value::as_f64);
+    let y = v.get("y").and_then(serde_json::Value::as_f64);
     let (Some(x), Some(y)) = (x, y) else {
         return Err(SpikeError::Other(format!(
             "button probe had no coords: {encoded}"

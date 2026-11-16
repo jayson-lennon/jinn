@@ -18,7 +18,7 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    tokio::spawn(async move { while let Some(_) = handler.next().await {} });
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
 
     // Create page and apply native profile (reads actual Chrome version via CDP,
     // detects host OS and RAM — no hardcoded Windows/version spoofing)
