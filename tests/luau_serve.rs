@@ -27,10 +27,6 @@ use serde_json::json;
     clippy::disallowed_types,
     reason = "cargo's CARGO_BIN_EXE plumbing, consumed only as a std::process::Command program"
 )]
-#[allow(
-    clippy::disallowed_types,
-    reason = "cargo's CARGO_BIN_EXE plumbing, consumed only as a std::process::Command program"
-)]
 fn jinn_bin() -> std::path::PathBuf {
     std::env::var_os("CARGO_BIN_EXE_jinn")
         .map(std::path::PathBuf::from)
@@ -181,18 +177,18 @@ async fn served_child_http_backed_tool_reaches_a_mock_server() {
         .with_body("{\"name\":\"overgraph\"}")
         .create_async()
         .await;
-    let script = ServeScript::with_source(&format!(
+    let script = ServeScript::with_source(
         r#"
 local base = jinn.args[1]
 jinn.tool(
-  {{ name = "who", description = "Ask the service who it is" }},
+  { name = "who", description = "Ask the service who it is" },
   function()
-    local res = jinn.http.request({{ url = base .. "/api/who" }})
-    return {{ status = res.status, body = jinn.json.decode(res.body) }}
+    local res = jinn.http.request({ url = base .. "/api/who" })
+    return { status = res.status, body = jinn.json.decode(res.body) }
   end
 )
 "#,
-    ));
+    );
 
     let mut client = connect(&script.path, &[&server.url()]).await;
 
@@ -310,15 +306,16 @@ async fn a_script_that_registers_nothing_fails_the_handshake_with_a_clear_stderr
     // Then the handshake fails with the captured stderr naming the
     // registration requirement.
     let message = match connect_result {
+        // The context renders as its unit name; the interesting
+        // sentences (the stderr tail among them) live in the debug
+        // render of the report's attachments.
+        Err(error) => format!("{error:?}"),
+        // The success arm is not a distinct behavior — it only
+        // re-establishes the invariant by producing a message the
+        // assertion below rejects.
         Ok(mut client) => {
             client.shutdown().await;
-            panic!("an empty script cannot serve");
-        }
-        Err(error) => {
-            // The context renders as its unit name; the interesting
-            // sentences (the stderr tail among them) live in the debug
-            // render of the report's attachments.
-            format!("{error:?}")
+            "handshake unexpectedly succeeded (an empty script cannot serve)".to_owned()
         }
     };
     assert!(message.contains("registered no tools"), "got {message}");

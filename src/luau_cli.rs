@@ -15,7 +15,72 @@
 
 use jinn_cli::cli::Commands;
 use jinn_cli::cli::LuauCommands;
+use jinn_luau::commands::CommandOutcome;
 use jinn_luau::Timeout;
+
+/// Resolves a script path argument the way every luau subcommand does:
+/// relative against the process cwd, tilde against home, with a failure
+/// mapped to the harness error naming the flag and the value.
+fn resolve_script_arg(
+    script: &std::path::Path,
+) -> Result<
+    marked_path::MarkedPathBuf<marked_path::Absolute>,
+    error_stack::Report<jinn_luau::LuauError>,
+> {
+    let home = jinn_kernel::AppPaths::default();
+    crate::cli_paths::resolve_cli_path("--script", script, home.home_dir()).map_err(|error| {
+        error_stack::Report::new(jinn_luau::LuauError::Harness {
+            sentence: format!("cannot resolve the script path `{}`: {error}", script.display()),
+        })
+    })
+}
+
+/// Flushes both streams and terminates the process with `code`.
+///
+/// The flushes are best-effort: the exit code, not the flush result, is
+/// the function's contract.
+#[expect(
+    clippy::exit,
+    reason = "the `jinn luau` subcommand IS the process: it terminates with the script's own code; no TUI ever starts"
+)]
+fn exit_flushing(code: i32) -> ! {
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+    let _ = std::io::Write::flush(&mut std::io::stderr());
+    std::process::exit(code);
+}
+
+/// Prints a successful [`CommandOutcome`] and terminates with its status.
+#[expect(
+    clippy::print_stdout,
+    reason = "outcome lines are the subcommand's stdout contract"
+)]
+fn exit_printing(outcome: &CommandOutcome) -> ! {
+    for line in &outcome.lines {
+        println!("{line}");
+    }
+    exit_flushing(outcome.status.0)
+}
+
+/// Prints one error sentence and terminates with the error's own code.
+#[expect(
+    clippy::print_stderr,
+    reason = "the one-sentence stderr render is the luau error path's contract"
+)]
+fn exit_with_error(report: &error_stack::Report<jinn_luau::LuauError>) -> ! {
+    let error = report.current_context();
+    eprintln!("{}", error.sentence());
+    exit_flushing(error.exit_code().0)
+}
+
+/// Prints one harness sentence and terminates with the harness code 2.
+#[expect(
+    clippy::print_stderr,
+    reason = "the one-sentence stderr render is the luau error path's contract"
+)]
+fn exit_harness(sentence: &str) -> ! {
+    eprintln!("{sentence}");
+    exit_flushing(2)
+}
 
 /// Runs the `jinn luau` subcommand and terminates the process with the
 /// mapped exit code. Never returns.
@@ -23,12 +88,6 @@ use jinn_luau::Timeout;
 /// Called from `prepare` before any config read; every failure prints one
 /// sentence to stderr (`LuauError::sentence`) and exits with
 /// [`jinn_luau::LuauError::exit_code`].
-#[expect(
-    clippy::print_stdout,
-    clippy::print_stderr,
-    clippy::exit,
-    reason = "the `jinn luau` subcommand IS the process: it prints its outcome and exits with the script's own code; no TUI ever starts"
-)]
 pub fn run(command: &Commands) -> ! {
     let Commands::Luau {
         eval,
@@ -39,9 +98,7 @@ pub fn run(command: &Commands) -> ! {
         // The prepare() intercept pattern-matches Commands::Luau before
         // calling here, so any other variant is a wiring bug; exit cleanly
         // as harness error 2 rather than panicking.
-        eprintln!("jinn luau called with a non-luau command");
-        let _ = std::io::Write::flush(&mut std::io::stderr());
-        std::process::exit(2);
+        exit_harness("jinn luau called with a non-luau command");
     };
 
     let spec = timeout.map_or(Timeout::Default, |secs| {
@@ -56,117 +113,45 @@ pub fn run(command: &Commands) -> ! {
     // (success = exit 0) or fails setup (error path below). It never
     // produces a CommandOutcome.
     if let Some(LuauCommands::Serve { script, args }) = subcommand {
-        let home = jinn_kernel::AppPaths::default();
-        let resolved = crate::cli_paths::resolve_cli_path("--script", script, home.home_dir())
-            .map_err(|error| {
-                error_stack::Report::new(jinn_luau::LuauError::Harness {
-                    sentence: format!(
-                        "cannot resolve the script path `{}`: {error}",
-                        script.display()
-                    ),
-                })
-            });
-        match resolved {
-            Ok(path) => match jinn_luau::serve(&path.into_inner(), args.clone(), spec) {
-                Ok(()) => {
-                    let _ = std::io::Write::flush(&mut std::io::stdout());
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
-                    std::process::exit(0);
-                }
-                Err(report) => {
-                    let error = report.current_context();
-                    eprintln!("{}", error.sentence());
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
-                    std::process::exit(error.exit_code().0);
-                }
-            },
-            Err(report) => {
-                let error = report.current_context();
-                eprintln!("{}", error.sentence());
-                let _ = std::io::Write::flush(&mut std::io::stderr());
-                std::process::exit(error.exit_code().0);
-            }
+        match resolve_script_arg(script)
+            .and_then(|path| jinn_luau::serve(&path.into_inner(), args.clone(), spec))
+        {
+            Ok(()) => exit_flushing(0),
+            Err(report) => exit_with_error(&report),
         }
     }
 
     let outcome = match subcommand {
-        Some(LuauCommands::Run { script, args }) => {
-            // Resolve to the typed owning form here (the CLI boundary) with
-            // the shared `--log-file` rules: relative against the process
-            // cwd, tilde against home; a resolution failure is the harness
-            // error path below.
-            let home = jinn_kernel::AppPaths::default();
-            let resolved = crate::cli_paths::resolve_cli_path("--script", script, home.home_dir())
-                .map_err(|error| {
-                    error_stack::Report::new(jinn_luau::LuauError::Harness {
-                        sentence: format!(
-                            "cannot resolve the script path `{}`: {error}",
-                            script.display()
-                        ),
-                    })
-                });
-            match resolved {
-                Ok(path) => jinn_luau::run(&jinn_luau::RunMode::Script(path), args.clone(), spec),
-                Err(report) => Err(report),
-            }
-        }
-        Some(LuauCommands::Check { scripts }) => {
-            let home = jinn_kernel::AppPaths::default();
-            let resolved: Result<Vec<_>, _> = scripts
-                .iter()
-                .map(|script| {
-                    crate::cli_paths::resolve_cli_path("--script", script, home.home_dir())
-                })
-                .collect();
-            match resolved {
-                Ok(paths) => jinn_luau::check(&paths),
-                Err(error) => Err(error_stack::Report::new(jinn_luau::LuauError::Harness {
-                    sentence: format!("cannot resolve a script path: {error}"),
-                })),
-            }
-        }
+        Some(LuauCommands::Run { script, args }) => resolve_script_arg(script).and_then(|path| {
+            jinn_luau::run(&jinn_luau::RunMode::Script(path), args.clone(), spec)
+        }),
+        Some(LuauCommands::Check { scripts }) => scripts
+            .iter()
+            .map(|script| resolve_script_arg(script))
+            .collect::<Result<Vec<_>, _>>()
+            .and_then(|paths| jinn_luau::check(&paths)),
         Some(LuauCommands::Version) => {
-            let outcome = jinn_luau::version(env!("CARGO_PKG_VERSION"));
-            for line in &outcome.lines {
-                println!("{line}");
-            }
-            let _ = std::io::Write::flush(&mut std::io::stdout());
-            std::process::exit(outcome.status.0);
+            exit_printing(&jinn_luau::version(env!("CARGO_PKG_VERSION")));
         }
         // The clap conflict group makes --eval + subcommand unparseable;
         // reaching this arm with both set is impossible, so eval only
         // runs when no subcommand exists at all.
         None => match eval {
             Some(source) => jinn_luau::eval(source.clone(), spec),
-            None => {
-                eprintln!(
-                    "nothing to run: pass a script (`jinn luau run <script>`), --eval '<code>', or a subcommand"
-                );
-                std::process::exit(2);
-            }
+            None => exit_harness(
+                "nothing to run: pass a script (`jinn luau run <script>`), --eval '<code>', or a subcommand",
+            ),
         },
         // Serve exited on its own path above; this arm exists only to
         // keep the match exhaustive.
         Some(LuauCommands::Serve { .. }) => {
-            eprintln!("jinn luau serve handled on its own exit path (a wiring bug)");
-            std::process::exit(2);
+            exit_harness("jinn luau serve handled on its own exit path (a wiring bug)");
         }
     };
 
     match outcome {
-        Ok(outcome) => {
-            for line in &outcome.lines {
-                println!("{line}");
-            }
-            let _ = std::io::Write::flush(&mut std::io::stdout());
-            std::process::exit(outcome.status.0);
-        }
-        Err(report) => {
-            let error = report.current_context();
-            eprintln!("{}", error.sentence());
-            let _ = std::io::Write::flush(&mut std::io::stderr());
-            std::process::exit(error.exit_code().0);
-        }
+        Ok(outcome) => exit_printing(&outcome),
+        Err(report) => exit_with_error(&report),
     }
 }
 
@@ -230,7 +215,7 @@ mod tests {
 
     #[rstest::rstest]
     #[test]
-    #[allow(
+    #[expect(
         clippy::disallowed_types,
         reason = "argv-shaped fixture strings at the resolve seam; the owned PathBuf never leaves the test"
     )]
@@ -264,7 +249,7 @@ mod tests {
 
         // Then the failure is the harness error naming the path, which
         // the intercept's error path prints and exits 2 on.
-        let report = report.expect_err("a failed cwd read cannot resolve");
+        let report = report.unwrap_err();
         let error = report.current_context();
         assert!(matches!(error, jinn_luau::LuauError::Harness { .. }));
         assert!(
