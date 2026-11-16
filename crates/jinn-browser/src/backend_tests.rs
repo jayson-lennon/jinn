@@ -1029,3 +1029,24 @@ fn a_script_with_return_wraps_but_a_bare_expression_does_not() {
     assert!(crate::backend::script_looks_like_statements(statement));
     assert!(!crate::backend::script_looks_like_statements(expression));
 }
+
+#[rstest::rstest]
+#[test]
+fn the_iife_tail_detector_recognizes_iife_and_rejects_plain_statements() {
+    // Given the shapes agents actually send.
+    let iife_block = "(() => { return 1 + 1; })()";
+    let iife_with_string = "(() => { const s = \"})()\"; return s.length; })()";
+    let statements = "const a = 1;\nreturn a";
+
+    // Then IIFE tails are detected...
+    assert!(
+        crate::backend::script_ends_with_iife_call(iife_block),
+        "must detect plain block-body IIFE"
+    );
+    assert!(
+        crate::backend::script_ends_with_iife_call(iife_with_string),
+        "must detect IIFE containing a string with the tail inside"
+    );
+    // ...and plain statement scripts are not.
+    assert!(!crate::backend::script_ends_with_iife_call(statements));
+}

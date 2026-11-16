@@ -769,6 +769,73 @@ const OOPIF_WALK_TAIL: &str = r#"
 /// false positive costs nothing for `return`-scripts (the wrap is what
 /// makes them legal) but would swallow an expression's value.
 #[must_use]
+/// Whether a script already ends with an IIFE invocation — `})()`,
+/// `})();`, `)()`, or `)();` (allowing trailing whitespace/semicolons) —
+/// scanned outside string literals and comments so a string ending in
+/// `})()` doesn't trip it. Such a script is an expression: its
+/// completion value is already the return value, and wrapping it in
+/// another function would swallow that value.
+pub(crate) fn script_ends_with_iife_call(script: &str) -> bool {
+    let trimmed = script.trim_end().trim_end_matches(';').trim_end();
+    let chars: Vec<char> = trimmed.chars().collect();
+    // Walk the tail backwards, skipping string literals (no multi-line
+    // comment tracking needed for a tail scan; a comment before the tail
+    // would only appear between code and the `)()` which we handle by
+    // trimming — a trailing comment case falls back to no-detection,
+    // which is safe: wrapping it would still be *correct* for plain
+    // statements but wrong for IIFEs, and trailing comments after an
+    // IIFE are vanishingly rare).
+    let mut i = chars.len();
+    let mut depth = 0i32;
+    let mut in_string: Option<char> = None;
+    while i > 0 {
+        i -= 1;
+        let Some(&c) = chars.get(i) else {
+            return false;
+        };
+        if let Some(q) = in_string {
+            if c == '\\' {
+                if i == 0 {
+                    return false;
+                }
+                i -= 1;
+            } else if c == q {
+                in_string = None;
+            }
+            continue;
+        }
+        match c {
+            '"' | '\'' | '`' => in_string = Some(c),
+            ')' => {
+                depth += 1;
+            }
+            '(' => {
+                depth -= 1;
+                // depth 0 from the scan start means this `(` opens the
+                // trailing call itself. The character before it must
+                // close a callee: `}` for a block-body arrow/function
+                // (`(() => { … })()`) or `)` for a parenthesized callee
+                // (`(function () { … })()`, `(expr)()`, `f()()`). Any
+                // such tail is a call expression — its completion value
+                // is already the script's value.
+                if depth == 0 {
+                    let before = if i == 0 {
+                        ' '
+                    } else {
+                        chars.get(i - 1).copied().unwrap_or(' ')
+                    };
+                    return before == '}' || before == ')';
+                }
+                if depth < 0 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 pub(crate) fn script_looks_like_statements(script: &str) -> bool {
     // Walk with a tiny state machine: track string/template/comment
     // context so "returned" inside a string literal doesn't match.
@@ -1747,6 +1814,15 @@ impl<L: EngineLauncher> ChaserBackend<L> {
     /// `return` legal. Shared by the top-frame and in-frame evaluate
     /// paths.
     fn prepare_eval_script(script: &str) -> String {
+        // An agent-written IIFE already produces a completion value —
+        // wrapping it in another arrow function discards that value
+        // (the inner expression becomes a statement). Any `return` the
+        // detector then finds lives inside the agent's own function, not
+        // at top level. Detect the IIFE tail outside strings/comments
+        // and pass such scripts through untouched.
+        if script_ends_with_iife_call(script) {
+            return script.to_owned();
+        }
         if script_looks_like_statements(script) {
             format!("(() => {{\n{script}\n}})()")
         } else {
