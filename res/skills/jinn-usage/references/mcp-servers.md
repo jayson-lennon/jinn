@@ -178,6 +178,25 @@ Input is stealth-tuned (trusted-input CDP paths, no automation flags,
 no `Runtime.enable`/`Network.enable`), so logged-in sites treat it like
 a normal user window.
 
+### Lua MCP servers
+
+Any plain Lua file can be an MCP server: point a `[mcp.x]` entry at
+`jinn luau serve` and the script's `jinn.tool` registrations become the
+server's tools. Nothing new to configure — same token expansion, same picker
+toggle, same `<c-r>` restart:
+
+```toml
+[mcp.foomart]
+command = "<jinn>"
+args = ["luau", "serve", "<session_cwd>/foomart.lua"]
+auto_enable = false
+```
+
+The script, the `jinn.tool` signature, and the serve-mode rules (per-call
+budget, poison-after-wedge, stderr as the log channel) are documented in
+`luau.md` under "Serving MCP tools from Lua". Diagnostics a tool `print`s
+land in the captured stderr tail this reference's `<c-t>` preview shows.
+
 ## Enable for a session
 
 Servers are **off by default** per session. The choice persists with the

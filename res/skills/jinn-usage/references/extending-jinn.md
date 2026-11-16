@@ -148,6 +148,12 @@ command = "npx"
 args = ["-y", "@acme/video-editor-mcp"]
 ```
 
+**The fastest route for a jinn-only tool is Lua**: one plain Lua file with
+`jinn.tool` registrations, served by the `jinn luau serve` subcommand — no
+SDK, no build step, no node. See `luau.md` under "Serving MCP tools from
+Lua". The TypeScript route above stays the choice when the server must also
+work with other MCP clients or needs npm dependencies.
+
 **Say this to the user once:** the model calls only what the server
 exposes, and an MCP server is arbitrary code the user chooses to run;
 security is the user's call. See the README's Security section.
