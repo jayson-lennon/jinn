@@ -21,12 +21,20 @@ marked-path = { workspace = true }
 # entry cannot feed a non-test module path cleanly here; a normal dependency
 # costs nothing on top of reqwest's graph.
 rustls = { workspace = true }
+# `jinn luau serve`: the rmcp stdio server handler + transport, and the
+# runtime its futures run on. Both already ride the jinn binary through
+# the other MCP crates — no new external graph.
+rmcp = { workspace = true, features = ["server", "transport-io"] }
+tokio = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
 jinn-testutil = { workspace = true }
 jinn-common = { workspace = true }
 mockito = { workspace = true }
+# The lib tests' rustls-provider hook (see src/lib.rs).
+ctor = "0.8"
 
 [lints]
 workspace = true

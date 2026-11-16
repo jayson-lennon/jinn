@@ -27,11 +27,13 @@
 //! Entry points: [`run`] executes a script file or an eval string and maps
 //! the outcome to an exit code; [`check`] syntax-checks files through the
 //! vendored compiler without executing them; [`version`] reports the jinn
-//! and vendored Luau versions.
+//! and vendored Luau versions; [`serve`] runs a script's `jinn.tool`
+//! registrations as an MCP server over stdio until the client disconnects.
 
 pub mod caps;
 pub mod commands;
 pub mod runtime;
+pub mod serve;
 
 use std::path::Path;
 
@@ -40,6 +42,7 @@ use wherror::Error;
 
 pub use commands::RunMode;
 pub use commands::{check, eval, run, version};
+pub use serve::serve;
 
 /// Installs the process-default rustls crypto provider (ring), no-op when
 /// another installer won the race.
@@ -52,6 +55,16 @@ pub use commands::{check, eval, run, version};
 /// installer instead of re-deriving it.
 pub fn install_crypto_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
+/// Installs the rustls crypto provider in this crate's test binary.
+/// reqwest is built with `rustls-no-provider`, so without a process-wide
+/// default every `Caps::new` panics at construction. Test binaries never
+/// run `main()`, hence this hook.
+#[cfg(test)]
+#[ctor::ctor]
+fn install_rustls_provider_for_tests() {
+    install_crypto_provider();
 }
 
 /// How a luau subcommand failed before or during execution.

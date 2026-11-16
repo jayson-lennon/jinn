@@ -243,8 +243,9 @@ pub fn version(jinn_version: &str) -> CommandOutcome {
 ///
 /// The timeout sentinel (raised by the VM interrupt) maps to the timeout
 /// variant; syntax, memory, and runtime errors map to their own variants;
-/// anything else is harness-side.
-fn script_error(chunk: &str, budget_secs: u64, error: MluaError) -> Report<LuauError> {
+/// anything else is harness-side. Public so serve mode (which executes
+/// the same chunks) maps through the identical vocabulary.
+pub(crate) fn script_error(chunk: &str, budget_secs: u64, error: MluaError) -> Report<LuauError> {
     match error {
         MluaError::RuntimeError(message) if message.contains(TIMEOUT_SENTINEL) => {
             Report::new(LuauError::Timeout { budget_secs })
