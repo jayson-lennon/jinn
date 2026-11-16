@@ -105,14 +105,27 @@ jinn.tool(
 ```
 
 Point a `[mcp.x]` entry at it (see `mcp-servers.md`) and toggle it in the MCP
-picker like any other server:
+picker like any other server. Save reusable scripts — especially serve scripts,
+since a served script is an MCP server every session can enable — under the
+universal scripts directory, `~/.local/share/jinn/scripts`, and reference them
+with the `<scripts>` token so the entry works from any session in any working
+directory (`<session_cwd>` remains available for scripts you want pinned to one
+session's tree):
 
 ```toml
 [mcp.foomart]
 command = "<jinn>"
-args = ["luau", "serve", "<session_cwd>/foomart.lua"]
+args = ["luau", "serve", "<scripts>/foomart.lua"]
 auto_enable = false
 ```
+
+The scripts directory is **universal storage** — nothing in `jinn luau` checks
+or restricts what lives there. `jinn luau run <scripts>/summarize.luau` works
+by plain path; serve mode is simply where universality pays, because a served
+script becomes a cross-session MCP server rather than a one-off run. Keep loose
+single files at the top, or one subdirectory per multi-file script — a script
+`require`s modules rooted at its own directory, so subdirectories keep two
+scripts' `util.luau` from colliding.
 
 The `input` map makes every field required; a table with a top-level `type` or
 `properties` key passes through verbatim as a raw JSON schema (the escape

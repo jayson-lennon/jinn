@@ -1,4 +1,5 @@
-//! `<session_cwd>` token and env-expansion tests for the MCP connect path.
+//! `<session_cwd>`/`<scripts>` token and env-expansion tests for the MCP
+//! connect path.
 //!
 //! Proves the observable contract at the connect boundary:
 //!
@@ -7,10 +8,13 @@
 //!   literal in the command but env values pass through unexpanded.
 //! - A per-session env value referencing an unresolvable `${VAR}` aborts
 //!   resolution naming the variable (no value leaks).
-//! - A **singleton** entry referencing the token (args or env values)
-//!   refuses to connect with an error naming the conflict — the refusal
-//!   fires before any spawn attempt, and a per-session entry with the
-//!   same token fails at spawn instead (the legitimate shape).
+//! - A **singleton** entry referencing `<session_cwd>` (args or env
+//!   values) refuses to connect with an error naming the conflict — the
+//!   refusal fires before any spawn attempt, and a per-session entry with
+//!   the same token fails at spawn instead (the legitimate shape).
+//! - The `<scripts>` token expands in args and env values regardless of
+//!   spawn shape (singleton or per-session, with or without a cwd) and
+//!   coexists with the other tokens — it never arms the singleton refusal.
 
 #![allow(
     clippy::expect_used,
@@ -39,6 +43,17 @@ fn cwd(name: &str) -> MarkedPathBuf<Absolute> {
     MarkedPathBuf::<Absolute>::new(path).expect("absolute cwd")
 }
 
+/// A fake absolute universal-scripts dir for `<scripts>`-token
+/// assertions, platform-shaped like [`cwd`].
+fn scripts_dir(name: &str) -> MarkedPathBuf<Absolute> {
+    let path = if cfg!(windows) {
+        format!(r"C:\data\jinn\scripts\{name}")
+    } else {
+        format!("/tmp/scripts/{name}")
+    };
+    MarkedPathBuf::<Absolute>::new(path).expect("absolute scripts dir")
+}
+
 // ── server_command: token expansion ─────────────────────────────────────
 
 #[rstest::rstest]
@@ -53,7 +68,7 @@ fn session_cwd_token_expands_in_args() {
     };
 
     // When building the command.
-    let cmd = server_command(&config, Some(&session_cwd));
+    let cmd = server_command(&config, Some(&session_cwd), &scripts_dir("a"));
 
     // Then the arg carries the absolute session cwd.
     assert_eq!(
@@ -74,7 +89,7 @@ fn jinn_only_entries_are_untouched_by_the_session_cwd_expansion() {
     };
 
     // When building the command.
-    let cmd = server_command(&config, Some(&session_cwd));
+    let cmd = server_command(&config, Some(&session_cwd), &scripts_dir("b"));
 
     // Then <jinn> expands and no cwd token was involved.
     let exe = std::env::current_exe().expect("test binary has an exe path");
@@ -96,7 +111,7 @@ fn none_cwd_leaves_the_token_literal_in_args() {
     };
 
     // When building the command.
-    let cmd = server_command(&config, None);
+    let cmd = server_command(&config, None, &scripts_dir("c"));
 
     // Then the token stays literal (the singleton refusal fires first on
     // the real path; this asserts the builder's own behavior).
@@ -119,7 +134,8 @@ async fn session_cwd_token_expands_in_env_values() {
     };
 
     // When resolving the env pairs.
-    let env = expand_server_env(&services, &server, Some(&session_cwd)).expect("expand");
+    let env = expand_server_env(&services, &server, Some(&session_cwd), &scripts_dir("d"))
+        .expect("expand");
 
     // Then the value carries the absolute session cwd.
     assert_eq!(
@@ -146,7 +162,7 @@ async fn env_token_unresolved_fails_naming_variable() {
     };
 
     // When resolving the env pairs.
-    let result = expand_server_env(&services, &server, None);
+    let result = expand_server_env(&services, &server, None, &scripts_dir("e"));
 
     // Then resolution fails naming the variable only — no value text leaks.
     let err = result.expect_err("unresolved");
@@ -176,7 +192,7 @@ async fn resolved_env_var_splices_into_env_value() {
     };
 
     // When resolving the env pairs.
-    let env = expand_server_env(&services, &server, None).expect("expand");
+    let env = expand_server_env(&services, &server, None, &scripts_dir("f")).expect("expand");
 
     // Then the seeded value is spliced in.
     assert_eq!(
@@ -271,5 +287,123 @@ async fn per_session_entry_with_token_attempts_the_spawn() {
     assert!(
         !rendered.contains("pin an absolute path"),
         "must not be the singleton refusal: {rendered}"
+    );
+}
+
+// ── <scripts> token: always resolvable, never refused ────────────────────
+
+#[rstest::rstest]
+#[test]
+fn scripts_token_expands_in_args_without_a_session_cwd() {
+    // Given a singleton-shaped config (no attached cwd) whose arg carries
+    // the <scripts> token.
+    let scripts = scripts_dir("foomart");
+    let config = jinn_preferences_config::schemas::mcp::McpServerConfig {
+        command: Some("<jinn>".to_owned()),
+        args: vec![
+            "luau".to_owned(),
+            "serve".to_owned(),
+            "<scripts>/foomart.lua".to_owned(),
+        ],
+        ..Default::default()
+    };
+
+    // When building the command with no cwd (the singleton spawn shape).
+    let cmd = server_command(&config, None, &scripts);
+
+    // Then the scripts token expands to the absolute scripts dir.
+    let exe = std::env::current_exe().expect("test binary has an exe path");
+    assert_eq!(cmd.program, exe.to_string_lossy());
+    assert_eq!(
+        cmd.args,
+        vec![
+            "luau".to_owned(),
+            "serve".to_owned(),
+            format!("{}/foomart.lua", scripts.to_string_lossy()),
+        ]
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn scripts_token_expands_in_env_values() {
+    // Given an env map whose value carries the <scripts> token.
+    let services = Services::new_fake().await;
+    let scripts = scripts_dir("envcase");
+    let server = jinn_preferences_config::schemas::mcp::McpServerConfig {
+        command: Some("echo".to_owned()),
+        env: BTreeMap::from([("SCRIPT_ROOT".to_owned(), "<scripts>/addons".to_owned())]),
+        ..Default::default()
+    };
+
+    // When resolving the env pairs.
+    let env = expand_server_env(&services, &server, None, &scripts).expect("expand");
+
+    // Then the value carries the absolute scripts dir.
+    assert_eq!(
+        env,
+        vec![(
+            "SCRIPT_ROOT".to_owned(),
+            format!("{}/addons", scripts.to_string_lossy())
+        )]
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn scripts_token_coexists_with_the_other_tokens() {
+    // Given one config carrying all three tokens and both paths attached.
+    let session_cwd = cwd("coexist");
+    let scripts = scripts_dir("coexist");
+    let config = jinn_preferences_config::schemas::mcp::McpServerConfig {
+        command: Some("<jinn>".to_owned()),
+        args: vec!["<session_cwd>:<scripts>".to_owned()],
+        ..Default::default()
+    };
+
+    // When building the command.
+    let cmd = server_command(&config, Some(&session_cwd), &scripts);
+
+    // Then each token expands to its own path, independently.
+    assert_eq!(
+        cmd.args,
+        vec![format!(
+            "{}:{}",
+            session_cwd.to_string_lossy(),
+            scripts.to_string_lossy()
+        )]
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn singleton_with_scripts_token_attempts_the_spawn() {
+    // Given a singleton entry whose arg carries only the <scripts> token
+    // and no session cwd — the shape the <session_cwd> refusal targets.
+    let services = Services::new_fake().await;
+    let server = jinn_preferences_config::schemas::mcp::McpServerConfig {
+        singleton: true,
+        command: Some("definitely-not-a-real-binary-xyzzy".to_owned()),
+        args: vec!["<scripts>/foomart.lua".to_owned()],
+        ..Default::default()
+    };
+
+    // When connecting.
+    let result = connect_for_transport(&services, &server, None).await;
+
+    // Then it fails at spawn (binary missing), not at the singleton
+    // refusal — the scripts dir is always resolvable, so the shape is
+    // legitimate.
+    let Err(err) = result else {
+        panic!("expected the spawn failure");
+    };
+    let rendered = format!("{err:?}");
+    assert!(
+        !rendered.contains("pin an absolute path"),
+        "must not be the singleton refusal: {rendered}"
+    );
+    assert!(
+        !rendered.contains("singleton server refuses"),
+        "must not refuse: {rendered}"
     );
 }

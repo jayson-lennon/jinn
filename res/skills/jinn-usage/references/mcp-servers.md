@@ -183,12 +183,16 @@ a normal user window.
 Any plain Lua file can be an MCP server: point a `[mcp.x]` entry at
 `jinn luau serve` and the script's `jinn.tool` registrations become the
 server's tools. Nothing new to configure — same token expansion, same picker
-toggle, same `<c-r>` restart:
+toggle, same `<c-r>` restart. Save reusable scripts under the universal
+scripts directory, `~/.local/share/jinn/scripts`, and reference them with the
+`<scripts>` token, which expands to that directory in `args` and env values
+and needs no session — it works on `singleton` and per-session entries alike
+(`<session_cwd>` remains for scripts pinned to one session's tree):
 
 ```toml
 [mcp.foomart]
 command = "<jinn>"
-args = ["luau", "serve", "<session_cwd>/foomart.lua"]
+args = ["luau", "serve", "<scripts>/foomart.lua"]
 auto_enable = false
 ```
 

@@ -48,14 +48,18 @@
 //!
 //! Each `tools/call` runs under a budget: the parent `--timeout` flag,
 //! defaulting to **60 seconds** in serve mode (`0` disables; the run
-//! default stays 30 because there the process *is* the script). A call
-//! the VM interrupt unwinds (pure Lua running long) is a clean tool
-//! error and serving continues. A call wedged inside a capability (the
-//! interrupt only fires on instruction ticks and cannot unwind a
-//! blocked `jinn.http`/`jinn.sleep`) is answered as a tool error at
-//! budget expiry, then **poisons the server**: the wedged VM cannot be
-//! trusted to answer anything, so every later call is refused, naming
-//! the restart path (`<c-r>` in the MCP picker).
+//! default stays 30 because there the process *is* the script). The
+//! handler's reply wait and the VM's interrupt measure one shared
+//! absolute deadline, so they cannot drift apart by a scheduling gap. A
+//! call the VM interrupt unwinds (pure Lua running long) is a clean tool
+//! error and serving continues — an unwind whose reply lands in the
+//! short grace drain just past expiry still counts as answered. A call
+//! wedged inside a capability (the interrupt only fires on instruction
+//! ticks and cannot unwind a blocked `jinn.http`/`jinn.sleep`) never
+//! replies at all: it is answered as a tool error at budget expiry, then
+//! **poisons the server** — the wedged VM cannot be trusted to answer
+//! anything, so every later call is refused, naming the restart path
+//! (`<c-r>` in the MCP picker).
 //!
 //! ## Error discipline
 //!
@@ -111,14 +115,30 @@ const DEFAULT_SERVE_BUDGET_SECS: u64 = 60;
 /// the poison path.
 const WEDGED_SENTINEL: &str = "\u{0}jinn-luau-serve-wedged\u{0}";
 
+/// How long the handler keeps draining past a shared-deadline expiry for
+/// the VM's budget-interrupt unwind to land.
+///
+/// The interrupt fires at the same absolute instant the handler's wait
+/// expires (one shared deadline carried in the request), so an
+/// interrupt-unwound call's reply trails expiry by microseconds — the
+/// unwind, the error render, the JSON encode. The grace drains that
+/// window: a reply within it proves the VM stayed responsive (a clean
+/// budget error, never a poison), while a call wedged inside a
+/// capability never replies at all. Far above unwind cost, far below the
+/// smallest capability wait a wedge could be hiding behind.
+const WEDGE_GRACE: Duration = Duration::from_millis(250);
+
 /// One in-flight tool dispatch, handler → VM thread.
 pub(crate) struct ToolCallRequest {
     /// The tool's registered name.
     pub tool: String,
     /// The call's arguments, JSON-encoded.
     pub arguments: String,
-    /// This call's budget; `None` when per-call budgeting is disabled.
-    pub budget: Option<Duration>,
+    /// The call's shared absolute deadline: the VM's budget interrupt
+    /// fires at it and the handler's reply wait expires at it, so the
+    /// two clocks cannot drift by a scheduling gap. `None` when
+    /// per-call budgeting is disabled.
+    pub deadline: Option<Instant>,
     /// The reply half, dropped on handler timeout (the poison signal).
     pub reply: mpsc::SyncSender<Result<String, String>>,
 }
@@ -454,9 +474,10 @@ fn vm_loop(
             continue;
         }
 
-        // Per-call budget interrupt, replacing the load-time one.
-        if let Some(budget) = request.budget {
-            let deadline = Instant::now() + budget;
+        // Per-call budget interrupt, replacing the load-time one. The
+        // deadline is the request's shared absolute instant — the same
+        // clock the handler's reply wait reads.
+        if let Some(deadline) = request.deadline {
             lua.set_interrupt(move |_lua| {
                 if Instant::now() >= deadline {
                     Err(mlua::Error::runtime(TIMEOUT_SENTINEL))
@@ -512,6 +533,35 @@ fn invoke_tool(
         .map_err(|error| format!("the tool's result is not JSON-encodable: {error}"))?;
     serde_json::to_string(&json)
         .map_err(|error| format!("cannot serialize the tool's result: {error}"))
+}
+
+/// Awaits the VM's reply for one dispatched call.
+///
+/// The wait is the shared deadline the request carries; on expiry the
+/// wait drains one extra [`WEDGE_GRACE`] — an interrupt-unwound call's
+/// reply trails expiry only by unwind cost, so one that lands in the
+/// grace is answered normally, while a call wedged inside a capability
+/// never replies at all. `Ok(reply)` means the VM answered; `Err` means
+/// it never did (the poison discriminator).
+fn wait_for_reply(
+    reply_rx: &mpsc::Receiver<Result<String, String>>,
+    deadline: Option<Instant>,
+) -> Result<String, String> {
+    match deadline {
+        Some(deadline) => {
+            let now = Instant::now();
+            let first_wait = deadline.saturating_duration_since(now);
+            if let Ok(reply) = reply_rx.recv_timeout(first_wait) {
+                return reply;
+            }
+            reply_rx
+                .recv_timeout(WEDGE_GRACE)
+                .unwrap_or_else(|_expired| Err(WEDGED_SENTINEL.to_owned()))
+        }
+        None => reply_rx
+            .recv()
+            .unwrap_or_else(|_vm_died| Err(WEDGED_SENTINEL.to_owned())),
+    }
 }
 
 /// Renders a handler-side Lua error, naming the budget when the
@@ -573,27 +623,23 @@ impl LuaServeServer {
         // no longer be trusted to answer anything.
         let dispatch = self.dispatch.clone();
         let tool_name_clone = tool.clone();
+        let deadline = budget.map(|b| Instant::now() + b);
         let result = tokio::task::spawn_blocking(move || -> Result<String, String> {
             let (reply_tx, reply_rx) = mpsc::sync_channel::<Result<String, String>>(1);
             dispatch
                 .send(ToolCallRequest {
                     tool: tool.clone(),
                     arguments,
-                    budget,
+                    deadline,
                     reply: reply_tx,
                 })
                 .map_err(|_dropped| "the serve VM is no longer running".to_owned())?;
             // One shape for both arms: the tool's reply, or the wedged
-            // marker (propagated through `?` into the closure's error).
-            let reply: String = match budget {
-                Some(budget) => reply_rx
-                    .recv_timeout(budget)
-                    .map_err(|_expired| WEDGED_SENTINEL.to_owned())??,
-                None => reply_rx
-                    .recv()
-                    .map_err(|_expired| WEDGED_SENTINEL.to_owned())??,
-            };
-            Ok(reply)
+            // marker. The wait reads the same shared deadline the VM's
+            // interrupt fires at; on expiry it drains WEDGE_GRACE for the
+            // unwind (never a poison), then gives up naming the wedged
+            // marker.
+            wait_for_reply(&reply_rx, deadline)
         })
         .await
         .unwrap_or_else(|error| Err(format!("serve dispatch task failed: {error}")));
@@ -612,8 +658,9 @@ impl LuaServeServer {
             Err(message) => {
                 let tool_name = tool_name_clone;
                 if message == WEDGED_SENTINEL {
-                    // No reply within budget: answer the tool error, then
-                    // refuse every later call.
+                    // No reply within the shared deadline plus the grace
+                    // drain: answer the tool error, then refuse every
+                    // later call.
                     tracing::warn!(tool = %tool_name, "luau tool call wedged past its budget; poisoning the server");
                     self.poisoned.store(true, Ordering::SeqCst);
                     return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
