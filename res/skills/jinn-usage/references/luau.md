@@ -16,29 +16,29 @@ not to contain hostile code.
 
 ## Commands
 
-| Command | What it does |
-| --- | --- |
-| `jinn luau run <script> [args…]` | Run a script file; trailing args become `jinn.args` |
+| Command                            | What it does                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `jinn luau run <script> [args…]`   | Run a script file; trailing args become `jinn.args`                                               |
 | `jinn luau serve <script> [args…]` | Serve the script's `jinn.tool` registrations as MCP tools over stdio until the client disconnects |
-| `jinn luau --eval '<code>'` | Evaluate a one-liner; its result prints |
-| `jinn luau check <script>…` | Syntax-check files without executing them |
-| `jinn luau version` | Print `jinn <version> (Luau <version>)` |
+| `jinn luau --eval '<code>'`        | Evaluate a one-liner; its result prints                                                           |
+| `jinn luau check <script>…`        | Syntax-check files without executing them                                                         |
+| `jinn luau version`                | Print `jinn <version> (Luau <version>)`                                                           |
 
 Flags (place them **before** the subcommand — `jinn luau --timeout 5 run s.luau`):
 
-| Flag | Meaning |
-| --- | --- |
+| Flag               | Meaning                                                                                                               |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | `--timeout <secs>` | Wall-clock budget; default 30. Under `serve` it is the **per-call** budget instead, default 60; `0` disables entirely |
-| `--eval <code>` | Evaluate a code string instead of running a file |
+| `--eval <code>`    | Evaluate a code string instead of running a file                                                                      |
 
 ## Exit codes
 
-| Code | Meaning |
-| --- | --- |
-| 0 | Success (or the script's own code — see below) |
-| 1 | The script raised (syntax, runtime, memory cap) or `check` found a syntax error |
-| 2 | Harness trouble (script path unreadable, no script given) |
-| 124 | The script exceeded its wall-clock budget (GNU timeout convention) |
+| Code | Meaning                                                                         |
+| ---- | ------------------------------------------------------------------------------- |
+| 0    | Success (or the script's own code — see below)                                  |
+| 1    | The script raised (syntax, runtime, memory cap) or `check` found a syntax error |
+| 2    | Harness trouble (script path unreadable, no script given)                       |
+| 124  | The script exceeded its wall-clock budget (GNU timeout convention)              |
 
 A script chooses its own exit code two ways: `jinn.exit(n)` exits immediately,
 and an integer returned from the main chunk becomes the process exit code.
@@ -50,18 +50,18 @@ Everything is plain strings unless noted — argv comes in as strings, files
 come back as strings. JSON is a library the script chooses (`jinn.json`), not
 a forced contract.
 
-| Family | Calls |
-| --- | --- |
-| args | `jinn.args` — 1-indexed array of the trailing argv after the script name |
-| stdio | `jinn.stdio.read()` (stdin to EOF), `jinn.stdio.eprint(s)` (stderr); `print` goes to stdout |
-| fs | `jinn.fs.read/write/exists/list_dir/remove(path)` — relative paths resolve against the process cwd |
-| env | `jinn.env.get(name)` (absent → nil), `jinn.env.set(name, value)` |
-| http | `jinn.http.request{url=…, method=…, headers={…}, body=…}` → `{status, headers, body}` |
-| proc | `jinn.proc.run{program=…, args={…}}` → `{status, stdout, stderr}` — no shell involved |
-| json | `jinn.json.encode/decode` — sequential 1..n tables are arrays; an empty table is `{}` |
-| toml | `jinn.toml.encode/decode` — a table containing nil errors (TOML has no null) |
-| time | `jinn.sleep(ms)`, `jinn.exit(code)` |
-| tool | `jinn.tool(spec, fn)` — register an MCP tool (serve mode only; under plain `run` it fails naming the serve subcommand) |
+| Family  | Calls                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| args    | `jinn.args` — 1-indexed array of the trailing argv after the script name                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| stdio   | `jinn.stdio.read()` (stdin to EOF), `jinn.stdio.eprint(s)` (stderr); `print` goes to stdout                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| fs      | `jinn.fs.read/write/exists/list_dir/remove(path)` — relative paths resolve against the process cwd                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| env     | `jinn.env.get(name)` (absent → nil), `jinn.env.set(name, value)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| http    | `jinn.http.request{url=…, method=…, headers={…}, body=…}` → `{status, headers, body}`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| proc    | `jinn.proc.run{program=…, args={…}}` → `{status, stdout, stderr}` — no shell involved                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| json    | `jinn.json.encode/decode` — sequential 1..n tables are arrays; an empty table is `{}`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| toml    | `jinn.toml.encode/decode` — a table containing nil errors (TOML has no null)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| time    | `jinn.sleep(ms)`, `jinn.exit(code)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| tool    | `jinn.tool(spec, fn)` — register an MCP tool (serve mode only; under plain `run` it fails naming the serve subcommand)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | browser | `jinn.browser.open_tab{url}/list_tabs()/navigate{tab,url}/snapshot{tab}/click{tab,ref}/click_at{tab,x,y}/type{tab,ref,text}/press{tab,key}/evaluate{tab,script}/screenshot{tab}→{path}/wait{tab,condition}/close_tab{tab}` — drives the shared browser daemon (same twelve-tool surface as the `browser` MCP server); every tool except `open_tab`/`list_tabs` requires the `tab` id; `snapshot` is a DOM-selector walk (not an accessibility tree), `evaluate` returns the script's last top-level expression value and passes IIFE-tailed scripts through unwrapped, and acting on consent banners prefers snapshot `click` refs over script-side `.click()` or screenshot-measured coordinates |
 
 `require("./module")` loads a sibling file (the `./` prefix is mandatory);
@@ -98,7 +98,7 @@ jinn.tool(
   { name = "search_products", description = "Search the shop",
     input = { query = "string" } },
   function(args)
-    local res = jinn.http.request{ url = "https://shop/search?q=" .. args.query }
+    local res = jinn.http.request{ url = "https://shop.foo/search?q=" .. args.query }
     return { results = jinn.json.decode(res.body) }  -- the returned table IS the result
   end
 )
