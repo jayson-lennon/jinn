@@ -12,8 +12,8 @@
 use serde::{Deserialize, Serialize};
 
 /// Default token threshold at which accumulated pruner context-override
-/// mutations flush. Default: 150 000.
-pub const DEFAULT_ACCUMULATION_THRESHOLD_TOKENS: u32 = 150_000;
+/// mutations flush. Default: 170 000.
+pub const DEFAULT_ACCUMULATION_THRESHOLD_TOKENS: u32 = 170_000;
 
 /// Default token threshold for the accumulation flush (serde default fn).
 fn default_accumulation_threshold_tokens() -> u32 {
@@ -31,25 +31,26 @@ const DEFAULT_REGEX_MIN_AGE: usize = 50;
 
 /// Default: edit-read strategy enabled (true).
 const DEFAULT_EDIT_READ_ENABLED: bool = true;
-/// Default: edit-read min-age (50).
-const DEFAULT_EDIT_READ_MIN_AGE: usize = 50;
+/// Default: edit-read min-age (100).
+const DEFAULT_EDIT_READ_MIN_AGE: usize = 100;
 
 /// Default: read-edit strategy enabled (true).
 const DEFAULT_READ_EDIT_ENABLED: bool = true;
-/// Default: read-edit min-age (50).
-const DEFAULT_READ_EDIT_MIN_AGE: usize = 50;
+/// Default: read-edit min-age (80).
+const DEFAULT_READ_EDIT_MIN_AGE: usize = 80;
 /// Default: read-edit threshold (2).
 const DEFAULT_READ_EDIT_THRESHOLD: usize = 2;
 
 /// Default: broken-edit strategy enabled (true).
 const DEFAULT_BROKEN_EDIT_ENABLED: bool = true;
-/// Default: broken-edit min-age (10).
-const DEFAULT_BROKEN_EDIT_MIN_AGE: usize = 10;
+/// Default: broken-edit min-age (30).
+const DEFAULT_BROKEN_EDIT_MIN_AGE: usize = 30;
 
 /// Default: todo strategy enabled (true).
 const DEFAULT_TODO_ENABLED: bool = true;
-/// Default: todo min-age (50).
-const DEFAULT_TODO_MIN_AGE: usize = 50;
+/// Default: todo min-age (0 — a todo call is prunable as soon as one entry
+/// follows it).
+const DEFAULT_TODO_MIN_AGE: usize = 0;
 /// Default: todo protect-latest (true).
 const DEFAULT_TODO_PROTECT_LATEST: bool = true;
 
@@ -57,20 +58,20 @@ const DEFAULT_TODO_PROTECT_LATEST: bool = true;
 const DEFAULT_DOUBLE_EDIT_MAX_FILE_EDITS: usize = 2;
 /// Default: double-edit strategy enabled (true).
 const DEFAULT_DOUBLE_EDIT_ENABLED: bool = true;
-/// Default: double-edit min-age (20).
-const DEFAULT_DOUBLE_EDIT_MIN_AGE: usize = 20;
+/// Default: double-edit min-age (40).
+const DEFAULT_DOUBLE_EDIT_MIN_AGE: usize = 40;
 
 /// Default: consecutive-reads keep-last (5).
 const DEFAULT_CONSECUTIVE_READS_KEEP_LAST: usize = 5;
 /// Default: consecutive-reads strategy enabled (true).
 const DEFAULT_CONSECUTIVE_READS_ENABLED: bool = true;
-/// Default: consecutive-reads min-age (80).
-const DEFAULT_CONSECUTIVE_READS_MIN_AGE: usize = 80;
+/// Default: consecutive-reads min-age (120).
+const DEFAULT_CONSECUTIVE_READS_MIN_AGE: usize = 120;
 
 /// Default: tool-age-window strategy enabled (true).
 const DEFAULT_TOOL_AGE_WINDOW_ENABLED: bool = true;
-/// Default: tool-age-window min-age (150).
-const DEFAULT_TOOL_AGE_WINDOW_MIN_AGE: usize = 150;
+/// Default: tool-age-window min-age (200).
+const DEFAULT_TOOL_AGE_WINDOW_MIN_AGE: usize = 200;
 
 /// Default: trivial-assistant strategy enabled (true).
 const DEFAULT_TRIVIAL_ASSISTANT_ENABLED: bool = true;
@@ -95,7 +96,7 @@ pub struct EditReadAutoPruneConfig {
     /// appear after an edit/write call before it may be pruned when
     /// a same-file read follows. Counts every entry, regardless of
     /// in-context status. Set to 0 to disable protection.
-    /// Default: 50.
+    /// Default: 100.
     #[serde(default = "default_edit_read_min_age")]
     pub min_age: usize,
 }
@@ -125,7 +126,7 @@ pub struct ReadEditAutoPruneConfig {
     /// read call+result pairs are protected from pruning.
     /// Counts every entry, regardless of in-context status.
     /// Set to 0 to disable protection.
-    /// Default: 50.
+    /// Default: 80.
     #[serde(default = "default_read_edit_min_age")]
     pub min_age: usize,
     /// Number of edit/write operations on the same file required before
@@ -212,13 +213,13 @@ impl Default for RegexAutoPruneConfig {
                     pattern: "cargo test".to_owned(),
                     tool_name: DEFAULT_REGEX_TOOL_NAME.to_owned(),
                     keep_last: 2,
-                    min_age: DEFAULT_REGEX_MIN_AGE,
+                    min_age: 100,
                 },
                 RegexPruneRule {
                     pattern: "cargo check".to_owned(),
                     tool_name: DEFAULT_REGEX_TOOL_NAME.to_owned(),
                     keep_last: 1,
-                    min_age: DEFAULT_REGEX_MIN_AGE,
+                    min_age: 100,
                 },
                 RegexPruneRule {
                     pattern: "cargo clippy".to_owned(),
@@ -245,7 +246,7 @@ pub struct BrokenEditAutoPruneConfig {
     /// appear after the failed edit ToolCall before the call+result
     /// pair may be pruned. Counts every entry, regardless of in-context
     /// status. Set to 0 to disable protection.
-    /// Default: 10.
+    /// Default: 30.
     #[serde(default = "default_broken_edit_min_age", alias = "min_tail_entries")]
     pub min_age: usize,
 }
@@ -283,7 +284,7 @@ pub struct DoubleEditAutoPruneConfig {
     /// appear after an edit/write call before it may be pruned.
     /// Counts every entry, regardless of in-context status.
     /// Set to 0 to disable protection (preserves pre-`min_age` behavior).
-    /// Default: 20.
+    /// Default: 40.
     #[serde(default = "default_double_edit_min_age")]
     pub min_age: usize,
 }
@@ -319,7 +320,7 @@ pub struct ConsecutiveReadsAutoPruneConfig {
     /// Number of most recent `read` tool call+result pairs to keep per file path.
     /// Older pairs are pruned when this limit is exceeded.
     /// Minimum 1 (clamped during worker construction).
-    /// Default: 3.
+    /// Default: 5.
     #[serde(default = "default_consecutive_reads_keep_last")]
     pub keep_last: usize,
     /// Minimum number of entries from the end of history within which
@@ -363,7 +364,7 @@ pub struct ToolAgeWindowAutoPruneConfig {
     /// `ToolCall`/`ToolResult` pairs are protected from pruning.
     /// Counts every entry, regardless of in-context status.
     /// Minimum 1 (clamped at worker construction).
-    /// Default: 100.
+    /// Default: 200.
     #[serde(default = "default_tool_age_window_min_age")]
     pub min_age: usize,
 }
@@ -445,7 +446,7 @@ pub struct TodoAutoPruneConfig {
     /// appear after a todo tool call before pruning may exclude the
     /// call+result pair. Counts every entry, regardless of in-context
     /// status. Set to 0 to disable protection.
-    /// Default: 50.
+    /// Default: 0.
     #[serde(default = "default_todo_min_age")]
     pub min_age: usize,
     /// Force-include the most recent todo call+result pair so other pruners
@@ -570,7 +571,7 @@ pub struct AutoPruneConfig {
     ///
     /// Pruner `SetContextOverride` mutations are held in a per-session buffer until
     /// their deduplicated token total reaches this value, reducing server-side
-    /// KV-cache rebuilds from frequent small prunes. Default: 10 000.
+    /// KV-cache rebuilds from frequent small prunes. Default: 170 000.
     #[serde(default = "default_accumulation_threshold_tokens")]
     pub accumulation_threshold_tokens: u32,
 }

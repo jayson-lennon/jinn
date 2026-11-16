@@ -134,7 +134,9 @@ protocol = "auto"
 # > Skill set initialization for new sessions. `deny` blocks the listed skills
 # > and permits everything else; `allow` permits _only_ the listed skills.
 # > Globs are supported.
-skill_filter = { mode = "deny", names = ["phased-task-loop"] }
+# > The deny list ships empty — add skill names here to block them for new
+# > sessions; this line is your starting point.
+skill_filter = { mode = "deny", names = [] }
 
 # ###########################################################################
 # Canvas

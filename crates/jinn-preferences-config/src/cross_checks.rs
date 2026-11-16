@@ -178,7 +178,7 @@ mod tests {
             "the guidance message must name the consequence: {detail}"
         );
         assert!(
-            detail.contains("100000") && detail.contains("150000"),
+            detail.contains("100000") && detail.contains("170000"),
             "the message must name both values: {detail}"
         );
     }

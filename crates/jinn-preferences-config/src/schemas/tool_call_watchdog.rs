@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Default maximum tolerated failures before the watchdog trips.
-const DEFAULT_MAX_FAILURES: u8 = 4;
+const DEFAULT_MAX_FAILURES: u8 = 6;
 
 /// Tool-call-watchdog configuration.
 ///
@@ -21,7 +21,7 @@ const DEFAULT_MAX_FAILURES: u8 = 4;
 pub struct ToolCallWatchdogConfig {
     /// Consecutive tool failures tolerated before the watchdog cancels
     /// the stream. A successful tool result debits the count by one.
-    /// Default: 4.
+    /// Default: 6.
     #[serde(default = "default_max_failures")]
     pub max_failures: u8,
 }
@@ -95,8 +95,8 @@ mod tests {
         // When deserializing.
         let wrapper: Wrapper = toml::from_str("").expect("empty toml parses");
 
-        // Then the inherited default applies (4 failures).
-        assert_eq!(wrapper.tool_call_watchdog.max_failures, 4);
+        // Then the inherited default applies (6 failures).
+        assert_eq!(wrapper.tool_call_watchdog.max_failures, 6);
     }
 
     #[rstest::rstest]
