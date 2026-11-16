@@ -34,6 +34,11 @@ use crate::utils;
 mod argument;
 mod config;
 
+// chaser-oxide-jinn fork: `HeadlessMode` is exported alongside
+// `BrowserConfig` so the fork-invariant tests can pin the extension
+// strip's mode gate (fork patch 9) without reaching into a private module.
+pub use self::config::HeadlessMode;
+
 /// A [`Browser`] is created when chromiumoxide connects to a Chromium instance.
 #[derive(Debug)]
 pub struct Browser {
