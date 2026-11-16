@@ -34,6 +34,7 @@ mod tests {
     )]
 
     use super::*;
+    use crate::chat_log::EntryGraphics;
     use jinn_theme::default_theme;
 
     fn render_ctx() -> RenderContext {
@@ -46,7 +47,7 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
-            graphics: Default::default(),
+            graphics: EntryGraphics::default(),
             session_id: jinn_core_types::SessionId::new(),
         }
     }

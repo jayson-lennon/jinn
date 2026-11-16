@@ -89,6 +89,17 @@ The upstream live-browser tests (`tests/lib.rs` target) are untouched
 and are not run by jinn's suite; the jinn workspace's own test discipline
 never launches a real Chrome.
 
+## Lint policy
+
+The fork is jinn-maintained, so clippy warnings are fixed in-tree like
+any other workspace source — never silenced through this crate's lint
+table (which exists only to carve out jinn's workspace-only denies while
+keeping the vendored sources byte-comparable to the crates.io tarball).
+Fixes so far: the `while let Some(_) = handler.next().await` drain
+loops in three examples read `.is_some()`, `fork_invariants` drops a
+redundant `into_iter().map(Into::into)` round-trip, and
+`block-navigation`'s `is_navigation` collapses to a boolean expression.
+
 ## Launch requirements (jinn side)
 
 Real branded Google Chrome preferred (codec gating), headed — never

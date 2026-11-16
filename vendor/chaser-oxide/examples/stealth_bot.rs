@@ -14,7 +14,7 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    tokio::spawn(async move { while let Some(_) = handler.next().await {} });
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
 
     // CRITICAL: Create page with about:blank FIRST
     println!("Creating page...");

@@ -2,6 +2,14 @@
 //! its captured stderr in the failure the actor publishes, so the MCP
 //! picker can show why it died.
 
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::indexing_slicing,
+    reason = "test code"
+)]
+
 use crate::connection::acquire_client;
 use jinn_kernel::Services;
 use jinn_preferences_config::schemas::mcp::McpServerConfig;

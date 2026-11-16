@@ -82,6 +82,7 @@ mod tests {
     )]
 
     use super::*;
+    use crate::chat_log::EntryGraphics;
     use jinn_theme::default_theme;
 
     fn citation(title: &str, url: &str) -> jinn_provider::UrlCitation {
@@ -113,7 +114,7 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
-            graphics: Default::default(),
+            graphics: EntryGraphics::default(),
             session_id: jinn_core_types::SessionId::new(),
         };
 
@@ -146,7 +147,7 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
-            graphics: Default::default(),
+            graphics: EntryGraphics::default(),
             session_id: jinn_core_types::SessionId::new(),
         };
 
@@ -178,7 +179,7 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
-            graphics: Default::default(),
+            graphics: EntryGraphics::default(),
             session_id: jinn_core_types::SessionId::new(),
         };
         let citations = [
@@ -210,7 +211,7 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
-            graphics: Default::default(),
+            graphics: EntryGraphics::default(),
             session_id: jinn_core_types::SessionId::new(),
         };
         let theme = default_theme();
@@ -238,7 +239,7 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
-            graphics: Default::default(),
+            graphics: EntryGraphics::default(),
             session_id: jinn_core_types::SessionId::new(),
         };
         let theme = default_theme();
@@ -265,7 +266,7 @@ mod tests {
             paired_status: None,
             is_streaming: false,
             is_waiting_on_subagent: false,
-            graphics: Default::default(),
+            graphics: EntryGraphics::default(),
             session_id: jinn_core_types::SessionId::new(),
         };
         let theme = default_theme();
