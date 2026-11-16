@@ -130,28 +130,37 @@ auto_enable = false
 ```
 
 Twelve tools for driving a real headed Chrome: `open_tab` (returns a tab
-id), `list_tabs`, `navigate`, `snapshot` (readable page tree with `e<n>`
-refs over the interactive elements — including same-origin iframe
-content as `f<k>:e<n>` refs and shadow-DOM content as ordinary refs;
-every `iframe` appears as a non-clickable `<iframe>` row with its id/src
-and rect center), `click` (by `tab` + `ref`), `click_at` (by `tab` +
-viewport CSS-px `x`/`y` — fallback for elements no ref names; prefer
-refs whenever a snapshot shows them; coordinates are clamped),
-`type`, `press` (key names like `"Enter"`, `"Tab"`), `evaluate` (stealth
-JS eval: the value of the script's **last top-level expression** is
-returned — statement-shaped scripts like `const x = …` return null, so
-end with an expression or a `return`; script exceptions surface as
-readable tool errors, never silent nulls; pass `frame = "g1"` to
-evaluate inside a cross-origin frame), `screenshot` (returns a saved
-PNG **path** — view it with the image-attachment built-in), `wait`
-(`"navigation"`, `"network_idle"`, `{text = "…"}`, or `{ms = n}`), and
-`close_tab`. **Every tool except `open_tab`/`list_tabs` requires the
-`tab` id** — there is no "whatever tab is live" fallback. Cross-origin
-iframes (consent banners, embedded widgets) appear as `[g1] <iframe>`
-rows with their own `g1:e1`-style refs — clickable/typable by ref like
-any top-frame element. Same-origin iframes carry `f<k>:e<n>` refs. A
-stale ref (frame navigated away or re-created) errors with a
-re-snapshot hint.
+id), `list_tabs`, `navigate`, `snapshot` (readable page tree — a
+plain DOM-selector walk, not an accessibility tree — with `e<n>` refs
+over the interactive elements, including same-origin iframe content as
+`f<k>:e<n>` refs and shadow-DOM content as ordinary refs; every
+`iframe` appears as a non-clickable `<iframe>` row with its id/src and
+rect center), `click` (by `tab` + `ref`), `click_at` (by `tab` +
+viewport CSS-px `x`/`y` — last resort; screenshot pixels only map 1:1
+to viewport coordinates when the image width equals `innerWidth`, so
+scaling guesses routinely miss — re-snapshot and use refs instead;
+coordinates are clamped), `type`, `press` (key names like `"Enter"`,
+`"Tab"`), `evaluate` (stealth JS eval: the value of the script's **last
+top-level expression** is returned — statement-shaped scripts like
+`const x = …` return null, so end with an expression or a `return`;
+scripts already ending in an IIFE call — a `})()` tail — are passed
+through unwrapped; script exceptions surface as readable tool errors,
+never silent nulls; pass `frame = "g1"` to evaluate inside a
+cross-origin frame; use evaluate to read the page and snapshot refs
+with `click` to act on it — script-side `.click()` is a synthetic DOM
+event, not trusted input, and some consent widgets ignore it),
+`screenshot` (returns a saved PNG **path** — view it with the
+image-attachment built-in), `wait` (`"navigation"`, `"network_idle"`,
+`{text = "…"}`, or `{ms = n}`), and `close_tab`. **Every tool except
+`open_tab`/`list_tabs` requires the `tab` id** — there is no "whatever
+tab is live" fallback. Cross-origin iframes (consent banners, embedded
+widgets) appear as `[g1] <iframe>` rows with their own `g1:e1`-style
+refs — clickable/typable by ref like any top-frame element. Same-origin
+iframes carry `f<k>:e<n>` refs. A stale ref (frame navigated away or
+re-created) errors with a re-snapshot hint. Overlays and consent
+banners often render after the initial load: if the user mentions
+something the snapshot doesn't show, re-snapshot before measuring or
+clicking.
 
 The Chrome window is owned by a separate **browser daemon** (`jinn
 browser daemon`), not by jinn or this server: the first tool call

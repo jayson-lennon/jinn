@@ -167,16 +167,19 @@ impl BrowserMcpServer {
     pub(crate) fn snapshot_tool() -> Tool {
         Tool::new(
             "snapshot",
-            "Capture a readable snapshot of a tab's page: an accessibility- \
-             oriented tree plus element refs (e1, e2, …) for every \
-             interactive element (links, buttons, inputs, selects, \
-             contenteditable, ARIA roles). Cross-origin iframes appear as \
-             [g1] <iframe> rows followed by their own refs (g1:e1, g1:e2, \
-             …) — consent banners and embedded widgets are clickable by \
-             ref like any top-frame element. Same-origin iframes use \
-             f1:e1-style refs. Pass a ref to click or type; refs are \
-             valid until the DOM changes — take a fresh snapshot when one \
-             goes stale.",
+            "Capture a readable snapshot of a tab's page: a plain DOM- \
+             selector tree (not an accessibility tree) plus element refs \
+             (e1, e2, …) for every interactive element (links, buttons, \
+             inputs, selects, contenteditable, ARIA roles), including \
+             shadow-DOM content. Cross-origin iframes appear as [g1] \
+             <iframe> rows followed by their own refs (g1:e1, g1:e2, …) — \
+             consent banners and embedded widgets are clickable by ref \
+             like any top-frame element. Same-origin iframes use f1:e1- \
+             style refs. Overlays and consent banners often render AFTER \
+             the initial page load: if the user mentions something you \
+             don't see, re-snapshot before measuring or clicking. Refs \
+             are valid until the DOM changes — when one goes stale, take \
+             a fresh snapshot.",
             Arc::new(to_schema(with_tab(json!({
                 "type": "object",
                 "properties": {},
@@ -211,9 +214,12 @@ impl BrowserMcpServer {
         Tool::new(
             "click_at",
             "Click at viewport CSS-pixel coordinates (trusted, human-paced \
-             input). Coordinates are clamped to the viewport. Fallback for \
-             elements no snapshot ref names — prefer refs (e/f/g refs) \
-             whenever a snapshot shows them.",
+             input). Coordinates are clamped to the viewport. Last resort: \
+             screenshot pixels map to viewport coordinates only 1:1 when \
+             the image width equals innerWidth — scaling guesses routinely \
+             miss. Prefer re-snapshotting (overlays appear late) and use \
+             refs (e/f/g) whenever a snapshot shows them; inside consent \
+             banners a g-ref always beats coordinates.",
             Arc::new(to_schema(with_tab(json!({
                 "type": "object",
                 "properties": {
@@ -287,7 +293,11 @@ impl BrowserMcpServer {
              `document.title` (its value is returned directly). Script \
              exceptions surface as tool errors naming the JS error. Pass \
              `frame` (`g1`, `g2`, … from the latest snapshot) to evaluate \
-             inside a cross-origin frame — e.g. a consent banner.",
+             inside a cross-origin frame — e.g. a consent banner. Use \
+             evaluate to READ the page; to act on it (dismiss banners, \
+             click buttons) prefer snapshot refs with `click` — script- \
+             side `.click()` is a synthetic DOM event, not trusted input, \
+             and some consent widgets ignore it.",
             Arc::new(to_schema(with_tab(json!({
                 "type": "object",
                 "properties": {
