@@ -386,7 +386,12 @@ impl BrowserConfig {
             builder.arg(Arg::value("remote-debugging-port", self.port));
         }
 
-        if self.extensions.is_empty() {
+        // chaser-oxide-jinn fork: only strip the extension surface when the
+        // launch is headless. Headed windows (the daemon's) keep whatever the
+        // persistent profile registered — a missing extension surface is
+        // itself a bot tell, and Chromium has no inverse flag, so gating here
+        // is the only way a caller can opt out of the strip.
+        if self.extensions.is_empty() && self.headless != HeadlessMode::False {
             builder.arg(Arg::key("disable-extensions"));
         } else {
             builder.args(

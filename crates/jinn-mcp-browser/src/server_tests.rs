@@ -350,6 +350,7 @@ fn missing_required_arguments_are_protocol_errors() {
 #[test]
 fn the_screenshot_tool_describes_a_path_return_not_image_bytes() {
     // Given the screenshot tool's description.
+    install_crypto_provider();
     let server = BrowserMcpServer::new();
     let description = tool_description(&server, "screenshot");
 

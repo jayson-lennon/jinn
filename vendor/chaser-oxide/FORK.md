@@ -188,3 +188,37 @@ matched target, and mints `g<k>:e<n>` refs; `click` dispatches trusted input on 
 iframe's own session at iframe-local coordinates; `evaluate` accepts `frame: "g<k>"`.
 Every use re-resolves the target live (no caching across navigations); a dead or
 re-created frame surfaces as a stale ref with re-snapshot guidance.
+
+## Fork patch 9 — headed launches keep the profile's extensions
+
+**Symptom this fixes:** in the daemon's headed window, "Add to Chrome" in the Chrome
+Web Store silently did nothing and previously-installed extensions vanished from
+`chrome://extensions` after a relaunch, while the same installs in a manually launched
+Chrome (same profile path) persisted fine.
+
+**Root cause:** `build_args` unconditionally added `--disable-extensions` whenever the
+config's extension list was empty — which is every jinn launch, since jinn never
+configures `--load-extension` paths. Chromium has no inverse flag (`--enable-extensions`
+does not exist), so a caller could never countermand the strip. The daemon profile is
+persistent (`~/.local/share/jinn/browser-daemon-profile`); it was never being wiped —
+the launches simply carried a flag that prevented extensions from registering and
+loading at all.
+
+**Patch:** the empty-extensions branch in `build_args` now fires only when the launch
+is headless (`self.headless != HeadlessMode::False`). Headless modes (`True`, `New`)
+keep the flag: old headless cannot load extensions anyway, and preserving the headless
+argv byte-for-byte keeps existing headless behavior identical. A headed launch — the
+daemon's only mode — never receives the flag, so the persistent profile's registered
+extensions load normally and webstore installs register into the profile and survive
+restarts.
+
+**Stealth assessment:** this is a *restoration*, not a new tell: patch 2's V1 rationale
+already removed `--disable-component-extensions-with-background-pages` precisely
+because a missing extension surface is itself a bot tell. A real user's browser has
+extensions loaded; the agent window now matches. jinn continues to configure no
+`--load-extension` paths — extensions come from the profile the user curates.
+
+**Pinned by:** `fork_invariants::launch_args_omit_disable_extensions_when_headed`
+(headed argv must not contain the flag) and
+`fork_invariants::launch_args_keep_disable_extensions_when_headless` (default/headless
+argv still contains it — behavior preserved).
