@@ -47,7 +47,7 @@ pub mod protocol;
 
 // Re-export actor types that are still in use
 // Re-export component types (state, UI)
-pub use common::app_paths::{AppPaths, BrowserProfileMode};
+pub use common::app_paths::AppPaths;
 // The shared state is defined in `jinn-app-state`; these keep the long-standing
 // `jinn_kernel::AppState` paths resolving without duplicating the type.
 pub use common::bridge::{Bridge, BridgeClosure};

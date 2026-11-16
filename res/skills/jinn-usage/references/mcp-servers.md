@@ -58,7 +58,8 @@ the entry as configured.
 
 ## Bundled servers
 
-jinn ships two builtin servers: **overgraph** and **smolvm**. Their
+jinn ships three builtin servers: **overgraph**, **smolvm**, and
+**browser**. Their
 `[mcp.*]` blocks ship in `default_jinn.toml`, and each session starts with
 them disabled until you enable them in the picker.
 
@@ -117,6 +118,65 @@ manifest, add your own entry:
 `args = ["mcp", "smolvm", "--cwd", "<session_cwd>", "--smolfile",
 "/path/to/profile.toml"]` — each `[mcp.<name>]` entry is its own
 per-session machine.
+
+### Browser — one shared headed Chrome
+
+```toml
+[mcp.browser]          # shipped in default_jinn.toml; shown here for reference
+command = "<jinn>"
+args = ["mcp", "browser"]
+singleton = true       # one daemon client per machine; the Chrome window itself lives outside jinn
+auto_enable = false
+```
+
+Twelve tools for driving a real headed Chrome: `open_tab` (returns a tab
+id), `list_tabs`, `navigate`, `snapshot` (readable page tree — a
+plain DOM-selector walk, not an accessibility tree — with `e<n>` refs
+over the interactive elements, including same-origin iframe content as
+`f<k>:e<n>` refs and shadow-DOM content as ordinary refs; every
+`iframe` appears as a non-clickable `<iframe>` row with its id/src and
+rect center), `click` (by `tab` + `ref`), `click_at` (by `tab` +
+viewport CSS-px `x`/`y` — last resort; screenshot pixels only map 1:1
+to viewport coordinates when the image width equals `innerWidth`, so
+scaling guesses routinely miss — re-snapshot and use refs instead;
+coordinates are clamped), `type`, `press` (key names like `"Enter"`,
+`"Tab"`), `evaluate` (stealth JS eval: the value of the script's **last
+top-level expression** is returned — statement-shaped scripts like
+`const x = …` return null, so end with an expression or a `return`;
+scripts already ending in an IIFE call — a `})()` tail — are passed
+through unwrapped; script exceptions surface as readable tool errors,
+never silent nulls; pass `frame = "g1"` to evaluate inside a
+cross-origin frame; use evaluate to read the page and snapshot refs
+with `click` to act on it — script-side `.click()` is a synthetic DOM
+event, not trusted input, and some consent widgets ignore it),
+`screenshot` (returns a saved PNG **path** — view it with the
+image-attachment built-in), `wait` (`"navigation"`, `"network_idle"`,
+`{text = "…"}`, or `{ms = n}`), and `close_tab`. **Every tool except
+`open_tab`/`list_tabs` requires the `tab` id** — there is no "whatever
+tab is live" fallback. Cross-origin iframes (consent banners, embedded
+widgets) appear as `[g1] <iframe>` rows with their own `g1:e1`-style
+refs — clickable/typable by ref like any top-frame element. Same-origin
+iframes carry `f<k>:e<n>` refs. A stale ref (frame navigated away or
+re-created) errors with a re-snapshot hint. Overlays and consent
+banners often render after the initial load: if the user mentions
+something the snapshot doesn't show, re-snapshot before measuring or
+clicking.
+
+The Chrome window is owned by a separate **browser daemon** (`jinn
+browser daemon`), not by jinn or this server: the first tool call
+auto-starts it, it outlives jinn restarts, and every jinn instance and
+`jinn.browser` luau script on the machine shares the same window and
+tabs. `jinn browser status|stop|restart` manage it directly. Tab ids
+from before a Chrome crash are gone (`unknown tab`) — the daemon
+relaunches transparently on the next command and `list_tabs` shows the
+new state. Pick the browser binary with `[browser] binary = "/abs/path"`
+in jinn.toml (unset = auto-detect: PATH first, then install paths;
+branded Chrome preferred, Chromium fallback; a configured path that does
+not resolve refuses the daemon start).
+
+Input is stealth-tuned (trusted-input CDP paths, no automation flags,
+no `Runtime.enable`/`Network.enable`), so logged-in sites treat it like
+a normal user window.
 
 ## Enable for a session
 

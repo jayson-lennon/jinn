@@ -60,6 +60,7 @@ a forced contract.
 | json | `jinn.json.encode/decode` — sequential 1..n tables are arrays; an empty table is `{}` |
 | toml | `jinn.toml.encode/decode` — a table containing nil errors (TOML has no null) |
 | time | `jinn.sleep(ms)`, `jinn.exit(code)` |
+| browser | `jinn.browser.open_tab{url}/list_tabs()/navigate{tab,url}/snapshot{tab}/click{tab,ref}/click_at{tab,x,y}/type{tab,ref,text}/press{tab,key}/evaluate{tab,script}/screenshot{tab}→{path}/wait{tab,condition}/close_tab{tab}` — drives the shared browser daemon (same twelve-tool surface as the `browser` MCP server); every tool except `open_tab`/`list_tabs` requires the `tab` id; `snapshot` is a DOM-selector walk (not an accessibility tree), `evaluate` returns the script's last top-level expression value and passes IIFE-tailed scripts through unwrapped, and acting on consent banners prefers snapshot `click` refs over script-side `.click()` or screenshot-measured coordinates |
 
 `require("./module")` loads a sibling file (the `./` prefix is mandatory);
 the module file returns its exports table. `require` resolves relative to

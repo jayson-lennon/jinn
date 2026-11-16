@@ -222,7 +222,11 @@ impl McpClient {
     ///
     /// # Errors
     ///
-    /// Returns an error if the process cannot be spawned or the handshake fails.
+    /// Returns an error if the process cannot be spawned or the handshake
+    /// fails. On a handshake failure the child's captured stderr tail is
+    /// attached to the report — startup panics and refusals otherwise die
+    /// with the dropped buffer, and the server picker would have nothing
+    /// to show.
     pub async fn connect(cmd: &ServerCommand) -> Result<Self, Report<McpClientError>> {
         let (transport, stderr) = TokioChildProcess::builder(Self::build_spawn_command(cmd))
             .stderr(Stdio::piped())
@@ -235,11 +239,23 @@ impl McpClient {
             spawn_line_drain(stderr, stderr_buffer.clone());
         }
 
-        let service =
-            ().serve(transport)
-                .await
-                .change_context(McpClientError)
-                .attach("MCP initialize handshake failed")?;
+        let service = ().serve(transport).await.map_err(|e| {
+            // Give the drain task a beat to pick up whatever the
+            // child wrote before dying, then attach its tail.
+            std::thread::sleep(Duration::from_millis(150));
+            let tail = stderr_buffer.lock().tail().to_owned();
+            Report::new(McpClientError)
+                .attach("MCP initialize handshake failed")
+                .attach(e)
+                .attach(format!(
+                    "server stderr:\n{}",
+                    if tail.is_empty() {
+                        "(the server wrote nothing to stderr)".to_owned()
+                    } else {
+                        tail
+                    }
+                ))
+        })?;
 
         Ok(Self {
             service,

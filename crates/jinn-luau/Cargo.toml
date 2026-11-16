@@ -7,6 +7,11 @@ publish = false
 [dependencies]
 mlua = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"] }
+# The browser family rides the shared daemon client. `default-features
+# = false` keeps the daemon feature (chaser-oxide, axum, tokio) out of
+# the lean mlua build — this crate is a client, never the owner.
+jinn-browser = { workspace = true, default-features = false }
+serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 wherror = { workspace = true }
@@ -20,6 +25,7 @@ rustls = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 jinn-testutil = { workspace = true }
+jinn-common = { workspace = true }
 mockito = { workspace = true }
 
 [lints]

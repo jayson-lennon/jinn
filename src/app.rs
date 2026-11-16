@@ -183,14 +183,42 @@ impl App {
         run_result
     }
 
+    /// Serves the browser daemon child process: resolve the configured
+    /// or detected browser binary, launch headed Chrome, bind the
+    /// loopback API.
+    ///
+    /// # Errors
+    ///
+    /// An unreadable `[browser]` section or a daemon startup refusal
+    /// surfaces as an [`AppError`].
+    fn serve_browser_daemon(
+        &self,
+        config: Option<MarkedPathBuf<Absolute>>,
+    ) -> Result<(), Report<AppError>> {
+        let paths = jinn_kernel::AppPaths::default();
+        let config_path = match config {
+            Some(p) => p.as_path().to_path_buf(),
+            None => paths.preferences_path().as_path().to_path_buf(),
+        };
+        let browser_config = jinn_browser::daemon::read_browser_section(&config_path)
+            .change_context(AppError)
+            .attach("the browser daemon could not read its [browser] section")?;
+        self.runtime()
+            .block_on(jinn_browser::daemon::serve(
+                &paths,
+                &browser_config,
+                &jinn_common::binary_detect::WhichProbe,
+            ))
+            .change_context(AppError)
+            .attach("browser daemon failed")
+    }
+
     /// Dispatches the CLI command to the appropriate runner.
     ///
     /// # Errors
     ///
     /// Returns an error if the runner fails.
     pub fn dispatch(&mut self, cli: Cli) -> Result<(), Report<AppError>> {
-        use jinn_cli::cli::Commands;
-
         // Read config and build every service the actors will hold. This
         // also runs the recovery subcommands (`config init`,
         // `config providers`, `install`) — and intercepts the bundled MCP
@@ -232,90 +260,139 @@ impl App {
                     .change_context(AppError)
                     .attach("smolvm MCP server failed")
             }
-            bootstrap::config::Prepared::Handled => Ok(()),
-            bootstrap::config::Prepared::Ready(services) => {
-                let LaunchServices {
-                    config_storage,
-                    api_keys: resolved_api_keys,
-                    provider_registry,
-                    llm_service,
-                    session_store,
-                    session_pool,
-                    config,
-                    app_state_storage,
-                    shells,
-                    resolved_config_path,
-                } = services;
-                let dump_requests = resolve_dump_requests(cli.dump_requests.as_deref())?;
-                #[cfg(debug_assertions)]
-                let _db_path = cli.db_path_opt().cloned();
-                match cli.command.unwrap_or(Commands::Tui) {
-                    Commands::Completions { shell } => {
-                        use clap::CommandFactory;
-                        let mut cmd = Cli::command();
-                        let name = cmd.get_name().to_owned();
-                        clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
-                        return Ok(());
-                    }
-                    // The luau runner never reaches dispatch (prepare
-                    // intercepts it and exits the process), but the match
-                    // must stay exhaustive over the parse surface. Routing
-                    // it to the TUI arm like the other intercepted commands
-                    // documents that no startup path exists for it.
-                    // `jinn mcp noop` falls through to a normal startup: the
-                    // variant remains for argv-shape compatibility; the real
-                    // bundled servers were intercepted in `prepare`. Canvas
-                    // commands are intercepted the same way; this arm is
-                    // unreachable for them. `jinn remote …` is intercepted
-                    // in `prepare` too — it never reaches a startup path.
-                    Commands::Luau { .. }
-                    | Commands::Tui
-                    | Commands::Mcp { .. }
-                    | Commands::Remote { .. } => {
-                        self.run_tui_command(
-                            dump_requests,
-                            llm_service,
-                            provider_registry,
-                            resolved_api_keys,
-                            config_storage,
-                            &session_store,
-                            config,
-                            app_state_storage,
-                            shells,
-                            resolved_config_path,
-                            session_pool,
-                        )?;
-                    }
-                    #[cfg(debug_assertions)]
-                    Commands::Headless { command, .. } => {
-                        self.run_headless_command(
-                            dump_requests,
-                            llm_service,
-                            provider_registry,
-                            resolved_api_keys,
-                            config_storage,
-                            &session_store,
-                            config,
-                            app_state_storage,
-                            shells,
-                            resolved_config_path,
-                            command,
-                        )?;
-                    }
-                    Commands::Fetch { subcommand } => {
-                        run_fetch_subcommand(self.runtime(), &subcommand)?;
-                    }
-                    Commands::Dictation { subcommand } => {
-                        run_dictation_subcommand(&subcommand);
-                    }
-                    // Config subcommands are dispatched above, before the early
-                    // preferences parse. Reaching this match arm is impossible.
-                    Commands::Config { .. } => {}
-                    Commands::Install { .. } => {}
+            // The browser MCP child: stdio until disconnect, holding only
+            // a daemon client. Its refusals are tool-level content the
+            // model reads; a serve failure is protocol-fatal. The sync
+            // `serve` builds the blocking client off the runtime and only
+            // then enters it (a blocking client constructed inside
+            // `block_on` panics — the child died at startup before the
+            // fix).
+            bootstrap::config::Prepared::ServeMcpBrowser => jinn_mcp_browser::serve()
+                .change_context(AppError)
+                .attach("browser MCP server failed"),
+            // The browser daemon child: resolve the binary, launch headed
+            // Chrome, serve the loopback API until /shutdown or kill. Its
+            // startup refusals (already-live, unresolvable configured
+            // binary) render to stderr as the child's only feedback.
+            bootstrap::config::Prepared::ServeBrowserDaemon { config } => {
+                self.serve_browser_daemon(config)
+            }
+            // A browser client subcommand: registry + loopback HTTP only.
+            // The client prints its own user-facing output.
+            bootstrap::config::Prepared::BrowserClient(command) => {
+                let outcome = crate::browser_cli::run(&command)
+                    .change_context(AppError)
+                    .attach("browser client command failed")?;
+                // The client subcommands are CLI surfaces: their whole
+                // result is stdout text (this arm never opens the TUI).
+                #[expect(
+                    clippy::print_stdout,
+                    reason = "browser client commands are CLI surfaces; stdout is their output channel"
+                )]
+                {
+                    println!("{outcome}");
                 }
-
                 Ok(())
             }
+            bootstrap::config::Prepared::Handled => Ok(()),
+            bootstrap::config::Prepared::Ready(services) => self.run_ready_command(cli, services),
+        }
+    }
+
+    /// Runs a normal startup from prepared [`LaunchServices`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the chosen runner fails.
+    fn run_ready_command(
+        &mut self,
+        cli: Cli,
+        services: LaunchServices,
+    ) -> Result<(), Report<AppError>> {
+        use jinn_cli::cli::Commands;
+        let LaunchServices {
+            config_storage,
+            api_keys: resolved_api_keys,
+            provider_registry,
+            llm_service,
+            session_store,
+            session_pool,
+            config,
+            app_state_storage,
+            shells,
+            resolved_config_path,
+        } = services;
+        let dump_requests = resolve_dump_requests(cli.dump_requests.as_deref())?;
+        #[cfg(debug_assertions)]
+        let _db_path = cli.db_path_opt().cloned();
+        {
+            match cli.command.unwrap_or(Commands::Tui) {
+                Commands::Completions { shell } => {
+                    use clap::CommandFactory;
+                    let mut cmd = Cli::command();
+                    let name = cmd.get_name().to_owned();
+                    clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
+                    return Ok(());
+                }
+                // The luau runner never reaches dispatch (prepare
+                // intercepts it and exits the process), but the match
+                // must stay exhaustive over the parse surface. Routing
+                // it to the TUI arm like the other intercepted commands
+                // documents that no startup path exists for it.
+                // `jinn mcp noop` falls through to a normal startup: the
+                // variant remains for argv-shape compatibility; the real
+                // bundled servers were intercepted in `prepare`. Canvas
+                // commands are intercepted the same way; this arm is
+                // unreachable for them. `jinn remote …` is intercepted
+                // in `prepare` too — it never reaches a startup path.
+                Commands::Luau { .. }
+                | Commands::Tui
+                | Commands::Mcp { .. }
+                | Commands::Browser { .. }
+                | Commands::Remote { .. } => {
+                    self.run_tui_command(
+                        dump_requests,
+                        llm_service,
+                        provider_registry,
+                        resolved_api_keys,
+                        config_storage,
+                        &session_store,
+                        config,
+                        app_state_storage,
+                        shells,
+                        resolved_config_path,
+                        session_pool,
+                    )?;
+                }
+                #[cfg(debug_assertions)]
+                Commands::Headless { command, .. } => {
+                    self.run_headless_command(
+                        dump_requests,
+                        llm_service,
+                        provider_registry,
+                        resolved_api_keys,
+                        config_storage,
+                        &session_store,
+                        config,
+                        app_state_storage,
+                        shells,
+                        resolved_config_path,
+                        command,
+                    )?;
+                }
+                Commands::Fetch { subcommand } => {
+                    run_fetch_subcommand(self.runtime(), &subcommand)?;
+                }
+                Commands::Dictation { subcommand } => {
+                    run_dictation_subcommand(&subcommand);
+                }
+                // Config subcommands are dispatched above, before the early
+                // preferences parse. Reaching this match arm is impossible.
+                Commands::Config { .. } => {}
+                Commands::Install { .. } => {}
+            }
+
+            Ok(())
         }
     }
 }

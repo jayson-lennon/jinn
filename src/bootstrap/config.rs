@@ -100,6 +100,22 @@ pub enum Prepared {
         )]
         smolfile: Option<std::path::PathBuf>,
     },
+    /// The builtin browser MCP server should run over stdio, then the
+    /// process should exit. Stateless: it holds a daemon client, no
+    /// Chrome connection and no jinn state at all.
+    ServeMcpBrowser,
+    /// The browser daemon should run (the `jinn browser daemon` child),
+    /// then the process should exit. Reads only the config document's
+    /// `[browser]` section — never the session store, never actors.
+    ServeBrowserDaemon {
+        /// Config-document override; `None` reads the default path
+        /// (honoring `JINN_PATHS_ROOT`).
+        config: Option<MarkedPathBuf<Absolute>>,
+    },
+    /// A browser client subcommand (`start`/`stop`/`status`/`restart`)
+    /// should run. It touches only the registry file under the state
+    /// dir — never the config, never the session store.
+    BrowserClient(jinn_cli::cli::BrowserCommands),
     /// The run is configured; carry on to wire the actors.
     Ready(LaunchServices),
 }
@@ -467,7 +483,68 @@ fn run_recovery_subcommand(cli: &jinn_cli::cli::Cli) -> Result<Option<Prepared>,
         }));
     }
 
-    Ok(None)
+    // The browser MCP child intercepts with its siblings: same
+    // child-process rule, and it is the *most* stateless of them — a
+    // daemon client only, no config, no store.
+    if let Some(Commands::Mcp {
+        subcommand: jinn_cli::cli::McpCommands::Browser,
+    }) = &cli.command
+    {
+        return Ok(Some(Prepared::ServeMcpBrowser));
+    }
+
+    // The browser daemon child reads one thing from the parent's world:
+    // the config document's `[browser]` section (it is the process that
+    // resolves the browser binary). It opens no session store and starts
+    // no actors, and its refusals (already-live, unresolvable binary)
+    // are its own exit path. The client subcommands touch only the
+    // registry under the state dir.
+    intercept_browser_subcommand(cli)
+}
+
+/// Intercepts the `jinn browser …` subcommands: the daemon child and the
+/// four client commands.
+///
+/// The daemon child reads one thing from the parent's world — the config
+/// document's `[browser]` section, because it is the process that
+/// resolves the browser binary. It opens no session store and starts no
+/// actors, and its refusals (already-live, unresolvable binary) are its
+/// own exit path. The client subcommands touch only the registry under
+/// the state dir.
+///
+/// # Errors
+///
+/// A non-absolute `--config` value surfaces as an [`AppError`].
+fn intercept_browser_subcommand(
+    cli: &jinn_cli::cli::Cli,
+) -> Result<Option<Prepared>, Report<AppError>> {
+    use jinn_cli::cli::Commands;
+
+    let Some(Commands::Browser { subcommand }) = &cli.command else {
+        return Ok(None);
+    };
+    match subcommand {
+        jinn_cli::cli::BrowserCommands::Daemon { config } => {
+            let typed = config
+                .as_ref()
+                .map(|p| {
+                    MarkedPathBuf::<Absolute>::new(p)
+                        .change_context(AppError)
+                        .attach(format!(
+                            "--config must be an absolute path: {}",
+                            p.display()
+                        ))
+                })
+                .transpose()?;
+            Ok(Some(Prepared::ServeBrowserDaemon { config: typed }))
+        }
+        client @ (jinn_cli::cli::BrowserCommands::Start
+        | jinn_cli::cli::BrowserCommands::Stop
+        | jinn_cli::cli::BrowserCommands::Status
+        | jinn_cli::cli::BrowserCommands::Restart) => {
+            Ok(Some(Prepared::BrowserClient(client.clone())))
+        }
+    }
 }
 
 /// The `jinn install` subcommand: seeds the three config files,

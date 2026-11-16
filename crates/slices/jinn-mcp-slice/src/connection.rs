@@ -441,21 +441,23 @@ fn expand_server_headers(
 /// list its tools. Test path: use the injected `client_override` and list its
 /// tools — no child process is spawned.
 ///
-/// On failure returns `Err(Some(client))` where `client` is half-open (
-/// connected but list failed) and must be shut down by the caller; returns
-/// `Err(None)` when the failure was at connect time (nothing to shut down).
+/// On failure returns `Err((Some(client), String::new()))` where `client` is
+/// half-open (connected but list failed) and must be shut down by the caller;
+/// returns `Err((None, tail))` when the failure was at connect time, with the
+/// child's captured stderr tail (empty when nothing was captured) so the
+/// caller can surface the startup diagnosis.
 /// On success returns the client and its mapped tool definitions together.
 #[expect(
     clippy::result_large_err,
     reason = "the Err carries the live client back to the caller on failed handshake; boxing would complicate the reconnect path"
 )]
-async fn acquire_client(
+pub(crate) async fn acquire_client(
     services: &Services,
     name: &str,
     server: &McpServerConfig,
     session_cwd: Option<&MarkedPathBuf<Absolute>>,
     client_override: Option<McpClient>,
-) -> Result<(McpClient, Vec<ToolDefinition>), Option<McpClient>> {
+) -> Result<(McpClient, Vec<ToolDefinition>), (Option<McpClient>, String)> {
     let client = match client_override {
         Some(injected) => injected,
         None => match connect_for_transport(services, server, session_cwd).await {
@@ -466,8 +468,17 @@ async fn acquire_client(
                     error = %report,
                     "MCP actor: failed to connect to server"
                 );
-                // Connect failed before any client existed.
-                return Err(None);
+                // Connect failed before any client existed. The stderr
+                // attachment (child startup output) rides the report as a
+                // plain `String` attachment.
+                let tail = report
+                    .frames()
+                    .find_map(error_stack::Frame::downcast_ref::<String>)
+                    .filter(|s| s.starts_with("server stderr:"))
+                    .map_or_else(String::new, |s| {
+                        s.strip_prefix("server stderr:\n").unwrap_or(s).to_owned()
+                    });
+                return Err((None, tail));
             }
         },
     };
@@ -488,7 +499,7 @@ async fn acquire_client(
             );
             // Half-open: connected but list failed. Return the client so the
             // caller can shut it down.
-            Err(Some(client))
+            Err((Some(client), String::new()))
         }
     }
 }
@@ -613,11 +624,16 @@ async fn start_mcp(args: McpActorDeps) -> Result<McpActor, std::convert::Infalli
     .await
     {
         Ok(ready) => ready,
-        Err(half_open) => {
+        Err((half_open, connect_failure_stderr)) => {
             if let Some(mut half_open) = half_open {
                 half_open.shutdown().await;
             }
             publish_status(&deps, &session_id, &name, McpConnectionStatus::Dead).await;
+            // A connect-time failure usually means the child died at
+            // startup; its captured stderr is the only diagnosis the
+            // picker can show. `acquire_client`'s connect arm returns the
+            // transport's tail so this failure path can surface it.
+            publish_log(&deps, &session_id, &name, &connect_failure_stderr).await;
             return Ok(McpActor {
                 deps,
                 session_id,

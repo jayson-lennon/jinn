@@ -19,6 +19,7 @@
 
 pub mod app_info;
 pub mod app_paths;
+pub mod binary_detect;
 pub mod fs_paths;
 pub mod path_display;
 pub mod process_isolation;

@@ -115,7 +115,7 @@ fn table_to_json(table: &Table) -> mlua::Result<serde_json::Value> {
 }
 
 /// Converts a JSON value into a Lua value (arrays 1-indexed, null nil).
-fn from_json(lua: &Lua, json: &serde_json::Value) -> mlua::Result<Value> {
+pub(crate) fn from_json(lua: &Lua, json: &serde_json::Value) -> mlua::Result<Value> {
     let value = match json {
         serde_json::Value::Null => Value::Nil,
         serde_json::Value::Bool(b) => Value::Boolean(*b),

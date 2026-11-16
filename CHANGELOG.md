@@ -1,5 +1,23 @@
 **(Note to agents: CHANGELOG.md is human-authored only. Agents do not make edits)**
 
+## (development)
+
+- Add `browser` MCP for headed browser automation.
+
+```toml
+[browser]
+# Must be of the Chrome family of browsers. Uncomment
+# to override autodetection.
+# binary = "/usr/bin/google-chrome-stable"
+
+# Add the MCP server.
+[mcp.browser]
+command = "<jinn>"
+args = ["mcp", "browser"]
+singleton = true
+auto_enable = false
+```
+
 ## 2026-11-14 v1.24.1
 
 - Change `workset_trigger_tokens` default to 300k.

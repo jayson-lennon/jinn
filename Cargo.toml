@@ -50,6 +50,8 @@ path = "src/lib.rs"
 [dependencies]
 jinn-install = { workspace = true }
 jinn-common = { workspace = true }
+jinn-browser = { workspace = true }
+jinn-mcp-browser = { workspace = true }
 jinn-cell-catalog = { workspace = true }
 jinn-session-state = { workspace = true }
 jinn-core-types = { workspace = true }
@@ -301,6 +303,13 @@ jinn-mcp = { path = "crates/jinn-mcp" }
 jinn-mcp-overgraph = { path = "crates/jinn-mcp-overgraph" }
 jinn-mcp-smolvm = { path = "crates/jinn-mcp-smolvm" }
 jinn-luau = { path = "crates/jinn-luau" }
+jinn-browser = { path = "crates/jinn-browser" }
+jinn-mcp-browser = { path = "crates/jinn-mcp-browser" }
+# The vendored stealth CDP driver (browser daemon's engine). Upstream is
+# chromiumoxide's stealth fork chaser-oxide 0.2.4, vendored from the crates.io
+# tarball (the GitHub repo moved) and patched in-tree — see
+# vendor/chaser-oxide/FORK.md for the patch list.
+chaser-oxide = { path = "vendor/chaser-oxide", default-features = false }
 # Embedded Luau scripting behind `jinn luau`. `default-features = false`
 # drops mlua's async + macos-event features so exactly one VM (the vendored
 # Luau) enters the graph; the runtime is sync and blocking by design.

@@ -36,8 +36,8 @@ use jinn_common::template_check::collect_toml_key_paths;
 use crate::config_template::{DEFAULT_CONFIG, STREAM_RULES_TEMPLATE};
 use crate::registration::register_all_sections;
 use crate::schemas::{
-    AppletsConfig, CanvasConfig, DiscordConfig, McpServersConfig, RemoteConfig, StreamRuleConfig,
-    StreamRuleFileEntry, parse_stream_rules_file,
+    AppletsConfig, BrowserConfig, CanvasConfig, DiscordConfig, McpServersConfig, RemoteConfig,
+    StreamRuleConfig, StreamRuleFileEntry, parse_stream_rules_file,
 };
 
 /// The template with every `(uncomment below to activate)` region expanded.
@@ -160,6 +160,7 @@ const OWNED_KEYS: &[&str] = &[
     "discord",
     "canvas",
     "applets",
+    "browser",
     "remote",
     "dictation",
     // Read on demand (`ConfigList`).
@@ -408,6 +409,51 @@ fn template_ships_smolvm_as_a_disabled_per_session_builtin() {
     assert!(smolvm.url.is_none(), "stdio server needs no url");
 }
 
+/// The shipped `[mcp.browser]` entry is the builtin browser-tools
+/// server: one shared process (`singleton` — the browser daemon is
+/// machine-global, and state-bearing servers that several sessions must
+/// see identically need this) served by jinn itself (`<jinn>` token),
+/// with no `<session_cwd>` (a singleton referencing the session token
+/// is refused; the daemon is machine-global anyway), and disabled per
+/// session by default.
+#[rstest::rstest]
+#[test]
+fn template_ships_browser_as_a_disabled_singleton_builtin() {
+    // Given the shipped template parsed as a config layer.
+    let config = jinn_config::testutil::config_layer(DEFAULT_CONFIG);
+    register_all_sections(&config);
+
+    // When reading the mcp section.
+    let mcp = config
+        .get::<McpServersConfig>()
+        .expect("mcp section parses");
+
+    // Then the browser entry exists with the builtin's exact shape.
+    let browser = mcp
+        .get("browser")
+        .expect("shipped template configures the builtin browser server");
+    assert_eq!(browser.command.as_deref(), Some("<jinn>"));
+    assert_eq!(browser.args, ["mcp", "browser"]);
+    assert!(
+        browser.singleton,
+        "one daemon, one window: every session must see the same browser"
+    );
+    assert!(!browser.auto_enable, "sessions opt in through the picker");
+    assert!(browser.url.is_none(), "stdio server needs no url");
+
+    // And the entry carries no session tokens — a singleton naming
+    // `<session_cwd>` is refused by the loader.
+    assert!(
+        !DEFAULT_CONFIG
+            .split("[mcp.browser]")
+            .nth(1)
+            .and_then(|section| section.split("[mcp.").next())
+            .unwrap_or_default()
+            .contains("<session_cwd>"),
+        "the browser singleton must not reference the session token"
+    );
+}
+
 /// The shipped `[canvas]` section is active and binds loopback port 0:
 /// an OS-assigned ephemeral port per running jinn instance, so two
 /// instances never fight over one fixed port (end state: multi-instance
@@ -481,4 +527,36 @@ fn template_ships_remote_as_loopback_port_zero() {
     let addr = remote.parse_bind().expect("shipped bind parses");
     assert!(addr.ip().is_loopback());
     assert_eq!(addr.port(), 0);
+}
+
+/// The shipped `[browser]` section is active but configures nothing: the
+/// `binary` key ships commented out, so a stock install auto-detects the
+/// browser (PATH first, then install paths, branded Chrome preferred,
+/// Chromium fallback). The section being present (with no keys) is what
+/// surfaces the knob in the user's jinn.toml for discovery.
+#[rstest::rstest]
+#[test]
+fn template_ships_browser_as_auto_detect() {
+    // Given the shipped template parsed as a config layer.
+    let config = jinn_config::testutil::config_layer(DEFAULT_CONFIG);
+    register_all_sections(&config);
+
+    // When reading the browser section.
+    let browser = config
+        .get::<BrowserConfig>()
+        .expect("browser section parses");
+
+    // Then no binary is configured — auto-detect is the shipped behavior.
+    assert_eq!(browser.binary, None);
+    assert!(
+        browser.validate().is_ok(),
+        "the shipped empty section validates"
+    );
+
+    // And the binary key exists only as a commented example, so the
+    // default state and the documentation ship together.
+    assert!(
+        DEFAULT_CONFIG.contains("# binary = "),
+        "the commented binary example documents auto-detect"
+    );
 }

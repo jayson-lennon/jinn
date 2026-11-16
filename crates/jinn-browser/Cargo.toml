@@ -1,0 +1,48 @@
+[package]
+name = "jinn-browser"
+version.workspace = true
+edition.workspace = true
+description = "The browser daemon: the single owner of the headed Chrome instance driven through the vendored chaser-oxide fork, serving a loopback HTTP control API."
+
+[features]
+# The daemon binary feature: pulls chaser-oxide, axum, and the tokio process
+# stack. The MCP server and the luau family depend on this crate with
+# `default-features = false` so the client-only build carries none of it.
+default = ["daemon"]
+daemon = [
+    "dep:chaser-oxide",
+    "dep:axum",
+    "dep:futures",
+    "dep:tokio",
+]
+
+[dependencies]
+jinn-common = { workspace = true }
+jinn-preferences-config = { workspace = true }
+marked-path = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+wherror = { workspace = true }
+error-stack = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+# Client-only transport: registry read + auto-start + HTTP calls.
+reqwest = { workspace = true }
+
+# Daemon feature
+chaser-oxide = { workspace = true, optional = true }
+axum = { version = "0.8", optional = true }
+futures = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+
+[dev-dependencies]
+jinn-testutil = { workspace = true }
+rstest = { workspace = true }
+# The API/client tests install the ring provider (the workspace pins
+# `rustls-no-provider` on reqwest; the `jinn-mcp` transport tests are
+# the in-tree precedent).
+rustls = { workspace = true }
+
+[lints]
+workspace = true
