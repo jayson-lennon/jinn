@@ -297,6 +297,24 @@ pub enum LuauCommands {
         args: Vec<String>,
     },
 
+    /// Serve a script's `jinn.tool` registrations as an MCP server on
+    /// stdio; trailing args become `jinn.args`.
+    ///
+    /// The script runs once at startup to collect registrations, then the
+    /// process serves `tools/list` and `tools/call` until the client
+    /// disconnects. Configuration rides the ordinary `[mcp.x]` machinery:
+    /// `command = "<jinn>"`, `args = ["luau", "serve", "<script>"]`. The
+    /// parent `--timeout` flag is the per-call budget (default 60s, `0`
+    /// disables).
+    Serve {
+        /// The script whose `jinn.tool` registrations to serve.
+        script: PathBuf,
+
+        /// Trailing arguments handed to the script through `jinn.args`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
     /// Syntax-check script files without executing them.
     ///
     /// Prints `path:line: message` per failure and exits non-zero when

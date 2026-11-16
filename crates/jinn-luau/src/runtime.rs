@@ -42,6 +42,24 @@ pub(crate) const TIMEOUT_SENTINEL: &str = "jinn-luau-timeout";
 /// interrupt, or any capability registration fails — all setup, never the
 /// script.
 pub fn build(caps: &Rc<Caps>) -> Result<Lua, LuauError> {
+    build_with_tool_registration(
+        caps,
+        &Rc::new(std::cell::RefCell::new(
+            crate::caps::tool::Registration::plain_run(),
+        )),
+    )
+}
+
+/// [`build`] with the caller's `jinn.tool` registration, so serve mode
+/// can collect the tools a script registers.
+///
+/// # Errors
+///
+/// Identical failure surface to [`build`].
+pub fn build_with_tool_registration(
+    caps: &Rc<Caps>,
+    tool_registration: &Rc<std::cell::RefCell<crate::caps::tool::Registration>>,
+) -> Result<Lua, LuauError> {
     let lua = Lua::new();
 
     lua.sandbox(true)
@@ -53,7 +71,7 @@ pub fn build(caps: &Rc<Caps>) -> Result<Lua, LuauError> {
         install_deadline_interrupt(&lua, deadline);
     }
 
-    crate::caps::inject_all(&lua, caps)
+    crate::caps::inject_all_with_tool_registration(&lua, caps, tool_registration)
         .map_err(|error| harness(format!("cannot register the script capabilities: {error}")))?;
 
     Ok(lua)

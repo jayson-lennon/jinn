@@ -52,6 +52,43 @@ pub fn run(command: &Commands) -> ! {
         }
     });
 
+    // Serve exits on its own path: it blocks until the client disconnects
+    // (success = exit 0) or fails setup (error path below). It never
+    // produces a CommandOutcome.
+    if let Some(LuauCommands::Serve { script, args }) = subcommand {
+        let home = jinn_kernel::AppPaths::default();
+        let resolved = crate::cli_paths::resolve_cli_path("--script", script, home.home_dir())
+            .map_err(|error| {
+                error_stack::Report::new(jinn_luau::LuauError::Harness {
+                    sentence: format!(
+                        "cannot resolve the script path `{}`: {error}",
+                        script.display()
+                    ),
+                })
+            });
+        match resolved {
+            Ok(path) => match jinn_luau::serve(&path.into_inner(), args.clone(), spec) {
+                Ok(()) => {
+                    let _ = std::io::Write::flush(&mut std::io::stdout());
+                    let _ = std::io::Write::flush(&mut std::io::stderr());
+                    std::process::exit(0);
+                }
+                Err(report) => {
+                    let error = report.current_context();
+                    eprintln!("{}", error.sentence());
+                    let _ = std::io::Write::flush(&mut std::io::stderr());
+                    std::process::exit(error.exit_code().0);
+                }
+            },
+            Err(report) => {
+                let error = report.current_context();
+                eprintln!("{}", error.sentence());
+                let _ = std::io::Write::flush(&mut std::io::stderr());
+                std::process::exit(error.exit_code().0);
+            }
+        }
+    }
+
     let outcome = match subcommand {
         Some(LuauCommands::Run { script, args }) => {
             // Resolve to the typed owning form here (the CLI boundary) with
@@ -108,6 +145,12 @@ pub fn run(command: &Commands) -> ! {
                 std::process::exit(2);
             }
         },
+        // Serve exited on its own path above; this arm exists only to
+        // keep the match exhaustive.
+        Some(LuauCommands::Serve { .. }) => {
+            eprintln!("jinn luau serve handled on its own exit path (a wiring bug)");
+            std::process::exit(2);
+        }
     };
 
     match outcome {
@@ -183,5 +226,52 @@ mod tests {
         // Then the five-second budget applies.
         assert_eq!(spec, Timeout::Secs(5));
         assert_eq!(spec.seconds(), Some(5));
+    }
+
+    #[rstest::rstest]
+    #[test]
+    #[allow(
+        clippy::disallowed_types,
+        reason = "argv-shaped fixture strings at the resolve seam; the owned PathBuf never leaves the test"
+    )]
+    fn serve_of_an_unresolvable_script_maps_to_the_harness_error() {
+        // Given a serve argv whose script path cannot resolve — a
+        // relative path, and the cwd read fails (the injected-supplier
+        // shape of `resolve_cli_path_in`; the arm applies the identical
+        // map_err around `resolve_cli_path`).
+        let dir = jinn_testutil::tempdir();
+        let script = std::path::PathBuf::from("s.luau");
+        let cwd_read_fails = || -> std::io::Result<std::path::PathBuf> {
+            Err(std::io::Error::other("cwd unavailable"))
+        };
+
+        // When resolving the way the serve arm does.
+        let home = jinn_kernel::AppPaths::default();
+        let resolved = crate::cli_paths::resolve_cli_path_in(
+            "--script",
+            script.as_path(),
+            home.home_dir(),
+            cwd_read_fails,
+        );
+        let report = resolved.map_err(|error| {
+            error_stack::Report::new(jinn_luau::LuauError::Harness {
+                sentence: format!(
+                    "cannot resolve the script path `{}`: {error}",
+                    script.display()
+                ),
+            })
+        });
+
+        // Then the failure is the harness error naming the path, which
+        // the intercept's error path prints and exits 2 on.
+        let report = report.expect_err("a failed cwd read cannot resolve");
+        let error = report.current_context();
+        assert!(matches!(error, jinn_luau::LuauError::Harness { .. }));
+        assert!(
+            error.sentence().contains("cannot resolve the script path"),
+            "got {}",
+            error.sentence()
+        );
+        let _ = dir;
     }
 }
