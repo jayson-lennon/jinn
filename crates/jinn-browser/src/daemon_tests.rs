@@ -60,32 +60,44 @@ fn daemon_refuses_when_registry_shows_a_live_entry() {
 
 // ── resolve_browser: configured vs detected, and the refusal rules ──
 
-/// A probe whose `which` answers come from a table — the injected seam
-/// the binary detector's tests established. Only table answers count as
-/// existing; the daemon's configured-path existence check rides the
-/// same probe, so a table answer "exists" and nothing else does.
+/// A fake browser binary path shaped for the compilation target and
+/// built typed: `MarkedPathBuf<Absolute>` rejects a POSIX-only path on
+/// Windows (absolute there means a drive prefix), so the fixture cannot
+/// hard-code a shape the resolver refuses. The `binary_detect` tests'
+/// `fake_binary` helper is the in-tree precedent.
+fn fake_browser_path(name: &str) -> MarkedPathBuf<marked_path::Absolute> {
+    let raw = if cfg!(target_os = "windows") {
+        format!(r"C:\bin\{name}.exe")
+    } else {
+        format!("/usr/bin/{name}")
+    };
+    MarkedPathBuf::<marked_path::Absolute>::new(raw).expect("platform-shaped fake path is absolute")
+}
+
+/// A probe whose `which` answers come from a table of typed paths — the
+/// injected seam the binary detector's tests established. Only table
+/// answers count as existing; the daemon's configured-path existence
+/// check rides the same probe, so a table answer "exists" and nothing
+/// else does.
 struct TableProbe {
-    answers: std::collections::HashMap<&'static str, &'static str>,
+    answers: std::collections::HashMap<&'static str, MarkedPathBuf<marked_path::Absolute>>,
 }
 
 impl TableProbe {
-    fn of(pairs: &[(&'static str, &'static str)]) -> Self {
+    fn of(pairs: &[(&'static str, MarkedPathBuf<marked_path::Absolute>)]) -> Self {
         Self {
-            answers: pairs.iter().copied().collect(),
+            answers: pairs.iter().cloned().collect(),
         }
     }
 }
 
 impl BinaryProbe for TableProbe {
     fn resolve_name(&self, name: &str) -> Option<MarkedPathBuf<marked_path::Absolute>> {
-        let p = *self.answers.get(name)?;
-        MarkedPathBuf::<marked_path::Absolute>::new(p).ok()
+        self.answers.get(name).cloned()
     }
 
     fn path_exists(&self, path: &std::path::Path) -> bool {
-        self.answers
-            .values()
-            .any(|p| std::path::Path::new(p) == path)
+        self.answers.values().any(|p| p.as_path() == path)
     }
 
     fn name(&self) -> &'static str {
@@ -102,9 +114,11 @@ fn config_with_binary(path: &str) -> jinn_preferences_config::schemas::BrowserCo
 #[rstest::rstest]
 #[test]
 fn configured_binary_that_does_not_resolve_refuses_daemon_start() {
-    // Given a config naming an absolute path that does not exist.
+    // Given a config naming an absolute path that does not exist (the
+    // typed helper shapes it for the compilation target).
     let probe = TableProbe::of(&[]);
-    let config = config_with_binary("/definitely/not/here/chrome");
+    let configured = fake_browser_path("chrome");
+    let config = config_with_binary(configured.as_path().to_string_lossy().as_ref());
 
     // When resolving the daemon's browser.
     let result = daemon::resolve_browser(&config, &probe);
@@ -114,7 +128,10 @@ fn configured_binary_that_does_not_resolve_refuses_daemon_start() {
     let error = result.expect_err("an unresolvable configured path must refuse");
     let text = format!("{error:?}");
     assert!(text.contains("does not exist"), "got: {text}");
-    assert!(text.contains("/definitely/not/here/chrome"), "got: {text}");
+    assert!(
+        text.contains(configured.as_path().to_string_lossy().as_ref()),
+        "got: {text}"
+    );
 }
 
 #[rstest::rstest]
@@ -141,21 +158,19 @@ fn configured_binary_wins_over_detection_and_reports_its_source() {
     // detectable chrome/chromium names. The configured path is one of
     // the table's answers, which is how the probe "sees" it on disk.
     let probe = TableProbe::of(&[
-        ("google-chrome", "/fake/detected/google-chrome"),
-        ("chromium", "/fake/detected/chromium"),
-        ("my-chrome", "/fake/configured/my-chrome"),
+        ("google-chrome", fake_browser_path("google-chrome")),
+        ("chromium", fake_browser_path("chromium")),
+        ("my-chrome", fake_browser_path("my-chrome")),
     ]);
-    let config = config_with_binary("/fake/configured/my-chrome");
+    let configured = fake_browser_path("my-chrome");
+    let config = config_with_binary(configured.as_path().to_string_lossy().as_ref());
 
     // When resolving.
     let resolved = daemon::resolve_browser(&config, &probe).expect("configured path resolves");
 
     // Then the configured path wins and the source says so — no matter
     // which client spawned the daemon, the resolution is identical.
-    assert_eq!(
-        resolved.executable,
-        std::path::PathBuf::from("/fake/configured/my-chrome")
-    );
+    assert_eq!(resolved.executable, configured.as_path());
     assert_eq!(resolved.source, BinarySource::Config);
 }
 
@@ -165,10 +180,10 @@ fn auto_detect_prefers_branded_chrome_then_chromium_with_no_edge_or_brave() {
     // Given detection answers for chromium first, chrome second, and
     // edge/brave (which must not be asked at all).
     let probe = TableProbe::of(&[
-        ("chromium", "/fake/detected/chromium"),
-        ("google-chrome", "/fake/detected/google-chrome"),
-        ("microsoft-edge", "/fake/detected/edge"),
-        ("brave", "/fake/detected/brave"),
+        ("chromium", fake_browser_path("chromium")),
+        ("google-chrome", fake_browser_path("google-chrome")),
+        ("microsoft-edge", fake_browser_path("edge")),
+        ("brave", fake_browser_path("brave")),
     ]);
     let config = jinn_preferences_config::schemas::BrowserConfig::default();
 
@@ -179,7 +194,7 @@ fn auto_detect_prefers_branded_chrome_then_chromium_with_no_edge_or_brave() {
     // detector.
     assert_eq!(
         resolved.executable,
-        std::path::PathBuf::from("/fake/detected/google-chrome")
+        fake_browser_path("google-chrome").as_path()
     );
     assert_eq!(resolved.source, BinarySource::AutoDetected);
 }
@@ -188,17 +203,14 @@ fn auto_detect_prefers_branded_chrome_then_chromium_with_no_edge_or_brave() {
 #[test]
 fn chromium_is_the_fallback_when_no_branded_chrome_exists() {
     // Given only chromium is detectable.
-    let probe = TableProbe::of(&[("chromium", "/fake/detected/chromium")]);
+    let probe = TableProbe::of(&[("chromium", fake_browser_path("chromium"))]);
     let config = jinn_preferences_config::schemas::BrowserConfig::default();
 
     // When resolving.
     let resolved = daemon::resolve_browser(&config, &probe).expect("chromium is the fallback");
 
     // Then chromium is used.
-    assert_eq!(
-        resolved.executable,
-        std::path::PathBuf::from("/fake/detected/chromium")
-    );
+    assert_eq!(resolved.executable, fake_browser_path("chromium").as_path());
 }
 
 #[rstest::rstest]
@@ -494,7 +506,9 @@ async fn serve_stub(
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let state = crate::api::DaemonState {
         backend: Arc::new(StubBackend::new()),
-        executable: std::path::PathBuf::from("/fake/chrome"),
+        // The typed fixture path converted at the raw-PathBuf seam the
+        // crate's lib doc carves out for chaser-oxide's config API.
+        executable: fake_browser_path("chrome").as_path().to_path_buf(),
         binary_source: "config".to_owned(),
         started_at: 0,
         screenshots_dir,

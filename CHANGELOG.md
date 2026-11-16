@@ -3,6 +3,7 @@
 ## (development)
 
 - Add `browser` MCP for headed browser automation.
+  - Browser functionality also exposed as host functions to Lua scripts.
 
 ```toml
 [browser]
@@ -17,6 +18,23 @@ args = ["mcp", "browser"]
 singleton = true
 auto_enable = false
 ```
+
+- Add MCP hosting functions for Lua scripts.
+
+```lua
+-- foomart.lua
+jinn.tool(
+  { name = "search_products", description = "Search the shop",
+    input = { query = "string" } },
+  function(args)
+    local res = jinn.http.request{ url = "https://shop.foo/search?q=" .. args.query }
+    return { results = jinn.json.decode(res.body) }  -- the returned table IS the result
+  end
+)
+```
+
+- Add `<scripts>` token for MCP servers expanding to the `jinn` data directory.
+  - `jinn-usage` skill updated to reflect this info. Ask `jinn` to save to the "scripts dir". This will allow you to easily create Lua-based MCP servers and access them from any session.
 
 ## 2026-11-14 v1.24.1
 

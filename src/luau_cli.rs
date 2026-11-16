@@ -15,8 +15,8 @@
 
 use jinn_cli::cli::Commands;
 use jinn_cli::cli::LuauCommands;
-use jinn_luau::commands::CommandOutcome;
 use jinn_luau::Timeout;
+use jinn_luau::commands::CommandOutcome;
 
 /// Resolves a script path argument the way every luau subcommand does:
 /// relative against the process cwd, tilde against home, with a failure
@@ -30,7 +30,10 @@ fn resolve_script_arg(
     let home = jinn_kernel::AppPaths::default();
     crate::cli_paths::resolve_cli_path("--script", script, home.home_dir()).map_err(|error| {
         error_stack::Report::new(jinn_luau::LuauError::Harness {
-            sentence: format!("cannot resolve the script path `{}`: {error}", script.display()),
+            sentence: format!(
+                "cannot resolve the script path `{}`: {error}",
+                script.display()
+            ),
         })
     })
 }
@@ -122,9 +125,8 @@ pub fn run(command: &Commands) -> ! {
     }
 
     let outcome = match subcommand {
-        Some(LuauCommands::Run { script, args }) => resolve_script_arg(script).and_then(|path| {
-            jinn_luau::run(&jinn_luau::RunMode::Script(path), args.clone(), spec)
-        }),
+        Some(LuauCommands::Run { script, args }) => resolve_script_arg(script)
+            .and_then(|path| jinn_luau::run(&jinn_luau::RunMode::Script(path), args.clone(), spec)),
         Some(LuauCommands::Check { scripts }) => scripts
             .iter()
             .map(|script| resolve_script_arg(script))
