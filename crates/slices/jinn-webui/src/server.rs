@@ -215,6 +215,7 @@ pub fn router(shared: ServerShared) -> Router {
         .route("/web/cancel", post(cancel))
         .route("/web/model", post(model))
         .route("/web/session/{id}/activate", post(activate))
+        .route(crate::contract::RENAME_ROUTE, post(rename))
         .route("/vendor/{*path}", get(serve_vendor))
         .route("/healthz", get(health));
     crate::region::regions()
@@ -479,6 +480,43 @@ async fn activate(
     // in live state yet; `page_session` falls through to the store and
     // the SSE `transcript-full` convergence push corrects any lag.
     page_session(AxumState(shared), AxPath(session_id)).await
+}
+
+/// `POST /web/session/{id}/rename` — rename a live session.
+///
+/// Applies the TUI rename's three mutations and publishes
+/// `PersistSession` (see [`crate::delivery::handle_rename`]), then
+/// responds with the **sessions-list fragment** — the same markup the
+/// `GET /web/sessions` pull serves — so the initiating page's sidebar
+/// shows the new title in one round trip. Every other page viewing
+/// the renamed session refreshes its sidebar from the addressed
+/// `sessions` SSE push (the double swap on the initiating page is
+/// harmless: both render the same post-rename list).
+async fn rename(
+    AxumState(shared): AxumState<ServerShared>,
+    AxPath(session_id): AxPath<String>,
+    form: Result<Form<jinn_webui_msg::RenameForm>, axum::extract::rejection::FormRejection>,
+) -> Result<Fragment, HandlerError> {
+    let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
+    crate::delivery::handle_rename(shared.state(), shared.bus(), &session_id, &form.title)
+        .await
+        .map_err(|error| fail(error.status(), error.sentence()))?;
+    let id = parse_session_id(&session_id)?;
+    // One render, two consumers: the addressed refresh push and the
+    // POST response MUST carry the same list shape. The merged
+    // fragment (live + store rows) is the only shape the GET pull and
+    // the POST ever serve; pushing the live-only shape here would
+    // wipe every store-only row from connected sidebars one frame
+    // before the response restores them — the shrink-then-refill
+    // flicker. (The fan-out actor's own SessionLoadCompleted /
+    // SessionArchived refreshes keep the live-only shape deliberately:
+    // those events change only live state, and their next pull or
+    // page render carries the store truth.)
+    let list_html = crate::regions::sessions::sessions_fragment(&shared, Some(&id)).await?;
+    shared
+        .fanout
+        .push_sessions_refresh_from(&id, list_html.clone());
+    Ok(Fragment::new(list_html))
 }
 
 // ── SSE ─────────────────────────────────────────────────────────────

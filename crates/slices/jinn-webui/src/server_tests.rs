@@ -119,6 +119,215 @@ fn audit_count(audit: &BusAudit, name: &str) -> usize {
     audit.names().iter().filter(|n| n.ends_with(name)).count()
 }
 
+/// The session's current title as live state holds it.
+fn title_of(state: &State, id: &SessionId) -> Option<String> {
+    state
+        .read()
+        .session
+        .get(id)
+        .map_or_default(|session| session.title().map(str::to_owned))
+}
+
+/// A session store whose `load_summaries` names one archived row: the
+/// store-only shape the live map never carries.
+/// A session store serving one fixed archived summary from
+/// `load_summaries`; every other operation behaves like the fake.
+#[derive(Debug)]
+struct OneArchivedRowStore(jinn_core_types::SessionId, String);
+
+#[async_trait::async_trait]
+impl jinn_session_state::SessionStore for OneArchivedRowStore {
+    fn name(&self) -> &'static str {
+        "one-archived-row"
+    }
+
+    async fn load_summaries(
+        &self,
+    ) -> Result<
+        Vec<jinn_session_store_msg::SessionSummary>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(vec![jinn_session_store_msg::SessionSummary {
+            session_id: self.0.clone(),
+            title: self.1.clone(),
+            updated_at: jiff::Timestamp::now(),
+            created_at: jiff::Timestamp::now(),
+            session_state: jinn_session_store_msg::SessionState::Archived,
+            in_library: false,
+            is_bot: false,
+            parent_session: None,
+            project: None,
+        }])
+    }
+
+    async fn save(
+        &self,
+        _snapshot: &jinn_session_state::SessionSnapshot,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn load_session(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+    ) -> Result<
+        Option<jinn_session_state::SessionSnapshot>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(None)
+    }
+
+    async fn delete(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn fork(
+        &self,
+        _source_session_id: &jinn_core_types::SessionId,
+        _at_ordinal: usize,
+    ) -> Result<
+        jinn_core_types::SessionId,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(jinn_core_types::SessionId::new())
+    }
+
+    async fn load_unarchived_summaries(
+        &self,
+    ) -> Result<
+        Vec<jinn_session_store_msg::SessionSummary>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(Vec::new())
+    }
+
+    async fn search(
+        &self,
+        _params: jinn_session_store_msg::SearchParams,
+    ) -> Result<
+        jinn_session_store_msg::SearchOutcome,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(jinn_session_store_msg::SearchOutcome {
+            total_matches: 0,
+            per_session: Vec::new(),
+            hits: Vec::new(),
+        })
+    }
+
+    async fn set_archived(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _archived: bool,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn set_archived_many(
+        &self,
+        _session_ids: &[jinn_core_types::SessionId],
+        _archived: bool,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn set_in_library(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _in_library: bool,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn dirty_session_ids(
+        &self,
+    ) -> Result<
+        Vec<jinn_core_types::SessionId>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(Vec::new())
+    }
+
+    async fn reindex_session_chunk(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _max_entries: usize,
+    ) -> Result<bool, error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(true)
+    }
+
+    async fn pending_dirty_count(
+        &self,
+    ) -> Result<usize, error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(0)
+    }
+
+    async fn fetch_window(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _anchor: &jinn_core_types::ChatEntryId,
+        _context: usize,
+    ) -> Result<
+        Option<jinn_session_store_msg::TranscriptWindow>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(None)
+    }
+
+    async fn fetch_tail(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _limit: usize,
+    ) -> Result<
+        Option<jinn_session_store_msg::TranscriptWindow>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(None)
+    }
+}
+
+/// The rename harness: the standard router plus a subscriber over the
+/// fan-out's broadcast channel, with the store serving one archived
+/// summary row. Returns `(state, audit, receiver, router)`.
+fn harness_with_archived_row_and_receiver() -> (
+    State,
+    BusAudit,
+    tokio::sync::broadcast::Receiver<jinn_webui_msg::SseEnvelope>,
+    axum::Router,
+) {
+    let slices = Slices::new();
+    let provider_cell = slices
+        .register(
+            jinn_provider_selection_msg::provider_state_slot(),
+            jinn_provider_selection_msg::ProviderCell::default(),
+        )
+        .expect("the provider cell registers once per harness");
+    let state = {
+        let app = AppState::default();
+        app.session.attach_slices(slices.clone());
+        State::new(app)
+    };
+    let archived_id = SessionId::new();
+    let (bus, audit) = BusService::new_recording();
+    let (fanout, rx) = crate::fanout::WebUiFanoutActor::test_pair(&state, bus.clone());
+    let shared = ServerShared::new(
+        state.clone(),
+        bus,
+        jinn_session_state::SessionStoreService::new(std::sync::Arc::new(OneArchivedRowStore(
+            archived_id,
+            "Archived from last run".to_owned(),
+        ))),
+        provider_cell,
+        fanout,
+        8387,
+        "test".to_owned(),
+    );
+    (state, audit, rx, router(shared))
+}
+
 /// Read paths: page shell, sessions list, transcript cursor grammar.
 mod reads {
     use super::*;
@@ -552,6 +761,201 @@ mod actions {
     }
 }
 
+/// Rename: the TUI confirm's semantics through the web endpoint.
+mod rename_actions {
+    use super::*;
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_applies_the_title_and_publishes_one_persist() {
+        // Given a live titled session and the router over it.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .set_title("Before".to_owned());
+
+        // When posting a rename.
+        let (status, body) = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=Rename+Again",
+        )
+        .await;
+
+        // Then the ack is OK, the session's live title is the new one,
+        // and exactly one PersistSession naming the session published.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(title_of(&state, &id), Some("Rename Again".to_owned()));
+        let published = audit.of_type::<jinn_session_store_msg::PersistSession>();
+        let [command] = published.as_slice() else {
+            panic!("exactly one persist was published, got {}", published.len())
+        };
+        assert_eq!(command.session_id, id);
+
+        // And the response is the sessions-list fragment (no page
+        // shell), carrying the new title as a row.
+        assert!(!body.contains("<!DOCTYPE html>"), "{body}");
+        assert!(body.contains("Rename Again"), "{body}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_trims_surrounding_whitespace_off_the_title() {
+        // Given a live session.
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+
+        // When posting a rename whose body value carries padding.
+        let (status, _body) = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=%20+Padded+Title+%20",
+        )
+        .await;
+
+        // Then the applied title is the trimmed text — the TUI
+        // rename's own trim, mirrored.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(title_of(&state, &id), Some("Padded Title".to_owned()));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_refuses_an_empty_after_trim_title() {
+        // Given a live titled session.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .set_title("Keep".to_owned());
+
+        // When posting a rename whose title is whitespace only.
+        let (status, _body) = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=%20+++%20",
+        )
+        .await;
+
+        // Then the request is refused 400, nothing published, and the
+        // title unchanged.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit.names().len(), 0);
+        assert_eq!(title_of(&state, &id), Some("Keep".to_owned()));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_refuses_a_malformed_session_id() {
+        // Given the router.
+        let (_state, audit, _slices, router) = harness();
+
+        // When posting a rename to a path id that is not a UUID.
+        let (status, _body) =
+            post_form(&router, "/web/session/not-a-uuid/rename", "title=Whatever").await;
+
+        // Then the request is refused 400 and nothing published.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_refuses_a_session_absent_from_live_state() {
+        // Given the router over an empty state.
+        let (_state, audit, _slices, router) = harness();
+        let id = SessionId::new();
+
+        // When posting a rename for the unknown id.
+        let (status, body) =
+            post_form(&router, &format!("/web/session/{id}/rename"), "title=Ghost").await;
+
+        // Then the request is refused 404 (a well-formed request naming
+        // nothing), nothing published.
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(audit.names().len(), 0);
+        assert!(body.contains("no live session with id"), "{body}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_renames_a_bot_session_like_any_other() {
+        // Given a live bot session.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let bot = {
+            let guard = state.read();
+            let source = guard.session.get(&id).expect("seeded session");
+            jinn_session_state::ChatSessionState::new_bot(source, true)
+        };
+        let bot_id = bot.session_id().clone();
+        state.write().session.insert(bot);
+
+        // When posting a rename.
+        let (status, _body) = post_form(
+            &router,
+            &format!("/web/session/{bot_id}/rename"),
+            "title=Watchdog+Title",
+        )
+        .await;
+
+        // Then the rename lands — the bot refusal exists only on the
+        // text-delivery path, exactly as the TUI rename behaves.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(title_of(&state, &bot_id), Some("Watchdog Title".to_owned()));
+        assert_eq!(audit_count(&audit, "PersistSession"), 1);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_push_and_response_carry_the_same_merged_list() {
+        // Given a live session, one store-only archived row the live
+        // map never carries, and a subscriber to the fan-out's push.
+        let (state, _audit, mut rx, router) = harness_with_archived_row_and_receiver();
+        let id = seed_session(&state);
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .set_title("Fresh rename".to_owned());
+
+        // When posting the rename.
+        let (status, body) = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=Fresh+rename",
+        )
+        .await;
+
+        // Then the push the handler emitted carries the archived row
+        // too — the same merged shape the response serves. A push of
+        // the live-only shape would wipe the archived row from every
+        // connected sidebar one frame before the response restores it.
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("Archived from last run"), "{body}");
+        let envelope = rx.try_recv().expect("the rename push");
+        assert_eq!(envelope.kind, jinn_webui_msg::SseKind::Sessions);
+        assert_eq!(envelope.session_id, id);
+        assert!(
+            envelope.html.contains("Archived from last run"),
+            "push must carry the merged list, got: {}",
+            envelope.html
+        );
+        assert!(envelope.html.contains("Fresh rename"), "{}", envelope.html);
+        // And exactly one sessions push went out — no duplicate frames
+        // for the same refresh.
+        assert!(rx.try_recv().is_err());
+    }
+}
+
 /// SSE catch-up: the reconnect path (render_catchup_frames is pure;
 /// the endpoint's live half rides the fan-out broadcast).
 mod stream_catchup {
@@ -736,7 +1140,7 @@ mod whole_flow {
 
         // When the page's requests fire in one pass: home shell,
         // session page, sessions list, transcript, model picker, send,
-        // model switch, session switch.
+        // model switch, session switch, rename.
         let home = get(&router, "/web").await;
         let page = get(&router, &format!("/web/session/{id}")).await;
         let sessions = get(&router, "/web/sessions").await;
@@ -765,6 +1169,12 @@ mod whole_flow {
         )
         .await;
         let switch = post_form(&router, &format!("/web/session/{id}/activate"), "").await;
+        let rename = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=Trip+plan+renamed",
+        )
+        .await;
 
         // Then every read answers 200 and names its content.
         let reads = [
@@ -788,15 +1198,23 @@ mod whole_flow {
         assert_eq!(vendor.0, StatusCode::OK);
         assert_eq!(health.0, StatusCode::OK);
 
-        // And every action published its schema — send, model, switch.
+        // And every action published its schema — send, model, switch,
+        // rename.
         assert_eq!(send.0, StatusCode::OK);
         assert_eq!(model.0, StatusCode::OK);
         assert_eq!(switch.0, StatusCode::OK);
+        assert_eq!(rename.0, StatusCode::OK);
+        assert!(
+            rename.1.contains("Trip plan renamed"),
+            "rename: {}",
+            rename.1
+        );
         let names = audit.names();
         for schema in [
             "EnqueueUserMessage",
             "ProviderSwitch",
             "SessionLoadRequested",
+            "PersistSession",
         ] {
             assert!(
                 names.iter().any(|n| n.ends_with(schema)),

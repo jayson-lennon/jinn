@@ -66,6 +66,45 @@ test("activateSession throws on a non-2xx instead of swapping the page", async (
   );
 });
 
+test("renameSession posts urlencoded to the session's rename path", async () => {
+  // Given a fetch recording the request and answering OK.
+  const seen: { url: string; init: RequestInit | undefined }[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    seen.push({ url: String(input), init });
+    return new Response("<a>list</a>", { status: 200 });
+  }) as unknown as typeof fetch;
+
+  // When renaming.
+  const body = await api.renameSession("11111111-1111-1111-1111-111111111111", "New Name");
+
+  // Then the POST went to the session-page path + id + /rename with a
+  // urlencoded title field, and the body text came back.
+  const request = seen[0]!;
+  assert.equal(request.init?.method, "POST");
+  assert.equal(
+    request.url,
+    `${wire.SESSION_PAGE_PATH}11111111-1111-1111-1111-111111111111/rename`,
+  );
+  assert.equal(
+    (request.init?.headers as Record<string, string>)["content-type"],
+    "application/x-www-form-urlencoded",
+  );
+  assert.equal(request.init?.body, "title=New%20Name");
+  assert.equal(body, "<a>list</a>");
+});
+
+test("renameSession throws on a 400 refusal", async () => {
+  // Given a server refusing renames with 400 (the empty-title rule).
+  failingFetch(400);
+
+  // When renaming.
+  // Then the rejection names the endpoint and status.
+  await assert.rejects(
+    api.renameSession("11111111-1111-1111-1111-111111111111", "  "),
+    /\/rename failed: HTTP 400/,
+  );
+});
+
 test("a session-row click with a failing activate reports the failure, not silence", async () => {
   // Given the landing page and a 500-ing activate endpoint, with the
   // real delegation path booted.

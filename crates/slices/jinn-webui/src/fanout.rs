@@ -74,6 +74,29 @@ impl FanoutHandle {
     pub fn subscribe(&self) -> broadcast::Receiver<SseEnvelope> {
         self.tx.subscribe()
     }
+
+    /// Pushes a refreshed sessions-list fragment to every page,
+    /// addressed to the named session — from **outside** the actor.
+    ///
+    /// A synchronous HTTP handler (the rename POST) must push without
+    /// publishing anything the fan-out subscribes to: the only command
+    /// it could publish, `PersistSession`, routes to the store actor,
+    /// so there is no command whose arrival means "refresh the list".
+    /// The caller renders the fragment — the **merged** list shape the
+    /// GET pull serves, never the actor's live-only refresh — and
+    /// hands the rendered markup here; a push whose shape differs from
+    /// the surrounding pulls reads as rows vanishing then returning.
+    ///
+    /// Send failures are the no-receiver case — no page is connected —
+    /// and are not errors.
+    pub(crate) fn push_sessions_refresh_from(&self, session_id: &SessionId, html: String) {
+        let _ = self.tx.send(SseEnvelope {
+            kind: SseKind::Sessions,
+            session_id: session_id.clone(),
+            cursor: 0,
+            html,
+        });
+    }
 }
 
 /// The fan-out actor: events to fragments.
@@ -156,6 +179,36 @@ impl WebUiFanoutActor {
             },
             rx,
         )
+    }
+
+    /// The shared handle over the actor's own broadcast channel.
+    /// Test-only: production builds the handle in `spawn`, where the
+    /// channel is created; the tests drive the out-of-actor push
+    /// through the same handle type production handlers hold.
+    #[cfg(test)]
+    #[expect(
+        clippy::same_name_method,
+        reason = "the test accessor names the type it hands back (handle -> FanoutHandle); the MsgHandler::handle collisions are trait-scoped and never ambiguous at a call site"
+    )]
+    pub(crate) fn handle(&self) -> FanoutHandle {
+        FanoutHandle {
+            tx: self.tx.clone(),
+        }
+    }
+
+    /// Spawns the actor the way production does and hands back a
+    /// receiver subscribed to its broadcast channel — the pair a test
+    /// needs to observe what an HTTP handler pushed through the
+    /// shared handle. Test-only.
+    #[cfg(test)]
+    pub(crate) fn test_pair(
+        state: &State,
+        bus: BusService,
+    ) -> (FanoutHandle, broadcast::Receiver<SseEnvelope>) {
+        use trouper::system::ActorSystem;
+        let system = ActorSystem::new(trouper::system::SystemConfig::production());
+        let handle = Self::spawn(&system, state.clone(), bus);
+        (handle.clone(), handle.subscribe())
     }
 
     /// Flushes one session's buffer with a cursor of zero. Test-only:
