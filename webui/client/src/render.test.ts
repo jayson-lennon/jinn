@@ -103,6 +103,48 @@ test("replaceControls swaps the send button for the cancel fragment", () => {
   assert.equal(controls.querySelector(`button[data-action="${wire.ACTION_SEND}"]`), null);
 });
 
+test("busy controls carry the streaming spinner above the composer", () => {
+  // Given a page shell with idle controls.
+  const window = pageShell();
+
+  // When replacing them with a BUSY controls fragment.
+  render.replaceControls(
+    `<div id="${wire.BUSY_SPINNER_ID}" class="busy-spinner"></div>` +
+    `<div id="${wire.COMPOSER_ID}"><textarea id="${wire.INPUT_ID}"></textarea>` +
+    `<button data-action="${wire.ACTION_CANCEL}">Cancel</button></div>`,
+  );
+
+  // Then the spinner sits inside the controls, before the composer —
+  // the visible "streaming" signal beside the cancel button.
+  const controls = window.document.getElementById(wire.CONTROLS_ID)!;
+  const spinner = controls.querySelector(`#${wire.BUSY_SPINNER_ID}`);
+  assert.ok(spinner, "spinner present while busy");
+  assert.ok(
+    spinner!.compareDocumentPosition(controls.querySelector(`#${wire.COMPOSER_ID}`)!) &
+      window.Node.DOCUMENT_POSITION_FOLLOWING,
+    "spinner precedes the composer",
+  );
+});
+
+test("idle controls carry no spinner", () => {
+  // Given a page shell with idle controls.
+  const window = pageShell();
+
+  // When the controls settle idle.
+  render.replaceControls(
+    `<div id="${wire.COMPOSER_ID}"><textarea id="${wire.INPUT_ID}"></textarea>` +
+    `<button data-action="${wire.ACTION_SEND}">Send</button></div>`,
+  );
+
+  // Then no spinner exists in the swapped fragment.
+  const controls = window.document.getElementById(wire.CONTROLS_ID)!;
+  assert.equal(
+    controls.querySelector(`#${wire.BUSY_SPINNER_ID}`),
+    null,
+    "spinner absent while idle",
+  );
+});
+
 test("replaceSessions swaps the list wholesale", () => {
   // Given the page shell with an old list.
   const window = pageShell();

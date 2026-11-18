@@ -52,21 +52,40 @@ function targetWithAttribute(target: EventTarget | null): Element | null {
 }
 
 /**
- * Replaces #page-root with the activated session's page and rebinds
+ * Extracts the page-root div from a whole-page HTML document (the
+ * activate endpoint serves a full `<!DOCTYPE html>` document, not a
+ * fragment). Assigning a whole document to `outerHTML` is invalid and
+ * coerces unpredictably; the swap consumes exactly the root div.
+ */
+function extractPageRoot(html: string): string {
+  const holder = document.createElement("template");
+  holder.innerHTML = html;
+  const root = holder.content.getElementById(wire.PAGE_ROOT_ID);
+  if (root === null) {
+    throw new Error(
+      `the fetched page has no #${wire.PAGE_ROOT_ID} — contract violation`,
+    );
+  }
+  return root.outerHTML;
+}
+
+/**
+ * Replaces #page-root with the activated session's page-root div
+ * (extracted from the full-document response) and rebinds
  * everything: the old stream closes inside {@link sse.follow}, the
  * composer's button listeners re-delegate from the root (delegation
  * survives the swap by construction), and the new stream opens on
  * the new session.
  *
  * @param sessionId - The session whose page was fetched.
- * @param html - The WHOLE page HTML from the activate endpoint.
+ * @param html - The WHOLE page HTML document from the activate endpoint.
  */
 function swapPage(sessionId: string, html: string): void {
   const root = document.getElementById(wire.PAGE_ROOT_ID);
   if (root === null) {
     throw new Error(`client target #${wire.PAGE_ROOT_ID} is missing from the page`);
   }
-  root.outerHTML = html;
+  root.outerHTML = extractPageRoot(html);
   // The page shell carries the session id and cursor; follow() closes
   // the previous EventSource and opens the new session's.
   sse.follow(sessionId, rebindComposerActions);

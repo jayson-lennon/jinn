@@ -19,7 +19,7 @@ encoding = "gzip"
 
 [[assets]]
 served = "main.js"
-sha256 = "33a9d96671eaa10378a8fc3b6d87dff750594021ee022fc4cbf2d7a26a2d2c04"
+sha256 = "243640450ebdd001846e98f01f992dcb8e59e873e9a115627c9f311bad45855a"
 encoding = "gzip"
 
 [[assets]]
@@ -34,6 +34,6 @@ encoding = "gzip"
 
 [[assets]]
 served = "wire.js"
-sha256 = "83272b02f82bc20f77cf75cbd69ad945371f983f5e34d0a93a186af9d5f4d315"
+sha256 = "0614483dc454167f6b3d928facc5b21ff565cfbb16ac61d26014086f9d0b82c8"
 encoding = "gzip"
 # END client rows

@@ -52,6 +52,9 @@ export const INPUT_ID = "input";
 /** The model-picker container id. */
 export const MODEL_PICKER_ID = "model-picker";
 
+/** The streaming spinner — present above the composer while busy. */
+export const BUSY_SPINNER_ID = "busy-spinner";
+
 /** The attribute naming an element's action (send/cancel/model). */
 export const ACTION_DATA_ATTR = "data-webui-action";
 

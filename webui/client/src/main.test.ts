@@ -68,17 +68,21 @@ function landing(): Window {
   globalThis.document = window.document as unknown as typeof globalThis.document;
 
   // The whole-page response the activate endpoint serves (the Page
-  // contract), for the SECOND session.
-  const secondPage = `
-    <div id="${wire.PAGE_ROOT_ID}" ${wire.PAGE_SESSION_DATA_ATTR}="22222222-2222-2222-2222-222222222222">
-      <nav id="sidebar"><div id="${wire.SESSIONS_ID}"></div></nav>
-      <main id="main">
-        <div id="${wire.TRANSCRIPT_WRAP_ID}"><div id="${wire.TRANSCRIPT_ID}" ${wire.TRANSCRIPT_CURSOR_DATA_ATTR}="0">second transcript</div></div>
-        <div id="${wire.CONTROLS_ID}"><div id="${wire.COMPOSER_ID}"><textarea id="${wire.INPUT_ID}"></textarea>
-        <button data-action="${wire.ACTION_SEND}">Send</button></div></div>
-        <span id="${wire.MODEL_PICKER_ID}"></span>
-      </main>
-    </div>`;
+  // contract): a FULL document, head and all — the swap must extract
+  // the root div, never assign the document wholesale.
+  const secondPage = `<!DOCTYPE html>
+<html lang="en"><head><title>Second — jinn</title></head>
+<body>
+  <div id="${wire.PAGE_ROOT_ID}" ${wire.PAGE_SESSION_DATA_ATTR}="22222222-2222-2222-2222-222222222222">
+    <nav id="sidebar"><div id="${wire.SESSIONS_ID}"></div></nav>
+    <main id="main">
+      <div id="${wire.TRANSCRIPT_WRAP_ID}"><div id="${wire.TRANSCRIPT_ID}" ${wire.TRANSCRIPT_CURSOR_DATA_ATTR}="0">second transcript</div></div>
+      <div id="${wire.CONTROLS_ID}"><div id="${wire.COMPOSER_ID}"><textarea id="${wire.INPUT_ID}"></textarea>
+      <button data-action="${wire.ACTION_SEND}">Send</button></div></div>
+      <span id="${wire.MODEL_PICKER_ID}"></span>
+    </main>
+  </div>
+</body></html>`;
 
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -123,6 +127,27 @@ test("clicking a session row swaps the page and rebinds the stream", async () =>
     openedStreams.filter((url) => url.endsWith("22222222-2222-2222-2222-222222222222")),
     [`${wire.STREAM_PATH}22222222-2222-2222-2222-222222222222`],
     "exactly one stream opened, for the new session",
+  );
+});
+
+test("swapPage extracts the root div from a full-document response", async () => {
+  // Given a landing page whose activate endpoint serves a WHOLE
+  // document (head, body, doctype) — the endpoint's real shape.
+  const window = landing();
+  await boot();
+
+  // When clicking the second row.
+  const row = window.document.querySelectorAll(`.${wire.SESSION_ROW_CLASS}`)[1]!;
+  row.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // Then the document holds exactly one page root (the old one
+  // replaced, not nested or doubled), carrying the new session.
+  const roots = window.document.querySelectorAll(`[id="${wire.PAGE_ROOT_ID}"]`);
+  assert.equal(roots.length, 1, `one root after swap, got ${roots.length}`);
+  assert.ok(
+    window.document.head !== null,
+    "the document shell survived the swap",
   );
 });
 

@@ -33,6 +33,10 @@ pub const CONTROLS_ID: &str = "composer-controls";
 /// The model-picker container in the titlebar.
 pub const MODEL_PICKER_ID: &str = "model-picker";
 
+/// The streaming spinner — rendered above the composer while the
+/// session's turn is live; its absence is the idle signal.
+pub const BUSY_SPINNER_ID: &str = "busy-spinner";
+
 /// The composer form's container id (inside the controls fragment).
 pub const COMPOSER_ID: &str = "composer";
 
@@ -136,6 +140,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     TRANSCRIPT_ID,
     CONTROLS_ID,
     MODEL_PICKER_ID,
+    BUSY_SPINNER_ID,
     COMPOSER_ID,
     INPUT_ID,
     SESSION_ID_DATA_ATTR,

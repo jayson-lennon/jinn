@@ -22,6 +22,7 @@ export const FIXTURE = {
   composer_id: "composer",
   input_id: "input",
   model_picker_id: "model-picker",
+  busy_spinner_id: "busy-spinner",
   action_data_attr: "data-webui-action",
   action_send: "send",
   action_cancel: "cancel",
@@ -57,6 +58,7 @@ test("every contract constant equals the rust fixture", () => {
   assert.equal(wire.COMPOSER_ID, rust.composer_id, "composer id");
   assert.equal(wire.INPUT_ID, rust.input_id, "input id");
   assert.equal(wire.MODEL_PICKER_ID, rust.model_picker_id, "model picker id");
+  assert.equal(wire.BUSY_SPINNER_ID, rust.busy_spinner_id, "busy spinner id");
   assert.equal(wire.ACTION_DATA_ATTR, rust.action_data_attr, "action attr");
   assert.equal(wire.ACTION_SEND, rust.action_send, "send action");
   assert.equal(wire.ACTION_CANCEL, rust.action_cancel, "cancel action");

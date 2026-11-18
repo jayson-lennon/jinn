@@ -279,13 +279,14 @@ fn the_contract_source_and_the_client_wire_file_agree_on_every_name() {
     let client_src = client_wire_source();
 
     // When reading each name the two sides must agree on.
-    let pairs: [(&str, &str); 16] = [
+    let pairs: [(&str, &str); 17] = [
         ("page root id", contract::PAGE_ROOT_ID),
         ("sessions id", contract::SESSIONS_ID),
         ("transcript id", contract::TRANSCRIPT_ID),
         ("transcript wrap id", contract::TRANSCRIPT_WRAP_ID),
         ("controls id", contract::CONTROLS_ID),
         ("model picker id", contract::MODEL_PICKER_ID),
+        ("busy spinner id", contract::BUSY_SPINNER_ID),
         ("composer id", contract::COMPOSER_ID),
         ("input id", contract::INPUT_ID),
         ("session row class", contract::SESSION_ROW_CLASS),

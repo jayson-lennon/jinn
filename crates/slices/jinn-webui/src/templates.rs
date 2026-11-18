@@ -30,12 +30,14 @@ pub const STYLE_CSS: &str = r#"
         --border: #2a2e35; --panel: #1b1e24; --err: #e5534b; --ok: #57ab5a; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg);
-       font: 15px/1.55 system-ui, sans-serif; display: flex; height: 100vh; }
+       font: 15px/1.55 system-ui, sans-serif; }
+#page-root { display: flex; height: 100vh; }
 #sidebar { width: 280px; min-width: 220px; border-right: 1px solid var(--border);
-           background: var(--panel); display: flex; flex-direction: column; }
+           background: var(--panel); display: flex; flex-direction: column;
+           min-height: 0; }
 #sidebar h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
               color: var(--muted); padding: 12px 14px 4px; margin: 0; }
-#sessions { overflow-y: auto; flex: 1; }
+#sessions { overflow-y: auto; flex: 1; min-height: 0; }
 .srow { display: block; padding: 8px 14px; color: var(--fg); text-decoration: none;
         border-bottom: 1px solid var(--border); cursor: pointer; }
 .srow:hover { background: #23272f; }
@@ -76,6 +78,10 @@ details.disclosure .body { padding: 4px 12px 10px; white-space: pre-wrap;
 .badge.failure { background: #422; color: var(--err); }
 .badge.pending { background: #334; color: var(--muted); }
 #streaming .tok-thinking { color: var(--muted); font-style: italic; }
+.busy-spinner { width: 18px; height: 18px; margin: 0 auto 8px; border: 2px solid var(--border);
+                border-top-color: var(--accent); border-radius: 50%;
+                animation: webui-spin .8s linear infinite; }
+@keyframes webui-spin { to { transform: rotate(360deg); } }
 #composer { border-top: 1px solid var(--border); padding: 12px 18px; display: flex; gap: 10px; }
 #composer textarea { flex: 1; background: var(--panel); color: var(--fg);
                      border: 1px solid var(--border); border-radius: 6px;
@@ -283,6 +289,8 @@ pub struct ControlsTemplate {
     pub session_id: String,
     /// Whether the session is busy (true renders the cancel button).
     pub busy: bool,
+    /// The streaming spinner's id (rendered only while busy).
+    pub spinner_id: &'static str,
     /// The form container's id.
     pub composer_id: &'static str,
     /// The textarea's id.
@@ -306,6 +314,7 @@ impl ControlsTemplate {
         Self {
             session_id,
             busy,
+            spinner_id: contract::BUSY_SPINNER_ID,
             composer_id: contract::COMPOSER_ID,
             input_id: contract::INPUT_ID,
             action_attr: contract::ACTION_DATA_ATTR,
