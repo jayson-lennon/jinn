@@ -38,7 +38,7 @@ fn deps_on(bind: std::net::SocketAddr) -> WebUiListenerActorDeps {
         provider_registry: jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {
-                    providers: Default::default(),
+                    providers: std::collections::BTreeMap::default(),
                     aliases: vec![],
                     default_provider: None,
                     endpoint_defaults: vec![],

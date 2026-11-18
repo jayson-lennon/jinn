@@ -153,8 +153,15 @@ async fn a_cache_stored_event_pushes_one_models_signal_per_live_session() {
     // re-pull, never in the push.
     let mut seen = std::collections::HashSet::new();
     while let Ok(envelope) = rx.try_recv() {
-        assert_eq!(envelope.kind, SseKind::Models, "a models push, and only that");
-        assert!(envelope.html.is_empty(), "the push is a signal: {envelope:?}");
+        assert_eq!(
+            envelope.kind,
+            SseKind::Models,
+            "a models push, and only that"
+        );
+        assert!(
+            envelope.html.is_empty(),
+            "the push is a signal: {envelope:?}"
+        );
         assert_eq!(envelope.cursor, 0);
         seen.insert(envelope.session_id);
     }

@@ -57,7 +57,7 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {
-                    providers: Default::default(),
+                    providers: std::collections::BTreeMap::default(),
                     aliases: vec![],
                     default_provider: None,
                     endpoint_defaults: vec![],
@@ -526,11 +526,14 @@ mod actions {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(audit_count(&audit, "RefreshModels"), 1);
         assert!(
-            body.contains(&format!("id=\"{}\"", crate::contract::MODEL_PICKER_BUTTON_ID)),
+            body.contains(&format!(
+                "id=\"{}\"",
+                crate::contract::MODEL_PICKER_BUTTON_ID
+            )),
             "{body}"
         );
         assert!(
-            !body.contains(&crate::contract::MODEL_PICKER_MODAL_ID),
+            !body.contains(crate::contract::MODEL_PICKER_MODAL_ID),
             "the refresh POST must not answer with the modal: {body}"
         );
     }

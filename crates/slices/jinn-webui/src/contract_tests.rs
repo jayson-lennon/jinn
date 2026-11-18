@@ -22,8 +22,11 @@ use crate::templates;
 
 /// One picker entry for a render test: availability, alias, and remote
 /// flags chosen by the caller; everything else minimal.
-fn test_entry(available: bool, is_alias: bool, is_remote: bool)
--> jinn_provider_selection_msg::ProviderPickerEntry {
+fn test_entry(
+    available: bool,
+    is_alias: bool,
+    is_remote: bool,
+) -> jinn_provider_selection_msg::ProviderPickerEntry {
     jinn_provider_selection_msg::ProviderPickerEntry {
         provider_id: "openai/gpt-4o".to_owned(),
         name: "gpt-4o".to_owned(),
@@ -334,10 +337,7 @@ fn an_unavailable_row_is_marked_and_names_no_action() {
     // non-interactive hook — and no action (a disabled element must
     // not advertise the endpoint it cannot legally call).
     assert!(
-        fragment.contains(&format!(
-            "{}=\"true\"",
-            contract::MODEL_UNAVAILABLE_ATTR
-        )),
+        fragment.contains(&format!("{}=\"true\"", contract::MODEL_UNAVAILABLE_ATTR)),
         "{fragment}"
     );
     assert!(
@@ -354,13 +354,10 @@ fn an_alias_row_carries_the_alias_marker() {
 
     // Then it carries the alias marker (`→` in the marker span).
     assert!(
-        fragment.contains(&format!(
-            "{}=\"alias\"",
-            contract::MODEL_MARKER_ATTR
-        )),
+        fragment.contains(&format!("{}=\"alias\"", contract::MODEL_MARKER_ATTR)),
         "{fragment}"
     );
-    assert!(fragment.contains("→"), "{fragment}");
+    assert!(fragment.contains('→'), "{fragment}");
 }
 
 #[rstest::rstest]
@@ -371,13 +368,10 @@ fn a_remote_row_carries_the_remote_marker() {
 
     // Then it carries the remote marker (`*` in the marker span).
     assert!(
-        fragment.contains(&format!(
-            "{}=\"remote\"",
-            contract::MODEL_MARKER_ATTR
-        )),
+        fragment.contains(&format!("{}=\"remote\"", contract::MODEL_MARKER_ATTR)),
         "{fragment}"
     );
-    assert!(fragment.contains("*"), "{fragment}");
+    assert!(fragment.contains('*'), "{fragment}");
 }
 
 #[rstest::rstest]
@@ -432,10 +426,7 @@ async fn the_button_fragment_carries_the_button_id_and_the_model_action_name() {
         html.contains(&format!("id=\"{}\"", contract::MODEL_PICKER_BUTTON_ID)),
         "{html}"
     );
-    assert!(
-        !html.contains(&contract::MODEL_PICKER_MODAL_ID),
-        "{html}"
-    );
+    assert!(!html.contains(contract::MODEL_PICKER_MODAL_ID), "{html}");
 }
 
 /// Renders one row with the contract hooks filled.
@@ -483,12 +474,14 @@ fn test_shared() -> crate::server::ServerShared {
         )),
         provider_cell,
         jinn_provider_config::ProviderRegistryService::new(
-            jinn_provider_config::ProviderRegistry::from_config(jinn_provider_config::ProvidersConfig {
-                providers: Default::default(),
-                aliases: vec![],
-                default_provider: None,
-                endpoint_defaults: vec![],
-            })
+            jinn_provider_config::ProviderRegistry::from_config(
+                jinn_provider_config::ProvidersConfig {
+                    providers: std::collections::BTreeMap::default(),
+                    aliases: vec![],
+                    default_provider: None,
+                    endpoint_defaults: vec![],
+                },
+            )
             .expect("an empty providers config expands"),
         ),
         jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),

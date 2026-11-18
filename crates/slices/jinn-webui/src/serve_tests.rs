@@ -74,7 +74,7 @@ async fn harness(titled: Option<&str>) -> (String, Option<SessionId>) {
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {
-                    providers: Default::default(),
+                    providers: std::collections::BTreeMap::default(),
                     aliases: vec![],
                     default_provider: None,
                     endpoint_defaults: vec![],
@@ -277,11 +277,17 @@ async fn the_model_picker_pull_is_a_modal_and_the_filter_narrows_it_server_side(
     // trips: the server stamped the typed text back into the input's
     // value so the swap preserves it.
     assert!(
-        unfiltered.contains(&format!("id=\"{}\"", crate::contract::MODEL_PICKER_MODAL_ID)),
+        unfiltered.contains(&format!(
+            "id=\"{}\"",
+            crate::contract::MODEL_PICKER_MODAL_ID
+        )),
         "{unfiltered}"
     );
     assert!(
-        unfiltered.contains(&format!("id=\"{}\"", crate::contract::MODEL_PICKER_FILTER_ID)),
+        unfiltered.contains(&format!(
+            "id=\"{}\"",
+            crate::contract::MODEL_PICKER_FILTER_ID
+        )),
         "{unfiltered}"
     );
     assert!(
@@ -317,7 +323,10 @@ async fn the_model_picker_refresh_post_answers_over_the_wire_without_blocking() 
     assert_eq!(response.status(), 200);
     let body = response.text().await.expect("body reads");
     assert!(
-        body.contains(&format!("id=\"{}\"", crate::contract::MODEL_PICKER_BUTTON_ID)),
+        body.contains(&format!(
+            "id=\"{}\"",
+            crate::contract::MODEL_PICKER_BUTTON_ID
+        )),
         "{body}"
     );
 }

@@ -13,17 +13,15 @@
     reason = "test code"
 )]
 
-use jinn_provider_config::ApiKeys;
 use jinn_provider_config::AliasEntry;
+use jinn_provider_config::ApiKeys;
 use jinn_provider_config::ProviderEntry;
 use jinn_provider_config::ProviderRegistry;
 use jinn_provider_config::ProvidersConfig;
 use std::collections::BTreeMap;
 
 use crate::ProviderPickerEntry;
-use crate::provider_rows::{
-    load_provider_entries, promote_selected_to_top, sorted_entries,
-};
+use crate::provider_rows::{load_provider_entries, promote_selected_to_top, sorted_entries};
 use jinn_theme::default_theme;
 
 fn ollama_entry() -> ProviderEntry {
@@ -510,7 +508,11 @@ fn load_provider_entries_includes_all_remote_models() {
 #[rstest::rstest]
 fn active_provider_promoted_to_first() {
     // Given entries ["a/model", "b/model", "c/model"] with active_provider "c/model" and empty filter.
-    let entries = vec![make_sorted_entry("a"), make_sorted_entry("b"), make_sorted_entry("c")];
+    let entries = vec![
+        make_sorted_entry("a"),
+        make_sorted_entry("b"),
+        make_sorted_entry("c"),
+    ];
 
     // When sorting with empty filter and active_provider "c/model".
     let result = sorted_entries(&entries, "", "c/model");
@@ -524,7 +526,11 @@ fn active_provider_promoted_to_first() {
 #[rstest::rstest]
 fn active_entry_marked_active() {
     // Given entries ["a/model", "b/model", "c/model"] with active_provider "c/model" and empty filter.
-    let entries = vec![make_sorted_entry("a"), make_sorted_entry("b"), make_sorted_entry("c")];
+    let entries = vec![
+        make_sorted_entry("a"),
+        make_sorted_entry("b"),
+        make_sorted_entry("c"),
+    ];
 
     // When sorting with empty filter and active_provider "c/model".
     let result = sorted_entries(&entries, "", "c/model");

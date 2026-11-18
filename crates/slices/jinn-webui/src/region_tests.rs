@@ -56,7 +56,7 @@ fn harness() -> (State, ServerShared) {
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {
-                    providers: Default::default(),
+                    providers: std::collections::BTreeMap::default(),
                     aliases: vec![],
                     default_provider: None,
                     endpoint_defaults: vec![],

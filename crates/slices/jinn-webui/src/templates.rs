@@ -400,11 +400,7 @@ pub struct ModelModalTemplate {
 impl ModelModalTemplate {
     /// Builds the template with the contract's hooks filled.
     #[must_use]
-    pub fn with_contract(
-        session_id: String,
-        rows: Vec<String>,
-        filter: String,
-    ) -> Self {
+    pub fn with_contract(session_id: String, rows: Vec<String>, filter: String) -> Self {
         Self {
             session_id,
             rows,

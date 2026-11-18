@@ -66,7 +66,7 @@ async fn serve_with_session(title: &str, entry_text: &str) -> (String, jinn_core
         jinn_provider_config::ProviderRegistryService::new(
             jinn_provider_config::ProviderRegistry::from_config(
                 jinn_provider_config::ProvidersConfig {
-                    providers: Default::default(),
+                    providers: std::collections::BTreeMap::default(),
                     aliases: vec![],
                     default_provider: None,
                     endpoint_defaults: vec![],

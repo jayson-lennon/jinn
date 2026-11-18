@@ -112,9 +112,11 @@ async fn pull_handler(
     AxQuery(query): AxQuery<ModelFilterQuery>,
 ) -> Result<crate::server::Fragment, crate::server::HandlerError> {
     let filter = query.filter.unwrap_or_default();
-    Ok(crate::server::Fragment::new(
-        modal_fragment(&shared, &session_id, &filter)?,
-    ))
+    Ok(crate::server::Fragment::new(modal_fragment(
+        &shared,
+        &session_id,
+        &filter,
+    )?))
 }
 
 /// The session's current model label, read under one short-lived
@@ -124,11 +126,9 @@ fn current_model_label(shared: &crate::server::ServerShared, session_id: &str) -
         return String::new();
     };
     let guard = shared.read_state();
-    guard
-        .session
-        .get(&id)
-        .map(|session| crate::regions::transcript::model_label(session.model_selection()))
-        .unwrap_or_default()
+    guard.session.get(&id).map_or_default(|session| {
+        crate::regions::transcript::model_label(session.model_selection())
+    })
 }
 
 /// Builds the TUI-parity rows for one render: the shared builder's
@@ -146,8 +146,9 @@ fn picker_rows(
         let guard = shared.read_state();
         let active = jinn_core_types::SessionId::try_from_string(session_id)
             .and_then(|id| guard.session.get(&id))
-            .map(|session| crate::regions::transcript::model_label(session.model_selection()))
-            .unwrap_or_default();
+            .map_or_default(|session| {
+                crate::regions::transcript::model_label(session.model_selection())
+            });
         (active, guard.frontend.theme.clone())
     };
 

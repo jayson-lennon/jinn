@@ -338,7 +338,14 @@ impl WebUiFanoutActor {
     /// picker's GET route with its current filter. Rows always arrive
     /// by pull — the pull endpoint remains the correctness dependency.
     pub(crate) fn push_models_changed(&mut self) {
-        let ids: Vec<SessionId> = self.state.read().session.sessions().keys().cloned().collect();
+        let ids: Vec<SessionId> = self
+            .state
+            .read()
+            .session
+            .sessions()
+            .keys()
+            .cloned()
+            .collect();
         for session_id in ids {
             self.broadcast(SseEnvelope {
                 kind: SseKind::Models,
