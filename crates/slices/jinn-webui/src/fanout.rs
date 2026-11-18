@@ -204,16 +204,23 @@ impl WebUiFanoutActor {
 
     /// Flushes every buffered session, reading each one's entry count
     /// for the cursor stamp. One state read per buffered session; the
-    /// guard drops before the broadcast (no await under it).
+    /// guard drops before the broadcast (no await under it). The stamp
+    /// is the RENDERED entry count — the cursor's coordinate space is
+    /// the filtered transcript, so raw history length (which counts
+    /// transients the transcript drops) would drift clients' cursors
+    /// and corrupt every reconnect after one.
     fn flush_all(&mut self) {
         let ids: Vec<SessionId> = self.pending.keys().cloned().collect();
         for session_id in ids {
             let cursor = {
                 let guard = self.state.read();
-                guard
-                    .session
-                    .get(&session_id)
-                    .map_or(0, |session| session.history().len())
+                guard.session.get(&session_id).map_or(0, |session| {
+                    session
+                        .history()
+                        .iter()
+                        .filter(|e| crate::transcript::is_renderable(e))
+                        .count()
+                })
             };
             self.flush_session(&session_id, cursor);
         }

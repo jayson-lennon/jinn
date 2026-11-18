@@ -797,3 +797,100 @@ mod root {
         );
     }
 }
+
+/// Transient entries: filtered from every cursor-addressed surface,
+/// never a crash.
+mod transients {
+    use super::*;
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn a_live_transient_entry_neither_panics_nor_renders() {
+        // Given a live session whose history carries a transient
+        // (boot, model refresh, and skills refresh all push these).
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        {
+            let mut guard = state.write();
+            let session = guard.session.get_mut(&id).expect("seeded session");
+            session.push_entry(jinn_core_types::ChatEntry::user("before"));
+            session.push_entry(jinn_core_types::ChatEntry::transient(
+                "Refreshing models...",
+            ));
+            session.push_entry(jinn_core_types::ChatEntry::user("after"));
+        }
+
+        // When pulling the full transcript.
+        let (status, body) = get(&router, &format!("/web/transcript/{id}")).await;
+
+        // Then the pull answers with the two real entries only.
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("before"), "{body}");
+        assert!(body.contains("after"), "{body}");
+        assert!(!body.contains("Refreshing models"), "{body}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn transients_do_not_shift_the_cursor_space() {
+        // Given a session with one transient between two entries.
+        let (state, _audit, _slices, _router) = harness();
+        let id = seed_session(&state);
+        {
+            let mut guard = state.write();
+            let session = guard.session.get_mut(&id).expect("seeded session");
+            session.push_entry(jinn_core_types::ChatEntry::user("one"));
+            session.push_entry(jinn_core_types::ChatEntry::transient(
+                "Restarting MCP server",
+            ));
+            session.push_entry(jinn_core_types::ChatEntry::user("two"));
+        }
+
+        // When projecting the transcript and stamping the cursor the
+        // fan-out stamps it (rendered count).
+        let guard = state.read();
+        let session = guard.session.get(&id).expect("seeded session");
+        let transcript = crate::transcript::TranscriptModel::from_live(
+            session.history(),
+            session.title(),
+            "model",
+            session.phase().as_str(),
+            session.is_bot(),
+        );
+        let stamped = session
+            .history()
+            .iter()
+            .filter(|e| crate::transcript::is_renderable(e))
+            .count();
+
+        // Then the cursor space is the rendered count, and a client at
+        // that cursor re-pulls nothing.
+        assert_eq!(transcript.len(), 2);
+        assert_eq!(stamped, transcript.len());
+        assert!(transcript.since(Some(stamped)).is_empty());
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn an_archived_transient_is_filtered_the_same_way() {
+        // Given a snapshot carrying a transient — metadata taken from a
+        // real capture, since the metadata struct is wide.
+        let mut snapshot = jinn_session_state::ChatSessionState::new().capture_snapshot();
+        snapshot.entries = vec![
+            jinn_core_types::ChatEntry::user("kept"),
+            jinn_core_types::ChatEntry::transient("UI-only"),
+        ];
+
+        // When projecting it.
+        let transcript = crate::transcript::TranscriptModel::from_snapshot(
+            &snapshot, None, "model", "idle", false,
+        );
+
+        // Then only the renderable entry lands in the cursor space.
+        assert_eq!(transcript.len(), 1);
+        let [kept] = transcript.entries.as_slice() else {
+            panic!("one rendered entry, got {}", transcript.len())
+        };
+        assert!(kept.body_html.contains("kept"));
+    }
+}

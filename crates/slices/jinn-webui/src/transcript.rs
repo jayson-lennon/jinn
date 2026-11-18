@@ -132,7 +132,7 @@ impl TranscriptModel {
             model: model.to_owned(),
             phase: phase.to_owned(),
             is_bot,
-            entries: history.iter().map(render_entry).collect(),
+            entries: render_history(history),
         }
     }
 
@@ -152,7 +152,7 @@ impl TranscriptModel {
             model: model.to_owned(),
             phase: phase.to_owned(),
             is_bot,
-            entries: snapshot.entries.iter().map(render_entry).collect(),
+            entries: render_history(&snapshot.entries),
         }
     }
 

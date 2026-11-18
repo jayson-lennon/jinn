@@ -297,16 +297,29 @@ async fn sessions_fragment(
 
 /// The composer-controls fragment from a state guard — the shape the
 /// fan-out calls with its own guard. The phase decides the button.
+/// Renders a template, or logs and serves a blank fragment. Askama
+/// templates are compile-checked, so a render failure is a data bug —
+/// it must be visible in the logs, never silently swallowed into an
+/// empty fragment.
+fn render_or_log<T: askama::Template>(template: &T, what: &str) -> String {
+    crate::templates::render(template).unwrap_or_else(|error| {
+        tracing::warn!(%error, %what, "webui template render failed; serving a blank fragment");
+        String::new()
+    })
+}
+
 pub fn controls_fragment(session_id: &SessionId, guard: &StateReadGuard<'_>) -> String {
     let busy = guard
         .session
         .get(session_id)
         .is_some_and(|session| session.phase().is_working());
-    crate::templates::render(&crate::templates::ControlsTemplate {
-        session_id: session_id.to_string(),
-        busy,
-    })
-    .unwrap_or_else(|_| String::new())
+    render_or_log(
+        &crate::templates::ControlsTemplate {
+            session_id: session_id.to_string(),
+            busy,
+        },
+        "controls",
+    )
 }
 
 /// The sessions-list fragment from a state guard — the fan-out's shape.
@@ -327,8 +340,7 @@ pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
             loaded: true,
         })
         .collect();
-    crate::templates::render(&crate::templates::SessionsTemplate { rows })
-        .unwrap_or_else(|_| String::new())
+    render_or_log(&crate::templates::SessionsTemplate { rows }, "sessions")
 }
 
 /// The full-transcript fragment from a state guard — the fan-out's
@@ -344,11 +356,13 @@ pub fn transcript_full_fragment(session_id: &SessionId, guard: &StateReadGuard<'
         session.phase().as_str(),
         session.is_bot(),
     );
-    crate::templates::render(&crate::templates::TranscriptTemplate {
-        entries: transcript.entries,
-        start: 0,
-    })
-    .unwrap_or_else(|_| String::new())
+    render_or_log(
+        &crate::templates::TranscriptTemplate {
+            entries: transcript.entries,
+            start: 0,
+        },
+        "transcript-full",
+    )
 }
 
 // ── Fragments (HTTP) ────────────────────────────────────────────────
