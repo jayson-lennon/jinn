@@ -24,7 +24,7 @@ encoding = "gzip"
 
 [[assets]]
 served = "main.js"
-sha256 = "9c65ab54125a2cd3a27fa0137f9e4715e635cf19e31a1b447e211d1a7e541144"
+sha256 = "62749f5f05b1beb07d585547302b106d6316a4fe6f5957c3cca30d8c10e0f012"
 encoding = "gzip"
 
 [[assets]]
@@ -34,12 +34,12 @@ encoding = "gzip"
 
 [[assets]]
 served = "regions/mod.js"
-sha256 = "1041fc03e43fa610bc86bd3ba3acd91f7393127fc7e9e248893334640b6477e4"
+sha256 = "8f916acacbcfb567b4d5844066afb75b6e48eb7d3a107c2885d25f4273ae817c"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/model_picker.js"
-sha256 = "74edf614cb328cb2379f3866dc3a6cac8491d06c7a335df7f5b7b2f5e0fa76fd"
+sha256 = "7f69e337fd76aa0370b755988c4c5699eda56e093a7ef86ee073dff5d8931c8e"
 encoding = "gzip"
 
 [[assets]]
@@ -54,7 +54,7 @@ encoding = "gzip"
 
 [[assets]]
 served = "sse.js"
-sha256 = "32ba26af9f919bbb1701f2a554fa18ed1a87ff7df0b4769925c4428d626f116e"
+sha256 = "7172cb6ccb2a0a8360ef0c43ecf032709bbc2e46cd750176093708807e6c4752"
 encoding = "gzip"
 
 [[assets]]

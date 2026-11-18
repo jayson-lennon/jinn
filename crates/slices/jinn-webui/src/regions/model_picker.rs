@@ -11,10 +11,13 @@
 //! (`jinn_provider_selection_msg::provider_rows`) — availability from
 //! api keys, aliases resolved, remote cache models merged, sorted
 //! available-first with the active selection promoted to the top of an
-//! unfiltered list. The filter is server-side: the pull route accepts
-//! `?filter=…` (a case-insensitive substring over model id and provider
-//! name) and each keystroke re-queries; the client discards stale
-//! responses (latest-wins).
+//! unfiltered list. The filter is server-side and runs the TUI's own
+//! fuzzy match core: the pull route accepts `?filter=…`, the msg
+//! crate's `filter_entries` applies `SkimMatcherV2` (per-term AND,
+//! score-descending order) over the same search text, and each
+//! keystroke re-queries; the client discards stale responses
+//! (latest-wins). Matched spans render in `<mark>` runs from the
+//! shared builder's segment split.
 //!
 //! The button fragment renders the viewed session's current model; the
 //! modal fragment renders the row list, the filter input, and the
@@ -154,16 +157,15 @@ pub(crate) fn available_model_ids(
 }
 
 /// Builds the TUI-parity rows for one render: the shared builder's
-/// load + sort, then the server-side substring filter over the same
-/// search text the TUI fuzzy-matches (`"{model} {provider_name}"`).
+/// load + sort, then the server-side fuzzy filter — the TUI's own
+/// match core (`SkimMatcherV2`, per-term AND, score-descending order)
+/// over the same search text, via the msg crate's `filter_entries`.
 /// Guards are taken under one block and dropped before rendering.
 fn picker_rows(
     shared: &crate::server::ServerShared,
     session_id: &str,
     filter: &str,
-) -> Vec<jinn_provider_selection_msg::ProviderPickerEntry> {
-    let needle = filter.to_lowercase();
-
+) -> Vec<jinn_provider_selection_msg::FilteredEntry> {
     let (active, theme) = {
         let guard = shared.read_state();
         let active = jinn_core_types::SessionId::try_from_string(session_id)
@@ -180,14 +182,17 @@ fn picker_rows(
         let cache = shared.read_provider().model_cache.clone();
         load_provider_entries(&registry, &api_keys, cache.as_ref(), &theme)
     };
-    let sorted = sorted_entries(&all, &needle, &active);
-    if needle.is_empty() {
-        return sorted;
+    let sorted = sorted_entries(&all, filter, &active);
+    if filter.is_empty() {
+        return sorted
+            .into_iter()
+            .map(|entry| jinn_provider_selection_msg::FilteredEntry {
+                entry,
+                match_indices: Vec::new(),
+            })
+            .collect();
     }
-    sorted
-        .into_iter()
-        .filter(|entry| entry.search_text.to_lowercase().contains(&needle))
-        .collect()
+    jinn_provider_selection_msg::provider_rows::filter_entries(&sorted, filter)
 }
 
 /// The titlebar button fragment: the current model as a control.
@@ -241,18 +246,13 @@ pub fn modal_fragment(
     let active = current_model_label(shared, session_id);
     let rows: Vec<String> = picker_rows(shared, session_id, filter)
         .into_iter()
-        .map(|entry| {
-            let is_active = entry.provider_id == active;
-            crate::templates::render(&crate::templates::ModelRowTemplate {
-                entry,
-                session_id: session_id.to_owned(),
+        .map(|filtered| {
+            let is_active = filtered.entry.provider_id == active;
+            crate::templates::render(&crate::templates::ModelRowTemplate::from_filtered(
+                filtered,
+                session_id.to_owned(),
                 is_active,
-                model_attr: crate::contract::MODEL_ID_DATA_ATTR,
-                marker_attr: crate::contract::MODEL_MARKER_ATTR,
-                unavailable_attr: crate::contract::MODEL_UNAVAILABLE_ATTR,
-                action_attr: crate::contract::ACTION_DATA_ATTR,
-                model_action: crate::contract::ACTION_MODEL,
-            })
+            ))
             .unwrap_or_else(|error| {
                 tracing::warn!(%error, what = "model-row", "webui template render failed; \
                      skipping the row");
@@ -307,6 +307,8 @@ pub const MODEL_PICKER_CSS: &str = r#"
 .model-row:hover { background: #23272f; }
 .model-row .model-row-marker { width: 1.2em; color: var(--muted); }
 .model-row .model-row-provider { color: var(--muted); }
+.model-row mark { background: transparent; color: var(--accent);
+                  font-weight: 600; }
 .model-row.model-row-active { background: #20242c; }
 .model-row.model-row-active .model-row-model { font-weight: 600; }
 .model-row.model-row-unavailable { cursor: default; color: var(--muted); }

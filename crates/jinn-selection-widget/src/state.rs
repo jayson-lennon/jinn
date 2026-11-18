@@ -356,49 +356,81 @@ where
 
     /// Recomputes the filtered index cache based on the current filter text.
     ///
-    /// When the filter is empty, all items are included in original order.
-    /// Otherwise, the filter is split on whitespace into terms and each term must
-    /// independently fuzzy-match the item's [`display_label`](PickerItem::display_label)
-    /// (AND logic). Results are sorted by cumulative match score (descending), with
-    /// ties broken by original item index. Match byte indices from all terms are
-    /// union'd for highlighting.
+    /// Delegates to [`fuzzy_filter`] over the items' display labels; see that
+    /// function for the matching and ordering semantics.
     fn recompute_filtered(&mut self) {
-        if self.filter.is_empty() {
-            self.filtered_indices = (0..self.items.len()).collect();
-            self.filtered_match_indices = vec![Vec::new(); self.items.len()];
-        } else {
-            let matcher = SkimMatcherV2::default();
-            let terms: Vec<&str> = self.filter.split_whitespace().collect();
-
-            let mut scored: Vec<(i64, usize, Vec<usize>)> = self
-                .items
-                .iter()
-                .enumerate()
-                .filter_map(|(i, item)| {
-                    match_all_terms(&matcher, item, &terms)
-                        .map(|(score, indices)| (score, i, indices))
-                })
-                .collect();
-
-            // Sort by score descending, then by original index ascending for stable ordering.
-            scored.sort_unstable_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-
-            self.filtered_indices = scored.iter().map(|(_, i, _)| *i).collect();
-            self.filtered_match_indices = scored.into_iter().map(|(_, _, idx)| idx).collect();
-        }
+        let labels: Vec<&str> = self.items.iter().map(PickerItem::display_label).collect();
+        let matches = fuzzy_filter(&labels, &self.filter);
+        self.filtered_indices = matches.iter().map(|m| m.index).collect();
+        self.filtered_match_indices = matches.into_iter().map(|m| m.match_indices).collect();
     }
 }
 
-/// Attempts to fuzzy-match all `terms` against an item's display label.
+/// One fuzzy-filtered label: which input position matched, and where.
+#[derive(Debug)]
+pub struct FilteredMatch {
+    /// The matched label's position in the input slice.
+    pub index: usize,
+    /// Sorted, deduplicated byte offsets into the label that the filter matched.
+    /// Empty when the filter is empty (no highlighting).
+    pub match_indices: Vec<usize>,
+}
+
+/// Fuzzy-filters `labels` by `filter`, returning the matches in display order.
+///
+/// This is the picker's shared match core, extracted so every surface that shows
+/// a filtered picker list (the TUI widget and any rendered variant) matches and
+/// orders identically.
+///
+/// An empty filter passes every label through in input order with no match
+/// indices. Otherwise the filter is split on whitespace into terms, and each
+/// term must independently fuzzy-match the label ([`SkimMatcherV2`], AND logic).
+/// Results are sorted by cumulative match score (descending), with ties broken
+/// by input order. Match byte indices from all terms are union'd, sorted, and
+/// deduplicated for highlighting.
+#[must_use]
+pub fn fuzzy_filter(labels: &[&str], filter: &str) -> Vec<FilteredMatch> {
+    if filter.is_empty() {
+        return (0..labels.len())
+            .map(|index| FilteredMatch {
+                index,
+                match_indices: Vec::new(),
+            })
+            .collect();
+    }
+
+    let matcher = SkimMatcherV2::default();
+    let terms: Vec<&str> = filter.split_whitespace().collect();
+
+    let mut scored: Vec<(i64, usize, Vec<usize>)> = labels
+        .iter()
+        .enumerate()
+        .filter_map(|(i, label)| {
+            match_label_terms(&matcher, label, &terms).map(|(score, indices)| (score, i, indices))
+        })
+        .collect();
+
+    // Sort by score descending, then by original index ascending for stable ordering.
+    scored.sort_unstable_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+
+    scored
+        .into_iter()
+        .map(|(_, index, match_indices)| FilteredMatch {
+            index,
+            match_indices,
+        })
+        .collect()
+}
+
+/// Attempts to fuzzy-match all `terms` against one label.
 ///
 /// Returns `Some((cumulative_score, unioned_byte_indices))` when every term matches,
 /// or `None` if any term fails to match (short-circuits on first miss).
-fn match_all_terms<T: PickerItem>(
+fn match_label_terms(
     matcher: &SkimMatcherV2,
-    item: &T,
+    label: &str,
     terms: &[&str],
 ) -> Option<(i64, Vec<usize>)> {
-    let label = item.display_label();
     let mut total_score: i64 = 0;
     let mut all_byte_indices: Vec<usize> = Vec::new();
 

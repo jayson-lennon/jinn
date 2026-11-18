@@ -378,6 +378,12 @@ impl ModelStatusTemplate {
 pub struct ModelRowTemplate {
     /// The row's entry data (presentation-free).
     pub entry: jinn_provider_selection_msg::ProviderPickerEntry,
+    /// The model field split into matched/plain runs from the fuzzy
+    /// filter — matched runs render in a highlight span. One plain run
+    /// of the full text when there is no filter.
+    pub model_segments: Vec<jinn_provider_selection_msg::provider_rows::TextSegment>,
+    /// The provider-name field, split like `model_segments`.
+    pub provider_segments: Vec<jinn_provider_selection_msg::provider_rows::TextSegment>,
     /// The session the switch targets.
     pub session_id: String,
     /// Whether this row is the session's current model (bold + marked).
@@ -392,6 +398,31 @@ pub struct ModelRowTemplate {
     pub action_attr: &'static str,
     /// The switch action's contract name.
     pub model_action: &'static str,
+}
+
+impl ModelRowTemplate {
+    /// Builds the template from a filtered entry: the entry data plus
+    /// its filter-highlight segments.
+    #[must_use]
+    pub fn from_filtered(
+        filtered: jinn_provider_selection_msg::FilteredEntry,
+        session_id: String,
+        is_active: bool,
+    ) -> Self {
+        let segments = filtered.segments();
+        Self {
+            entry: filtered.entry,
+            model_segments: segments.model,
+            provider_segments: segments.provider,
+            session_id,
+            is_active,
+            model_attr: contract::MODEL_ID_DATA_ATTR,
+            marker_attr: contract::MODEL_MARKER_ATTR,
+            unavailable_attr: contract::MODEL_UNAVAILABLE_ATTR,
+            action_attr: contract::ACTION_DATA_ATTR,
+            model_action: contract::ACTION_MODEL,
+        }
+    }
 }
 
 /// The model-picker modal: the overlay, the filter input, the row

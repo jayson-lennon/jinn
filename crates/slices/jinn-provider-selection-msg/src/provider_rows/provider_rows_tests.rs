@@ -21,7 +21,10 @@ use jinn_provider_config::ProvidersConfig;
 use std::collections::BTreeMap;
 
 use crate::ProviderPickerEntry;
-use crate::provider_rows::{load_provider_entries, promote_selected_to_top, sorted_entries};
+use crate::provider_rows::{
+    FilteredEntry, TextSegment, filter_entries, load_provider_entries, promote_selected_to_top,
+    sorted_entries,
+};
 use jinn_theme::default_theme;
 
 fn ollama_entry() -> ProviderEntry {
@@ -664,4 +667,222 @@ fn promote_selected_to_top_moves_checked_entries_first() {
     assert!(entries[0].selected);
     assert_eq!(entries[1].provider_id, "a/model");
     assert_eq!(entries[2].provider_id, "c/model");
+}
+
+// ── The shared fuzzy filter (entries level) ─────────────────────────
+
+#[rstest::rstest]
+fn filter_entries_empty_filter_passes_entries_through_unchanged() {
+    // Given sorted entries in a known order.
+    let input_order = ["a/llama3", "b/mistral"];
+    let entries = vec![
+        make_model_entry("a", "llama3"),
+        make_model_entry("b", "mistral"),
+    ];
+
+    // When filtering with an empty filter.
+    let filtered = filter_entries(&entries, "");
+
+    // Then every entry passes through in input order with no match indices.
+    let ids: Vec<&str> = filtered
+        .iter()
+        .map(|f| f.entry.provider_id.as_str())
+        .collect();
+    assert_eq!(ids, input_order);
+    assert!(filtered.iter().all(|f| f.match_indices.is_empty()));
+}
+
+#[rstest::rstest]
+fn filter_entries_fuzzy_query_matches_what_no_substring_could() {
+    // Given an entry whose search text is "gpt-4o openai".
+    let entries = vec![
+        make_model_entry("openai", "gpt-4o"),
+        make_model_entry("ollama", "llama3"),
+    ];
+
+    // When filtering with the fuzzy abbreviation "gp4" (a subsequence,
+    // not a substring, of the search text).
+    let filtered = filter_entries(&entries, "gp4");
+
+    // Then only the gpt entry survives, and the substring filter would
+    // have dropped it — the parity-discriminating case.
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].entry.provider_id, "openai/gpt-4o");
+    assert!(!filtered[0].entry.search_text.contains("gp4"));
+}
+
+#[rstest::rstest]
+fn filter_entries_multi_term_requires_every_term() {
+    // Given a claude entry and a gpt entry.
+    let entries = vec![
+        make_model_entry("anthropic", "claude-3.5-sonnet"),
+        make_model_entry("openai", "gpt-4o"),
+    ];
+
+    // When filtering with terms one entry satisfies, then terms none does.
+    let both = filter_entries(&entries.clone(), "claude sonnet");
+    let none = filter_entries(&entries, "claude gpt");
+
+    // Then the AND keeps only the entry with both terms and drops all
+    // otherwise.
+    assert_eq!(both.len(), 1);
+    assert_eq!(both[0].entry.provider_id, "anthropic/claude-3.5-sonnet");
+    assert!(none.is_empty());
+}
+
+#[rstest::rstest]
+fn filter_entries_orders_by_the_shared_match_core() {
+    // Given entries whose alphabetical (sorted) order disagrees with the
+    // fuzzy score order for the term "sonnet" (the word-boundary match
+    // scores higher than the interior-substring one — the pairing the
+    // widget's pinned sort test uses).
+    let entries = vec![
+        make_model_entry("a", "jsonnet-tools"),
+        make_model_entry("b", "claude-sonnet"),
+    ];
+
+    // When filtering with "sonnet".
+    let filtered = filter_entries(&entries, "sonnet");
+
+    // Then the order is the shared core's score order, not the input's.
+    assert_eq!(filtered[0].entry.provider_id, "b/claude-sonnet");
+}
+
+#[rstest::rstest]
+fn filter_entries_ranges_agree_with_the_shared_match_core() {
+    // Given entries the core was also handed directly.
+    let entries = vec![
+        make_model_entry("openai", "gpt-4o"),
+        make_model_entry("ollama", "llama3"),
+    ];
+    let labels: Vec<&str> = entries.iter().map(|e| e.search_text.as_str()).collect();
+
+    // When filtering both ways with a fuzzy query.
+    let filtered = filter_entries(&entries.clone(), "gpt");
+    let core = jinn_selection_widget::fuzzy_filter(&labels, "gpt");
+
+    // Then each kept entry carries exactly the ranges the core
+    // computed for its position, in the core's order.
+    assert_eq!(filtered.len(), core.len());
+    for (f, c) in filtered.iter().zip(&core) {
+        assert_eq!(f.entry.search_text, labels[c.index]);
+        assert_eq!(f.match_indices, c.match_indices);
+    }
+}
+
+// ── The highlight segments (matched/plain runs) ─────────────────────
+
+#[rstest::rstest]
+fn segments_empty_indices_yield_one_plain_run_per_field() {
+    // Given a filtered entry with empty match indices (the empty-filter
+    // passthrough shape).
+    let filtered = FilteredEntry {
+        entry: make_model_entry("openai", "gpt-4o"),
+        match_indices: Vec::new(),
+    };
+
+    // When splitting into segments.
+    let segments = filtered.segments();
+
+    // Then each field is one unmarked run of its full text.
+    assert_eq!(
+        segments.model,
+        vec![TextSegment {
+            text: "gpt-4o".to_owned(),
+            matched: false,
+        }]
+    );
+    assert_eq!(
+        segments.provider,
+        vec![TextSegment {
+            text: "openai".to_owned(),
+            matched: false,
+        }]
+    );
+}
+
+#[rstest::rstest]
+fn segments_mark_matched_runs_in_both_fields() {
+    // Given a filtered entry for "gpt-4o openai" where the query
+    // matches bytes in the model and the provider name.
+    let entry = make_model_entry("openai", "gpt-4o");
+    // search_text = "gpt-4o openai": bytes 0-2 = "gpt" (model), byte 8
+    // = "p" starting "pen" inside the provider name (provider offset
+    // = 6 + 1 = 7).
+    let filtered = FilteredEntry {
+        entry,
+        match_indices: vec![0, 1, 2, 8],
+    };
+
+    // When splitting into segments.
+    let segments = filtered.segments();
+
+    // Then the model field marks "gpt" and leaves "-4o" plain, and the
+    // provider field marks "pen" (the matcher matched the 'p' and the
+    // highlight run extends to the grapheme where marking stops).
+    assert_eq!(
+        segments.model,
+        vec![
+            TextSegment {
+                text: "gpt".to_owned(),
+                matched: true,
+            },
+            TextSegment {
+                text: "-4o".to_owned(),
+                matched: false,
+            },
+        ]
+    );
+    assert_eq!(
+        segments.provider,
+        vec![
+            TextSegment {
+                text: "o".to_owned(),
+                matched: false,
+            },
+            TextSegment {
+                text: "p".to_owned(),
+                matched: true,
+            },
+            TextSegment {
+                text: "enai".to_owned(),
+                matched: false,
+            },
+        ]
+    );
+}
+
+#[rstest::rstest]
+fn segments_splits_on_grapheme_boundaries_for_multibyte_text() {
+    // Given a provider name with a multibyte grapheme cluster.
+    let entry = make_model_entry("örüm", "llama3");
+    // search_text = "llama3 örüm": the model is 6 bytes, the separator at 6,
+    // the provider starts at 7; the 'ü' grapheme spans provider-relative
+    // bytes 2-3, so absolute byte 9 (its second byte) remaps to 2 — the
+    // start of that cluster.
+    let filtered = FilteredEntry {
+        entry,
+        match_indices: vec![9],
+    };
+
+    // When splitting into segments.
+    let segments = filtered.segments();
+
+    // Then the runs split without panicking on a UTF-8 boundary and
+    // the concatenation of every run reconstructs each field exactly.
+    assert_eq!(
+        segments
+            .provider
+            .iter()
+            .map(|s| s.text.as_str())
+            .collect::<String>(),
+        "örüm"
+    );
+    let marked: Vec<&str> = segments
+        .provider
+        .iter()
+        .filter(|s| s.matched)
+        .map(|s| s.text.as_str())
+        .collect();
+    assert_eq!(marked.join(""), "r");
 }

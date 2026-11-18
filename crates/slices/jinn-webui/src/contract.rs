@@ -167,9 +167,9 @@ pub const MODELS_REFRESH_ROUTE: &str = "/web/models/refresh";
 pub const MODELS_REFRESH_PATH: &str = "/web/models/refresh";
 
 /// The model-picker pull's filter query parameter
-/// (`GET /web/model-picker/{id}?filter=…`) — the server-side substring
-/// filter over model id and provider name; absent or empty renders
-/// every row.
+/// (`GET /web/model-picker/{id}?filter=…`) — the server-side fuzzy
+/// filter, the TUI's match core over model id and provider name;
+/// absent or empty renders every row.
 pub const MODEL_FILTER_QUERY_PARAM: &str = "filter";
 
 /// Route pattern — the embedded vendor assets.

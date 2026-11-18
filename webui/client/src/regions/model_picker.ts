@@ -32,7 +32,7 @@
 
 import * as api from "../api.js";
 import * as wire from "../wire.js";
-import { reportFailure, targetElement, targetWithAttribute } from "../dom.js";
+import { reportFailure, targetElement } from "../dom.js";
 import type { RegionModule } from "./mod.js";
 
 /**
@@ -62,7 +62,16 @@ export const modelPickerRegion: RegionModule = {
   selectors: [`#${wire.MODEL_PICKER_ID}`, `#${wire.MODEL_PICKER_MODAL_HOST_ID}`],
 
   onClick(target) {
-    const candidate = targetWithAttribute(target);
+    const origin = targetElement(target);
+    if (origin === null) {
+      return false;
+    }
+    // Resolve the acting element by walking up from the click's
+    // actual target: a row's clicks land on its inner text spans, so
+    // the handler must consult the ancestor chain (the same walk the
+    // sessions region applies to its rows) — checking the target
+    // alone misses every click on a row's text.
+    const candidate = origin.closest(`[${wire.ACTION_DATA_ATTR}]`);
     const action = candidate?.getAttribute(wire.ACTION_DATA_ATTR);
     if (action === wire.ACTION_MODEL) {
       switchModel(candidate as HTMLElement);
@@ -72,8 +81,8 @@ export const modelPickerRegion: RegionModule = {
       refreshModels(candidate as HTMLElement);
       return true;
     }
-    const element = candidate ?? targetElement(target);
-    if (element?.id === wire.MODEL_PICKER_BUTTON_ID) {
+    const element = candidate ?? origin;
+    if (element.id === wire.MODEL_PICKER_BUTTON_ID) {
       openModal();
       return true;
     }

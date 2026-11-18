@@ -33,6 +33,15 @@ use crate::server::router;
 /// id returned with the base URL). The serve task runs for the test's
 /// life.
 async fn harness(titled: Option<&str>) -> (String, Option<SessionId>) {
+    harness_with(titled, |_registry, _keys| {}).await
+}
+
+/// [`harness`] with a hook over the provider registry and key store
+/// before the server boots — the picker tests' way to install models.
+async fn harness_with(
+    titled: Option<&str>,
+    seed: impl FnOnce(&mut jinn_provider_config::ProviderRegistry, &mut jinn_provider_config::ApiKeys),
+) -> (String, Option<SessionId>) {
     let slices = Slices::new();
     let provider_cell = slices
         .register(
@@ -64,29 +73,32 @@ async fn harness(titled: Option<&str>) -> (String, Option<SessionId>) {
         let system = ActorSystem::new(trouper::system::SystemConfig::production());
         crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone())
     };
-    let shared = ServerShared::new(
-        state,
-        bus,
-        jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
-            jinn_kernel::common::services::test_services::FakeSessionStore,
-        )),
-        provider_cell,
-        jinn_provider_config::ProviderRegistryService::new(
-            jinn_provider_config::ProviderRegistry::from_config(
-                jinn_provider_config::ProvidersConfig {
-                    providers: std::collections::BTreeMap::default(),
-                    aliases: vec![],
-                    default_provider: None,
-                    endpoint_defaults: vec![],
-                },
-            )
-            .expect("an empty providers config expands"),
-        ),
-        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
-        fanout,
-        0,
-        "serve-test".to_owned(),
-    );
+    let shared = {
+        let mut registry = jinn_provider_config::ProviderRegistry::from_config(
+            jinn_provider_config::ProvidersConfig {
+                providers: std::collections::BTreeMap::default(),
+                aliases: vec![],
+                default_provider: None,
+                endpoint_defaults: vec![],
+            },
+        )
+        .expect("an empty providers config expands");
+        let mut api_keys = jinn_provider_config::ApiKeys::new();
+        seed(&mut registry, &mut api_keys);
+        ServerShared::new(
+            state,
+            bus,
+            jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
+                jinn_kernel::common::services::test_services::FakeSessionStore,
+            )),
+            provider_cell,
+            jinn_provider_config::ProviderRegistryService::new(registry),
+            jinn_provider_config::ApiKeysService::new(api_keys),
+            fanout,
+            0,
+            "serve-test".to_owned(),
+        )
+    };
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -298,6 +310,219 @@ async fn the_model_picker_pull_is_a_modal_and_the_filter_narrows_it_server_side(
     assert!(
         filtered.contains("value=\"zzz-no-match\""),
         "the filter must echo back into the input: {filtered}"
+    );
+}
+
+/// A keyless provider entry for the picker-filter tests.
+fn provider_entry(backend: &str, model: &str) -> jinn_provider_config::ProviderEntry {
+    jinn_provider_config::ProviderEntry {
+        model_info: Vec::new(),
+        backend: backend.to_owned(),
+        models: vec![model.to_owned()],
+        base_url: Some("http://localhost:11434".to_owned()),
+        api_key_env: None,
+        requires_key: false,
+        extra_body: None,
+        context_length: None,
+    }
+}
+
+/// Seeds the registry the picker tests filter against: a gpt and a
+/// claude entry, plus one key-required provider with no key set (an
+/// unavailable row that no filter may offer).
+fn seed_picker_registry(
+    registry: &mut jinn_provider_config::ProviderRegistry,
+    _keys: &mut jinn_provider_config::ApiKeys,
+) {
+    let config = jinn_provider_config::ProvidersConfig {
+        providers: std::collections::BTreeMap::from([
+            ("openai".to_owned(), provider_entry("openai", "gpt-4o")),
+            (
+                "anthropic".to_owned(),
+                provider_entry("anthropic", "claude-3.5-sonnet"),
+            ),
+            (
+                "locked".to_owned(),
+                jinn_provider_config::ProviderEntry {
+                    model_info: Vec::new(),
+                    backend: "openai".to_owned(),
+                    models: vec!["locked-model".to_owned()],
+                    base_url: None,
+                    api_key_env: Some("LOCKED_API_KEY".to_owned()),
+                    requires_key: true,
+                    extra_body: None,
+                    context_length: None,
+                },
+            ),
+        ]),
+        aliases: vec![],
+        default_provider: None,
+        endpoint_defaults: vec![],
+    };
+    *registry = jinn_provider_config::ProviderRegistry::from_config(config)
+        .expect("the seeded config expands");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_fuzzy_filter_matches_what_no_substring_could_and_marks_it() {
+    // Given a live server whose registry holds gpt-4o (openai) — and a
+    // filter no substring of any search text matches.
+    let (base, seeded) = harness_with(Some("Fuzzy"), seed_picker_registry).await;
+    let id = seeded.expect("harness seeded the session");
+    let http = client();
+
+    // When pulling the modal with the fuzzy abbreviation "gp4".
+    let body = http
+        .get(format!(
+            "{base}/web/model-picker/{id}?{}=gp4",
+            crate::contract::MODEL_FILTER_QUERY_PARAM
+        ))
+        .send()
+        .await
+        .expect("fuzzy pull completes")
+        .text()
+        .await
+        .expect("fuzzy body reads");
+
+    // Then the gpt row survives (a fuzzy subsequence match — the old
+    // substring filter would have dropped it), rendered with the
+    // matcher's per-character match runs highlighted, and no other row
+    // appears.
+    assert!(body.contains("openai/gpt-4o"), "{body}");
+    assert!(body.contains("<mark>gp</mark>t-<mark>4</mark>o"), "{body}");
+    assert!(!body.contains("claude"), "{body}");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_fuzzy_filter_applies_every_term_and_orders_by_score() {
+    // Given the seeded registry (gpt-4o, claude-3.5-sonnet).
+    let (base, seeded) = harness_with(Some("Terms"), seed_picker_registry).await;
+    let id = seeded.expect("harness seeded the session");
+    let http = client();
+
+    // When pulling with terms one row satisfies, then terms none does.
+    let both = http
+        .get(format!(
+            "{base}/web/model-picker/{id}?{}=claude%20sonnet",
+            crate::contract::MODEL_FILTER_QUERY_PARAM
+        ))
+        .send()
+        .await
+        .expect("multi-term pull completes")
+        .text()
+        .await
+        .expect("multi-term body reads");
+    let none = http
+        .get(format!(
+            "{base}/web/model-picker/{id}?{}=claude%20gpt",
+            crate::contract::MODEL_FILTER_QUERY_PARAM
+        ))
+        .send()
+        .await
+        .expect("contradiction pull completes")
+        .text()
+        .await
+        .expect("contradiction body reads");
+
+    // Then the AND keeps only the claude row and the impossible pair
+    // keeps none (the rows container renders empty).
+    assert!(both.contains("anthropic/claude-3.5-sonnet"), "{both}");
+    assert!(!both.contains("gpt-4o"), "{both}");
+    assert!(
+        none.contains(&format!("id=\"{}\"", crate::contract::MODEL_PICKER_ROWS_ID)),
+        "{none}"
+    );
+    assert!(
+        !none.contains("class=\"model-row"),
+        "a no-match filter must render zero rows: {none}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_empty_filter_shows_the_unfiltered_order_with_no_marks() {
+    // Given the seeded registry, one provider of which is unavailable
+    // (its key is unset).
+    let (base, seeded) = harness_with(Some("Unfiltered"), seed_picker_registry).await;
+    let id = seeded.expect("harness seeded the session");
+    let http = client();
+
+    // When pulling with no filter parameter.
+    let body = http
+        .get(format!("{base}/web/model-picker/{id}"))
+        .send()
+        .await
+        .expect("unfiltered pull completes")
+        .text()
+        .await
+        .expect("unfiltered body reads");
+
+    // Then every row renders — available entries first in alphabetical
+    // model order, unavailable last with its ✗ marker — and no
+    // highlight run appears anywhere.
+    let claude = body
+        .find("data-webui-model=\"anthropic/claude-3.5-sonnet\"")
+        .expect("the claude row renders");
+    let gpt = body
+        .find("data-webui-model=\"openai/gpt-4o\"")
+        .expect("the gpt row renders");
+    let locked = body
+        .find(">locked-model</span>")
+        .expect("the locked row renders");
+    assert!(claude < gpt && gpt < locked, "unfiltered order: {body}");
+    assert!(body.contains("✗"), "{body}");
+    assert!(!body.contains("<mark>"), "{body}");
+    // And the unavailable row offers no switch action.
+    assert!(
+        body.contains(&format!(
+            "{}=\"true\"",
+            crate::contract::MODEL_UNAVAILABLE_ATTR
+        )),
+        "{body}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_fuzzy_filter_never_offers_an_unavailable_row() {
+    // Given the seeded registry whose locked provider has no key set.
+    let (base, seeded) = harness_with(Some("Locked"), seed_picker_registry).await;
+    let id = seeded.expect("harness seeded the session");
+    let http = client();
+
+    // When pulling with a filter that matches only the locked model.
+    let body = http
+        .get(format!(
+            "{base}/web/model-picker/{id}?{}=locked",
+            crate::contract::MODEL_FILTER_QUERY_PARAM
+        ))
+        .send()
+        .await
+        .expect("locked pull completes")
+        .text()
+        .await
+        .expect("locked body reads");
+
+    // Then the locked row renders but carries the unavailable marker —
+    // no switch action (and no model attribute), so the client cannot
+    // select it.
+    assert!(body.contains("<mark>locked</mark>-model"), "{body}");
+    assert!(
+        body.contains(&format!(
+            "{}=\"true\"",
+            crate::contract::MODEL_UNAVAILABLE_ATTR
+        )),
+        "{body}"
+    );
+    let rows_marker = format!("id=\"{}\"", crate::contract::MODEL_PICKER_ROWS_ID);
+    let rows_start =
+        body.find(&rows_marker).expect("the rows container renders") + rows_marker.len();
+    let rows: String = body.chars().skip(rows_start).collect();
+    assert!(
+        !rows.contains(crate::contract::ACTION_DATA_ATTR),
+        "an unavailable row must not carry the switch action: {rows}"
     );
 }
 

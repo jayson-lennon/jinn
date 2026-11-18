@@ -293,16 +293,14 @@ fn composer_buttons_name_the_actions_the_client_maps_to_endpoints() {
 #[test]
 fn the_model_picker_names_the_action_the_client_maps_to_the_model_endpoint() {
     // Given a model-picker modal with one available row.
-    let fragment = templates::render(&templates::ModelRowTemplate {
-        entry: test_entry(true, false, false),
-        session_id: "00000000-0000-0000-0000-000000000000".to_owned(),
-        is_active: false,
-        model_attr: contract::MODEL_ID_DATA_ATTR,
-        marker_attr: contract::MODEL_MARKER_ATTR,
-        unavailable_attr: contract::MODEL_UNAVAILABLE_ATTR,
-        action_attr: contract::ACTION_DATA_ATTR,
-        model_action: contract::ACTION_MODEL,
-    })
+    let fragment = templates::render(&templates::ModelRowTemplate::from_filtered(
+        jinn_provider_selection_msg::FilteredEntry {
+            entry: test_entry(true, false, false),
+            match_indices: Vec::new(),
+        },
+        "00000000-0000-0000-0000-000000000000".to_owned(),
+        false,
+    ))
     .expect("the row renders");
 
     // Then the row names the model action via the contract's
@@ -438,16 +436,14 @@ async fn the_button_fragment_carries_the_button_id_and_the_model_action_name() {
 
 /// Renders one row with the contract hooks filled.
 fn render_row(entry: jinn_provider_selection_msg::ProviderPickerEntry, is_active: bool) -> String {
-    templates::render(&templates::ModelRowTemplate {
-        entry,
-        session_id: "00000000-0000-0000-0000-000000000000".to_owned(),
+    templates::render(&templates::ModelRowTemplate::from_filtered(
+        jinn_provider_selection_msg::FilteredEntry {
+            entry,
+            match_indices: Vec::new(),
+        },
+        "00000000-0000-0000-0000-000000000000".to_owned(),
         is_active,
-        model_attr: contract::MODEL_ID_DATA_ATTR,
-        marker_attr: contract::MODEL_MARKER_ATTR,
-        unavailable_attr: contract::MODEL_UNAVAILABLE_ATTR,
-        action_attr: contract::ACTION_DATA_ATTR,
-        model_action: contract::ACTION_MODEL,
-    })
+    ))
     .expect("the row renders")
 }
 

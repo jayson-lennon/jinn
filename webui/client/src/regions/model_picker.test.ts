@@ -298,6 +298,47 @@ test("clicking an available row posts the switch and closes the modal", async ()
   );
 });
 
+test("clicking a row's inner text span posts the switch (delegation)", async () => {
+  const window = pageShell();
+  modalResponse = modalHtml("", rowHtml("openai/gpt-4o", false));
+  click(window.document.getElementById(wire.MODEL_PICKER_BUTTON_ID)!);
+  await settlePull();
+
+  // The shipped bug: the click lands on the row's inner model span —
+  // the overwhelming majority of a row's area — and the old handler
+  // read the action attribute off the target alone, found nothing, and
+  // dropped the click. The row resolves through the ancestor chain.
+  const row = window.document.getElementById(wire.MODEL_PICKER_ROWS_ID)!.firstElementChild!;
+  const label = row.querySelector(".model-row-model")!;
+  assert.notEqual(label, row, "the click target is the row's child, not the row");
+  click(label);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const switchPost = requests.find(
+    (request) => request.method === "POST" && request.url === wire.MODEL_PATH,
+  );
+  assert.ok(switchPost, "the span's click reached the row's switch action");
+  const modal = window.document.getElementById(wire.MODEL_PICKER_MODAL_ID) as unknown as HTMLElement;
+  assert.equal(modal.hidden, true, "the modal closed after the switch");
+});
+
+test("clicking an unavailable row's text span posts nothing (delegation)", async () => {
+  const window = pageShell();
+  modalResponse = modalHtml("", rowHtml("anthropic/claude", true));
+  click(window.document.getElementById(wire.MODEL_PICKER_BUTTON_ID)!);
+  await settlePull();
+
+  const row = window.document.getElementById(wire.MODEL_PICKER_ROWS_ID)!.firstElementChild!;
+  const label = row.querySelector(".model-row-model")!;
+  click(label);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.ok(
+    !requests.some((request) => request.method === "POST" && request.url === wire.MODEL_PATH),
+    "an unavailable row's span click must not fire the switch POST",
+  );
+});
+
 test("clicking an unavailable row posts nothing", async () => {
   const window = pageShell();
   modalResponse = modalHtml("", rowHtml("anthropic/claude", true));

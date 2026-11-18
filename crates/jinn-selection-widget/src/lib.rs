@@ -36,7 +36,7 @@ pub use preview_widget::{
     HORIZONTAL_LIST_ROWS, LIST_FRACTION, PreviewPaneReport, PreviewSelectionWidget,
     VERTICAL_SPLIT_MIN_WIDTH,
 };
-pub use state::SelectionState;
+pub use state::{FilteredMatch, SelectionState, fuzzy_filter};
 pub use tree_item::TreeItem;
 pub use tree_state::{TreePickerState, VisibleEntry};
 pub use tree_widget::TreePickerWidget;

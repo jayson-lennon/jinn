@@ -4959,6 +4959,7 @@ dependencies = [
  "serde",
  "serde_json",
  "trouper",
+ "unicode-segmentation",
 ]
 
 [[package]]

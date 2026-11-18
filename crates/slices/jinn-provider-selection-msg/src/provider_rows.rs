@@ -24,6 +24,7 @@ use jinn_provider_config::ApiKeys;
 use jinn_provider_config::ModelCache;
 use jinn_provider_config::ProviderRegistry;
 use jinn_theme::Theme;
+use unicode_segmentation::UnicodeSegmentation as _;
 
 /// Builds a [`ProviderPickerEntry`] from a resolved provider.
 ///
@@ -267,6 +268,137 @@ pub fn promote_selected_to_top(entries: &mut Vec<ProviderPickerEntry>) {
     let mut result = selected;
     result.append(entries);
     *entries = result;
+}
+
+/// One fuzzy-filtered entry: the row plus where its search text matched.
+#[derive(Debug, Clone)]
+pub struct FilteredEntry {
+    /// The matched entry, in filter display order.
+    pub entry: ProviderPickerEntry,
+    /// Sorted, deduplicated byte offsets into the entry's `search_text`
+    /// that the filter matched. Empty when the filter is empty.
+    pub match_indices: Vec<usize>,
+}
+
+/// One run of a row's field text: matched runs render highlighted.
+///
+/// Presentation-free data — the caller stamps the rendering (a
+/// `<mark>` span on the web, a styled ratatui span in the TUI).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextSegment {
+    /// The run's text (a whole number of grapheme clusters).
+    pub text: String,
+    /// Whether this run matched the filter (render highlighted).
+    pub matched: bool,
+}
+
+/// A row's two text fields, each split into matched/plain runs.
+///
+/// Byte offsets index `search_text = "{model} {provider_name}"`; the
+/// split follows the same field mapping the TUI's row renderer uses
+/// (model occupies `[0, model_len)`, the single-byte space separator
+/// sits at `model_len`, the provider name starts at `model_len + 1`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowSegments {
+    /// The model field's runs, in display order.
+    pub model: Vec<TextSegment>,
+    /// The provider-name field's runs, in display order.
+    pub provider: Vec<TextSegment>,
+}
+
+impl FilteredEntry {
+    /// Splits the row's model and provider text into matched/plain
+    /// runs from the filter's match indices.
+    ///
+    /// Offsets on the space separator belong to neither field. Runs
+    /// are cut on grapheme boundaries, so slicing is always a valid
+    /// UTF-8 boundary — the same walk the TUI's highlighter uses.
+    #[must_use]
+    pub fn segments(&self) -> RowSegments {
+        let model_len = self.entry.model.len();
+        let provider_offset = model_len.saturating_add(1); // the space separator
+        let model_hits: Vec<usize> = self
+            .match_indices
+            .iter()
+            .copied()
+            .filter(|&i| i < model_len)
+            .collect();
+        let provider_hits: Vec<usize> = self
+            .match_indices
+            .iter()
+            .copied()
+            .filter_map(|i| i.checked_sub(provider_offset))
+            .collect();
+        RowSegments {
+            model: text_segments(&self.entry.model, &model_hits),
+            provider: text_segments(&self.entry.provider_name, &provider_hits),
+        }
+    }
+}
+
+/// Splits `text` into runs of matched and plain text.
+///
+/// `matched` holds sorted byte offsets into `text` (the filter's match
+/// positions, remapped to one field). Runs are cut on grapheme
+/// boundaries; an empty `matched` (or empty text) yields one plain run.
+#[must_use]
+fn text_segments(text: &str, matched: &[usize]) -> Vec<TextSegment> {
+    if matched.is_empty() || text.is_empty() {
+        return vec![TextSegment {
+            text: text.to_owned(),
+            matched: false,
+        }];
+    }
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut in_match = false;
+    for (byte_off, grapheme) in text.grapheme_indices(true) {
+        let is_matched = matched.binary_search(&byte_off).is_ok();
+        if is_matched != in_match {
+            if !current.is_empty() {
+                segments.push(TextSegment {
+                    text: std::mem::take(&mut current),
+                    matched: in_match,
+                });
+            }
+            in_match = is_matched;
+        }
+        current.push_str(grapheme);
+    }
+    if !current.is_empty() {
+        segments.push(TextSegment {
+            text: current,
+            matched: in_match,
+        });
+    }
+    segments
+}
+
+/// The TUI's fuzzy filter over picker entries — the shared match core
+/// applied to the entries' search text.
+///
+/// Every whitespace-separated term of `filter` must fuzzy-match the
+/// entry's `search_text` (`jinn_selection_widget::fuzzy_filter`, the
+/// same [`SkimMatcherV2`] core the picker widget routes through);
+/// matches order by cumulative score descending, ties by input order.
+/// An empty filter returns the entries unchanged (the caller's sorted
+/// order — active promotion has already run) with no ranges.
+///
+/// Byte indices are into `search_text`, not the displayed fields — a
+/// surface splitting the row into model and provider spans cuts the
+/// highlight runs from this text, not from the fields.
+#[must_use]
+pub fn filter_entries(entries: &[ProviderPickerEntry], filter: &str) -> Vec<FilteredEntry> {
+    let labels: Vec<&str> = entries.iter().map(|e| e.search_text.as_str()).collect();
+    jinn_selection_widget::fuzzy_filter(&labels, filter)
+        .into_iter()
+        .filter_map(|matched| {
+            entries.get(matched.index).map(|entry| FilteredEntry {
+                entry: entry.clone(),
+                match_indices: matched.match_indices,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

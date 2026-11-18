@@ -13,6 +13,7 @@ jinn-selection-widget = { workspace = true }
 jinn-picker = { workspace = true }
 jinn-theme = { workspace = true }
 ratatui = { workspace = true }
+unicode-segmentation = { workspace = true }
 jiff = { workspace = true }
 serde = { workspace = true }
 trouper = { workspace = true }
