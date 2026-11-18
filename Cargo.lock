@@ -6011,6 +6011,7 @@ version = "1.25.0"
 dependencies = [
  "askama",
  "axum",
+ "chaser-oxide",
  "error-stack",
  "futures",
  "http-body-util",
@@ -6033,7 +6034,9 @@ dependencies = [
  "jinn-webui-msg",
  "parking_lot",
  "pulldown-cmark",
+ "reqwest 0.13.3",
  "rstest",
+ "rustls 0.23.45",
  "serde",
  "serde_json",
  "sha2 0.10.9",

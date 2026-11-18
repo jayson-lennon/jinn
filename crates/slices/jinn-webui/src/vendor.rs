@@ -4,32 +4,12 @@
 //! `resources/vendor/vendor-manifest.toml`, which pins each file's
 //! sha256; the build fails when a row and its bytes disagree, so the
 //! inventory a binary serves is always the inventory the manifest
-//! vouches for. Unlike the canvas slice there is no authored-file
-//! exemption: the stylesheet travels inside the templates module as a
-//! `&str` constant, so everything here is a third-party dist.
-
-/// The served path of the htmx dist inside `/vendor/`.
-pub const HTMX_PATH: &str = "htmx.min.js";
+//! vouches for. The client bundle's rows are managed by
+//! `just client-check` (emit → gzip → re-pin); other assets are
+//! third-party dists vendored by hand. The stylesheet travels inside
+//! the templates module as a `&str` constant, so everything here is a
+//! compiled artifact or a pinned dist — nothing authored.
 
 // The complete vendor inventory, generated at build time (the
 // generated file carries its own docs).
 include!(concat!(env!("OUT_DIR"), "/vendor_assets.rs"));
-
-/// The htmx asset, as embedded.
-///
-/// # Panics
-///
-/// Panics if `htmx.min.js` is missing from the generated inventory,
-/// which means the manifest row was removed without restoring the
-/// file — a build.rs assertion should have caught that first.
-#[expect(
-    clippy::expect_used,
-    reason = "build.rs fails the build when the htmx row is absent; this is the belt to those braces"
-)]
-#[must_use]
-pub fn htmx_asset() -> &'static VendorAsset {
-    VENDOR_ASSETS
-        .iter()
-        .find(|a| a.path == HTMX_PATH)
-        .expect("htmx.min.js must be embedded")
-}

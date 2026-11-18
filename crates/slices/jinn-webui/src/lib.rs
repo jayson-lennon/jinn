@@ -27,6 +27,9 @@
 //!
 //! Units, by module:
 //!
+//! - [`contract`] — the client/server DOM-and-URL contract: every id,
+//!   attribute, and path the browser client targets, with the
+//!   referential-integrity and parity gates beside it.
 //! - [`listener`] — the listener actor: bind, dashboard note, serve
 //!   task. The bind is frozen: read once here, never re-read on
 //!   config reload, because a rebind would strand every connected
@@ -37,13 +40,15 @@
 //! - [`transcript`] — the transcript projection and render functions.
 //! - [`fanout`] — the SSE fan-out actor: events in, HTML fragments
 //!   out.
-//! - [`vendor`] — the embedded, pre-gzipped frontend library set.
+//! - [`vendor`] — the embedded, pre-gzipped frontend asset set (the
+//!   compiled client bundle plus any third-party dists).
 //! - [`templates`] — the askama page and fragment templates.
 //!
 //! Like the remote surface there is no authentication; unlike remote,
 //! non-loopback binds are taken as configured — reaching the UI over a
 //! VPN is the intended use, and endpoint security is the operator's.
 
+pub mod contract;
 pub mod delivery;
 pub mod fanout;
 pub mod listener;
@@ -51,6 +56,15 @@ pub mod server;
 pub mod templates;
 pub mod transcript;
 pub mod vendor;
+
+#[cfg(test)]
+mod contract_tests;
+
+#[cfg(test)]
+mod serve_tests;
+
+#[cfg(test)]
+mod smoke_tests;
 
 use error_stack::ResultExt as _;
 use jinn_kernel::State;

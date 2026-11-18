@@ -4,14 +4,15 @@
 //!
 //! - **Action forms** — what the browser posts: [`SendForm`],
 //!   [`CancelForm`], [`ModelForm`], [`SwitchForm`]. Field-for-field the
-//!   `application/x-www-form-urlencoded` bodies the page's `hx-post`
-//!   attributes produce; axum's `Form` extractor deserializes them.
+//!   `application/x-www-form-urlencoded` bodies the web client's
+//!   `api.ts` posts; axum's `Form` extractor deserializes them.
 //! - [`TranscriptQuery`] — the cursor grammar of the transcript pull:
 //!   `?since=N` returns the entries rendered at index `N` and after.
-//! - [`SseEnvelope`] — one SSE push: the htmx event name to swap under,
-//!   the session it belongs to, and the cursor the client should
-//!   acknowledge (it rides the SSE `id:` line and returns as
-//!   `Last-Event-ID` on reconnect).
+//! - [`SseEnvelope`] — one SSE push: the event name the client
+//!   dispatches on (mirrored by the TypeScript `wire.ts`), the session
+//!   it belongs to, and the cursor the client should acknowledge (it
+//!   rides the SSE `id:` line and returns as `Last-Event-ID` on
+//!   reconnect).
 
 use jinn_core_types::SessionId;
 use serde::{Deserialize, Serialize};
@@ -100,7 +101,11 @@ pub struct SessionListItem {
     pub loaded: bool,
 }
 
-/// The kind of SSE push — the htmx `sse-swap` event name.
+/// The kind of SSE push — the event name the client dispatches on.
+/// The TypeScript mirror of [`SseKind::event_name`] lives in
+/// `webui/client/src/wire.ts`, and the drift test in this crate's
+/// `wire_tests` (plus the webui crate's `contract_tests`) fails when
+/// the two sides disagree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SseKind {
@@ -116,7 +121,7 @@ pub enum SseKind {
 }
 
 impl SseKind {
-    /// The event name the client's `sse-swap` attributes listen for.
+    /// The event name the client's stream listeners dispatch on.
     #[must_use]
     pub const fn event_name(self) -> &'static str {
         match self {
@@ -199,7 +204,7 @@ mod tests {
     #[case(SseKind::Controls, "controls")]
     #[case(SseKind::Sessions, "sessions")]
     #[case(SseKind::TranscriptFull, "transcript-full")]
-    fn sse_kind_names_its_htmx_event(#[case] kind: SseKind, #[case] expected: &str) {
+    fn sse_kind_names_its_event(#[case] kind: SseKind, #[case] expected: &str) {
         assert_eq!(kind.event_name(), expected);
     }
 }

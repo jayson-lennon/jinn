@@ -2,7 +2,7 @@
 name = "jinn-webui"
 version.workspace = true
 edition.workspace = true
-description = "The webui slice: an unauthenticated HTTP web UI (HTMX over SSE) bound per the [webui] config — session list, full-fidelity transcript, send/cancel, model switch."
+description = "The webui slice: an unauthenticated HTTP web UI (server-rendered fragments over SSE, driven by a small compiled TypeScript client) bound per the [webui] config — session list, full-fidelity transcript, send/cancel, model switch."
 
 [dependencies]
 # Like remote: a leaf slice. jinn-preferences-config ([webui] schema),
@@ -46,6 +46,17 @@ rstest = { workspace = true }
 jinn-testutil = { workspace = true }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+# The serve-and-request tier: tests bind a real listener on port 0 and
+# issue real HTTP requests against it (whole-stack, not in-memory).
+# The workspace pins `rustls-no-provider` on reqwest; the tests install
+# the ring provider explicitly (the jinn-browser daemon tests are the
+# in-tree precedent).
+reqwest = { workspace = true }
+rustls = { workspace = true }
+# The smoke tier: one headless-chromium test driving the real page.
+# Vendored (the canvas-adjacent fork jinn-browser already compiles), so
+# this adds no new build graph beyond what the workspace already carries.
+chaser-oxide = { workspace = true }
 
 [build-dependencies]
 # The build script verifies every manifest row against the bytes on disk

@@ -594,6 +594,69 @@ gh-pr-close N COMMENT="":
     fi
     gh pr close {{N}} "${args[@]}"
 
+# ---------------------------------------------------------------------------
+# Webui client (dev-only Node toolchain)
+# ---------------------------------------------------------------------------
+# SHIPPPING WITH NODE IS BANNED: node_modules is gitignored and this recipe
+# is the only sanctioned Node entrypoint. `cargo build` never runs Node —
+# build.rs reads the committed gzip files and verifies them against the
+# manifest exactly like any other vendored asset. What ships is the
+# emitted, gzipped ES modules.
+#
+# Steps (each is the gate the next one consumes):
+#   1. node_modules exists (npm ci against the committed lockfile).
+#   2. `tsc --noEmit` — the type gate. A contract typo fails here.
+#   3. `tsc` — emit ES modules into the slice's resources/vendor/.
+#   4. gzip each emitted file in place (gzip -9 -n: deterministic,
+#      no timestamp — byte-stable commits).
+#   5. Rewrite the manifest's client rows with fresh sha256 pins —
+#      build.rs fails the next cargo build if these disagree.
+#   6. `node --test` — the jsdom-tier client tests.
+[doc("Typecheck, emit, gzip, and re-pin the webui client bundle, then run its jsdom-tier tests.")]
+client-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CLIENT=webui/client
+    VENDOR=crates/slices/jinn-webui/resources/vendor
+
+    # 1. Dev toolchain present (npm ci is exact-lockfile).
+    if [ ! -d "$CLIENT/node_modules" ]; then
+        echo '==> Installing dev toolchain (npm ci)'
+        npm ci --prefix "$CLIENT"
+    fi
+
+    # 2. The type gates: the shipped app, then the node-side tests.
+    echo '==> tsc --noEmit (app)'
+    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT" --noEmit
+    echo '==> tsc --noEmit (tests)'
+    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT/tsconfig.test.json"
+
+    # 3. Emit ES modules straight into the vendor tree.
+    echo '==> tsc emit'
+    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT"
+
+    # 4. Deterministic gzip, in place. -n drops the timestamp/filename
+    #    fields so re-emitting the same source yields the same bytes.
+    echo '==> gzip emitted modules'
+    for f in "$VENDOR"/main.js "$VENDOR"/api.js "$VENDOR"/render.js "$VENDOR"/sse.js "$VENDOR"/wire.js; do
+        [ -e "$f" ] || continue
+        gzip -9 -n -f "$f"
+    done
+
+    # 5. Re-pin the manifest rows for the emitted files: rewrite the
+    #    marker-delimited client section with fresh sha256 pins.
+    echo '==> re-pinning manifest'
+    python3 scripts/pin-webui-client.py "$VENDOR/vendor-manifest.toml" "$VENDOR"
+
+    # 6. The jsdom-tier tests (node:test, no browser): emit the
+    #    tests + modules to a scratch dir (never the vendor tree) and
+    #    run node against the emitted JS. tsc re-emits in place; no
+    #    cleanup step exists on purpose (nothing recursive is removed).
+    echo '==> node --test (jsdom tier)'
+    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT/tsconfig.test.json"
+    node --test "$CLIENT/.build/"
+    echo '==> client-check green'
+
 # Bump version (major/minor/patch), commit, and tag in git
 bump LEVEL:
     #!/usr/bin/env bash

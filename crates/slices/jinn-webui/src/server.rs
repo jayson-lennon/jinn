@@ -20,7 +20,6 @@ use axum::extract::Path as AxPath;
 use axum::extract::Query as AxQuery;
 use axum::extract::State as AxumState;
 use axum::http::StatusCode;
-use axum::response::Html;
 use axum::response::Sse;
 use axum::response::sse::Event as SseEvent;
 use axum::response::sse::KeepAlive;
@@ -41,6 +40,63 @@ use std::time::Duration;
 /// The SSE keepalive cadence: comment frames keep VPN/NAT idle
 /// timeouts from severing the stream.
 const SSE_KEEPALIVE: Duration = Duration::from_secs(15);
+
+// ── Response shapes ─────────────────────────────────────────────────
+
+/// A whole-page HTML response (`Content-Type: text/html`): the shell
+/// with every region filled. The compile-time answer to the shipped
+/// wrong-shape bug — a page endpoint literally cannot return a
+/// fragment, because [`Page`] and [`Fragment`] are distinct types and
+/// axum knows how to render each.
+#[derive(Debug, Clone)]
+pub struct Page(String);
+
+impl Page {
+    /// Wraps rendered page HTML.
+    #[must_use]
+    pub fn new(html: String) -> Self {
+        Self(html)
+    }
+
+    /// The wrapped HTML.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl axum::response::IntoResponse for Page {
+    fn into_response(self) -> axum::response::Response {
+        axum::response::Html(self.0).into_response()
+    }
+}
+
+/// A fragment HTML response: one region's markup, destined for a
+/// client-side swap into an existing page. Distinct from [`Page`] so a
+/// handler that answers a fragment cannot be confused with one that
+/// answers a page.
+#[derive(Debug, Clone)]
+pub struct Fragment(String);
+
+impl Fragment {
+    /// Wraps rendered fragment HTML.
+    #[must_use]
+    pub fn new(html: String) -> Self {
+        Self(html)
+    }
+
+    /// The wrapped HTML.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl axum::response::IntoResponse for Fragment {
+    fn into_response(self) -> axum::response::Response {
+        axum::response::Html(self.0).into_response()
+    }
+}
 
 /// The state every handler shares.
 #[derive(Clone)]
@@ -129,22 +185,11 @@ async fn root_redirects_to_web() -> axum::response::Redirect {
 }
 
 /// `GET /web` — the landing page: sessions list, no transcript.
-async fn page_root(
-    AxumState(shared): AxumState<ServerShared>,
-) -> Result<Html<String>, HandlerError> {
+async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, HandlerError> {
     let sessions_html = sessions_fragment(&shared, None).await?;
-    let html = crate::templates::render(&crate::templates::PageTemplate {
-        style: crate::templates::STYLE_CSS,
-        session_id: String::new(),
-        title: "jinn".to_owned(),
-        model: String::new(),
-        sessions_html,
-        transcript_html: String::new(),
-        controls_html: String::new(),
-        model_html: String::new(),
-    })
-    .map_err(|e| fail(500, e.to_string()))?;
-    Ok(Html(html))
+    let html = crate::templates::render(&crate::templates::PageTemplate::landing(sessions_html))
+        .map_err(|e| fail(500, e.to_string()))?;
+    Ok(Page::new(html))
 }
 
 /// `GET /web/session/{id}` — the session page: full render for one
@@ -152,7 +197,7 @@ async fn page_root(
 async fn page_session(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
-) -> Result<Html<String>, HandlerError> {
+) -> Result<Page, HandlerError> {
     let id = parse_session_id(&session_id)?;
     let view = session_view(&shared, &id).await?;
     let sessions_html = sessions_fragment(&shared, Some(&id)).await?;
@@ -161,24 +206,25 @@ async fn page_session(
         start: 0,
     })
     .map_err(|e| fail(500, e.to_string()))?;
-    let controls_html = crate::templates::render(&crate::templates::ControlsTemplate {
-        session_id: session_id.clone(),
-        busy: view.phase != PhaseView::Idle.as_str(),
-    })
-    .map_err(|e| fail(500, e.to_string()))?;
+    let controls_html =
+        crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
+            session_id.clone(),
+            view.phase != PhaseView::Idle.as_str(),
+        ))
+        .map_err(|e| fail(500, e.to_string()))?;
     let model_html = model_picker_html(&shared, &session_id, &view.transcript.model)?;
-    let html = crate::templates::render(&crate::templates::PageTemplate {
-        style: crate::templates::STYLE_CSS,
-        session_id: session_id.clone(),
-        title: view.transcript.title.clone(),
-        model: view.transcript.model.clone(),
+    let html = crate::templates::render(&crate::templates::PageTemplate::session(
+        session_id.clone(),
+        view.transcript.title.clone(),
+        view.transcript.model.clone(),
+        view.transcript.len(),
         sessions_html,
         transcript_html,
         controls_html,
         model_html,
-    })
+    ))
     .map_err(|e| fail(500, e.to_string()))?;
-    Ok(Html(html))
+    Ok(Page::new(html))
 }
 
 // ── Shared reads ────────────────────────────────────────────────────
@@ -291,7 +337,7 @@ async fn sessions_fragment(
             .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
     });
 
-    crate::templates::render(&crate::templates::SessionsTemplate { rows })
+    crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .map_err(|e| fail(500, e.to_string()))
 }
 
@@ -314,10 +360,7 @@ pub fn controls_fragment(session_id: &SessionId, guard: &StateReadGuard<'_>) -> 
         .get(session_id)
         .is_some_and(|session| session.phase().is_working());
     render_or_log(
-        &crate::templates::ControlsTemplate {
-            session_id: session_id.to_string(),
-            busy,
-        },
+        &crate::templates::ControlsTemplate::with_contract(session_id.to_string(), busy),
         "controls",
     )
 }
@@ -340,7 +383,10 @@ pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
             loaded: true,
         })
         .collect();
-    render_or_log(&crate::templates::SessionsTemplate { rows }, "sessions")
+    render_or_log(
+        &crate::templates::SessionsTemplate::with_contract(rows),
+        "sessions",
+    )
 }
 
 /// The full-transcript fragment from a state guard — the fan-out's
@@ -370,12 +416,14 @@ pub fn transcript_full_fragment(session_id: &SessionId, guard: &StateReadGuard<'
 /// `GET /web/sessions` — the sessions fragment (live + archived).
 async fn sessions_fragment_handler(
     AxumState(shared): AxumState<ServerShared>,
-) -> Result<Html<String>, HandlerError> {
+) -> Result<Fragment, HandlerError> {
     let active = {
         let guard = shared.state.read();
         guard.session.active_session_id().clone()
     };
-    Ok(Html(sessions_fragment(&shared, Some(&active)).await?))
+    Ok(Fragment::new(
+        sessions_fragment(&shared, Some(&active)).await?,
+    ))
 }
 
 /// `GET /web/transcript/{id}?since=N` — the cursor pull.
@@ -388,7 +436,7 @@ async fn transcript(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
     AxQuery(query): AxQuery<TranscriptQuery>,
-) -> Result<Html<String>, HandlerError> {
+) -> Result<Fragment, HandlerError> {
     let id = parse_session_id(&session_id)?;
     let view = session_view(&shared, &id).await?;
     let start = query.cursor_within(view.transcript.len());
@@ -398,14 +446,14 @@ async fn transcript(
         start: start.unwrap_or(0),
     })
     .map_err(|e| fail(500, e.to_string()))?;
-    Ok(Html(html))
+    Ok(Fragment::new(html))
 }
 
 /// `GET /web/model-picker/{id}` — the model-picker fragment.
 async fn model_picker(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
-) -> Result<Html<String>, HandlerError> {
+) -> Result<Fragment, HandlerError> {
     let current = {
         let id = parse_session_id(&session_id)?;
         let guard = shared.state.read();
@@ -414,7 +462,11 @@ async fn model_picker(
             None => String::new(),
         }
     };
-    Ok(Html(model_picker_html(&shared, &session_id, &current)?))
+    Ok(Fragment::new(model_picker_html(
+        &shared,
+        &session_id,
+        &current,
+    )?))
 }
 
 /// Renders the model-picker fragment: the cache's ids, sorted, with
@@ -438,11 +490,11 @@ fn model_picker_html(
     };
     models.sort();
     models.dedup();
-    crate::templates::render(&crate::templates::ModelTemplate {
-        session_id: session_id.to_owned(),
-        current: current.to_owned(),
+    crate::templates::render(&crate::templates::ModelTemplate::with_contract(
+        session_id.to_owned(),
+        current.to_owned(),
         models,
-    })
+    ))
     .map_err(|e| fail(500, e.to_string()))
 }
 
@@ -454,7 +506,7 @@ fn model_picker_html(
 async fn send(
     AxumState(shared): AxumState<ServerShared>,
     form: Result<Form<jinn_webui_msg::SendForm>, axum::extract::rejection::FormRejection>,
-) -> Result<Html<String>, HandlerError> {
+) -> Result<Fragment, HandlerError> {
     let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
     crate::delivery::handle_send(&shared.state, &shared.bus, &form.session_id, &form.text)
         .await
@@ -467,12 +519,12 @@ async fn send(
             .get(&id)
             .is_some_and(|session| session.phase().is_working())
     };
-    let html = crate::templates::render(&crate::templates::ControlsTemplate {
-        session_id: form.session_id,
+    let html = crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
+        form.session_id,
         busy,
-    })
+    ))
     .map_err(|e| fail(500, e.to_string()))?;
-    Ok(Html(html))
+    Ok(Fragment::new(html))
 }
 
 /// `POST /web/cancel` — cancel a live turn. The cancel event's phase
@@ -481,17 +533,17 @@ async fn send(
 async fn cancel(
     AxumState(shared): AxumState<ServerShared>,
     form: Result<Form<jinn_webui_msg::CancelForm>, axum::extract::rejection::FormRejection>,
-) -> Result<Html<String>, HandlerError> {
+) -> Result<Fragment, HandlerError> {
     let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
     crate::delivery::handle_cancel(&shared.bus, &form.session_id)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
-    let html = crate::templates::render(&crate::templates::ControlsTemplate {
-        session_id: form.session_id,
-        busy: true,
-    })
+    let html = crate::templates::render(&crate::templates::ControlsTemplate::with_contract(
+        form.session_id,
+        true,
+    ))
     .map_err(|e| fail(500, e.to_string()))?;
-    Ok(Html(html))
+    Ok(Fragment::new(html))
 }
 
 /// `POST /web/model` — switch a session's model. Responds with the
@@ -499,7 +551,7 @@ async fn cancel(
 async fn model(
     AxumState(shared): AxumState<ServerShared>,
     form: Result<Form<jinn_webui_msg::ModelForm>, axum::extract::rejection::FormRejection>,
-) -> Result<Html<String>, HandlerError> {
+) -> Result<Fragment, HandlerError> {
     let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
     crate::delivery::handle_model(
         &shared.state,
@@ -510,7 +562,7 @@ async fn model(
     )
     .await
     .map_err(|error| fail(error.status(), error.sentence()))?;
-    Ok(Html(model_picker_html(
+    Ok(Fragment::new(model_picker_html(
         &shared,
         &form.session_id,
         &form.provider_id,
@@ -521,17 +573,26 @@ async fn model(
 ///
 /// Publishes `SessionLoadRequested` (the store actor hydrates an
 /// archived session or activates a loaded one) and responds with the
-/// fresh sessions list; the `SessionLoadCompleted` SSE push then
-/// re-renders every connected page's list with the new active mark.
+/// **whole page** for the activated session. The web client replaces
+/// `#page-root` with it and rebinds its stream — the response shape is
+/// [`Page`], not a fragment, which the return type makes unconfusable.
+/// A page the client does not swap (no client, curl) still shows the
+/// activated session's correct URL-renderable state.
 async fn activate(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
-) -> Result<Html<String>, HandlerError> {
+) -> Result<Page, HandlerError> {
     crate::delivery::handle_switch(&shared.bus, &session_id)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
-    let active = parse_session_id(&session_id)?;
-    Ok(Html(sessions_fragment(&shared, Some(&active)).await?))
+    // Validate the path id (the page render re-parses it; this check
+    // makes a malformed id a 400 before the switch publishes).
+    parse_session_id(&session_id)?;
+    // A page render for the activated session. The load is async (the
+    // store actor hydrates it), so a just-archived session may not be
+    // in live state yet; `page_session` falls through to the store and
+    // the SSE `transcript-full` convergence push corrects any lag.
+    page_session(AxumState(shared), AxPath(session_id)).await
 }
 
 // ── SSE ─────────────────────────────────────────────────────────────
@@ -548,9 +609,9 @@ async fn activate(
 /// pull endpoint remains the truth, so no ordering here can lose data
 /// permanently.
 ///
-/// The htmx SSE extension swaps fragments by event name; the payload's
-/// cursor rides the `id:` line and returns as `Last-Event-ID` on
-/// reconnect.
+/// The client dispatches by event name (see `webui/client/src/sse.ts`);
+/// the payload's cursor rides the `id:` line and returns as
+/// `Last-Event-ID` on reconnect.
 async fn stream(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
@@ -663,8 +724,8 @@ fn catchup_event(frame: CatchupFrame) -> SseEvent {
         .data(frame.html)
 }
 
-/// One envelope → one SSE frame: htmx's `event:` name, the cursor on
-/// the `id:` line, the HTML as data.
+/// One envelope → one SSE frame: the event name the client dispatches
+/// on, the cursor on the `id:` line, the HTML as data.
 fn sse_event_of(envelope: &SseEnvelope) -> SseEvent {
     SseEvent::default()
         .event(envelope.kind.event_name())

@@ -2,9 +2,11 @@
 //!
 //! Compile-time-checked: a template naming a field the model lacks
 //! fails the build, which is the reason this stack was chosen. The
-//! page shell owns the SSE wiring (`sse-connect` / `sse-swap`
-//! attributes — no custom JavaScript); every dynamic region is a
-//! fragment template the handlers render and the SSE pushes replace.
+//! page shell is inert markup — data attributes and ids from
+//! [`crate::contract`]; every behavior (stream subscription, fragment
+//! swaps, action posts) lives in the TypeScript client compiled from
+//! `webui/client/`. Every dynamic region is a fragment template the
+//! handlers render and the client swaps into the page.
 //!
 //! Escaping: askama escapes by extension — `.html` templates escape
 //! every interpolation — so a session title carrying markup cannot
@@ -15,6 +17,10 @@
 
 use askama::Template;
 use jinn_webui_msg::SessionListItem;
+
+/// The contract constants the templates interpolate. Kept as a local
+/// re-export so template expressions stay short.
+use crate::contract;
 
 /// The stylesheet, inlined into the page shell. Hand-written and small
 /// enough that a separate asset (and a build.rs authored-file row)
@@ -97,6 +103,10 @@ pub struct PageTemplate {
     pub title: String,
     /// The model label.
     pub model: String,
+    /// The rendered-entry cursor the page's inline transcript already
+    /// carries — the stream's starting `Last-Event-ID`, so catch-up
+    /// never re-appends what the page render included.
+    pub cursor: usize,
     /// The sessions-list fragment, rendered inline.
     pub sessions_html: String,
     /// The transcript fragment, rendered inline.
@@ -105,6 +115,92 @@ pub struct PageTemplate {
     pub controls_html: String,
     /// The model-picker fragment, rendered inline.
     pub model_html: String,
+    /// `/vendor/` — the script tag's URL prefix.
+    pub vendor_prefix: &'static str,
+    /// The client bundle's filename inside `/vendor/`.
+    pub app_js: &'static str,
+    /// The page-root id — the element a session switch replaces.
+    pub page_root_id: &'static str,
+    /// The attribute carrying the viewed session's id.
+    pub page_session_attr: &'static str,
+    /// The sessions-list container id.
+    pub sessions_id: &'static str,
+    /// The model-picker container id.
+    pub model_picker_id: &'static str,
+    /// The transcript scroll-wrap id.
+    pub transcript_wrap_id: &'static str,
+    /// The transcript entry container id.
+    pub transcript_id: &'static str,
+    /// The attribute carrying the inline transcript's cursor.
+    pub cursor_attr: &'static str,
+    /// The composer-controls container id.
+    pub controls_id: &'static str,
+}
+
+impl PageTemplate {
+    /// The no-session landing page: sessions list only, every other
+    /// region empty, cursor zero.
+    #[must_use]
+    pub fn landing(sessions_html: String) -> Self {
+        Self {
+            style: STYLE_CSS,
+            session_id: String::new(),
+            title: "jinn".to_owned(),
+            model: String::new(),
+            cursor: 0,
+            sessions_html,
+            transcript_html: String::new(),
+            controls_html: String::new(),
+            model_html: String::new(),
+            vendor_prefix: contract::VENDOR_PREFIX,
+            app_js: contract::VENDOR_APP_JS,
+            page_root_id: contract::PAGE_ROOT_ID,
+            page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
+            sessions_id: contract::SESSIONS_ID,
+            model_picker_id: contract::MODEL_PICKER_ID,
+            transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
+            transcript_id: contract::TRANSCRIPT_ID,
+            cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
+            controls_id: contract::CONTROLS_ID,
+        }
+    }
+
+    /// A session page: every region filled for one viewed session at
+    /// the cursor its inline transcript already carries.
+    #[must_use]
+    #[expect(clippy::too_many_arguments, reason = "one field per rendered region")]
+    pub fn session(
+        session_id: String,
+        title: String,
+        model: String,
+        cursor: usize,
+        sessions_html: String,
+        transcript_html: String,
+        controls_html: String,
+        model_html: String,
+    ) -> Self {
+        Self {
+            style: STYLE_CSS,
+            session_id,
+            title,
+            model,
+            cursor,
+            sessions_html,
+            transcript_html,
+            controls_html,
+            model_html,
+            vendor_prefix: contract::VENDOR_PREFIX,
+            app_js: contract::VENDOR_APP_JS,
+            page_root_id: contract::PAGE_ROOT_ID,
+            page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
+            sessions_id: contract::SESSIONS_ID,
+            model_picker_id: contract::MODEL_PICKER_ID,
+            transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
+            transcript_id: contract::TRANSCRIPT_ID,
+            cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
+            controls_id: contract::CONTROLS_ID,
+        }
+    }
 }
 
 /// One transcript entry of the transcript fragment.
@@ -135,14 +231,48 @@ pub struct TranscriptTemplate {
 pub struct SessionRowTemplate {
     /// The row.
     pub item: SessionListItem,
+    /// The row's class hook.
+    pub row_class: &'static str,
+    /// The attribute carrying the row's session id.
+    pub session_id_attr: &'static str,
 }
 
-/// The sessions fragment: the sidebar list.
+impl SessionRowTemplate {
+    /// Builds the row template with the contract's hooks filled.
+    #[must_use]
+    pub fn with_contract(item: SessionListItem) -> Self {
+        Self {
+            item,
+            row_class: contract::SESSION_ROW_CLASS,
+            session_id_attr: contract::SESSION_ID_DATA_ATTR,
+        }
+    }
+}
+
+/// The sessions fragment: the sidebar list. The include of
+/// `session_row.html` shares this struct's context, so the row hooks
+/// ride as fields here.
 #[derive(Template)]
 #[template(path = "sessions.html")]
 pub struct SessionsTemplate {
     /// One row per session, active first.
     pub rows: Vec<SessionListItem>,
+    /// The row's class hook, visible to the row include.
+    pub row_class: &'static str,
+    /// The attribute carrying each row's session id.
+    pub session_id_attr: &'static str,
+}
+
+impl SessionsTemplate {
+    /// Builds the fragment with the contract's row hooks filled.
+    #[must_use]
+    pub fn with_contract(rows: Vec<SessionListItem>) -> Self {
+        Self {
+            rows,
+            row_class: contract::SESSION_ROW_CLASS,
+            session_id_attr: contract::SESSION_ID_DATA_ATTR,
+        }
+    }
 }
 
 /// The composer-controls fragment: the send↔cancel button.
@@ -153,6 +283,38 @@ pub struct ControlsTemplate {
     pub session_id: String,
     /// Whether the session is busy (true renders the cancel button).
     pub busy: bool,
+    /// The form container's id.
+    pub composer_id: &'static str,
+    /// The textarea's id.
+    pub input_id: &'static str,
+    /// The attribute a button names its action with.
+    pub action_attr: &'static str,
+    /// The send action's contract name.
+    pub send_action: &'static str,
+    /// The cancel action's contract name.
+    pub cancel_action: &'static str,
+    /// The send button's label.
+    pub send_label: &'static str,
+    /// The cancel button's label.
+    pub cancel_label: &'static str,
+}
+
+impl ControlsTemplate {
+    /// Builds the template with the contract's hooks filled.
+    #[must_use]
+    pub fn with_contract(session_id: String, busy: bool) -> Self {
+        Self {
+            session_id,
+            busy,
+            composer_id: contract::COMPOSER_ID,
+            input_id: contract::INPUT_ID,
+            action_attr: contract::ACTION_DATA_ATTR,
+            send_action: contract::ACTION_SEND,
+            cancel_action: contract::ACTION_CANCEL,
+            send_label: "Send",
+            cancel_label: "Cancel",
+        }
+    }
 }
 
 /// The model-picker fragment.
@@ -165,6 +327,24 @@ pub struct ModelTemplate {
     pub current: String,
     /// The cache's model ids, sorted.
     pub models: Vec<String>,
+    /// The attribute the select names its action with.
+    pub action_attr: &'static str,
+    /// The model action's contract name.
+    pub model_action: &'static str,
+}
+
+impl ModelTemplate {
+    /// Builds the template with the contract's hooks filled.
+    #[must_use]
+    pub fn with_contract(session_id: String, current: String, models: Vec<String>) -> Self {
+        Self {
+            session_id,
+            current,
+            models,
+            action_attr: contract::ACTION_DATA_ATTR,
+            model_action: contract::ACTION_MODEL,
+        }
+    }
 }
 
 /// Renders a template to its HTML string.

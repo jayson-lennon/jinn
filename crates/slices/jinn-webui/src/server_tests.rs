@@ -132,9 +132,12 @@ mod reads {
         // When getting the home page.
         let (status, body) = get(&router, "/web").await;
 
-        // Then it renders with the regions htmx drives.
+        // Then it renders with the regions the client drives.
         assert_eq!(status, StatusCode::OK);
-        assert!(body.contains("sse-connect"), "missing SSE connect: {body}");
+        assert!(
+            body.contains("type=\"module\""),
+            "missing client script: {body}"
+        );
         assert!(body.contains("id=\"composer-controls\""));
     }
 
@@ -467,11 +470,12 @@ mod actions {
     #[rstest::rstest]
     #[tokio::test]
     async fn switch_publishes_session_load_requested() {
-        // Given the router over an empty state.
-        let (_state, audit, _slices, router) = harness();
-        let id = SessionId::new();
+        // Given the router holding a live session (the client only
+        // activates rows it rendered).
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
 
-        // When posting an activate for an unknown id.
+        // When posting an activate for it.
         let (status, _body) = post_form(&router, &format!("/web/session/{id}/activate"), "").await;
 
         // Then the bus names SessionLoadRequested — the same schema the
@@ -490,9 +494,25 @@ mod actions {
         // When rendering the session page.
         let (_status, body) = get(&router, &format!("/web/session/{id}")).await;
 
-        // Then the composer offers send, not cancel.
-        assert!(body.contains("/web/send"), "{body}");
-        assert!(!body.contains("/web/cancel"), "{body}");
+        // Then the composer offers send, not cancel — buttons name
+        // their action with the contract attribute, and main.ts maps
+        // the action to the endpoint.
+        assert!(
+            body.contains(&format!(
+                "{}=\"{}\"",
+                crate::contract::ACTION_DATA_ATTR,
+                crate::contract::ACTION_SEND
+            )),
+            "{body}"
+        );
+        assert!(
+            !body.contains(&format!(
+                "{}=\"{}\"",
+                crate::contract::ACTION_DATA_ATTR,
+                crate::contract::ACTION_CANCEL
+            )),
+            "{body}"
+        );
     }
 
     #[rstest::rstest]
@@ -511,9 +531,24 @@ mod actions {
         // When rendering the session page.
         let (_status, body) = get(&router, &format!("/web/session/{id}")).await;
 
-        // Then the composer offers cancel, not send.
-        assert!(body.contains("/web/cancel"), "{body}");
-        assert!(!body.contains("/web/send"), "{body}");
+        // Then the composer offers cancel, not send — the same
+        // contract-attribute assertion as the idle side.
+        assert!(
+            body.contains(&format!(
+                "{}=\"{}\"",
+                crate::contract::ACTION_DATA_ATTR,
+                crate::contract::ACTION_CANCEL
+            )),
+            "{body}"
+        );
+        assert!(
+            !body.contains(&format!(
+                "{}=\"{}\"",
+                crate::contract::ACTION_DATA_ATTR,
+                crate::contract::ACTION_SEND
+            )),
+            "{body}"
+        );
     }
 }
 
@@ -707,7 +742,11 @@ mod whole_flow {
         let sessions = get(&router, "/web/sessions").await;
         let transcript = get(&router, &format!("/web/transcript/{id}")).await;
         let picker = get(&router, &format!("/web/model-picker/{id}")).await;
-        let vendor = get(&router, "/vendor/htmx.min.js").await;
+        let vendor = get(
+            &router,
+            &format!("/vendor/{}", crate::contract::VENDOR_APP_JS),
+        )
+        .await;
         let health = get(&router, "/healthz").await;
         let send = post_form(
             &router,
@@ -734,7 +773,7 @@ mod whole_flow {
         for (name, (status, body)) in reads {
             assert_eq!(*status, StatusCode::OK, "{name}: {body}");
         }
-        assert!(home.1.contains("sse-connect"), "home: {}", home.1);
+        assert!(home.1.contains("type=\"module\""), "home: {}", home.1);
         assert!(page.1.contains("Trip plan"), "page: {}", page.1);
         assert!(
             sessions.1.contains(&id.to_string()),
@@ -904,14 +943,17 @@ mod switch_markup {
     async fn the_session_row_targets_an_id_the_page_shell_defines() {
         // Given the page shell and a session row.
         let (state, _audit, _slices, router) = harness();
-        let id = seed_session(&state);
+        let _id = seed_session(&state);
         let (_status, page) = get(&router, "/web").await;
         let (_status, sessions) = get(&router, "/web/sessions").await;
 
-        // Then the row's hx-target names an id the shell actually
-        // contains — a missing target is htmx's `targetError` and the
-        // click silently does nothing.
-        assert!(sessions.contains("hx-target=\"#page-root\""), "{sessions}");
+        // Then the row's data attribute names a session and the page
+        // defines the root the client's swap replaces — a missing
+        // target is a silent no-op click, never a visible error.
+        assert!(
+            sessions.contains(crate::contract::SESSION_ID_DATA_ATTR),
+            "{sessions}"
+        );
         assert!(page.contains("id=\"page-root\""), "{page}");
     }
 
@@ -930,15 +972,14 @@ mod switch_markup {
             .set_title("Second session".to_owned());
 
         // When activating the second from the web.
-        let (status, body) =
-            post_form(&router, &format!("/web/session/{b}/activate"), "").await;
+        let (status, body) = post_form(&router, &format!("/web/session/{b}/activate"), "").await;
 
-        // Then the response is the sessions fragment with B marked
-        // active — the swap visibly moves the highlight — and the
-        // publish rides the shared command.
+        // Then the response is the whole page for B — the client's
+        // swap consumes it wholesale — and the publish rides the
+        // shared command.
         assert_eq!(status, StatusCode::OK);
+        assert!(body.starts_with("<!DOCTYPE html>"), "{body}");
         assert!(body.contains("Second session"), "{body}");
-        assert!(body.contains("active"), "{body}");
         assert_eq!(audit_count(&audit, "SessionLoadRequested"), 1);
         let _ = a;
     }

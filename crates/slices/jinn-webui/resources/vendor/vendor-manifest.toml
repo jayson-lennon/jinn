@@ -1,12 +1,39 @@
-# The webui slice's vendored frontend library.
+# The webui slice's vendored frontend assets.
 #
-# Unlike the canvas manifest, this table is documentation of the pin, not
-# the pin gate itself: the slice ships one file, gzip-committed at vendoring
-# time (the raw dist is never committed), and `build.rs` verifies each row's
-# sha256 against the bytes on disk before embedding. Update flow: replace
-# the file with the new gzip of the new dist, recompute this row, done.
+# Two families, one pin gate: build.rs verifies every row's sha256
+# against the bytes on disk before embedding, and asserts gzip rows
+# carry actual gzip bytes (1f 8b). Update flows:
+#
+# - Client bundle rows (between the BEGIN/END markers) are managed by
+#   `just client-check` — never edit them by hand; edit the TypeScript
+#   under webui/client/src and run the recipe.
+# - Other assets are third-party dists vendored by hand: gzip the new
+#   dist, replace the file, recompute the row, done.
+
+# BEGIN client rows (managed by just client-check)
 
 [[assets]]
-served = "htmx.min.js"
-sha256 = "acb9ff34b200f5016c8dae6ec658bd96050fe86fe090b06506de45d08348168c"
+served = "api.js"
+sha256 = "bcbd982addecba77b0e4b8e69d8112af6b22f16f3c2e1a2625c535fd07aa7fc1"
 encoding = "gzip"
+
+[[assets]]
+served = "main.js"
+sha256 = "33a9d96671eaa10378a8fc3b6d87dff750594021ee022fc4cbf2d7a26a2d2c04"
+encoding = "gzip"
+
+[[assets]]
+served = "render.js"
+sha256 = "a9fd6fc50092530165e0aa0955be5906a1c2824a74a6ef2baa30e42055e0528c"
+encoding = "gzip"
+
+[[assets]]
+served = "sse.js"
+sha256 = "09b3789e2ad8fc2db1aa9a3283de90f5f624049e119e025f7e4c0a359580f950"
+encoding = "gzip"
+
+[[assets]]
+served = "wire.js"
+sha256 = "83272b02f82bc20f77cf75cbd69ad945371f983f5e34d0a93a186af9d5f4d315"
+encoding = "gzip"
+# END client rows

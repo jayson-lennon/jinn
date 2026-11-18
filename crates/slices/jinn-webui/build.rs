@@ -85,35 +85,59 @@ fn main() {
         let encoding = asset
             .get("encoding")
             .and_then(toml::Value::as_str)
-            .unwrap_or("identity");
+            .unwrap_or("identity")
+            .to_owned();
 
-        let file_path = vendor_dir.join(served);
+        // A gzip row's DISK file carries a `.gz` suffix (the served
+        // name is the URL, `served`); identity rows store the bytes
+        // under the served name itself. One convention, both families.
+        let disk_name = if encoding == "gzip" {
+            format!("{served}.gz")
+        } else {
+            served.to_owned()
+        };
+        let file_path = vendor_dir.join(&disk_name);
         let bytes = fs::read(&file_path).unwrap_or_else(|e| {
             panic!(
-                "vendor asset {} missing from disk ({e}) — re-run the htmx vendoring step",
+                "vendor asset {} missing from disk ({e}) — re-run the vendoring step",
                 file_path.display()
             )
         });
         verify_sha(served, &bytes, sha);
 
+        // A `gzip` row must name actual gzip bytes. The class of bug
+        // this kills: a raw (uncompressed) dist committed under a gzip
+        // row, served with `Content-Encoding: gzip`, and every browser
+        // failing to decode it. `1f 8b` is the gzip magic number.
+        if encoding == "gzip" {
+            assert!(
+                bytes.starts_with(&[0x1f, 0x8b]),
+                "vendor asset {served} declares encoding = \"gzip\" but its bytes are not \
+                 gzip (missing the 1f 8b magic prefix) — gzip the file, then re-pin its sha256"
+            );
+        }
+
         // The file path is emitted as a `concat!` of `CARGO_MANIFEST_DIR`
-        // and the forward-slashed served path, never as a rendered
+        // and the forward-slashed disk path, never as a rendered
         // absolute path: `Path::display` produces backslashes on Windows,
         // which are invalid escape sequences inside a string literal.
         let _ = writeln!(
             table,
-            "    VendorAsset {{\n        path: \"{served}\",\n        bytes: include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/resources/vendor/{served}\")),\n        encoding: \"{encoding}\",\n        content_type: \"{}\",\n    }},",
+            "    VendorAsset {{\n        path: \"{served}\",\n        bytes: include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/resources/vendor/{disk_name}\")),\n        encoding: \"{encoding}\",\n        content_type: \"{}\",\n    }},",
             content_type_for(served)
         );
     }
 
     // Every file on disk must be vouched for by a manifest row: a stray
     // file dropped into the tree cannot ride into the binary unverified.
+    // A gzip row's disk file carries `.gz`; strip it before matching so
+    // the served name is the row key both directions.
     let mut unvouched: Vec<String> = Vec::new();
     collect_files(&vendor_dir, &vendor_dir, &mut unvouched);
     for path in &unvouched {
+        let row_key = path.strip_suffix(".gz").unwrap_or(path);
         assert!(
-            seen.iter().any(|s| s == path),
+            seen.iter().any(|s| s == row_key),
             "vendor file {} has no manifest row",
             vendor_dir.join(path).display()
         );
