@@ -136,6 +136,42 @@ async fn a_session_activation_pushes_a_sessions_list_refresh() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn the_handle_pushes_a_sessions_refresh_from_outside_the_actor() {
+    // Given a live session whose title a web rename just changed, and
+    // a subscriber to the actor's broadcast channel.
+    let (actor, mut rx, state) = fixture();
+    let id = seed_session(&state);
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .set_title("Renamed from the web".to_owned());
+
+    // When an HTTP handler renders the live fragment under its own
+    // read guard and hands it to the handle (guard dropped first).
+    let html = {
+        let guard = state.read();
+        crate::regions::sessions::sessions_live_fragment(&guard)
+    };
+    actor.handle().push_sessions_refresh_from(&id, html);
+
+    // Then exactly one sessions envelope arrives, addressed to the
+    // renamed session, carrying the new title — the push the other
+    // connected pages' sidebars refresh from.
+    let envelope = rx.try_recv().expect("handle-pushed sessions refresh");
+    assert_eq!(envelope.kind, SseKind::Sessions);
+    assert_eq!(envelope.session_id, id);
+    assert!(
+        envelope.html.contains("Renamed from the web"),
+        "{}",
+        envelope.html
+    );
+    assert!(rx.try_recv().is_err());
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn every_broadcast_names_its_own_session() {
     // Given tokens for two sessions buffered on one actor.
     let (mut actor, mut rx, _state) = fixture();

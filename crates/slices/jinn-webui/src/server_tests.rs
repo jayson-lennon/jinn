@@ -119,6 +119,15 @@ fn audit_count(audit: &BusAudit, name: &str) -> usize {
     audit.names().iter().filter(|n| n.ends_with(name)).count()
 }
 
+/// The session's current title as live state holds it.
+fn title_of(state: &State, id: &SessionId) -> Option<String> {
+    state
+        .read()
+        .session
+        .get(id)
+        .map_or_default(|session| session.title().map(str::to_owned))
+}
+
 /// Read paths: page shell, sessions list, transcript cursor grammar.
 mod reads {
     use super::*;
@@ -552,6 +561,159 @@ mod actions {
     }
 }
 
+/// Rename: the TUI confirm's semantics through the web endpoint.
+mod rename_actions {
+    use super::*;
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_applies_the_title_and_publishes_one_persist() {
+        // Given a live titled session and the router over it.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .set_title("Before".to_owned());
+
+        // When posting a rename.
+        let (status, body) = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=Rename+Again",
+        )
+        .await;
+
+        // Then the ack is OK, the session's live title is the new one,
+        // and exactly one PersistSession naming the session published.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(title_of(&state, &id), Some("Rename Again".to_owned()));
+        let published = audit.of_type::<jinn_session_store_msg::PersistSession>();
+        let [command] = published.as_slice() else {
+            panic!("exactly one persist was published, got {}", published.len())
+        };
+        assert_eq!(command.session_id, id);
+
+        // And the response is the sessions-list fragment (no page
+        // shell), carrying the new title as a row.
+        assert!(!body.contains("<!DOCTYPE html>"), "{body}");
+        assert!(body.contains("Rename Again"), "{body}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_trims_surrounding_whitespace_off_the_title() {
+        // Given a live session.
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+
+        // When posting a rename whose body value carries padding.
+        let (status, _body) = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=%20+Padded+Title+%20",
+        )
+        .await;
+
+        // Then the applied title is the trimmed text — the TUI
+        // rename's own trim, mirrored.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(title_of(&state, &id), Some("Padded Title".to_owned()));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_refuses_an_empty_after_trim_title() {
+        // Given a live titled session.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .set_title("Keep".to_owned());
+
+        // When posting a rename whose title is whitespace only.
+        let (status, _body) = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=%20+++%20",
+        )
+        .await;
+
+        // Then the request is refused 400, nothing published, and the
+        // title unchanged.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit.names().len(), 0);
+        assert_eq!(title_of(&state, &id), Some("Keep".to_owned()));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_refuses_a_malformed_session_id() {
+        // Given the router.
+        let (_state, audit, _slices, router) = harness();
+
+        // When posting a rename to a path id that is not a UUID.
+        let (status, _body) =
+            post_form(&router, "/web/session/not-a-uuid/rename", "title=Whatever").await;
+
+        // Then the request is refused 400 and nothing published.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_refuses_a_session_absent_from_live_state() {
+        // Given the router over an empty state.
+        let (_state, audit, _slices, router) = harness();
+        let id = SessionId::new();
+
+        // When posting a rename for the unknown id.
+        let (status, body) =
+            post_form(&router, &format!("/web/session/{id}/rename"), "title=Ghost").await;
+
+        // Then the request is refused 404 (a well-formed request naming
+        // nothing), nothing published.
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(audit.names().len(), 0);
+        assert!(body.contains("no live session with id"), "{body}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_renames_a_bot_session_like_any_other() {
+        // Given a live bot session.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let bot = {
+            let guard = state.read();
+            let source = guard.session.get(&id).expect("seeded session");
+            jinn_session_state::ChatSessionState::new_bot(source, true)
+        };
+        let bot_id = bot.session_id().clone();
+        state.write().session.insert(bot);
+
+        // When posting a rename.
+        let (status, _body) = post_form(
+            &router,
+            &format!("/web/session/{bot_id}/rename"),
+            "title=Watchdog+Title",
+        )
+        .await;
+
+        // Then the rename lands — the bot refusal exists only on the
+        // text-delivery path, exactly as the TUI rename behaves.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(title_of(&state, &bot_id), Some("Watchdog Title".to_owned()));
+        assert_eq!(audit_count(&audit, "PersistSession"), 1);
+    }
+}
+
 /// SSE catch-up: the reconnect path (render_catchup_frames is pure;
 /// the endpoint's live half rides the fan-out broadcast).
 mod stream_catchup {
@@ -736,7 +898,7 @@ mod whole_flow {
 
         // When the page's requests fire in one pass: home shell,
         // session page, sessions list, transcript, model picker, send,
-        // model switch, session switch.
+        // model switch, session switch, rename.
         let home = get(&router, "/web").await;
         let page = get(&router, &format!("/web/session/{id}")).await;
         let sessions = get(&router, "/web/sessions").await;
@@ -765,6 +927,12 @@ mod whole_flow {
         )
         .await;
         let switch = post_form(&router, &format!("/web/session/{id}/activate"), "").await;
+        let rename = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=Trip+plan+renamed",
+        )
+        .await;
 
         // Then every read answers 200 and names its content.
         let reads = [
@@ -788,15 +956,23 @@ mod whole_flow {
         assert_eq!(vendor.0, StatusCode::OK);
         assert_eq!(health.0, StatusCode::OK);
 
-        // And every action published its schema — send, model, switch.
+        // And every action published its schema — send, model, switch,
+        // rename.
         assert_eq!(send.0, StatusCode::OK);
         assert_eq!(model.0, StatusCode::OK);
         assert_eq!(switch.0, StatusCode::OK);
+        assert_eq!(rename.0, StatusCode::OK);
+        assert!(
+            rename.1.contains("Trip plan renamed"),
+            "rename: {}",
+            rename.1
+        );
         let names = audit.names();
         for schema in [
             "EnqueueUserMessage",
             "ProviderSwitch",
             "SessionLoadRequested",
+            "PersistSession",
         ] {
             assert!(
                 names.iter().any(|n| n.ends_with(schema)),

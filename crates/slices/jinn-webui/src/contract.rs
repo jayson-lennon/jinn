@@ -71,6 +71,12 @@ pub const ACTION_MODEL: &str = "model";
 /// The class hook every session row carries.
 pub const SESSION_ROW_CLASS: &str = "srow";
 
+/// The titlebar's title span — the inline rename editor's host. The
+/// session page renders it with the viewed title; clicking it opens
+/// the editor (the client swaps an input inside the span). Absent
+/// content-wise on the landing page, whose "jinn" title is inert.
+pub const SESSION_TITLE_ID: &str = "session-title";
+
 // ── Endpoints ───────────────────────────────────────────────────────
 
 /// The landing/session page path (the client's entry URL).
@@ -90,6 +96,9 @@ pub const SESSION_PAGE_ROUTE: &str = "/web/session/{id}";
 
 /// Route pattern — activate (switch to) a session.
 pub const ACTIVATE_ROUTE: &str = "/web/session/{id}/activate";
+
+/// Route pattern — rename a session.
+pub const RENAME_ROUTE: &str = "/web/session/{id}/rename";
 
 /// Route pattern — one session's SSE stream.
 pub const STREAM_ROUTE: &str = "/web/stream/{id}";
@@ -111,6 +120,9 @@ pub const SESSION_PAGE_PREFIX: &str = "/web/session/";
 
 /// The path suffix client code appends for an activate request.
 pub const ACTIVATE_SUFFIX: &str = "/activate";
+
+/// The path suffix client code appends for a rename request.
+pub const RENAME_SUFFIX: &str = "/rename";
 
 /// The path prefix client code builds SSE stream URLs from.
 pub const STREAM_PREFIX: &str = "/web/stream/";
@@ -154,6 +166,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_CANCEL,
     ACTION_MODEL,
     SESSION_ROW_CLASS,
+    SESSION_TITLE_ID,
 ];
 
 /// The contract's endpoint constants a client can build a URL from.
@@ -165,6 +178,7 @@ pub const CLIENT_PATHS: &[&str] = &[
     MODEL_PATH,
     SESSION_PAGE_PREFIX,
     ACTIVATE_SUFFIX,
+    RENAME_SUFFIX,
     STREAM_PREFIX,
     TRANSCRIPT_PREFIX,
     MODEL_PICKER_PREFIX,

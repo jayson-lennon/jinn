@@ -15,6 +15,10 @@
 //! - switch → [`SessionLoadRequested`] with `content_width: None` —
 //!   the Discord precedent: the web renderer consumes no TUI layout
 //!   measurement. The web UI and the TUI share one active session.
+//! - rename → [`PersistSession`] after the TUI rename confirm's three
+//!   mutations (`set_title`, `touch`, `mark_interacted`) under one
+//!   guard — the web adds only an entry point to the one rename
+//!   semantic the TUI path already defines.
 
 use jinn_chat_input_msg::EnqueueUserMessage;
 use jinn_core_types::ModelSelection;
@@ -22,6 +26,7 @@ use jinn_core_types::SessionId;
 use jinn_inference_msg::CancelTurn;
 use jinn_kernel::State;
 use jinn_provider_selection_msg::ProviderSwitch;
+use jinn_session_store_msg::PersistSession;
 use jinn_session_store_msg::SessionLoadRequested;
 use jinn_slices::bus::BusService;
 use wherror::Error;
@@ -39,6 +44,8 @@ pub enum ActionError {
     BotTarget(SessionId),
     /// The request carried no message text.
     EmptyText,
+    /// The request carried a title that is empty after trimming.
+    EmptyTitle,
     /// The requested model id is not in the discovered cache.
     UnknownModel(String),
 }
@@ -49,9 +56,11 @@ impl ActionError {
     pub const fn status(&self) -> u16 {
         match self {
             // Malformed request bodies are client errors: 400.
-            Self::BadSessionId | Self::EmptyText | Self::BotTarget(_) | Self::UnknownModel(_) => {
-                400
-            }
+            Self::BadSessionId
+            | Self::EmptyText
+            | Self::EmptyTitle
+            | Self::BotTarget(_)
+            | Self::UnknownModel(_) => 400,
             // A well-formed request naming a session that does not
             // exist: 404.
             Self::UnknownSession(_) => 404,
@@ -64,6 +73,7 @@ impl ActionError {
         match self {
             Self::BadSessionId => "session_id is not a valid session id".to_owned(),
             Self::EmptyText => "text must not be empty".to_owned(),
+            Self::EmptyTitle => "title must not be empty".to_owned(),
             Self::BotTarget(id) => {
                 format!("session {id} is a bot run; external delivery does not target bot sessions")
             }
@@ -214,5 +224,49 @@ pub async fn handle_switch(bus: &BusService, session_id: &str) -> Result<(), Act
         content_width: None,
     })
     .await;
+    Ok(())
+}
+
+/// Handles one `POST /web/session/{id}/rename`.
+///
+/// Applies exactly the TUI rename confirm's three mutations —
+/// `set_title` on the trimmed text, `touch`, `mark_interacted` —
+/// under one state write guard, then publishes the existing
+/// [`PersistSession`] command, whose tested store path persists the
+/// renamed snapshot. Bot sessions rename like any other: the bot
+/// refusal exists only on the text-delivery path, and the TUI rename
+/// path renames bot sessions. No new schema: the fan-out's
+/// subscriptions are untouched.
+///
+/// # Errors
+///
+/// Returns [`ActionError`] for a malformed id, an empty-after-trim
+/// title, or an unknown session; nothing is published on any refusal.
+pub async fn handle_rename(
+    state: &State,
+    bus: &BusService,
+    session_id: &str,
+    title: &str,
+) -> Result<(), ActionError> {
+    let command = {
+        let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
+        let title = title.trim();
+        if title.is_empty() {
+            return Err(ActionError::EmptyTitle);
+        }
+
+        let mut guard = state.write();
+        let Some(session) = guard.session.get_mut(&session_id) else {
+            return Err(ActionError::UnknownSession(session_id));
+        };
+
+        // The TUI rename confirm's exact mutation set — nothing more.
+        session.set_title(title.to_owned());
+        session.touch();
+        session.mark_interacted();
+
+        PersistSession { session_id }
+    };
+    bus.publish(command).await;
     Ok(())
 }

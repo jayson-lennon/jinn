@@ -74,6 +74,29 @@ impl FanoutHandle {
     pub fn subscribe(&self) -> broadcast::Receiver<SseEnvelope> {
         self.tx.subscribe()
     }
+
+    /// Pushes a refreshed sessions-list fragment to every page,
+    /// addressed to the named session — from **outside** the actor.
+    ///
+    /// A synchronous HTTP handler (the rename POST) must push without
+    /// publishing anything the fan-out subscribes to: the only command
+    /// it could publish, `PersistSession`, routes to the store actor,
+    /// so there is no command whose arrival means "refresh the list".
+    /// The handler renders the live fragment from a state read guard
+    /// it already holds and hands it here; the guard must be dropped
+    /// before this is called from an async context (the handle's send
+    /// is synchronous and never awaits).
+    ///
+    /// Send failures are the no-receiver case — no page is connected —
+    /// and are not errors.
+    pub(crate) fn push_sessions_refresh_from(&self, session_id: &SessionId, html: String) {
+        let _ = self.tx.send(SseEnvelope {
+            kind: SseKind::Sessions,
+            session_id: session_id.clone(),
+            cursor: 0,
+            html,
+        });
+    }
 }
 
 /// The fan-out actor: events to fragments.
@@ -156,6 +179,21 @@ impl WebUiFanoutActor {
             },
             rx,
         )
+    }
+
+    /// The shared handle over the actor's own broadcast channel.
+    /// Test-only: production builds the handle in `spawn`, where the
+    /// channel is created; the tests drive the out-of-actor push
+    /// through the same handle type production handlers hold.
+    #[cfg(test)]
+    #[expect(
+        clippy::same_name_method,
+        reason = "the test accessor names the type it hands back (handle -> FanoutHandle); the MsgHandler::handle collisions are trait-scoped and never ambiguous at a call site"
+    )]
+    pub(crate) fn handle(&self) -> FanoutHandle {
+        FanoutHandle {
+            tx: self.tx.clone(),
+        }
     }
 
     /// Flushes one session's buffer with a cursor of zero. Test-only:

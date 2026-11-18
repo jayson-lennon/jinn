@@ -121,6 +121,10 @@ pub struct PageTemplate {
     pub cursor_attr: &'static str,
     /// The composer-controls container id.
     pub controls_id: &'static str,
+    /// The titlebar title span's id — present on session pages (the
+    /// inline rename editor's host), empty on the landing page whose
+    /// "jinn" title is inert.
+    pub session_title_id: &'static str,
 }
 
 impl PageTemplate {
@@ -148,6 +152,7 @@ impl PageTemplate {
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
             controls_id: contract::CONTROLS_ID,
+            session_title_id: "",
         }
     }
 
@@ -185,6 +190,7 @@ impl PageTemplate {
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
             controls_id: contract::CONTROLS_ID,
+            session_title_id: contract::SESSION_TITLE_ID,
         }
     }
 }
