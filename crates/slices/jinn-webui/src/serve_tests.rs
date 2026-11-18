@@ -268,6 +268,82 @@ async fn vendor_assets_serve_gzip_with_the_declared_encoding() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn the_versioned_client_url_serves_immutable_over_the_wire() {
+    // Given a live server and the entry module's hash-bearing URL.
+    let (base, _seeded) = harness(None).await;
+    let http = client();
+    let versioned =
+        crate::vendor::versioned_path(crate::contract::VENDOR_APP_JS).expect("entry is a row");
+
+    // When getting the versioned URL.
+    let response = http
+        .get(format!("{base}/vendor/{versioned}"))
+        .send()
+        .await
+        .expect("the request completes");
+
+    // Then it serves 200 with the immutable policy: URL and content
+    // are one-for-one, so the browser may keep it for a year.
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .and_then(|v| v.to_str().ok()),
+        Some("public, max-age=31536000, immutable"),
+        "a versioned URL names one content forever"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_stale_versioned_hash_is_a_404_over_the_wire() {
+    // Given a live server.
+    let (base, _seeded) = harness(None).await;
+    let http = client();
+
+    // When requesting the entry module under a hash no build shipped.
+    let response = http
+        .get(format!("{base}/vendor/main.deadbeef.js"))
+        .send()
+        .await
+        .expect("the request completes");
+
+    // Then it 404s — a versioned URL names one content, and this
+    // binary does not ship that one.
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_unversioned_client_url_still_serves_but_must_revalidate() {
+    // Given a live server.
+    let (base, _seeded) = harness(None).await;
+    let http = client();
+
+    // When requesting the entry module by its bare name (the form a
+    // page cached from an older binary imports).
+    let response = http
+        .get(format!("{base}/vendor/{}", crate::contract::VENDOR_APP_JS))
+        .send()
+        .await
+        .expect("the request completes");
+
+    // Then it still serves — old pages keep working — but under the
+    // revalidate policy, so stale code never outlives a reload.
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .and_then(|v| v.to_str().ok()),
+        Some("public, max-age=0, must-revalidate"),
+        "unversioned URLs are the migration path, not the cache target"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn an_unknown_vendor_path_is_a_404_over_the_wire() {
     // Given a live server.
     let (base, _seeded) = harness(None).await;

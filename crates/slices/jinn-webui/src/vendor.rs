@@ -13,3 +13,49 @@
 // The complete vendor inventory, generated at build time (the
 // generated file carries its own docs).
 include!(concat!(env!("OUT_DIR"), "/vendor_assets.rs"));
+
+/// The cache-busting URL for one asset: `<name>.<hash8>.<ext>`. The
+/// hash is the manifest row's sha256 prefix — build.rs verified the
+/// bytes against it — so a URL can never name two contents across
+/// builds and may be cached as immutable. Returns `None` for a path
+/// no row vouches for.
+///
+/// # Errors
+/// Infallible; `None` is the not-vouched signal.
+#[must_use]
+pub fn versioned_path(path: &str) -> Option<String> {
+    let asset = VENDOR_ASSETS.iter().find(|a| a.path == path)?;
+    // `main.js` -> `main.<hash>.js`: split at the last dot.
+    let (stem, ext) = path.rsplit_once('.')?;
+    Some(format!("{stem}.{}.{ext}", asset.hash))
+}
+
+/// Resolves a request path to an asset, accepting both the versioned
+/// form (`main.6a91e504.js`) and the bare name (`main.js`). The bare
+/// form stays routable so a page cached from an older binary — whose
+/// module imports are unversioned — keeps working after an upgrade;
+/// those responses carry `must-revalidate` instead of `immutable`
+/// (the caller decides by checking whether the request was versioned
+/// via [`resolved_hash`]).
+///
+/// Returns the asset plus the hash segment the request carried, if
+/// any. A versioned request with a stale hash resolves to nothing:
+/// that URL names content this binary does not ship.
+#[must_use]
+pub fn resolve_request(path: &str) -> Option<(&'static VendorAsset, Option<&'static str>)> {
+    // Versioned form: `<stem>.<8-hex>.<ext>`.
+    let (stem, last) = path.rsplit_once('.')?;
+    if let Some((base_stem, hash)) = stem.rsplit_once('.')
+        && hash.len() == 8
+        && hash.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        let base = format!("{base_stem}.{last}");
+        return VENDOR_ASSETS
+            .iter()
+            .find(|a| a.path == base && a.hash == hash)
+            .map(|a| (a, Some(a.hash)));
+    }
+    // Bare form.
+    let asset = VENDOR_ASSETS.iter().find(|a| a.path == path)?;
+    Some((asset, None))
+}

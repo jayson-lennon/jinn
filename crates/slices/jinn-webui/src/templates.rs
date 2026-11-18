@@ -95,6 +95,24 @@ details.disclosure .body { padding: 4px 12px 10px; white-space: pre-wrap;
                        padding: 6px 8px; font: inherit; max-width: 260px; }
 "#;
 
+/// The entry module's cache-busting URL — `main.<hash>.js`, the hash
+/// being the manifest row's sha256 prefix.
+///
+/// # Panics
+///
+/// Panics when the entry module is not a manifest row — a contract
+/// break caught at the first page render, in tests, not in the wild.
+#[must_use]
+#[allow(
+    clippy::expect_used,
+    reason = "a missing entry row is a contract break that must panic loudly at the \
+              first page render, not a fallible path to thread through"
+)]
+pub fn app_js_versioned_path() -> String {
+    crate::vendor::versioned_path(contract::VENDOR_APP_JS)
+        .expect("the client entry module is a manifest row")
+}
+
 /// The full page shell. Rendered by `GET /web` and by
 /// `GET /web/session/{id}` (a session page is the same shell with the
 /// regions filled for that session).
@@ -123,8 +141,10 @@ pub struct PageTemplate {
     pub model_html: String,
     /// `/vendor/` — the script tag's URL prefix.
     pub vendor_prefix: &'static str,
-    /// The client bundle's filename inside `/vendor/`.
-    pub app_js: &'static str,
+    /// The client bundle's cache-busting URL inside `/vendor/`
+    /// (`main.<hash>.js`) — the hash is the manifest row's sha256
+    /// prefix, so an upgraded binary serves a URL no old page cached.
+    pub app_js_versioned: String,
     /// The page-root id — the element a session switch replaces.
     pub page_root_id: &'static str,
     /// The attribute carrying the viewed session's id.
@@ -159,7 +179,7 @@ impl PageTemplate {
             controls_html: String::new(),
             model_html: String::new(),
             vendor_prefix: contract::VENDOR_PREFIX,
-            app_js: contract::VENDOR_APP_JS,
+            app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
@@ -196,7 +216,7 @@ impl PageTemplate {
             controls_html,
             model_html,
             vendor_prefix: contract::VENDOR_PREFIX,
-            app_js: contract::VENDOR_APP_JS,
+            app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,

@@ -6013,6 +6013,7 @@ dependencies = [
  "axum",
  "chaser-oxide",
  "error-stack",
+ "flate2",
  "futures",
  "http-body-util",
  "jiff",

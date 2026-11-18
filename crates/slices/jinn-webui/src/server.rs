@@ -741,7 +741,7 @@ async fn serve_vendor(AxPath(path): AxPath<String>) -> axum::response::Response 
     use axum::http::header;
     use axum::response::IntoResponse;
 
-    let Some(asset) = crate::vendor::VENDOR_ASSETS.iter().find(|a| a.path == path) else {
+    let Some((asset, versioned)) = crate::vendor::resolve_request(&path) else {
         return (
             StatusCode::NOT_FOUND,
             format!("no vendor asset at /{path}\n"),
@@ -765,11 +765,22 @@ async fn serve_vendor(AxPath(path): AxPath<String>) -> axum::response::Response 
                 header::ACCESS_CONTROL_ALLOW_ORIGIN,
                 HeaderValue::from_static("*"),
             ),
-            // The dist changes only at a jinn upgrade; the served URL
-            // is versioned by the binary, not the request.
+            // Cache policy splits on the URL form. A versioned URL
+            // (`main.6a91e504.js`) names one content forever — its hash
+            // is the manifest's sha256 prefix — so the browser may keep
+            // it for a year without ever revalidating; a new build
+            // ships new hashes and busts itself. The bare form exists
+            // only as a migration path (a cached old page's unversioned
+            // module imports), so it must revalidate every use: the
+            // cheap 304 keeps old pages working while never serving
+            // stale code for long.
             (
                 header::CACHE_CONTROL,
-                HeaderValue::from_static("public, max-age=86400"),
+                HeaderValue::from_static(if versioned.is_some() {
+                    "public, max-age=31536000, immutable"
+                } else {
+                    "public, max-age=0, must-revalidate"
+                }),
             ),
         ],
     )

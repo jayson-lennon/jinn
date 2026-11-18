@@ -51,13 +51,15 @@ fn main() {
          \n\n\
          /// The complete vendor inventory. `path` is the `/vendor/`-relative served\n\
          /// path; `bytes` is exactly the file content (gzipped for library dists);\n\
-         /// `encoding` is the response's `Content-Encoding`.\n\
+         /// `encoding` is the response's `Content-Encoding`; `hash` is the row\n\
+         /// sha256's first 8 hex chars - the cache-busting segment URLs carry.\n\
          #[derive(Clone, Copy)]\n\
          pub struct VendorAsset {\n    \
              pub path: &'static str,\n    \
              pub bytes: &'static [u8],\n    \
              pub encoding: &'static str,\n    \
-             pub content_type: &'static str,\n\
+             pub content_type: &'static str,\n    \
+             pub hash: &'static str,\n\
          }\n\n\
          pub const VENDOR_ASSETS: &[VendorAsset] = &[\n",
     );
@@ -103,6 +105,11 @@ fn main() {
                 file_path.display()
             )
         });
+        assert!(
+            sha.len() == 64,
+            "vendor asset {served}'s sha256 must be 64 hex chars, got {}",
+            sha.len()
+        );
         verify_sha(served, &bytes, sha);
 
         // A `gzip` row must name actual gzip bytes. The class of bug
@@ -123,8 +130,9 @@ fn main() {
         // which are invalid escape sequences inside a string literal.
         let _ = writeln!(
             table,
-            "    VendorAsset {{\n        path: \"{served}\",\n        bytes: include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/resources/vendor/{disk_name}\")),\n        encoding: \"{encoding}\",\n        content_type: \"{}\",\n    }},",
-            content_type_for(served)
+            "    VendorAsset {{\n        path: \"{served}\",\n        bytes: include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/resources/vendor/{disk_name}\")),\n        encoding: \"{encoding}\",\n        content_type: \"{}\",\n        hash: \"{}\",\n    }},",
+            content_type_for(served),
+            sha.get(..8).unwrap_or_default()
         );
     }
 

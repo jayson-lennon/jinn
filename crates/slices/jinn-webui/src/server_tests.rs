@@ -744,7 +744,11 @@ mod whole_flow {
         let picker = get(&router, &format!("/web/model-picker/{id}")).await;
         let vendor = get(
             &router,
-            &format!("/vendor/{}", crate::contract::VENDOR_APP_JS),
+            &format!(
+                "/vendor/{}",
+                crate::vendor::versioned_path(crate::contract::VENDOR_APP_JS)
+                    .expect("entry module is a row")
+            ),
         )
         .await;
         let health = get(&router, "/healthz").await;

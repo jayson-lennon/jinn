@@ -62,7 +62,7 @@ fn rendered_page() -> String {
         controls_html: controls,
         model_html: model,
         vendor_prefix: contract::VENDOR_PREFIX,
-        app_js: contract::VENDOR_APP_JS,
+        app_js_versioned: crate::templates::app_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
         sessions_id: contract::SESSIONS_ID,
@@ -119,17 +119,21 @@ fn the_client_script_tag_names_the_vendored_bundle() {
     let page = rendered_page();
 
     // When finding the module script tag.
-    let marker = format!(
-        "src=\"{}{}\"",
-        contract::VENDOR_PREFIX,
-        contract::VENDOR_APP_JS
-    );
+    let versioned = crate::templates::app_js_versioned_path();
+    let marker = format!("src=\"{}{versioned}\"", contract::VENDOR_PREFIX);
 
-    // Then it loads the contract's bundle as a module — the client's
-    // entry point is reachable at the path the vendor table serves.
+    // Then it loads the bundle under its CACHE-BUSTING URL — the hash
+    // segment is the manifest row's sha256 prefix, so an upgraded
+    // binary serves a URL no old page has cached.
     assert!(
         page.contains(&marker),
         "the page must load {marker} as the client entry; got: {page}"
+    );
+    // And the versioned URL is real: it resolves back to the row.
+    assert!(
+        crate::vendor::resolve_request(&versioned)
+            .is_some_and(|(asset, hash)| asset.path == contract::VENDOR_APP_JS && hash.is_some()),
+        "the versioned entry URL must resolve through the request table"
     );
     assert!(
         page.contains("type=\"module\""),
@@ -154,7 +158,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         controls_html: String::new(),
         model_html: String::new(),
         vendor_prefix: contract::VENDOR_PREFIX,
-        app_js: contract::VENDOR_APP_JS,
+        app_js_versioned: crate::templates::app_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
         sessions_id: contract::SESSIONS_ID,
@@ -309,6 +313,42 @@ fn the_contract_source_and_the_client_wire_file_agree_on_every_name() {
              the Rust and TypeScript contracts have drifted"
         );
     }
+}
+
+#[rstest::rstest]
+#[test]
+fn every_import_in_the_shipped_bundle_resolves_through_the_vendor_table() {
+    // Given the shipped entry module's bytes (the gzipped emit the
+    // binary embeds — the pin script rewrote its imports to
+    // hash-bearing URLs).
+    let entry = crate::vendor::VENDOR_ASSETS
+        .iter()
+        .find(|a| a.path == contract::VENDOR_APP_JS)
+        .expect("the entry module is a manifest row");
+    let mut decoder = flate2::read::GzDecoder::new(entry.bytes);
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut decoder, &mut bytes).expect("the entry module gunzips");
+    let source = String::from_utf8(bytes).expect("the emit is utf-8");
+
+    // When scanning every relative import specifier.
+    let mut count = 0;
+    for candidate in source.split("from \"").skip(1) {
+        let spec = candidate.split('"').next().expect("a closing quote");
+        if !spec.starts_with("./") {
+            continue;
+        }
+        count += 1;
+
+        // Then each resolves to a manifest row under its hash — the
+        // import graph and the vendor table cannot drift apart.
+        let url = spec.trim_start_matches("./");
+        assert!(
+            crate::vendor::resolve_request(url).is_some_and(|(_, hash)| hash.is_some()),
+            "import {spec} in the shipped bundle does not resolve to a \
+             hash-pinned vendor row — re-run `just webui-build`"
+        );
+    }
+    assert!(count >= 3, "the entry module imports its graph: {source}");
 }
 
 /// The client's TypeScript wire source, read from the workspace tree.

@@ -43,6 +43,9 @@ jiff = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+# The import-graph drift guard gunzips the shipped entry module to
+# scan its specifiers.
+flate2 = "1"
 jinn-testutil = { workspace = true }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
