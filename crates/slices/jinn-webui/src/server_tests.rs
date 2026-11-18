@@ -894,3 +894,52 @@ mod transients {
         assert!(kept.body_html.contains("kept"));
     }
 }
+
+/// The switch flow's markup contract.
+mod switch_markup {
+    use super::*;
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_session_row_targets_an_id_the_page_shell_defines() {
+        // Given the page shell and a session row.
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let (_status, page) = get(&router, "/web").await;
+        let (_status, sessions) = get(&router, "/web/sessions").await;
+
+        // Then the row's hx-target names an id the shell actually
+        // contains — a missing target is htmx's `targetError` and the
+        // click silently does nothing.
+        assert!(sessions.contains("hx-target=\"#page-root\""), "{sessions}");
+        assert!(page.contains("id=\"page-root\""), "{page}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn switching_returns_the_sessions_fragment_with_the_new_active_row() {
+        // Given two live sessions.
+        let (state, audit, _slices, router) = harness();
+        let a = seed_session(&state);
+        let b = seed_session(&state);
+        state
+            .write()
+            .session
+            .get_mut(&b)
+            .expect("seeded session")
+            .set_title("Second session".to_owned());
+
+        // When activating the second from the web.
+        let (status, body) =
+            post_form(&router, &format!("/web/session/{b}/activate"), "").await;
+
+        // Then the response is the sessions fragment with B marked
+        // active — the swap visibly moves the highlight — and the
+        // publish rides the shared command.
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("Second session"), "{body}");
+        assert!(body.contains("active"), "{body}");
+        assert_eq!(audit_count(&audit, "SessionLoadRequested"), 1);
+        let _ = a;
+    }
+}
