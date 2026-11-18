@@ -7,11 +7,12 @@
 //!
 //! Handlers are the HTTP layer only: parse, call delivery, map the
 //! outcome. Read paths capture data under one state read (or one store
-//! await) and drop the guard before rendering. The fragment helpers —
-//! [`controls_fragment`], [`sessions_fragment`],
-//! [`transcript_full_fragment`] — are the same render functions the
-//! SSE fan-out calls, so a pushed fragment and a pulled one come from
-//! one code path.
+//! await) and drop the guard before rendering. The region render
+//! functions live in [`crate::regions`] — the same functions the SSE
+//! fan-out calls, so a pushed fragment and a pulled one come from one
+//! code path. This module owns the page shell, the SSE endpoint, the
+//! action posts, vendor serving, and health: the cross-region chrome
+//! a region change must never need to edit.
 
 use axum::Form;
 use axum::Json;
@@ -28,7 +29,6 @@ use axum::routing::post;
 use futures::StreamExt as _;
 use jinn_core_types::SessionId;
 use jinn_kernel::State;
-use jinn_kernel::common::state::StateReadGuard;
 use jinn_slices::PhaseView;
 use jinn_slices::bus::BusService;
 use jinn_webui_msg::SseEnvelope;
@@ -99,9 +99,18 @@ impl axum::response::IntoResponse for Fragment {
 }
 
 /// The state every handler shares.
+///
+/// Fields are `pub(crate)`: the region modules' pull handlers read the
+/// same state under the same discipline (one guard, dropped before any
+/// await) the page handlers here use. There are no setters — the
+/// shared state is assembled once in `new` and read-only thereafter.
 #[derive(Clone)]
 pub struct ServerShared {
     /// The live session registry and this process's app state.
+    ///
+    /// Reading goes through [`ServerShared::read_state`], which holds
+    /// the guard discipline (one guard, dropped before any await) the
+    /// page and fragment handlers share.
     state: State,
     /// The message fabric, for action publications.
     bus: BusService,
@@ -139,29 +148,86 @@ impl ServerShared {
             version,
         }
     }
+
+    /// Reads the app state under one short-lived guard. The guard
+    /// discipline: take it, render synchronously, drop it before any
+    /// `.await` — the same contract the fan-out's render loop keeps.
+    #[must_use]
+    pub(crate) fn read_state(&self) -> jinn_kernel::common::state::StateReadGuard<'_> {
+        self.state.read()
+    }
+
+    /// Reads the provider cell under one short-lived guard.
+    pub(crate) fn read_provider(
+        &self,
+    ) -> parking_lot::RwLockReadGuard<'_, jinn_provider_selection_msg::ProviderCell> {
+        self.provider_cell.read()
+    }
+
+    /// Loads the archived-session summaries through the session store.
+    pub(crate) async fn load_summaries(
+        &self,
+    ) -> Result<
+        Vec<jinn_session_store_msg::SessionSummary>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        self.session_store.load_summaries().await
+    }
+
+    /// The app state, for the delivery paths that take `&State` (the
+    /// fan-out shares the same handle; nothing outside the crate
+    /// reaches it).
+    #[must_use]
+    pub(crate) fn state(&self) -> &State {
+        &self.state
+    }
+
+    /// The provider cell, for the delivery path that resolves the
+    /// picked model.
+    #[must_use]
+    pub(crate) fn provider_cell(
+        &self,
+    ) -> &jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell> {
+        &self.provider_cell
+    }
+
+    /// The message fabric, for action publications.
+    #[must_use]
+    pub(crate) fn bus(&self) -> &BusService {
+        &self.bus
+    }
 }
 
 /// Builds the web surface's routes.
+///
+/// Region pull routes fold out of the registry — each region binds its
+/// own handler through [`crate::region::WebRegion::pull`], so adding a
+/// region with a pull route needs no edit here. The remaining routes
+/// are the cross-region chrome: the page shell, the SSE stream, the
+/// action posts, vendor serving, and health.
 pub fn router(shared: ServerShared) -> Router {
-    Router::new()
+    let base = Router::new()
         .route("/", get(root_redirects_to_web))
         .route("/web", get(page_root))
         .route("/web/session/{id}", get(page_session))
-        .route("/web/sessions", get(sessions_fragment_handler))
-        .route("/web/transcript/{id}", get(transcript))
-        .route("/web/model-picker/{id}", get(model_picker))
         .route("/web/stream/{id}", get(stream))
         .route("/web/send", post(send))
         .route("/web/cancel", post(cancel))
         .route("/web/model", post(model))
         .route("/web/session/{id}/activate", post(activate))
         .route("/vendor/{*path}", get(serve_vendor))
-        .route("/healthz", get(health))
+        .route("/healthz", get(health));
+    crate::region::regions()
+        .iter()
+        .fold(base, |router, region| match region.pull() {
+            Some(pull) => router.route(pull.pattern, pull.handler),
+            None => router,
+        })
         .with_state(shared)
 }
 
 /// The handler error shape: status + one sentence.
-type HandlerError = (StatusCode, String);
+pub type HandlerError = (StatusCode, String);
 
 /// Maps a domain refusal or render failure to the response error.
 fn fail(status: u16, sentence: impl Into<String>) -> HandlerError {
@@ -171,7 +237,13 @@ fn fail(status: u16, sentence: impl Into<String>) -> HandlerError {
     )
 }
 
-fn parse_session_id(raw: &str) -> Result<SessionId, HandlerError> {
+/// Maps an askama render failure to the 500 error — the shape the
+/// region modules' pull-path renders return through.
+pub(crate) fn map_render_error(error: &askama::Error) -> HandlerError {
+    fail(500, error.to_string())
+}
+
+pub(crate) fn parse_session_id(raw: &str) -> Result<SessionId, HandlerError> {
     SessionId::try_from_string(raw).ok_or_else(|| fail(400, "session id is not a UUID"))
 }
 
@@ -186,7 +258,7 @@ async fn root_redirects_to_web() -> axum::response::Redirect {
 
 /// `GET /web` — the landing page: sessions list, no transcript.
 async fn page_root(AxumState(shared): AxumState<ServerShared>) -> Result<Page, HandlerError> {
-    let sessions_html = sessions_fragment(&shared, None).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
     let html = crate::templates::render(&crate::templates::PageTemplate::landing(sessions_html))
         .map_err(|e| fail(500, e.to_string()))?;
     Ok(Page::new(html))
@@ -200,7 +272,7 @@ async fn page_session(
 ) -> Result<Page, HandlerError> {
     let id = parse_session_id(&session_id)?;
     let view = session_view(&shared, &id).await?;
-    let sessions_html = sessions_fragment(&shared, Some(&id)).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, Some(&id)).await?;
     let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate {
         entries: view.transcript.entries.clone(),
         start: 0,
@@ -212,7 +284,11 @@ async fn page_session(
             view.phase != PhaseView::Idle.as_str(),
         ))
         .map_err(|e| fail(500, e.to_string()))?;
-    let model_html = model_picker_html(&shared, &session_id, &view.transcript.model)?;
+    let model_html = crate::regions::model_picker::model_picker_html(
+        &shared,
+        &session_id,
+        &view.transcript.model,
+    )?;
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
         session_id.clone(),
         view.transcript.title.clone(),
@@ -241,13 +317,13 @@ struct SessionView {
 /// (request-scoped, no command round-trip).
 async fn session_view(shared: &ServerShared, id: &SessionId) -> Result<SessionView, HandlerError> {
     let live = {
-        let guard = shared.state.read();
+        let guard = shared.read_state();
         guard.session.get(id).map(|session| {
             (
                 crate::transcript::TranscriptModel::from_live(
                     session.history(),
                     session.title(),
-                    &model_label(session.model_selection()),
+                    &crate::regions::transcript::model_label(session.model_selection()),
                     session.phase().as_str(),
                     session.is_bot(),
                 ),
@@ -272,7 +348,7 @@ async fn session_view(shared: &ServerShared, id: &SessionId) -> Result<SessionVi
         transcript: crate::transcript::TranscriptModel::from_snapshot(
             &snapshot,
             snapshot.metadata.title.as_deref(),
-            &model_label(&snapshot.metadata.profile.model),
+            &crate::regions::transcript::model_label(&snapshot.metadata.profile.model),
             PhaseView::Idle.as_str(),
             false,
         ),
@@ -280,159 +356,16 @@ async fn session_view(shared: &ServerShared, id: &SessionId) -> Result<SessionVi
     })
 }
 
-/// The model selection rendered as the label a reader recognizes.
-fn model_label(selection: &jinn_core_types::ModelSelection) -> String {
-    match selection {
-        jinn_core_types::ModelSelection::Single(name) => name.clone(),
-        jinn_core_types::ModelSelection::Alloy { models, .. } => models.join(", "),
-    }
-}
+// ── Region pulls (HTTP) ─────────────────────────────────────────────
 
-/// The sessions list: live rows from state, archived rows from the
-/// store, active first. `active` names the session to mark active
-/// (`None` on the landing page). Store summaries are awaited on the
-/// request path (request-scoped; no command round-trip); a store
-/// failure degrades to the live-only list — a web session list must
-/// not 500 because a disk read hiccuped.
-async fn sessions_fragment(
-    shared: &ServerShared,
-    active: Option<&SessionId>,
-) -> Result<String, HandlerError> {
-    let (mut rows, active_id) = {
-        let guard = shared.state.read();
-        let rows: Vec<jinn_webui_msg::SessionListItem> = guard
-            .session
-            .iter()
-            .map(|(id, session)| jinn_webui_msg::SessionListItem {
-                session_id: id.clone(),
-                title: session.title().unwrap_or("Untitled Session").to_owned(),
-                active: Some(id) == active,
-                is_bot: session.is_bot(),
-                loaded: true,
-            })
-            .collect();
-        let active_id = guard.session.active_session_id().clone();
-        (rows, active_id)
-    };
-
-    // Archived rows: skip ids already live; the merged list is the one
-    // shape the template renders.
-    if let Ok(summaries) = shared.session_store.load_summaries().await {
-        for summary in summaries {
-            if rows.iter().any(|row| row.session_id == summary.session_id) {
-                continue;
-            }
-            rows.push(jinn_webui_msg::SessionListItem {
-                session_id: summary.session_id,
-                title: summary.title,
-                active: active == Some(&active_id),
-                is_bot: summary.is_bot,
-                loaded: false,
-            });
-        }
-    }
-    rows.sort_by(|a, b| {
-        b.active
-            .cmp(&a.active)
-            .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
-    });
-
-    crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
-        .map_err(|e| fail(500, e.to_string()))
-}
-
-/// The composer-controls fragment from a state guard — the shape the
-/// fan-out calls with its own guard. The phase decides the button.
-/// Renders a template, or logs and serves a blank fragment. Askama
-/// templates are compile-checked, so a render failure is a data bug —
-/// it must be visible in the logs, never silently swallowed into an
-/// empty fragment.
-fn render_or_log<T: askama::Template>(template: &T, what: &str) -> String {
-    crate::templates::render(template).unwrap_or_else(|error| {
-        tracing::warn!(%error, %what, "webui template render failed; serving a blank fragment");
-        String::new()
-    })
-}
-
-pub fn controls_fragment(session_id: &SessionId, guard: &StateReadGuard<'_>) -> String {
-    let busy = guard
-        .session
-        .get(session_id)
-        .is_some_and(|session| session.phase().is_working());
-    render_or_log(
-        &crate::templates::ControlsTemplate::with_contract(session_id.to_string(), busy),
-        "controls",
-    )
-}
-
-/// The sessions-list fragment from a state guard — the fan-out's shape.
-///
-/// Live rows only: the fan-out renders on the actor's hot path, and
-/// the store's summary set changes rarely enough that the next page
-/// pull (or a `SessionLoadCompleted`-triggered page refresh) carries
-/// the archived truth.
-pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
-    let rows: Vec<jinn_webui_msg::SessionListItem> = guard
-        .session
-        .iter()
-        .map(|(id, session)| jinn_webui_msg::SessionListItem {
-            session_id: id.clone(),
-            title: session.title().unwrap_or("Untitled Session").to_owned(),
-            active: id == guard.session.active_session_id(),
-            is_bot: session.is_bot(),
-            loaded: true,
-        })
-        .collect();
-    render_or_log(
-        &crate::templates::SessionsTemplate::with_contract(rows),
-        "sessions",
-    )
-}
-
-/// The full-transcript fragment from a state guard — the fan-out's
-/// convergence push.
-pub fn transcript_full_fragment(session_id: &SessionId, guard: &StateReadGuard<'_>) -> String {
-    let Some(session) = guard.session.get(session_id) else {
-        return String::new();
-    };
-    let transcript = crate::transcript::TranscriptModel::from_live(
-        session.history(),
-        session.title(),
-        &model_label(session.model_selection()),
-        session.phase().as_str(),
-        session.is_bot(),
-    );
-    render_or_log(
-        &crate::templates::TranscriptTemplate {
-            entries: transcript.entries,
-            start: 0,
-        },
-        "transcript-full",
-    )
-}
-
-// ── Fragments (HTTP) ────────────────────────────────────────────────
-
-/// `GET /web/sessions` — the sessions fragment (live + archived).
-async fn sessions_fragment_handler(
-    AxumState(shared): AxumState<ServerShared>,
-) -> Result<Fragment, HandlerError> {
-    let active = {
-        let guard = shared.state.read();
-        guard.session.active_session_id().clone()
-    };
-    Ok(Fragment::new(
-        sessions_fragment(&shared, Some(&active)).await?,
-    ))
-}
-
-/// `GET /web/transcript/{id}?since=N` — the cursor pull.
+/// `GET /web/transcript/{id}?since=N` — the cursor pull (the
+/// transcript region's GET half; the region module binds it).
 ///
 /// The correctness dependency: a page (re)connects, reads its
 /// `Last-Event-ID`, pulls everything after it, then subscribes to the
 /// stream. A cursor past the entry count re-reads everything — the
 /// history-shrink re-sync rule.
-async fn transcript(
+pub(crate) async fn transcript_pull(
     AxumState(shared): AxumState<ServerShared>,
     AxPath(session_id): AxPath<String>,
     AxQuery(query): AxQuery<TranscriptQuery>,
@@ -449,55 +382,6 @@ async fn transcript(
     Ok(Fragment::new(html))
 }
 
-/// `GET /web/model-picker/{id}` — the model-picker fragment.
-async fn model_picker(
-    AxumState(shared): AxumState<ServerShared>,
-    AxPath(session_id): AxPath<String>,
-) -> Result<Fragment, HandlerError> {
-    let current = {
-        let id = parse_session_id(&session_id)?;
-        let guard = shared.state.read();
-        match guard.session.get(&id) {
-            Some(session) => model_label(session.model_selection()),
-            None => String::new(),
-        }
-    };
-    Ok(Fragment::new(model_picker_html(
-        &shared,
-        &session_id,
-        &current,
-    )?))
-}
-
-/// Renders the model-picker fragment: the cache's ids, sorted, with
-/// the active selection marked.
-fn model_picker_html(
-    shared: &ServerShared,
-    session_id: &str,
-    current: &str,
-) -> Result<String, HandlerError> {
-    let mut models: Vec<String> = {
-        let guard = shared.provider_cell.read();
-        match guard.model_cache.as_ref() {
-            Some(cache) => cache
-                .entries
-                .values()
-                .flatten()
-                .map(|info| info.id.clone())
-                .collect::<Vec<_>>(),
-            None => Vec::new(),
-        }
-    };
-    models.sort();
-    models.dedup();
-    crate::templates::render(&crate::templates::ModelTemplate::with_contract(
-        session_id.to_owned(),
-        current.to_owned(),
-        models,
-    ))
-    .map_err(|e| fail(500, e.to_string()))
-}
-
 // ── Actions ─────────────────────────────────────────────────────────
 
 /// `POST /web/send` — deliver text into a live session. Responds with
@@ -508,11 +392,11 @@ async fn send(
     form: Result<Form<jinn_webui_msg::SendForm>, axum::extract::rejection::FormRejection>,
 ) -> Result<Fragment, HandlerError> {
     let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
-    crate::delivery::handle_send(&shared.state, &shared.bus, &form.session_id, &form.text)
+    crate::delivery::handle_send(shared.state(), shared.bus(), &form.session_id, &form.text)
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
     let busy = {
-        let guard = shared.state.read();
+        let guard = shared.read_state();
         let id = parse_session_id(&form.session_id)?;
         guard
             .session
@@ -554,19 +438,21 @@ async fn model(
 ) -> Result<Fragment, HandlerError> {
     let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
     crate::delivery::handle_model(
-        &shared.state,
-        &shared.provider_cell,
-        &shared.bus,
+        shared.state(),
+        shared.provider_cell(),
+        shared.bus(),
         &form.session_id,
         &form.provider_id,
     )
     .await
     .map_err(|error| fail(error.status(), error.sentence()))?;
-    Ok(Fragment::new(model_picker_html(
-        &shared,
-        &form.session_id,
-        &form.provider_id,
-    )?))
+    Ok(Fragment::new(
+        crate::regions::model_picker::model_picker_html(
+            &shared,
+            &form.session_id,
+            &form.provider_id,
+        )?,
+    ))
 }
 
 /// `POST /web/session/{id}/activate` — switch the active session.
@@ -634,12 +520,12 @@ async fn stream(
         .and_then(|value| value.parse().ok())
         .unwrap_or(0);
     let catchup = {
-        let guard = shared.state.read();
+        let guard = shared.read_state();
         guard.session.get(&id).map(|session| {
             let transcript = crate::transcript::TranscriptModel::from_live(
                 session.history(),
                 session.title(),
-                &model_label(session.model_selection()),
+                &crate::regions::transcript::model_label(session.model_selection()),
                 session.phase().as_str(),
                 session.is_bot(),
             );

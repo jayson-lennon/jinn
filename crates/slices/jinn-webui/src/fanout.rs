@@ -13,11 +13,14 @@
 //! low-frequency fragments, so tokens accumulate per session in an
 //! HTML buffer and flush on a self-addressed 150 ms tick as one `chat`
 //! fragment. When a session settles to `Idle` the partial buffer
-//! flushes **first**, then a full-transcript fragment follows — the
-//! ordering that keeps the last tokens from appearing twice (once
-//! appended, once in the full render) and the convergence push that
-//! heals any drift between an incremental page and the real history
-//! (rewinds, cancels, partial-entry edge cases).
+//! flushes **first**, then the regions' settle fragments follow in
+//! registry order — the ordering that keeps the last tokens from
+//! appearing twice (once appended, once in the full render) and the
+//! convergence push that heals any drift between an incremental page
+//! and the real history (rewinds, cancels, partial-entry edge cases).
+//! The fan-out names no region: settle pushes resolve through
+//! [`crate::region`]'s registry, so a new region contributes pushes by
+//! declaring settle kinds, never by editing this module.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -227,40 +230,40 @@ impl WebUiFanoutActor {
     }
 
     /// Settles a session to idle: flush the partial token buffer FIRST,
-    /// then a full-transcript fragment (cursor 0 — the client re-bases
-    /// on it), then the idle controls. The ordering keeps the final
-    /// tokens from appearing twice (once appended, once in the full
-    /// render), and the full push is the convergence backstop that
+    /// then the regions' settle fragments in registry order — the
+    /// transcript's convergence push (cursor 0 — the client re-bases on
+    /// it) then the composer's idle controls. The ordering keeps the
+    /// final tokens from appearing twice (once appended, once in the
+    /// full render), and the full push is the convergence backstop that
     /// heals drift after rewinds, cancels, or partial-entry edges.
+    #[expect(
+        clippy::expect_used,
+        reason = "bootstrap assertion: the conformance gate guarantees every settle kind one owning region; a None here is a registry bug that must abort, not skip a push"
+    )]
     pub(crate) fn settle_to_idle(&mut self, session_id: &SessionId) {
         self.flush_session(session_id, 0);
-        let transcript = {
-            let guard = self.state.read();
-            crate::server::transcript_full_fragment(session_id, &guard)
-        };
-        self.broadcast(SseEnvelope {
-            kind: SseKind::TranscriptFull,
-            session_id: session_id.clone(),
-            cursor: 0,
-            html: transcript,
-        });
-        let controls = {
-            let guard = self.state.read();
-            crate::server::controls_fragment(session_id, &guard)
-        };
-        self.broadcast(SseEnvelope {
-            kind: SseKind::Controls,
-            session_id: session_id.clone(),
-            cursor: 0,
-            html: controls,
-        });
+        for kind in settle_push_kinds() {
+            let html = {
+                let guard = self.state.read();
+                let region = crate::region::owner_of(kind)
+                    .expect("a settle kind has exactly one owning region (conformance gate)");
+                region.render(session_id, &guard)
+            };
+            self.broadcast(SseEnvelope {
+                kind,
+                session_id: session_id.clone(),
+                cursor: 0,
+                html,
+            });
+        }
     }
 
-    /// Pushes the busy-state controls fragment for a session.
+    /// Pushes the busy-state controls fragment for a session — the
+    /// composer region's guard render.
     pub(crate) fn push_busy_controls(&mut self, session_id: &SessionId) {
         let html = {
             let guard = self.state.read();
-            crate::server::controls_fragment(session_id, &guard)
+            crate::regions::composer::controls_fragment(session_id, &guard)
         };
         self.broadcast(SseEnvelope {
             kind: SseKind::Controls,
@@ -270,11 +273,12 @@ impl WebUiFanoutActor {
         });
     }
 
-    /// Pushes a refreshed sessions-list fragment to every page.
+    /// Pushes a refreshed sessions-list fragment to every page — the
+    /// sessions region's guard render.
     pub(crate) fn push_sessions_refresh(&mut self, session_id: &SessionId) {
         let html = {
             let guard = self.state.read();
-            crate::server::sessions_live_fragment(&guard)
+            crate::regions::sessions::sessions_live_fragment(&guard)
         };
         self.broadcast(SseEnvelope {
             kind: SseKind::Sessions,
@@ -283,6 +287,18 @@ impl WebUiFanoutActor {
             html,
         });
     }
+}
+
+/// The settle push order: every region's `settle_kinds` flattened in
+/// registry order. The partial token flush (above) runs before these;
+/// the transcript's convergence push precedes the composer's idle
+/// controls. A new region contributes its own settle kinds by
+/// declaring them — no edit here.
+fn settle_push_kinds() -> Vec<SseKind> {
+    crate::region::regions()
+        .iter()
+        .flat_map(|region| region.settle_kinds().iter().copied())
+        .collect()
 }
 
 impl MsgHandler<FlushTick> for WebUiFanoutActor {

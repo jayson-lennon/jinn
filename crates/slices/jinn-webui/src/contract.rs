@@ -94,6 +94,9 @@ pub const ACTIVATE_ROUTE: &str = "/web/session/{id}/activate";
 /// Route pattern — one session's SSE stream.
 pub const STREAM_ROUTE: &str = "/web/stream/{id}";
 
+/// Route pattern — the sessions-list fragment pull.
+pub const SESSIONS_ROUTE: &str = "/web/sessions";
+
 /// Route pattern — the transcript cursor pull.
 pub const TRANSCRIPT_ROUTE: &str = "/web/transcript/{id}";
 
@@ -165,5 +168,20 @@ pub const CLIENT_PATHS: &[&str] = &[
     STREAM_PREFIX,
     TRANSCRIPT_PREFIX,
     MODEL_PICKER_PREFIX,
+    VENDOR_PREFIX,
+];
+
+/// The subset of [`CLIENT_PATHS`] the **browser client** builds
+/// request URLs from — the mirror set `wire.ts` must carry and the
+/// generated fixture checks. The other paths are server-rendered
+/// (page navigation, the transcript/model-picker pulls the client
+/// reaches by URL, not by string-building): they are contract, but
+/// not client-contract.
+pub const CLIENT_URLS: &[&str] = &[
+    SEND_PATH,
+    CANCEL_PATH,
+    MODEL_PATH,
+    STREAM_PREFIX,
+    SESSION_PAGE_PREFIX,
     VENDOR_PREFIX,
 ];

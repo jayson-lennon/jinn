@@ -34,7 +34,14 @@
 //!   task. The bind is frozen: read once here, never re-read on
 //!   config reload, because a rebind would strand every connected
 //!   page's SSE stream.
-//! - [`server`] — the axum routes and the shared handler state.
+//! - [`server`] — the axum routes and the shared handler state: the
+//!   cross-region chrome (page shell, SSE endpoint, action posts,
+//!   vendor, health).
+//! - [`region`] — the region registry: the trait each page region
+//!   declares, and the fan-out/router's resolution surface.
+//! - [`regions`] — one module per region (sessions, transcript,
+//!   composer, model picker): the region's renders, pull handler, and
+//!   settle declaration.
 //! - [`delivery`] — the action paths: validate → publish, with the
 //!   remote slice's one-guard discipline.
 //! - [`transcript`] — the transcript projection and render functions.
@@ -52,6 +59,8 @@ pub mod contract;
 pub mod delivery;
 pub mod fanout;
 pub mod listener;
+pub mod region;
+pub mod regions;
 pub mod server;
 pub mod templates;
 pub mod transcript;
@@ -59,6 +68,9 @@ pub mod vendor;
 
 #[cfg(test)]
 mod contract_tests;
+
+#[cfg(test)]
+mod region_tests;
 
 #[cfg(test)]
 mod serve_tests;

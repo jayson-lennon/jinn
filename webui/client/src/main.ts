@@ -1,55 +1,20 @@
-//! The client entry point: event delegation over the page's stable
-//! regions, the page swap on session switch, and the stream rebind.
+//! The client entry point — the page orchestrator.
+//!
+//! This module names no region. It boots the region registry, runs
+//! the generic delegation loop (click / change / keydown, dispatched
+//! to the first region whose selectors claim the target), owns the
+//! page swap on session switch, and opens the stream. Everything a
+//! region does lives in `regions/<id>.ts`; adding a region never
+//! edits this file.
 //!
 //! There is no state module and none may be added. The server is
 //! authoritative; the DOM and the URL are the client's only memory.
-//! The viewed session's id is read from the page's data attribute
-//! every time it is needed — a swap can change it under any closure,
-//! so nothing may cache it.
 
-import * as api from "./api.js";
-import * as render from "./render.js";
+import * as dom from "./dom.js";
 import * as sse from "./sse.js";
 import * as wire from "./wire.js";
-
-/**
- * The viewed session's id, read fresh from the page's data attribute.
- * Returns null on the landing page (no session).
- */
-function viewedSessionId(): string | null {
-  const root = document.getElementById(wire.PAGE_ROOT_ID);
-  if (root === null) {
-    return null;
-  }
-  const id = root.getAttribute(wire.PAGE_SESSION_DATA_ATTR);
-  return id !== null && id.length > 0 ? id : null;
-}
-
-/**
- * Narrows an event target to an Element without `instanceof` — the
- * DOM globals the type system assumes are not installed in every
- * host the client's tests run under (happy-dom scopes its classes
- * per window). `closest` is the Element API actually needed; its
- * presence is the capability that matters.
- */
-function targetElement(target: EventTarget | null): Element | null {
-  const candidate = target as { closest?: Element["closest"] } | null;
-  return typeof candidate?.closest === "function"
-    ? (target as Element)
-    : null;
-}
-
-/**
- * Narrows an event target to an HTMLElement without `instanceof` —
- * `getAttribute` (the action-attribute read) is the capability that
- * matters.
- */
-function targetWithAttribute(target: EventTarget | null): Element | null {
-  const candidate = target as { getAttribute?: Element["getAttribute"] } | null;
-  return typeof candidate?.getAttribute === "function"
-    ? (target as Element)
-    : null;
-}
+import { bindPageSwap } from "./regions/sessions.js";
+import { regions, type RegionModule } from "./regions/mod.js";
 
 /**
  * Extracts the page-root div from a whole-page HTML document (the
@@ -70,12 +35,24 @@ function extractPageRoot(html: string): string {
 }
 
 /**
+ * The viewed session's id, read fresh from the page's data attribute.
+ * Returns null on the landing page (no session).
+ */
+function viewedSessionId(): string | null {
+  const root = document.getElementById(wire.PAGE_ROOT_ID);
+  if (root === null) {
+    return null;
+  }
+  const id = root.getAttribute(wire.PAGE_SESSION_DATA_ATTR);
+  return id !== null && id.length > 0 ? id : null;
+}
+
+/**
  * Replaces #page-root with the activated session's page-root div
- * (extracted from the full-document response) and rebinds
- * everything: the old stream closes inside {@link sse.follow}, the
- * composer's button listeners re-delegate from the root (delegation
- * survives the swap by construction), and the new stream opens on
- * the new session.
+ * (extracted from the full-document response) and rebinds everything:
+ * the old stream closes inside {@link sse.follow}, the delegation
+ * survives the swap by construction (document-level listeners over
+ * region selectors), and the new stream opens on the new session.
  *
  * @param sessionId - The session whose page was fetched.
  * @param html - The WHOLE page HTML document from the activate endpoint.
@@ -88,181 +65,86 @@ function swapPage(sessionId: string, html: string): void {
   root.outerHTML = extractPageRoot(html);
   // The page shell carries the session id and cursor; follow() closes
   // the previous EventSource and opens the new session's.
-  sse.follow(sessionId, rebindComposerActions);
-  // The swapped-in page's composer needs its Enter binding now — a
-  // controls event may not arrive for a while (the first one rides
-  // the next phase change). Without this, Enter is dead until the
-  // first SSE controls event happens to land.
-  rebindComposerActions(sessionId);
+  sse.follow(sessionId);
+  // Regions re-resolve against the swapped-in page (the composer's
+  // Enter binding is delegation and needs nothing, but a region with
+  // a real post-swap bind lands it here).
+  for (const region of regions()) {
+    region.onPageSwap?.(sessionId);
+  }
   history.pushState(null, "", `${wire.SESSION_PAGE_PATH}${sessionId}`);
 }
 
 /**
- * Reads the composer's current text without `instanceof` (host
- * portability). Returns null when no textarea is present.
+ * Finds the region whose selectors claim the target — first match
+ * wins. Safe ONLY while the regions' selectors are pairwise disjoint
+ * (the conformance test enforces it; an overlap would silently
+ * change which region handles an event).
  */
-function composerText(): { element: Element; value: string } | null {
-  const input = document.getElementById(wire.INPUT_ID);
-  if (input === null) {
-    return null;
+function regionOf(target: Element): RegionModule | null {
+  for (const region of regions()) {
+    for (const selector of region.selectors) {
+      if (target.closest(selector) !== null) {
+        return region;
+      }
+    }
   }
-  const holder = input as { value?: unknown };
-  return typeof holder.value === "string"
-    ? { element: input, value: holder.value }
-    : null;
+  return null;
 }
 
-/**
- * Sends the composer's text. Reads the input fresh (the controls
- * swap replaces the textarea wholesale), clears it only on success,
- * and lets failures throw — a failed send must be visible.
- *
- * @param sessionId - The session to send into.
- */
-async function submitComposer(sessionId: string): Promise<void> {
-  const composer = composerText();
-  if (composer === null) {
-    throw new Error(`client target #${wire.INPUT_ID} is missing from the page`);
-  }
-  const text = composer.value;
-  if (text.trim().length === 0) {
+/** Dispatches one delegated event through the region registry. */
+function delegateClickOrChange(
+  target: EventTarget | null,
+  kind: "click" | "change",
+): void {
+  const element = dom.targetElement(target);
+  if (element === null) {
     return;
   }
-  // Optimistic nothing: the response replaces the controls (busy),
-  // and the SSE `controls` event settles the race. Clear only when
-  // the send was accepted, so a refusal keeps the user's text.
-  const replacement = await api.sendMessage(sessionId, text);
-  render.replaceControls(replacement);
-  rebindComposerActions(sessionId);
-  const fresh = composerText();
-  if (fresh !== null) {
-    (fresh.element as unknown as { value: string }).value = "";
+  const region = regionOf(element);
+  if (region === null) {
+    return;
   }
-  // Optimistic user entry: the server appends on enqueue, but the
-  // fan-out's chat push only rides the first stream tokens — without
-  // this the message idles invisible until the model responds. The
-  // next `transcript-full` convergence push replaces the transcript
-  // wholesale, which canonically re-renders this entry; the interim
-  // `chat` push for the same entry would double it, so mark it and
-  // let replaceTranscript clear the marker wholesale.
-  render.appendOptimisticUserEntry(sessionId, text);
+  if (kind === "click") {
+    region.onClick?.(element);
+    return;
+  }
+  region.onChange?.(element);
 }
 
 /**
- * Wires Enter-to-send on the composer's textarea (the submit path —
- * there is no form element to submit; the button click and the Enter
- * key both funnel here).
- *
- * @param sessionId - The session the composer currently targets.
- */
-function rebindComposerActions(sessionId: string): void {
-  const composer = composerText();
-  if (composer !== null) {
-    composer.element.addEventListener("keydown", (event) => {
-      const key = (event as KeyboardEvent).key;
-      if (key === "Enter" && !(event as KeyboardEvent).shiftKey) {
-        event.preventDefault();
-        void submitComposer(sessionId).catch(reportFailure);
-      }
-    });
-  }
-}
-
-/** Reports a failed action loudly — the anti-silent-failure rule. */
-function reportFailure(error: unknown): void {
-  console.error("[webui] action failed:", error);
-}
-
-/**
- * Binds the page's delegated behaviors. All listeners live on
- * elements the session-page swap does NOT destroy (document for
- * delegation) or are re-registered by {@link rebindComposerActions}
- * after each swap.
+ * Wires the page's delegated behaviors and opens the stream. All
+ * listeners live on `document` — elements the page swap destroys are
+ * re-resolved per event by the regions' selectors, so delegation
+ * survives the swap by construction.
  */
 export function initialize(): void {
-  // Session-row clicks: delegation on document, matching the
-  // contract's class hook, reading the row's session id attribute.
-  document.addEventListener("click", (event) => {
-    const origin = targetElement(event.target);
-    if (origin === null) {
-      return;
-    }
-    const row = origin.closest(`.${wire.SESSION_ROW_CLASS}`);
-    if (row === null) {
-      return;
-    }
-    const sessionId = row.getAttribute(wire.SESSION_ID_DATA_ATTR);
-    if (sessionId === null) {
-      console.error(`[webui] session row missing its ${wire.SESSION_ID_DATA_ATTR}`);
-      return;
-    }
-    event.preventDefault();
-    api.activateSession(sessionId)
-      .then((html) => swapPage(sessionId, html))
-      .catch(reportFailure);
-  });
+  bindPageSwap(swapPage);
 
-  // Composer button clicks (send/cancel) and the model select:
-  // delegated on document because the controls and picker fragments
-  // are replaced wholesale by SSE events at any moment.
   document.addEventListener("click", (event) => {
-    const target = targetWithAttribute(event.target);
-    if (target === null) {
-      return;
-    }
-    const action = target.getAttribute(wire.ACTION_DATA_ATTR);
-    if (action === null) {
-      return;
-    }
-    const sessionId = viewedSessionId();
-    if (sessionId === null) {
-      return;
-    }
-    if (action === wire.ACTION_SEND) {
-      event.preventDefault();
-      void submitComposer(sessionId).catch(reportFailure);
-      return;
-    }
-    if (action === wire.ACTION_CANCEL) {
-      event.preventDefault();
-      api.cancelTurn(sessionId)
-        .then(render.replaceControls)
-        .then(() => rebindComposerActions(sessionId))
-        .catch(reportFailure);
-    }
+    delegateClickOrChange(event.target, "click");
   });
-
   document.addEventListener("change", (event) => {
-    const target = targetWithAttribute(event.target);
-    if (target === null) {
+    delegateClickOrChange(event.target, "change");
+  });
+  document.addEventListener("keydown", (event) => {
+    // The composer's Enter binding rides the same dispatch: only the
+    // region claiming the target sees it.
+    const element = dom.targetWithAttribute(event.target);
+    if (element === null) {
       return;
     }
-    if (target.getAttribute(wire.ACTION_DATA_ATTR) !== wire.ACTION_MODEL) {
-      return;
+    const region = regionOf(element);
+    if (region !== null) {
+      region.onKeyDown?.(element, event as KeyboardEvent);
     }
-    // The model action only ever rides the contract's select; the
-    // duck-type read of `value` keeps this host-agnostic (the
-    // instanceof global is not installed under happy-dom).
-    const select = target as { value?: string };
-    const modelId = typeof select.value === "string" ? select.value : "";
-    const sessionId = viewedSessionId();
-    if (sessionId === null || modelId.length === 0) {
-      return;
-    }
-    api.switchModel(sessionId, modelId)
-      .then((html) => {
-        document.getElementById(wire.MODEL_PICKER_ID)!.innerHTML = html;
-      })
-      .catch(reportFailure);
   });
 
   // The stream for whatever session this page renders. The landing
   // page has none; a later swap opens one.
   const sessionId = viewedSessionId();
   if (sessionId !== null) {
-    sse.follow(sessionId, rebindComposerActions);
-    // Same as the swap path: bind the page-rendered composer now.
-    rebindComposerActions(sessionId);
+    sse.follow(sessionId);
   }
 }
 

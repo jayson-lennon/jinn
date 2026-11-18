@@ -52,7 +52,10 @@ fn rendered_page() -> String {
     ))
     .expect("an empty picker renders");
     templates::render(&templates::PageTemplate {
-        style: templates::STYLE_CSS,
+        style: {
+            let leaked: &'static str = Box::leak(templates::page_style().into_boxed_str());
+            leaked
+        },
         session_id: "00000000-0000-0000-0000-000000000000".to_owned(),
         title: "Contract".to_owned(),
         model: String::new(),
@@ -148,7 +151,10 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
     let id = jinn_core_types::SessionId::new();
     let sessions = sessions_fragment_of(&[]);
     let page = templates::render(&templates::PageTemplate {
-        style: templates::STYLE_CSS,
+        style: {
+            let leaked: &'static str = Box::leak(templates::page_style().into_boxed_str());
+            leaked
+        },
         session_id: id.to_string(),
         title: "Named".to_owned(),
         model: String::new(),
@@ -277,39 +283,71 @@ fn the_model_picker_names_the_action_the_client_maps_to_the_model_endpoint() {
 #[rstest::rstest]
 #[test]
 fn the_contract_source_and_the_client_wire_file_agree_on_every_name() {
-    // Given the contract's public names and the client's TypeScript
-    // source (compiled to /vendor by `just webui-build`; the source
-    // rides beside this crate in the workspace tree).
+    // Given the contract's DOM constants (the single derivation
+    // source — adding a constant here is the whole server-side act)
+    // and the client's TypeScript source (compiled to /vendor by
+    // `just webui-build`; the source rides beside this crate in the
+    // workspace tree).
     let client_src = client_wire_source();
 
     // When reading each name the two sides must agree on.
-    let pairs: [(&str, &str); 17] = [
-        ("page root id", contract::PAGE_ROOT_ID),
-        ("sessions id", contract::SESSIONS_ID),
-        ("transcript id", contract::TRANSCRIPT_ID),
-        ("transcript wrap id", contract::TRANSCRIPT_WRAP_ID),
-        ("controls id", contract::CONTROLS_ID),
-        ("model picker id", contract::MODEL_PICKER_ID),
-        ("busy spinner id", contract::BUSY_SPINNER_ID),
-        ("composer id", contract::COMPOSER_ID),
-        ("input id", contract::INPUT_ID),
-        ("session row class", contract::SESSION_ROW_CLASS),
-        ("session id data attr", contract::SESSION_ID_DATA_ATTR),
-        ("page session data attr", contract::PAGE_SESSION_DATA_ATTR),
-        ("cursor data attr", contract::TRANSCRIPT_CURSOR_DATA_ATTR),
-        ("action data attr", contract::ACTION_DATA_ATTR),
-        ("send action", contract::ACTION_SEND),
-        ("cancel action", contract::ACTION_CANCEL),
-        ("model action", contract::ACTION_MODEL),
-    ];
-
+    //
     // Then each contract value appears verbatim in the client source —
     // one drift test, both directions (a renamed id on either side
-    // fails here before any browser sees it).
-    for (label, value) in pairs {
+    // fails here before any browser sees it). Derived from
+    // `contract::DOM_CONSTANTS`, not a hand-maintained pairs array:
+    // the two lists cannot disagree because there is one list.
+    assert!(
+        !contract::DOM_CONSTANTS.is_empty(),
+        "the contract names at least one DOM constant"
+    );
+    for value in contract::DOM_CONSTANTS {
         assert!(
             client_src.contains(value),
-            "contract value `{label}` ({value}) is missing from webui/client/src/wire.ts — \
+            "contract value ({value}) is missing from webui/client/src/wire.ts — \
+             the Rust and TypeScript contracts have drifted"
+        );
+    }
+    // And the endpoint constants the client builds request URLs
+    // from get the same treatment. `CLIENT_PATHS` is the server's
+    // full route table (it includes composable suffixes the page
+    // handlers use); `CLIENT_URLS` is the client-facing subset —
+    // the set wire.ts mirrors by design.
+    for value in contract::CLIENT_URLS {
+        assert!(
+            client_src.contains(value),
+            "client URL ({value}) is missing from webui/client/src/wire.ts — \
+             the Rust and TypeScript contracts have drifted"
+        );
+    }
+}
+
+#[rstest::rstest]
+#[test]
+fn every_sse_event_name_appears_in_the_client_wire_file() {
+    // Given every SSE kind the server can push (derived from the
+    // enum, not a hand-maintained list) and the client's wire source.
+    let kinds = [
+        jinn_webui_msg::SseKind::Chat,
+        jinn_webui_msg::SseKind::Controls,
+        jinn_webui_msg::SseKind::Sessions,
+        jinn_webui_msg::SseKind::TranscriptFull,
+    ];
+    let client_src = client_wire_source();
+
+    // When reading each kind's event name.
+    // Then it appears verbatim in the wire file — a renamed event on
+    // either side fails here, before a listener silently stops
+    // firing.
+    assert!(
+        !kinds.is_empty(),
+        "the protocol defines at least one SSE kind"
+    );
+    for kind in kinds {
+        let name = kind.event_name();
+        assert!(
+            client_src.contains(name),
+            "SSE event name ({name}) is missing from webui/client/src/wire.ts — \
              the Rust and TypeScript contracts have drifted"
         );
     }

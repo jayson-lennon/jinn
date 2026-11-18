@@ -642,16 +642,28 @@ webui-build: webui-install
 
     # Deterministic gzip, in place. -n drops the timestamp/filename
     # fields so re-emitting the same source yields the same bytes.
+    # Walked, not enumerated: adding a client module (a new region,
+    # possibly in a subdirectory) must not require editing this recipe.
+    # Stale .gz from removed modules are pruned first so the manifest
+    # never keeps a ghost row.
     echo '==> gzip emitted modules'
-    for f in "$VENDOR"/main.js "$VENDOR"/api.js "$VENDOR"/render.js "$VENDOR"/sse.js "$VENDOR"/wire.js; do
-        [ -e "$f" ] || continue
-        gzip -9 -n -f "$f"
-    done
+    find "$VENDOR" -name '*.js.gz' -delete
+    find "$VENDOR" -name '*.js' -exec gzip -9 -n -f {} +
 
     # Re-pin the manifest rows: rewrite the marker-delimited client
     # section with fresh sha256 pins.
     echo '==> re-pinning manifest'
     python3 scripts/pin-webui-client.py "$VENDOR/vendor-manifest.toml" "$VENDOR"
+
+    # Regenerate the client's contract fixture from the Rust source —
+    # the fixture `wire.test.ts` checks against. The Rust side's drift
+    # test greps wire.ts directly; both directions hang off one
+    # generated truth, so a contract rename fails a test, not a page.
+    echo '==> regenerate contract fixture'
+    python3 scripts/gen-webui-fixture.py \
+        crates/slices/jinn-webui/src/contract.rs \
+        crates/slices/jinn-webui-msg/src/wire.rs \
+        webui/client/src/wire-fixture.ts
     echo '==> webui-build green'
 
 # Run the webui client's jsdom-tier tests against a scratch emit.

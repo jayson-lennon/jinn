@@ -22,78 +22,38 @@ use jinn_webui_msg::SessionListItem;
 /// re-export so template expressions stay short.
 use crate::contract;
 
-/// The stylesheet, inlined into the page shell. Hand-written and small
-/// enough that a separate asset (and a build.rs authored-file row)
-/// would be ceremony, not structure.
-pub const STYLE_CSS: &str = r#"
+/// The page shell's base stylesheet: the design tokens and the
+/// cross-region chrome (flex layout, titlebar, transcript entry
+/// styling is the transcript region's; see [`crate::region`]'s `css`
+/// join). Region styles live on the region and arrive through
+/// [`page_style`], so a region change never edits this constant.
+pub const BASE_CSS: &str = r#"
 :root { --bg: #14161a; --fg: #d7dae0; --muted: #8a8f98; --accent: #4c8bd8;
         --border: #2a2e35; --panel: #1b1e24; --err: #e5534b; --ok: #57ab5a; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg);
        font: 15px/1.55 system-ui, sans-serif; }
 #page-root { display: flex; height: 100vh; }
-#sidebar { width: 280px; min-width: 220px; border-right: 1px solid var(--border);
-           background: var(--panel); display: flex; flex-direction: column;
-           min-height: 0; }
-#sidebar h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
-              color: var(--muted); padding: 12px 14px 4px; margin: 0; }
-#sessions { overflow-y: auto; flex: 1; min-height: 0; }
-.srow { display: block; padding: 8px 14px; color: var(--fg); text-decoration: none;
-        border-bottom: 1px solid var(--border); cursor: pointer; }
-.srow:hover { background: #23272f; }
-.srow.active { border-left: 3px solid var(--accent); background: #20242c; }
-.srow .stitle { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.srow .smeta { font-size: 11px; color: var(--muted); }
-.srow.bot .smeta::after { content: " · bot"; color: #d4a72c; }
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 #titlebar { padding: 10px 18px; border-bottom: 1px solid var(--border);
             display: flex; align-items: baseline; gap: 12px; }
 #titlebar .t { font-weight: 600; }
 #titlebar .m { color: var(--muted); font-size: 12px; }
-#transcript-wrap { flex: 1; overflow-y: auto; padding: 8px 0; }
-.entry { padding: 6px 18px; }
-.entry.user { border-left: 3px solid var(--accent); background: #181b21;
-              margin: 8px 12px; border-radius: 6px; padding: 10px 14px; }
-.entry .who { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
-              color: var(--muted); margin-bottom: 2px; }
-.entry.error { color: var(--err); }
-.entry.system, .entry.compaction, .entry.annotation,
-.entry.rule_interrupt, .entry.intersession { color: var(--muted); font-size: 13px; }
-.entry pre { background: #101216; padding: 10px; border-radius: 6px;
-             overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
-.entry code { background: #101216; padding: 1px 5px; border-radius: 4px; }
-.entry table { border-collapse: collapse; }
-.entry td, .entry th { border: 1px solid var(--border); padding: 4px 8px; }
-details.disclosure { border: 1px solid var(--border); border-radius: 6px;
-                     margin: 4px 0; background: var(--panel); }
-details.disclosure > summary { cursor: pointer; padding: 6px 12px; color: var(--muted);
-                               font-size: 13px; list-style: none; }
-details.disclosure > summary::before { content: "▸ "; }
-details.disclosure[open] > summary::before { content: "▾ "; }
-details.disclosure .body { padding: 4px 12px 10px; white-space: pre-wrap;
-                           word-break: break-word; font-size: 13px;
-                           font-family: ui-monospace, monospace; }
-.badge { font-size: 11px; padding: 1px 7px; border-radius: 9px; margin-left: 8px; }
-.badge.success { background: #244; color: var(--ok); }
-.badge.failure { background: #422; color: var(--err); }
-.badge.pending { background: #334; color: var(--muted); }
-#streaming .tok-thinking { color: var(--muted); font-style: italic; }
-.busy-spinner { width: 18px; height: 18px; margin: 0 auto 8px; border: 2px solid var(--border);
-                border-top-color: var(--accent); border-radius: 50%;
-                animation: webui-spin .8s linear infinite; }
-@keyframes webui-spin { to { transform: rotate(360deg); } }
-#composer { border-top: 1px solid var(--border); padding: 12px 18px; display: flex; gap: 10px; }
-#composer textarea { flex: 1; background: var(--panel); color: var(--fg);
-                     border: 1px solid var(--border); border-radius: 6px;
-                     padding: 8px 10px; font: inherit; resize: none; height: 64px; }
-#composer button { background: var(--accent); color: #fff; border: 0; border-radius: 6px;
-                   padding: 0 22px; font: inherit; cursor: pointer; }
-#composer button.cancel { background: var(--err); }
-.model-picker { margin-left: auto; }
-.model-picker select { background: var(--panel); color: var(--fg);
-                       border: 1px solid var(--border); border-radius: 6px;
-                       padding: 6px 8px; font: inherit; max-width: 260px; }
 "#;
+
+/// The stylesheet the page shell inlines: the base chrome, then every
+/// registered region's fragment in registry order (registration order
+/// is the equal-specificity tie-breaker; regions are appended at the
+/// tail, so an established region's rules never lose to a later one).
+#[must_use]
+pub fn page_style() -> String {
+    let mut css = String::from(BASE_CSS);
+    for region in crate::region::regions() {
+        css.push('\n');
+        css.push_str(region.css());
+    }
+    css
+}
 
 /// The entry module's cache-busting URL — `main.<hash>.js`, the hash
 /// being the manifest row's sha256 prefix.
@@ -103,7 +63,7 @@ details.disclosure .body { padding: 4px 12px 10px; white-space: pre-wrap;
 /// Panics when the entry module is not a manifest row — a contract
 /// break caught at the first page render, in tests, not in the wild.
 #[must_use]
-#[allow(
+#[expect(
     clippy::expect_used,
     reason = "a missing entry row is a contract break that must panic loudly at the \
               first page render, not a fallible path to thread through"
@@ -169,7 +129,7 @@ impl PageTemplate {
     #[must_use]
     pub fn landing(sessions_html: String) -> Self {
         Self {
-            style: STYLE_CSS,
+            style: Box::leak(page_style().into_boxed_str()),
             session_id: String::new(),
             title: "jinn".to_owned(),
             model: String::new(),
@@ -206,7 +166,7 @@ impl PageTemplate {
         model_html: String,
     ) -> Self {
         Self {
-            style: STYLE_CSS,
+            style: Box::leak(page_style().into_boxed_str()),
             session_id,
             title,
             model,

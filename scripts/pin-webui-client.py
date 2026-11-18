@@ -21,18 +21,25 @@ BEGIN = "# BEGIN client rows (managed by just webui-build)"
 END = "# END client rows"
 
 # Import-specifier rewrite: the emitted modules import each other by
-# bare relative URL ("./api.js"), which would bypass the cache-busting
-# URLs. Each specifier gains the target's content hash so every
-# shipped URL is immutable. Runs on the gzipped emit (gunzip, rewrite,
-# re-gzip deterministically), BEFORE the manifest pin — the pinned
-# sha256 names the shipped bytes, rewritten imports included.
+# bare relative URL ("./api.js", "../wire.js"), which would bypass the
+# cache-busting URLs. Each specifier gains the target's content hash so
+# every shipped URL is immutable. Runs on the gzipped emit (gunzip,
+# rewrite, re-gzip deterministically), BEFORE the manifest pin — the
+# pinned sha256 names the shipped bytes, rewritten imports included.
 #
 # Two passes: pass 1 rewrites bare specifiers with provisional hashes
 # and re-gzips (changing every importing file's content), pass 2
 # recomputes the final per-file hashes and substitutes them in — a
 # file's own hash never appears in its own imports, so pass 2's
 # substitution cannot invalidate pass 2's other hashes.
-IMPORT_RE = re.compile(r'(from\s*")\./(\w+)\.js(")')
+IMPORT_RE = re.compile(r'(from\s*")(\.{1,2}/[\w/]+)\.js(")')
+
+
+def specifier_to_served(specifier: str, module: str) -> str:
+    """Resolves one emitted import specifier against its importing
+    module's vendor-relative directory, yielding the served path."""
+    base = os.path.dirname(module)
+    return os.path.normpath(os.path.join(base, specifier)).replace(os.sep, "/")
 
 
 def gunzip(gz_path: str) -> str:
@@ -44,15 +51,15 @@ def regzip(gz_path: str, text: str) -> None:
         fh.write(gzip.compress(text.encode("utf-8"), mtime=0))
 
 
-def parse_imports(text: str, names: list[str]) -> list[str]:
+def parse_imports(text: str, names: list[str], module: str) -> list[str]:
     """Returns the manifest names a module's bare imports reference."""
     targets = []
     for candidate in IMPORT_RE.finditer(text):
-        target = f"{candidate.group(2)}.js"
+        target = specifier_to_served(candidate.group(2), module) + ".js"
         if target not in names:
             sys.exit(
-                f"a module imports ./{target} but no manifest row vouches for it — "
-                "the import graph and the vendor table disagree"
+                f"a module imports ./{candidate.group(2)}.js but no manifest row "
+                f"vouches for it — the import graph and the vendor table disagree"
             )
         targets.append(target)
     return targets
@@ -68,7 +75,9 @@ def rewrite_imports(vendor_dir: str, names: list[str]) -> dict[str, str]:
     leftover-work assertion.
     """
     pending = {
-        name: parse_imports(gunzip(os.path.join(vendor_dir, name + ".gz")), names)
+        name: parse_imports(
+            gunzip(os.path.join(vendor_dir, name + ".gz")), names, name
+        )
         for name in names
     }
     hashes: dict[str, str] = {}
@@ -85,8 +94,12 @@ def rewrite_imports(vendor_dir: str, names: list[str]) -> dict[str, str]:
             gz_path = os.path.join(vendor_dir, name + ".gz")
 
             def sub(match: re.Match[str]) -> str:
-                target = f"{match.group(2)}.js"
-                return f'{match.group(1)}./{match.group(2)}.{hashes[target]}.js{match.group(3)}'
+                specifier = match.group(2)
+                target = specifier_to_served(specifier, name) + ".js"
+                return (
+                    f'{match.group(1)}{specifier}.{hashes[target]}.js'
+                    f'{match.group(3)}'
+                )
 
             regzip(gz_path, IMPORT_RE.sub(sub, gunzip(gz_path)))
             hashes[name] = hashlib.sha256(
@@ -106,7 +119,16 @@ def main() -> None:
     head, _, rest = text.partition(BEGIN)
     _, _, tail = rest.partition(END)
 
-    gzipped = sorted(f[:-3] for f in os.listdir(vendor_dir) if f.endswith(".js.gz"))
+    # Walked, not enumerated: emitted modules may live in
+    # subdirectories (the client's regions/), and a new module must
+    # not require editing this script. `served` names the path under
+    # the vendor mount, forward slashes, matching resolve_request.
+    gzipped = sorted(
+        os.path.relpath(os.path.join(root, f), vendor_dir).replace(os.sep, "/")[:-3]
+        for root, _, files in os.walk(vendor_dir)
+        for f in files
+        if f.endswith(".js.gz")
+    )
 
     # Rewrite the import graph to hash-bearing URLs, THEN pin — the
     # manifest's sha256 must name the shipped bytes, rewritten imports

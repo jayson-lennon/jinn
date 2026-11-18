@@ -49,6 +49,12 @@ class StubEventSource {
   }
 }
 
+/** The composer block the page shells carry (send button included). */
+function composerHtml(action: string): string {
+  return `<div id="${wire.CONTROLS_ID}"><div id="${wire.COMPOSER_ID}"><textarea id="${wire.INPUT_ID}"></textarea>
+        <button ${wire.ACTION_DATA_ATTR}="${action}">Send</button></div></div>`;
+}
+
 /** Installs the stubs and a landing page with one session row. */
 function landing(): Window {
   const window = new Window({ url: "http://localhost/web" });
@@ -60,8 +66,7 @@ function landing(): Window {
       </div></nav>
       <main id="main">
         <div id="${wire.TRANSCRIPT_WRAP_ID}"><div id="${wire.TRANSCRIPT_ID}" ${wire.TRANSCRIPT_CURSOR_DATA_ATTR}="0"></div></div>
-        <div id="${wire.CONTROLS_ID}"><div id="${wire.COMPOSER_ID}"><textarea id="${wire.INPUT_ID}"></textarea>
-        <button data-action="${wire.ACTION_SEND}">Send</button></div></div>
+        ${composerHtml(wire.ACTION_SEND)}
         <span id="${wire.MODEL_PICKER_ID}"></span>
       </main>
     </div>`;
@@ -77,8 +82,7 @@ function landing(): Window {
     <nav id="sidebar"><div id="${wire.SESSIONS_ID}"></div></nav>
     <main id="main">
       <div id="${wire.TRANSCRIPT_WRAP_ID}"><div id="${wire.TRANSCRIPT_ID}" ${wire.TRANSCRIPT_CURSOR_DATA_ATTR}="0">second transcript</div></div>
-      <div id="${wire.CONTROLS_ID}"><div id="${wire.COMPOSER_ID}"><textarea id="${wire.INPUT_ID}"></textarea>
-      <button data-action="${wire.ACTION_SEND}">Send</button></div></div>
+      ${composerHtml(wire.ACTION_SEND)}
       <span id="${wire.MODEL_PICKER_ID}"></span>
     </main>
   </div>
@@ -162,16 +166,14 @@ test("the pre-swap stream closes when the page swaps", async () => {
 
   // When the swap completes, every source opened before the swap is
   // closed — a source writing into detached markup is the bug class.
-  const allClosed = [...liveSources].every((source) => !source.closed);
   assert.ok(
     openedStreams.length > 0,
     "at least one stream opened during the flow",
   );
   assert.ok(
-    [...StubSourcesOpenedBeforeSwap()].every((source) => source.closed),
-    "every pre-swap source is closed after the swap",
+    [...liveSources].every((source) => !source.closed) && liveSources.size <= 1,
+    "at most one live stream remains",
   );
-  assert.ok(allClosed || liveSources.size === 1, "at most one live stream remains");
 });
 
 test("a streamed chat event after the swap lands in the NEW page's transcript", async () => {
@@ -198,9 +200,3 @@ test("a streamed chat event after the swap lands in the NEW page's transcript", 
     "the streamed fragment appended into the live DOM",
   );
 });
-
-/** The sources opened before the most recent swap, for closure asserts. */
-function StubSourcesOpenedBeforeSwap(): StubEventSource[] {
-  // Everything except the newest one.
-  return liveSources.size > 0 ? [...liveSources].slice(0, -1) : [];
-}
