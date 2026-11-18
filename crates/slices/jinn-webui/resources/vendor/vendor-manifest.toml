@@ -1,14 +1,15 @@
 # The webui slice's vendored frontend assets.
 #
-# Two families, one pin gate: build.rs verifies every row's sha256
-# against the bytes on disk before embedding, and asserts gzip rows
-# carry actual gzip bytes (1f 8b). Update flows:
-#
-# - Client bundle rows (between the BEGIN/END markers) are managed by
-#   `just webui-build` — never edit them by hand; edit the TypeScript
-#   under webui/client/src and run the recipe.
-# - Other assets are third-party dists vendored by hand: gzip the new
-#   dist, replace the file, recompute the row, done.
+# The pin gate: build.rs verifies every row's sha256 against the bytes
+# on disk before embedding, and asserts gzip rows carry actual gzip
+# bytes (1f 8b). This file is the tracked pin record; the `.gz` bytes
+# the rows name are build output (gitignored) — `just webui-build`
+# emits them from webui/client/src, stamps hash-bearing imports, and
+# rewrites the marker-delimited section below. Never edit the rows by
+# hand: edit the TypeScript under webui/client/src and run the recipe.
+# A cargo build of this crate fails with directions when the bytes are
+# missing, so fresh checkouts run `just webui-build` once before (or
+# as part of) building.
 
 # BEGIN client rows (managed by just webui-build)
 

@@ -1,0 +1,6 @@
+# Build output: `just webui-build` emits the compiled client bundle here
+# (tsc → gzip → import-hash stamping) and re-pins vendor-manifest.toml.
+# Only the manifest (the pin record) is tracked; these bytes are reproducible
+# from the tracked TypeScript sources. build.rs fails with directions when
+# they are absent.
+*.js.gz

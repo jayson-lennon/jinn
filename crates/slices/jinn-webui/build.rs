@@ -6,6 +6,16 @@
 //! (`resources/vendor/vendor-manifest.toml`), one row per asset, sha256
 //! verified, gzip-committed dists served with `Content-Encoding: gzip`.
 //! The generated table is the single inventory the server serves from.
+//!
+//! Unlike canvas, this slice's manifest has no hand-vendored rows: every
+//! row names a compiled client module — build output emitted by `just
+//! webui-build` (tsc → deterministic gzip → import-hash stamping →
+//! re-pin) and reproducible from the tracked TypeScript sources. The
+//! manifest is the tracked pin record; the `.gz` bytes it names are
+//! gitignored. A row whose bytes are missing fails the build with the
+//! recipe to run, because cargo never invokes Node — the emit is a
+//! prerequisite of compiling this crate, never something the build
+//! script does itself.
 
 // A build script's panic is its failure channel: every pin violation must
 // fail the build loudly, not quietly produce a binary serving unverified
@@ -101,7 +111,9 @@ fn main() {
         let file_path = vendor_dir.join(&disk_name);
         let bytes = fs::read(&file_path).unwrap_or_else(|e| {
             panic!(
-                "vendor asset {} missing from disk ({e}) — re-run the vendoring step",
+                "vendor asset {} missing from disk ({e}) — the client bundle is build \
+                 output, not committed: run `just webui-build` to emit it from \
+                 webui/client/src, then re-compile",
                 file_path.display()
             )
         });
@@ -139,10 +151,15 @@ fn main() {
     // Every file on disk must be vouched for by a manifest row: a stray
     // file dropped into the tree cannot ride into the binary unverified.
     // A gzip row's disk file carries `.gz`; strip it before matching so
-    // the served name is the row key both directions.
+    // the served name is the row key both directions. `.gitignore` is
+    // repo metadata, not a servable asset — it lives here because the
+    // build output in this directory is untracked.
     let mut unvouched: Vec<String> = Vec::new();
     collect_files(&vendor_dir, &vendor_dir, &mut unvouched);
     for path in &unvouched {
+        if path == ".gitignore" {
+            continue;
+        }
         let row_key = path.strip_suffix(".gz").unwrap_or(path);
         assert!(
             seen.iter().any(|s| s == row_key),
