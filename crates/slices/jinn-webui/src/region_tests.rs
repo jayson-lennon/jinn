@@ -134,12 +134,11 @@ async fn every_declared_container_id_appears_in_the_rendered_page_shell() {
         false,
     ))
     .expect("controls render");
-    let model = crate::regions::model_picker::button_fragment(&shared, &id.to_string())
+    let model = crate::regions::model_picker::status_fragment(&shared, &id.to_string())
         .expect("picker renders");
     let page = crate::templates::render(&crate::templates::PageTemplate::session(
         id.to_string(),
         "Conformance".to_owned(),
-        String::new(),
         0,
         sessions,
         transcript_html,

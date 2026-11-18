@@ -4,7 +4,11 @@
 //! to these, and `MsgCtx` is trouper-internal so tests cannot fabricate
 //! one).
 
-#![allow(clippy::expect_used, reason = "test assertions use expect")]
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "test assertions use expect/panic to state what went wrong"
+)]
 
 use jinn_inference_msg::StreamToken;
 use jinn_kernel::State;
@@ -136,7 +140,7 @@ async fn a_session_activation_pushes_a_sessions_list_refresh() {
 
 #[rstest::rstest]
 #[tokio::test]
-async fn a_cache_stored_event_pushes_one_models_signal_per_live_session() {
+async fn a_cache_stored_event_pushes_one_models_signal_and_one_transcript_per_live_session() {
     // Given a default session plus two seeded ones, and a subscriber.
     let (mut actor, mut rx, state) = fixture();
     let first = seed_session(&state);
@@ -147,26 +151,47 @@ async fn a_cache_stored_event_pushes_one_models_signal_per_live_session() {
     // holds the cache — the emit is post-write by contract).
     actor.push_models_changed();
 
-    // Then exactly one `models` signal lands per live session — each
-    // session-filtered stream receives its own envelope — and each is
-    // a SIGNAL: empty html, cursor 0; rows arrive by the client's
-    // re-pull, never in the push.
-    let mut seen = std::collections::HashSet::new();
+    // Then each live session receives exactly two envelopes in order:
+    // the `models` SIGNAL (empty html, cursor 0 — rows arrive by the
+    // client's re-pull, never in the push) followed by the
+    // transcript-full convergence render (cursor 0, full replace —
+    // the carrier that puts the refresh summary transient on the page;
+    // blank for a session that has not rendered any entry yet, which
+    // the client's full replace treats as "clear", the same shape the
+    // settle path pushes).
+    let mut seen_models = std::collections::HashSet::new();
+    let mut seen_transcripts = std::collections::HashSet::new();
     while let Ok(envelope) = rx.try_recv() {
-        assert_eq!(
-            envelope.kind,
-            SseKind::Models,
-            "a models push, and only that"
-        );
-        assert!(
-            envelope.html.is_empty(),
-            "the push is a signal: {envelope:?}"
-        );
-        assert_eq!(envelope.cursor, 0);
-        seen.insert(envelope.session_id);
+        match envelope.kind {
+            SseKind::Models => {
+                assert!(
+                    envelope.html.is_empty(),
+                    "the models push is a signal: {envelope:?}"
+                );
+                assert_eq!(envelope.cursor, 0);
+                seen_models.insert(envelope.session_id.clone());
+            }
+            SseKind::TranscriptFull => {
+                assert_eq!(envelope.cursor, 0);
+                seen_transcripts.insert(envelope.session_id.clone());
+            }
+            other => panic!("only models and transcript-full pushes land: {other:?}"),
+        }
     }
-    assert_eq!(seen.len(), live, "one push per live session: {seen:?}");
-    assert!(seen.contains(&first) && seen.contains(&second), "{seen:?}");
+    assert_eq!(
+        seen_models.len(),
+        live,
+        "one models push per session: {seen_models:?}"
+    );
+    assert_eq!(
+        seen_transcripts.len(),
+        live,
+        "one transcript push per session: {seen_transcripts:?}"
+    );
+    assert!(
+        seen_models.contains(&first) && seen_models.contains(&second),
+        "{seen_models:?}"
+    );
 }
 
 #[rstest::rstest]

@@ -330,13 +330,24 @@ impl WebUiFanoutActor {
 
     /// Signals every open model modal that the discovered-model cache
     /// changed — one `models` push per live session, addressed so each
-    /// session-filtered stream receives it.
+    /// session-filtered stream receives it — and pushes the
+    /// transcript's full fragment so the refresh summary transient
+    /// (written by the provider actor's shared `ModelsRefreshed`
+    /// handler before this event fires) reaches the web transcript
+    /// without a reload.
     ///
-    /// The envelope is a **signal, not rows**: the fan-out holds only
-    /// `State` (no provider registry or api keys), so it cannot render
-    /// TUI-parity rows; the client answers the push by re-pulling the
-    /// picker's GET route with its current filter. Rows always arrive
-    /// by pull — the pull endpoint remains the correctness dependency.
+    /// The `models` envelope is a **signal, not rows**: the fan-out
+    /// holds only `State` (no provider registry or api keys), so it
+    /// cannot render TUI-parity rows; the client answers the push by
+    /// re-pulling the picker's GET route with its current filter. Rows
+    /// always arrive by pull — the pull endpoint remains the
+    /// correctness dependency. The transcript envelope is the region's
+    /// guard render (cursor 0, full replace — the convergence shape).
+    #[expect(
+        clippy::expect_used,
+        reason = "bootstrap assertion: the conformance gate guarantees the transcript kind \
+                  exactly one owning region; a None here is a registry bug that must abort"
+    )]
     pub(crate) fn push_models_changed(&mut self) {
         let ids: Vec<SessionId> = self
             .state
@@ -347,11 +358,25 @@ impl WebUiFanoutActor {
             .cloned()
             .collect();
         for session_id in ids {
+            let transcript_html = {
+                let guard = self.state.read();
+                crate::region::owner_of(SseKind::TranscriptFull)
+                    .expect(
+                        "a transcript-full kind has exactly one owning region (conformance gate)",
+                    )
+                    .render(&session_id, &guard)
+            };
             self.broadcast(SseEnvelope {
                 kind: SseKind::Models,
-                session_id,
+                session_id: session_id.clone(),
                 cursor: 0,
                 html: String::new(),
+            });
+            self.broadcast(SseEnvelope {
+                kind: SseKind::TranscriptFull,
+                session_id,
+                cursor: 0,
+                html: transcript_html,
             });
         }
     }

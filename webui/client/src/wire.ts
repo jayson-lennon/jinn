@@ -49,8 +49,22 @@ export const COMPOSER_ID = "composer";
 /** The message textarea id. */
 export const INPUT_ID = "input";
 
-/** The model-picker container id. */
+/** The model-picker container id — the **button's** host. */
 export const MODEL_PICKER_ID = "model-picker";
+
+/**
+ * The model-picker **modal's** host id — an empty span sibling to the
+ * picker container in the page shell; the modal fragment swaps into
+ * it, so opening the modal never destroys the button that opened it.
+ */
+export const MODEL_PICKER_MODAL_HOST_ID = "model-picker-modal-host";
+
+/**
+ * The titlebar's model-status wrapper id — the static `.m` label and
+ * the picker container rendered as one fragment; a switch re-renders
+ * both in one swap.
+ */
+export const MODEL_STATUS_ID = "model-status";
 
 /** The model-picker's titlebar button id — opens the modal. */
 export const MODEL_PICKER_BUTTON_ID = "model-picker-button";

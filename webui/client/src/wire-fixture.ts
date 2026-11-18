@@ -14,6 +14,8 @@ export const CONTRACT = {
   "TRANSCRIPT": "transcript",
   "COMPOSER_CONTROLS": "composer-controls",
   "MODEL_PICKER": "model-picker",
+  "MODEL_PICKER_MODAL_HOST": "model-picker-modal-host",
+  "MODEL_STATUS": "model-status",
   "BUSY_SPINNER": "busy-spinner",
   "COMPOSER": "composer",
   "INPUT": "input",

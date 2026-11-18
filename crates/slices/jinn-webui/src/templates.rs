@@ -85,8 +85,9 @@ pub struct PageTemplate {
     pub session_id: String,
     /// The session title.
     pub title: String,
-    /// The model label.
-    pub model: String,
+    /// The model-status wrapper fragment (label + picker), rendered
+    /// inline — the titlebar's whole model display.
+    pub status_html: String,
     /// The rendered-entry cursor the page's inline transcript already
     /// carries — the stream's starting `Last-Event-ID`, so catch-up
     /// never re-appends what the page render included.
@@ -97,8 +98,6 @@ pub struct PageTemplate {
     pub transcript_html: String,
     /// The composer-controls fragment, rendered inline.
     pub controls_html: String,
-    /// The model-picker fragment, rendered inline.
-    pub model_html: String,
     /// `/vendor/` — the script tag's URL prefix.
     pub vendor_prefix: &'static str,
     /// The client bundle's cache-busting URL inside `/vendor/`
@@ -111,8 +110,9 @@ pub struct PageTemplate {
     pub page_session_attr: &'static str,
     /// The sessions-list container id.
     pub sessions_id: &'static str,
-    /// The model-picker container id.
-    pub model_picker_id: &'static str,
+    /// The model-picker modal's host id — the empty span sibling the
+    /// modal fragment swaps into.
+    pub modal_host_id: &'static str,
     /// The transcript scroll-wrap id.
     pub transcript_wrap_id: &'static str,
     /// The transcript entry container id.
@@ -136,18 +136,17 @@ impl PageTemplate {
             style: Box::leak(page_style().into_boxed_str()),
             session_id: String::new(),
             title: "jinn".to_owned(),
-            model: String::new(),
             cursor: 0,
             sessions_html,
             transcript_html: String::new(),
             controls_html: String::new(),
-            model_html: String::new(),
+            status_html: String::new(),
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
-            model_picker_id: contract::MODEL_PICKER_ID,
+            modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -159,33 +158,30 @@ impl PageTemplate {
     /// A session page: every region filled for one viewed session at
     /// the cursor its inline transcript already carries.
     #[must_use]
-    #[expect(clippy::too_many_arguments, reason = "one field per rendered region")]
     pub fn session(
         session_id: String,
         title: String,
-        model: String,
         cursor: usize,
         sessions_html: String,
         transcript_html: String,
         controls_html: String,
-        model_html: String,
+        status_html: String,
     ) -> Self {
         Self {
             style: Box::leak(page_style().into_boxed_str()),
             session_id,
             title,
-            model,
             cursor,
             sessions_html,
             transcript_html,
             controls_html,
-            model_html,
+            status_html,
             vendor_prefix: contract::VENDOR_PREFIX,
             app_js_versioned: app_js_versioned_path(),
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
-            model_picker_id: contract::MODEL_PICKER_ID,
+            modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -336,6 +332,37 @@ impl ModelButtonTemplate {
             session_id,
             current,
             button_id: contract::MODEL_PICKER_BUTTON_ID,
+            picker_id: contract::MODEL_PICKER_ID,
+        }
+    }
+}
+
+/// The titlebar's model-status wrapper: the static `.m` label span and
+/// the picker container rendered **as one fragment**, so a switch
+/// re-renders both in one swap (the `.m` label used to be static page
+/// markup that stayed stale after a switch). The page shell renders it
+/// inline at boot; the switch and refresh POSTs answer with it.
+#[derive(Template)]
+#[template(path = "model_status.html")]
+pub struct ModelStatusTemplate {
+    /// The current selection's label (the `.m` span's text).
+    pub model: String,
+    /// The pre-rendered button fragment (inlined with `|safe`).
+    pub model_html: String,
+    /// The wrapper's id.
+    pub status_id: &'static str,
+    /// The picker container's id (inside the wrapper).
+    pub picker_id: &'static str,
+}
+
+impl ModelStatusTemplate {
+    /// Builds the template from the current label and button HTML.
+    #[must_use]
+    pub fn with_contract(model: String, model_html: String) -> Self {
+        Self {
+            model,
+            model_html,
+            status_id: contract::MODEL_STATUS_ID,
             picker_id: contract::MODEL_PICKER_ID,
         }
     }

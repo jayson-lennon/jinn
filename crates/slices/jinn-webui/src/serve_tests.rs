@@ -318,10 +318,14 @@ async fn the_model_picker_refresh_post_answers_over_the_wire_without_blocking() 
         .await
         .expect("refresh post completes");
 
-    // Then it answers 200 with the button fragment immediately (no
+    // Then it answers 200 with the status wrapper immediately (no
     // discovery happens in the harness — a blocking POST would hang).
     assert_eq!(response.status(), 200);
     let body = response.text().await.expect("body reads");
+    assert!(
+        body.contains(&format!("id=\"{}\"", crate::contract::MODEL_STATUS_ID)),
+        "{body}"
+    );
     assert!(
         body.contains(&format!(
             "id=\"{}\"",
@@ -329,6 +333,71 @@ async fn the_model_picker_refresh_post_answers_over_the_wire_without_blocking() 
         )),
         "{body}"
     );
+    assert!(
+        !body.contains(crate::contract::MODEL_PICKER_MODAL_ID),
+        "the refresh POST must not answer with the modal: {body}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_page_shell_carries_the_status_wrapper_and_the_modal_host() {
+    // Given a live server holding a titled session.
+    let (base, seeded) = harness(Some("Shell status")).await;
+    let id = seeded.expect("harness seeded the session");
+    let http = client();
+
+    // When getting its page.
+    let response = http
+        .get(format!("{base}/web/session/{id}"))
+        .send()
+        .await
+        .expect("the request completes");
+    let body = response.text().await.expect("body reads");
+
+    // Then the shell carries the status wrapper (label + picker inside
+    // it) and the modal host — the two hosts the client swaps into.
+    assert!(
+        body.contains(&format!("id=\"{}\"", crate::contract::MODEL_STATUS_ID)),
+        "{body}"
+    );
+    assert!(
+        body.contains(&format!(
+            "id=\"{}\"",
+            crate::contract::MODEL_PICKER_MODAL_HOST_ID
+        )),
+        "{body}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_switch_post_answers_with_the_status_wrapper_over_the_wire() {
+    // Given a live server holding a session (no providers configured —
+    // the harness registry is empty).
+    let (base, seeded) = harness(Some("Switch shape")).await;
+    let id = seeded.expect("harness seeded the session");
+    let http = client();
+
+    // When posting a model switch for any id.
+    let response = http
+        .post(format!("{base}{}", crate::contract::MODEL_PATH))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(format!("session_id={id}&provider_id=openai%2Fgpt-4o"))
+        .send()
+        .await
+        .expect("the switch completes");
+
+    // Then it refuses with 400 — an empty registry renders no rows, so
+    // nothing is available to switch to (the offered list and the
+    // accepted set are one thing).
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let refusal = response.text().await.expect("body reads");
+    assert!(refusal.contains("not in the available"), "{refusal}");
+
+    // And when the same POST names a model the picker WOULD render
+    // (impossible with an empty registry), the refusal sentence names
+    // availability, not discovery.
 }
 
 // ── The gzip-encoding bug class ─────────────────────────────────────

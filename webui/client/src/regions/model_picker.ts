@@ -1,24 +1,31 @@
-//! The model-picker region — the titlebar button and its modal
-//! (client half of `crates/slices/jinn-webui/src/regions/model_picker.rs`).
+//! The model-picker region — the titlebar button, its modal, and the
+//! two hosts they swap into (client half of
+//! `crates/slices/jinn-webui/src/regions/model_picker.rs`).
 //!
 //! Owns:
-//! - the button click → pull the modal fragment into the picker
-//!   container and show it,
+//! - the button click → pull the modal fragment into the **modal
+//!   host** (`#model-picker-modal-host`, a sibling span in the page
+//!   shell) and show it — the button's own host is never touched, so
+//!   opening the modal cannot destroy the button that opened it,
 //! - the filter input → one GET pull per keystroke, each carrying the
 //!   current filter; responses settle latest-wins (a stale response is
 //!   discarded — a newer request's result must never be clobbered),
-//! - the refresh button → POST the refresh action, then await the
-//!   `models` SSE event; the typed filter and focus survive the push,
-//! - a row click → the existing switch POST; the button fragment swap
-//!   closes the modal,
+//!   and each settled swap re-shows the modal while it is open and
+//!   restores the filter's focus + caret (the server renders the input
+//!   `hidden`, so an unhiding pass is part of every settle),
+//! - the refresh button → POST the refresh action with a spinner
+//!   (`disabled` + `aria-busy`) that stays until the `models` SSE
+//!   event lands; the typed filter and focus survive the push,
+//! - a row click → the existing switch POST; the modal closes,
 //! - Esc and outside-click → close.
 //!
 //! The `models` SSE event is a **signal, not rows**: the handler
 //! re-pulls the modal with the current filter text, so the server
 //! stays authoritative for every list the page shows. The only
-//! view-local state is the in-flight-request bookkeeping latest-wins
-//! needs (permitted by the region ownership contract) — no shared
-//! store, no cached session id.
+//! view-local state is the bookkeeping the view needs (the in-flight
+//! sequence latest-wins requires, the open flag the re-show requires,
+//! the refresh-in-flight flag the spinner requires) — permitted by the
+//! region ownership contract; no shared store, no cached session id.
 //!
 //! Ownership contract: this module renders what the server pushed;
 //! everything else is view-local DOM state (see `regions/mod.ts`).
@@ -38,10 +45,21 @@ let pullSequence = 0;
 /** Whether this module issued the in-flight switch POST. */
 let switching = false;
 
+/**
+ * Whether the modal is conceptually open — the intent the swap-settle
+ * applies. The server renders every modal fragment `hidden`, so the
+ * client's open flag is what keeps a filter re-pull from closing the
+ * popup it serves.
+ */
+let modalOpen = false;
+
+/** Whether this module issued the in-flight refresh POST (spinner). */
+let refreshing = false;
+
 /** The model-picker region's client surface. */
 export const modelPickerRegion: RegionModule = {
   id: "model-picker",
-  selectors: [`#${wire.MODEL_PICKER_ID}`],
+  selectors: [`#${wire.MODEL_PICKER_ID}`, `#${wire.MODEL_PICKER_MODAL_HOST_ID}`],
 
   onClick(target) {
     const candidate = targetWithAttribute(target);
@@ -70,7 +88,10 @@ export const modelPickerRegion: RegionModule = {
     // The duck-type read of `value` keeps this host-agnostic (the
     // instanceof global is not installed under happy-dom).
     const input = element as { value?: unknown };
-    pullRows(typeof input.value === "string" ? input.value : "");
+    pullRows(typeof input.value === "string" ? input.value : "", {
+      preserveFocus: true,
+      caret: caretOf(element),
+    });
     return true;
   },
 
@@ -103,27 +124,45 @@ export const modelPickerRegion: RegionModule = {
 
   sseHandlers: {
     [wire.SSE_EVENTS.models]() {
+      // The spinner's reset condition: the cache landed (or discovery
+      // finished storing one), so whatever re-render follows is fresh
+      // — the re-pull below re-renders the refresh button without the
+      // spinner state.
+      refreshing = false;
       const modal = byModal();
-      if (modal === null || modal.hidden) {
+      if (modal === null || modal.hidden || !modalOpen) {
         return;
       }
-      // Signal, not rows: re-pull with the filter the user typed. The
-      // input element is server-rendered into the fragment; its value
-      // survives because we echo the text back as the pull's filter
-      // and the server stamps it into `value="…"`.
+      // Signal, not rows: re-pull with the filter the user typed (and
+      // the caret they typed it at). The input element is
+      // server-rendered into the fragment; its value survives because
+      // we echo the text back as the pull's filter and the server
+      // stamps it into `value="…"`.
       const filter = byFilterValue();
-      pullRows(filter, { preserveFocus: true });
+      pullRows(filter, { preserveFocus: true, caret: caretOf(byFilter()) });
     },
   },
 };
 
+/**
+ * Reads the filter input's caret position, host-agnostically: the
+ * selection APIs are not installed under every test host, so their
+ * presence is the capability that matters.
+ */
+function caretOf(input: unknown): number | null {
+  const candidate = input as { selectionStart?: unknown } | null;
+  return typeof candidate?.selectionStart === "number" ? candidate.selectionStart : null;
+}
+
 /** Opens the modal: pulls the fragment (unfiltered) and shows it. */
 function openModal(): void {
-  pullRows("", { openOnSettle: true });
+  modalOpen = true;
+  pullRows("", { openOnSettle: true, preserveFocus: true });
 }
 
 /** Closes the modal and drops any in-flight filter pull's authority. */
 function closeModal(): void {
+  modalOpen = false;
   const modal = byModal();
   if (modal !== null) {
     modal.hidden = true;
@@ -133,10 +172,17 @@ function closeModal(): void {
 /**
  * Pulls the modal fragment with the given filter, honoring latest-wins:
  * the response renders only if no newer request was issued meanwhile.
+ * The fragment lands in the modal host — never the button's — and the
+ * settle re-shows the modal while [`modalOpen`] holds, restoring the
+ * filter's focus and (when known) its caret.
  */
 function pullRows(
   filter: string,
-  options: { openOnSettle?: boolean; preserveFocus?: boolean } = {},
+  options: {
+    openOnSettle?: boolean;
+    preserveFocus?: boolean;
+    caret?: number | null;
+  } = {},
 ): void {
   const sequence = ++pullSequence;
   const sessionId = viewedSessionId();
@@ -149,52 +195,83 @@ function pullRows(
       if (sequence !== pullSequence) {
         return; // A newer request superseded this one.
       }
-      byPickerId().innerHTML = html;
+      byModalHost().innerHTML = html;
       const modal = byModal();
-      if (modal !== null) {
-        if (options.openOnSettle) {
-          modal.hidden = false;
-        }
-        if (options.preserveFocus) {
-          byFilter()?.focus();
-        }
+      if (modal === null) {
+        return;
+      }
+      if (modalOpen || options.openOnSettle) {
+        modal.hidden = false;
+      }
+      if (options.preserveFocus) {
+        restoreFilterFocus(options.caret ?? null);
       }
     })
     .catch(reportFailure);
 }
 
 /**
- * The refresh action: POSTs the refresh command (returning the current
- * button fragment immediately) and keeps the modal open with its
- * filter; the rows update when the `models` SSE push lands.
+ * Focuses the filter input and restores the caret the user typed at —
+ * guarded, because the selection APIs are not installed under every
+ * host (the same duck-typing discipline [`caretOf`] applies).
+ */
+function restoreFilterFocus(caret: number | null): void {
+  const input = byFilter();
+  if (input === null) {
+    return;
+  }
+  input.focus();
+  if (caret !== null && typeof input.setSelectionRange === "function") {
+    input.setSelectionRange(caret, caret);
+  }
+}
+
+/**
+ * The refresh action: POSTs the refresh command with the spinner on
+ * (`disabled` + `aria-busy`) and keeps the modal open with its filter;
+ * the spinner stays until the `models` SSE push lands — discovery
+ * always ends in a cache write, so the push is the safe reset
+ * condition. The response is the titlebar status wrapper; while the
+ * modal is open it carries no new information (a refresh never
+ * changes the selection) and is ignored so it cannot fight the
+ * pending push.
  */
 function refreshModels(button: HTMLElement): void {
   const sessionId = viewedSessionId();
-  if (sessionId === null) {
+  if (sessionId === null || refreshing) {
     return;
   }
+  refreshing = true;
   button.setAttribute("disabled", "disabled");
+  button.setAttribute("aria-busy", "true");
   api
     .refreshModels(sessionId)
     .then((html) => {
-      button.removeAttribute("disabled");
-      // The response is the titlebar button fragment — swap the
-      // button's own markup (the parent span), not the modal.
-      const buttonHost = document.getElementById(wire.MODEL_PICKER_ID);
-      if (buttonHost !== null) {
-        buttonHost.innerHTML = html;
+      if (!modalOpen) {
+        // Closed: the spinner is invisible; swap the status wrapper so
+        // the titlebar stays fresh, and release the in-flight flag —
+        // the next click must not be gated on a push this closed
+        // modal is not waiting for.
+        refreshing = false;
+        byStatusId().innerHTML = html;
       }
+      // Open: keep the spinner — the models push resolves it (and
+      // swaps the rows) in one pass.
     })
     .catch((error: unknown) => {
+      refreshing = false;
       button.removeAttribute("disabled");
+      button.removeAttribute("aria-busy");
       reportFailure(error);
     });
 }
 
 /**
  * The switch action: POSTs the row's model and swaps the response (the
- * re-rendered button) into the picker container; the modal closes — a
- * stale modal must not survive the switch it caused.
+ * re-rendered status wrapper — label and button together) into the
+ * titlebar's status element; the modal closes (hidden — the fragment
+ * stays dormant in its host, and a stale modal must not survive the
+ * switch it caused).
  */
 function switchModel(row: HTMLElement): void {
   if (switching || row.hasAttribute(wire.MODEL_UNAVAILABLE_ATTR)) {
@@ -210,7 +287,7 @@ function switchModel(row: HTMLElement): void {
     .switchModel(sessionId, modelId)
     .then((html) => {
       switching = false;
-      byPickerId().innerHTML = html;
+      byStatusId().innerHTML = html;
       closeModal();
     })
     .catch((error: unknown) => {
@@ -232,11 +309,20 @@ function viewedSessionId(): string | null {
   return id !== null && id.length > 0 ? id : null;
 }
 
-/** Resolves the picker container or throws naming the target. */
-function byPickerId(): HTMLElement {
-  const element = document.getElementById(wire.MODEL_PICKER_ID);
+/** Resolves the titlebar's status wrapper or throws naming the target. */
+function byStatusId(): HTMLElement {
+  const element = document.getElementById(wire.MODEL_STATUS_ID);
   if (element === null) {
-    throw new Error(`client target #${wire.MODEL_PICKER_ID} is missing from the page`);
+    throw new Error(`client target #${wire.MODEL_STATUS_ID} is missing from the page`);
+  }
+  return element;
+}
+
+/** Resolves the modal's host or throws naming the target. */
+function byModalHost(): HTMLElement {
+  const element = document.getElementById(wire.MODEL_PICKER_MODAL_HOST_ID);
+  if (element === null) {
+    throw new Error(`client target #${wire.MODEL_PICKER_MODAL_HOST_ID} is missing from the page`);
   }
   return element;
 }

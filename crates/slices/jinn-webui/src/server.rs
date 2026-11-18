@@ -308,11 +308,10 @@ async fn page_session(
             view.phase != PhaseView::Idle.as_str(),
         ))
         .map_err(|e| fail(500, e.to_string()))?;
-    let model_html = crate::regions::model_picker::button_fragment(&shared, &session_id)?;
+    let model_html = crate::regions::model_picker::status_fragment(&shared, &session_id)?;
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
         session_id.clone(),
         view.transcript.title.clone(),
-        view.transcript.model.clone(),
         view.transcript.len(),
         sessions_html,
         transcript_html,
@@ -451,8 +450,10 @@ async fn cancel(
 }
 
 /// `POST /web/model` — switch a session's model. Responds with the
-/// re-rendered titlebar **button** (the modal closes on the client;
-/// a stale modal must not survive the switch it caused).
+/// re-rendered titlebar **status wrapper** (the `.m` label and the
+/// button together, so both displays update in one swap); the modal
+/// closes on the client — a stale modal must not survive the switch it
+/// caused.
 async fn model(
     AxumState(shared): AxumState<ServerShared>,
     form: Result<Form<jinn_webui_msg::ModelForm>, axum::extract::rejection::FormRejection>,
@@ -461,6 +462,8 @@ async fn model(
     crate::delivery::handle_model(
         shared.state(),
         shared.provider_cell(),
+        shared.provider_registry(),
+        shared.api_keys(),
         shared.bus(),
         &form.session_id,
         &form.provider_id,
@@ -468,12 +471,12 @@ async fn model(
     .await
     .map_err(|error| fail(error.status(), error.sentence()))?;
     Ok(Fragment::new(
-        crate::regions::model_picker::button_fragment(&shared, &form.session_id)?,
+        crate::regions::model_picker::status_fragment(&shared, &form.session_id)?,
     ))
 }
 
 /// `POST /web/models/refresh` — the modal's refresh button. Publishes
-/// `RefreshModels` and responds with the re-rendered button fragment
+/// `RefreshModels` and responds with the re-rendered status wrapper
 /// immediately; the rows update when discovery lands (the fan-out's
 /// `models` push). Never blocks on discovery.
 async fn refresh_models(
@@ -485,7 +488,7 @@ async fn refresh_models(
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
     Ok(Fragment::new(
-        crate::regions::model_picker::button_fragment(&shared, &form.session_id)?,
+        crate::regions::model_picker::status_fragment(&shared, &form.session_id)?,
     ))
 }
 

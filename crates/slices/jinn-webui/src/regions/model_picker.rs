@@ -131,6 +131,28 @@ fn current_model_label(shared: &crate::server::ServerShared, session_id: &str) -
     })
 }
 
+/// The frontend's resolved theme, read under one short-lived guard.
+pub(crate) fn picker_theme(state: &jinn_kernel::State) -> jinn_theme::Theme {
+    state.read().frontend.theme.clone()
+}
+
+/// The model ids of the **available** rows the picker renders — the
+/// same shared-builder load the modal's row list uses, filtered to
+/// `is_available`. The switch endpoint validates against this set:
+/// the offered list and the accepted set are one thing.
+pub(crate) fn available_model_ids(
+    registry: &jinn_provider_config::ProviderRegistry,
+    api_keys: &jinn_provider_config::ApiKeys,
+    model_cache: Option<&jinn_provider_config::ModelCache>,
+    theme: &jinn_theme::Theme,
+) -> Vec<String> {
+    load_provider_entries(registry, api_keys, model_cache, theme)
+        .into_iter()
+        .filter(|entry| entry.is_available)
+        .map(|entry| entry.provider_id)
+        .collect()
+}
+
 /// Builds the TUI-parity rows for one render: the shared builder's
 /// load + sort, then the server-side substring filter over the same
 /// search text the TUI fuzzy-matches (`"{model} {provider_name}"`).
@@ -185,6 +207,26 @@ pub fn button_fragment(
     .map_err(|e| crate::server::map_render_error(&e))
 }
 
+/// The titlebar's model-status fragment: the `.m` label span and the
+/// picker container as **one wrapper**, so a switch re-renders both in
+/// one swap and the two can never disagree. The page shell renders it
+/// inline; the switch and refresh POSTs answer with it.
+///
+/// # Errors
+///
+/// Returns the render error; the caller maps it to a 500.
+pub fn status_fragment(
+    shared: &crate::server::ServerShared,
+    session_id: &str,
+) -> Result<String, crate::server::HandlerError> {
+    let current = current_model_label(shared, session_id);
+    let button = button_fragment(shared, session_id)?;
+    crate::templates::render(&crate::templates::ModelStatusTemplate::with_contract(
+        current, button,
+    ))
+    .map_err(|e| crate::server::map_render_error(&e))
+}
+
 /// The modal fragment: the overlay with filter, refresh button, and
 /// the filtered TUI-parity rows.
 ///
@@ -229,7 +271,8 @@ pub fn modal_fragment(
 /// The model-picker's stylesheet: the titlebar button, the modal
 /// overlay, the filter bar, the refresh control, and the rows.
 pub const MODEL_PICKER_CSS: &str = r#"
-.model-picker { margin-left: auto; }
+.model-status { display: inline-flex; gap: 10px; align-items: center;
+                margin-left: auto; }
 .model-picker-button { background: var(--panel); color: var(--fg);
                        border: 1px solid var(--border); border-radius: 6px;
                        padding: 6px 10px; font: inherit; max-width: 260px;
@@ -251,6 +294,14 @@ pub const MODEL_PICKER_CSS: &str = r#"
                         border: 1px solid var(--border); border-radius: 6px;
                         padding: 6px 10px; font: inherit; cursor: pointer; }
 .model-picker-refresh:hover { border-color: var(--accent); }
+.model-picker-refresh[disabled] { cursor: progress; opacity: .7; }
+.model-picker-refresh[aria-busy="true"]::after { content: "";
+                        display: inline-block; width: .9em; height: .9em;
+                        margin-left: 8px; vertical-align: -2px;
+                        border: 2px solid var(--border); border-top-color: var(--accent);
+                        border-radius: 50%;
+                        animation: model-picker-spin .8s linear infinite; }
+@keyframes model-picker-spin { to { transform: rotate(360deg); } }
 .model-picker-rows { overflow-y: auto; padding: 4px 0; }
 .model-row { display: flex; gap: 8px; padding: 7px 12px; cursor: pointer; }
 .model-row:hover { background: #23272f; }

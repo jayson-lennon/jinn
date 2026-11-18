@@ -69,11 +69,16 @@ fn rendered_page() -> String {
         false,
     ))
     .expect("idle controls render");
-    let model = templates::render(&templates::ModelButtonTemplate::with_contract(
+    let button = templates::render(&templates::ModelButtonTemplate::with_contract(
         "00000000-0000-0000-0000-000000000000".to_owned(),
         String::new(),
     ))
     .expect("an empty picker renders");
+    let model = templates::render(&templates::ModelStatusTemplate::with_contract(
+        String::new(),
+        button,
+    ))
+    .expect("an empty status wrapper renders");
     templates::render(&templates::PageTemplate {
         style: {
             let leaked: &'static str = Box::leak(templates::page_style().into_boxed_str());
@@ -81,18 +86,17 @@ fn rendered_page() -> String {
         },
         session_id: "00000000-0000-0000-0000-000000000000".to_owned(),
         title: "Contract".to_owned(),
-        model: String::new(),
         cursor: 0,
         sessions_html: sessions,
         transcript_html: transcript,
         controls_html: controls,
-        model_html: model,
+        status_html: model,
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
         sessions_id: contract::SESSIONS_ID,
-        model_picker_id: contract::MODEL_PICKER_ID,
+        modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
@@ -117,13 +121,17 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
     let page = rendered_page();
 
     // When collecting every id the contract says the client targets.
-    let targets: [(&str, &str); 9] = [
+    let targets: [(&str, &str); 10] = [
         ("page root", contract::PAGE_ROOT_ID),
         ("sessions", contract::SESSIONS_ID),
         ("transcript", contract::TRANSCRIPT_ID),
         ("transcript wrap", contract::TRANSCRIPT_WRAP_ID),
         ("controls", contract::CONTROLS_ID),
         ("model picker", contract::MODEL_PICKER_ID),
+        (
+            "model picker modal host",
+            contract::MODEL_PICKER_MODAL_HOST_ID,
+        ),
         ("model picker button", contract::MODEL_PICKER_BUTTON_ID),
         ("composer", contract::COMPOSER_ID),
         ("session title", contract::SESSION_TITLE_ID),
@@ -183,18 +191,17 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         },
         session_id: id.to_string(),
         title: "Named".to_owned(),
-        model: String::new(),
         cursor: 3,
         sessions_html: sessions,
         transcript_html: String::new(),
         controls_html: String::new(),
-        model_html: String::new(),
+        status_html: String::new(),
         vendor_prefix: contract::VENDOR_PREFIX,
         app_js_versioned: crate::templates::app_js_versioned_path(),
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
         sessions_id: contract::SESSIONS_ID,
-        model_picker_id: contract::MODEL_PICKER_ID,
+        modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,

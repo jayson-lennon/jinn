@@ -30,8 +30,23 @@ pub const TRANSCRIPT_ID: &str = "transcript";
 /// The composer-controls container — send↔cancel swaps here.
 pub const CONTROLS_ID: &str = "composer-controls";
 
-/// The model-picker container in the titlebar.
+/// The model-picker container in the titlebar — the **button's** host.
+/// The button fragment swaps here; the modal renders into its own
+/// sibling host ([`MODEL_PICKER_MODAL_HOST_ID`]) so opening the modal
+/// can never destroy the button that opened it.
 pub const MODEL_PICKER_ID: &str = "model-picker";
+
+/// The model-picker **modal's** host — an empty span sibling to
+/// [`MODEL_PICKER_ID`] in the page shell. The modal fragment swaps into
+/// this host on open and on every filter re-pull, leaving the button
+/// and the titlebar untouched.
+pub const MODEL_PICKER_MODAL_HOST_ID: &str = "model-picker-modal-host";
+
+/// The titlebar's model-status wrapper — the static `.m` label span
+/// and the picker container rendered together as one fragment, so a
+/// model switch re-renders both in one swap and the two can never
+/// disagree after a switch.
+pub const MODEL_STATUS_ID: &str = "model-status";
 
 /// The model-picker's button — the titlebar control that opens the
 /// modal; its label is the viewed session's current model.
@@ -200,6 +215,8 @@ pub const DOM_CONSTANTS: &[&str] = &[
     TRANSCRIPT_ID,
     CONTROLS_ID,
     MODEL_PICKER_ID,
+    MODEL_PICKER_MODAL_HOST_ID,
+    MODEL_STATUS_ID,
     BUSY_SPINNER_ID,
     COMPOSER_ID,
     INPUT_ID,
