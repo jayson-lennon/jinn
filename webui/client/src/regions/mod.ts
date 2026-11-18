@@ -63,9 +63,10 @@ export interface RegionModule {
    */
   onClick?: (target: Element) => boolean;
   /**
-   * Input delegation (the model modal's filter field). Fired for
-   * targets inside the region's selectors, per keystroke. Return
-   * true when handled.
+   * Input delegation — every text-entry interaction (keystroke,
+   * paste, cut) on a target inside the region's selectors (the
+   * model modal's filter field, the sessions filter's live
+   * re-pull). Same first-match rule.
    */
   onInput?: (target: Element) => boolean;
   /**

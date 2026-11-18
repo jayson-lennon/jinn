@@ -182,3 +182,6 @@ mod listener_tests;
 
 #[cfg(test)]
 mod server_tests;
+
+#[cfg(test)]
+mod sessions_list_tests;

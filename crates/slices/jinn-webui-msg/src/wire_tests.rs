@@ -4,9 +4,48 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test assertions")]
 
 use crate::wire::{
-    CancelForm, ModelForm, SendForm, SessionListItem, SseEnvelope, SseKind, TranscriptQuery,
+    CancelForm, ModelForm, SendForm, SessionListItem, SessionsQuery, SseEnvelope, SseKind,
+    TranscriptQuery,
 };
 use jinn_core_types::SessionId;
+
+#[rstest::rstest]
+#[test]
+fn sessions_query_absent_q_reads_as_no_filter() {
+    // Given the query shape an unfiltered pull maps from (no `q` key).
+    let query: SessionsQuery = serde_json::from_str("{}").expect("empty object parses");
+
+    // Then no filter is in force.
+    assert_eq!(query.filter_text(), None);
+    assert_eq!(query, SessionsQuery::default());
+}
+
+#[rstest::rstest]
+#[test]
+fn sessions_query_empty_q_reads_as_no_filter() {
+    // Given a query whose `q` is the empty string (the input was
+    // cleared but still sent).
+    let query = SessionsQuery {
+        q: Some(String::new()),
+    };
+
+    // Then no filter is in force — the matcher's empty-pattern
+    // behavior never defines the unfiltered case.
+    assert_eq!(query.filter_text(), None);
+}
+
+#[rstest::rstest]
+#[test]
+fn sessions_query_text_names_the_filter() {
+    // Given a query carrying filter text.
+    let query = SessionsQuery {
+        q: Some("fix".to_owned()),
+    };
+
+    // When reading the filter.
+    // Then the text rides through verbatim.
+    assert_eq!(query.filter_text(), Some("fix"));
+}
 
 #[rstest::rstest]
 #[test]
@@ -123,6 +162,7 @@ fn session_list_row_roundtrips_its_flags() {
         active: true,
         is_bot: false,
         loaded: true,
+        depth: 0,
     };
 
     // When serializing (the wire direction is server→client only).
@@ -133,4 +173,5 @@ fn session_list_row_roundtrips_its_flags() {
     assert!(json.contains("\"active\":true"), "{json}");
     assert!(json.contains("\"loaded\":true"), "{json}");
     assert!(json.contains("\"is_bot\":false"), "{json}");
+    assert!(json.contains("\"depth\":0"), "{json}");
 }

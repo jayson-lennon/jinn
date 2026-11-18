@@ -21,6 +21,12 @@ pub const PAGE_ROOT_ID: &str = "page-root";
 /// The sessions-list container inside the sidebar.
 pub const SESSIONS_ID: &str = "sessions";
 
+/// The sessions filter input — lives in the page shell OUTSIDE the
+/// `#sessions` swap target, so a sessions SSE push cannot wipe the
+/// typed filter; a push arriving while a filter is active triggers a
+/// re-pull carrying the same text.
+pub const SESSIONS_FILTER_INPUT_ID: &str = "sessions-filter";
+
 /// The scrollable transcript region (the wrap owns scrolling).
 pub const TRANSCRIPT_WRAP_ID: &str = "transcript-wrap";
 
@@ -211,6 +217,7 @@ pub const VENDOR_APP_JS_PATH: &str = "main.js";
 pub const DOM_CONSTANTS: &[&str] = &[
     PAGE_ROOT_ID,
     SESSIONS_ID,
+    SESSIONS_FILTER_INPUT_ID,
     TRANSCRIPT_WRAP_ID,
     TRANSCRIPT_ID,
     CONTROLS_ID,

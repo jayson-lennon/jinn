@@ -11,6 +11,8 @@
   <div id="{{ page_root_id }}" {{ page_session_attr }}="{{ session_id }}">
   <nav id="sidebar">
     <h2>Sessions</h2>
+    <input id="{{ sessions_filter_input_id }}" type="text" placeholder="filter sessions…"
+           autocomplete="off" spellcheck="false">
     <div id="{{ sessions_id }}">{{ sessions_html|safe }}</div>
   </nav>
   <main id="main">

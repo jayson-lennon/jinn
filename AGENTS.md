@@ -721,6 +721,8 @@ A region is one trait object on the server (`src/region.rs`), one module on the 
 
 **Parallel-work etiquette:** assignments are by region; a task touching a single-owner file is sequenced after the in-flight one, not merged alongside it.
 
+**Build output is not committed.** The compiled client bundle (`resources/vendor/*.js.gz`) and the generated fixture (`webui/client/src/wire-fixture.ts`) are gitignored artifacts, reproducible from the tracked TypeScript sources; `vendor-manifest.toml` is the tracked pin record `build.rs` verifies the bytes against. Cargo builds of `jinn-webui` require the emit to have run — a fresh checkout runs `just webui-build` (or any `webui-*` recipe, which chain it) before `just check` succeeds, and `build.rs` fails with that instruction when the bytes are absent. Never `git add` the `.gz` files or the fixture back; the merge churn they caused is exactly what untracking removes.
+
 ## 9. Misc
 
 - NEVER manually split a string using `.chars` or by indexing. Use the `unicode-segmentation` crate.

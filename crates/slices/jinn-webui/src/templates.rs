@@ -110,6 +110,9 @@ pub struct PageTemplate {
     pub page_session_attr: &'static str,
     /// The sessions-list container id.
     pub sessions_id: &'static str,
+    /// The sessions filter input's id — in the page shell, outside the
+    /// `#sessions` swap target.
+    pub sessions_filter_input_id: &'static str,
     /// The model-picker modal's host id — the empty span sibling the
     /// modal fragment swaps into.
     pub modal_host_id: &'static str,
@@ -146,6 +149,7 @@ impl PageTemplate {
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
+            sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
@@ -181,6 +185,7 @@ impl PageTemplate {
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
+            sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
             modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,

@@ -17,8 +17,16 @@ use jinn_session_state::SessionStoreService;
 /// Each tree's position is determined by the most recent `updated_at`
 /// across all nodes in the tree. Loaded trees appear before Archived trees.
 /// Within each tree, children are sorted by `updated_at` descending.
+/// The one order both the TUI picker load and the webui session list
+/// consume, so the two surfaces cannot disagree.
+///
+/// # Panics
+///
+/// Panics only on an internal index/entry desync, which the function
+/// builds itself from the same slice — unreachable for well-formed
+/// input.
 #[expect(clippy::expect_used, reason = "indices from enumerate over entries")]
-pub(crate) fn sort_entries_tree_aware(entries: &mut Vec<SessionTreeEntry>) {
+pub fn sort_entries_tree_aware(entries: &mut Vec<SessionTreeEntry>) {
     if entries.is_empty() {
         return;
     }

@@ -296,7 +296,7 @@ async fn page_session(
 ) -> Result<Page, HandlerError> {
     let id = parse_session_id(&session_id)?;
     let view = session_view(&shared, &id).await?;
-    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, Some(&id)).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
     let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate {
         entries: view.transcript.entries.clone(),
         start: 0,
@@ -548,7 +548,7 @@ async fn rename(
     // SessionArchived refreshes keep the live-only shape deliberately:
     // those events change only live state, and their next pull or
     // page render carries the store truth.)
-    let list_html = crate::regions::sessions::sessions_fragment(&shared, Some(&id)).await?;
+    let list_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
     shared
         .fanout
         .push_sessions_refresh_from(&id, list_html.clone());

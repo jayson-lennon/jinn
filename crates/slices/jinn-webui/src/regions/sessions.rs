@@ -8,11 +8,27 @@
 //! only (the actor's hot path — the next page pull or a
 //! load-completion-triggered refresh carries the archived truth).
 //!
+//! The list IS the TUI session picker rendered as HTML. Rows are
+//! [`jinn_session_store_msg::SessionTreeEntry`]s ordered by the
+//! store's tree-aware sort (loaded trees first, then by tree recency,
+//! children under parents) — the same list the picker loads. A `?q=`
+//! filter runs the picker's own
+//! [`jinn_selection_widget::TreePickerState`]: whitespace-split fuzzy
+//! terms where every term must match, an ancestor chain pulled in
+//! behind a matching child, and strongest-tree-first ranking. One
+//! matching implementation, the TUI's; the webui adds none.
+//!
 //! Client half: `webui/client/src/regions/sessions.ts` — the row
 //! click delegation and the [`crate::contract::SESSIONS_ID`] swap.
 
+use axum::extract::Query as AxQuery;
 use axum::extract::State as AxumState;
 use jinn_kernel::common::state::StateReadGuard;
+use jinn_picker::make_items_with_hooks;
+use jinn_selection_widget::TreePickerState;
+use jinn_session_store_msg::SessionState;
+use jinn_session_store_msg::SessionTreeEntry;
+use jinn_webui_msg::SessionsQuery;
 use jinn_webui_msg::SseKind;
 
 use crate::region::RegionParts;
@@ -86,6 +102,10 @@ pub const SIDEBAR_CSS: &str = r#"
 #sidebar h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
               color: var(--muted); padding: 12px 14px 4px; margin: 0; }
 #sessions { overflow-y: auto; flex: 1; min-height: 0; }
+#sessions-filter { margin: 4px 10px 8px; padding: 5px 8px; font: inherit; font-size: 13px;
+                   color: var(--fg); background: #14161a; border: 1px solid var(--border);
+                   border-radius: 5px; width: calc(100% - 20px); }
+#sessions-filter:focus { outline: none; border-color: var(--accent); }
 .srow { display: block; padding: 8px 14px; color: var(--fg); text-decoration: none;
         border-bottom: 1px solid var(--border); cursor: pointer; }
 .srow:hover { background: #23272f; }
@@ -95,16 +115,14 @@ pub const SIDEBAR_CSS: &str = r#"
 .srow.bot .smeta::after { content: " · bot"; color: #d4a72c; }
 "#;
 
-/// `GET /web/sessions` — the sessions fragment (live + archived).
+/// `GET /web/sessions` — the sessions fragment (live + archived),
+/// narrowed by `?q=` when the client names a filter.
 async fn pull_handler(
     AxumState(shared): AxumState<ServerShared>,
+    AxQuery(query): AxQuery<SessionsQuery>,
 ) -> Result<Fragment, HandlerError> {
-    let active = {
-        let guard = shared.read_state();
-        guard.session.active_session_id().clone()
-    };
     Ok(Fragment::new(
-        sessions_fragment(&shared, Some(&active)).await?,
+        sessions_fragment(&shared, query.filter_text()).await?,
     ))
 }
 
@@ -116,17 +134,13 @@ async fn pull_handler(
 /// pull (or a `SessionLoadCompleted`-triggered page refresh) carries
 /// the archived truth.
 pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
-    let rows: Vec<jinn_webui_msg::SessionListItem> = guard
+    let active_id = guard.session.active_session_id().clone();
+    let bots: std::collections::HashMap<jinn_core_types::SessionId, bool> = guard
         .session
         .iter()
-        .map(|(id, session)| jinn_webui_msg::SessionListItem {
-            session_id: id.clone(),
-            title: session.title().unwrap_or("Untitled Session").to_owned(),
-            active: id == guard.session.active_session_id(),
-            is_bot: session.is_bot(),
-            loaded: true,
-        })
+        .map(|(id, session)| (id.clone(), session.is_bot()))
         .collect();
+    let rows = picker_rows(live_entries(guard), &bots, None, &active_id);
     crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .unwrap_or_else(|error| {
             tracing::warn!(%error, what = "sessions", "webui template render failed; \
@@ -136,59 +150,159 @@ pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
 }
 
 /// The sessions list for a page render or a GET pull: live rows from
-/// state, archived rows from the store, active first. `active` names
-/// the session to mark active (`None` on the landing page). Store
-/// summaries are awaited on the request path (request-scoped; no
-/// command round-trip); a store failure degrades to the live-only
-/// list — a web session list must not 500 because a disk read
-/// hiccuped.
+/// state, archived rows from the store — the picker's full tree.
+/// `filter` runs the TUI session picker's matching (its
+/// `TreePickerState`, verbatim): every whitespace-split term must
+/// fuzzy-match a row's title, a matching child pulls its ancestor
+/// chain in, and trees rank strongest-match first. Every row's
+/// `active` flag is computed per row from the instance's active
+/// session id, so an archived row can never wear the active styling
+/// on the active session's page. Store summaries are awaited on the
+/// request path (request-scoped; no command round-trip); a store
+/// failure degrades to the live-only list — a web session list must
+/// not 500 because a disk read hiccuped.
 ///
 /// # Errors
 ///
 /// Returns the render error; the caller maps it to a 500.
 pub async fn sessions_fragment(
     shared: &ServerShared,
-    active: Option<&jinn_core_types::SessionId>,
+    filter: Option<&str>,
 ) -> Result<String, HandlerError> {
-    let (mut rows, active_id) = {
+    let (mut entries, mut bots, active_id) = {
         let guard = shared.read_state();
-        let rows: Vec<jinn_webui_msg::SessionListItem> = guard
+        let active_id = guard.session.active_session_id().clone();
+        let bots: std::collections::HashMap<jinn_core_types::SessionId, bool> = guard
             .session
             .iter()
-            .map(|(id, session)| jinn_webui_msg::SessionListItem {
-                session_id: id.clone(),
-                title: session.title().unwrap_or("Untitled Session").to_owned(),
-                active: Some(id) == active,
-                is_bot: session.is_bot(),
-                loaded: true,
-            })
+            .map(|(id, session)| (id.clone(), session.is_bot()))
             .collect();
-        let active_id = guard.session.active_session_id().clone();
-        (rows, active_id)
+        (live_entries(&guard), bots, active_id)
     };
 
-    // Archived rows: skip ids already live; the merged list is the one
-    // shape the template renders.
+    // Archived rows: skip ids already live; the merged tree is the one
+    // shape both render paths consume. The store's own list already
+    // merges its live sessions the same way, so the append is the
+    // delta, not a duplicate.
     if let Ok(summaries) = shared.load_summaries().await {
-        for summary in summaries {
-            if rows.iter().any(|row| row.session_id == summary.session_id) {
-                continue;
-            }
-            rows.push(jinn_webui_msg::SessionListItem {
-                session_id: summary.session_id,
-                title: summary.title,
-                active: active == Some(&active_id),
-                is_bot: summary.is_bot,
-                loaded: false,
-            });
-        }
+        append_summaries(&mut entries, &mut bots, summaries);
     }
-    rows.sort_by(|a, b| {
-        b.active
-            .cmp(&a.active)
-            .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
-    });
+    let rows = picker_rows(entries, &bots, filter, &active_id);
 
     crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .map_err(|e| crate::server::map_render_error(&e))
+}
+
+/// The live sessions as picker entries, in the store's tree-aware
+/// order (loaded first, tree recency, children under parents). Every
+/// field — title, parent, state, timestamps, project — reads from the
+/// session itself, so a live session renders exactly what it would
+/// render as a stored one.
+fn live_entries(guard: &StateReadGuard<'_>) -> Vec<SessionTreeEntry> {
+    let theme = guard.frontend.theme.clone();
+    let mut entries: Vec<SessionTreeEntry> = guard
+        .session
+        .iter()
+        .map(|(id, session)| {
+            SessionTreeEntry::new(
+                id.clone(),
+                session.title().unwrap_or("Untitled Session").to_owned(),
+                *session.updated_at(),
+                theme.clone(),
+                session.session_state(),
+                session.parent_session().clone(),
+                session.project().cloned(),
+            )
+        })
+        .collect();
+    jinn_session_store::session_entries::sort_entries_tree_aware(&mut entries);
+    jinn_session_store_msg::apply_project_column_width(&mut entries);
+    entries
+}
+
+/// Appends the store's summaries that state does not already hold,
+/// then re-applies the tree-aware order and the project column width
+/// over the merged set — the same load path the TUI picker runs.
+/// Summary bot-ness merges into `bots` for the rows the store alone
+/// serves.
+fn append_summaries(
+    entries: &mut Vec<SessionTreeEntry>,
+    bots: &mut std::collections::HashMap<jinn_core_types::SessionId, bool>,
+    summaries: Vec<jinn_session_store_msg::SessionSummary>,
+) {
+    let live_ids: std::collections::HashSet<jinn_core_types::SessionId> = entries
+        .iter()
+        .map(|entry| entry.session_id.clone())
+        .collect();
+    let theme = entries
+        .first()
+        .map_or_else(jinn_theme::default_theme, |first| first.theme.clone());
+    for summary in summaries {
+        if live_ids.contains(&summary.session_id) {
+            continue;
+        }
+        bots.insert(summary.session_id.clone(), summary.is_bot);
+        entries.push(SessionTreeEntry::new(
+            summary.session_id,
+            summary.title,
+            summary.updated_at,
+            theme.clone(),
+            summary.session_state,
+            summary.parent_session,
+            summary.project,
+        ));
+    }
+    jinn_session_store::session_entries::sort_entries_tree_aware(entries);
+    jinn_session_store_msg::apply_project_column_width(entries);
+}
+
+/// Renders the entry list as HTML rows — the list IS the picker.
+///
+/// An absent or empty filter keeps the picker's unfiltered shape: the
+/// tree-aware order as loaded. A filter runs
+/// [`TreePickerState::insert_text`], the picker's own re-filter:
+/// whitespace-split fuzzy terms (every term must match a row's
+/// title), ancestor chains of matching children pulled in, visible
+/// trees ranked by their best match score. The rows come back in the
+/// picker's DFS order with tree depth metadata, so the web list nests
+/// children under parents exactly as the picker draws them.
+fn picker_rows(
+    entries: Vec<SessionTreeEntry>,
+    bots: &std::collections::HashMap<jinn_core_types::SessionId, bool>,
+    filter: Option<&str>,
+    active_id: &jinn_core_types::SessionId,
+) -> Vec<jinn_webui_msg::SessionListItem> {
+    let matches_filter = filter.is_some_and(|text| !text.is_empty());
+    let visible: Vec<(SessionTreeEntry, usize)> = if matches_filter {
+        let filter_text = filter.unwrap_or_default();
+        let wrapped = make_items_with_hooks(
+            entries,
+            jinn_picker::PickerItemHooks::new()
+                .row(jinn_session_store_msg::session_row)
+                .search(|entry: &SessionTreeEntry| entry.title.clone()),
+        );
+        let mut tree = TreePickerState::with_items(wrapped);
+        tree.insert_text(filter_text);
+        (0..tree.filtered_count())
+            .filter_map(|idx| {
+                let depth = tree.visible_entry(idx)?.depth;
+                tree.filtered_item(idx)
+                    .map(|item| (item.entry().clone(), depth))
+            })
+            .collect()
+    } else {
+        entries.into_iter().map(|entry| (entry, 0)).collect()
+    };
+
+    visible
+        .into_iter()
+        .map(|(entry, depth)| jinn_webui_msg::SessionListItem {
+            is_bot: bots.get(&entry.session_id).copied().unwrap_or(false),
+            active: entry.session_id == *active_id,
+            loaded: entry.session_state == SessionState::Loaded,
+            session_id: entry.session_id,
+            title: entry.title,
+            depth,
+        })
+        .collect()
 }

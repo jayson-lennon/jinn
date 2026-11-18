@@ -52,6 +52,7 @@ fn row(session_id: jinn_core_types::SessionId, title: &str, active: bool) -> Ses
         active,
         is_bot: false,
         loaded: true,
+        depth: 0,
     }
 }
 
@@ -96,6 +97,7 @@ fn rendered_page() -> String {
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
         sessions_id: contract::SESSIONS_ID,
+        sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
         modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
@@ -201,6 +203,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
         sessions_id: contract::SESSIONS_ID,
+        sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
         modal_host_id: contract::MODEL_PICKER_MODAL_HOST_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
