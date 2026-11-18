@@ -350,6 +350,8 @@ fn harness_with_archived_row_and_receiver() -> (
             "Archived from last run".to_owned(),
         ))),
         provider_cell,
+        jinn_provider_config::ProviderRegistryService::new(harness_registry()),
+        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         fanout,
         8387,
         "test".to_owned(),
