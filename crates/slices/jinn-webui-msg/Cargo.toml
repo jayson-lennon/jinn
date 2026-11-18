@@ -1,0 +1,16 @@
+[package]
+name = "jinn-webui-msg"
+version.workspace = true
+edition.workspace = true
+description = "The webui slice's contract: the HTTP wire payloads and the SSE envelope crossing the web UI's boundary."
+
+[dependencies]
+serde = { workspace = true }
+jinn-core-types = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

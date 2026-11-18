@@ -1,0 +1,12 @@
+# The webui slice's vendored frontend library.
+#
+# Unlike the canvas manifest, this table is documentation of the pin, not
+# the pin gate itself: the slice ships one file, gzip-committed at vendoring
+# time (the raw dist is never committed), and `build.rs` verifies each row's
+# sha256 against the bytes on disk before embedding. Update flow: replace
+# the file with the new gzip of the new dist, recompute this row, done.
+
+[[assets]]
+served = "htmx.min.js"
+sha256 = "e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447"
+encoding = "gzip"
