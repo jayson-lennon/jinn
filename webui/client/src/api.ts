@@ -39,6 +39,28 @@ function encodeField(name: string, value: string): string {
 }
 
 /**
+ * Pulls the sessions-list fragment, narrowed by an optional filter.
+ * The filter text is percent-encoded here and matched server-side —
+ * the client never scores or compares titles itself.
+ *
+ * @param filter - The title fragment to filter by, or null for the
+ * unfiltered list.
+ * @returns The server-rendered sessions markup.
+ * @throws Error on network failure or a non-2xx status.
+ */
+export function pullSessions(filter: string | null): Promise<string> {
+  const query = filter === null || filter.length === 0
+    ? ""
+    : `?q=${encodeURIComponent(filter)}`;
+  return fetch(`${wire.SESSIONS_ROUTE}${query}`).then((response) => {
+    if (!response.ok) {
+      throw new Error(`${wire.SESSIONS_ROUTE} failed: HTTP ${response.status}`);
+    }
+    return response.text();
+  });
+}
+
+/**
  * Activates a session: POSTs to its activate endpoint, which answers
  * with the WHOLE page for that session (the server's `Page` type —
  * the response-shape contract that once shipped wrong).

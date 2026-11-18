@@ -97,6 +97,10 @@ pub const SIDEBAR_CSS: &str = r#"
 #sidebar h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
               color: var(--muted); padding: 12px 14px 4px; margin: 0; }
 #sessions { overflow-y: auto; flex: 1; min-height: 0; }
+#sessions-filter { margin: 4px 10px 8px; padding: 5px 8px; font: inherit; font-size: 13px;
+                   color: var(--fg); background: #14161a; border: 1px solid var(--border);
+                   border-radius: 5px; width: calc(100% - 20px); }
+#sessions-filter:focus { outline: none; border-color: var(--accent); }
 .srow { display: block; padding: 8px 14px; color: var(--fg); text-decoration: none;
         border-bottom: 1px solid var(--border); cursor: pointer; }
 .srow:hover { background: #23272f; }

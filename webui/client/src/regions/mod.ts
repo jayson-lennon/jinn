@@ -73,6 +73,12 @@ export interface RegionModule {
    */
   onKeyDown?: (target: Element, event: KeyboardEvent) => boolean;
   /**
+   * Input delegation — every text-entry interaction (keystroke,
+   * paste, cut) on a target inside the region's selectors (the
+   * sessions filter's live re-pull). Same first-match rule.
+   */
+  onInput?: (target: Element) => boolean;
+  /**
    * The SSE events this region consumes, keyed by the wire event
    * name. Every key MUST be a `wire.SSE_EVENTS` value (the
    * conformance test enforces it).

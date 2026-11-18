@@ -25,6 +25,12 @@ export const PAGE_SESSION_DATA_ATTR = "data-webui-session";
 /** The sessions-list container id. */
 export const SESSIONS_ID = "sessions";
 
+/** The sidebar filter input's id — outside the #sessions swap target. */
+export const SESSIONS_FILTER_INPUT_ID = "sessions-filter";
+
+/** The sessions-list fragment pull (accepts `?q=<filter text>`). */
+export const SESSIONS_ROUTE = "/web/sessions";
+
 /** The session-row class hook — what click delegation selects. */
 export const SESSION_ROW_CLASS = "srow";
 

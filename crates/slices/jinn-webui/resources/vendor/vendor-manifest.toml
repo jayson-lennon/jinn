@@ -14,7 +14,7 @@
 
 [[assets]]
 served = "api.js"
-sha256 = "567e2f1714f3696637ab7508fed5caea3b6284fa6b999b750a827e71c05e5f98"
+sha256 = "2fa3684c2ab72a4e69ff6f3f8ae0ea0d6b5727be8db96245497518e141db1c05"
 encoding = "gzip"
 
 [[assets]]
@@ -24,46 +24,46 @@ encoding = "gzip"
 
 [[assets]]
 served = "main.js"
-sha256 = "a498cc523fd3fac4ce5ddd5d0df0aa1fd9cf48d2ea423691982c07abac78b845"
+sha256 = "747b9f4c643f4dbebbc328d3c86b0114defc20ed47a132baf86379da82ae8370"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/composer.js"
-sha256 = "06f6f8ff31eb91c3a65b0d7a6539186e09b8bfcf2847770dba88ec8c91914053"
+sha256 = "a6b01febd10d01c458cfbf67161ffa5da5b14665e6d8d1d7216aa39d70abfad3"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/mod.js"
-sha256 = "e554aa6e1ec8226d072177e34669ee2fa8741453bcdbaeae3c380f8ef66ac8bb"
+sha256 = "eb77976edf83fbe17308293bb9b9f21c0d6eeebd27e939b4d9ab29e55d2d370d"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/model_picker.js"
-sha256 = "d5f86b004b3820e57a3c3474956abb79f0f329558326f9d0b1f09cf0189501ae"
+sha256 = "08ad977d40ae7507cfe0b0a5a7eb658b203d8891c70b11f658c88955da13fc12"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/sessions.js"
-sha256 = "4ad198680ad09744f785f9655a09482b652e042c5b4462ca12c31c33059a2cf0"
+sha256 = "9224bfe6f78d1ff76a984a8328e4da28ff8d6078f8f1eeb6f1d89da321ab2d80"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/transcript.js"
-sha256 = "4e2a3b48b28d173e4eec464c991a8ee7ab12c042400bf38adb4166899eb80ffc"
+sha256 = "1e347ace8f94590505df5f14b293d0ed777e84afc879d43f7dc20469bb0b5c39"
 encoding = "gzip"
 
 [[assets]]
 served = "sse.js"
-sha256 = "20a75ca9a90b25aadf7f3e14ef9ff8accab2b435c7eae4ee3f56b54554ecfd34"
+sha256 = "b55ae9c34eda56e9ef4ccc95594127f3fe6beb33b9a93aa55faf8ac6392b1219"
 encoding = "gzip"
 
 [[assets]]
 served = "wire-fixture.js"
-sha256 = "79aa8ee572f802f27008d3b458e8bd3aa84969c3084941f0832231de733fdff6"
+sha256 = "cc458c386fdd750d4a00945be1d5f5f98e02dd2eb691e375411fd200d3a667b8"
 encoding = "gzip"
 
 [[assets]]
 served = "wire.js"
-sha256 = "c6a9166413efd47355b7e60fce2a95a2837b0107100e48ad8d722a6b1cd59ea3"
+sha256 = "1681700d0777bda3fb95ce541e30871c572a566d92d61fc12f83da5f087b663a"
 encoding = "gzip"
 # END client rows

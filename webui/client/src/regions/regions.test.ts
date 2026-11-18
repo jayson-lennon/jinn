@@ -15,10 +15,17 @@ import { test } from "node:test";
 import { Window } from "happy-dom";
 
 import * as wire from "../wire.js";
-import { regions } from "./mod.js";
+import { regions, type RegionModule, type SseEventLike } from "./mod.js";
 import * as sessions from "./sessions.js";
 import * as transcript from "./transcript.js";
 import * as composer from "./composer.js";
+
+/**
+ * The happy-dom window's Element, duck-typed to the dispatch surface
+ * the delegation hands over (the test tier's Element global is
+ * happy-dom's own class, not the DOM lib's).
+ */
+type DomElement = Parameters<NonNullable<RegionModule["onClick"]>>[0];
 
 /**
  * A happy-dom window with the page shell installed as the active
@@ -29,7 +36,10 @@ function pageShell(): Window {
   const window = new Window({ url: "http://localhost/web" });
   window.document.body.innerHTML = `
     <div id="${wire.PAGE_ROOT_ID}" ${wire.PAGE_SESSION_DATA_ATTR}="00000000-0000-0000-0000-000000000000">
-      <nav id="sidebar"><h2>Sessions</h2><div id="${wire.SESSIONS_ID}"><span>old list</span></div></nav>
+      <nav id="sidebar"><h2>Sessions</h2>
+        <input id="${wire.SESSIONS_FILTER_INPUT_ID}" type="text">
+        <div id="${wire.SESSIONS_ID}"><span>old list</span></div>
+      </nav>
       <main id="main">
         <div id="titlebar"><span id="${wire.MODEL_PICKER_ID}"></span></div>
         <div id="${wire.TRANSCRIPT_WRAP_ID}">
@@ -44,6 +54,24 @@ function pageShell(): Window {
   // globally.
   globalThis.document = window.document as unknown as typeof globalThis.document;
   return window;
+}
+
+/**
+ * Installs a fetch double recording every requested URL and answering
+ * each with the given body. Returns the recorded URLs.
+ */
+function recordingFetch(body: string): { urls: string[] } {
+  const urls: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    urls.push(String(input));
+    return new Response(body, { status: 200 });
+  }) as unknown as typeof fetch;
+  return { urls };
+}
+
+/** The sessions SSE event the stream would deliver. */
+function sessionsEvent(data: string): SseEventLike {
+  return { data, lastEventId: "0" };
 }
 
 // ── The swaps, one per region ───────────────────────────────────────
@@ -254,4 +282,159 @@ test("every region selector names a wire contract value", () => {
       );
     }
   }
+});
+
+// ── The sidebar filter: pull, SSE re-pull, and swap survival ────────
+
+test("an input event on the filter re-pulls the fragment carrying q", async () => {
+  // Given the page shell and a fetch double recording the pull URLs.
+  const window = pageShell();
+  const { urls } = recordingFetch('<a class="srow">narrowed</a>');
+  const region = regions().find((r) => r.id === "sessions")!;
+
+  // When the filter's value changes and an input event dispatches
+  // (the delegation path a keystroke, paste, or cut all fire).
+  const input = window.document.getElementById(wire.SESSIONS_FILTER_INPUT_ID)!;
+  (input as unknown as { value: string }).value = "fix the";
+  region.onInput!(input as unknown as DomElement);
+
+  // The pull is async; settle it.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // Then the fetch carries the filter text percent-encoded.
+  assert.deepEqual(urls, [`${wire.SESSIONS_ROUTE}?q=fix%20the`], `${urls}`);
+});
+
+test("a paste dispatching input re-pulls with the pasted text", async () => {
+  // Given the page shell and a recording fetch.
+  const window = pageShell();
+  const { urls } = recordingFetch("<span>row</span>");
+  const region = regions().find((r) => r.id === "sessions")!;
+
+  // When a paste lands (happy-dom: the value changes, then input
+  // dispatches — the observable contract, however the paste arrives).
+  const input = window.document.getElementById(wire.SESSIONS_FILTER_INPUT_ID)!;
+  (input as unknown as { value: string }).value = "archived notes";
+  region.onInput!(input as unknown as DomElement);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // Then the pull carries the pasted text.
+  assert.deepEqual(urls, [`${wire.SESSIONS_ROUTE}?q=archived%20notes`]);
+});
+
+test("clearing the filter re-pulls the unfiltered list", async () => {
+  // Given the page shell with a filter already active.
+  const window = pageShell();
+  const { urls } = recordingFetch("<span>everything</span>");
+  const region = regions().find((r) => r.id === "sessions")!;
+  const input = window.document.getElementById(wire.SESSIONS_FILTER_INPUT_ID)!;
+  (input as unknown as { value: string }).value = "stale";
+  region.onInput!(input as unknown as DomElement);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // When the user clears the input and the input event dispatches.
+  (input as unknown as { value: string }).value = "";
+  region.onInput!(input as unknown as DomElement);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // Then the second pull carries no q — the unfiltered list.
+  assert.deepEqual(urls, [`${wire.SESSIONS_ROUTE}?q=stale`, wire.SESSIONS_ROUTE]);
+});
+
+test("a sessions push while filtered re-pulls with the same q instead of swapping the push in", async () => {
+  // Given the page shell with an active filter.
+  const window = pageShell();
+  const { urls } = recordingFetch('<a class="srow">still filtered</a>');
+  const input = window.document.getElementById(wire.SESSIONS_FILTER_INPUT_ID)!;
+  (input as unknown as { value: string }).value = "fix";
+
+  // When a sessions SSE event arrives carrying an unfiltered list.
+  (sessions.sessionsRegion.sseHandlers[wire.SSE_EVENTS.sessions]!)(sessionsEvent(
+    '<a class="srow">unfiltered push</a>',
+  ));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // Then the pushed HTML never lands — the client re-pulled with the
+  // same filter, and the re-pull's result is what swapped in.
+  assert.deepEqual(
+    urls,
+    [`${wire.SESSIONS_ROUTE}?q=fix`],
+    `one re-pull, same q: ${urls}`,
+  );
+  const list = window.document.getElementById(wire.SESSIONS_ID)!;
+  assert.ok(
+    !list.innerHTML.includes("unfiltered push"),
+    "the unfiltered push is not swapped in",
+  );
+  assert.ok(list.innerHTML.includes("still filtered"), "the re-pull swapped in");
+  // And the input keeps the user's text.
+  assert.equal((input as unknown as { value: string }).value, "fix");
+});
+
+test("a sessions push while unfiltered swaps the pushed fragment directly", () => {
+  // Given the page shell with an empty filter.
+  const window = pageShell();
+
+  // When a sessions SSE event arrives.
+  (sessions.sessionsRegion.sseHandlers[wire.SSE_EVENTS.sessions]!)(sessionsEvent(
+    '<a class="srow">pushed row</a>',
+  ));
+
+  // Then the pushed fragment swaps in directly — no extra pull.
+  const list = window.document.getElementById(wire.SESSIONS_ID)!;
+  assert.ok(list.innerHTML.includes("pushed row"));
+});
+
+test("a sessions swap leaves the filter input and its text intact", () => {
+  // Given the page shell with text typed into the filter.
+  const window = pageShell();
+  const input = window.document.getElementById(wire.SESSIONS_FILTER_INPUT_ID)!;
+  (input as unknown as { value: string }).value = "keep me";
+
+  // When the sessions list swaps (the #sessions innerHTML replace).
+  sessions.replaceSessions('<a class="srow">fresh</a>');
+
+  // Then the input element survives with its text — it lives outside
+  // the swap target.
+  const after = window.document.getElementById(wire.SESSIONS_FILTER_INPUT_ID)!;
+  assert.equal(after, input, "the same input element remains");
+  assert.equal((after as unknown as { value: string }).value, "keep me");
+});
+
+test("a page swap resets the filter input", () => {
+  // Given the page shell with text typed into the filter.
+  const window = pageShell();
+  const input = window.document.getElementById(wire.SESSIONS_FILTER_INPUT_ID)!;
+  (input as unknown as { value: string }).value = "about to vanish";
+
+  // When a page swap replaces the page root (the session switch),
+  // rendering a fresh shell whose input starts empty.
+  const fresh = window.document.createElement("div");
+  fresh.id = wire.PAGE_ROOT_ID;
+  fresh.innerHTML = `
+    <nav id="sidebar"><input id="${wire.SESSIONS_FILTER_INPUT_ID}" type="text">
+      <div id="${wire.SESSIONS_ID}"></div></nav>`;
+  window.document.getElementById(wire.PAGE_ROOT_ID)!.outerHTML = fresh.outerHTML;
+
+  // Then the filter reads empty — view-local DOM state; the swap is
+  // the reset.
+  const after = window.document.getElementById(wire.SESSIONS_FILTER_INPUT_ID)!;
+  assert.equal((after as unknown as { value: string }).value, "");
+});
+
+test("an input event outside the filter does not re-pull", async () => {
+  // Given the page shell and a recording fetch.
+  const window = pageShell();
+  const { urls } = recordingFetch("<span>x</span>");
+  const region = regions().find((r) => r.id === "sessions")!;
+
+  // When an input event dispatches on the composer textarea (another
+  // region's target).
+  const textarea = window.document.getElementById(wire.INPUT_ID)!;
+  const handled = region.onInput!(textarea as unknown as DomElement);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // Then the sessions region declines it and nothing pulls.
+  assert.equal(handled, false);
+  assert.deepEqual(urls, [], "no fetch fired");
 });

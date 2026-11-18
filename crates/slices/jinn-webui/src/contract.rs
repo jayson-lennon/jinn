@@ -71,6 +71,11 @@ pub const ACTION_MODEL: &str = "model";
 /// The class hook every session row carries.
 pub const SESSION_ROW_CLASS: &str = "srow";
 
+/// The sidebar filter input's id — the text the sessions pull narrows
+/// by. Lives in the page shell, outside the [`SESSIONS_ID`] swap
+/// target, so region swaps never wipe what the user typed.
+pub const SESSIONS_FILTER_INPUT_ID: &str = "sessions-filter";
+
 // ── Endpoints ───────────────────────────────────────────────────────
 
 /// The landing/session page path (the client's entry URL).
@@ -154,6 +159,7 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_CANCEL,
     ACTION_MODEL,
     SESSION_ROW_CLASS,
+    SESSIONS_FILTER_INPUT_ID,
 ];
 
 /// The contract's endpoint constants a client can build a URL from.
@@ -183,5 +189,6 @@ pub const CLIENT_URLS: &[&str] = &[
     MODEL_PATH,
     STREAM_PREFIX,
     SESSION_PAGE_PREFIX,
+    SESSIONS_ROUTE,
     VENDOR_PREFIX,
 ];

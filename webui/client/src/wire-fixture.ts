@@ -25,11 +25,13 @@ export const CONTRACT = {
   "CANCEL": "cancel",
   "MODEL": "model",
   "SROW": "srow",
+  "SESSIONS_FILTER": "sessions-filter",
   "_WEB_SEND": "/web/send",
   "_WEB_CANCEL": "/web/cancel",
   "_WEB_MODEL": "/web/model",
   "_WEB_STREAM_": "/web/stream/",
   "_WEB_SESSION_": "/web/session/",
+  "_WEB_SESSIONS": "/web/sessions",
   "_VENDOR_": "/vendor/",
 } as const;
 
