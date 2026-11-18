@@ -5,7 +5,7 @@
 //! sha256; the build fails when a row and its bytes disagree, so the
 //! inventory a binary serves is always the inventory the manifest
 //! vouches for. The client bundle's rows are managed by
-//! `just client-check` (emit → gzip → re-pin); other assets are
+//! `just webui-build` (emit → gzip → re-pin); other assets are
 //! third-party dists vendored by hand. The stylesheet travels inside
 //! the templates module as a `&str` constant, so everything here is a
 //! compiled artifact or a pinned dist — nothing authored.

@@ -274,7 +274,7 @@ fn the_model_picker_names_the_action_the_client_maps_to_the_model_endpoint() {
 #[test]
 fn the_contract_source_and_the_client_wire_file_agree_on_every_name() {
     // Given the contract's public names and the client's TypeScript
-    // source (compiled to /vendor by `just client-check`; the source
+    // source (compiled to /vendor by `just webui-build`; the source
     // rides beside this crate in the workspace tree).
     let client_src = client_wire_source();
 
@@ -313,7 +313,7 @@ fn the_contract_source_and_the_client_wire_file_agree_on_every_name() {
 /// The client's TypeScript wire source, read from the workspace tree.
 ///
 /// The file is authored (not a build artifact), so reading it here is
-/// stable; the compiled bundle is gated by `just client-check`, and
+/// stable; the compiled bundle is gated by `just webui-verify`, and
 /// THIS test is what catches a source-level rename on either side.
 ///
 /// Anchored at `CARGO_MANIFEST_DIR`, never at the process cwd: test

@@ -5,12 +5,12 @@
 # carry actual gzip bytes (1f 8b). Update flows:
 #
 # - Client bundle rows (between the BEGIN/END markers) are managed by
-#   `just client-check` — never edit them by hand; edit the TypeScript
+#   `just webui-build` — never edit them by hand; edit the TypeScript
 #   under webui/client/src and run the recipe.
 # - Other assets are third-party dists vendored by hand: gzip the new
 #   dist, replace the file, recompute the row, done.
 
-# BEGIN client rows (managed by just client-check)
+# BEGIN client rows (managed by just webui-build)
 
 [[assets]]
 served = "api.js"

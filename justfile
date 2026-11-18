@@ -597,65 +597,92 @@ gh-pr-close N COMMENT="":
 # ---------------------------------------------------------------------------
 # Webui client (dev-only Node toolchain)
 # ---------------------------------------------------------------------------
-# SHIPPPING WITH NODE IS BANNED: node_modules is gitignored and this recipe
-# is the only sanctioned Node entrypoint. `cargo build` never runs Node —
-# build.rs reads the committed gzip files and verifies them against the
-# manifest exactly like any other vendored asset. What ships is the
-# emitted, gzipped ES modules.
+# SHIPPPING WITH NODE IS BANNED: node_modules is gitignored and the
+# webui-* recipes are the only sanctioned Node entrypoints. `cargo build`
+# never runs Node — build.rs reads the committed gzip files and verifies
+# them against the manifest exactly like any other vendored asset. What
+# ships is the emitted, gzipped ES modules.
 #
-# Steps (each is the gate the next one consumes):
-#   1. node_modules exists (npm ci against the committed lockfile).
-#   2. `tsc --noEmit` — the type gate. A contract typo fails here.
-#   3. `tsc` — emit ES modules into the slice's resources/vendor/.
-#   4. gzip each emitted file in place (gzip -9 -n: deterministic,
-#      no timestamp — byte-stable commits).
-#   5. Rewrite the manifest's client rows with fresh sha256 pins —
-#      build.rs fails the next cargo build if these disagree.
-#   6. `node --test` — the jsdom-tier client tests.
-[doc("Typecheck, emit, gzip, and re-pin the webui client bundle, then run its jsdom-tier tests.")]
-client-check:
+# The family:
+#   webui-install — one-time dev toolchain (npm ci); the rest auto-install
+#   webui-check   — pure type gate, writes nothing (safe to add to lint)
+#   webui-build   — emit ES modules, gzip, re-pin the manifest rows
+#   webui-test    — jsdom-tier client tests (node:test + happy-dom)
+#   webui-verify  — check + build + test: the full pre-ship loop
+#   webui-smoke   — the headless-chromium test (JINN_WEBUI_SMOKE=1 just webui-smoke)
+
+[doc("Install the webui client's dev toolchain (exact-lockfile npm ci); webui-check/build/test run it automatically if missing.")]
+webui-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo '==> npm ci (webui/client)'
+    npm ci --prefix webui/client
+    echo '==> webui-install green'
+
+[doc("Type-check the webui client and its tests without emitting; writes nothing, so it is safe to bolt onto a lint ladder.")]
+webui-check: webui-install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CLIENT=webui/client
+    echo '==> tsc --noEmit (app)'
+    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT" --noEmit
+    echo '==> tsc --noEmit (tests)'
+    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT/tsconfig.test.json" --noEmit
+    echo '==> webui-check green'
+
+[doc("Emit the webui client as ES modules into the slice's vendor tree, gzip them deterministically, and re-pin the manifest's sha256 rows — build.rs fails the next cargo build if any of this is skipped.")]
+webui-build: webui-install
     #!/usr/bin/env bash
     set -euo pipefail
     CLIENT=webui/client
     VENDOR=crates/slices/jinn-webui/resources/vendor
 
-    # 1. Dev toolchain present (npm ci is exact-lockfile).
-    if [ ! -d "$CLIENT/node_modules" ]; then
-        echo '==> Installing dev toolchain (npm ci)'
-        npm ci --prefix "$CLIENT"
-    fi
-
-    # 2. The type gates: the shipped app, then the node-side tests.
+    # The app type-gate runs again here on purpose: a bad source must
+    # never reach the vendor tree, even when this recipe runs alone.
     echo '==> tsc --noEmit (app)'
     "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT" --noEmit
-    echo '==> tsc --noEmit (tests)'
-    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT/tsconfig.test.json"
 
-    # 3. Emit ES modules straight into the vendor tree.
+    # Emit ES modules straight into the vendor tree.
     echo '==> tsc emit'
     "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT"
 
-    # 4. Deterministic gzip, in place. -n drops the timestamp/filename
-    #    fields so re-emitting the same source yields the same bytes.
+    # Deterministic gzip, in place. -n drops the timestamp/filename
+    # fields so re-emitting the same source yields the same bytes.
     echo '==> gzip emitted modules'
     for f in "$VENDOR"/main.js "$VENDOR"/api.js "$VENDOR"/render.js "$VENDOR"/sse.js "$VENDOR"/wire.js; do
         [ -e "$f" ] || continue
         gzip -9 -n -f "$f"
     done
 
-    # 5. Re-pin the manifest rows for the emitted files: rewrite the
-    #    marker-delimited client section with fresh sha256 pins.
+    # Re-pin the manifest rows: rewrite the marker-delimited client
+    # section with fresh sha256 pins.
     echo '==> re-pinning manifest'
     python3 scripts/pin-webui-client.py "$VENDOR/vendor-manifest.toml" "$VENDOR"
+    echo '==> webui-build green'
 
-    # 6. The jsdom-tier tests (node:test, no browser): emit the
-    #    tests + modules to a scratch dir (never the vendor tree) and
-    #    run node against the emitted JS. tsc re-emits in place; no
-    #    cleanup step exists on purpose (nothing recursive is removed).
-    echo '==> node --test (jsdom tier)'
+[doc("Run the webui client's jsdom-tier tests (node:test + happy-dom) against a scratch emit — never touches the vendor tree.")]
+webui-test: webui-install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CLIENT=webui/client
+    echo '==> emit to .build (scratch)'
     "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT/tsconfig.test.json"
+    echo '==> node --test (jsdom tier)'
     node --test "$CLIENT/.build/"
-    echo '==> client-check green'
+    echo '==> webui-test green'
+
+[doc("The webui client's pre-ship loop: type gate, vendor build (emit + gzip + re-pin), then the jsdom-tier tests.")]
+webui-verify: webui-check webui-build webui-test
+    #!/usr/bin/env bash
+    echo '==> webui-verify green'
+
+[doc("Run the headless-chromium smoke test (the Rust smoke tier) against the workspace suite's filter: sets JINN_WEBUI_SMOKE=1 and runs only the smoke test.")]
+webui-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export JINN_WEBUI_SMOKE=1
+    cargo test -p jinn-webui --lib smoke_tests
+    echo '==> webui-smoke green'
 
 # Bump version (major/minor/patch), commit, and tag in git
 bump LEVEL:

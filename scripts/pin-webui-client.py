@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Re-pins the webui client's manifest rows after `just client-check`
+"""Re-pins the webui client's manifest rows after `just webui-build`
 re-emits and gzips the bundle.
 
 Rewrites the marker-delimited client section of the vendor manifest
@@ -15,7 +15,7 @@ import hashlib
 import os
 import sys
 
-BEGIN = "# BEGIN client rows (managed by just client-check)"
+BEGIN = "# BEGIN client rows (managed by just webui-build)"
 END = "# END client rows"
 
 
