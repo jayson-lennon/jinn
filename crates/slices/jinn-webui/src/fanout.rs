@@ -83,10 +83,10 @@ impl FanoutHandle {
     /// publishing anything the fan-out subscribes to: the only command
     /// it could publish, `PersistSession`, routes to the store actor,
     /// so there is no command whose arrival means "refresh the list".
-    /// The handler renders the live fragment from a state read guard
-    /// it already holds and hands it here; the guard must be dropped
-    /// before this is called from an async context (the handle's send
-    /// is synchronous and never awaits).
+    /// The caller renders the fragment — the **merged** list shape the
+    /// GET pull serves, never the actor's live-only refresh — and
+    /// hands the rendered markup here; a push whose shape differs from
+    /// the surrounding pulls reads as rows vanishing then returning.
     ///
     /// Send failures are the no-receiver case — no page is connected —
     /// and are not errors.
@@ -196,6 +196,21 @@ impl WebUiFanoutActor {
         FanoutHandle {
             tx: self.tx.clone(),
         }
+    }
+
+    /// Spawns the actor the way production does and hands back a
+    /// receiver subscribed to its broadcast channel — the pair a test
+    /// needs to observe what an HTTP handler pushed through the
+    /// shared handle. Test-only.
+    #[cfg(test)]
+    pub(crate) fn test_pair(
+        state: &State,
+        bus: BusService,
+    ) -> (FanoutHandle, broadcast::Receiver<SseEnvelope>) {
+        use trouper::system::ActorSystem;
+        let system = ActorSystem::new(trouper::system::SystemConfig::production());
+        let handle = Self::spawn(&system, state.clone(), bus);
+        (handle.clone(), handle.subscribe())
     }
 
     /// Flushes one session's buffer with a cursor of zero. Test-only:

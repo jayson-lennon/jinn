@@ -159,6 +159,204 @@ fn title_of(state: &State, id: &SessionId) -> Option<String> {
         .map_or_default(|session| session.title().map(str::to_owned))
 }
 
+/// A session store serving one fixed archived summary from
+/// `load_summaries`; every other operation behaves like the fake.
+#[derive(Debug)]
+struct OneArchivedRowStore(jinn_core_types::SessionId, String);
+
+#[async_trait::async_trait]
+impl jinn_session_state::SessionStore for OneArchivedRowStore {
+    fn name(&self) -> &'static str {
+        "one-archived-row"
+    }
+
+    async fn load_summaries(
+        &self,
+    ) -> Result<
+        Vec<jinn_session_store_msg::SessionSummary>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(vec![jinn_session_store_msg::SessionSummary {
+            session_id: self.0.clone(),
+            title: self.1.clone(),
+            updated_at: jiff::Timestamp::now(),
+            created_at: jiff::Timestamp::now(),
+            session_state: jinn_session_store_msg::SessionState::Archived,
+            in_library: false,
+            is_bot: false,
+            parent_session: None,
+            project: None,
+        }])
+    }
+
+    async fn save(
+        &self,
+        _snapshot: &jinn_session_state::SessionSnapshot,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn load_session(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+    ) -> Result<
+        Option<jinn_session_state::SessionSnapshot>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(None)
+    }
+
+    async fn delete(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn fork(
+        &self,
+        _source_session_id: &jinn_core_types::SessionId,
+        _at_ordinal: usize,
+    ) -> Result<
+        jinn_core_types::SessionId,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(jinn_core_types::SessionId::new())
+    }
+
+    async fn load_unarchived_summaries(
+        &self,
+    ) -> Result<
+        Vec<jinn_session_store_msg::SessionSummary>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(Vec::new())
+    }
+
+    async fn search(
+        &self,
+        _params: jinn_session_store_msg::SearchParams,
+    ) -> Result<
+        jinn_session_store_msg::SearchOutcome,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(jinn_session_store_msg::SearchOutcome {
+            total_matches: 0,
+            per_session: Vec::new(),
+            hits: Vec::new(),
+        })
+    }
+
+    async fn set_archived(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _archived: bool,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn set_archived_many(
+        &self,
+        _session_ids: &[jinn_core_types::SessionId],
+        _archived: bool,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn set_in_library(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _in_library: bool,
+    ) -> Result<(), error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(())
+    }
+
+    async fn dirty_session_ids(
+        &self,
+    ) -> Result<
+        Vec<jinn_core_types::SessionId>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(Vec::new())
+    }
+
+    async fn reindex_session_chunk(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _max_entries: usize,
+    ) -> Result<bool, error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(true)
+    }
+
+    async fn pending_dirty_count(
+        &self,
+    ) -> Result<usize, error_stack::Report<jinn_session_state::SessionStoreError>> {
+        Ok(0)
+    }
+
+    async fn fetch_window(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _anchor: &jinn_core_types::ChatEntryId,
+        _context: usize,
+    ) -> Result<
+        Option<jinn_session_store_msg::TranscriptWindow>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(None)
+    }
+
+    async fn fetch_tail(
+        &self,
+        _session_id: &jinn_core_types::SessionId,
+        _limit: usize,
+    ) -> Result<
+        Option<jinn_session_store_msg::TranscriptWindow>,
+        error_stack::Report<jinn_session_state::SessionStoreError>,
+    > {
+        Ok(None)
+    }
+}
+
+/// The rename harness: the standard router plus a subscriber over the
+/// fan-out's broadcast channel, with the store serving one archived
+/// summary row. Returns `(state, audit, receiver, router)`.
+fn harness_with_archived_row_and_receiver() -> (
+    State,
+    BusAudit,
+    tokio::sync::broadcast::Receiver<jinn_webui_msg::SseEnvelope>,
+    axum::Router,
+) {
+    let slices = Slices::new();
+    let provider_cell = slices
+        .register(
+            jinn_provider_selection_msg::provider_state_slot(),
+            jinn_provider_selection_msg::ProviderCell::default(),
+        )
+        .expect("the provider cell registers once per harness");
+    let state = {
+        let app = AppState::default();
+        app.session.attach_slices(slices.clone());
+        State::new(app)
+    };
+    let archived_id = SessionId::new();
+    let (bus, audit) = BusService::new_recording();
+    let (fanout, rx) = crate::fanout::WebUiFanoutActor::test_pair(&state, bus.clone());
+    let shared = ServerShared::new(
+        state.clone(),
+        bus,
+        jinn_session_state::SessionStoreService::new(std::sync::Arc::new(OneArchivedRowStore(
+            archived_id,
+            "Archived from last run".to_owned(),
+        ))),
+        provider_cell,
+        fanout,
+        8387,
+        "test".to_owned(),
+    );
+    (state, audit, rx, router(shared))
+}
+
 /// Read paths: page shell, sessions list, transcript cursor grammar.
 mod reads {
     use super::*;
@@ -848,6 +1046,48 @@ mod rename_actions {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(title_of(&state, &bot_id), Some("Watchdog Title".to_owned()));
         assert_eq!(audit_count(&audit, "PersistSession"), 1);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_push_and_response_carry_the_same_merged_list() {
+        // Given a live session, one store-only archived row the live
+        // map never carries, and a subscriber to the fan-out's push.
+        let (state, _audit, mut rx, router) = harness_with_archived_row_and_receiver();
+        let id = seed_session(&state);
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .set_title("Fresh rename".to_owned());
+
+        // When posting the rename.
+        let (status, body) = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=Fresh+rename",
+        )
+        .await;
+
+        // Then the push the handler emitted carries the archived row
+        // too — the same merged shape the response serves. A push of
+        // the live-only shape would wipe the archived row from every
+        // connected sidebar one frame before the response restores it.
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("Archived from last run"), "{body}");
+        let envelope = rx.try_recv().expect("the rename push");
+        assert_eq!(envelope.kind, jinn_webui_msg::SseKind::Sessions);
+        assert_eq!(envelope.session_id, id);
+        assert!(
+            envelope.html.contains("Archived from last run"),
+            "push must carry the merged list, got: {}",
+            envelope.html
+        );
+        assert!(envelope.html.contains("Fresh rename"), "{}", envelope.html);
+        // And exactly one sessions push went out — no duplicate frames
+        // for the same refresh.
+        assert!(rx.try_recv().is_err());
     }
 }
 

@@ -538,18 +538,21 @@ async fn rename(
         .await
         .map_err(|error| fail(error.status(), error.sentence()))?;
     let id = parse_session_id(&session_id)?;
-    // The addressed refresh push, for the OTHER pages viewing this
-    // session. The live fragment renders under one read guard, dropped
-    // before the synchronous send.
-    let live_html = {
-        let guard = shared.read_state();
-        crate::regions::sessions::sessions_live_fragment(&guard)
-    };
-    shared.fanout.push_sessions_refresh_from(&id, live_html);
-    // The GET pull's merged shape (live + archived) as the response.
-    crate::regions::sessions::sessions_fragment(&shared, Some(&id))
-        .await
-        .map(Fragment::new)
+    // One render, two consumers: the addressed refresh push and the
+    // POST response MUST carry the same list shape. The merged
+    // fragment (live + store rows) is the only shape the GET pull and
+    // the POST ever serve; pushing the live-only shape here would
+    // wipe every store-only row from connected sidebars one frame
+    // before the response restores them — the shrink-then-refill
+    // flicker. (The fan-out actor's own SessionLoadCompleted /
+    // SessionArchived refreshes keep the live-only shape deliberately:
+    // those events change only live state, and their next pull or
+    // page render carries the store truth.)
+    let list_html = crate::regions::sessions::sessions_fragment(&shared, Some(&id)).await?;
+    shared
+        .fanout
+        .push_sessions_refresh_from(&id, list_html.clone());
+    Ok(Fragment::new(list_html))
 }
 
 // ── SSE ─────────────────────────────────────────────────────────────
