@@ -17,7 +17,7 @@
   </nav>
   <main id="main">
     <div id="titlebar">
-      <span class="t">{{ title }}</span>
+      <span class="t" {% if !session_title_id.is_empty() %}id="{{ session_title_id }}"{% endif %}>{{ title }}</span>
       <span class="m">{{ model }}</span>
       <span id="{{ model_picker_id }}" class="model-picker">{{ model_html|safe }}</span>
     </div>

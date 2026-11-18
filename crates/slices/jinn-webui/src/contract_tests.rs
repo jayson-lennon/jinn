@@ -76,6 +76,7 @@ fn rendered_page() -> String {
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
         controls_id: contract::CONTROLS_ID,
+        session_title_id: contract::SESSION_TITLE_ID,
     })
     .expect("the page shell renders")
 }
@@ -95,7 +96,7 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
     let page = rendered_page();
 
     // When collecting every id the contract says the client targets.
-    let targets: [(&str, &str); 8] = [
+    let targets: [(&str, &str); 9] = [
         ("page root", contract::PAGE_ROOT_ID),
         ("sessions", contract::SESSIONS_ID),
         ("sessions filter", contract::SESSIONS_FILTER_INPUT_ID),
@@ -104,6 +105,7 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
         ("controls", contract::CONTROLS_ID),
         ("model picker", contract::MODEL_PICKER_ID),
         ("composer", contract::COMPOSER_ID),
+        ("session title", contract::SESSION_TITLE_ID),
     ];
 
     // Then each one appears as `id="..."` in the markup — a missing
@@ -177,6 +179,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
         controls_id: contract::CONTROLS_ID,
+        session_title_id: contract::SESSION_TITLE_ID,
     })
     .expect("the page shell renders");
 

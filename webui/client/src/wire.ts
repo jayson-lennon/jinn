@@ -58,6 +58,9 @@ export const INPUT_ID = "input";
 /** The model-picker container id. */
 export const MODEL_PICKER_ID = "model-picker";
 
+/** The titlebar title span — the inline rename editor's host. */
+export const SESSION_TITLE_ID = "session-title";
+
 /** The streaming spinner — present above the composer while busy. */
 export const BUSY_SPINNER_ID = "busy-spinner";
 

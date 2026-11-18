@@ -52,6 +52,8 @@ jiff = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+# The store-fake behind the merged-list regression test implements the
+# async SessionStore trait.
 async-trait = { workspace = true }
 # The import-graph drift guard gunzips the shipped entry module to
 # scan its specifiers.

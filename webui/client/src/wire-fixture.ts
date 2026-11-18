@@ -26,6 +26,7 @@ export const CONTRACT = {
   "MODEL": "model",
   "SROW": "srow",
   "SESSIONS_FILTER": "sessions-filter",
+  "SESSION_TITLE": "session-title",
   "_WEB_SEND": "/web/send",
   "_WEB_CANCEL": "/web/cancel",
   "_WEB_MODEL": "/web/model",

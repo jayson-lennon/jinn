@@ -77,6 +77,25 @@ export function activateSession(sessionId: string): Promise<string> {
 }
 
 /**
+ * Renames a session. The response is the re-rendered sessions list
+ * (the same markup the sessions GET pull serves); the SSE `sessions`
+ * event corrects the OTHER pages viewing the session within one
+ * batch window.
+ *
+ * @param sessionId - The session to rename.
+ * @param title - The new title, applied trimmed server-side (an
+ * empty-after-trim value is a 400).
+ * @returns The replacement sessions-list fragment.
+ * @throws Error on network failure or a non-2xx status.
+ */
+export function renameSession(sessionId: string, title: string): Promise<string> {
+  return postForm(
+    `${wire.SESSION_PAGE_PATH}${encodeURIComponent(sessionId)}/rename`,
+    encodeField("title", title),
+  );
+}
+
+/**
  * Sends a chat message into a session. The response replaces the
  * composer controls (busy state), and the SSE `controls` event
  * corrects any race within one batch window.

@@ -51,6 +51,17 @@ pub struct ModelForm {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct SwitchForm;
 
+/// `POST /web/session/{id}/rename` — rename a session.
+///
+/// The path carries the session id (the activate precedent); the body
+/// names only the new title.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RenameForm {
+    /// The new title, applied trimmed (an empty-after-trim value is a
+    /// 400 refusal, mirroring the TUI rename's own validation).
+    pub title: String,
+}
+
 /// The transcript pull's query: `GET /web/transcript/{id}?since=N`.
 ///
 /// The cursor is an index into the session's rendered entry sequence.
