@@ -689,7 +689,39 @@ Skills refer to commands by **role**; the table below resolves each role to this
 | `commit`        | `just commit '<message>'` | Commit changes (uses `--dotfiles` so `.agents/` is included).                                                             |
 | `sync-trunk`    | `git merge main`          | Sync latest changes onto your branch — resolve conflicts, re-test, commit.                                                |
 
-## 8. Misc
+## 8. WebUI Regions
+
+The web UI is organized into **regions** — sessions, transcript, composer, model picker — each owning its template fragment, GET route, SSE event, client swap, and settle convergence inside one slice (`crates/slices/jinn-webui`). The region is the unit of parallel agent work: two region assignments share zero mutable files, so agents add webui features without merge collisions. This mirrors the `jinn-sidebar` `sections/` pattern at the web tier.
+
+A region is one trait object on the server (`src/region.rs`), one module on the client (`webui/client/src/regions/`), paired by id:
+
+- **Server** — `src/regions/<name>.rs` implements `WebRegion` (`id`, `parts`, `event_kinds`, `pull`, `container_id`, `render`), registers in the static `regions()` list, and owns its fragment rendering + region-scoped tests.
+- **Client** — `webui/client/src/regions/<name>.ts` registers selectors, delegation handlers, SSE handlers, and CSS in `regions/mod.ts`; `main.ts` (the boot orchestrator) dispatches generically and names no region.
+
+**The five parts — and the conformance gate.** Every region declares which parts it carries, and `check_registry`/`check_region` (enforced by `region_tests.rs` + the jsdom gate in `regions/regions.test.ts`) asserts each **declared** part exists. The declaration is the design: the composer legitimately has no GET pull route and the picker legitimately has no SSE event — declare the part only when the region carries it, never to satisfy a checklist.
+
+**The state boundary.** The backend is authoritative. Client region modules keep only view-local DOM state (an optimistic entry the next server push reconciles); view state that must survive a reload is server-owned display state rendered into fragments (the `jinn-chat-log-view` cell precedent). A client module reading from a shared state store is violating the contract, not extending it.
+
+**Adding a webui region:**
+
+1. **Contract constants** — add the DOM/path constants to `src/contract.rs` and list them in `DOM_CONSTANTS`/`CLIENT_PATHS`. The drift tests (`contract_tests.rs`, `wire.test.ts` against the generated `wire-fixture.ts`) fail until `webui/client/src/wire.ts` mirrors them — run `just webui-build` to regenerate the fixture.
+2. **Server region module** — `src/regions/<name>.rs`: the fragment renderer(s), the `WebRegion` impl with an honest `parts()` declaration, and region-scoped tests. The router and fan-out pick the region up from the registry — zero edits there.
+3. **Client region module** — `webui/client/src/regions/<name>.ts` with contract-derived selectors, its SSE handlers, its CSS const, and swap functions; register it in `regions/mod.ts`.
+4. **Template + CSS** — the page-shell container for the region's `container_id`, if it fills one.
+5. **Conformance** — extend the id-vocabulary assertions (`region_tests.rs`, `regions.test.ts`) to name the new region; the gate then holds it to its declaration.
+
+**Single-owner files** — these cross every region and are sequenced, never concurrent; every other webui file belongs to exactly one region or is region-local:
+
+| File | Why single-owner |
+|---|---|
+| `src/fanout.rs` | the batching cadence + registry-driven settle order (behavioral; existing tests pin the order) |
+| `src/server.rs` | router assembly + the SSE stream + page shell |
+| `scripts/pin-webui-client.py` | the vendor pin pipeline (import rewriting, hash stamping) |
+| `webui/client/src/main.ts` | the client boot module (page swap, delegation loop, stream lifecycle) |
+
+**Parallel-work etiquette:** assignments are by region; a task touching a single-owner file is sequenced after the in-flight one, not merged alongside it.
+
+## 9. Misc
 
 - NEVER manually split a string using `.chars` or by indexing. Use the `unicode-segmentation` crate.
 - No trivial setters for struct methods. Prefer meaningful semantic actions. It's an anti-pattern to directly inspect and manipulate state.

@@ -553,6 +553,33 @@ async fn activate_auxiliary_slices(
         .map_err(|report| ActivateError::Remote(format!("{report:?}")))?;
     }
 
+    // The webui slice binds the browser surface at launch, after the
+    // session-store's actors (Block 1 — its handlers await the store
+    // for archived sessions) and beside remote (same dormant-server
+    // block, same fail-fast bind). Consumes nothing: delivery
+    // publishes existing schemas, reads resolve State/cells at request
+    // time, and the fan-out subscribes events the actors above emit —
+    // its spawn is the subscription point, so it must not precede any
+    // event publisher it would miss launches from. Unlike remote: no
+    // registry write (remote owns this pid's row) and no reload
+    // handling (the bind is frozen — a rebind would strand the SSE
+    // pages).
+    {
+        let config_snapshot = ctx.services().config.clone();
+        let bus_snapshot = ctx.services().bus.clone();
+        let state_snapshot = ctx.state().clone();
+        let store_snapshot = ctx.services().session_store.clone();
+        jinn_webui::activate(
+            &mut ctx.host(),
+            &config_snapshot,
+            bus_snapshot,
+            state_snapshot,
+            store_snapshot,
+        )
+        .await
+        .map_err(|report| ActivateError::WebUi(format!("{report:?}")))?;
+    }
+
     // The discord slice resolves `[discord]` (fail-fast on a malformed
     // section) and parks the gateway channels for the frontend spawn.
     let services_snapshot = ctx.services().clone();
@@ -681,6 +708,13 @@ pub enum ActivateError {
     /// report rides as rendered text.
     #[error(debug)]
     Remote(String),
+    /// The `[webui]` section failed to read, its bind did not parse, or
+    /// the port was taken. Fatal with the same severity as remote: an
+    /// instance whose browser surface cannot bind defeats the slice's
+    /// whole purpose, so launch stops where the cause is visible. The
+    /// report rides as rendered text.
+    #[error(debug)]
+    WebUi(String),
     /// The `[applets]` section failed to read or its bind was malformed.
     /// Fatal with the same severity as canvas: every
     /// later picker open would refuse with the same sentence, so launch

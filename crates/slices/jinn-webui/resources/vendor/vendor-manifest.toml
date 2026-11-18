@@ -1,0 +1,69 @@
+# The webui slice's vendored frontend assets.
+#
+# Two families, one pin gate: build.rs verifies every row's sha256
+# against the bytes on disk before embedding, and asserts gzip rows
+# carry actual gzip bytes (1f 8b). Update flows:
+#
+# - Client bundle rows (between the BEGIN/END markers) are managed by
+#   `just webui-build` — never edit them by hand; edit the TypeScript
+#   under webui/client/src and run the recipe.
+# - Other assets are third-party dists vendored by hand: gzip the new
+#   dist, replace the file, recompute the row, done.
+
+# BEGIN client rows (managed by just webui-build)
+
+[[assets]]
+served = "api.js"
+sha256 = "567e2f1714f3696637ab7508fed5caea3b6284fa6b999b750a827e71c05e5f98"
+encoding = "gzip"
+
+[[assets]]
+served = "dom.js"
+sha256 = "fb68dd8b525b75d8f00ed0709f495c4f00361e34469a079d8e05e9e38314a4d8"
+encoding = "gzip"
+
+[[assets]]
+served = "main.js"
+sha256 = "a498cc523fd3fac4ce5ddd5d0df0aa1fd9cf48d2ea423691982c07abac78b845"
+encoding = "gzip"
+
+[[assets]]
+served = "regions/composer.js"
+sha256 = "06f6f8ff31eb91c3a65b0d7a6539186e09b8bfcf2847770dba88ec8c91914053"
+encoding = "gzip"
+
+[[assets]]
+served = "regions/mod.js"
+sha256 = "e554aa6e1ec8226d072177e34669ee2fa8741453bcdbaeae3c380f8ef66ac8bb"
+encoding = "gzip"
+
+[[assets]]
+served = "regions/model_picker.js"
+sha256 = "d5f86b004b3820e57a3c3474956abb79f0f329558326f9d0b1f09cf0189501ae"
+encoding = "gzip"
+
+[[assets]]
+served = "regions/sessions.js"
+sha256 = "4ad198680ad09744f785f9655a09482b652e042c5b4462ca12c31c33059a2cf0"
+encoding = "gzip"
+
+[[assets]]
+served = "regions/transcript.js"
+sha256 = "4e2a3b48b28d173e4eec464c991a8ee7ab12c042400bf38adb4166899eb80ffc"
+encoding = "gzip"
+
+[[assets]]
+served = "sse.js"
+sha256 = "20a75ca9a90b25aadf7f3e14ef9ff8accab2b435c7eae4ee3f56b54554ecfd34"
+encoding = "gzip"
+
+[[assets]]
+served = "wire-fixture.js"
+sha256 = "79aa8ee572f802f27008d3b458e8bd3aa84969c3084941f0832231de733fdff6"
+encoding = "gzip"
+
+[[assets]]
+served = "wire.js"
+sha256 = "c6a9166413efd47355b7e60fce2a95a2837b0107100e48ad8d722a6b1cd59ea3"
+encoding = "gzip"
+# END client rows

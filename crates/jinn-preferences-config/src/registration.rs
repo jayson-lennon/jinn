@@ -18,7 +18,7 @@ use crate::schemas::{
     DictationConfig, DiscordConfig, GraphicsConfig, HandoffCompactionConfig, InteractiveTermPrefs,
     MaintenanceConfig, McpServersConfig, MinimapConfig, ProviderErrorWatchdogConfig, RemoteConfig,
     RequestRetryConfig, ShellConfig, SkillsConfig, StallWatchdogConfig, StreamRuleWatchdogConfig,
-    StuckLoopWatchdogConfig, ToolCallWatchdogConfig, ToolsConfig, WebSearchConfig,
+    StuckLoopWatchdogConfig, ToolCallWatchdogConfig, ToolsConfig, WebSearchConfig, WebUiConfig,
 };
 
 /// Registers every `jinn.toml` section that can be validated at launch.
@@ -55,6 +55,7 @@ pub fn register_all_sections(config: &ConfigLayer) {
     config.register::<ChatLogConfig>();
     config.register::<GraphicsConfig>();
     config.register::<SkillsConfig>();
+    config.register::<WebUiConfig>();
     config.register::<CanvasConfig>();
     config.register::<AppletsConfig>();
     config.register::<BrowserConfig>();

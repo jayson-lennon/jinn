@@ -177,7 +177,7 @@ lint:
     just lint-testattr
     just lint-path-guard
 
-[doc("Fail on resource-kind path literals in lookup/comparison positions, and on backslash-spelled kind paths outright.\n\nThe marked-path idiom feeds literals to the typed constructor (`MarkedPathBuf::<Relative>::new(\"themes/x.toml\")`), which normalizes separators — those stay legal. What fails is a kind-slash literal used directly as a string key or comparison operand (separator-sensitive on Windows) and any kind path spelled with a backslash.")]
+# Fail on resource-kind path literals in lookup/comparison positions and on backslash-spelled kind paths.
 lint-path-guard:
    #!/usr/bin/env python3
    import os
@@ -593,6 +593,102 @@ gh-pr-close N COMMENT="":
         args+=(--comment "{{COMMENT}}")
     fi
     gh pr close {{N}} "${args[@]}"
+
+# Webui client (dev-only Node toolchain; SHIPPPING WITH NODE IS BANNED —
+# node_modules is gitignored, cargo never runs Node, build.rs embeds the
+# committed gzipped emit like any vendored asset).
+#
+#   webui-install — one-time dev toolchain (npm ci); the rest auto-install
+#   webui-check   — pure type gate, writes nothing (safe to add to lint)
+#   webui-build   — emit ES modules, gzip, re-pin the manifest rows
+#   webui-test    — jsdom-tier client tests (node:test + happy-dom)
+#   webui-verify  — check + build + test: the full pre-ship loop
+#   webui-smoke   — the headless-chromium test (JINN_WEBUI_SMOKE=1 just webui-smoke)
+
+# Install the webui client's dev toolchain (exact-lockfile npm ci).
+webui-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo '==> npm ci (webui/client)'
+    npm ci --prefix webui/client
+    echo '==> webui-install green'
+
+# Type-check the webui client (app + tests) without emitting anything.
+webui-check: webui-install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CLIENT=webui/client
+    echo '==> tsc --noEmit (app)'
+    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT" --noEmit
+    echo '==> tsc --noEmit (tests)'
+    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT/tsconfig.test.json" --noEmit
+    echo '==> webui-check green'
+
+# Emit the client bundle into the vendor tree, gzip, and re-pin sha256s.
+webui-build: webui-install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CLIENT=webui/client
+    VENDOR=crates/slices/jinn-webui/resources/vendor
+
+    # The app type-gate runs again here on purpose: a bad source must
+    # never reach the vendor tree, even when this recipe runs alone.
+    echo '==> tsc --noEmit (app)'
+    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT" --noEmit
+
+    # Emit ES modules straight into the vendor tree.
+    echo '==> tsc emit'
+    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT"
+
+    # Deterministic gzip, in place. -n drops the timestamp/filename
+    # fields so re-emitting the same source yields the same bytes.
+    # Walked, not enumerated: adding a client module (a new region,
+    # possibly in a subdirectory) must not require editing this recipe.
+    # Stale .gz from removed modules are pruned first so the manifest
+    # never keeps a ghost row.
+    echo '==> gzip emitted modules'
+    find "$VENDOR" -name '*.js.gz' -delete
+    find "$VENDOR" -name '*.js' -exec gzip -9 -n -f {} +
+
+    # Re-pin the manifest rows: rewrite the marker-delimited client
+    # section with fresh sha256 pins.
+    echo '==> re-pinning manifest'
+    python3 scripts/pin-webui-client.py "$VENDOR/vendor-manifest.toml" "$VENDOR"
+
+    # Regenerate the client's contract fixture from the Rust source —
+    # the fixture `wire.test.ts` checks against. The Rust side's drift
+    # test greps wire.ts directly; both directions hang off one
+    # generated truth, so a contract rename fails a test, not a page.
+    echo '==> regenerate contract fixture'
+    python3 scripts/gen-webui-fixture.py \
+        crates/slices/jinn-webui/src/contract.rs \
+        crates/slices/jinn-webui-msg/src/wire.rs \
+        webui/client/src/wire-fixture.ts
+    echo '==> webui-build green'
+
+# Run the webui client's jsdom-tier tests against a scratch emit.
+webui-test: webui-install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CLIENT=webui/client
+    echo '==> emit to .build (scratch)'
+    "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT/tsconfig.test.json"
+    echo '==> node --test (jsdom tier)'
+    node --test "$CLIENT/.build/"
+    echo '==> webui-test green'
+
+# The full webui client loop: type gate, vendor build, jsdom tests.
+webui-verify: webui-check webui-build webui-test
+    #!/usr/bin/env bash
+    echo '==> webui-verify green'
+
+# Run the webui smoke test in a real headless chromium.
+webui-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export JINN_WEBUI_SMOKE=1
+    cargo test -p jinn-webui --lib smoke_tests
+    echo '==> webui-smoke green'
 
 # Bump version (major/minor/patch), commit, and tag in git
 bump LEVEL:

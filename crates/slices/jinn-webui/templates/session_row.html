@@ -1,0 +1,5 @@
+<a class="{{ row_class }} {% if item.active %}active{% endif %} {% if item.is_bot %}bot{% endif %}"
+   {{ session_id_attr }}="{{ item.session_id }}">
+  <span class="stitle">{{ item.title }}</span>
+  <span class="smeta">{% if item.loaded %}loaded{% else %}archived{% endif %}</span>
+</a>

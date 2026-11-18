@@ -1,0 +1,71 @@
+[package]
+name = "jinn-webui"
+version.workspace = true
+edition.workspace = true
+description = "The webui slice: an unauthenticated HTTP web UI (server-rendered fragments over SSE, driven by a small compiled TypeScript client) bound per the [webui] config — session list, full-fidelity transcript, send/cancel, model switch."
+
+[dependencies]
+# Like remote: a leaf slice. jinn-preferences-config ([webui] schema),
+# jinn-slices (SliceHost, BusService, PhaseView, ServiceStatusUpdate),
+# jinn-webui-msg (the wire contract), and the existing schemas it
+# publishes/subscribes. No other slice's implementation crate; the only
+# workspace consumer is the jinn binary (composition).
+jinn-preferences-config = { workspace = true }
+jinn-slices = { workspace = true }
+jinn-webui-msg = { workspace = true }
+jinn-config = { workspace = true }
+jinn-kernel = { workspace = true }
+jinn-core-types = { workspace = true }
+jinn-app-state = { workspace = true }
+jinn-session-state = { workspace = true }
+jinn-session-store-msg = { workspace = true }
+jinn-chat-input-msg = { workspace = true }
+jinn-inference-msg = { workspace = true }
+jinn-session-msg = { workspace = true }
+jinn-provider-selection-msg = { workspace = true }
+jinn-provider = { workspace = true }
+jinn-provider-config = { workspace = true }
+axum = { version = "0.8" }
+trouper = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wherror = { workspace = true }
+error-stack = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+askama = { workspace = true }
+pulldown-cmark = { workspace = true }
+unicode-segmentation = { workspace = true }
+jiff = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+# The import-graph drift guard gunzips the shipped entry module to
+# scan its specifiers.
+flate2 = "1"
+jinn-testutil = { workspace = true }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+# The serve-and-request tier: tests bind a real listener on port 0 and
+# issue real HTTP requests against it (whole-stack, not in-memory).
+# The workspace pins `rustls-no-provider` on reqwest; the tests install
+# the ring provider explicitly (the jinn-browser daemon tests are the
+# in-tree precedent).
+reqwest = { workspace = true }
+rustls = { workspace = true }
+# The smoke tier: one headless-chromium test driving the real page.
+# Vendored (the canvas-adjacent fork jinn-browser already compiles), so
+# this adds no new build graph beyond what the workspace already carries.
+chaser-oxide = { workspace = true }
+
+[build-dependencies]
+# The build script verifies every manifest row against the bytes on disk
+# (the pin gate) and generates the embedded asset table.
+sha2 = "0.10"
+toml = { workspace = true }
+
+[lints]
+workspace = true
