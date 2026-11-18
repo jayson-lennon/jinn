@@ -8,21 +8,26 @@
 //! only (the actor's hot path — the next page pull or a
 //! load-completion-triggered refresh carries the archived truth).
 //!
-//! Both render paths share [`grouped_and_sorted`]: loaded rows form
-//! the top group, archived rows the bottom one, within loaded the
-//! active session leads and the rest sort by title — the TUI's
-//! loaded-before-archived ordering law, mirrored here. The pull path
-//! additionally narrows by `?q=` (server-side fuzzy title match, the
-//! same matcher the TUI session picker uses).
+//! The list IS the TUI session picker rendered as HTML. Rows are
+//! [`jinn_session_store_msg::SessionTreeEntry`]s ordered by the
+//! store's tree-aware sort (loaded trees first, then by tree recency,
+//! children under parents) — the same list the picker loads. A `?q=`
+//! filter runs the picker's own
+//! [`jinn_selection_widget::TreePickerState`]: whitespace-split fuzzy
+//! terms where every term must match, an ancestor chain pulled in
+//! behind a matching child, and strongest-tree-first ranking. One
+//! matching implementation, the TUI's; the webui adds none.
 //!
 //! Client half: `webui/client/src/regions/sessions.ts` — the row
 //! click delegation and the [`crate::contract::SESSIONS_ID`] swap.
 
 use axum::extract::Query as AxQuery;
 use axum::extract::State as AxumState;
-use fuzzy_matcher::FuzzyMatcher as _;
-use fuzzy_matcher::skim::SkimMatcherV2;
 use jinn_kernel::common::state::StateReadGuard;
+use jinn_picker::make_items_with_hooks;
+use jinn_selection_widget::TreePickerState;
+use jinn_session_store_msg::SessionState;
+use jinn_session_store_msg::SessionTreeEntry;
 use jinn_webui_msg::SessionsQuery;
 use jinn_webui_msg::SseKind;
 
@@ -130,12 +135,12 @@ async fn pull_handler(
 /// the archived truth.
 pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
     let active_id = guard.session.active_session_id().clone();
-    let rows = guard
+    let bots: std::collections::HashMap<jinn_core_types::SessionId, bool> = guard
         .session
         .iter()
-        .map(|(id, session)| live_row(id, session, &active_id))
+        .map(|(id, session)| (id.clone(), session.is_bot()))
         .collect();
-    let rows = grouped_and_sorted(rows);
+    let rows = picker_rows(live_entries(guard), &bots, None, &active_id);
     crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .unwrap_or_else(|error| {
             tracing::warn!(%error, what = "sessions", "webui template render failed; \
@@ -145,15 +150,17 @@ pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
 }
 
 /// The sessions list for a page render or a GET pull: live rows from
-/// state, archived rows from the store. `filter` narrows the merged
-/// list to titles fuzzy-matching it, matched with the TUI session
-/// picker's matcher. Every row's `active` flag is computed per row
-/// from the instance's active session id, so an archived row can
-/// never wear the active styling on the active session's page. Store
-/// summaries are awaited on the request path (request-scoped; no
-/// command round-trip); a store failure degrades to the live-only
-/// list — a web session list must not 500 because a disk read
-/// hiccuped.
+/// state, archived rows from the store — the picker's full tree.
+/// `filter` runs the TUI session picker's matching (its
+/// `TreePickerState`, verbatim): every whitespace-split term must
+/// fuzzy-match a row's title, a matching child pulls its ancestor
+/// chain in, and trees rank strongest-match first. Every row's
+/// `active` flag is computed per row from the instance's active
+/// session id, so an archived row can never wear the active styling
+/// on the active session's page. Store summaries are awaited on the
+/// request path (request-scoped; no command round-trip); a store
+/// failure degrades to the live-only list — a web session list must
+/// not 500 because a disk read hiccuped.
 ///
 /// # Errors
 ///
@@ -162,92 +169,140 @@ pub async fn sessions_fragment(
     shared: &ServerShared,
     filter: Option<&str>,
 ) -> Result<String, HandlerError> {
-    let mut rows = {
+    let (mut entries, mut bots, active_id) = {
         let guard = shared.read_state();
         let active_id = guard.session.active_session_id().clone();
-        guard
+        let bots: std::collections::HashMap<jinn_core_types::SessionId, bool> = guard
             .session
             .iter()
-            .map(|(id, session)| live_row(id, session, &active_id))
-            .collect::<Vec<_>>()
+            .map(|(id, session)| (id.clone(), session.is_bot()))
+            .collect();
+        (live_entries(&guard), bots, active_id)
     };
 
-    // Archived rows: skip ids already live; the merged list is the one
-    // shape the template renders. An archived row is never the
-    // instance's active session (the active session is always live),
-    // so its `active` flag is false by construction.
+    // Archived rows: skip ids already live; the merged tree is the one
+    // shape both render paths consume. The store's own list already
+    // merges its live sessions the same way, so the append is the
+    // delta, not a duplicate.
     if let Ok(summaries) = shared.load_summaries().await {
-        for summary in summaries {
-            if rows.iter().any(|row| row.session_id == summary.session_id) {
-                continue;
-            }
-            rows.push(jinn_webui_msg::SessionListItem {
-                session_id: summary.session_id,
-                title: summary.title,
-                active: false,
-                is_bot: summary.is_bot,
-                loaded: false,
-            });
-        }
+        append_summaries(&mut entries, &mut bots, summaries);
     }
-
-    let rows = filtered_and_grouped(rows, filter);
+    let rows = picker_rows(entries, &bots, filter, &active_id);
 
     crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .map_err(|e| crate::server::map_render_error(&e))
 }
 
-/// Builds one live row. Every field computes from this row's own id
-/// and data — the active flag from the row's id against the instance's
-/// active session id, never from a page-level comparison.
-fn live_row(
-    id: &jinn_core_types::SessionId,
-    session: &jinn_session_state::ChatSessionState,
-    active_id: &jinn_core_types::SessionId,
-) -> jinn_webui_msg::SessionListItem {
-    jinn_webui_msg::SessionListItem {
-        session_id: id.clone(),
-        title: session.title().unwrap_or("Untitled Session").to_owned(),
-        active: id == active_id,
-        is_bot: session.is_bot(),
-        loaded: true,
-    }
+/// The live sessions as picker entries, in the store's tree-aware
+/// order (loaded first, tree recency, children under parents). Every
+/// field — title, parent, state, timestamps, project — reads from the
+/// session itself, so a live session renders exactly what it would
+/// render as a stored one.
+fn live_entries(guard: &StateReadGuard<'_>) -> Vec<SessionTreeEntry> {
+    let theme = guard.frontend.theme.clone();
+    let mut entries: Vec<SessionTreeEntry> = guard
+        .session
+        .iter()
+        .map(|(id, session)| {
+            SessionTreeEntry::new(
+                id.clone(),
+                session.title().unwrap_or("Untitled Session").to_owned(),
+                *session.updated_at(),
+                theme.clone(),
+                session.session_state(),
+                session.parent_session().clone(),
+                session.project().cloned(),
+            )
+        })
+        .collect();
+    jinn_session_store::session_entries::sort_entries_tree_aware(&mut entries);
+    jinn_session_store_msg::apply_project_column_width(&mut entries);
+    entries
 }
 
-/// Narrows the rows to titles fuzzy-matching `filter`, then applies
-/// the grouped order. An absent or empty filter short-circuits to the
-/// grouping alone — the matcher's empty-pattern behavior never
-/// defines the unfiltered case.
-fn filtered_and_grouped(
-    rows: Vec<jinn_webui_msg::SessionListItem>,
-    filter: Option<&str>,
-) -> Vec<jinn_webui_msg::SessionListItem> {
-    match filter {
-        None => grouped_and_sorted(rows),
-        Some(text) => {
-            let matcher = SkimMatcherV2::default();
-            let surviving: Vec<_> = rows
-                .into_iter()
-                .filter(|row| matcher.fuzzy_match(&row.title, text).is_some())
-                .collect();
-            grouped_and_sorted(surviving)
+/// Appends the store's summaries that state does not already hold,
+/// then re-applies the tree-aware order and the project column width
+/// over the merged set — the same load path the TUI picker runs.
+/// Summary bot-ness merges into `bots` for the rows the store alone
+/// serves.
+fn append_summaries(
+    entries: &mut Vec<SessionTreeEntry>,
+    bots: &mut std::collections::HashMap<jinn_core_types::SessionId, bool>,
+    summaries: Vec<jinn_session_store_msg::SessionSummary>,
+) {
+    let live_ids: std::collections::HashSet<jinn_core_types::SessionId> = entries
+        .iter()
+        .map(|entry| entry.session_id.clone())
+        .collect();
+    let theme = entries
+        .first()
+        .map_or_else(jinn_theme::default_theme, |first| first.theme.clone());
+    for summary in summaries {
+        if live_ids.contains(&summary.session_id) {
+            continue;
         }
+        bots.insert(summary.session_id.clone(), summary.is_bot);
+        entries.push(SessionTreeEntry::new(
+            summary.session_id,
+            summary.title,
+            summary.updated_at,
+            theme.clone(),
+            summary.session_state,
+            summary.parent_session,
+            summary.project,
+        ));
     }
+    jinn_session_store::session_entries::sort_entries_tree_aware(entries);
+    jinn_session_store_msg::apply_project_column_width(entries);
 }
 
-/// The list's one ordering: loaded rows first, archived rows under
-/// them; within loaded, the active session leads, then titles A→Z
-/// (case-insensitive); within archived, titles A→Z. Both render
-/// paths — the pull fragment and the fan-out's live fragment — call
-/// this, so a pushed list and a pulled one share one shape.
-fn grouped_and_sorted(
-    mut rows: Vec<jinn_webui_msg::SessionListItem>,
+/// Renders the entry list as HTML rows — the list IS the picker.
+///
+/// An absent or empty filter keeps the picker's unfiltered shape: the
+/// tree-aware order as loaded. A filter runs
+/// [`TreePickerState::insert_text`], the picker's own re-filter:
+/// whitespace-split fuzzy terms (every term must match a row's
+/// title), ancestor chains of matching children pulled in, visible
+/// trees ranked by their best match score. The rows come back in the
+/// picker's DFS order with tree depth metadata, so the web list nests
+/// children under parents exactly as the picker draws them.
+fn picker_rows(
+    entries: Vec<SessionTreeEntry>,
+    bots: &std::collections::HashMap<jinn_core_types::SessionId, bool>,
+    filter: Option<&str>,
+    active_id: &jinn_core_types::SessionId,
 ) -> Vec<jinn_webui_msg::SessionListItem> {
-    rows.sort_by(|a, b| {
-        b.loaded
-            .cmp(&a.loaded)
-            .then_with(|| b.active.cmp(&a.active))
-            .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
-    });
-    rows
+    let matches_filter = filter.is_some_and(|text| !text.is_empty());
+    let visible: Vec<(SessionTreeEntry, usize)> = if matches_filter {
+        let filter_text = filter.unwrap_or_default();
+        let wrapped = make_items_with_hooks(
+            entries,
+            jinn_picker::PickerItemHooks::new()
+                .row(jinn_session_store_msg::session_row)
+                .search(|entry: &SessionTreeEntry| entry.title.clone()),
+        );
+        let mut tree = TreePickerState::with_items(wrapped);
+        tree.insert_text(filter_text);
+        (0..tree.filtered_count())
+            .filter_map(|idx| {
+                let depth = tree.visible_entry(idx)?.depth;
+                tree.filtered_item(idx)
+                    .map(|item| (item.entry().clone(), depth))
+            })
+            .collect()
+    } else {
+        entries.into_iter().map(|entry| (entry, 0)).collect()
+    };
+
+    visible
+        .into_iter()
+        .map(|(entry, depth)| jinn_webui_msg::SessionListItem {
+            is_bot: bots.get(&entry.session_id).copied().unwrap_or(false),
+            active: entry.session_id == *active_id,
+            loaded: entry.session_state == SessionState::Loaded,
+            session_id: entry.session_id,
+            title: entry.title,
+            depth,
+        })
+        .collect()
 }

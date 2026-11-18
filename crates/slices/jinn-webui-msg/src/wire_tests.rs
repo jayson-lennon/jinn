@@ -162,6 +162,7 @@ fn session_list_row_roundtrips_its_flags() {
         active: true,
         is_bot: false,
         loaded: true,
+        depth: 0,
     };
 
     // When serializing (the wire direction is server→client only).
@@ -172,4 +173,5 @@ fn session_list_row_roundtrips_its_flags() {
     assert!(json.contains("\"active\":true"), "{json}");
     assert!(json.contains("\"loaded\":true"), "{json}");
     assert!(json.contains("\"is_bot\":false"), "{json}");
+    assert!(json.contains("\"depth\":0"), "{json}");
 }

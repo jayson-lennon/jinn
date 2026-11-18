@@ -1,11 +1,15 @@
 //! The sessions-list tests: the merged list's ordering law, the
 //! `?q=` server-side filter, and the per-row active flag.
 //!
-//! The ordering is observable through both render paths — the pull
+//! The list IS the TUI session picker rendered as HTML: the order is
+//! the store's tree-aware sort (loaded trees first, tree recency,
+//! children under parents) and a `?q` runs the picker's
+//! `TreePickerState` — so the tests pin the picker's observable
+//! behavior through the web surface: a matching child surfaces its
+//! parent, every term must match, trees rank strongest-first. The
+//! ordering is observable through both render paths — the pull
 //! fragment (`sessions_fragment`, live + archived) and the fan-out's
-//! pushed fragment (`sessions_live_fragment`, live only) — so each
-//! behavior is asserted on the path that can express it: grouping on
-//! both, the filter and the archived-row flag on the pull. The store
+//! pushed fragment (`sessions_live_fragment`, live only). The store
 //! is a seeded fake; the kernel's `FakeSessionStore` returns empty
 //! summaries and cannot produce an archived group.
 
@@ -187,9 +191,37 @@ fn archived_summary(id: SessionId, title: &str) -> SessionSummary {
     }
 }
 
+/// An archived summary with a parent link — a subagent child session.
+fn archived_child(id: SessionId, parent: SessionId, title: &str) -> SessionSummary {
+    SessionSummary {
+        parent_session: Some(parent),
+        ..archived_summary(id, title)
+    }
+}
+
+/// Seeds a live session with the given title and parent, returning
+/// its id.
+fn seed_child(state: &State, parent: &SessionId, title: &str) -> SessionId {
+    let session = jinn_session_state::ChatSessionState::new();
+    let id = session.session_id().clone();
+    state.write().session.insert(session);
+    {
+        let mut guard = state.write();
+        let seeded = guard.session.get_mut(&id).expect("seeded session");
+        seeded.set_title(title.to_owned());
+        seeded.set_parent_session(parent.clone());
+    }
+    id
+}
+
 /// The harness: one state, a seeded store, and the shared handler
-/// state over both. Live sessions seed through the returned [`State`].
-fn harness(summaries: Vec<SessionSummary>) -> (State, ServerShared) {
+/// state over both. `seed` runs before the store is built, so its
+/// summaries can reference live session ids (parent links). Live
+/// sessions seed through the returned [`State`].
+fn harness_with<T>(
+    seed: impl FnOnce(&State) -> T,
+    summaries: impl FnOnce(&T) -> Vec<SessionSummary>,
+) -> (State, ServerShared) {
     let slices = Slices::new();
     let provider_cell = slices
         .register(
@@ -202,6 +234,8 @@ fn harness(summaries: Vec<SessionSummary>) -> (State, ServerShared) {
         app.session.attach_slices(slices.clone());
         State::new(app)
     };
+    let seeded = seed(&state);
+    let summaries = summaries(&seeded);
     let (bus, _audit) = BusService::new_recording();
     let fanout = {
         use trouper::system::ActorSystem;
@@ -218,6 +252,11 @@ fn harness(summaries: Vec<SessionSummary>) -> (State, ServerShared) {
         "sessions-list-test".to_owned(),
     );
     (state, shared)
+}
+
+/// The plain harness: summaries known up front.
+fn harness(summaries: Vec<SessionSummary>) -> (State, ServerShared) {
+    harness_with(|_state| (), |_seeded| summaries)
 }
 
 /// Seeds a live session with the given title, returning its id.
@@ -276,22 +315,16 @@ fn ids_in_order(html: &str) -> Vec<String> {
         .collect()
 }
 
-/// The instance's active session id before any test-made switch.
-fn active_id(state: &State) -> SessionId {
-    state.read().session.active_session_id().clone()
-}
-
 // ── The ordering law (both paths) ───────────────────────────────────
 
 #[rstest::rstest]
 #[tokio::test]
 async fn the_pull_lists_loaded_rows_above_archived_rows() {
-    // Given one loaded session titled "Zebra" (activated) plus the
-    // map's default session, and one archived titled "Aardvark" — the
-    // title order that floated the archived row above the loaded ones
+    // Given one loaded session titled "Zebra" (newest) and one
+    // archived titled "Aardvark" (also fresh) — the title/timestamp
+    // combination that floated the archived row above loaded ones
     // under the old page-level sort.
     let (state, shared) = harness(vec![archived_summary(SessionId::new(), "Aardvark")]);
-    let untitled = active_id(&state);
     let loaded = seed_titled(&state, "Zebra");
     assert!(
         state.write().session.set_active(loaded.clone()),
@@ -303,93 +336,127 @@ async fn the_pull_lists_loaded_rows_above_archived_rows() {
         .await
         .expect("sessions pull renders");
 
-    // Then every loaded row precedes every archived row regardless of
-    // title order — loaded is the top group, archived the bottom one.
+    // Then the loaded row precedes the archived row regardless of
+    // title order — loaded trees form the top group (the picker's
+    // tree-aware sort), archived trees the bottom one.
     let ids = ids_in_order(&html);
-    let archived_pos = ids
-        .iter()
-        .position(|id| *id != loaded.to_string() && *id != untitled.to_string())
-        .expect("the archived row renders");
-    assert_eq!(ids.len(), 3, "every row renders: {html}");
-    let above_archived = ids
-        .get(..archived_pos)
-        .expect("the archived row is in bounds");
-    assert!(
-        above_archived.contains(&loaded.to_string()),
-        "the loaded row precedes the archived row: {ids:?}"
+    assert_eq!(
+        ids.first().map(String::as_str),
+        Some(loaded.to_string().as_str()),
+        "the loaded tree leads: {html}"
     );
+    assert_eq!(ids.len(), 3, "every row renders: {html}");
 }
 
 #[rstest::rstest]
 #[tokio::test]
-async fn the_pushed_fragment_orders_by_the_same_grouping_law() {
-    // Given two live sessions: the active one titled later in the
-    // alphabet than its sibling (the push path had no sort at all —
-    // raw HashMap order), plus the map's default session.
+async fn the_pushed_fragment_orders_by_the_same_tree_law() {
+    // Given two live root sessions whose insertion (map) order runs
+    // opposite to their recency — the push path rendered raw HashMap
+    // order once; the tree-aware sort must hold on the push too.
     let (state, _shared) = harness(Vec::new());
-    let untitled = active_id(&state);
-    let active = seed_titled(&state, "zulu");
-    let sibling = seed_titled(&state, "alpha");
-    assert!(
-        state.write().session.set_active(active.clone()),
-        "the seeded session activates"
-    );
+    let older = seed_titled(&state, "older");
+    let newer = seed_titled(&state, "newer");
+    state
+        .write()
+        .session
+        .get_mut(&older)
+        .expect("seeded session")
+        .restore_updated_at(jiff::Timestamp::now() - std::time::Duration::from_secs(60));
     let guard = state.read();
 
     // When rendering the fan-out's live fragment.
     let html = crate::regions::sessions::sessions_live_fragment(&guard);
 
-    // Then the same law the pull applies holds: the active session
-    // leads, then title order — not map iteration order.
+    // Then the newest tree leads — recency, not map iteration order.
     let ids = ids_in_order(&html);
-    assert_eq!(
-        ids,
-        vec![
-            active.to_string(),
-            sibling.to_string(),
-            untitled.to_string(),
-        ],
-        "the pushed fragment applies the pull's ordering: {html}"
+    let newer_pos = ids
+        .iter()
+        .position(|id| *id == newer.to_string())
+        .expect("the newer session renders");
+    let older_pos = ids
+        .iter()
+        .position(|id| *id == older.to_string())
+        .expect("the older session renders");
+    assert!(
+        newer_pos < older_pos,
+        "recency order holds on the push path: {ids:?}"
     );
 }
 
 #[rstest::rstest]
 #[tokio::test]
-async fn loaded_rows_sort_active_first_then_by_title() {
-    // Given three loaded sessions: the active one titled "middle",
-    // with title-neighbors "alpha" and "zed", plus the map's default
-    // session (untitled).
+async fn children_nest_under_their_parent() {
+    // Given a root session and its subagent child — the shape the
+    // picker draws nested and the flat list flattened.
     let (state, shared) = harness(Vec::new());
-    let untitled = active_id(&state);
-    let before = seed_titled(&state, "alpha");
-    let active = seed_titled(&state, "middle");
-    let after = seed_titled(&state, "zed");
-    assert!(
-        state.write().session.set_active(active.clone()),
-        "the seeded session activates"
-    );
+    let root = seed_titled(&state, "root session");
+    let child = seed_child(&state, &root, "subagent child");
 
     // When pulling the sessions fragment.
     let html = crate::regions::sessions::sessions_fragment(&shared, None)
         .await
         .expect("sessions pull renders");
 
-    // Then the active session leads and the rest follow by title
-    // (case-insensitive: alpha < Untitled Session < zed).
+    // Then the child renders directly under its parent — the picker's
+    // DFS order.
     let ids = ids_in_order(&html);
+    let root_pos = ids
+        .iter()
+        .position(|id| *id == root.to_string())
+        .expect("the root renders");
+    let child_pos = ids
+        .iter()
+        .position(|id| *id == child.to_string())
+        .expect("the child renders");
     assert_eq!(
-        ids,
-        vec![
-            active.to_string(),
-            before.to_string(),
-            untitled.to_string(),
-            after.to_string(),
-        ],
-        "active first, then title A→Z: {html}"
+        child_pos,
+        root_pos + 1,
+        "the child directly follows its parent: {ids:?}"
     );
 }
 
-// ── The `?q` filter (the pull path) ─────────────────────────────────
+// ── The `?q` filter (the pull path) — the picker's matching ─────────
+
+#[rstest::rstest]
+#[tokio::test]
+async fn a_matching_child_surfaces_its_parent() {
+    // Given a live root "tts" whose archived subagent children carry
+    // titles the root's own title does not contain — the exact shape
+    // behind the user's report ("tts" + "please set up kokoro…"):
+    // matching a child must surface the parent, the way the TUI
+    // picker does.
+    let kokoro = "please set up kokoro for me so i can render tts locally";
+    let (_state, shared) = harness_with(
+        |state| seed_titled(state, "tts"),
+        |root| {
+            vec![
+                archived_child(SessionId::new(), root.clone(), kokoro),
+                archived_child(SessionId::new(), root.clone(), kokoro),
+            ]
+        },
+    );
+
+    // When pulling with a `q` only the children's titles match.
+    let html = crate::regions::sessions::sessions_fragment(&shared, Some("please set"))
+        .await
+        .expect("sessions pull renders");
+
+    // Then the root renders alongside its matched children — the
+    // picker's ancestor-chain expansion — even though "tts" matches
+    // neither term.
+    assert!(
+        html.contains(">tts<"),
+        "the parent surfaces behind its matched children: {html}"
+    );
+    assert_eq!(
+        html.matches("kokoro").count(),
+        2,
+        "both matched children render: {html}"
+    );
+}
+
+// ── The `?q` filter (the pull path) — the picker's term rule ────────
 
 #[rstest::rstest]
 #[tokio::test]
@@ -404,7 +471,7 @@ async fn a_matching_q_returns_only_the_matching_session() {
         .expect("sessions pull renders");
 
     // Then only the archived session's row renders — matched
-    // server-side, on the merged list.
+    // server-side, on the merged tree.
     let ids = ids_in_order(&html);
     assert_eq!(ids.len(), 1, "only the match renders: {html}");
     assert!(
@@ -414,6 +481,31 @@ async fn a_matching_q_returns_only_the_matching_session() {
     assert!(
         !html.contains(&loaded.to_string()),
         "the loaded non-match is filtered out: {html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn every_whitespace_term_must_match() {
+    // Given a session whose title contains "please" but cannot admit
+    // "set" as a subsequence (no s→e→t chain in "…please resolve"),
+    // and one containing both terms.
+    let (state, shared) = harness(Vec::new());
+    seed_titled(&state, "got a merge conflict. please resolve");
+    let both = seed_titled(&state, "please set up the environment");
+
+    // When pulling with a two-term `q`.
+    let html = crate::regions::sessions::sessions_fragment(&shared, Some("please set"))
+        .await
+        .expect("sessions pull renders");
+
+    // Then only the title admitting both terms renders — the picker's
+    // term-split rule, not one long subsequence probe.
+    let ids = ids_in_order(&html);
+    assert_eq!(ids.len(), 1, "only the both-terms match renders: {html}");
+    assert!(
+        html.contains(&both.to_string()),
+        "the both-terms session renders: {html}"
     );
 }
 

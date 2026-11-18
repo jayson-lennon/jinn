@@ -125,6 +125,10 @@ pub struct SessionListItem {
     pub is_bot: bool,
     /// Whether the session is loaded in memory (vs archived-only).
     pub loaded: bool,
+    /// Tree depth under this row's parent session — 0 for a root, 1
+    /// for its subagent children. The webui renders the picker's tree,
+    /// so children indent under the session that spawned them.
+    pub depth: usize,
 }
 
 /// The kind of SSE push — the event name the client dispatches on.

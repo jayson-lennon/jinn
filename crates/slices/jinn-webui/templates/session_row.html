@@ -1,5 +1,6 @@
 <a class="{{ row_class }} {% if item.active %}active{% endif %} {% if item.is_bot %}bot{% endif %}"
-   {{ session_id_attr }}="{{ item.session_id }}">
+   {{ session_id_attr }}="{{ item.session_id }}"
+   style="{% if item.depth > 0 %}padding-left: {{ 14 + item.depth * 16 }}px;{% endif %}">
   <span class="stitle">{{ item.title }}</span>
   <span class="smeta">{% if item.loaded %}loaded{% else %}archived{% endif %}</span>
 </a>

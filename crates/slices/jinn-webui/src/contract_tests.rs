@@ -28,6 +28,7 @@ fn row(session_id: jinn_core_types::SessionId, title: &str, active: bool) -> Ses
         active,
         is_bot: false,
         loaded: true,
+        depth: 0,
     }
 }
 
