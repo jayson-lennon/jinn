@@ -76,76 +76,8 @@ fn main() {
 
     let mut seen: Vec<String> = Vec::new();
     for asset in assets {
-        let served = str_field(asset, "served");
-        let sha = str_field(asset, "sha256");
-
-        // Served paths are emitted verbatim into the generated
-        // `include_bytes!` literal, so a backslash here would become an
-        // invalid escape sequence on the Windows side of the build.
-        assert!(
-            !served.contains('\\'),
-            "vendor manifest served paths must use forward slashes: {served}"
-        );
-
-        // Reject duplicates so one served path can never shadow another.
-        assert!(
-            !seen.iter().any(|s| s == served),
-            "vendor manifest names {served} twice"
-        );
-        seen.push(served.to_owned());
-
-        let encoding = asset
-            .get("encoding")
-            .and_then(toml::Value::as_str)
-            .unwrap_or("identity")
-            .to_owned();
-
-        // A gzip row's DISK file carries a `.gz` suffix (the served
-        // name is the URL, `served`); identity rows store the bytes
-        // under the served name itself. One convention, both families.
-        let disk_name = if encoding == "gzip" {
-            format!("{served}.gz")
-        } else {
-            served.to_owned()
-        };
-        let file_path = vendor_dir.join(&disk_name);
-        let bytes = fs::read(&file_path).unwrap_or_else(|e| {
-            panic!(
-                "vendor asset {} missing from disk ({e}) — the client bundle is build \
-                 output, not committed: run `just webui-build` to emit it from \
-                 webui/client/src, then re-compile",
-                file_path.display()
-            )
-        });
-        assert!(
-            sha.len() == 64,
-            "vendor asset {served}'s sha256 must be 64 hex chars, got {}",
-            sha.len()
-        );
-        verify_sha(served, &bytes, sha);
-
-        // A `gzip` row must name actual gzip bytes. The class of bug
-        // this kills: a raw (uncompressed) dist committed under a gzip
-        // row, served with `Content-Encoding: gzip`, and every browser
-        // failing to decode it. `1f 8b` is the gzip magic number.
-        if encoding == "gzip" {
-            assert!(
-                bytes.starts_with(&[0x1f, 0x8b]),
-                "vendor asset {served} declares encoding = \"gzip\" but its bytes are not \
-                 gzip (missing the 1f 8b magic prefix) — gzip the file, then re-pin its sha256"
-            );
-        }
-
-        // The file path is emitted as a `concat!` of `CARGO_MANIFEST_DIR`
-        // and the forward-slashed disk path, never as a rendered
-        // absolute path: `Path::display` produces backslashes on Windows,
-        // which are invalid escape sequences inside a string literal.
-        let _ = writeln!(
-            table,
-            "    VendorAsset {{\n        path: \"{served}\",\n        bytes: include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/resources/vendor/{disk_name}\")),\n        encoding: \"{encoding}\",\n        content_type: \"{}\",\n        hash: \"{}\",\n    }},",
-            content_type_for(served),
-            sha.get(..8).unwrap_or_default()
-        );
+        let row = embed_asset(asset, &vendor_dir, &mut seen);
+        let _ = writeln!(table, "{row}");
     }
 
     // Every file on disk must be vouched for by a manifest row: a stray
@@ -177,6 +109,85 @@ fn main() {
     let out_dir = std::path::PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     fs::write(out_dir.join("vendor_assets.rs"), table)
         .expect("writing vendor_assets.rs into OUT_DIR cannot fail");
+}
+
+/// Verifies one manifest row against the bytes on disk — path hygiene,
+/// duplicate rejection, sha256 match, gzip magic — and returns the
+/// generated `VendorAsset` table row that embeds the file. The
+/// `include_bytes!` path is emitted as a `concat!` of `CARGO_MANIFEST_DIR`
+/// and the forward-slashed disk path, never as a rendered absolute path:
+/// `Path::display` produces backslashes on Windows, which are invalid
+/// escape sequences inside a string literal.
+fn embed_asset(
+    asset: &toml::Value,
+    vendor_dir: &std::path::Path,
+    seen: &mut Vec<String>,
+) -> String {
+    let served = str_field(asset, "served");
+    let sha = str_field(asset, "sha256");
+
+    // Served paths are emitted verbatim into the generated
+    // `include_bytes!` literal, so a backslash here would become an
+    // invalid escape sequence on the Windows side of the build.
+    assert!(
+        !served.contains('\\'),
+        "vendor manifest served paths must use forward slashes: {served}"
+    );
+
+    // Reject duplicates so one served path can never shadow another.
+    assert!(
+        !seen.iter().any(|s| s == served),
+        "vendor manifest names {served} twice"
+    );
+    seen.push(served.to_owned());
+
+    let encoding = asset
+        .get("encoding")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("identity")
+        .to_owned();
+
+    // A gzip row's DISK file carries a `.gz` suffix (the served
+    // name is the URL, `served`); identity rows store the bytes
+    // under the served name itself. One convention, both families.
+    let disk_name = if encoding == "gzip" {
+        format!("{served}.gz")
+    } else {
+        served.to_owned()
+    };
+    let file_path = vendor_dir.join(&disk_name);
+    let bytes = fs::read(&file_path).unwrap_or_else(|e| {
+        panic!(
+            "vendor asset {} missing from disk ({e}) — the client bundle is build \
+             output, not committed: run `just webui-build` to emit it from \
+             webui/client/src, then re-compile",
+            file_path.display()
+        )
+    });
+    assert!(
+        sha.len() == 64,
+        "vendor asset {served}'s sha256 must be 64 hex chars, got {}",
+        sha.len()
+    );
+    verify_sha(served, &bytes, sha);
+
+    // A `gzip` row must name actual gzip bytes. The class of bug
+    // this kills: a raw (uncompressed) dist committed under a gzip
+    // row, served with `Content-Encoding: gzip`, and every browser
+    // failing to decode it. `1f 8b` is the gzip magic number.
+    if encoding == "gzip" {
+        assert!(
+            bytes.starts_with(&[0x1f, 0x8b]),
+            "vendor asset {served} declares encoding = \"gzip\" but its bytes are not \
+             gzip (missing the 1f 8b magic prefix) — gzip the file, then re-pin its sha256"
+        );
+    }
+
+    format!(
+        "    VendorAsset {{\n        path: \"{served}\",\n        bytes: include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/resources/vendor/{disk_name}\")),\n        encoding: \"{encoding}\",\n        content_type: \"{}\",\n        hash: \"{}\",\n    }},",
+        content_type_for(served),
+        sha.get(..8).unwrap_or_default()
+    )
 }
 
 /// Reads a required string field, failing with the asset path in the panic
