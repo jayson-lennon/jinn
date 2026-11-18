@@ -89,6 +89,11 @@ function swapPage(sessionId: string, html: string): void {
   // The page shell carries the session id and cursor; follow() closes
   // the previous EventSource and opens the new session's.
   sse.follow(sessionId, rebindComposerActions);
+  // The swapped-in page's composer needs its Enter binding now — a
+  // controls event may not arrive for a while (the first one rides
+  // the next phase change). Without this, Enter is dead until the
+  // first SSE controls event happens to land.
+  rebindComposerActions(sessionId);
   history.pushState(null, "", `${wire.SESSION_PAGE_PATH}${sessionId}`);
 }
 
@@ -133,6 +138,14 @@ async function submitComposer(sessionId: string): Promise<void> {
   if (fresh !== null) {
     (fresh.element as unknown as { value: string }).value = "";
   }
+  // Optimistic user entry: the server appends on enqueue, but the
+  // fan-out's chat push only rides the first stream tokens — without
+  // this the message idles invisible until the model responds. The
+  // next `transcript-full` convergence push replaces the transcript
+  // wholesale, which canonically re-renders this entry; the interim
+  // `chat` push for the same entry would double it, so mark it and
+  // let replaceTranscript clear the marker wholesale.
+  render.appendOptimisticUserEntry(sessionId, text);
 }
 
 /**
@@ -248,6 +261,8 @@ export function initialize(): void {
   const sessionId = viewedSessionId();
   if (sessionId !== null) {
     sse.follow(sessionId, rebindComposerActions);
+    // Same as the swap path: bind the page-rendered composer now.
+    rebindComposerActions(sessionId);
   }
 }
 

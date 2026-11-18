@@ -70,6 +70,50 @@ test("appendChat throws loudly when the transcript is missing", () => {
   );
 });
 
+test("the optimistic user entry appears immediately and the server copy replaces it", () => {
+  // Given a page shell.
+  const window = pageShell();
+
+  // When the user sends "hello there" and the optimistic entry lands.
+  render.appendOptimisticUserEntry("00000000-0000-0000-0000-000000000000", "hello there");
+
+  // Then the entry is visible right away, unescaped text intact.
+  const transcript = window.document.getElementById(wire.TRANSCRIPT_ID)!;
+  assert.ok(transcript.innerHTML.includes("hello there"), "optimistic entry renders");
+  assert.ok(
+    transcript.querySelector(`article[class="entry user"]`),
+    "the optimistic entry carries the user styling",
+  );
+
+  // When the server's chat push covers the same entry.
+  render.appendChat('<article class="entry user"><div class="who">user</div><div class="body">hello there</div></article>');
+
+  // Then exactly one copy remains — the server's.
+  const entries = transcript.querySelectorAll(`article[class="entry user"]`);
+  assert.equal(entries.length, 1, `one user entry after convergence, got ${entries.length}`);
+  assert.equal(
+    transcript.querySelector("[data-webui-optimistic]"),
+    null,
+    "the optimistic marker is gone",
+  );
+});
+
+test("the optimistic entry escapes HTML in user text", () => {
+  // Given a page shell.
+  const window = pageShell();
+
+  // When the user sends markup as their message.
+  render.appendOptimisticUserEntry("00000000-0000-0000-0000-000000000000", "<img src=x onerror=alert(1)>");
+
+  // Then the text renders as text — no img element exists.
+  const transcript = window.document.getElementById(wire.TRANSCRIPT_ID)!;
+  assert.equal(transcript.querySelector("img"), null, "no injected element");
+  assert.ok(
+    transcript.innerHTML.includes("&lt;img"),
+    "the markup is escaped",
+  );
+});
+
 test("replaceTranscript swaps the content and re-bases the cursor", () => {
   // Given the page shell carrying an appended streaming entry.
   const window = pageShell();

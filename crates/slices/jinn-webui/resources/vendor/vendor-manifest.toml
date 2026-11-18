@@ -19,12 +19,12 @@ encoding = "gzip"
 
 [[assets]]
 served = "main.js"
-sha256 = "243640450ebdd001846e98f01f992dcb8e59e873e9a115627c9f311bad45855a"
+sha256 = "6a91e50479fdb8728fd7f17b68a81681df05402acd91e589a66daa5fbd63e6ba"
 encoding = "gzip"
 
 [[assets]]
 served = "render.js"
-sha256 = "a9fd6fc50092530165e0aa0955be5906a1c2824a74a6ef2baa30e42055e0528c"
+sha256 = "fcd5329929c03dadc8632e42e79f88e502be973506a2bb3fb59e8a75d7f7733c"
 encoding = "gzip"
 
 [[assets]]
