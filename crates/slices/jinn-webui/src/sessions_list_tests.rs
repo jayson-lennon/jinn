@@ -311,8 +311,11 @@ async fn the_pull_lists_loaded_rows_above_archived_rows() {
         .position(|id| *id != loaded.to_string() && *id != untitled.to_string())
         .expect("the archived row renders");
     assert_eq!(ids.len(), 3, "every row renders: {html}");
+    let above_archived = ids
+        .get(..archived_pos)
+        .expect("the archived row is in bounds");
     assert!(
-        ids[..archived_pos].contains(&loaded.to_string()),
+        above_archived.contains(&loaded.to_string()),
         "the loaded row precedes the archived row: {ids:?}"
     );
 }
@@ -495,8 +498,9 @@ async fn archived_rows_never_render_active() {
     assert_eq!(rows.len(), 3, "every row renders: {html}");
     let marked: Vec<&Row> = rows.iter().filter(|row| row.active).collect();
     assert_eq!(marked.len(), 1, "exactly one row is active: {html}");
+    let marked_id = marked.first().map_or("", |row| row.session_id.as_str());
     assert_eq!(
-        marked[0].session_id,
+        marked_id,
         active.to_string(),
         "the active mark is on the active session's row: {html}"
     );
@@ -525,5 +529,6 @@ async fn exactly_one_row_renders_active_after_a_switch() {
     let rows = rows_in_order(&html);
     let actives: Vec<&Row> = rows.iter().filter(|row| row.active).collect();
     assert_eq!(actives.len(), 1, "exactly one row is active: {html}");
-    assert_eq!(actives[0].session_id, second.to_string(), "{html}");
+    let active_id = actives.first().map_or("", |row| row.session_id.as_str());
+    assert_eq!(active_id, second.to_string(), "{html}");
 }

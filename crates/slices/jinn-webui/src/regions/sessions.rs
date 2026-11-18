@@ -226,11 +226,11 @@ fn filtered_and_grouped(
         None => grouped_and_sorted(rows),
         Some(text) => {
             let matcher = SkimMatcherV2::default();
-            let matches: Vec<_> = rows
+            let surviving: Vec<_> = rows
                 .into_iter()
                 .filter(|row| matcher.fuzzy_match(&row.title, text).is_some())
                 .collect();
-            grouped_and_sorted(matches)
+            grouped_and_sorted(surviving)
         }
     }
 }
