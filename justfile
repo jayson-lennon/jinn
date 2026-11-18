@@ -177,7 +177,7 @@ lint:
     just lint-testattr
     just lint-path-guard
 
-[doc("Fail on resource-kind path literals in lookup/comparison positions, and on backslash-spelled kind paths outright.\n\nThe marked-path idiom feeds literals to the typed constructor (`MarkedPathBuf::<Relative>::new(\"themes/x.toml\")`), which normalizes separators — those stay legal. What fails is a kind-slash literal used directly as a string key or comparison operand (separator-sensitive on Windows) and any kind path spelled with a backslash.")]
+# Fail on resource-kind path literals in lookup/comparison positions and on backslash-spelled kind paths.
 lint-path-guard:
    #!/usr/bin/env python3
    import os
@@ -594,16 +594,10 @@ gh-pr-close N COMMENT="":
     fi
     gh pr close {{N}} "${args[@]}"
 
-# ---------------------------------------------------------------------------
-# Webui client (dev-only Node toolchain)
-# ---------------------------------------------------------------------------
-# SHIPPPING WITH NODE IS BANNED: node_modules is gitignored and the
-# webui-* recipes are the only sanctioned Node entrypoints. `cargo build`
-# never runs Node — build.rs reads the committed gzip files and verifies
-# them against the manifest exactly like any other vendored asset. What
-# ships is the emitted, gzipped ES modules.
+# Webui client (dev-only Node toolchain; SHIPPPING WITH NODE IS BANNED —
+# node_modules is gitignored, cargo never runs Node, build.rs embeds the
+# committed gzipped emit like any vendored asset).
 #
-# The family:
 #   webui-install — one-time dev toolchain (npm ci); the rest auto-install
 #   webui-check   — pure type gate, writes nothing (safe to add to lint)
 #   webui-build   — emit ES modules, gzip, re-pin the manifest rows
@@ -611,7 +605,7 @@ gh-pr-close N COMMENT="":
 #   webui-verify  — check + build + test: the full pre-ship loop
 #   webui-smoke   — the headless-chromium test (JINN_WEBUI_SMOKE=1 just webui-smoke)
 
-[doc("Install the webui client's dev toolchain (exact-lockfile npm ci); webui-check/build/test run it automatically if missing.")]
+# Install the webui client's dev toolchain (exact-lockfile npm ci).
 webui-install:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -619,7 +613,7 @@ webui-install:
     npm ci --prefix webui/client
     echo '==> webui-install green'
 
-[doc("Type-check the webui client and its tests without emitting; writes nothing, so it is safe to bolt onto a lint ladder.")]
+# Type-check the webui client (app + tests) without emitting anything.
 webui-check: webui-install
     #!/usr/bin/env bash
     set -euo pipefail
@@ -630,7 +624,7 @@ webui-check: webui-install
     "$CLIENT/node_modules/.bin/tsc" -p "$CLIENT/tsconfig.test.json" --noEmit
     echo '==> webui-check green'
 
-[doc("Emit the webui client as ES modules into the slice's vendor tree, gzip them deterministically, and re-pin the manifest's sha256 rows — build.rs fails the next cargo build if any of this is skipped.")]
+# Emit the client bundle into the vendor tree, gzip, and re-pin sha256s.
 webui-build: webui-install
     #!/usr/bin/env bash
     set -euo pipefail
@@ -660,7 +654,7 @@ webui-build: webui-install
     python3 scripts/pin-webui-client.py "$VENDOR/vendor-manifest.toml" "$VENDOR"
     echo '==> webui-build green'
 
-[doc("Run the webui client's jsdom-tier tests (node:test + happy-dom) against a scratch emit — never touches the vendor tree.")]
+# Run the webui client's jsdom-tier tests against a scratch emit.
 webui-test: webui-install
     #!/usr/bin/env bash
     set -euo pipefail
@@ -671,12 +665,12 @@ webui-test: webui-install
     node --test "$CLIENT/.build/"
     echo '==> webui-test green'
 
-[doc("The webui client's pre-ship loop: type gate, vendor build (emit + gzip + re-pin), then the jsdom-tier tests.")]
+# The full webui client loop: type gate, vendor build, jsdom tests.
 webui-verify: webui-check webui-build webui-test
     #!/usr/bin/env bash
     echo '==> webui-verify green'
 
-[doc("Run the headless-chromium smoke test (the Rust smoke tier) against the workspace suite's filter: sets JINN_WEBUI_SMOKE=1 and runs only the smoke test.")]
+# Run the webui smoke test in a real headless chromium.
 webui-smoke:
     #!/usr/bin/env bash
     set -euo pipefail
