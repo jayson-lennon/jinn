@@ -75,3 +75,18 @@ while running is refused and the previous registry stays in effect.
 
 See `configuration.md` for the full config-file map and the offer-to-edit
 protocol.
+
+## The web UI's model picker
+
+The browser UI (the `[webui]` surface) has its own model picker in the
+titlebar — a button naming the session's current model. Clicking it
+opens a modal over the page: type in the filter bar to narrow the list
+(each keystroke queries the server; matches are case-insensitive over
+model id and provider name), click a row to switch. Rows mirror the
+TUI picker: available models first alphabetically with the current
+pick promoted to the top, `✗` marks unavailable providers (missing API
+key — those rows are inert), `→` marks aliases, `*` marks
+remote-discovered models. **Refresh models** re-runs discovery (the
+same `<c-r>` pipeline as the TUI); the list updates in place when it
+lands, without losing the typed filter. Alloys and multi-select are
+TUI-only — the web picker switches single models.
