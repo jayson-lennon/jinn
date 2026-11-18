@@ -8,11 +8,22 @@
 //! only (the actor's hot path — the next page pull or a
 //! load-completion-triggered refresh carries the archived truth).
 //!
+//! Both render paths share [`grouped_and_sorted`]: loaded rows form
+//! the top group, archived rows the bottom one, within loaded the
+//! active session leads and the rest sort by title — the TUI's
+//! loaded-before-archived ordering law, mirrored here. The pull path
+//! additionally narrows by `?q=` (server-side fuzzy title match, the
+//! same matcher the TUI session picker uses).
+//!
 //! Client half: `webui/client/src/regions/sessions.ts` — the row
 //! click delegation and the [`crate::contract::SESSIONS_ID`] swap.
 
+use axum::extract::Query as AxQuery;
 use axum::extract::State as AxumState;
+use fuzzy_matcher::FuzzyMatcher as _;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use jinn_kernel::common::state::StateReadGuard;
+use jinn_webui_msg::SessionsQuery;
 use jinn_webui_msg::SseKind;
 
 use crate::region::RegionParts;
@@ -95,16 +106,14 @@ pub const SIDEBAR_CSS: &str = r#"
 .srow.bot .smeta::after { content: " · bot"; color: #d4a72c; }
 "#;
 
-/// `GET /web/sessions` — the sessions fragment (live + archived).
+/// `GET /web/sessions` — the sessions fragment (live + archived),
+/// narrowed by `?q=` when the client names a filter.
 async fn pull_handler(
     AxumState(shared): AxumState<ServerShared>,
+    AxQuery(query): AxQuery<SessionsQuery>,
 ) -> Result<Fragment, HandlerError> {
-    let active = {
-        let guard = shared.read_state();
-        guard.session.active_session_id().clone()
-    };
     Ok(Fragment::new(
-        sessions_fragment(&shared, Some(&active)).await?,
+        sessions_fragment(&shared, query.filter_text()).await?,
     ))
 }
 
@@ -116,17 +125,13 @@ async fn pull_handler(
 /// pull (or a `SessionLoadCompleted`-triggered page refresh) carries
 /// the archived truth.
 pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
-    let rows: Vec<jinn_webui_msg::SessionListItem> = guard
+    let active_id = guard.session.active_session_id().clone();
+    let rows = guard
         .session
         .iter()
-        .map(|(id, session)| jinn_webui_msg::SessionListItem {
-            session_id: id.clone(),
-            title: session.title().unwrap_or("Untitled Session").to_owned(),
-            active: id == guard.session.active_session_id(),
-            is_bot: session.is_bot(),
-            loaded: true,
-        })
+        .map(|(id, session)| live_row(id, session, &active_id))
         .collect();
+    let rows = grouped_and_sorted(rows);
     crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .unwrap_or_else(|error| {
             tracing::warn!(%error, what = "sessions", "webui template render failed; \
@@ -136,8 +141,11 @@ pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
 }
 
 /// The sessions list for a page render or a GET pull: live rows from
-/// state, archived rows from the store, active first. `active` names
-/// the session to mark active (`None` on the landing page). Store
+/// state, archived rows from the store. `filter` narrows the merged
+/// list to titles fuzzy-matching it, matched with the TUI session
+/// picker's matcher. Every row's `active` flag is computed per row
+/// from the instance's active session id, so an archived row can
+/// never wear the active styling on the active session's page. Store
 /// summaries are awaited on the request path (request-scoped; no
 /// command round-trip); a store failure degrades to the live-only
 /// list — a web session list must not 500 because a disk read
@@ -148,27 +156,22 @@ pub fn sessions_live_fragment(guard: &StateReadGuard<'_>) -> String {
 /// Returns the render error; the caller maps it to a 500.
 pub async fn sessions_fragment(
     shared: &ServerShared,
-    active: Option<&jinn_core_types::SessionId>,
+    filter: Option<&str>,
 ) -> Result<String, HandlerError> {
-    let (mut rows, active_id) = {
+    let mut rows = {
         let guard = shared.read_state();
-        let rows: Vec<jinn_webui_msg::SessionListItem> = guard
+        let active_id = guard.session.active_session_id().clone();
+        guard
             .session
             .iter()
-            .map(|(id, session)| jinn_webui_msg::SessionListItem {
-                session_id: id.clone(),
-                title: session.title().unwrap_or("Untitled Session").to_owned(),
-                active: Some(id) == active,
-                is_bot: session.is_bot(),
-                loaded: true,
-            })
-            .collect();
-        let active_id = guard.session.active_session_id().clone();
-        (rows, active_id)
+            .map(|(id, session)| live_row(id, session, &active_id))
+            .collect::<Vec<_>>()
     };
 
     // Archived rows: skip ids already live; the merged list is the one
-    // shape the template renders.
+    // shape the template renders. An archived row is never the
+    // instance's active session (the active session is always live),
+    // so its `active` flag is false by construction.
     if let Ok(summaries) = shared.load_summaries().await {
         for summary in summaries {
             if rows.iter().any(|row| row.session_id == summary.session_id) {
@@ -177,18 +180,70 @@ pub async fn sessions_fragment(
             rows.push(jinn_webui_msg::SessionListItem {
                 session_id: summary.session_id,
                 title: summary.title,
-                active: active == Some(&active_id),
+                active: false,
                 is_bot: summary.is_bot,
                 loaded: false,
             });
         }
     }
-    rows.sort_by(|a, b| {
-        b.active
-            .cmp(&a.active)
-            .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
-    });
+
+    let rows = filtered_and_grouped(rows, filter);
 
     crate::templates::render(&crate::templates::SessionsTemplate::with_contract(rows))
         .map_err(|e| crate::server::map_render_error(&e))
+}
+
+/// Builds one live row. Every field computes from this row's own id
+/// and data — the active flag from the row's id against the instance's
+/// active session id, never from a page-level comparison.
+fn live_row(
+    id: &jinn_core_types::SessionId,
+    session: &jinn_session_state::ChatSessionState,
+    active_id: &jinn_core_types::SessionId,
+) -> jinn_webui_msg::SessionListItem {
+    jinn_webui_msg::SessionListItem {
+        session_id: id.clone(),
+        title: session.title().unwrap_or("Untitled Session").to_owned(),
+        active: id == active_id,
+        is_bot: session.is_bot(),
+        loaded: true,
+    }
+}
+
+/// Narrows the rows to titles fuzzy-matching `filter`, then applies
+/// the grouped order. An absent or empty filter short-circuits to the
+/// grouping alone — the matcher's empty-pattern behavior never
+/// defines the unfiltered case.
+fn filtered_and_grouped(
+    rows: Vec<jinn_webui_msg::SessionListItem>,
+    filter: Option<&str>,
+) -> Vec<jinn_webui_msg::SessionListItem> {
+    match filter {
+        None => grouped_and_sorted(rows),
+        Some(text) => {
+            let matcher = SkimMatcherV2::default();
+            let matches: Vec<_> = rows
+                .into_iter()
+                .filter(|row| matcher.fuzzy_match(&row.title, text).is_some())
+                .collect();
+            grouped_and_sorted(matches)
+        }
+    }
+}
+
+/// The list's one ordering: loaded rows first, archived rows under
+/// them; within loaded, the active session leads, then titles A→Z
+/// (case-insensitive); within archived, titles A→Z. Both render
+/// paths — the pull fragment and the fan-out's live fragment — call
+/// this, so a pushed list and a pulled one share one shape.
+fn grouped_and_sorted(
+    mut rows: Vec<jinn_webui_msg::SessionListItem>,
+) -> Vec<jinn_webui_msg::SessionListItem> {
+    rows.sort_by(|a, b| {
+        b.loaded
+            .cmp(&a.loaded)
+            .then_with(|| b.active.cmp(&a.active))
+            .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
+    });
+    rows
 }

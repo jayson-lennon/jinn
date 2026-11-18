@@ -272,7 +272,7 @@ async fn page_session(
 ) -> Result<Page, HandlerError> {
     let id = parse_session_id(&session_id)?;
     let view = session_view(&shared, &id).await?;
-    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, Some(&id)).await?;
+    let sessions_html = crate::regions::sessions::sessions_fragment(&shared, None).await?;
     let transcript_html = crate::templates::render(&crate::templates::TranscriptTemplate {
         entries: view.transcript.entries.clone(),
         start: 0,

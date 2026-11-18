@@ -6010,11 +6010,13 @@ name = "jinn-webui"
 version = "1.25.0"
 dependencies = [
  "askama",
+ "async-trait",
  "axum",
  "chaser-oxide",
  "error-stack",
  "flate2",
  "futures",
+ "fuzzy-matcher",
  "http-body-util",
  "jiff",
  "jinn-app-state",
