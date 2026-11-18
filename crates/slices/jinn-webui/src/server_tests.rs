@@ -762,3 +762,38 @@ mod whole_flow {
         }
     }
 }
+
+/// The bare-host root.
+mod root {
+    use super::*;
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn the_bare_host_root_redirects_to_web() {
+        // Given the router.
+        let (_state, _audit, _slices, router) = harness();
+
+        // When getting the root path.
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("response");
+
+        // Then the response redirects to /web — a bare visit to the
+        // host never lands on a 404.
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::LOCATION)
+                .and_then(|v| v.to_str().ok()),
+            Some("/web")
+        );
+    }
+}

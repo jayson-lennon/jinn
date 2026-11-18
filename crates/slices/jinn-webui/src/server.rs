@@ -88,6 +88,7 @@ impl ServerShared {
 /// Builds the web surface's routes.
 pub fn router(shared: ServerShared) -> Router {
     Router::new()
+        .route("/", get(root_redirects_to_web))
         .route("/web", get(page_root))
         .route("/web/session/{id}", get(page_session))
         .route("/web/sessions", get(sessions_fragment_handler))
@@ -119,6 +120,13 @@ fn parse_session_id(raw: &str) -> Result<SessionId, HandlerError> {
 }
 
 // ── Pages ───────────────────────────────────────────────────────────
+
+/// `GET /` — the bare host root redirects to the page's real home.
+/// The canonical URL is `/web` so the surface never fights any other
+/// handler that might later claim the root path.
+async fn root_redirects_to_web() -> axum::response::Redirect {
+    axum::response::Redirect::temporary("/web")
+}
 
 /// `GET /web` — the landing page: sessions list, no transcript.
 async fn page_root(
