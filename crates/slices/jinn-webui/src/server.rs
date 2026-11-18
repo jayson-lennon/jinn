@@ -118,6 +118,12 @@ pub struct ServerShared {
     session_store: jinn_session_state::SessionStoreService,
     /// The provider cell, for the model picker.
     provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
+    /// The provider registry, for the picker's TUI-parity rows (the
+    /// shared builder reads it for static providers, aliases, and
+    /// availability).
+    provider_registry: jinn_provider_config::ProviderRegistryService,
+    /// The resolved API keys, for the picker rows' availability flags.
+    api_keys: jinn_provider_config::ApiKeysService,
     /// The fan-out's broadcast handle, for the SSE endpoint.
     fanout: crate::fanout::FanoutHandle,
     /// The bound port (reported by `/healthz`).
@@ -134,6 +140,8 @@ impl ServerShared {
         bus: BusService,
         session_store: jinn_session_state::SessionStoreService,
         provider_cell: jinn_slices::TypedCell<jinn_provider_selection_msg::ProviderCell>,
+        provider_registry: jinn_provider_config::ProviderRegistryService,
+        api_keys: jinn_provider_config::ApiKeysService,
         fanout: crate::fanout::FanoutHandle,
         port: u16,
         version: String,
@@ -143,6 +151,8 @@ impl ServerShared {
             bus,
             session_store,
             provider_cell,
+            provider_registry,
+            api_keys,
             fanout,
             port,
             version,
@@ -191,6 +201,18 @@ impl ServerShared {
         &self.provider_cell
     }
 
+    /// The provider registry, for the picker rows' shared builder.
+    #[must_use]
+    pub(crate) fn provider_registry(&self) -> &jinn_provider_config::ProviderRegistryService {
+        &self.provider_registry
+    }
+
+    /// The resolved API keys, for the picker rows' availability flags.
+    #[must_use]
+    pub(crate) fn api_keys(&self) -> &jinn_provider_config::ApiKeysService {
+        &self.api_keys
+    }
+
     /// The message fabric, for action publications.
     #[must_use]
     pub(crate) fn bus(&self) -> &BusService {
@@ -214,7 +236,9 @@ pub fn router(shared: ServerShared) -> Router {
         .route("/web/send", post(send))
         .route("/web/cancel", post(cancel))
         .route("/web/model", post(model))
+        .route(crate::contract::MODELS_REFRESH_ROUTE, post(refresh_models))
         .route("/web/session/{id}/activate", post(activate))
+        .route(crate::contract::RENAME_ROUTE, post(rename))
         .route("/vendor/{*path}", get(serve_vendor))
         .route("/healthz", get(health));
     crate::region::regions()
@@ -284,11 +308,7 @@ async fn page_session(
             view.phase != PhaseView::Idle.as_str(),
         ))
         .map_err(|e| fail(500, e.to_string()))?;
-    let model_html = crate::regions::model_picker::model_picker_html(
-        &shared,
-        &session_id,
-        &view.transcript.model,
-    )?;
+    let model_html = crate::regions::model_picker::button_fragment(&shared, &session_id)?;
     let html = crate::templates::render(&crate::templates::PageTemplate::session(
         session_id.clone(),
         view.transcript.title.clone(),
@@ -431,7 +451,8 @@ async fn cancel(
 }
 
 /// `POST /web/model` — switch a session's model. Responds with the
-/// re-rendered picker, selection on the new model.
+/// re-rendered titlebar **button** (the modal closes on the client;
+/// a stale modal must not survive the switch it caused).
 async fn model(
     AxumState(shared): AxumState<ServerShared>,
     form: Result<Form<jinn_webui_msg::ModelForm>, axum::extract::rejection::FormRejection>,
@@ -447,11 +468,24 @@ async fn model(
     .await
     .map_err(|error| fail(error.status(), error.sentence()))?;
     Ok(Fragment::new(
-        crate::regions::model_picker::model_picker_html(
-            &shared,
-            &form.session_id,
-            &form.provider_id,
-        )?,
+        crate::regions::model_picker::button_fragment(&shared, &form.session_id)?,
+    ))
+}
+
+/// `POST /web/models/refresh` — the modal's refresh button. Publishes
+/// `RefreshModels` and responds with the re-rendered button fragment
+/// immediately; the rows update when discovery lands (the fan-out's
+/// `models` push). Never blocks on discovery.
+async fn refresh_models(
+    AxumState(shared): AxumState<ServerShared>,
+    form: Result<Form<jinn_webui_msg::ModelsRefreshForm>, axum::extract::rejection::FormRejection>,
+) -> Result<Fragment, HandlerError> {
+    let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
+    crate::delivery::handle_refresh_models(shared.bus(), &form.session_id)
+        .await
+        .map_err(|error| fail(error.status(), error.sentence()))?;
+    Ok(Fragment::new(
+        crate::regions::model_picker::button_fragment(&shared, &form.session_id)?,
     ))
 }
 
@@ -479,6 +513,40 @@ async fn activate(
     // in live state yet; `page_session` falls through to the store and
     // the SSE `transcript-full` convergence push corrects any lag.
     page_session(AxumState(shared), AxPath(session_id)).await
+}
+
+/// `POST /web/session/{id}/rename` — rename a live session.
+///
+/// Applies the TUI rename's three mutations and publishes
+/// `PersistSession` (see [`crate::delivery::handle_rename`]), then
+/// responds with the **sessions-list fragment** — the same markup the
+/// `GET /web/sessions` pull serves — so the initiating page's sidebar
+/// shows the new title in one round trip. Every other page viewing
+/// the renamed session refreshes its sidebar from the addressed
+/// `sessions` SSE push (the double swap on the initiating page is
+/// harmless: both render the same post-rename list).
+async fn rename(
+    AxumState(shared): AxumState<ServerShared>,
+    AxPath(session_id): AxPath<String>,
+    form: Result<Form<jinn_webui_msg::RenameForm>, axum::extract::rejection::FormRejection>,
+) -> Result<Fragment, HandlerError> {
+    let Form(form) = form.map_err(|rejection| fail(400, format!("malformed form: {rejection}")))?;
+    crate::delivery::handle_rename(shared.state(), shared.bus(), &session_id, &form.title)
+        .await
+        .map_err(|error| fail(error.status(), error.sentence()))?;
+    let id = parse_session_id(&session_id)?;
+    // The addressed refresh push, for the OTHER pages viewing this
+    // session. The live fragment renders under one read guard, dropped
+    // before the synchronous send.
+    let live_html = {
+        let guard = shared.read_state();
+        crate::regions::sessions::sessions_live_fragment(&guard)
+    };
+    shared.fanout.push_sessions_refresh_from(&id, live_html);
+    // The GET pull's merged shape (live + archived) as the response.
+    crate::regions::sessions::sessions_fragment(&shared, Some(&id))
+        .await
+        .map(Fragment::new)
 }
 
 // ── SSE ─────────────────────────────────────────────────────────────

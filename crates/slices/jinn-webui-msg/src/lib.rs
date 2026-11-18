@@ -16,8 +16,8 @@
 pub mod wire;
 
 pub use wire::{
-    CancelForm, ModelForm, SendForm, SessionListItem, SseEnvelope, SseKind, SwitchForm,
-    TranscriptQuery,
+    CancelForm, ModelForm, ModelsRefreshForm, RenameForm, SendForm, SessionListItem, SseEnvelope,
+    SseKind, SwitchForm, TranscriptQuery,
 };
 
 #[cfg(test)]

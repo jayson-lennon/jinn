@@ -122,6 +122,7 @@ pub async fn activate(
     bus: BusService,
     state: State,
     session_store: jinn_session_state::SessionStoreService,
+    services: &jinn_kernel::common::services::Services,
 ) -> Result<(), error_stack::Report<WebUiActivationError>> {
     // Frozen at activation, deliberately: the web page's SSE streams are
     // long-lived pipes tied to the address they opened on. A hot rebind
@@ -161,6 +162,8 @@ pub async fn activate(
             bus,
             session_store,
             provider_cell,
+            provider_registry: services.provider_registry.clone(),
+            api_keys: services.api_keys.clone(),
             fanout,
             version: env!("CARGO_PKG_VERSION").to_owned(),
         },

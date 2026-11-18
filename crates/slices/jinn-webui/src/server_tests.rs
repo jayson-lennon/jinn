@@ -54,6 +54,18 @@ fn harness() -> (State, BusAudit, Slices, axum::Router) {
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
         provider_cell,
+        jinn_provider_config::ProviderRegistryService::new(
+            jinn_provider_config::ProviderRegistry::from_config(
+                jinn_provider_config::ProvidersConfig {
+                    providers: Default::default(),
+                    aliases: vec![],
+                    default_provider: None,
+                    endpoint_defaults: vec![],
+                },
+            )
+            .expect("an empty providers config expands"),
+        ),
+        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         fanout,
         8387,
         "test".to_owned(),
@@ -117,6 +129,15 @@ async fn axax_bytes(response: axum::response::Response) -> String {
 /// the named message type.
 fn audit_count(audit: &BusAudit, name: &str) -> usize {
     audit.names().iter().filter(|n| n.ends_with(name)).count()
+}
+
+/// The session's current title as live state holds it.
+fn title_of(state: &State, id: &SessionId) -> Option<String> {
+    state
+        .read()
+        .session
+        .get(id)
+        .map_or_default(|session| session.title().map(str::to_owned))
 }
 
 /// Read paths: page shell, sessions list, transcript cursor grammar.
@@ -486,6 +507,92 @@ mod actions {
 
     #[rstest::rstest]
     #[tokio::test]
+    async fn refresh_models_publishes_one_refresh_command_and_answers_the_button() {
+        // Given a live session.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+
+        // When posting the refresh-models action.
+        let (status, body) = post_form(
+            &router,
+            crate::contract::MODELS_REFRESH_ROUTE,
+            &format!("session_id={id}"),
+        )
+        .await;
+
+        // Then exactly one `RefreshModels` published and the response
+        // is the re-rendered BUTTON fragment — the POST never blocks
+        // on discovery.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(audit_count(&audit, "RefreshModels"), 1);
+        assert!(
+            body.contains(&format!("id=\"{}\"", crate::contract::MODEL_PICKER_BUTTON_ID)),
+            "{body}"
+        );
+        assert!(
+            !body.contains(&crate::contract::MODEL_PICKER_MODAL_ID),
+            "the refresh POST must not answer with the modal: {body}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn refresh_models_refuses_a_malformed_session_id() {
+        // Given no session (and a malformed id).
+        let (_state, _audit, _slices, router) = harness();
+
+        // When posting the refresh-models action.
+        let (status, _body) = post_form(
+            &router,
+            crate::contract::MODELS_REFRESH_ROUTE,
+            "session_id=not-a-uuid",
+        )
+        .await;
+
+        // Then the request is a 400.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn model_switch_refuses_an_id_outside_the_discovered_cache() {
+        // Given a live session and a cache holding one model.
+        let (state, audit, slices, router) = harness();
+        let id = seed_session(&state);
+        slices
+            .reader::<jinn_provider_selection_msg::ProviderCell>(
+                &jinn_provider_selection_msg::provider_state_slot(),
+            )
+            .expect("harness registered the provider cell")
+            .update(|cell| {
+                cell.model_cache = Some(jinn_provider_config::ModelCache {
+                    entries: std::collections::HashMap::from([(
+                        "openai".to_owned(),
+                        vec![jinn_provider::ModelInfo {
+                            id: "openai/gpt-4o".to_owned(),
+                            context_length: None,
+                            input_modalities: jinn_provider::InputModalities::default(),
+                        }],
+                    )]),
+                    last_updated_at: None,
+                });
+            });
+
+        // When posting a pick for a model discovery never listed.
+        let (status, _body) = post_form(
+            &router,
+            "/web/model",
+            &format!("session_id={id}&provider_id=ollama%2Fnot-discovered"),
+        )
+        .await;
+
+        // Then the server refuses with 400 and publishes nothing.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit_count(&audit, "ProviderSwitch"), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
     async fn composer_shows_send_when_idle() {
         // Given an idle live session.
         let (state, _audit, _slices, router) = harness();
@@ -549,6 +656,159 @@ mod actions {
             )),
             "{body}"
         );
+    }
+}
+
+/// Rename: the TUI confirm's semantics through the web endpoint.
+mod rename_actions {
+    use super::*;
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_applies_the_title_and_publishes_one_persist() {
+        // Given a live titled session and the router over it.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .set_title("Before".to_owned());
+
+        // When posting a rename.
+        let (status, body) = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=Rename+Again",
+        )
+        .await;
+
+        // Then the ack is OK, the session's live title is the new one,
+        // and exactly one PersistSession naming the session published.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(title_of(&state, &id), Some("Rename Again".to_owned()));
+        let published = audit.of_type::<jinn_session_store_msg::PersistSession>();
+        let [command] = published.as_slice() else {
+            panic!("exactly one persist was published, got {}", published.len())
+        };
+        assert_eq!(command.session_id, id);
+
+        // And the response is the sessions-list fragment (no page
+        // shell), carrying the new title as a row.
+        assert!(!body.contains("<!DOCTYPE html>"), "{body}");
+        assert!(body.contains("Rename Again"), "{body}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_trims_surrounding_whitespace_off_the_title() {
+        // Given a live session.
+        let (state, _audit, _slices, router) = harness();
+        let id = seed_session(&state);
+
+        // When posting a rename whose body value carries padding.
+        let (status, _body) = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=%20+Padded+Title+%20",
+        )
+        .await;
+
+        // Then the applied title is the trimmed text — the TUI
+        // rename's own trim, mirrored.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(title_of(&state, &id), Some("Padded Title".to_owned()));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_refuses_an_empty_after_trim_title() {
+        // Given a live titled session.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        state
+            .write()
+            .session
+            .get_mut(&id)
+            .expect("seeded session")
+            .set_title("Keep".to_owned());
+
+        // When posting a rename whose title is whitespace only.
+        let (status, _body) = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=%20+++%20",
+        )
+        .await;
+
+        // Then the request is refused 400, nothing published, and the
+        // title unchanged.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit.names().len(), 0);
+        assert_eq!(title_of(&state, &id), Some("Keep".to_owned()));
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_refuses_a_malformed_session_id() {
+        // Given the router.
+        let (_state, audit, _slices, router) = harness();
+
+        // When posting a rename to a path id that is not a UUID.
+        let (status, _body) =
+            post_form(&router, "/web/session/not-a-uuid/rename", "title=Whatever").await;
+
+        // Then the request is refused 400 and nothing published.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(audit.names().len(), 0);
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_refuses_a_session_absent_from_live_state() {
+        // Given the router over an empty state.
+        let (_state, audit, _slices, router) = harness();
+        let id = SessionId::new();
+
+        // When posting a rename for the unknown id.
+        let (status, body) =
+            post_form(&router, &format!("/web/session/{id}/rename"), "title=Ghost").await;
+
+        // Then the request is refused 404 (a well-formed request naming
+        // nothing), nothing published.
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(audit.names().len(), 0);
+        assert!(body.contains("no live session with id"), "{body}");
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn rename_renames_a_bot_session_like_any_other() {
+        // Given a live bot session.
+        let (state, audit, _slices, router) = harness();
+        let id = seed_session(&state);
+        let bot = {
+            let guard = state.read();
+            let source = guard.session.get(&id).expect("seeded session");
+            jinn_session_state::ChatSessionState::new_bot(source, true)
+        };
+        let bot_id = bot.session_id().clone();
+        state.write().session.insert(bot);
+
+        // When posting a rename.
+        let (status, _body) = post_form(
+            &router,
+            &format!("/web/session/{bot_id}/rename"),
+            "title=Watchdog+Title",
+        )
+        .await;
+
+        // Then the rename lands — the bot refusal exists only on the
+        // text-delivery path, exactly as the TUI rename behaves.
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(title_of(&state, &bot_id), Some("Watchdog Title".to_owned()));
+        assert_eq!(audit_count(&audit, "PersistSession"), 1);
     }
 }
 
@@ -736,7 +996,7 @@ mod whole_flow {
 
         // When the page's requests fire in one pass: home shell,
         // session page, sessions list, transcript, model picker, send,
-        // model switch, session switch.
+        // model switch, session switch, rename.
         let home = get(&router, "/web").await;
         let page = get(&router, &format!("/web/session/{id}")).await;
         let sessions = get(&router, "/web/sessions").await;
@@ -765,6 +1025,12 @@ mod whole_flow {
         )
         .await;
         let switch = post_form(&router, &format!("/web/session/{id}/activate"), "").await;
+        let rename = post_form(
+            &router,
+            &format!("/web/session/{id}/rename"),
+            "title=Trip+plan+renamed",
+        )
+        .await;
 
         // Then every read answers 200 and names its content.
         let reads = [
@@ -788,15 +1054,23 @@ mod whole_flow {
         assert_eq!(vendor.0, StatusCode::OK);
         assert_eq!(health.0, StatusCode::OK);
 
-        // And every action published its schema — send, model, switch.
+        // And every action published its schema — send, model, switch,
+        // rename.
         assert_eq!(send.0, StatusCode::OK);
         assert_eq!(model.0, StatusCode::OK);
         assert_eq!(switch.0, StatusCode::OK);
+        assert_eq!(rename.0, StatusCode::OK);
+        assert!(
+            rename.1.contains("Trip plan renamed"),
+            "rename: {}",
+            rename.1
+        );
         let names = audit.names();
         for schema in [
             "EnqueueUserMessage",
             "ProviderSwitch",
             "SessionLoadRequested",
+            "PersistSession",
         ] {
             assert!(
                 names.iter().any(|n| n.ends_with(schema)),

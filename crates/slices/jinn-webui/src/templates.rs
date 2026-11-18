@@ -121,6 +121,10 @@ pub struct PageTemplate {
     pub cursor_attr: &'static str,
     /// The composer-controls container id.
     pub controls_id: &'static str,
+    /// The titlebar title span's id — present on session pages (the
+    /// inline rename editor's host), empty on the landing page whose
+    /// "jinn" title is inert.
+    pub session_title_id: &'static str,
 }
 
 impl PageTemplate {
@@ -148,6 +152,7 @@ impl PageTemplate {
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
             controls_id: contract::CONTROLS_ID,
+            session_title_id: "",
         }
     }
 
@@ -185,6 +190,7 @@ impl PageTemplate {
             transcript_id: contract::TRANSCRIPT_ID,
             cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
             controls_id: contract::CONTROLS_ID,
+            session_title_id: contract::SESSION_TITLE_ID,
         }
     }
 }
@@ -306,32 +312,109 @@ impl ControlsTemplate {
     }
 }
 
-/// The model-picker fragment.
+/// The model-picker's titlebar button fragment: the current model as a
+/// clickable control. The label carries the viewed selection; the
+/// client opens the modal on its click.
 #[derive(Template)]
-#[template(path = "model.html")]
-pub struct ModelTemplate {
+#[template(path = "model_button.html")]
+pub struct ModelButtonTemplate {
     /// The session the picker targets.
     pub session_id: String,
     /// The current selection's label.
     pub current: String,
-    /// The cache's model ids, sorted.
-    pub models: Vec<String>,
-    /// The attribute the select names its action with.
-    pub action_attr: &'static str,
-    /// The model action's contract name.
-    pub model_action: &'static str,
+    /// The button's id.
+    pub button_id: &'static str,
+    /// The picker container's id.
+    pub picker_id: &'static str,
 }
 
-impl ModelTemplate {
+impl ModelButtonTemplate {
     /// Builds the template with the contract's hooks filled.
     #[must_use]
-    pub fn with_contract(session_id: String, current: String, models: Vec<String>) -> Self {
+    pub fn with_contract(session_id: String, current: String) -> Self {
         Self {
             session_id,
             current,
-            models,
+            button_id: contract::MODEL_PICKER_BUTTON_ID,
+            picker_id: contract::MODEL_PICKER_ID,
+        }
+    }
+}
+
+/// One row of the model-picker modal — the shared builder's
+/// [`ProviderPickerEntry`][entry] data stamped into markup. Rendered
+/// standalone; the modal embeds the pre-rendered rows.
+///
+/// [entry]: jinn_provider_selection_msg::ProviderPickerEntry
+#[derive(Template)]
+#[template(path = "model_row.html")]
+pub struct ModelRowTemplate {
+    /// The row's entry data (presentation-free).
+    pub entry: jinn_provider_selection_msg::ProviderPickerEntry,
+    /// The session the switch targets.
+    pub session_id: String,
+    /// Whether this row is the session's current model (bold + marked).
+    pub is_active: bool,
+    /// The attribute a row names its model with.
+    pub model_attr: &'static str,
+    /// The attribute a row names its marker with.
+    pub marker_attr: &'static str,
+    /// The attribute an unavailable row carries.
+    pub unavailable_attr: &'static str,
+    /// The attribute a row names its action with.
+    pub action_attr: &'static str,
+    /// The switch action's contract name.
+    pub model_action: &'static str,
+}
+
+/// The model-picker modal: the overlay, the filter input, the row
+/// container, and the refresh button. Rendered into the picker
+/// container by the GET pull (with the filter applied server-side);
+/// the client toggles its visibility. The rows arrive pre-rendered
+/// (each [`ModelRowTemplate`] renders first — the same shape the
+/// sessions list uses for its rows).
+#[derive(Template)]
+#[template(path = "model_modal.html")]
+pub struct ModelModalTemplate {
+    /// The session the picker targets.
+    pub session_id: String,
+    /// The pre-rendered row fragments, already sorted/filtered by the
+    /// shared builder.
+    pub rows: Vec<String>,
+    /// The current filter text (echoed back into the input).
+    pub filter: String,
+    /// The modal overlay's id.
+    pub modal_id: &'static str,
+    /// The filter input's id.
+    pub filter_id: &'static str,
+    /// The row container's id.
+    pub rows_id: &'static str,
+    /// The refresh button's id.
+    pub refresh_id: &'static str,
+    /// The attribute a button names its action with.
+    pub action_attr: &'static str,
+    /// The refresh action's contract name.
+    pub refresh_action: &'static str,
+}
+
+impl ModelModalTemplate {
+    /// Builds the template with the contract's hooks filled.
+    #[must_use]
+    pub fn with_contract(
+        session_id: String,
+        rows: Vec<String>,
+        filter: String,
+    ) -> Self {
+        Self {
+            session_id,
+            rows,
+            filter,
+            modal_id: contract::MODEL_PICKER_MODAL_ID,
+            filter_id: contract::MODEL_PICKER_FILTER_ID,
+            rows_id: contract::MODEL_PICKER_ROWS_ID,
+            refresh_id: contract::MODEL_PICKER_REFRESH_ID,
             action_attr: contract::ACTION_DATA_ATTR,
-            model_action: contract::ACTION_MODEL,
+            refresh_action: contract::ACTION_REFRESH_MODELS,
         }
     }
 }

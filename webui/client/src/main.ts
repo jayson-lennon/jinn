@@ -112,6 +112,32 @@ function delegateClickOrChange(
   region.onChange?.(element);
 }
 
+/** Dispatches one delegated input event through the region registry. */
+function delegateInput(target: EventTarget | null): void {
+  const element = dom.targetElement(target);
+  if (element === null) {
+    return;
+  }
+  const region = regionOf(element);
+  if (region === null) {
+    return;
+  }
+  region.onInput?.(element);
+}
+
+/** Dispatches the document-level click for overlay dismissal. */
+function delegateDocumentClick(target: EventTarget | null): void {
+  const element = dom.targetElement(target);
+  if (element === null) {
+    return;
+  }
+  for (const region of regions()) {
+    if (region.onDocumentClick?.(element)) {
+      return;
+    }
+  }
+}
+
 /**
  * Wires the page's delegated behaviors and opens the stream. All
  * listeners live on `document` — elements the page swap destroys are
@@ -123,6 +149,13 @@ export function initialize(): void {
 
   document.addEventListener("click", (event) => {
     delegateClickOrChange(event.target, "click");
+    // Overlay dismissal rides the same event, after the selector
+    // dispatch: a click a region consumed must not also close its
+    // overlay (the modal's rows are inside its own selectors).
+    delegateDocumentClick(event.target);
+  });
+  document.addEventListener("input", (event) => {
+    delegateInput(event.target);
   });
   document.addEventListener("change", (event) => {
     delegateClickOrChange(event.target, "change");

@@ -52,16 +52,57 @@ export const INPUT_ID = "input";
 /** The model-picker container id. */
 export const MODEL_PICKER_ID = "model-picker";
 
+/** The model-picker's titlebar button id — opens the modal. */
+export const MODEL_PICKER_BUTTON_ID = "model-picker-button";
+
+/**
+ * The model-picker's modal overlay id — the server-rendered row list
+ * the button opens; present in the page only after the pull renders
+ * it in.
+ */
+export const MODEL_PICKER_MODAL_ID = "model-picker-modal";
+
+/** The modal's filter input id — each keystroke re-queries the server. */
+export const MODEL_PICKER_FILTER_ID = "model-picker-filter";
+
+/** The modal's row container id — the list the filter re-renders into. */
+export const MODEL_PICKER_ROWS_ID = "model-picker-rows";
+
+/**
+ * The modal's refresh button id — publishes `RefreshModels`; the rows
+ * update when the cache lands via the `models` SSE event.
+ */
+export const MODEL_PICKER_REFRESH_ID = "model-picker-refresh";
+
+/** The attribute a modal row carries its model id in. */
+export const MODEL_ID_DATA_ATTR = "data-webui-model";
+
+/**
+ * The attribute a modal row carries its marker in (`✗` unavailable /
+ * `→` alias / `*` remote) — present only when a marker applies.
+ */
+export const MODEL_MARKER_ATTR = "data-webui-marker";
+
+/**
+ * The attribute an unavailable row carries — the row is
+ * non-interactive (the server also refuses the switch).
+ */
+export const MODEL_UNAVAILABLE_ATTR = "data-webui-unavailable";
+
+/** The titlebar title span — the inline rename editor's host. */
+export const SESSION_TITLE_ID = "session-title";
+
 /** The streaming spinner — present above the composer while busy. */
 export const BUSY_SPINNER_ID = "busy-spinner";
 
-/** The attribute naming an element's action (send/cancel/model). */
+/** The attribute naming an element's action (send/cancel/model/refresh). */
 export const ACTION_DATA_ATTR = "data-webui-action";
 
 /** Action names — the contract's action vocabulary. */
 export const ACTION_SEND = "send";
 export const ACTION_CANCEL = "cancel";
 export const ACTION_MODEL = "model";
+export const ACTION_REFRESH_MODELS = "refresh-models";
 
 /** The SSE stream path for one session. */
 export const STREAM_PATH = "/web/stream/";
@@ -70,6 +111,16 @@ export const STREAM_PATH = "/web/stream/";
 export const SEND_PATH = "/web/send";
 export const CANCEL_PATH = "/web/cancel";
 export const MODEL_PATH = "/web/model";
+export const MODELS_REFRESH_PATH = "/web/models/refresh";
+
+/**
+ * The model-picker pull's prefix — the client builds picker URLs from
+ * it (open, and one per filter keystroke, `?filter=…` appended).
+ */
+export const MODEL_PICKER_PREFIX = "/web/model-picker/";
+
+/** The model-picker pull's filter query parameter. */
+export const MODEL_FILTER_QUERY_PARAM = "filter";
 
 /** One session's page path (also the activate endpoint with POST). */
 export const SESSION_PAGE_PATH = "/web/session/";
@@ -82,6 +133,7 @@ export const SSE_EVENTS = {
   chat: "chat",
   controls: "controls",
   sessions: "sessions",
+  models: "models",
   transcriptFull: "transcript-full",
 } as const;
 

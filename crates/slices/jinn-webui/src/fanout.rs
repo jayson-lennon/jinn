@@ -29,6 +29,7 @@ use std::time::Duration;
 use jinn_core_types::SessionId;
 use jinn_inference_msg::StreamToken;
 use jinn_kernel::State;
+use jinn_provider_selection_msg::ModelCacheStored;
 use jinn_session_msg::{SessionArchived, SessionPhaseChanged};
 use jinn_session_store_msg::{SessionLibraryMembershipChanged, SessionLoadCompleted};
 use jinn_slices::PhaseView;
@@ -73,6 +74,29 @@ impl FanoutHandle {
     #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<SseEnvelope> {
         self.tx.subscribe()
+    }
+
+    /// Pushes a refreshed sessions-list fragment to every page,
+    /// addressed to the named session — from **outside** the actor.
+    ///
+    /// A synchronous HTTP handler (the rename POST) must push without
+    /// publishing anything the fan-out subscribes to: the only command
+    /// it could publish, `PersistSession`, routes to the store actor,
+    /// so there is no command whose arrival means "refresh the list".
+    /// The handler renders the live fragment from a state read guard
+    /// it already holds and hands it here; the guard must be dropped
+    /// before this is called from an async context (the handle's send
+    /// is synchronous and never awaits).
+    ///
+    /// Send failures are the no-receiver case — no page is connected —
+    /// and are not errors.
+    pub(crate) fn push_sessions_refresh_from(&self, session_id: &SessionId, html: String) {
+        let _ = self.tx.send(SseEnvelope {
+            kind: SseKind::Sessions,
+            session_id: session_id.clone(),
+            cursor: 0,
+            html,
+        });
     }
 }
 
@@ -132,6 +156,7 @@ impl WebUiFanoutActor {
             .handles::<SessionLoadCompleted>()
             .handles::<SessionArchived>()
             .handles::<SessionLibraryMembershipChanged>()
+            .handles::<ModelCacheStored>()
             .handles::<FlushTick>()
             // Arms the first flush ~1 tick after spawn; the chain
             // self-perpetuates from the handler.
@@ -156,6 +181,21 @@ impl WebUiFanoutActor {
             },
             rx,
         )
+    }
+
+    /// The shared handle over the actor's own broadcast channel.
+    /// Test-only: production builds the handle in `spawn`, where the
+    /// channel is created; the tests drive the out-of-actor push
+    /// through the same handle type production handlers hold.
+    #[cfg(test)]
+    #[expect(
+        clippy::same_name_method,
+        reason = "the test accessor names the type it hands back (handle -> FanoutHandle); the MsgHandler::handle collisions are trait-scoped and never ambiguous at a call site"
+    )]
+    pub(crate) fn handle(&self) -> FanoutHandle {
+        FanoutHandle {
+            tx: self.tx.clone(),
+        }
     }
 
     /// Flushes one session's buffer with a cursor of zero. Test-only:
@@ -287,6 +327,27 @@ impl WebUiFanoutActor {
             html,
         });
     }
+
+    /// Signals every open model modal that the discovered-model cache
+    /// changed — one `models` push per live session, addressed so each
+    /// session-filtered stream receives it.
+    ///
+    /// The envelope is a **signal, not rows**: the fan-out holds only
+    /// `State` (no provider registry or api keys), so it cannot render
+    /// TUI-parity rows; the client answers the push by re-pulling the
+    /// picker's GET route with its current filter. Rows always arrive
+    /// by pull — the pull endpoint remains the correctness dependency.
+    pub(crate) fn push_models_changed(&mut self) {
+        let ids: Vec<SessionId> = self.state.read().session.sessions().keys().cloned().collect();
+        for session_id in ids {
+            self.broadcast(SseEnvelope {
+                kind: SseKind::Models,
+                session_id,
+                cursor: 0,
+                html: String::new(),
+            });
+        }
+    }
 }
 
 /// The settle push order: every region's `settle_kinds` flattened in
@@ -342,5 +403,14 @@ impl MsgHandler<SessionArchived> for WebUiFanoutActor {
 impl MsgHandler<SessionLibraryMembershipChanged> for WebUiFanoutActor {
     async fn handle(&mut self, msg: &SessionLibraryMembershipChanged, _ctx: &mut MsgCtx<'_>) {
         self.push_sessions_refresh(&msg.session_id);
+    }
+}
+
+impl MsgHandler<ModelCacheStored> for WebUiFanoutActor {
+    async fn handle(&mut self, _msg: &ModelCacheStored, _ctx: &mut MsgCtx<'_>) {
+        // The provider cell now holds the merged cache (the event is
+        // emitted strictly after the write). Signal every page; open
+        // modals re-pull their rows with their current filter.
+        self.push_models_changed();
     }
 }

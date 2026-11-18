@@ -136,6 +136,70 @@ async fn a_session_activation_pushes_a_sessions_list_refresh() {
 
 #[rstest::rstest]
 #[tokio::test]
+async fn a_cache_stored_event_pushes_one_models_signal_per_live_session() {
+    // Given a default session plus two seeded ones, and a subscriber.
+    let (mut actor, mut rx, state) = fixture();
+    let first = seed_session(&state);
+    let second = seed_session(&state);
+    let live = state.read().session.sessions().len();
+
+    // When a cache-stored event lands (the provider cell already
+    // holds the cache — the emit is post-write by contract).
+    actor.push_models_changed();
+
+    // Then exactly one `models` signal lands per live session — each
+    // session-filtered stream receives its own envelope — and each is
+    // a SIGNAL: empty html, cursor 0; rows arrive by the client's
+    // re-pull, never in the push.
+    let mut seen = std::collections::HashSet::new();
+    while let Ok(envelope) = rx.try_recv() {
+        assert_eq!(envelope.kind, SseKind::Models, "a models push, and only that");
+        assert!(envelope.html.is_empty(), "the push is a signal: {envelope:?}");
+        assert_eq!(envelope.cursor, 0);
+        seen.insert(envelope.session_id);
+    }
+    assert_eq!(seen.len(), live, "one push per live session: {seen:?}");
+    assert!(seen.contains(&first) && seen.contains(&second), "{seen:?}");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_handle_pushes_a_sessions_refresh_from_outside_the_actor() {
+    // Given a live session whose title a web rename just changed, and
+    // a subscriber to the actor's broadcast channel.
+    let (actor, mut rx, state) = fixture();
+    let id = seed_session(&state);
+    state
+        .write()
+        .session
+        .get_mut(&id)
+        .expect("seeded session")
+        .set_title("Renamed from the web".to_owned());
+
+    // When an HTTP handler renders the live fragment under its own
+    // read guard and hands it to the handle (guard dropped first).
+    let html = {
+        let guard = state.read();
+        crate::regions::sessions::sessions_live_fragment(&guard)
+    };
+    actor.handle().push_sessions_refresh_from(&id, html);
+
+    // Then exactly one sessions envelope arrives, addressed to the
+    // renamed session, carrying the new title — the push the other
+    // connected pages' sidebars refresh from.
+    let envelope = rx.try_recv().expect("handle-pushed sessions refresh");
+    assert_eq!(envelope.kind, SseKind::Sessions);
+    assert_eq!(envelope.session_id, id);
+    assert!(
+        envelope.html.contains("Renamed from the web"),
+        "{}",
+        envelope.html
+    );
+    assert!(rx.try_recv().is_err());
+}
+
+#[rstest::rstest]
+#[tokio::test]
 async fn every_broadcast_names_its_own_session() {
     // Given tokens for two sessions buffered on one actor.
     let (mut actor, mut rx, _state) = fixture();

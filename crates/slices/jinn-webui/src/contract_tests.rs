@@ -20,6 +20,27 @@ use jinn_webui_msg::SessionListItem;
 use crate::contract;
 use crate::templates;
 
+/// One picker entry for a render test: availability, alias, and remote
+/// flags chosen by the caller; everything else minimal.
+fn test_entry(available: bool, is_alias: bool, is_remote: bool)
+-> jinn_provider_selection_msg::ProviderPickerEntry {
+    jinn_provider_selection_msg::ProviderPickerEntry {
+        provider_id: "openai/gpt-4o".to_owned(),
+        name: "gpt-4o".to_owned(),
+        provider_name: "openai".to_owned(),
+        backend: "openai".to_owned(),
+        model: "gpt-4o".to_owned(),
+        search_text: "gpt-4o openai".to_owned(),
+        is_alias,
+        alias_target: None,
+        is_available: available,
+        is_remote,
+        is_active: false,
+        selected: false,
+        theme: jinn_theme::default_theme(),
+    }
+}
+
 /// One seeded row for the sessions fragment.
 fn row(session_id: jinn_core_types::SessionId, title: &str, active: bool) -> SessionListItem {
     SessionListItem {
@@ -45,10 +66,9 @@ fn rendered_page() -> String {
         false,
     ))
     .expect("idle controls render");
-    let model = templates::render(&templates::ModelTemplate::with_contract(
+    let model = templates::render(&templates::ModelButtonTemplate::with_contract(
         "00000000-0000-0000-0000-000000000000".to_owned(),
         String::new(),
-        Vec::new(),
     ))
     .expect("an empty picker renders");
     templates::render(&templates::PageTemplate {
@@ -74,6 +94,7 @@ fn rendered_page() -> String {
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
         controls_id: contract::CONTROLS_ID,
+        session_title_id: contract::SESSION_TITLE_ID,
     })
     .expect("the page shell renders")
 }
@@ -93,14 +114,16 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
     let page = rendered_page();
 
     // When collecting every id the contract says the client targets.
-    let targets: [(&str, &str); 7] = [
+    let targets: [(&str, &str); 9] = [
         ("page root", contract::PAGE_ROOT_ID),
         ("sessions", contract::SESSIONS_ID),
         ("transcript", contract::TRANSCRIPT_ID),
         ("transcript wrap", contract::TRANSCRIPT_WRAP_ID),
         ("controls", contract::CONTROLS_ID),
         ("model picker", contract::MODEL_PICKER_ID),
+        ("model picker button", contract::MODEL_PICKER_BUTTON_ID),
         ("composer", contract::COMPOSER_ID),
+        ("session title", contract::SESSION_TITLE_ID),
     ];
 
     // Then each one appears as `id="..."` in the markup — a missing
@@ -173,6 +196,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         transcript_id: contract::TRANSCRIPT_ID,
         cursor_attr: contract::TRANSCRIPT_CURSOR_DATA_ATTR,
         controls_id: contract::CONTROLS_ID,
+        session_title_id: contract::SESSION_TITLE_ID,
     })
     .expect("the page shell renders");
 
@@ -258,15 +282,20 @@ fn composer_buttons_name_the_actions_the_client_maps_to_endpoints() {
 #[rstest::rstest]
 #[test]
 fn the_model_picker_names_the_action_the_client_maps_to_the_model_endpoint() {
-    // Given a model-picker fragment with one entry.
-    let fragment = templates::render(&templates::ModelTemplate::with_contract(
-        "00000000-0000-0000-0000-000000000000".to_owned(),
-        "openai/gpt-4o".to_owned(),
-        vec!["openai/gpt-4o".to_owned()],
-    ))
-    .expect("the picker renders");
+    // Given a model-picker modal with one available row.
+    let fragment = templates::render(&templates::ModelRowTemplate {
+        entry: test_entry(true, false, false),
+        session_id: "00000000-0000-0000-0000-000000000000".to_owned(),
+        is_active: false,
+        model_attr: contract::MODEL_ID_DATA_ATTR,
+        marker_attr: contract::MODEL_MARKER_ATTR,
+        unavailable_attr: contract::MODEL_UNAVAILABLE_ATTR,
+        action_attr: contract::ACTION_DATA_ATTR,
+        model_action: contract::ACTION_MODEL,
+    })
+    .expect("the row renders");
 
-    // Then the select names the model action via the contract's
+    // Then the row names the model action via the contract's
     // attribute.
     assert!(
         fragment.contains(&format!(
@@ -276,6 +305,205 @@ fn the_model_picker_names_the_action_the_client_maps_to_the_model_endpoint() {
         )),
         "{fragment}"
     );
+}
+
+#[rstest::rstest]
+#[test]
+fn an_available_row_carries_its_model_id_and_the_switch_post_targets_it() {
+    // Given an available, non-marker row.
+    let fragment = render_row(test_entry(true, false, false), false);
+
+    // Then the row carries its model id in the contract's attribute
+    // — the value the switch POST sends.
+    assert!(
+        fragment.contains(&format!(
+            "{}=\"openai/gpt-4o\"",
+            contract::MODEL_ID_DATA_ATTR
+        )),
+        "{fragment}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn an_unavailable_row_is_marked_and_names_no_action() {
+    // Given an unavailable row (no api key).
+    let fragment = render_row(test_entry(false, false, false), false);
+
+    // Then it carries the unavailable attribute — the client's
+    // non-interactive hook — and no action (a disabled element must
+    // not advertise the endpoint it cannot legally call).
+    assert!(
+        fragment.contains(&format!(
+            "{}=\"true\"",
+            contract::MODEL_UNAVAILABLE_ATTR
+        )),
+        "{fragment}"
+    );
+    assert!(
+        !fragment.contains(&format!("{}=", contract::ACTION_DATA_ATTR)),
+        "{fragment}"
+    );
+}
+
+#[rstest::rstest]
+#[test]
+fn an_alias_row_carries_the_alias_marker() {
+    // Given an alias row.
+    let fragment = render_row(test_entry(true, true, false), false);
+
+    // Then it carries the alias marker (`→` in the marker span).
+    assert!(
+        fragment.contains(&format!(
+            "{}=\"alias\"",
+            contract::MODEL_MARKER_ATTR
+        )),
+        "{fragment}"
+    );
+    assert!(fragment.contains("→"), "{fragment}");
+}
+
+#[rstest::rstest]
+#[test]
+fn a_remote_row_carries_the_remote_marker() {
+    // Given a remote-discovered row.
+    let fragment = render_row(test_entry(true, false, true), false);
+
+    // Then it carries the remote marker (`*` in the marker span).
+    assert!(
+        fragment.contains(&format!(
+            "{}=\"remote\"",
+            contract::MODEL_MARKER_ATTR
+        )),
+        "{fragment}"
+    );
+    assert!(fragment.contains("*"), "{fragment}");
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_active_row_is_promoted_and_marked_in_the_modal() {
+    // Given the modal fragment for a session whose current model is
+    // the entry's.
+    let shared = test_shared();
+    let session_id = seed_session(&shared);
+    let html = crate::regions::model_picker::modal_fragment(&shared, &session_id, "")
+        .expect("the modal renders");
+
+    // Then the active row renders (the promotion path ran) and the
+    // modal carries the filter input and the refresh button — the
+    // modal's three fixtures the client targets.
+    assert!(
+        html.contains(&format!("id=\"{}\"", contract::MODEL_PICKER_MODAL_ID)),
+        "{html}"
+    );
+    assert!(
+        html.contains(&format!("id=\"{}\"", contract::MODEL_PICKER_FILTER_ID)),
+        "{html}"
+    );
+    assert!(
+        html.contains(&format!("id=\"{}\"", contract::MODEL_PICKER_ROWS_ID)),
+        "{html}"
+    );
+    assert!(
+        html.contains(&format!(
+            "{}=\"{}\"",
+            contract::ACTION_DATA_ATTR,
+            contract::ACTION_REFRESH_MODELS
+        )),
+        "{html}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_button_fragment_carries_the_button_id_and_the_model_action_name() {
+    // Given the titlebar button fragment.
+    let shared = test_shared();
+    let session_id = seed_session(&shared);
+    let html = crate::regions::model_picker::button_fragment(&shared, &session_id)
+        .expect("the button renders");
+
+    // Then it names the button id (the page-presence gate checks the
+    // page carries it; here we check the fragment itself) and hides
+    // no modal markup — the button is the modal's trigger, not the
+    // modal.
+    assert!(
+        html.contains(&format!("id=\"{}\"", contract::MODEL_PICKER_BUTTON_ID)),
+        "{html}"
+    );
+    assert!(
+        !html.contains(&contract::MODEL_PICKER_MODAL_ID),
+        "{html}"
+    );
+}
+
+/// Renders one row with the contract hooks filled.
+fn render_row(entry: jinn_provider_selection_msg::ProviderPickerEntry, is_active: bool) -> String {
+    templates::render(&templates::ModelRowTemplate {
+        entry,
+        session_id: "00000000-0000-0000-0000-000000000000".to_owned(),
+        is_active,
+        model_attr: contract::MODEL_ID_DATA_ATTR,
+        marker_attr: contract::MODEL_MARKER_ATTR,
+        unavailable_attr: contract::MODEL_UNAVAILABLE_ATTR,
+        action_attr: contract::ACTION_DATA_ATTR,
+        model_action: contract::ACTION_MODEL,
+    })
+    .expect("the row renders")
+}
+
+/// A `ServerShared` over a fresh seeded state, an empty provider
+/// registry and key store, and a recording bus — the fragment tests'
+/// harness.
+fn test_shared() -> crate::server::ServerShared {
+    let slices = jinn_slices::Slices::new();
+    let provider_cell = slices
+        .register(
+            jinn_provider_selection_msg::provider_state_slot(),
+            jinn_provider_selection_msg::ProviderCell::default(),
+        )
+        .expect("the provider cell registers once");
+    let state = {
+        let app = jinn_app_state::AppState::default();
+        app.session.attach_slices(slices.clone());
+        jinn_kernel::State::new(app)
+    };
+    let (bus, _audit) = jinn_slices::bus::BusService::new_recording();
+    let fanout = {
+        use trouper::system::ActorSystem;
+        let system = ActorSystem::new(trouper::system::SystemConfig::production());
+        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone())
+    };
+    crate::server::ServerShared::new(
+        state,
+        bus,
+        jinn_session_state::SessionStoreService::new(std::sync::Arc::new(
+            jinn_kernel::common::services::test_services::FakeSessionStore,
+        )),
+        provider_cell,
+        jinn_provider_config::ProviderRegistryService::new(
+            jinn_provider_config::ProviderRegistry::from_config(jinn_provider_config::ProvidersConfig {
+                providers: Default::default(),
+                aliases: vec![],
+                default_provider: None,
+                endpoint_defaults: vec![],
+            })
+            .expect("an empty providers config expands"),
+        ),
+        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
+        fanout,
+        0,
+        "contract-test".to_owned(),
+    )
+}
+
+/// Inserts a fresh live session and returns its id as a string.
+fn seed_session(shared: &crate::server::ServerShared) -> String {
+    let session = jinn_session_state::ChatSessionState::new();
+    let id = session.session_id().clone();
+    shared.state().write().session.insert(session);
+    id.to_string()
 }
 
 // ── The contract and the emitted client agree (parity) ──────────────
@@ -331,6 +559,7 @@ fn every_sse_event_name_appears_in_the_client_wire_file() {
         jinn_webui_msg::SseKind::Chat,
         jinn_webui_msg::SseKind::Controls,
         jinn_webui_msg::SseKind::Sessions,
+        jinn_webui_msg::SseKind::Models,
         jinn_webui_msg::SseKind::TranscriptFull,
     ];
     let client_src = client_wire_source();

@@ -20,6 +20,16 @@ import * as sessions from "./sessions.js";
 import * as transcript from "./transcript.js";
 import * as composer from "./composer.js";
 
+
+/**
+ * Narrows a happy-dom node to the DOM `Element` the region handlers
+ * take — the two `Element` types are structurally the same node under
+ * different lib roots, so the cast is the seam, not a conversion.
+ */
+function el(node: unknown): Element {
+  return node as Element;
+}
+
 /**
  * A happy-dom window with the page shell installed as the active
  * document, plus the module-level `document` the region modules
@@ -31,7 +41,7 @@ function pageShell(): Window {
     <div id="${wire.PAGE_ROOT_ID}" ${wire.PAGE_SESSION_DATA_ATTR}="00000000-0000-0000-0000-000000000000">
       <nav id="sidebar"><h2>Sessions</h2><div id="${wire.SESSIONS_ID}"><span>old list</span></div></nav>
       <main id="main">
-        <div id="titlebar"><span id="${wire.MODEL_PICKER_ID}"></span></div>
+        <div id="titlebar"><span id="${wire.SESSION_TITLE_ID}" class="t">Contract Title</span><span id="${wire.MODEL_PICKER_ID}"></span></div>
         <div id="${wire.TRANSCRIPT_WRAP_ID}">
           <div id="${wire.TRANSCRIPT_ID}" ${wire.TRANSCRIPT_CURSOR_DATA_ATTR}="0"></div>
         </div>
@@ -254,4 +264,223 @@ test("every region selector names a wire contract value", () => {
       );
     }
   }
+});
+
+// ── The inline title editor ─────────────────────────────────────────
+
+/**
+ * A rename-posting fetch double: records the posted URL/body and
+ * answers with the given sessions-list fragment (or refuses with the
+ * given status).
+ */
+function renameFetch(
+  posts: { url: string; body: string }[],
+  ok: boolean,
+  listHtml: string,
+): void {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/rename") && init?.method === "POST") {
+      posts.push({ url, body: String(init.body ?? "") });
+      if (ok) {
+        return new Response(listHtml, { status: 200 });
+      }
+      return new Response("title must not be empty", { status: 400 });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  }) as unknown as typeof fetch;
+}
+
+test("clicking the title span opens a pre-filled input inside it", () => {
+  // Given the page shell.
+  const window = pageShell();
+  const region = regions().find((candidate) => candidate.id === "sessions")!;
+
+  // When the click delegation claims the title span.
+  const span = window.document.getElementById(wire.SESSION_TITLE_ID)!;
+  assert.equal(region.onClick!(el(span)), true, "the sessions region claims the span");
+
+  // Then the span hosts a text input pre-filled with the displayed
+  // title.
+  const input = span.querySelector("input");
+  assert.ok(input, "an input opened inside the span");
+  assert.equal((input as unknown as { value: string }).value, "Contract Title");
+});
+
+test("clicking inside an open editor is inert — no second editor opens", () => {
+  // Given the page shell with the editor already open.
+  const window = pageShell();
+  const region = regions().find((candidate) => candidate.id === "sessions")!;
+  const span = window.document.getElementById(wire.SESSION_TITLE_ID)!;
+  region.onClick!(el(span));
+
+  // When the click delegation claims the input itself (it bubbles to
+  // the span).
+  const input = span.querySelector("input")!;
+  assert.equal(region.onClick!(el(input)), true, "handled");
+
+  // Then there is still exactly one input — handled-and-inert.
+  assert.equal(span.querySelectorAll("input").length, 1);
+});
+
+test("Enter commits the rename and updates the titlebar, tab title, and sidebar", async () => {
+  // Given the page shell and a rename endpoint answering with a fresh
+  // sessions list.
+  const window = pageShell();
+  const region = regions().find((candidate) => candidate.id === "sessions")!;
+  const posts: { url: string; body: string }[] = [];
+  renameFetch(posts, true, `<a class="${wire.SESSION_ROW_CLASS}">Fresh Title</a>`);
+
+  // When opening the editor, retyping, and pressing Enter (the
+  // region's own keydown delegation — a plain preventDefault double
+  // is the event surface the handler consumes).
+  const span = window.document.getElementById(wire.SESSION_TITLE_ID)!;
+  region.onClick!(el(span));
+  const input = span.querySelector("input") as unknown as HTMLInputElement;
+  input.value = "  Fresh Title  ";
+  region.onKeyDown!(
+    el(input),
+    { key: "Enter", preventDefault() {} } as unknown as KeyboardEvent,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // Then the post went to the session's rename endpoint with the raw
+  // value urlencoded, and the display shows the trimmed title.
+  assert.equal(posts.length, 1, `one rename post, got ${posts.length}`);
+  assert.match(posts[0]!.url, /\/web\/session\/[^/]+\/rename$/, `rename URL: ${posts[0]!.url}`);
+  assert.match(
+    posts[0]!.body,
+    /title=%20%20Fresh%20Title%20%20/,
+    `the raw value rides the body urlencoded: ${posts[0]!.body}`,
+  );
+  assert.equal(
+    span.textContent,
+    "Fresh Title",
+    "the titlebar shows the trimmed committed title",
+  );
+  assert.equal(window.document.title, "Fresh Title — jinn", "tab title updated");
+  const list = window.document.getElementById(wire.SESSIONS_ID)!;
+  assert.ok(list.innerHTML.includes("Fresh Title"), "sidebar swapped from the response");
+});
+
+test("Escape reverts the editor to the pre-edit title without a request", () => {
+  // Given the page shell with the editor open and retyped.
+  const window = pageShell();
+  const region = regions().find((candidate) => candidate.id === "sessions")!;
+  const posts: { url: string; body: string }[] = [];
+  renameFetch(posts, true, "");
+  const span = window.document.getElementById(wire.SESSION_TITLE_ID)!;
+  region.onClick!(el(span));
+  const input = span.querySelector("input") as unknown as HTMLInputElement;
+  input.value = "Changed";
+
+  // When pressing Escape.
+  region.onKeyDown!(
+    el(input),
+    { key: "Escape", preventDefault() {} } as unknown as KeyboardEvent,
+  );
+
+  // Then the display reverts and nothing was posted.
+  assert.equal(span.textContent, "Contract Title");
+  assert.equal(posts.length, 0, "no request on Escape");
+  assert.equal(span.querySelector("input"), null, "the editor closed");
+});
+
+test("an empty-after-trim commit reverts locally without a request", () => {
+  // Given the page shell with the editor open holding whitespace.
+  const window = pageShell();
+  const region = regions().find((candidate) => candidate.id === "sessions")!;
+  const posts: { url: string; body: string }[] = [];
+  renameFetch(posts, true, "");
+  const span = window.document.getElementById(wire.SESSION_TITLE_ID)!;
+  region.onClick!(el(span));
+  const input = span.querySelector("input") as unknown as HTMLInputElement;
+  input.value = "   ";
+
+  // When committing with Enter.
+  region.onKeyDown!(
+    el(input),
+    { key: "Enter", preventDefault() {} } as unknown as KeyboardEvent,
+  );
+
+  // Then the display reverts to the pre-edit title and nothing was
+  // posted — a refused rename leaves the title unchanged, and the
+  // server's 400 round trip is not spent.
+  assert.equal(span.textContent, "Contract Title");
+  assert.equal(posts.length, 0, "no request for an empty commit");
+});
+
+test("a refused commit reverts the display and reports the failure", async () => {
+  // Given the page shell and a rename endpoint refusing with 400.
+  const window = pageShell();
+  const posts: { url: string; body: string }[] = [];
+  renameFetch(posts, false, "");
+  const errors: unknown[] = [];
+  const original = console.error;
+  console.error = (...parts: unknown[]) => errors.push(parts);
+
+  const region = regions().find((candidate) => candidate.id === "sessions")!;
+  try {
+    // When committing a real title that the server refuses.
+    const span = window.document.getElementById(wire.SESSION_TITLE_ID)!;
+    region.onClick!(el(span));
+    const input = span.querySelector("input") as unknown as HTMLInputElement;
+    input.value = "Refused";
+    region.onKeyDown!(
+      input,
+      { key: "Enter", preventDefault() {} } as unknown as KeyboardEvent,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Then the display reverts to the pre-edit title and the failure
+    // was logged — never a silent no-op.
+    assert.equal(span.textContent, "Contract Title", "display reverted");
+    assert.equal(errors.length, 1, `console.error called once, got ${errors.length}`);
+    assert.ok(posts.length === 1, "the refused commit did reach the wire");
+  } finally {
+    console.error = original;
+  }
+});
+
+test("blur (clicking away) commits the rename", async () => {
+  // Given the page shell with the editor open and retyped.
+  const window = pageShell();
+  const region = regions().find((candidate) => candidate.id === "sessions")!;
+  const posts: { url: string; body: string }[] = [];
+  renameFetch(posts, true, `<a class="${wire.SESSION_ROW_CLASS}">Blurred</a>`);
+
+  // When the input loses focus (the module binds blur on the input
+  // itself, so a real dispatch reaches it).
+  const span = window.document.getElementById(wire.SESSION_TITLE_ID)!;
+  region.onClick!(el(span));
+  const input = span.querySelector("input") as unknown as HTMLInputElement;
+  input.value = "Blurred";
+  input.dispatchEvent(new window.Event("blur") as unknown as Event);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // Then exactly one commit fired and the titlebar shows the new
+  // title.
+  assert.equal(posts.length, 1, `one rename post, got ${posts.length}`);
+  assert.equal(span.textContent, "Blurred");
+});
+
+test("the landing page's inert title carries no editor host id", () => {
+  // Given a landing page shell (no session-title span — the server
+  // renders the id on session pages only).
+  const window = new Window({ url: "http://localhost/web" });
+  window.document.body.innerHTML = `
+    <div id="${wire.PAGE_ROOT_ID}" ${wire.PAGE_SESSION_DATA_ATTR}="">
+      <main id="main"><div id="titlebar"><span class="t">jinn</span></div></main>
+    </div>`;
+  globalThis.document = window.document as unknown as typeof globalThis.document;
+
+  // When the click delegation sees the title (no session-title id to
+  // closest() through — the landing page never carries it).
+  const region = regions().find((candidate) => candidate.id === "sessions")!;
+  const title = window.document.querySelector("#titlebar .t")!;
+  const claimed = region.onClick!(el(title));
+
+  // Then the region does not claim it and nothing opened.
+  assert.equal(claimed, false, "the landing title is inert");
+  assert.equal(window.document.querySelector("input"), null, "no editor opened");
 });

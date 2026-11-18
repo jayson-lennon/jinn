@@ -63,6 +63,18 @@ export interface RegionModule {
    */
   onClick?: (target: Element) => boolean;
   /**
+   * Input delegation (the model modal's filter field). Fired for
+   * targets inside the region's selectors, per keystroke. Return
+   * true when handled.
+   */
+  onInput?: (target: Element) => boolean;
+  /**
+   * Document-level click, consulted AFTER the selector dispatch —
+   * for overlays whose dismissal target (the backdrop) sits outside
+   * every selector. Return true when handled.
+   */
+  onDocumentClick?: (target: Element) => boolean;
+  /**
    * Change delegation (the model select). Same first-match rule.
    */
   onChange?: (target: Element) => boolean;

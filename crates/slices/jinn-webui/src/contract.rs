@@ -33,6 +33,35 @@ pub const CONTROLS_ID: &str = "composer-controls";
 /// The model-picker container in the titlebar.
 pub const MODEL_PICKER_ID: &str = "model-picker";
 
+/// The model-picker's button — the titlebar control that opens the
+/// modal; its label is the viewed session's current model.
+pub const MODEL_PICKER_BUTTON_ID: &str = "model-picker-button";
+
+/// The model-picker's modal overlay — the server-rendered row list the
+/// button opens; present in the page only after the pull renders it in.
+pub const MODEL_PICKER_MODAL_ID: &str = "model-picker-modal";
+
+/// The modal's filter input — each keystroke re-queries the server.
+pub const MODEL_PICKER_FILTER_ID: &str = "model-picker-filter";
+
+/// The modal's row container — the list the filter re-renders into.
+pub const MODEL_PICKER_ROWS_ID: &str = "model-picker-rows";
+
+/// The modal's refresh button — publishes `RefreshModels`; the rows
+/// update when the cache lands via the `models` SSE event.
+pub const MODEL_PICKER_REFRESH_ID: &str = "model-picker-refresh";
+
+/// The attribute a modal row carries its model id in.
+pub const MODEL_ID_DATA_ATTR: &str = "data-webui-model";
+
+/// The attribute a modal row carries its marker in (`✗` unavailable /
+/// `→` alias / `*` remote) — present only when a marker applies.
+pub const MODEL_MARKER_ATTR: &str = "data-webui-marker";
+
+/// The attribute an unavailable row carries — the client must treat it
+/// as non-interactive (the server also refuses the switch).
+pub const MODEL_UNAVAILABLE_ATTR: &str = "data-webui-unavailable";
+
 /// The streaming spinner — rendered above the composer while the
 /// session's turn is live; its absence is the idle signal.
 pub const BUSY_SPINNER_ID: &str = "busy-spinner";
@@ -68,8 +97,17 @@ pub const ACTION_CANCEL: &str = "cancel";
 /// The model form's action name.
 pub const ACTION_MODEL: &str = "model";
 
+/// The refresh-models action's name (the modal's refresh button).
+pub const ACTION_REFRESH_MODELS: &str = "refresh-models";
+
 /// The class hook every session row carries.
 pub const SESSION_ROW_CLASS: &str = "srow";
+
+/// The titlebar's title span — the inline rename editor's host. The
+/// session page renders it with the viewed title; clicking it opens
+/// the editor (the client swaps an input inside the span). Absent
+/// content-wise on the landing page, whose "jinn" title is inert.
+pub const SESSION_TITLE_ID: &str = "session-title";
 
 // ── Endpoints ───────────────────────────────────────────────────────
 
@@ -91,6 +129,9 @@ pub const SESSION_PAGE_ROUTE: &str = "/web/session/{id}";
 /// Route pattern — activate (switch to) a session.
 pub const ACTIVATE_ROUTE: &str = "/web/session/{id}/activate";
 
+/// Route pattern — rename a session.
+pub const RENAME_ROUTE: &str = "/web/session/{id}/rename";
+
 /// Route pattern — one session's SSE stream.
 pub const STREAM_ROUTE: &str = "/web/stream/{id}";
 
@@ -103,6 +144,19 @@ pub const TRANSCRIPT_ROUTE: &str = "/web/transcript/{id}";
 /// Route pattern — the model-picker fragment.
 pub const MODEL_PICKER_ROUTE: &str = "/web/model-picker/{id}";
 
+/// Route pattern — the refresh-models action (`POST`): publishes
+/// `RefreshModels` and returns the current button fragment.
+pub const MODELS_REFRESH_ROUTE: &str = "/web/models/refresh";
+
+/// The refresh-models action's path, for the client mirror set.
+pub const MODELS_REFRESH_PATH: &str = "/web/models/refresh";
+
+/// The model-picker pull's filter query parameter
+/// (`GET /web/model-picker/{id}?filter=…`) — the server-side substring
+/// filter over model id and provider name; absent or empty renders
+/// every row.
+pub const MODEL_FILTER_QUERY_PARAM: &str = "filter";
+
 /// Route pattern — the embedded vendor assets.
 pub const VENDOR_ROUTE: &str = "/vendor/{*path}";
 
@@ -111,6 +165,9 @@ pub const SESSION_PAGE_PREFIX: &str = "/web/session/";
 
 /// The path suffix client code appends for an activate request.
 pub const ACTIVATE_SUFFIX: &str = "/activate";
+
+/// The path suffix client code appends for a rename request.
+pub const RENAME_SUFFIX: &str = "/rename";
 
 /// The path prefix client code builds SSE stream URLs from.
 pub const STREAM_PREFIX: &str = "/web/stream/";
@@ -153,7 +210,17 @@ pub const DOM_CONSTANTS: &[&str] = &[
     ACTION_SEND,
     ACTION_CANCEL,
     ACTION_MODEL,
+    ACTION_REFRESH_MODELS,
     SESSION_ROW_CLASS,
+    SESSION_TITLE_ID,
+    MODEL_PICKER_BUTTON_ID,
+    MODEL_PICKER_MODAL_ID,
+    MODEL_PICKER_FILTER_ID,
+    MODEL_PICKER_ROWS_ID,
+    MODEL_PICKER_REFRESH_ID,
+    MODEL_ID_DATA_ATTR,
+    MODEL_MARKER_ATTR,
+    MODEL_UNAVAILABLE_ATTR,
 ];
 
 /// The contract's endpoint constants a client can build a URL from.
@@ -165,23 +232,30 @@ pub const CLIENT_PATHS: &[&str] = &[
     MODEL_PATH,
     SESSION_PAGE_PREFIX,
     ACTIVATE_SUFFIX,
+    RENAME_SUFFIX,
     STREAM_PREFIX,
     TRANSCRIPT_PREFIX,
     MODEL_PICKER_PREFIX,
+    MODEL_FILTER_QUERY_PARAM,
+    MODELS_REFRESH_PATH,
     VENDOR_PREFIX,
 ];
 
 /// The subset of [`CLIENT_PATHS`] the **browser client** builds
 /// request URLs from — the mirror set `wire.ts` must carry and the
 /// generated fixture checks. The other paths are server-rendered
-/// (page navigation, the transcript/model-picker pulls the client
-/// reaches by URL, not by string-building): they are contract, but
-/// not client-contract.
+/// (page navigation, the transcript pull the client reaches by URL,
+/// not by string-building): they are contract, but not
+/// client-contract. `MODEL_PICKER_PREFIX` joined when the picker's
+/// filtering moved server-side — the client now builds picker pull
+/// URLs (with the filter query) itself.
 pub const CLIENT_URLS: &[&str] = &[
     SEND_PATH,
     CANCEL_PATH,
     MODEL_PATH,
     STREAM_PREFIX,
     SESSION_PAGE_PREFIX,
+    MODEL_PICKER_PREFIX,
+    MODELS_REFRESH_PATH,
     VENDOR_PREFIX,
 ];

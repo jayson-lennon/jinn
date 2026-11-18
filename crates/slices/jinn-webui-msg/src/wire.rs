@@ -42,6 +42,13 @@ pub struct ModelForm {
     pub provider_id: String,
 }
 
+/// `POST /web/models/refresh` — the modal's refresh-models action.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModelsRefreshForm {
+    /// The session whose button to re-render in the reply.
+    pub session_id: String,
+}
+
 /// `POST /web/session/{id}/activate` — activate a session.
 ///
 /// The path carries the session id, so the form body is empty; the
@@ -50,6 +57,17 @@ pub struct ModelForm {
 /// actions.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct SwitchForm;
+
+/// `POST /web/session/{id}/rename` — rename a session.
+///
+/// The path carries the session id (the activate precedent); the body
+/// names only the new title.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RenameForm {
+    /// The new title, applied trimmed (an empty-after-trim value is a
+    /// 400 refusal, mirroring the TUI rename's own validation).
+    pub title: String,
+}
 
 /// The transcript pull's query: `GET /web/transcript/{id}?since=N`.
 ///
@@ -115,6 +133,11 @@ pub enum SseKind {
     Controls,
     /// Re-rendered sessions list.
     Sessions,
+    /// Signal that the discovered-model cache changed — the model
+    /// picker's rows. The envelope is a signal only: an open modal
+    /// re-pulls its rows from the picker's GET route (with its current
+    /// filter), which remains the correctness dependency.
+    Models,
     /// Full transcript replace — the convergence push after a turn
     /// settles (or anything else invalidates the incremental cursor).
     TranscriptFull,
@@ -128,6 +151,7 @@ impl SseKind {
             Self::Chat => "chat",
             Self::Controls => "controls",
             Self::Sessions => "sessions",
+            Self::Models => "models",
             Self::TranscriptFull => "transcript-full",
         }
     }
@@ -203,6 +227,7 @@ mod tests {
     #[case(SseKind::Chat, "chat")]
     #[case(SseKind::Controls, "controls")]
     #[case(SseKind::Sessions, "sessions")]
+    #[case(SseKind::Models, "models")]
     #[case(SseKind::TranscriptFull, "transcript-full")]
     fn sse_kind_names_its_event(#[case] kind: SseKind, #[case] expected: &str) {
         assert_eq!(kind.event_name(), expected);

@@ -71,6 +71,18 @@ async fn harness(titled: Option<&str>) -> (String, Option<SessionId>) {
             jinn_kernel::common::services::test_services::FakeSessionStore,
         )),
         provider_cell,
+        jinn_provider_config::ProviderRegistryService::new(
+            jinn_provider_config::ProviderRegistry::from_config(
+                jinn_provider_config::ProvidersConfig {
+                    providers: Default::default(),
+                    aliases: vec![],
+                    default_provider: None,
+                    endpoint_defaults: vec![],
+                },
+            )
+            .expect("an empty providers config expands"),
+        ),
+        jinn_provider_config::ApiKeysService::new(jinn_provider_config::ApiKeys::new()),
         fanout,
         0,
         "serve-test".to_owned(),
@@ -227,6 +239,87 @@ async fn fragment_routes_return_fragment_bodies_not_pages() {
             "{name} must be a fragment, not a page: {body}"
         );
     }
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_model_picker_pull_is_a_modal_and_the_filter_narrows_it_server_side() {
+    // Given a live server holding a session (its registry is empty in
+    // the harness — the modal renders with zero rows but full chrome).
+    let (base, seeded) = harness(Some("Picker source")).await;
+    let id = seeded.expect("harness seeded the session");
+    let http = client();
+
+    // When pulling the modal unfiltered and then with a filter that
+    // matches nothing.
+    let unfiltered = http
+        .get(format!("{base}/web/model-picker/{id}"))
+        .send()
+        .await
+        .expect("unfiltered pull completes")
+        .text()
+        .await
+        .expect("unfiltered body reads");
+    let filtered = http
+        .get(format!(
+            "{base}/web/model-picker/{id}?{}=zzz-no-match",
+            crate::contract::MODEL_FILTER_QUERY_PARAM
+        ))
+        .send()
+        .await
+        .expect("filtered pull completes")
+        .text()
+        .await
+        .expect("filtered body reads");
+
+    // Then the unfiltered pull is the modal (chrome present, marked
+    // `hidden` — the client un-hides it), and the filter echo round-
+    // trips: the server stamped the typed text back into the input's
+    // value so the swap preserves it.
+    assert!(
+        unfiltered.contains(&format!("id=\"{}\"", crate::contract::MODEL_PICKER_MODAL_ID)),
+        "{unfiltered}"
+    );
+    assert!(
+        unfiltered.contains(&format!("id=\"{}\"", crate::contract::MODEL_PICKER_FILTER_ID)),
+        "{unfiltered}"
+    );
+    assert!(
+        unfiltered.contains(&format!("id=\"{}\"", crate::contract::MODEL_PICKER_ROWS_ID)),
+        "{unfiltered}"
+    );
+    assert!(unfiltered.contains("hidden"), "{unfiltered}");
+    assert!(
+        filtered.contains("value=\"zzz-no-match\""),
+        "the filter must echo back into the input: {filtered}"
+    );
+}
+
+#[rstest::rstest]
+#[tokio::test]
+async fn the_model_picker_refresh_post_answers_over_the_wire_without_blocking() {
+    // Given a live server holding a session.
+    let (base, seeded) = harness(Some("Picker refresh")).await;
+    let id = seeded.expect("harness seeded the session");
+    let http = client();
+
+    // When posting the refresh-models action.
+    let response = http
+        .post(format!("{base}{}", crate::contract::MODELS_REFRESH_ROUTE))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(format!("session_id={id}"))
+        .send()
+        .await
+        .expect("refresh post completes");
+
+    // Then it answers 200 with the button fragment immediately (no
+    // discovery happens in the harness — a blocking POST would hang).
+    assert_eq!(response.status(), 200);
+    let body = response.text().await.expect("body reads");
+    assert!(
+        body.contains(&format!("id=\"{}\"", crate::contract::MODEL_PICKER_BUTTON_ID)),
+        "{body}"
+    );
 }
 
 // ── The gzip-encoding bug class ─────────────────────────────────────

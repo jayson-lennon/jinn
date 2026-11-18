@@ -25,6 +25,7 @@ jinn-session-msg = { workspace = true }
 jinn-provider-selection-msg = { workspace = true }
 jinn-provider = { workspace = true }
 jinn-provider-config = { workspace = true }
+jinn-theme = { workspace = true }
 axum = { version = "0.8" }
 trouper = { workspace = true }
 tokio = { workspace = true }
