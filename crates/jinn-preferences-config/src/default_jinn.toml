@@ -321,6 +321,7 @@ noise_reduction = true
 # > put jinn behind a VPN or an SSH tunnel before exposing it beyond
 # > loopback. Securing that endpoint is your responsibility. The bind
 # > is read once at launch; a live edit applies at the next restart.
+bind = "127.0.0.1:8387"
 
 # ###########################################################################
 # Session lifecycle commands
