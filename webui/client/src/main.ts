@@ -1,11 +1,11 @@
 //! The client entry point — the page orchestrator.
 //!
 //! This module names no region. It boots the region registry, runs
-//! the generic delegation loop (click / change / keydown, dispatched
-//! to the first region whose selectors claim the target), owns the
-//! page swap on session switch, and opens the stream. Everything a
-//! region does lives in `regions/<id>.ts`; adding a region never
-//! edits this file.
+//! the generic delegation loop (click / change / input / keydown,
+//! dispatched to the first region whose selectors claim the target),
+//! owns the page swap on session switch, and opens the stream.
+//! Everything a region does lives in `regions/<id>.ts`; adding a
+//! region never edits this file.
 //!
 //! There is no state module and none may be added. The server is
 //! authoritative; the DOM and the URL are the client's only memory.
@@ -113,6 +113,22 @@ function delegateClickOrChange(
 }
 
 /**
+ * Dispatches one input event (every text-entry interaction: typing,
+ * paste, cut) to the region claiming the target.
+ */
+function delegateInput(target: EventTarget | null): void {
+  const element = dom.targetWithAttribute(target);
+  if (element === null) {
+    return;
+  }
+  const region = regionOf(element);
+  if (region === null) {
+    return;
+  }
+  region.onInput?.(element);
+}
+
+/**
  * Wires the page's delegated behaviors and opens the stream. All
  * listeners live on `document` — elements the page swap destroys are
  * re-resolved per event by the regions' selectors, so delegation
@@ -126,6 +142,9 @@ export function initialize(): void {
   });
   document.addEventListener("change", (event) => {
     delegateClickOrChange(event.target, "change");
+  });
+  document.addEventListener("input", (event) => {
+    delegateInput(event.target);
   });
   document.addEventListener("keydown", (event) => {
     // The composer's Enter binding rides the same dispatch: only the

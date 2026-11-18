@@ -2,7 +2,7 @@
   "name": "jinn-webui-client",
   "private": true,
   "version": "0.0.0",
-  "description": "Dev-only toolchain for the jinn web UI client. Nothing here ships: tsc emits ES modules into the Rust slice's resources/vendor, which the binary embeds. Shipping with Node is banned.",
+  "description": "Dev-only toolchain for the jinn web UI client. Nothing here ships: tsc emits ES modules into the Rust slice's resources/vendor (build output, gitignored; the manifest is the tracked pin record), which the binary embeds via build.rs. Shipping with Node is banned.",
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit",

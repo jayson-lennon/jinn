@@ -92,6 +92,32 @@ impl TranscriptQuery {
     }
 }
 
+/// The sessions pull's query: `GET /web/sessions?q=<text>`.
+///
+/// The filter narrows the merged list to the sessions whose titles
+/// fuzzy-match `q` — matched server-side with the TUI session picker's
+/// matcher, so exactly one matching implementation exists. An absent
+/// or empty `q` reads as "no filter"; the full grouped list returns.
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+pub struct SessionsQuery {
+    /// The title fragment sessions must fuzzy-match. Absent or empty →
+    /// every session.
+    #[serde(default)]
+    pub q: Option<String>,
+}
+
+impl SessionsQuery {
+    /// The filter text, or `None` when no filter is in force.
+    ///
+    /// The empty-string check lives here so every caller applies the
+    /// same "absent and empty are equivalent" rule — the matcher's
+    /// empty-pattern behavior never defines the unfiltered case.
+    #[must_use]
+    pub fn filter_text(&self) -> Option<&str> {
+        self.q.as_deref().filter(|text| !text.is_empty())
+    }
+}
+
 /// One session row of the sessions list fragment.
 ///
 /// The merge of what `AppState` knows about live sessions and what the
@@ -110,6 +136,10 @@ pub struct SessionListItem {
     pub is_bot: bool,
     /// Whether the session is loaded in memory (vs archived-only).
     pub loaded: bool,
+    /// Tree depth under this row's parent session — 0 for a root, 1
+    /// for its subagent children. The webui renders the picker's tree,
+    /// so children indent under the session that spawned them.
+    pub depth: usize,
 }
 
 /// The kind of SSE push — the event name the client dispatches on.

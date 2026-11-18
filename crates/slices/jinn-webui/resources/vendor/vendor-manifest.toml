@@ -1,20 +1,21 @@
 # The webui slice's vendored frontend assets.
 #
-# Two families, one pin gate: build.rs verifies every row's sha256
-# against the bytes on disk before embedding, and asserts gzip rows
-# carry actual gzip bytes (1f 8b). Update flows:
-#
-# - Client bundle rows (between the BEGIN/END markers) are managed by
-#   `just webui-build` — never edit them by hand; edit the TypeScript
-#   under webui/client/src and run the recipe.
-# - Other assets are third-party dists vendored by hand: gzip the new
-#   dist, replace the file, recompute the row, done.
+# The pin gate: build.rs verifies every row's sha256 against the bytes
+# on disk before embedding, and asserts gzip rows carry actual gzip
+# bytes (1f 8b). This file is the tracked pin record; the `.gz` bytes
+# the rows name are build output (gitignored) — `just webui-build`
+# emits them from webui/client/src, stamps hash-bearing imports, and
+# rewrites the marker-delimited section below. Never edit the rows by
+# hand: edit the TypeScript under webui/client/src and run the recipe.
+# A cargo build of this crate fails with directions when the bytes are
+# missing, so fresh checkouts run `just webui-build` once before (or
+# as part of) building.
 
 # BEGIN client rows (managed by just webui-build)
 
 [[assets]]
 served = "api.js"
-sha256 = "a58542d04f75373c4c8c2a4db283c62e0a3c8d35a01cf1ab2418bae185da85cf"
+sha256 = "890c0fb603b6d4872a4619cb5dac2e73cd3d15df05a5a16427e4282debddc8a9"
 encoding = "gzip"
 
 [[assets]]
@@ -24,46 +25,46 @@ encoding = "gzip"
 
 [[assets]]
 served = "main.js"
-sha256 = "9b81d6650a86741fdb4e7f05822518fb06f474adc8144b377bf869836df1fbe5"
+sha256 = "b7b213ae127bbba746c14b73fb8d47d555240defed85ceae80899209f9e072d0"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/composer.js"
-sha256 = "37f34b5b5cc1a1e6d0b3a71d0735c2179e336f29a01efc03d4cbd15597b29e1a"
+sha256 = "31b05d421b411eb1400f1fc47fe08b0bf4c90e8662ec5acea1cdd56d49c8db38"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/mod.js"
-sha256 = "41abddd22629dbde3ae109c07beffea0e5f2d13c57613c83900b870b3789b918"
+sha256 = "05cbb7593a20f568bced4ba728dc48949e813b836cb50dfdf278554819c126a7"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/model_picker.js"
-sha256 = "b0d6e23fbbda21d42b9651154a9ec5ad70e5525920b0219d10ce5e670b5aee89"
+sha256 = "035066baf8ecdaef7fb4e2fe247a006eb9b64e3ef65baf03d1362b1a8b73bbdf"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/sessions.js"
-sha256 = "5efb6d9e190c0aa083262ec5f252037ca3e902ec438360c9b267467ccc2e4224"
+sha256 = "714f0f79a6d6c993d05feeae2f5cd4ba469dfe4efe3f406db22c9906089ea104"
 encoding = "gzip"
 
 [[assets]]
 served = "regions/transcript.js"
-sha256 = "7df7c4406519745c1344f60e2db53bf2c328a1c11e2224abb472895ba1f0a380"
+sha256 = "fb4f182bd08113600aa5fdea5a4e36ef4ef3dfbbafd0edfa550e33671631de4a"
 encoding = "gzip"
 
 [[assets]]
 served = "sse.js"
-sha256 = "152778a2bfcf8a8b0af201c4cfd98c7921dfa53de65918cba4957c99a2d9f947"
+sha256 = "8e644ed34ef48546f03a2c47fd75452f1074b4ff55fd80f9f41b658f1cacca77"
 encoding = "gzip"
 
 [[assets]]
 served = "wire-fixture.js"
-sha256 = "9765c873b166d3371f9d4da8d1b5d81f0047c9258085c8ea6a60c9dd4b1518fe"
+sha256 = "03cc3033c0e2b7a8b09089256828e86ad5f49b0663d5e373e7d402245f4adc6c"
 encoding = "gzip"
 
 [[assets]]
 served = "wire.js"
-sha256 = "024d2ffbfa207b1301b10f257c1d5bd6aab60dd78724edebfe0abcace37a9d57"
+sha256 = "1f23636b232aa10680ec956d1881627abc9b836bec5f9311717b5ebe062f1d4c"
 encoding = "gzip"
 # END client rows

@@ -595,15 +595,41 @@ gh-pr-close N COMMENT="":
     gh pr close {{N}} "${args[@]}"
 
 # Webui client (dev-only Node toolchain; SHIPPPING WITH NODE IS BANNED —
-# node_modules is gitignored, cargo never runs Node, build.rs embeds the
-# committed gzipped emit like any vendored asset).
+# node_modules is gitignored, cargo never runs Node).
+#
+# The compiled bundle is build output, not source: tsc emits ES modules
+# into resources/vendor, gzip -9 -n compresses them deterministically,
+# the pin script stamps hash-bearing imports and re-pins the manifest
+# rows. Only `vendor-manifest.toml` (the pin record) is tracked; the
+# `*.js.gz` bytes are gitignored and reproducible from the TypeScript
+# sources, so cargo builds of this crate REQUIRE the emit to have run:
+# build.rs fails with directions when the bytes are absent. `just
+# webui-build` is therefore part of building the webui, and merging
+# webui branches never conflicts on binary churn — only on sources.
 #
 #   webui-install — one-time dev toolchain (npm ci); the rest auto-install
+#   webui-fixture — regenerate wire-fixture.ts from the Rust contract
+#                   (python3 only, no Node — safe before webui-install)
 #   webui-check   — pure type gate, writes nothing (safe to add to lint)
 #   webui-build   — emit ES modules, gzip, re-pin the manifest rows
 #   webui-test    — jsdom-tier client tests (node:test + happy-dom)
 #   webui-verify  — check + build + test: the full pre-ship loop
 #   webui-smoke   — the headless-chromium test (JINN_WEBUI_SMOKE=1 just webui-smoke)
+
+# Regenerate the client's contract fixture from the Rust source.
+# Runs before every TypeScript compile: the fixture is generated
+# (gitignored), and `webui-check`/`webui-test` compile the test tier
+# that imports it. Needs only python3 — the one webui step that
+# never requires the Node toolchain.
+webui-fixture:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo '==> regenerate contract fixture'
+    python3 scripts/gen-webui-fixture.py \
+        crates/slices/jinn-webui/src/contract.rs \
+        crates/slices/jinn-webui-msg/src/wire.rs \
+        webui/client/src/wire-fixture.ts
+    echo '==> webui-fixture green'
 
 # Install the webui client's dev toolchain (exact-lockfile npm ci).
 webui-install:
@@ -614,7 +640,7 @@ webui-install:
     echo '==> webui-install green'
 
 # Type-check the webui client (app + tests) without emitting anything.
-webui-check: webui-install
+webui-check: webui-fixture webui-install
     #!/usr/bin/env bash
     set -euo pipefail
     CLIENT=webui/client
@@ -625,7 +651,7 @@ webui-check: webui-install
     echo '==> webui-check green'
 
 # Emit the client bundle into the vendor tree, gzip, and re-pin sha256s.
-webui-build: webui-install
+webui-build: webui-install webui-fixture
     #!/usr/bin/env bash
     set -euo pipefail
     CLIENT=webui/client
@@ -654,20 +680,10 @@ webui-build: webui-install
     # section with fresh sha256 pins.
     echo '==> re-pinning manifest'
     python3 scripts/pin-webui-client.py "$VENDOR/vendor-manifest.toml" "$VENDOR"
-
-    # Regenerate the client's contract fixture from the Rust source —
-    # the fixture `wire.test.ts` checks against. The Rust side's drift
-    # test greps wire.ts directly; both directions hang off one
-    # generated truth, so a contract rename fails a test, not a page.
-    echo '==> regenerate contract fixture'
-    python3 scripts/gen-webui-fixture.py \
-        crates/slices/jinn-webui/src/contract.rs \
-        crates/slices/jinn-webui-msg/src/wire.rs \
-        webui/client/src/wire-fixture.ts
     echo '==> webui-build green'
 
 # Run the webui client's jsdom-tier tests against a scratch emit.
-webui-test: webui-install
+webui-test: webui-fixture webui-install
     #!/usr/bin/env bash
     set -euo pipefail
     CLIENT=webui/client

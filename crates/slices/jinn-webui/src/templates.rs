@@ -111,6 +111,9 @@ pub struct PageTemplate {
     pub page_session_attr: &'static str,
     /// The sessions-list container id.
     pub sessions_id: &'static str,
+    /// The sidebar filter input's id (outside the sessions swap
+    /// target, so region swaps never wipe the typed text).
+    pub sessions_filter_input_id: &'static str,
     /// The model-picker container id.
     pub model_picker_id: &'static str,
     /// The transcript scroll-wrap id.
@@ -147,6 +150,7 @@ impl PageTemplate {
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
+            sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
             model_picker_id: contract::MODEL_PICKER_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,
@@ -185,6 +189,7 @@ impl PageTemplate {
             page_root_id: contract::PAGE_ROOT_ID,
             page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
             sessions_id: contract::SESSIONS_ID,
+            sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
             model_picker_id: contract::MODEL_PICKER_ID,
             transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
             transcript_id: contract::TRANSCRIPT_ID,

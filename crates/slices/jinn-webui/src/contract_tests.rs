@@ -28,6 +28,7 @@ fn row(session_id: jinn_core_types::SessionId, title: &str, active: bool) -> Ses
         active,
         is_bot: false,
         loaded: true,
+        depth: 0,
     }
 }
 
@@ -69,6 +70,7 @@ fn rendered_page() -> String {
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
         sessions_id: contract::SESSIONS_ID,
+        sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
         model_picker_id: contract::MODEL_PICKER_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,
@@ -94,9 +96,10 @@ fn every_id_the_contract_names_exists_in_the_rendered_page() {
     let page = rendered_page();
 
     // When collecting every id the contract says the client targets.
-    let targets: [(&str, &str); 8] = [
+    let targets: [(&str, &str); 9] = [
         ("page root", contract::PAGE_ROOT_ID),
         ("sessions", contract::SESSIONS_ID),
+        ("sessions filter", contract::SESSIONS_FILTER_INPUT_ID),
         ("transcript", contract::TRANSCRIPT_ID),
         ("transcript wrap", contract::TRANSCRIPT_WRAP_ID),
         ("controls", contract::CONTROLS_ID),
@@ -170,6 +173,7 @@ fn the_page_names_the_viewed_session_in_the_data_attribute() {
         page_root_id: contract::PAGE_ROOT_ID,
         page_session_attr: contract::PAGE_SESSION_DATA_ATTR,
         sessions_id: contract::SESSIONS_ID,
+        sessions_filter_input_id: contract::SESSIONS_FILTER_INPUT_ID,
         model_picker_id: contract::MODEL_PICKER_ID,
         transcript_wrap_id: contract::TRANSCRIPT_WRAP_ID,
         transcript_id: contract::TRANSCRIPT_ID,

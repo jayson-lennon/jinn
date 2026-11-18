@@ -4,11 +4,14 @@
 //! `resources/vendor/vendor-manifest.toml`, which pins each file's
 //! sha256; the build fails when a row and its bytes disagree, so the
 //! inventory a binary serves is always the inventory the manifest
-//! vouches for. The client bundle's rows are managed by
-//! `just webui-build` (emit → gzip → re-pin); other assets are
-//! third-party dists vendored by hand. The stylesheet travels inside
-//! the templates module as a `&str` constant, so everything here is a
-//! compiled artifact or a pinned dist — nothing authored.
+//! vouches for. The client bundle's rows are build output: `just
+//! webui-build` (emit → gzip → re-pin) regenerates the `.gz` files
+//! from `webui/client/src` and rewrites the manifest's pinned rows —
+//! the manifest is the tracked pin record, the bytes it names are
+//! not. The build fails with directions when they are absent. The
+//! manifest carries no hand-vendored rows in this slice, so the
+//! marker-delimited section is the whole file. The stylesheet travels
+//! inside the templates module as a `&str` constant.
 
 // The complete vendor inventory, generated at build time (the
 // generated file carries its own docs).

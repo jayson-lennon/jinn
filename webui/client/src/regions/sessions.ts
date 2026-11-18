@@ -4,20 +4,29 @@
 //!
 //! Owns: the row-click activation (which swaps the whole page — the
 //! sessions region is the only region whose action navigates rather
-//! than swaps in place), the SSE `sessions` list swap, and the inline
-//! rename editor hosted by the titlebar's title span (the server
-//! renders the span with the contract id on session pages only; the
-//! landing page's "jinn" title carries no id and is inert). The editor
-//! is view-local DOM: click opens a pre-filled input inside the span,
-//! Enter or clicking away commits, Escape reverts, and an
-//! empty-after-trim commit reverts locally without a request — the
-//! server already refuses empty with a 400, and a refused rename
+//! than swaps in place), the sidebar filter input (every text change
+//! re-pulls the fragment with `?q=`; matching is server-side — this
+//! module never compares titles), the SSE `sessions` swap, and the
+//! inline rename editor hosted by the titlebar's title span (the
+//! server renders the span with the contract id on session pages
+//! only; the landing page's "jinn" title carries no id and is inert).
+//! The editor is view-local DOM: click opens a pre-filled input
+//! inside the span, Enter or clicking away commits, Escape reverts,
+//! and an empty-after-trim commit reverts locally without a request —
+//! the server already refuses empty with a 400, and a refused rename
 //! leaves the title unchanged either way.
 //!
+//! While a filter is active, a pushed `sessions` event triggers a
+//! re-pull carrying the same `q` instead of trusting the pushed HTML:
+//! pushed fragments render unfiltered, and swapping one in would
+//! un-filter the list under the user's eyes.
+//!
 //! Ownership contract: this module renders what the server pushed and
-//! owns nothing (see `regions/mod.ts`). The editor's transient input
-//! and its marker attributes are view-local DOM state; the viewed
-//! session id is read fresh from the page at handler time.
+//! owns nothing (see `regions/mod.ts`). The viewed session id and the
+//! filter text are both read fresh from the page at handler time —
+//! view-local DOM state; a page swap replaces the input and thereby
+//! resets the filter. The rename editor's transient input and its
+//! marker attributes are view-local DOM state too.
 
 import * as api from "../api.js";
 import * as wire from "../wire.js";
@@ -58,7 +67,11 @@ export function bindPageSwap(swap: (sessionId: string, html: string) => void): v
 /** The sessions region's client surface. */
 export const sessionsRegion: RegionModule = {
   id: "sessions",
-  selectors: [`#${wire.SESSION_TITLE_ID}`, `.${wire.SESSION_ROW_CLASS}`],
+  selectors: [
+    `#${wire.SESSION_TITLE_ID}`,
+    `.${wire.SESSION_ROW_CLASS}`,
+    `#${wire.SESSIONS_FILTER_INPUT_ID}`,
+  ],
 
   onClick(target) {
     const origin = targetElement(target);
@@ -95,6 +108,18 @@ export const sessionsRegion: RegionModule = {
     return true;
   },
 
+  onInput(target) {
+    const candidate = targetWithAttribute(target);
+    if (candidate === null) {
+      return false;
+    }
+    if (candidate.getAttribute("id") !== wire.SESSIONS_FILTER_INPUT_ID) {
+      return false;
+    }
+    refilter();
+    return true;
+  },
+
   onKeyDown(target, event) {
     const candidate = targetWithAttribute(target);
     if (candidate === null) {
@@ -119,10 +144,41 @@ export const sessionsRegion: RegionModule = {
 
   sseHandlers: {
     [wire.SSE_EVENTS.sessions]: (event) => {
-      replaceSessions(event.data);
+      if (currentFilter() === null) {
+        replaceSessions(event.data);
+        return;
+      }
+      // A filter is active: the pushed fragment is unfiltered, so
+      // re-pull carrying the same q rather than swapping the push in.
+      refilter();
     },
   },
 };
+
+/**
+ * Re-pulls the sessions fragment with the input's current text and
+ * swaps it in. An empty or missing input means no filter — the
+ * unfiltered list.
+ */
+function refilter(): void {
+  api.pullSessions(currentFilter())
+    .then(replaceSessions)
+    .catch(reportFailure);
+}
+
+/**
+ * The filter text, read fresh from the input at handler time. Null
+ * when no filter is in force — the input is absent or empty.
+ */
+function currentFilter(): string | null {
+  const input = document.getElementById(wire.SESSIONS_FILTER_INPUT_ID);
+  if (input === null) {
+    return null;
+  }
+  const holder = input as { value?: unknown };
+  const value = typeof holder.value === "string" ? holder.value : "";
+  return value.length > 0 ? value : null;
+}
 
 /**
  * Replaces the sessions list — the sidebar refresh.

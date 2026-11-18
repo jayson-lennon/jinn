@@ -19,6 +19,15 @@ jinn-core-types = { workspace = true }
 jinn-app-state = { workspace = true }
 jinn-session-state = { workspace = true }
 jinn-session-store-msg = { workspace = true }
+# The session list IS the TUI session picker rendered as HTML: its rows
+# are `SessionTreeEntry`s ordered by the store's tree-aware sort, and a
+# `?q=` filter runs the picker's own `TreePickerState` (term-split fuzzy
+# match, ancestor-chain expansion, tree-score ranking) — one matching
+# implementation, the TUI's.
+jinn-session-store = { workspace = true }
+jinn-selection-widget = { workspace = true }
+jinn-picker = { workspace = true }
+jinn-theme = { workspace = true }
 jinn-chat-input-msg = { workspace = true }
 jinn-inference-msg = { workspace = true }
 jinn-session-msg = { workspace = true }
