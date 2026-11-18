@@ -8,5 +8,5 @@
 
 [[assets]]
 served = "htmx.min.js"
-sha256 = "e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447"
+sha256 = "acb9ff34b200f5016c8dae6ec658bd96050fe86fe090b06506de45d08348168c"
 encoding = "gzip"

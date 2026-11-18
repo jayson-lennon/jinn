@@ -150,17 +150,91 @@ impl WebUiListenerActor {
             .start();
 
         // Best-effort launch note on the webui dashboard row: the URL a
-        // user copies into a browser. A failed note never fails the
-        // bind.
+        // user copies into a browser, derived from what was actually
+        // bound — a configured LAN IP or all-interfaces bind must not
+        // be reported as localhost. A failed note never fails the bind.
         note_bus
             .publish(jinn_slices::ServiceStatusUpdate {
                 name: WEBUI_ACTOR_NAME.to_owned(),
                 description: Some("Web UI (browser transcript, send, cancel)".to_owned()),
-                status_message: Some(format!("serving on http://localhost:{port}/")),
+                status_message: Some(note_of(deps.bind, port)),
                 note_tone: None,
             })
             .await;
 
         Ok(path)
+    }
+}
+
+/// The dashboard note for the resolved listener: what a user copies
+/// into a browser, derived from the configured bind rather than an
+/// assumed localhost.
+///
+/// - A loopback bind names its exact URL (the literal IP, not
+///   `localhost` — on dual-stack systems `localhost` can resolve to
+///   `::1` first and miss a `127.0.0.1`-only bind).
+/// - An unspecified bind (`0.0.0.0` / `::`) serves every interface, so
+///   no single URL is true; the note says so instead of guessing.
+/// - Any other bind names its own IP and port.
+#[must_use]
+fn note_of(bind: std::net::SocketAddr, port: u16) -> String {
+    use std::net::IpAddr;
+    let unspecified = match bind.ip() {
+        IpAddr::V4(ip) => ip.is_unspecified(),
+        IpAddr::V6(ip) => ip.is_unspecified(),
+    };
+    if unspecified {
+        format!("serving on all interfaces, port {port}")
+    } else {
+        format!("serving on http://{}:{port}/", bind.ip())
+    }
+}
+
+#[cfg(test)]
+mod note_tests {
+    #![allow(
+        clippy::expect_used,
+        reason = "test assertions need expect to state what went wrong"
+    )]
+
+    use super::note_of;
+
+    #[rstest::rstest]
+    #[test]
+    fn a_loopback_bind_notes_its_exact_url() {
+        // Given the default loopback bind.
+        let bind = "127.0.0.1:8387".parse().expect("valid bind");
+
+        // When forming the note.
+        let note = note_of(bind, 8387);
+
+        // Then it names the literal IP URL, not `localhost`.
+        assert_eq!(note, "serving on http://127.0.0.1:8387/");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn an_all_interfaces_bind_does_not_pretend_to_be_localhost() {
+        // Given a bind on every interface.
+        let bind = "0.0.0.0:8387".parse().expect("valid bind");
+
+        // When forming the note.
+        let note = note_of(bind, 8387);
+
+        // Then it says all-interfaces instead of naming one address.
+        assert_eq!(note, "serving on all interfaces, port 8387");
+    }
+
+    #[rstest::rstest]
+    #[test]
+    fn a_lan_bind_names_its_own_address() {
+        // Given a bind on a LAN interface.
+        let bind = "192.168.1.10:8387".parse().expect("valid bind");
+
+        // When forming the note.
+        let note = note_of(bind, 8387);
+
+        // Then the note is that address's URL.
+        assert_eq!(note, "serving on http://192.168.1.10:8387/");
     }
 }
