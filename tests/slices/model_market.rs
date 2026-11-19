@@ -23,6 +23,7 @@ use jinn_slices::DynamicIntent;
 use jinn_slices::KeyRoutes;
 use jinn_slices::PublishSink;
 use jinn_slices::RouteResult;
+use jinn_slices::SliceActionState;
 use jinn_slices::Slices;
 use jinn_slices::cell::TypedCell;
 use jinn_slices::empty_config_layer;
@@ -136,6 +137,7 @@ fn row(
         context_length: Some(128_000),
         eci: None,
         eci_ci: None,
+        vals: None,
         is_free: false,
     }
 }
@@ -709,8 +711,92 @@ fn paste_while_the_table_is_focused_is_declined() {
     assert_eq!(ui.read().filter, "");
 }
 
-// ── ENTER: drill-in + detail confirm ────────────────────────────────────
+// ── `O`: the web-page open ──────────────────────────────────────────────
 
+#[rstest::rstest]
+fn opener_stamps_the_active_session_into_the_ui_cell() {
+    // Given a fresh wired slice and a known active session.
+    let mut wired = Wired::new();
+    let expected = wired.state.active_session_id();
+
+    // When the opener fires.
+    wired.press("open-model-market", "search openrouter models");
+
+    // Then the UI cell carries that session — the ride-along the input
+    // hook reads for `O`, since the hook's signature has no AppState.
+    assert_eq!(
+        wired.ui().read().session_id,
+        Some(expected),
+        "the opener stamps the session the popup opens over"
+    );
+}
+
+#[rstest::rstest]
+fn table_o_publishes_the_highlighted_models_page_command() {
+    // Given a seeded table with the first row highlighted (PROJ asc
+    // default).
+    let mut wired = Wired::new();
+    wired.press("open-model-market", "search openrouter models");
+    seeded(&mut wired);
+
+    // When `O` arrives as the insert-char intent the keymap's catch-all
+    // mints.
+    let mut result = wired.handle(edit_intent("insert-char", 'O'));
+
+    // Then the highlighted row's listing id went out, addressed to the
+    // session the opener stamped.
+    let page = first_message::<jinn_model_market_msg::OpenModelPage>(&mut result)
+        .expect("table `O` publishes OpenModelPage");
+    assert_eq!(page.model_id, "openrouter/a/small");
+    assert_eq!(page.session_id, wired.state.active_session_id());
+    // And the popup stands exactly as it was: no filter typing, no
+    // fetch, no scope move.
+    let ui = wired.ui();
+    assert_eq!(ui.read().filter, "");
+    assert!(!ui.read().filter_focused);
+    assert_eq!(ui.read().fetch_seq, 0);
+    assert_eq!(
+        wired.state.frontend.scope(),
+        jinn_slices::FocusScope::Dynamic(market_ui_scope())
+    );
+}
+
+#[rstest::rstest]
+fn detail_o_publishes_the_pinned_models_page_command() {
+    // Given detail mode over the fixture, the pin on `a/small`.
+    let mut wired = Wired::new();
+    drill_in(&mut wired);
+
+    // When `O` arrives.
+    let mut result = wired.handle(edit_intent("insert-char", 'O'));
+
+    // Then the pinned model's id went out — the pin is the mode's
+    // "highlighted model".
+    let page = first_message::<jinn_model_market_msg::OpenModelPage>(&mut result)
+        .expect("detail `O` publishes OpenModelPage");
+    assert_eq!(page.model_id, "openrouter/a/small");
+    // And no fetch was minted: the mode never fetches.
+    assert!(result.message_names.iter().all(|n| *n != "FetchEndpoints"));
+}
+
+#[rstest::rstest]
+fn filter_focused_o_types_into_the_filter_and_publishes_nothing() {
+    // Given an open popup with the filter focused.
+    let mut wired = Wired::new();
+    wired.press("open-model-market", "search openrouter models");
+    seeded(&mut wired);
+    wired.ui().update(|s| s.filter_focused = true);
+
+    // When `O` arrives.
+    let result = wired.handle(edit_intent("insert-char", 'O'));
+
+    // Then the letter typed into the filter and nothing published —
+    // typing beats every table arm by design.
+    assert_eq!(wired.ui().read().filter, "O");
+    assert!(result.messages.is_empty());
+}
+
+// ── ENTER: drill-in + detail confirm ────────────────────────────────────
 #[rstest::rstest]
 fn enter_from_table_mode_opens_detail_and_publishes_one_fetch() {
     // Given a seeded table with the first row highlighted, no detail
@@ -1126,22 +1212,23 @@ fn detail_sort_cycles_the_eight_columns_and_the_highlight_follows() {
 // ── Sort / navigation ────────────────────────────────────────────────
 
 #[rstest::rstest]
-fn sort_column_cycles_l_through_all_six_columns() {
+fn sort_column_cycles_l_through_all_seven_columns() {
     // Given an open popup (PROJ by default).
     let mut wired = Wired::new();
     wired.press("open-model-market", "search openrouter models");
 
-    // When `l` fires five times (a hook case — the keymap's
+    // When `l` fires six times (a hook case — the keymap's
     // insert-char catch-all owns it in this scope).
-    for _ in 0..5 {
+    for _ in 0..6 {
         wired.handle(edit_intent("insert-char", 'l'));
     }
 
-    // Then the cycle walked PROJ → IN → OUT → CACHE → ECI → MODEL.
+    // Then the cycle walked PROJ → IN → OUT → CACHE → ECI → VALS →
+    // MODEL.
     assert_eq!(wired.ui().read().sort_col, SortColumn::Model);
     // And `h` walks back.
     wired.handle(edit_intent("insert-char", 'h'));
-    assert_eq!(wired.ui().read().sort_col, SortColumn::Eci);
+    assert_eq!(wired.ui().read().sort_col, SortColumn::Vals);
 }
 
 #[rstest::rstest]
@@ -1512,10 +1599,10 @@ fn table_headers_align_over_their_data_columns() {
         }
     });
 
-    // When the popup renders.
-    let buffer = render_to_buffer(&wired, 120, 40);
+    // When the popup renders (wide enough for all eight columns).
+    let buffer = render_to_buffer(&wired, 140, 40);
     let popup =
-        jinn_model_market::view::market_overlay_rect(&ratatui::layout::Rect::new(0, 0, 120, 40))
+        jinn_model_market::view::market_overlay_rect(&ratatui::layout::Rect::new(0, 0, 140, 40))
             .expect("frame fits the popup");
 
     // Then the header row — two rows below the popup's top border, the
@@ -1568,9 +1655,11 @@ fn footer_renders_the_advertised_keys() {
     let popup = jinn_model_market::view::market_overlay_rect(&area).expect("frame fits the popup");
     let buffer = render_to_buffer(&wired, 120, 40);
 
-    // Then the popup's last inner row carries the footer: keys and
-    // labels from MARKET_BINDINGS.
-    let footer = row_text(&buffer, popup.y + popup.height - 2, popup.width);
+    // Then the popup's footer carries every advertised key and label
+    // across its two rows, in MARKET_BINDINGS order split 7/6.
+    let upper = row_text(&buffer, popup.y + popup.height - 3, popup.width);
+    let lower = row_text(&buffer, popup.y + popup.height - 2, popup.width);
+    let footer = format!("{upper}\n{lower}");
     assert!(
         footer.contains("<enter>"),
         "footer shows the confirm key, got: {footer:?}"
@@ -1640,7 +1729,7 @@ fn focused_filter_shows_a_visible_filter_line() {
 }
 
 #[rstest::rstest]
-fn status_line_shows_the_stamps_and_the_fixed_mix_no_epoch() {
+fn status_line_shows_the_stamps_and_the_fixed_mix_no_score_stamps() {
     // Given an open popup over a seeded table with stamps two minutes
     // old.
     let mut wired = Wired::new();
@@ -1649,7 +1738,7 @@ fn status_line_shows_the_stamps_and_the_fixed_mix_no_epoch() {
     wired.data().update(|d| {
         let stamp = jiff::Timestamp::now() - jiff::Span::new().minutes(2);
         d.models_fetched_at = Some(stamp);
-        d.epoch_fetched_at = Some(stamp);
+        d.eci_fetched_at = Some(stamp);
         d.endpoints_fetched_at = Some(stamp);
     });
 
@@ -1657,7 +1746,7 @@ fn status_line_shows_the_stamps_and_the_fixed_mix_no_epoch() {
     let area = ratatui::layout::Rect::new(0, 0, 120, 40);
     let popup = jinn_model_market::view::market_overlay_rect(&area).expect("frame fits the popup");
     let buffer = render_to_buffer(&wired, 120, 40);
-    let status = row_text(&buffer, popup.y + popup.height - 3, popup.width);
+    let status = row_text(&buffer, popup.y + popup.height - 4, popup.width);
 
     // Then the status line carries the models stamp.
     assert!(
@@ -1670,7 +1759,7 @@ fn status_line_shows_the_stamps_and_the_fixed_mix_no_epoch() {
         status.contains("mix: fixed 10M\u{b7}98%\u{b7}50k"),
         "status shows the fixed mix, got: {status:?}"
     );
-    // And none of the retired indicators: no epoch source, no epoch
+    // And none of the retired indicators: no eci source, no eci
     // freshness stamp, no endpoints stamp, no m hint.
     assert!(
         !status.contains("endpoints "),
@@ -1681,12 +1770,12 @@ fn status_line_shows_the_stamps_and_the_fixed_mix_no_epoch() {
         "status shows no m hint, got: {status:?}"
     );
     assert!(
-        !status.contains("epoch: "),
-        "status shows no epoch source, got: {status:?}"
+        !status.contains("eci: "),
+        "status shows no eci source, got: {status:?}"
     );
     assert!(
-        !status.contains("epoch 2m ago"),
-        "status shows no epoch freshness stamp, got: {status:?}"
+        !status.contains("eci 2m ago"),
+        "status shows no eci freshness stamp, got: {status:?}"
     );
 }
 
@@ -1719,7 +1808,7 @@ fn filter_matches_are_highlighted_in_the_model_column() {
     // scanning the row's cells, at least one cell in the MODEL column
     // carries the theme's highlight bg (the filter's match spans).
     let theme = jinn_theme::default_theme();
-    let y = (popup.y + 4..popup.y + popup.height - 3)
+    let y = (popup.y + 4..popup.y + popup.height - 4)
         .find(|y| row_text(&buffer, *y, popup.width).contains("a/small"))
         .expect("the matching row renders");
     let highlighted = (popup.x..popup.x + popup.width)
@@ -1827,7 +1916,7 @@ fn m_toggles_the_mix_and_the_status_line_and_proj_reflect_it() {
     seeded(&mut wired);
     let area = ratatui::layout::Rect::new(0, 0, 120, 40);
     let popup = jinn_model_market::view::market_overlay_rect(&area).expect("frame fits the popup");
-    let status_row = popup.y + popup.height - 3;
+    let status_row = popup.y + popup.height - 4;
     let buffer = render_to_buffer(&wired, 120, 40);
     let status = row_text(&buffer, status_row, popup.width);
     assert!(
@@ -1906,7 +1995,7 @@ fn m_with_seeded_usage_projects_under_the_tree_mix() {
     // When the popup renders with those usage facts seeded.
     let area = ratatui::layout::Rect::new(0, 0, 120, 40);
     let popup = jinn_model_market::view::market_overlay_rect(&area).expect("frame fits the popup");
-    let status_row = popup.y + popup.height - 3;
+    let status_row = popup.y + popup.height - 4;
     let buffer = render_to_buffer_with_facts(&wired, 120, 40, |facts| {
         seed_usage(facts, 5_000_000, 100_000, 4_900_000, 5_000_000);
     });
@@ -1939,7 +2028,7 @@ fn m_toggles_from_detail_mode_and_the_status_line_reflects_it() {
     drill_in(&mut wired);
     let area = ratatui::layout::Rect::new(0, 0, 120, 40);
     let popup = jinn_model_market::view::market_overlay_rect(&area).expect("frame fits the popup");
-    let status_row = popup.y + popup.height - 3;
+    let status_row = popup.y + popup.height - 4;
     let buffer = render_to_buffer(&wired, 120, 40);
     let status = row_text(&buffer, status_row, popup.width);
     assert!(
@@ -1976,7 +2065,7 @@ fn mix_source_word_wears_success_green_numbers_stay_muted() {
         let area = ratatui::layout::Rect::new(0, 0, 120, 40);
         let popup =
             jinn_model_market::view::market_overlay_rect(&area).expect("frame fits the popup");
-        let status_row = popup.y + popup.height - 3;
+        let status_row = popup.y + popup.height - 4;
         let theme = jinn_theme::default_theme();
         (wired, popup, status_row, theme)
     };
@@ -2051,7 +2140,7 @@ fn m_with_an_unmeasured_tree_degrades_to_the_fixed_mix() {
     // When the popup renders with the zero-usage facts.
     let area = ratatui::layout::Rect::new(0, 0, 120, 40);
     let popup = jinn_model_market::view::market_overlay_rect(&area).expect("frame fits the popup");
-    let status_row = popup.y + popup.height - 3;
+    let status_row = popup.y + popup.height - 4;
     let buffer = render_to_buffer_with_facts(&wired, 120, 40, |facts| {
         seed_usage(facts, 0, 0, 0, 0);
     });
@@ -2142,7 +2231,7 @@ fn footer_keys_wear_the_picker_pairing() {
     let area = ratatui::layout::Rect::new(0, 0, 120, 40);
     let popup = jinn_model_market::view::market_overlay_rect(&area).expect("frame fits the popup");
     let buffer = render_to_buffer(&wired, 120, 40);
-    let footer_y = popup.y + popup.height - 2;
+    let footer_y = popup.y + popup.height - 3;
     let theme = jinn_theme::default_theme();
 
     // Then the `<enter>` key notation cells wear accent_action.
@@ -2207,7 +2296,7 @@ fn highlight_on_a_long_list_never_parks_under_the_status_rows() {
     let popup = jinn_model_market::view::market_overlay_rect(&area).expect("frame fits the popup");
     let buffer = render_to_buffer(&wired, 120, 40);
     let theme = jinn_theme::default_theme();
-    let status_y = popup.y + popup.height - 3;
+    let status_y = popup.y + popup.height - 4;
 
     // Then the highlighted row renders strictly above the status line,
     // and neither bottom row carries the selection background.
@@ -2441,7 +2530,11 @@ fn footer_in_detail_mode_advertises_switch_pin() {
     let popup =
         jinn_model_market::view::market_overlay_rect(&ratatui::layout::Rect::new(0, 0, 160, 50))
             .expect("frame fits the popup");
-    let footer = row_text(&buffer, popup.y + popup.height - 2, popup.width);
+    let footer = format!(
+        "{}\n{}",
+        row_text(&buffer, popup.y + popup.height - 3, popup.width),
+        row_text(&buffer, popup.y + popup.height - 2, popup.width)
+    );
 
     // Then the enter entry reads `switch/pin` — truthful in both modes
     // — and no bare `switch` label stands alone.
@@ -2504,7 +2597,7 @@ fn table_mode_uses_the_full_height_after_the_pane_gone() {
     let popup =
         jinn_model_market::view::market_overlay_rect(&ratatui::layout::Rect::new(0, 0, 120, 40))
             .expect("frame fits the popup");
-    let status_y = popup.y + popup.height - 3;
+    let status_y = popup.y + popup.height - 4;
 
     // Then rows render down to the row just above the status line: no
     // band sits reserved under the table.
@@ -2527,4 +2620,141 @@ fn table_mode_uses_the_full_height_after_the_pane_gone() {
         !text.contains("Azure"),
         "no pane text renders in table mode, got: {text:?}"
     );
+}
+
+#[rstest::rstest]
+fn footer_renders_two_rows_at_a_narrow_width() {
+    // Given an open popup rendered at the smallest overlay width the
+    // geometry allows (a narrow terminal).
+    let mut wired = Wired::new();
+    wired.press("open-model-market", "search openrouter models");
+    let area = ratatui::layout::Rect::new(0, 0, 48, 24);
+    let popup = jinn_model_market::view::market_overlay_rect(&area).expect("frame fits the popup");
+    let buffer = render_to_buffer(&wired, 48, 24);
+
+    // When both footer rows are read.
+    let upper = row_text(&buffer, popup.y + popup.height - 3, popup.width);
+    let lower = row_text(&buffer, popup.y + popup.height - 2, popup.width);
+
+    // Then BOTH rows carry entries — the split is deterministic, not
+    // width-dependent: seven entries above, six below.
+    assert!(
+        upper.contains("<enter>"),
+        "the upper row opens with the confirm key, got: {upper:?}"
+    );
+    assert!(
+        !upper.trim().is_empty() && !lower.trim().is_empty(),
+        "both footer rows carry entries, got upper {upper:?} / lower {lower:?}"
+    );
+    // And the rows hold disjoint halves in display order: `<enter>` on
+    // the upper row, `h` (the lower half's first entry) on the lower —
+    // narrow widths truncate the tail, never reorder it.
+    assert!(
+        lower.contains("h col"),
+        "the lower row opens with the eighth entry, got: {lower:?}"
+    );
+    assert!(
+        !upper.contains("h col"),
+        "the display order is preserved across the split, got: {upper:?}"
+    );
+}
+
+#[rstest::rstest]
+fn footer_renders_the_same_split_at_a_wide_width() {
+    // Given an open popup rendered at a wide terminal.
+    let mut wired = Wired::new();
+    wired.press("open-model-market", "search openrouter models");
+    let area = ratatui::layout::Rect::new(0, 0, 220, 50);
+    let popup = jinn_model_market::view::market_overlay_rect(&area).expect("frame fits the popup");
+    let buffer = render_to_buffer(&wired, 220, 50);
+
+    // When both footer rows are read.
+    let upper = row_text(&buffer, popup.y + popup.height - 3, popup.width);
+    let lower = row_text(&buffer, popup.y + popup.height - 2, popup.width);
+
+    // Then the same 7/6 split holds — width never moves an entry
+    // between rows. `<enter>` stays upper, `?` stays lower.
+    assert!(
+        upper.contains("<enter>") && upper.contains("<c-r>"),
+        "the upper row keeps its entries at width, got: {upper:?}"
+    );
+    assert!(
+        lower.contains("? help"),
+        "the lower row keeps the trailing entries at width, got: {lower:?}"
+    );
+}
+
+#[rstest::rstest]
+fn table_area_ends_above_the_two_footer_rows() {
+    // Given an open popup over a seeded table.
+    let mut wired = Wired::new();
+    wired.press("open-model-market", "search openrouter models");
+    seeded(&mut wired);
+    let area = ratatui::layout::Rect::new(0, 0, 120, 40);
+    let popup = jinn_model_market::view::market_overlay_rect(&area).expect("frame fits the popup");
+    let buffer = render_to_buffer(&wired, 120, 40);
+
+    // When the band between the header and the status line is scanned,
+    // and the footer rows with it.
+    let band: Vec<String> = ((popup.y + 4)..(popup.y + popup.height - 4))
+        .map(|y| row_text(&buffer, y, popup.width))
+        .collect();
+    let footers: Vec<String> = ((popup.y + popup.height - 3)..(popup.y + popup.height - 1))
+        .map(|y| row_text(&buffer, y, popup.width))
+        .collect();
+
+    // Then both rows render inside the band — the table's rect ends
+    // above the status line and BOTH footer rows.
+    assert!(
+        band.iter().any(|t| t.contains("a/small")),
+        "a data row renders in the band, got: {band:?}"
+    );
+    // And neither footer row carries table content: the last two rows
+    // are the footer's, not the table's.
+    for (idx, footer) in footers.iter().enumerate() {
+        assert!(
+            !footer.contains("a/small") && !footer.contains("b/big"),
+            "footer row {idx} is never painted over by the table, got: {footer:?}"
+        );
+    }
+}
+
+#[rstest::rstest]
+fn sorting_by_vals_orders_by_accuracy_with_unjoined_last() {
+    // Given a table of three rows: high accuracy, low accuracy, and an
+    // unjoined row (no vals).
+    let mut wired = Wired::new();
+    wired.press("open-model-market", "search openrouter models");
+    wired.data().update(|d| {
+        let mut high = row("openrouter/a/high", "a", "high", 1e-6, 2e-6, None);
+        high.vals = Some(88.0);
+        let mut low = row("openrouter/b/low", "b", "low", 1e-6, 2e-6, None);
+        low.vals = Some(12.5);
+        let unjoined = row("openrouter/c/none", "c", "none", 1e-6, 2e-6, None);
+        d.rows = vec![low, unjoined, high];
+    });
+
+    // When the projection resolves under the vals sort, ascending.
+    wired.ui().update(|s| s.sort_col = SortColumn::Vals);
+    let sorted: Vec<MarketRow> = {
+        let ui = wired.ui();
+        jinn_model_market::ui_state::visible_rows(&wired.data().read(), &ui.read()).clone()
+    };
+
+    // Then ascending order is low → high, and the unjoined row sorts
+    // last either way.
+    let slugs: Vec<&str> = sorted.iter().map(|r| r.slug.as_str()).collect();
+    assert_eq!(slugs, ["low", "high", "none"]);
+
+    // When the direction flips to descending.
+    wired.ui().update(|s| s.sort_desc = true);
+    let sorted_desc: Vec<MarketRow> = {
+        let ui = wired.ui();
+        jinn_model_market::ui_state::visible_rows(&wired.data().read(), &ui.read()).clone()
+    };
+
+    // Then descending is high → low, and the unjoined row STILL sorts
+    // last — a flip never surfaces the unmatched rows first.
+    let slugs_desc: Vec<&str> = sorted_desc.iter().map(|r| r.slug.as_str()).collect();
+    assert_eq!(slugs_desc, ["high", "low", "none"]);
 }

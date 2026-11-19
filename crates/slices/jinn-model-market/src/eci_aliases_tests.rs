@@ -13,8 +13,8 @@ use std::collections::HashSet;
 use jinn_model_market_msg::EciIndex;
 use jinn_model_market_msg::EciScore;
 
+use crate::eci::seed_data;
 use crate::eci_aliases::resolve_eci;
-use crate::epoch::seed_data;
 
 /// The seed index, parsed once per test from the shipped bytes.
 fn seed_index() -> EciIndex {
@@ -23,7 +23,7 @@ fn seed_index() -> EciIndex {
 
 /// Canonicalizes the way the join does, for asserting the strict pass.
 fn canonical(name: &str) -> String {
-    crate::epoch::canonical_name(name)
+    crate::eci::canonical_name(name)
 }
 
 #[rstest::rstest]

@@ -23,12 +23,13 @@ use std::io::Write as _;
 use std::time::Duration;
 
 use jinn_model_market::ActorEndpoints;
-use jinn_model_market_msg::EpochLoaded;
-use jinn_model_market_msg::EpochSource;
+use jinn_model_market_msg::EciLoaded;
+use jinn_model_market_msg::EciSource;
 use jinn_model_market_msg::FetchModels;
 use jinn_model_market_msg::ModelsLoaded;
-use jinn_model_market_msg::RefreshEpoch;
 use jinn_model_market_msg::RefreshFailed;
+use jinn_model_market_msg::RefreshScores;
+use jinn_model_market_msg::ValsLoaded;
 use jinn_model_market_msg::market_data_slot;
 use jinn_slices::TypedCell;
 use jinn_testutil::bus_harness::TestHarness;
@@ -53,6 +54,7 @@ fn install_rustls_provider_for_tests() {
 async fn composed() -> jinn_kernel::Services {
     composed_with_endpoints(jinn_model_market::ActorEndpoints {
         zip_url: "http://127.0.0.1:9/data/benchmark_data.zip".to_owned(),
+        vals_page_url: "http://127.0.0.1:9/benchmarks/vals_index".to_owned(),
         base_url: "http://127.0.0.1:9".to_owned(),
     })
     .await
@@ -107,10 +109,10 @@ fn data_of(services: &jinn_kernel::Services) -> TypedCell<jinn_model_market_msg:
         .expect("the cell catalog registers the market data slot")
 }
 
-/// A fresh mockito epoch server serving the seed-backed zip. Returns the
+/// A fresh mockito score server serving the seed-backed zip. Returns the
 /// guard (keep alive for the mock's lifetime) and the endpoints aimed at
 /// it.
-async fn served_epoch() -> (
+async fn served_scores() -> (
     mockito::ServerGuard,
     jinn_model_market::ActorEndpoints,
     mockito::Mock,
@@ -125,6 +127,7 @@ async fn served_epoch() -> (
         .await;
     let endpoints = jinn_model_market::ActorEndpoints {
         zip_url: format!("{}/data/benchmark_data.zip", server.url()),
+        vals_page_url: format!("{}/benchmarks/vals_index", server.url()),
         base_url: "http://127.0.0.1:9".to_owned(),
     };
     (server, endpoints, mock)
@@ -138,36 +141,37 @@ fn seed_zip_bytes() -> Vec<u8> {
     let opts = zip::write::SimpleFileOptions::default();
     zip.start_file("epoch_capabilities_index/eci_scores.csv", opts)
         .expect("start eci member");
-    zip.write_all(jinn_model_market::epoch::SEED_ECI_SCORES)
+    zip.write_all(jinn_model_market::eci::SEED_ECI_SCORES)
         .expect("write eci member");
     zip.start_file("benchmark_metadata.csv", opts)
         .expect("start metadata member");
-    zip.write_all(jinn_model_market::epoch::SEED_BENCHMARK_METADATA)
+    zip.write_all(jinn_model_market::eci::SEED_BENCHMARK_METADATA)
         .expect("write metadata member");
     zip.start_file("model_metadata.csv", opts)
         .expect("start roster member");
-    zip.write_all(jinn_model_market::epoch::SEED_MODEL_METADATA)
+    zip.write_all(jinn_model_market::eci::SEED_MODEL_METADATA)
         .expect("write roster member");
     zip.finish().expect("finish zip").into_inner()
 }
 
-// ── Boot-time epoch load (no user action) ───────────────────────────────
+// ── Boot-time score load (no user action) ───────────────────────────────
 
 #[rstest::rstest]
 #[tokio::test]
 #[timeout(Duration::from_secs(20))]
-async fn boot_loads_epoch_from_seed_without_any_user_action() {
+async fn boot_loads_eci_from_seed_without_any_user_action() {
     // Given a wired slice whose recorder is subscribed BEFORE boot — the
     // only way to observe that no user action is involved. Offline: no
     // cache dir, dead zip URL.
     let services = pre_boot().await;
     let recorder = TestHarness::from_parts(services.bus.clone(), services.trouper_system.clone())
-        .spawn_recorder::<EpochLoaded>()
+        .spawn_recorder::<EciLoaded>()
         .await;
     boot(
         &services,
         jinn_model_market::ActorEndpoints {
             zip_url: "http://127.0.0.1:9/data/benchmark_data.zip".to_owned(),
+            vals_page_url: "http://127.0.0.1:9/benchmarks/vals_index".to_owned(),
             base_url: "http://127.0.0.1:9".to_owned(),
         },
     )
@@ -177,12 +181,12 @@ async fn boot_loads_epoch_from_seed_without_any_user_action() {
     // test. The boot kick `activate_actors` publishes is the only
     // trigger.
 
-    // Then the epoch actor answered on its own: the ECI column has data
+    // Then the score actor answered on its own: the ECI column has data
     // before the popup can ever open (001 §1 first-run contract), sourced
     // from the compiled seed.
-    let loaded = await_recorded::<EpochLoaded>(&recorder, 1, Duration::from_secs(10)).await;
-    assert_eq!(loaded.len(), 1, "one boot-time EpochLoaded");
-    assert_eq!(loaded[0].source, EpochSource::Seed);
+    let loaded = await_recorded::<EciLoaded>(&recorder, 1, Duration::from_secs(10)).await;
+    assert_eq!(loaded.len(), 1, "one boot-time EciLoaded");
+    assert_eq!(loaded[0].source, EciSource::Seed);
     let data = data_of(&services);
     assert!(data.read().eci.is_some(), "the seed ECI index landed");
 }
@@ -191,36 +195,37 @@ async fn boot_loads_epoch_from_seed_without_any_user_action() {
 #[tokio::test]
 #[timeout(Duration::from_secs(20))]
 async fn boot_with_expired_ttl_downloads_exactly_once_into_the_app_paths_dir() {
-    // Given a mockito epoch server, and an epoch cache dir holding a
+    // Given a mockito score server, and an eci cache dir holding a
     // week-stale extraction planted BEFORE boot (fetched at ms=0, which
     // any real clock reads as past the TTL). The recorder subscribes
     // before the kick fires.
-    let (server, endpoints, mock) = served_epoch().await;
+    let (server, endpoints, mock) = served_scores().await;
     let services = pre_boot().await;
-    let epoch_dir = services.paths.epoch_cache_dir();
-    jinn_model_market::epoch_cache::download_and_extract(
-        &epoch_dir,
+    let eci_dir =
+        jinn_model_market::score_cache::ScoreCacheDirs::new(&services.paths.scores_cache_dir()).eci;
+    jinn_model_market::score_cache::download_and_extract(
+        &eci_dir,
         &seed_zip_bytes(),
         0, // fetched at ms=0: any real clock reads it as expired
     )
     .expect("stale cache written");
     let recorder = TestHarness::from_parts(services.bus.clone(), services.trouper_system.clone())
-        .spawn_recorder::<EpochLoaded>()
+        .spawn_recorder::<EciLoaded>()
         .await;
     boot(&services, endpoints).await;
 
-    // When boot runs — the RefreshEpoch kick inside `activate_actors_with`
+    // When boot runs — the RefreshScores kick inside `activate_actors_with`
     // is the only trigger.
 
     // Then exactly one outbound zip GET answered the boot kick (the TTL
     // lazy check ran on a load path), and the fresh extraction landed at
-    // AppPaths::epoch_cache_dir() — the same directory the help card and
+    // AppPaths::scores_cache_dir() — the same directory the help card and
     // THIRD_PARTY_LICENSES name, not a re-derived sibling.
-    let loaded = await_recorded::<EpochLoaded>(&recorder, 1, Duration::from_secs(10)).await;
-    assert_eq!(loaded[0].source, EpochSource::Download);
+    let loaded = await_recorded::<EciLoaded>(&recorder, 1, Duration::from_secs(10)).await;
+    assert_eq!(loaded[0].source, EciSource::Download);
     mock.assert();
     assert!(
-        epoch_dir
+        eci_dir
             .join("eci_scores.csv")
             .expect("typed parent joins a bare name")
             .as_path()
@@ -229,23 +234,25 @@ async fn boot_with_expired_ttl_downloads_exactly_once_into_the_app_paths_dir() {
     drop(server);
 }
 
-// ── Path seam: the actor's epoch dir is AppPaths' ───────────────────────
+// ── Path seam: the actor's eci dir is AppPaths' ───────────────────────
 
 #[rstest::rstest]
 #[tokio::test]
 #[timeout(Duration::from_secs(20))]
-async fn boot_extraction_lands_at_app_paths_epoch_cache_dir_not_a_sibling() {
+async fn boot_extraction_lands_at_app_paths_scores_cache_dir_not_a_sibling() {
     // Given a wired slice, offline, with a dead zip URL: the boot kick
     // falls back to the seed. Recorder subscribed before boot.
     let services = pre_boot().await;
-    let epoch_dir = services.paths.epoch_cache_dir();
+    let eci_dir = services.paths.scores_cache_dir(); // only for the double-nest probe
+
     let recorder = TestHarness::from_parts(services.bus.clone(), services.trouper_system.clone())
-        .spawn_recorder::<EpochLoaded>()
+        .spawn_recorder::<EciLoaded>()
         .await;
     boot(
         &services,
         jinn_model_market::ActorEndpoints {
             zip_url: "http://127.0.0.1:9/data/benchmark_data.zip".to_owned(),
+            vals_page_url: "http://127.0.0.1:9/benchmarks/vals_index".to_owned(),
             base_url: "http://127.0.0.1:9".to_owned(),
         },
     )
@@ -254,18 +261,15 @@ async fn boot_extraction_lands_at_app_paths_epoch_cache_dir_not_a_sibling() {
     // When boot runs — no user action.
 
     // Then the fallback is the seed, and nothing landed under a
-    // double-nested path (~/.cache/jinn/jinn/epoch — the bug this test
+    // double-nested path (~/.cache/jinn/jinn/scores — the bug this test
     // exists to catch): the actor reads the AppPaths dir or nothing.
-    let loaded = await_recorded::<EpochLoaded>(&recorder, 1, Duration::from_secs(10)).await;
-    assert_eq!(loaded[0].source, EpochSource::Seed);
-    let cache_parent = epoch_dir
-        .as_path()
-        .parent()
-        .expect("epoch dir has a parent");
-    let double_nested = cache_parent.join("jinn").join("epoch");
+    let loaded = await_recorded::<EciLoaded>(&recorder, 1, Duration::from_secs(10)).await;
+    assert_eq!(loaded[0].source, EciSource::Seed);
+    let cache_parent = eci_dir.as_path().parent().expect("score dir has a parent");
+    let double_nested = cache_parent.join("jinn").join("scores");
     assert!(
         !double_nested.exists(),
-        "the epoch cache must never double-nest under {double_nested:?}"
+        "the score cache must never double-nest under {double_nested:?}"
     );
     // And the TTL check reads the same AppPaths dir: a fresh cache there
     // is served on boot (the warm-boot test proves that half).
@@ -275,28 +279,29 @@ async fn boot_extraction_lands_at_app_paths_epoch_cache_dir_not_a_sibling() {
 #[tokio::test]
 #[timeout(Duration::from_secs(20))]
 async fn warm_boot_serves_the_app_paths_cache_without_a_request() {
-    // Given a fresh extraction planted at AppPaths::epoch_cache_dir()
+    // Given a fresh extraction planted at AppPaths::scores_cache_dir()
     // BEFORE boot, and a mock that must see zero requests. Recorder
     // subscribed before the kick fires.
-    let (server, endpoints, mock) = served_epoch().await;
+    let (server, endpoints, mock) = served_scores().await;
     let services = pre_boot().await;
-    let epoch_dir = services.paths.epoch_cache_dir();
-    jinn_model_market::epoch_cache::download_and_extract(
-        &epoch_dir,
+    let eci_dir =
+        jinn_model_market::score_cache::ScoreCacheDirs::new(&services.paths.scores_cache_dir()).eci;
+    jinn_model_market::score_cache::download_and_extract(
+        &eci_dir,
         &seed_zip_bytes(),
         jiff::Timestamp::now().as_second() as u64,
     )
     .expect("warm cache planted");
     let recorder = TestHarness::from_parts(services.bus.clone(), services.trouper_system.clone())
-        .spawn_recorder::<EpochLoaded>()
+        .spawn_recorder::<EciLoaded>()
         .await;
     boot(&services, endpoints).await;
 
-    // When boot runs — the RefreshEpoch kick is the only trigger.
+    // When boot runs — the RefreshScores kick is the only trigger.
 
     // Then the boot load served the warm cache — no outbound request.
-    let loaded = await_recorded::<EpochLoaded>(&recorder, 1, Duration::from_secs(10)).await;
-    assert_eq!(loaded[0].source, EpochSource::Download);
+    let loaded = await_recorded::<EciLoaded>(&recorder, 1, Duration::from_secs(10)).await;
+    assert_eq!(loaded[0].source, EciSource::Download);
     mock.expect(0);
     drop(server);
 }
@@ -344,6 +349,7 @@ async fn opening_the_popup_lands_rows_without_fetching_any_detail() {
     let (server, base_url) = served_openrouter().await;
     let services = composed_with_endpoints(ActorEndpoints {
         zip_url: "http://127.0.0.1:9/data/benchmark_data.zip".to_owned(),
+        vals_page_url: "http://127.0.0.1:9/benchmarks/vals_index".to_owned(),
         base_url,
     })
     .await;
@@ -388,6 +394,7 @@ async fn open_publishes_fetch_models_and_the_actor_answers_end_to_end() {
     let (server, base_url) = served_openrouter().await;
     let services = composed_with_endpoints(ActorEndpoints {
         zip_url: "http://127.0.0.1:9/data/benchmark_data.zip".to_owned(),
+        vals_page_url: "http://127.0.0.1:9/benchmarks/vals_index".to_owned(),
         base_url,
     })
     .await;
@@ -434,7 +441,7 @@ async fn published_fetch_models_reaches_the_live_actor() {
     // Given the slice composed as the boot list composes it: routes and
     // view attached, both actors spawned over the catalog-seeded cells.
     let services = composed().await;
-    // And the boot kick's unconditional last_error (epoch fallback over
+    // And the boot kick's unconditional last_error (score fallback over
     // a dead URL) cleared, so the assertion below cannot be satisfied
     // by an outcome this publish never produced.
     data_of(&services).update(|d| d.last_error = None);
@@ -476,24 +483,24 @@ async fn published_fetch_models_reaches_the_live_actor() {
 #[rstest::rstest]
 #[tokio::test]
 #[timeout(Duration::from_secs(20))]
-async fn published_refresh_epoch_reaches_the_live_actor_offline_seed_stands() {
+async fn published_refresh_scores_reaches_the_live_actor_offline_seed_stands() {
     // Given the composed slice, offline, AFTER boot has already run its
     // kick (so this publish is the second load).
     let services = composed().await;
     let recorder = TestHarness::from_parts(services.bus.clone(), services.trouper_system.clone())
-        .spawn_recorder::<EpochLoaded>()
+        .spawn_recorder::<EciLoaded>()
         .await;
 
-    // When a RefreshEpoch arrives from the bus — the `<c-r>`-adjacent
+    // When a RefreshScores arrives from the bus — the `<c-r>`-adjacent
     // shape a caller can publish; this test proves the actor's
     // subscription delivers it, nothing more.
-    services.bus.publish(RefreshEpoch).await;
-    let loaded = await_recorded::<EpochLoaded>(&recorder, 2, Duration::from_secs(10)).await;
+    services.bus.publish(RefreshScores).await;
+    let loaded = await_recorded::<EciLoaded>(&recorder, 2, Duration::from_secs(10)).await;
 
     // Then the actor answered both loads (boot + this publish), and the
     // offline fallback is the seed in each.
-    assert_eq!(loaded.len(), 2, "boot + explicit RefreshEpoch");
-    assert!(loaded.iter().all(|e| e.source == EpochSource::Seed));
+    assert_eq!(loaded.len(), 2, "boot + explicit RefreshScores");
+    assert!(loaded.iter().all(|e| e.source == EciSource::Seed));
 }
 
 #[rstest::rstest]
@@ -517,6 +524,7 @@ async fn warm_models_cache_serves_the_popup_without_network() {
         context_length: Some(128_000),
         eci: None,
         eci_ci: None,
+        vals: None,
         is_free: false,
     }];
     let now = jiff::Timestamp::now();
@@ -536,7 +544,7 @@ async fn warm_models_cache_serves_the_popup_without_network() {
 
     // Then the actor served the cache into the cell — the row on the
     // table. (The boot kick's epoch fallback may own `last_error` on an
-    // offline box; that line names epoch, never models.)
+    // offline box; that line names a score source, never models.)
     let data = data_of(&services);
     // The wait is on the cell's own content — a fixed sleep would only
     // guess at when the actor served the cache, and the read could land
@@ -567,13 +575,13 @@ async fn refresh_failure_reports_through_the_bus() {
     let services = composed().await;
     let harness = TestHarness::from_parts(services.bus.clone(), services.trouper_system.clone());
     let failures = harness.spawn_recorder::<RefreshFailed>().await;
-    let loaded = harness.spawn_recorder::<EpochLoaded>().await;
+    let loaded = harness.spawn_recorder::<EciLoaded>().await;
 
     // When a RefreshAll arrives (the `<c-r>` publish): both actors
-    // consume it, the epoch one falls back to seed, the OR one fails
+    // consume it, the score one falls back to seed, the OR one fails
     // its fetch and reports. Both failures are guaranteed — RefreshAll
     // clears every cache first — so both are awaited: waiting on one
-    // races the two publishes and can observe only the epoch failure.
+    // races the two publishes and can observe only the score failure.
     services
         .bus
         .publish(jinn_model_market_msg::RefreshAll)
@@ -581,11 +589,90 @@ async fn refresh_failure_reports_through_the_bus() {
     let reported = await_recorded::<RefreshFailed>(&failures, 2, Duration::from_secs(10)).await;
 
     // Then the OR actor's failure is announced on the bus (the
-    // degraded-mode path), and the epoch actor still answers with seed.
+    // degraded-mode path), and the score actor still answers with seed.
     assert!(
         reported.iter().any(|f| f.what == "models"),
         "the models fetch failure is announced, got: {reported:?}"
     );
-    let epoch = await_recorded::<EpochLoaded>(&loaded, 2, Duration::from_secs(10)).await;
-    assert!(epoch.iter().all(|e| e.source == EpochSource::Seed));
+    let score_loads = await_recorded::<EciLoaded>(&loaded, 2, Duration::from_secs(10)).await;
+    assert!(score_loads.iter().all(|e| e.source == EciSource::Seed));
 }
+
+#[rstest::rstest]
+#[tokio::test]
+#[timeout(Duration::from_secs(30))]
+async fn vals_refresh_joins_a_listing_id_into_the_rows_vals_field() {
+    // Given the composed slice plus a mock vals page whose payload keys
+    // a model this fixture's OpenRouter listing id names exactly.
+    let mut server = mockito::Server::new_async().await;
+    let page = format!(
+        "<html><script src=\"/_astro/other.HASH.js\"></script>\
+         <a href=\"/_astro/{DATA_PATH}\">data</a></html>"
+    );
+    server
+        .mock("GET", "/benchmarks/vals_index")
+        .with_status(200)
+        .with_body(page)
+        .create_async()
+        .await;
+    let payload = serde_json::json!({
+        "metadata": {"version": "2.2", "updated": "2026-11-18"},
+        "tasks": {"overall": {"a/small": {"accuracy": 42.75}}}
+    })
+    .to_string();
+    server
+        .mock("GET", format!("/_astro/{DATA_PATH}").as_str())
+        .with_status(200)
+        .with_body(payload)
+        .create_async()
+        .await;
+    // The page mock above plus an OpenRouter models API mock: the join
+    // runs at row-build time from raw listings, so models must come
+    // from the network (a warm cache skips the raw retention the
+    // rebuild needs).
+    server
+        .mock("GET", "/models")
+        .with_status(200)
+        .with_body(
+            r#"{"data":[{"id":"a/small","name":"Small","created":1700000000,
+               "context_length":128000,"architecture":{"output_modalities":["text"]},
+               "pricing":{"prompt":"0.000001","completion":"0.000002"}}]}"#,
+        )
+        .create();
+    let services = composed_with_endpoints(jinn_model_market::ActorEndpoints {
+        zip_url: "http://127.0.0.1:9/data/benchmark_data.zip".to_owned(),
+        vals_page_url: format!("{}/benchmarks/vals_index", server.url()),
+        base_url: server.url(),
+    })
+    .await;
+    let vals_loads = TestHarness::from_parts(services.bus.clone(), services.trouper_system.clone())
+        .spawn_recorder::<ValsLoaded>()
+        .await;
+
+    // When the opener's refresh cycle runs to completion: FetchModels
+    // keeps the raw listings, then the scores land and the rebuild joins.
+    services
+        .bus
+        .publish(jinn_model_market_msg::FetchModels)
+        .await;
+    services
+        .bus
+        .publish(jinn_model_market_msg::RefreshAll)
+        .await;
+    let vals_loaded = await_recorded::<ValsLoaded>(&vals_loads, 2, Duration::from_secs(10)).await;
+    assert!(
+        !vals_loaded.is_empty(),
+        "the vals half landed ({} loads)",
+        vals_loaded.len()
+    );
+
+    // Then the projection joined the listing's accuracy into its row.
+    let joined = data_of(&services).read().rows[0].vals;
+    assert_eq!(
+        joined,
+        Some(42.75),
+        "the listing's vals accuracy landed on its row"
+    );
+}
+
+const DATA_PATH: &str = "benchmark_view_vals_index.D4UVDIPY.json";

@@ -18,6 +18,19 @@ active model is chosen per session at runtime.
 The choice persists with the session. The last-selected model is remembered
 across launches.
 
+## The OpenRouter model market
+
+`<leader>so` opens a searchable table of OpenRouter's catalog with per-model
+pricing and performance columns. ECI (Epoch Capabilities Index, from Epoch
+AI — a snapshot bundled at build time) and VALS (Vals Index, from Vals AI —
+fetched live on open and cached on disk) are the performance columns; `#`
+marks a row with no score for a column. `l`/`h` cycle the sort column, `s`
+reverses it, `<enter>` switches the session to the highlighted model (and
+pins OpenRouter endpoint routing from detail mode), `m` toggles the pricing
+mix, `O` opens the highlighted model's openrouter.ai page in your OS
+default browser (in detail mode it opens the pinned model's page),
+`<c-r>` refetches everything, `?` shows the help card.
+
 ## Reasoning effort
 
 `<leader>sr` opens the reasoning-effort picker for models that support it.
@@ -90,3 +103,16 @@ remote-discovered models. **Refresh models** re-runs discovery (the
 same `<c-r>` pipeline as the TUI); the list updates in place when it
 lands, without losing the typed filter. Alloys and multi-select are
 TUI-only — the web picker switches single models.
+
+## The web UI's session list
+
+The browser UI's left sidebar lists every session — loaded and
+archived — in the TUI session picker's tree order; a filter box above
+the list narrows it with the picker's own fuzzy match. Row states:
+a blue left border marks the instance's active session, `· bot` tags
+bot sessions, and a **yellow left border** marks a session that
+settled to idle while it was not the active one (work the user has
+not viewed — a cancelled or errored settle marks too; subagent
+sessions never do). Clicking a row activates that session and clears
+its unread mark everywhere on the next refresh, without a reload.
+The mark is process-local: a fresh jinn boot starts with none.

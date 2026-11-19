@@ -14,7 +14,7 @@ use jinn_model_market_msg::EciIndex;
 use jinn_model_market_msg::EciScore;
 
 /// The seed's `eci_scores.csv`, compiled in so a first run with no cache
-/// dir and no network still shows ECI values (`epoch_source = Seed`).
+/// dir and no network still shows ECI values (`eci_source = Seed`).
 pub const SEED_ECI_SCORES: &[u8] = include_bytes!("seed/eci_scores.csv");
 
 /// The seed's `benchmark_metadata.csv` — per-benchmark normalization
@@ -25,14 +25,14 @@ pub const SEED_BENCHMARK_METADATA: &[u8] = include_bytes!("seed/benchmark_metada
 /// (organization, accessibility, date).
 pub const SEED_MODEL_METADATA: &[u8] = include_bytes!("seed/model_metadata.csv");
 
-/// Why epoch data could not be parsed.
+/// Why ECI data could not be parsed.
 ///
 /// Every variant carries the file it came from plus the row or field that
 /// failed; the actor renders the message into the popup's degraded-mode
 /// line, so the strings are written for a user reading a status line.
 #[derive(Debug, wherror::Error)]
 #[error(debug)]
-pub enum EpochParseError {
+pub enum EciParseError {
     /// The CSV reader rejected the file's structure.
     #[error("parsing {file}: {detail}")]
     Csv {
@@ -56,7 +56,7 @@ pub enum EpochParseError {
     },
 }
 
-impl EpochParseError {
+impl EciParseError {
     fn bad_number(
         file: &'static str,
         row: usize,
@@ -95,15 +95,15 @@ pub struct BenchmarkNormalization {
     pub superseded_by: Option<String>,
 }
 
-/// The parsed shape of one epoch refresh: the ECI index plus the two
+/// The parsed shape of one ECI refresh: the index plus the two
 /// metadata tables the help card renders.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct EpochData {
+pub struct EciData {
     /// Parsed ECI scores keyed by display name — the data cell's `eci`
     /// payload.
     pub index: EciIndex,
     /// How many rows `eci_scores.csv` carried, including any dropped by
-    /// `parse_eci_scores` — the `EpochLoaded` event's `total`.
+    /// `parse_eci_scores` — the `EciLoaded` event's `total`.
     pub total_rows: u32,
     /// Per-benchmark normalization metadata rows.
     pub benchmark_metadata: Vec<BenchmarkNormalization>,
@@ -136,7 +136,7 @@ pub fn canonical_name(name: &str) -> String {
 ///
 /// Rows missing any of the three numeric fields are skipped (Epoch marks
 /// CI-less versions with empty cells — the seed currently carries two,
-/// e.g. `GPT-5`); the row count still counts them, so the `EpochLoaded`
+/// e.g. `GPT-5`); the row count still counts them, so the `EciLoaded`
 /// event can report the join's coverage honestly.
 ///
 /// # Errors
@@ -145,7 +145,7 @@ pub fn canonical_name(name: &str) -> String {
 /// field carries a non-numeric value.
 pub fn parse_eci_scores(
     bytes: &[u8],
-) -> Result<(EciIndex, u32), error_stack::Report<EpochParseError>> {
+) -> Result<(EciIndex, u32), error_stack::Report<EciParseError>> {
     const FILE: &str = "eci_scores.csv";
     let mut reader = csv::Reader::from_reader(bytes);
     let mut scores = HashMap::new();
@@ -185,7 +185,7 @@ pub fn parse_eci_scores(
 /// field carries a non-numeric value.
 pub fn parse_benchmark_metadata(
     bytes: &[u8],
-) -> Result<Vec<BenchmarkNormalization>, error_stack::Report<EpochParseError>> {
+) -> Result<Vec<BenchmarkNormalization>, error_stack::Report<EciParseError>> {
     const FILE: &str = "benchmark_metadata.csv";
     let mut reader = csv::Reader::from_reader(bytes);
     let mut rows = Vec::new();
@@ -233,9 +233,7 @@ pub fn parse_benchmark_metadata(
 /// # Errors
 ///
 /// Returns an error when the CSV structure is unreadable.
-pub fn parse_roster_names(
-    bytes: &[u8],
-) -> Result<Vec<String>, error_stack::Report<EpochParseError>> {
+pub fn parse_roster_names(bytes: &[u8]) -> Result<Vec<String>, error_stack::Report<EciParseError>> {
     const FILE: &str = "model_metadata.csv";
     let mut reader = csv::Reader::from_reader(bytes);
     let mut names = Vec::new();
@@ -252,22 +250,22 @@ pub fn parse_roster_names(
 /// Parses all three seed tables in one call — the compile-time fixture
 /// the seed-fallback path serves and the actor test-fixture shape.
 ///
-/// `total` on the returned [`EpochData`] is `eci_scores.csv`'s row count
+/// `total` on the returned [`EciData`] is `eci_scores.csv`'s row count
 /// including rows skipped for missing numbers.
 ///
 /// # Errors
 ///
 /// Returns an error when any table fails to parse; the caller treats the
-/// whole refresh as failed (partial epoch data would mislead the join).
+/// whole refresh as failed (partial ECI data would mislead the join).
 pub fn parse_all(
     eci_scores: &[u8],
     benchmark_metadata: &[u8],
     model_metadata: &[u8],
-) -> Result<EpochData, error_stack::Report<EpochParseError>> {
+) -> Result<EciData, error_stack::Report<EciParseError>> {
     let (index, total_rows) = parse_eci_scores(eci_scores)?;
     let benchmark_metadata = parse_benchmark_metadata(benchmark_metadata)?;
     let roster_names = parse_roster_names(model_metadata)?;
-    Ok(EpochData {
+    Ok(EciData {
         index,
         total_rows,
         benchmark_metadata,
@@ -281,7 +279,7 @@ pub fn parse_all(
 ///
 /// Propagates [`parse_all`]'s errors; the seed is a compile-time fixture,
 /// so an error here is a bug in the shipped bytes, not a runtime case.
-pub fn seed_data() -> Result<EpochData, error_stack::Report<EpochParseError>> {
+pub fn seed_data() -> Result<EciData, error_stack::Report<EciParseError>> {
     parse_all(
         SEED_ECI_SCORES,
         SEED_BENCHMARK_METADATA,
@@ -296,9 +294,9 @@ fn required_score(
     row: usize,
     field: &'static str,
     raw: &str,
-) -> Result<f64, error_stack::Report<EpochParseError>> {
+) -> Result<f64, error_stack::Report<EciParseError>> {
     optional_score(file, row, field, raw)?
-        .ok_or_else(|| EpochParseError::bad_number(file, row, field, raw))
+        .ok_or_else(|| EciParseError::bad_number(file, row, field, raw))
 }
 
 /// Parses one score cell: `None` for an empty cell (the row is then
@@ -311,7 +309,7 @@ fn optional_score(
     row: usize,
     field: &'static str,
     raw: &str,
-) -> Result<Option<f64>, error_stack::Report<EpochParseError>> {
+) -> Result<Option<f64>, error_stack::Report<EciParseError>> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Ok(None);
@@ -319,7 +317,7 @@ fn optional_score(
     trimmed
         .parse::<f64>()
         .map(Some)
-        .map_err(|_dropped| EpochParseError::bad_number(file, row, field, raw))
+        .map_err(|_dropped| EciParseError::bad_number(file, row, field, raw))
 }
 
 /// Reads one CSV record, converting the reader error into the parse
@@ -328,9 +326,9 @@ fn read_record(
     result: Result<csv::StringRecord, csv::Error>,
     file: &'static str,
     what: &'static str,
-) -> Result<csv::StringRecord, error_stack::Report<EpochParseError>> {
+) -> Result<csv::StringRecord, error_stack::Report<EciParseError>> {
     result.map_err(|error| {
-        error_stack::Report::new(EpochParseError::Csv {
+        error_stack::Report::new(EciParseError::Csv {
             file,
             detail: error.to_string(),
         })

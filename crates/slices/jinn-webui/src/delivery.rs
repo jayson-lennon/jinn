@@ -14,7 +14,9 @@
 //!   out of scope for the web).
 //! - switch → [`SessionLoadRequested`] with `content_width: None` —
 //!   the Discord precedent: the web renderer consumes no TUI layout
-//!   measurement. The web UI and the TUI share one active session.
+//!   measurement. The web UI and the TUI share one active session. The
+//!   handler then waits (bounded) for the store actor to apply the
+//!   activation, so the response page renders the *new* active mark.
 //! - rename → [`PersistSession`] after the TUI rename confirm's three
 //!   mutations (`set_title`, `touch`, `mark_interacted`) under one
 //!   guard — the web adds only an entry point to the one rename
@@ -455,17 +457,66 @@ pub fn handle_create(
 /// consumes no TUI layout measurement, and the store actor derives a
 /// width from its own layout.
 ///
+/// The publish only enqueues — the store actor is the single writer of
+/// the active pointer and applies it on its own turn. The response page
+/// renders its sidebar from the active pointer, so this handler waits
+/// (bounded) for the activation to land before returning: without the
+/// wait the swapped-in page names the *previous* active session, and
+/// the correcting `sessions` SSE push races the client's swap and is
+/// lost — the visible symptom was a highlight one click behind.
+/// Unknown ids never converge (nothing will insert them), so the wait
+/// is skipped for them and the render falls through to the store.
+///
 /// # Errors
 ///
 /// Returns [`ActionError::BadSessionId`] for a malformed id.
-pub async fn handle_switch(bus: &BusService, session_id: &str) -> Result<(), ActionError> {
+pub async fn handle_switch(
+    state: &State,
+    bus: &BusService,
+    session_id: &str,
+) -> Result<(), ActionError> {
     let session_id = SessionId::try_from_string(session_id).ok_or(ActionError::BadSessionId)?;
+    let known_live = state.read().session.contains(&session_id);
     bus.publish(SessionLoadRequested {
-        session_id,
+        session_id: session_id.clone(),
         content_width: None,
     })
     .await;
+    if known_live {
+        wait_for_activation(state, &session_id).await;
+    }
     Ok(())
+}
+
+/// How long [`handle_switch`] waits for the store actor to apply an
+/// activation before rendering the response anyway.
+///
+/// The happy path is the store actor's dispatch latency — microseconds.
+/// The budget only ever binds on a wedged actor or a session the actor
+/// refuses to activate; both render today's behavior (the page for the
+/// requested session with the stale active mark) instead of hanging.
+const ACTIVATION_CONVERGENCE_BUDGET: std::time::Duration = std::time::Duration::from_millis(2_000);
+
+/// Poll interval for [`wait_for_activation`] — short enough that the
+/// happy path lands within a tick or two, coarse enough not to spin.
+const ACTIVATION_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(5);
+
+/// Waits until the session is the active one, or the budget expires.
+///
+/// The guard discipline: take the read guard, check, drop it, then
+/// sleep — never a guard held across the `.await`.
+async fn wait_for_activation(state: &State, session_id: &SessionId) {
+    let deadline = tokio::time::Instant::now() + ACTIVATION_CONVERGENCE_BUDGET;
+    loop {
+        if state.read().session.active_session_id() == session_id {
+            return;
+        }
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            return;
+        }
+        tokio::time::sleep((deadline - now).min(ACTIVATION_POLL_INTERVAL)).await;
+    }
 }
 
 /// Handles one `POST /web/session/{id}/rename`.

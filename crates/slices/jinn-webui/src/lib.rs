@@ -151,8 +151,22 @@ pub async fn activate(
         )
         .expect("the cell catalog registers the provider slot before any slice activates");
 
+    // The unread-mark cell. Its write handle goes to the fan-out and
+    // nowhere else: the fan-out actor is the mark's only writer (set
+    // on an unseen settle, cleared when the session activates); the
+    // sessions-list render paths resolve their own read handles from
+    // the session map's attached registry.
+    #[expect(
+        clippy::expect_used,
+        reason = "bootstrap assertion: a missing webui unread slot is a broken boot order and must abort launch, not continue degraded"
+    )]
+    let unread_marks = host
+        .slices()
+        .reader::<jinn_webui_msg::UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
+        .expect("the cell catalog registers the webui unread slot before any slice activates");
+
     let system: trouper::system::ActorSystem = host.system().clone();
-    let fanout = fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone());
+    let fanout = fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks);
 
     listener::WebUiListenerActor::spawn(
         &system,

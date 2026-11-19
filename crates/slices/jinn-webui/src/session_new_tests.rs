@@ -66,8 +66,17 @@ async fn harness_with(config: jinn_config::ConfigLayer) -> (TestHarness, State, 
         app.session.attach_slices(slices.clone());
         State::new(app)
     };
-    let fanout =
-        crate::fanout::WebUiFanoutActor::spawn(harness.system(), state.clone(), bus.clone());
+    // The catalog already registered the unread slot; take the handle
+    // it minted (composition's own access form).
+    let unread_marks = slices
+        .reader::<jinn_webui_msg::UnreadSessionMarks>(&jinn_webui_msg::webui_unread_slot())
+        .expect("the catalog registered the unread slot");
+    let fanout = crate::fanout::WebUiFanoutActor::spawn(
+        harness.system(),
+        state.clone(),
+        bus.clone(),
+        unread_marks,
+    );
     let shared = ServerShared::new(
         state.clone(),
         bus.clone(),

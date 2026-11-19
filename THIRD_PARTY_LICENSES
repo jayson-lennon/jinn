@@ -52,8 +52,10 @@ Command-guard patterns adapted from:
 - **Location:** `crates/slices/jinn-model-market/src/seed/` —
   `eci_scores.csv`, `benchmark_metadata.csv`, `model_metadata.csv`
   (compiled into the binary with `include_bytes!`). Runtime refreshes
-  extract the same three files to `~/.cache/jinn/epoch/`; `<c-r>` in the
-  model-market popup re-downloads them.
+  extract the same three files to `~/.cache/jinn/scores/eci/`; `<c-r>` in the
+  model-market popup re-downloads them. (The popup's other score column,
+  the Vals Index, is fetched at runtime from vals.ai and is not bundled —
+  no license section for it appears here.)
 - **License:** Creative Commons Attribution 4.0 (CC BY 4.0)
 - **Source:** https://epoch.ai/benchmarks/use-this-data
 

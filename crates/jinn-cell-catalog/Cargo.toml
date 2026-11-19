@@ -37,6 +37,7 @@ jinn-term-msg = { workspace = true }
 jinn-theme-msg = { workspace = true }
 jinn-token-count-msg = { workspace = true }
 jinn-tools-msg = { workspace = true }
+jinn-webui-msg = { workspace = true }
 jinn-work-time-msg = { workspace = true }
 
 [lints]

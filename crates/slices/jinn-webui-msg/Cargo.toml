@@ -7,6 +7,10 @@ description = "The webui slice's contract: the HTTP wire payloads and the SSE en
 [dependencies]
 serde = { workspace = true }
 jinn-core-types = { workspace = true }
+# The unread-mark cell's slot key (the dictation-msg precedent: a
+# pure-data msg crate naming its slice's cell slot). jinn-slices
+# depends on no slice msg crate, so the edge stays cycle-free.
+jinn-slices = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

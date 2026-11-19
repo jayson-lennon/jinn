@@ -3721,6 +3721,7 @@ dependencies = [
  "jinn-theme-msg",
  "jinn-token-count-msg",
  "jinn-tools-msg",
+ "jinn-webui-msg",
  "jinn-work-time-msg",
  "jinn-workflows-msg",
 ]
@@ -4655,6 +4656,7 @@ dependencies = [
  "error-stack",
  "fuzzy-matcher",
  "jiff",
+ "jinn-applets",
  "jinn-common",
  "jinn-core-types",
  "jinn-kernel",
@@ -4665,6 +4667,7 @@ dependencies = [
  "jinn-provider-config",
  "jinn-provider-selection-msg",
  "jinn-selection-widget",
+ "jinn-session-history-msg",
  "jinn-slices",
  "jinn-testutil",
  "jinn-theme",
@@ -6065,6 +6068,7 @@ name = "jinn-webui-msg"
 version = "1.25.0"
 dependencies = [
  "jinn-core-types",
+ "jinn-slices",
  "rstest",
  "serde",
  "serde_json",

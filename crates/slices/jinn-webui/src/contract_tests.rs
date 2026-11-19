@@ -52,6 +52,7 @@ fn row(session_id: jinn_core_types::SessionId, title: &str, active: bool) -> Ses
         active,
         is_bot: false,
         loaded: true,
+        unread: false,
         depth: 0,
     }
 }
@@ -477,6 +478,12 @@ fn test_shared() -> crate::server::ServerShared {
             jinn_provider_selection_msg::ProviderCell::default(),
         )
         .expect("the provider cell registers once");
+    let unread_marks = slices
+        .register(
+            jinn_webui_msg::webui_unread_slot(),
+            jinn_webui_msg::UnreadSessionMarks::default(),
+        )
+        .expect("the unread-mark cell registers once");
     let state = {
         let app = jinn_app_state::AppState::default();
         app.session.attach_slices(slices.clone());
@@ -486,7 +493,7 @@ fn test_shared() -> crate::server::ServerShared {
     let fanout = {
         use trouper::system::ActorSystem;
         let system = ActorSystem::new(trouper::system::SystemConfig::production());
-        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone())
+        crate::fanout::WebUiFanoutActor::spawn(&system, state.clone(), bus.clone(), unread_marks)
     };
     crate::server::ServerShared::new(
         state,
